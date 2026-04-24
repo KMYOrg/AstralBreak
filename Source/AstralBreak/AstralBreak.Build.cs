@@ -8,9 +8,42 @@ public class AstralBreak : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput" });
+		PublicIncludePaths.AddRange(
+			new string[] {
+				"AstralBreak"
+			}
+		);
 
-		PrivateDependencyModuleNames.AddRange(new string[] {  });
+		
+		PublicDependencyModuleNames.AddRange(new string[]
+		{
+			"Core", 
+			"CoreUObject", 
+			"Engine", 
+			"InputCore", 
+			"EnhancedInput", 
+			
+			// GAS
+			"GameplayAbilities",
+			"GameplayTags",
+			"GameplayTasks",
+			
+			"ModularGameplay",
+			"GameFeatures",
+			
+			// Networking
+			"NetCore",
+			
+			// UMG / UI (디버그 위젯용)
+			"UMG",
+			"Slate",
+			"SlateCore",
+		});
+
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			"DeveloperSettings",        // UDeveloperSettings 기반 프로젝트 세팅용
+		});
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

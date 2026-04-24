@@ -1,0 +1,66 @@
+﻿{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "defaultMode": "default",
+    "additionalDirectories": [
+      "D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Source",
+      "D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Plugins"
+    ],
+    "allow": [
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git branch *)",
+      "Bash(git show *)",
+      "Bash(git rev-parse *)",
+
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(pwd)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(tree *)",
+      "Bash(echo *)",
+
+      "Read(./Source/**)",
+      "Read(./Config/**)",
+      "Read(./Plugins/**)",
+      "Read(./*.uproject)",
+      "Read(D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Source/**)",
+      "Read(D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Plugins/**)"
+    ],
+    "ask": [
+      "Edit",
+      "Write",
+      "Bash"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(./secrets/**)",
+      "Read(./Saved/**)",
+      "Read(./Intermediate/**)",
+      "Read(./DerivedDataCache/**)",
+      "Read(./Binaries/**)",
+      "Read(./.vs/**)",
+      "Read(D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Binaries/**)",
+      "Read(D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Intermediate/**)",
+      "Read(D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/DerivedDataCache/**)",
+      "Read(D:/UnrealSource/UnrealEngine-5.7.4-release/.vs/**)",
+      "Edit(D:/UnrealSource/UnrealEngine-5.7.4-release/**)",
+      "Write(D:/UnrealSource/UnrealEngine-5.7.4-release/**)",
+      "Bash(rm *)",
+      "Bash(del *)",
+      "Bash(rmdir *)",
+      "Bash(git push --force *)",
+      "Bash(git reset --hard *)",
+      "Bash(curl *)",
+      "Bash(powershell *)",
+      "Bash(cmd /c del *)",
+      "Bash(cmd /c rmdir *)"
+    ]
+  }
+}

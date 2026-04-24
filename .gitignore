@@ -84,3 +84,6 @@ DerivedDataCache/*
 
 Prerequisites
 *.d
+
+.claude/settings.local.json
+.claude/.cache/

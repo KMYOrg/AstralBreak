@@ -1,6 +1,7 @@
 #include "AstralPlayerController.h"
 
 #include "AstralPlayerState.h"
+#include "AbilitySystem/AstralAbilitySystemComponent.h"
 
 AAstralPlayerController::AAstralPlayerController(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -36,6 +37,16 @@ UAstralAbilitySystemComponent* AAstralPlayerController::GetAstralAbilitySystemCo
 {
 	const AAstralPlayerState* AstralPS = GetAstralPlayerState();
 	return (AstralPS ? AstralPS->GetAstralAbilitySystemComponent() : nullptr);
+}
+
+void AAstralPlayerController::PostProcessInput(const float DeltaTime, const bool bGamePaused)
+{
+	if (UAstralAbilitySystemComponent* AstralASC = GetAstralAbilitySystemComponent())
+	{
+		AstralASC->ProcessAbilityInput(DeltaTime, bGamePaused);
+	}
+
+	Super::PostProcessInput(DeltaTime, bGamePaused);
 }
 
 

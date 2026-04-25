@@ -76,7 +76,7 @@ void AAstralPlayerState::PostInitializeComponents()
 	check(AbilitySystemComponent);
 	AbilitySystemComponent->InitAbilityActorInfo(this, GetPawn());
 
-	// TODO : M2 마일스톤
+	// TODO : M1 마일스톤
 	// UWorld* World = GetWorld();
 	// if (World && World->IsGameWorld() && World->GetNetMode() != NM_Client)
 	// {
@@ -106,14 +106,13 @@ void AAstralPlayerState::SetPawnData(const UAstralPawnData* InPawnData)
 	MARK_PROPERTY_DIRTY_FROM_NAME(ThisClass, PawnData, this);
 	PawnData = InPawnData;
 
-	// TODO: M2 Ability 구현시
-	// for (const UAstralAbilitySet* AbilitySet : PawnData->AbilitySets)
-	// {
-	// 	if (AbilitySet)
-	// 	{
-	// 		AbilitySet->GiveToAbilitySystem(AbilitySystemComponent, nullptr);
-	// 	}
-	// }
+	for (const UAstralAbilitySet* AbilitySet : PawnData->AbilitySets)
+	{
+		if (AbilitySet)
+		{
+			AbilitySet->GiveToAbilitySystem(AbilitySystemComponent, nullptr);
+		}
+	}
 
 	// TODO: M1 마일스톤
 	// UGameFrameworkComponentManager::SendGameFrameworkComponentExtensionEvent(this, NAME_AstralAbilityReady);
@@ -125,6 +124,7 @@ void AAstralPlayerState::OnRep_PawnData()
 {
 }
 
+// TODO: M1 마일스톤
 // void AAstralPlayerState::OnExperienceLoaded(const UAstralExperienceDefinition* /*CurrentExperience*/)
 // {
 // 	if (AAstralGameMode* AstralGameMode = GetWorld()->GetAuthGameMode<AAstralGameMode>())

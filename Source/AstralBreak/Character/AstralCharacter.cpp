@@ -1,5 +1,6 @@
 #include "AstralCharacter.h"
 
+#include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "Components/AstralPawnExtensionComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Player/AstralPlayerState.h"
@@ -19,11 +20,8 @@ AAstralCharacter::AAstralCharacter(const FObjectInitializer& ObjectInitializer)
 	bUseControllerRotationRoll  = false;
 
 	UCharacterMovementComponent* AstralMoveComp = GetCharacterMovement();
-	
 	AstralMoveComp->bOrientRotationToMovement = true;
 	AstralMoveComp->RotationRate = FRotator(0.0f, 540.0f, 0.0f);
-	AstralMoveComp->bConstrainToPlane = true;
-	AstralMoveComp->bSnapToPlaneAtStart = true;
 
 	PawnExtComponent = CreateDefaultSubobject<UAstralPawnExtensionComponent>(TEXT("PawnExtComponent"));
 }
@@ -81,12 +79,12 @@ void AAstralCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 
 UAbilitySystemComponent* AAstralCharacter::GetAbilitySystemComponent() const
 {
-	// PlayerState의 ASC 반환. Day 5에 실제 구현.
-	if (const AAstralPlayerState* AstralPS = GetAstralPlayerState())
+	if (PawnExtComponent == nullptr)
 	{
-		// return AstralPS->GetAstralAbilitySystemComponent();
+		return nullptr;
 	}
-	return nullptr;
+
+	return PawnExtComponent->GetAstralAbilitySystemComponent();
 }
 
 AAstralPlayerState* AAstralCharacter::GetAstralPlayerState() const
@@ -96,7 +94,6 @@ AAstralPlayerState* AAstralCharacter::GetAstralPlayerState() const
 
 UAstralAbilitySystemComponent* AAstralCharacter::GetAstralAbilitySystemComponent() const
 {
-	// TODO: 실구현(PS에서 ASC 반환)
-	return nullptr;
+	return Cast<UAstralAbilitySystemComponent>(GetAbilitySystemComponent());
 }
 

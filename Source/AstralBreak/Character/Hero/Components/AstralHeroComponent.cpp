@@ -73,7 +73,6 @@ bool UAstralHeroComponent::CanChangeInitState(UGameFrameworkComponentManager* Ma
 
 	if (!CurrentState.IsValid() && DesiredState == AstralGameplayTags::InitState_Spawned)
 	{
-		// As long as we have a real pawn, let us transition
 		if (Pawn)
 		{
 			return true;
@@ -118,7 +117,6 @@ bool UAstralHeroComponent::CanChangeInitState(UGameFrameworkComponentManager* Ma
 	}
 	else if (CurrentState == AstralGameplayTags::InitState_DataAvailable && DesiredState == AstralGameplayTags::InitState_DataInitialized)
 	{
-		// Wait for player state and extension component
 		AAstralPlayerState* AstralPS = GetPlayerState<AAstralPlayerState>();
 
 		return AstralPS && Manager->HasFeatureReachedInitState(Pawn, UAstralPawnExtensionComponent::NAME_ActorFeatureName, AstralGameplayTags::InitState_DataInitialized);
@@ -148,9 +146,6 @@ void UAstralHeroComponent::HandleChangeInitState(UGameFrameworkComponentManager*
 		if (UAstralPawnExtensionComponent* PawnExtComp = UAstralPawnExtensionComponent::FindPawnExtensionComponent(Pawn))
 		{
 			PawnData = PawnExtComp->GetPawnData<UAstralPawnData>();
-
-			// The player state holds the persistent data for this player (state that persists across deaths and multiple pawns).
-			// The ability system component and attribute sets live on the player state.
 			PawnExtComp->InitializeAbilitySystem(AstralPS->GetAstralAbilitySystemComponent(), AstralPS);
 		}
 
@@ -244,18 +239,12 @@ void UAstralHeroComponent::InitializePlayerInput(UInputComponent* PlayerInputCom
 						}
 					}
 				}
-
-				// The Astral Input Component has some additional functions to map Gameplay Tags to an Input Action.
-				// If you want this functionality but still want to change your input component class, make it a subclass
-				// of the UAstralInputComponent or modify this component accordingly.
+				
 				UAstralInputComponent* AstralIC = Cast<UAstralInputComponent>(PlayerInputComponent);
 				if (ensureMsgf(AstralIC, TEXT("Unexpected Input Component class! The Gameplay Abilities will not be bound to their inputs. Change the input component to UAstralInputComponent or a subclass of it.")))
 				{
-					// Add the key mappings that may have been set by the player
 					AstralIC->AddInputMappings(InputConfig, Subsystem);
 
-					// This is where we actually bind and input action to a gameplay tag, which means that Gameplay Ability Blueprints will
-					// be triggered directly by these input actions Triggered events. 
 					TArray<uint32> BindHandles;
 					AstralIC->BindAbilityActions(InputConfig, this, &ThisClass::Input_AbilityInputTagPressed, &ThisClass::Input_AbilityInputTagReleased, /*out*/ BindHandles);
 
@@ -323,7 +312,7 @@ void UAstralHeroComponent::Input_AbilityInputTagPressed(FGameplayTag InputTag)
 		{
 			if (UAstralAbilitySystemComponent* AstralASC = PawnExtComp->GetAstralAbilitySystemComponent())
 			{
-				//AstralASC->AbilityInputTagPressed(InputTag);
+				AstralASC->AbilityInputTagPressed(InputTag);
 			}
 		}	
 	}
@@ -341,7 +330,7 @@ void UAstralHeroComponent::Input_AbilityInputTagReleased(FGameplayTag InputTag)
 	{
 		if (UAstralAbilitySystemComponent* AstralASC = PawnExtComp->GetAstralAbilitySystemComponent())
 		{
-			//AstralASC->AbilityInputTagReleased(InputTag);
+			AstralASC->AbilityInputTagReleased(InputTag);
 		}
 	}
 }

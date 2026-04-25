@@ -22,6 +22,4 @@ AAstralCharacter_Hero::AAstralCharacter_Hero(const FObjectInitializer& ObjectIni
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false; // SpringArm이 회전 제어, 카메라는 팔 끝 고정
 
-	// HeroComponent
-	HeroComponent = CreateDefaultSubobject<UAstralHeroComponent>(TEXT("HeroComponent"));
 }

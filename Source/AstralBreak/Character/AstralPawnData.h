@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AbilitySystem/AstralAbilitySet.h"
 #include "Engine/DataAsset.h"
 #include "AstralPawnData.generated.h"
 
@@ -21,7 +22,6 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Pawn")
 	TSubclassOf<APawn> PawnClass;
 
-	//UPROPERTY(EditDefaultsOnly, Category = "Astral|Abilities")
-	//TArray<TObjectPtr<const UAstralAbilitySet>> AbilitySets;
-	
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Abilities")
+	TArray<TObjectPtr<const UAstralAbilitySet>> AbilitySets;
 };

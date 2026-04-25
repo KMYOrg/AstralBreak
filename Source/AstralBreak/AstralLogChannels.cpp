@@ -2,6 +2,7 @@
 #include "GameFramework/Actor.h"
 
 DEFINE_LOG_CATEGORY(LogAstral)
+DEFINE_LOG_CATEGORY(LogAstralAbilitySystem);
 
 FString GetClientServerContextString(UObject* ContextObject)
 {

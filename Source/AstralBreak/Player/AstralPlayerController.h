@@ -29,4 +29,8 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	//~End of AActor interface
+	
+	//~APlayerController interface
+	virtual void PostProcessInput(const float DeltaTime, const bool bGamePaused) override;
+	//~End of APlayerController interface
 };

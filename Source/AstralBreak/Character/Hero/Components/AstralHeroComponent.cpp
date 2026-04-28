@@ -377,7 +377,9 @@ void UAstralHeroComponent::Input_LookMouse(const FInputActionValue& InputActionV
 
 	if (Value.Y != 0.0f)
 	{
-		Pawn->AddControllerPitchInput(Value.Y);
+		// TODO: Settings 시스템 도입 시 +Value.Y로 적용
+		double AimInversionValue = -Value.Y;
+		Pawn->AddControllerPitchInput(AimInversionValue);
 	}
 }
 
@@ -402,7 +404,8 @@ void UAstralHeroComponent::Input_LookStick(const FInputActionValue& InputActionV
 
 	if (Value.Y != 0.0f)
 	{
-		Pawn->AddControllerPitchInput(Value.Y * AstralHero::LookPitchRate * World->GetDeltaSeconds());
+		// TODO: Settings 시스템 도입 시 +Value.Y로 적용
+		Pawn->AddControllerPitchInput(-Value.Y * AstralHero::LookPitchRate * World->GetDeltaSeconds());
 	}
 }
 

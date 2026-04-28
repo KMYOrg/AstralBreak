@@ -22,10 +22,15 @@ public:
 	UFUNCTION(BlueprintCallable)
 	virtual const UAstralPawnData* GetPawnDataForController(const AController* InController) const;
 
+	//~AGameModeBase interface
 	virtual UClass* GetDefaultPawnClassForController_Implementation(AController* InController) override;
+	virtual APawn* SpawnDefaultPawnAtTransform_Implementation(AController* NewPlayer, const FTransform& SpawnTransform) override;
+	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
+	virtual void InitGameState() override;
+	//~End of AGameModeBase interface
 
 protected:
-	// M2에서만 쓰는 기본 PawnData (M1에서는 Experience로 대체)
+	// M2에서만 임시로 하드 레퍼런스 PawnData (M1에서는 Experience로 대체)
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Pawn")
-	TSoftObjectPtr<UAstralPawnData> DefaultPawnData;
+	TObjectPtr<UAstralPawnData> DefaultPawnData;
 };

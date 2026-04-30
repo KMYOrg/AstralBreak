@@ -5,6 +5,8 @@
 #include "GameFramework/PlayerState.h"
 #include "AstralPlayerState.generated.h"
 
+class UAstralCombatSet;
+class UAstralHealthSet;
 class UAstralAbilitySystemComponent;
 class UAstralPawnData;
 class AAstralPlayerController;
@@ -61,7 +63,12 @@ protected:
 
 private:
 
-	// The ability system component sub-object used by player characters.
 	UPROPERTY(VisibleAnywhere, Category = "Lyra|PlayerState")
 	TObjectPtr<UAstralAbilitySystemComponent> AbilitySystemComponent;
+
+	UPROPERTY()
+	TObjectPtr<const UAstralHealthSet> HealthSet;
+
+	UPROPERTY()
+	TObjectPtr<const UAstralCombatSet> CombatSet;
 };

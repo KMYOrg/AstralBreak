@@ -1,0 +1,33 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Blueprint/UserWidget.h"
+#include "AstralDebugWidget.generated.h"
+
+class UTextBlock;
+
+/**
+ * 
+ */
+UCLASS()
+class ASTRALBREAK_API UAstralDebugWidget : public UUserWidget
+{
+	GENERATED_BODY()
+	
+protected:
+	
+	// Debug 용이므로 매프레임 단순히 ASC 조회
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
+	/** WBP에 동일 이름 TextBlock을 둘 것. Optional이라 없어도 컴파일은 됨 */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> DebugText;
+
+	FString BuildDebugString() const;
+
+	FString GetNetModeString() const;
+	FString GetRoleString() const;
+	FString GetRemoteRoleString() const;
+	FString GetAttributesString() const;
+	FString GetAbilitiesString() const;
+};

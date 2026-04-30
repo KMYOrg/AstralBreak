@@ -3,6 +3,9 @@
 #include "AstralPlayerState.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
 
+
+#include "UI/Debug/AstralDebugWidget.h"
+
 AAstralPlayerController::AAstralPlayerController(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
@@ -47,6 +50,20 @@ void AAstralPlayerController::PostProcessInput(const float DeltaTime, const bool
 	}
 
 	Super::PostProcessInput(DeltaTime, bGamePaused);
+}
+
+void AAstralPlayerController::BeginPlayingState()
+{
+	Super::BeginPlayingState();
+	
+	if (IsLocalController() && DebugWidgetClass && !DebugWidget)
+	{
+		DebugWidget = CreateWidget<UAstralDebugWidget>(this, DebugWidgetClass);
+		if (DebugWidget)
+		{
+			DebugWidget->AddToViewport(100);
+		}
+	}
 }
 
 

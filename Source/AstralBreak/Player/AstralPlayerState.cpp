@@ -4,6 +4,8 @@
 #include "AstralLogChannels.h"
 #include "AstralPlayerController.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/Attributes/AstralCombatSet.h"
+#include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "Character/AstralPawnData.h"
 #include "Character/Components/AstralPawnExtensionComponent.h"
 #include "Components/GameFrameworkComponentManager.h"
@@ -16,7 +18,10 @@ AAstralPlayerState::AAstralPlayerState(const FObjectInitializer& ObjectInitializ
 	AbilitySystemComponent = ObjectInitializer.CreateDefaultSubobject<UAstralAbilitySystemComponent>(this, TEXT("AbilitySystemComponent"));
 	AbilitySystemComponent->SetIsReplicated(true);
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
-
+	
+	HealthSet = CreateDefaultSubobject<UAstralHealthSet>(TEXT("HealthSet"));
+	CombatSet = CreateDefaultSubobject<UAstralCombatSet>(TEXT("CombatSet"));
+	
 	SetNetUpdateFrequency(100.0f);
 
 }

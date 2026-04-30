@@ -33,4 +33,19 @@ public:
 	//~APlayerController interface
 	virtual void PostProcessInput(const float DeltaTime, const bool bGamePaused) override;
 	//~End of APlayerController interface
+
+protected:
+	virtual void BeginPlayingState() override;
+	
+private:
+	
+	/*
+	 * Debug Members
+	 */
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Debug")
+	TSubclassOf<class UAstralDebugWidget> DebugWidgetClass;
+
+	UPROPERTY()
+	TObjectPtr<class UAstralDebugWidget> DebugWidget;
 };

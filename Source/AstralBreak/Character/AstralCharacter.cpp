@@ -1,13 +1,14 @@
 #include "AstralCharacter.h"
 
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "Character/Components/AstralCharacterMovementComponent.h"
 #include "Components/AstralPawnExtensionComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Player/AstralPlayerState.h"
 
 
 AAstralCharacter::AAstralCharacter(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UAstralCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	PrimaryActorTick.bCanEverTick = false;
 	PrimaryActorTick.bStartWithTickEnabled = false;
@@ -21,7 +22,6 @@ AAstralCharacter::AAstralCharacter(const FObjectInitializer& ObjectInitializer)
 
 	UCharacterMovementComponent* AstralMoveComp = GetCharacterMovement();
 	AstralMoveComp->bOrientRotationToMovement = true;
-	AstralMoveComp->RotationRate = FRotator(0.0f, 540.0f, 0.0f);
 
 	PawnExtComponent = CreateDefaultSubobject<UAstralPawnExtensionComponent>(TEXT("PawnExtComponent"));
 }

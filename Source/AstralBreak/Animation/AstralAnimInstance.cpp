@@ -67,7 +67,8 @@ void UAstralAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	Snapshot.WorldVelocity     = AstralMovementComponent->Velocity;
 	Snapshot.WorldAcceleration = AstralMovementComponent->GetCurrentAcceleration();
 	Snapshot.ActorRotation     = OwningPawn->GetActorRotation();
-	Snapshot.bIsFalling        = AstralMovementComponent->IsFalling();
+	Snapshot.bIsInAir          = AstralMovementComponent->IsFalling();
+	Snapshot.bIsOnGround       = AstralMovementComponent->IsMovingOnGround();
 	Snapshot.GroundDistance    = AstralMovementComponent->GetGroundInfo().GroundDistance;
 }
 
@@ -78,7 +79,10 @@ void UAstralAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 	Speed             = Snapshot.WorldVelocity.Size2D();
 	Acceleration      = Snapshot.WorldAcceleration.Size2D();
 	bHasMovementInput = Snapshot.WorldAcceleration.SizeSquared() > KINDA_SMALL_NUMBER;
-	bIsFalling        = Snapshot.bIsFalling;
+	bIsOnGround       = Snapshot.bIsOnGround;
+	bIsInAir          = Snapshot.bIsInAir;
+	bIsJumping        = Snapshot.bIsInAir && (Snapshot.WorldVelocity.Z > 0.0f);
+	bIsFalling        = Snapshot.bIsInAir && !bIsJumping;
 	GroundDistance    = Snapshot.GroundDistance;
 	MovementDirection = CalculateDirectionAngle(Snapshot.WorldVelocity, Snapshot.ActorRotation);
 }

@@ -20,8 +20,11 @@ struct FAstralAnimSnapshot
 	/** 액터 회전 (LocalVelocity/MovementDirection 계산용) */
 	FRotator ActorRotation = FRotator::ZeroRotator;
 
-	/** 낙하 중 여부 */
-	bool bIsFalling = false;
+	/** 공중 여부 (MovementMode == Falling). 상승/하강 구분은 WorldVelocity.Z로 ThreadSafe에서 계산 */
+	bool bIsInAir = false;
+
+	/** 지면 이동 여부 (MovementMode == Walking/NavWalking). IsMovingOnGround() */
+	bool bIsOnGround = false;
 
 	/** 발밑 지면까지 거리 */
 	float GroundDistance = 0.0f;
@@ -62,11 +65,23 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Locomotion")
 	float MovementDirection = 0.0f;
 
-	// 낙하 중 여부
+	// 지면 여부 (Walking/NavWalking). IsMovingOnGround()
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Locomotion")
+	bool bIsOnGround = false;
+
+	// 공중 여부 (상승/하강 모두 포함). State Machine의 지상↔공중 전환에 사용
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Locomotion")
+	bool bIsInAir = false;
+
+	// 상승 중 (공중 && Z > 0). 점프로 올라가는 구간
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Locomotion")
+	bool bIsJumping = false;
+
+	// 하강 중 (공중 && 상승 아님). 떨어지는 구간
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Locomotion")
 	bool bIsFalling = false;
 
-	// 이동 입력 존재 여부 (가속도 기반) 
+	// 이동 입력 존재 여부 (가속도 기반)
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Locomotion")
 	bool bHasMovementInput = false;
 

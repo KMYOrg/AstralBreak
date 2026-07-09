@@ -7,6 +7,8 @@ namespace AstralGameplayTags
 	/**
 	 * Ability
 	 */
+	
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Action_Jump);
 
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Attack_Basic);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Attack_Basic_Melee);

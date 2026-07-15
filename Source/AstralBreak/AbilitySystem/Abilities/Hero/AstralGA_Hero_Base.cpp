@@ -7,3 +7,17 @@ UAstralGA_Hero_Base::UAstralGA_Hero_Base(const FObjectInitializer& ObjectInitial
 	: Super(ObjectInitializer)
 {
 }
+
+void UAstralGA_Hero_Base::ApplyRegenBlockEffect(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
+{
+	if (!RegenBlockEffectClass || !ActorInfo || !ActorInfo->IsNetAuthority())
+	{
+		return;
+	}
+
+	const FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(Handle, ActorInfo, ActivationInfo, RegenBlockEffectClass, GetAbilityLevel());
+	if (SpecHandle.IsValid())
+	{
+		ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, SpecHandle);
+	}
+}

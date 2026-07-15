@@ -13,6 +13,8 @@ namespace AstralGameplayTags
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Look_Stick);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_AutoRun);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Jump);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Sprint);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Dodge);
 
 	/**
 	 * Combat

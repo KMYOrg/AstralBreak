@@ -4,3 +4,13 @@ UAstralHeroMovementComponent::UAstralHeroMovementComponent(const FObjectInitiali
 	: Super(ObjectInitializer)
 {
 }
+
+float UAstralHeroMovementComponent::GetMaxSpeed() const
+{
+	if (bWantsToSprint && IsMovingOnGround())
+	{
+		return SprintSpeed;
+	}
+
+	return Super::GetMaxSpeed();
+}

@@ -1,9 +1,12 @@
 #include "AstralCharacter.h"
 
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "Character/Components/AstralCharacterMovementComponent.h"
+#include "Character/Components/AstralHealthComponent.h"
 #include "Components/AstralPawnExtensionComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameplayEffect.h"
 #include "Player/AstralPlayerState.h"
 
 
@@ -24,6 +27,8 @@ AAstralCharacter::AAstralCharacter(const FObjectInitializer& ObjectInitializer)
 	AstralMoveComp->bOrientRotationToMovement = true;
 
 	PawnExtComponent = CreateDefaultSubobject<UAstralPawnExtensionComponent>(TEXT("PawnExtComponent"));
+
+	HealthComponent = CreateDefaultSubobject<UAstralHealthComponent>(TEXT("HealthComponent"));
 }
 
 void AAstralCharacter::PreInitializeComponents()
@@ -95,5 +100,48 @@ AAstralPlayerState* AAstralCharacter::GetAstralPlayerState() const
 UAstralAbilitySystemComponent* AAstralCharacter::GetAstralAbilitySystemComponent() const
 {
 	return Cast<UAstralAbilitySystemComponent>(GetAbilitySystemComponent());
+}
+
+void AAstralCharacter::DamageSelf(float Amount)
+{
+#if !UE_BUILD_SHIPPING
+	if (HasAuthority())
+	{
+		ServerDamageSelf_Implementation(Amount);
+	}
+	else
+	{
+		ServerDamageSelf(Amount);
+	}
+#endif
+}
+
+void AAstralCharacter::ServerDamageSelf_Implementation(float Amount)
+{
+#if !UE_BUILD_SHIPPING
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC || Amount <= 0.0f)
+	{
+		return;
+	}
+
+	// 디버그 전용이라 콘텐츠 경로 하드코딩 허용 — 정식 데미지 파이프라인(GE_Damage_Base + SetByCaller.Damage)을 그대로 태운다
+	static const FSoftClassPath DebugDamageEffectPath(TEXT("/Game/AbilitySystem/Effects/Damage/GE_Damage_Base.GE_Damage_Base_C"));
+	UClass* DamageEffectClass = DebugDamageEffectPath.TryLoadClass<UGameplayEffect>();
+	if (!DamageEffectClass)
+	{
+		return;
+	}
+
+	FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
+	Context.AddInstigator(this, this);
+
+	const FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(DamageEffectClass, 1.0f, Context);
+	if (SpecHandle.IsValid())
+	{
+		SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_Damage, Amount);
+		ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+	}
+#endif
 }
 

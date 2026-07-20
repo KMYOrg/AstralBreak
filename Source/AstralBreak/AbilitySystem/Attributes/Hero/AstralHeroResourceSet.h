@@ -25,6 +25,7 @@ public:
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, MaxUltGauge);
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, UltGainMultiplier);
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, BreakContributionMultiplier);
+    ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, UltGain);
 
     mutable FAstralAttributeEvent OnUltFilled;
 
@@ -45,6 +46,9 @@ protected:
     virtual void PreAttributeBaseChange(const FGameplayAttribute& Attribute, float& NewValue) const override;
     virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
     virtual void PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue) override;
+
+    /** UltGain meta 처리 — UltGauge += UltGain × UltGainMultiplier (HealthSet의 Damage 처리와 대칭) */
+    virtual void PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data) override;
 
     void ClampAttribute(const FGameplayAttribute& Attribute, float& NewValue) const;
 
@@ -72,6 +76,10 @@ private:
 
     UPROPERTY(BlueprintReadOnly, Category = "Astral|Ult", ReplicatedUsing = OnRep_BreakContributionMultiplier, meta = (AllowPrivateAccess = true))
     FGameplayAttributeData BreakContributionMultiplier;
+
+    /** 오의 수급 meta — GE_UltGain(SetByCaller.UltGain)의 착지점. 비복제, 처리 후 0 리셋 */
+    UPROPERTY(BlueprintReadOnly, Category = "Astral|Ult", meta = (AllowPrivateAccess = true))
+    FGameplayAttributeData UltGain;
 
     // 서버 전용 — OnUltFilled 1회 발사 게이트
     bool bUltFilled;

@@ -1,5 +1,7 @@
 #include "AstralHeroResourceSet.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
+#include "GameplayEffectExtension.h"
 #include "Net/UnrealNetwork.h"
 
 UAstralHeroResourceSet::UAstralHeroResourceSet()
@@ -93,6 +95,31 @@ void UAstralHeroResourceSet::PostAttributeChange(const FGameplayAttribute& Attri
         else if (bUltFilled && NewValue < Max)
         {
             bUltFilled = false;
+        }
+    }
+}
+
+void UAstralHeroResourceSet::PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data)
+{
+    Super::PostGameplayEffectExecute(Data);
+
+    if (Data.EvaluatedData.Attribute == GetUltGainAttribute())
+    {
+        const float LocalUltGain = GetUltGain();
+        SetUltGain(0.f);
+
+        // 사망 상태에선 수급 차단
+        if (Data.Target.HasMatchingGameplayTag(AstralGameplayTags::State_Death))
+        {
+            return;
+        }
+
+        if (LocalUltGain > 0.f)
+        {
+            // Multiplier 레이어는 여기 한 곳에서만 곱한다 (M7 룬이 UltGainMultiplier만 건드리면 되는 구조)
+            const float NewUltGauge = GetUltGauge() + (LocalUltGain * GetUltGainMultiplier());
+            SetUltGauge(FMath::Clamp(NewUltGauge, 0.f, GetMaxUltGauge()));
+            // OnUltFilled 1회 게이트는 PostAttributeChange에서 발화
         }
     }
 }

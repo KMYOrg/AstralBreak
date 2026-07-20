@@ -5,6 +5,7 @@
 #include "AbilitySystemGlobals.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
+#include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
@@ -123,6 +124,11 @@ void UAstralGA_Hero_BasicAttack_Melee::PerformHitDetection()
         {
             continue;
         }
+        // 피아 필터 — Hostile만 허용 (아군/중립/사망 대상 오폭 차단)
+        if (!UAstralCombatStatics::CanDamage(Avatar, TargetActor))
+        {
+            continue;
+        }
         UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(TargetActor);
         if (!TargetASC)
         {
@@ -140,6 +146,9 @@ void UAstralGA_Hero_BasicAttack_Melee::PerformHitDetection()
             SpecHandle.Data->SetSetByCallerMagnitude(DamageTag, BaseDamage);
             SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
             Damaged.Add(TargetActor);
+
+            // 가한 피해 → 오의 수급 (적중 타겟 1기당 UltGainOnHit)
+            ApplyUltGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, UltGainOnHit);
         }
     }
 }

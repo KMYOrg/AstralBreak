@@ -6,6 +6,8 @@
 #include "Input/AstralInputConfig.h"
 #include "AstralPawnData_Hero.generated.h"
 
+class UGameplayEffect;
+
 /**
  * 
  */
@@ -26,4 +28,11 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Astral|Input")
 	TObjectPtr<const UAstralInputConfig> InputConfig;
 
+	/** 오의 수급 GE (GE_UltGain) — 받은 피해 수급 경로(PlayerState)에서 사용 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Astral|Ult")
+	TSubclassOf<UGameplayEffect> UltGainEffectClass;
+
+	/** 받은 피해 1당 오의 수급량 (예: 0.5 = 데미지 20 → 게이지 10). 0이면 수급 없음 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Astral|Ult", Meta = (ClampMin = "0.0"))
+	float UltGainOnDamagedRatio = 0.0f;
 };

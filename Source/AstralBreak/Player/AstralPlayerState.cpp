@@ -6,7 +6,9 @@
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "AbilitySystem/Attributes/AstralCombatSet.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
+#include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "Character/AstralPawnData.h"
+#include "Character/Hero/AstralPawnData_Hero.h"
 #include "Character/Components/AstralPawnExtensionComponent.h"
 #include "Components/GameFrameworkComponentManager.h"
 #include "GameModes/AstralGameMode.h"
@@ -81,6 +83,12 @@ void AAstralPlayerState::PostInitializeComponents()
 	check(AbilitySystemComponent);
 	AbilitySystemComponent->InitAbilityActorInfo(this, GetPawn());
 
+	// 받은 피해 → 오의 수급. OnDamaged는 서버에서만 브로드캐스트되므로 구독 자체는 전역, 실행은 서버만
+	if (HealthSet)
+	{
+		HealthSet->OnDamaged.AddUObject(this, &ThisClass::OnHeroDamaged);
+	}
+
 	// TODO : M1 마일스톤
 	// UWorld* World = GetWorld();
 	// if (World && World->IsGameWorld() && World->GetNetMode() != NM_Client)
@@ -127,6 +135,28 @@ void AAstralPlayerState::SetPawnData(const UAstralPawnData* InPawnData)
 
 void AAstralPlayerState::OnRep_PawnData()
 {
+}
+
+void AAstralPlayerState::OnHeroDamaged(AActor* DamageInstigator, AActor* DamageCauser, const FGameplayEffectSpec* DamageEffectSpec, float DamageMagnitude, float OldValue, float NewValue)
+{
+	if (GetLocalRole() != ROLE_Authority || DamageMagnitude <= 0.f)
+	{
+		return;
+	}
+
+	const UAstralPawnData_Hero* HeroData = GetPawnData<UAstralPawnData_Hero>();
+	if (!HeroData || !HeroData->UltGainEffectClass || HeroData->UltGainOnDamagedRatio <= 0.f)
+	{
+		return;
+	}
+
+	FGameplayEffectContextHandle Context = AbilitySystemComponent->MakeEffectContext();
+	const FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(HeroData->UltGainEffectClass, 1.0f, Context);
+	if (SpecHandle.IsValid())
+	{
+		SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_UltGain, DamageMagnitude * HeroData->UltGainOnDamagedRatio);
+		AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+	}
 }
 
 // TODO: M1 마일스톤

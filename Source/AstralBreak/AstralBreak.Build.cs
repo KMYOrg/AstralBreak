@@ -30,6 +30,9 @@ public class AstralBreak : ModuleRules
 			
 			"ModularGameplay",
 			"GameFeatures",
+
+			// 팀/피아 판정 (IGenericTeamAgentInterface) + 추후 M3 AIController/Perception
+			"AIModule",
 			
 			// Networking
 			"NetCore",

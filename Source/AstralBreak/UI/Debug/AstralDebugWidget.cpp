@@ -6,9 +6,11 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
+#include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "AbilitySystem/Attributes/AstralCombatSet.h"
 #include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
+#include "Character/Components/AstralHealthComponent.h"
 
 void UAstralDebugWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
@@ -26,10 +28,13 @@ FString UAstralDebugWidget::BuildDebugString() const
     B.Appendf(TEXT("NetMode:  %s\n"),  *GetNetModeString());
     B.Appendf(TEXT("Role:     %s\n"),  *GetRoleString());
     B.Appendf(TEXT("Remote:   %s\n"),  *GetRemoteRoleString());
+    B.Appendf(TEXT("Death:    %s\n"), *GetDeathStateString());
     B.Append(TEXT("\n[Attributes]\n"));
     B.Append(GetAttributesString());
     B.Append(TEXT("\n[Abilities]\n"));
     B.Append(GetAbilitiesString());
+    B.Append(TEXT("\n[Target]\n"));
+    B.Append(GetTargetString());
     return B.ToString();
 }
 
@@ -116,7 +121,7 @@ FString UAstralDebugWidget::GetAttributesString() const
     if (const UAstralHeroResourceSet* R = ASC->GetSet<UAstralHeroResourceSet>())
     {
         Out.Appendf(TEXT("STM: %.0f / %.0f\n"), R->GetStamina(),  R->GetMaxStamina());
-        Out.Appendf(TEXT("ULT: %.0f / %.0f\n"), R->GetUltGauge(), R->GetMaxUltGauge());
+        Out.Appendf(TEXT("ULT: %.0f / %.0f (Mul %.2f)\n"), R->GetUltGauge(), R->GetMaxUltGauge(), R->GetUltGainMultiplier());
     }
     else
     {
@@ -151,6 +156,72 @@ FString UAstralDebugWidget::GetAbilitiesString() const
     else
     {
         Out.Append(TEXT("Tags: (none)\n"));
+    }
+
+    return Out.ToString();
+}
+
+FString UAstralDebugWidget::GetDeathStateString() const
+{
+    APlayerController* PC = GetOwningPlayer();
+    APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+    const UAstralHealthComponent* HealthComponent = UAstralHealthComponent::FindHealthComponent(Pawn);
+    if (!HealthComponent)
+    {
+        return TEXT("NoHealthComp");
+    }
+
+    switch (HealthComponent->GetDeathState())
+    {
+    case EAstralDeathState::NotDead:       return TEXT("NotDead");
+    case EAstralDeathState::DeathStarted:  return TEXT("DeathStarted");
+    case EAstralDeathState::DeathFinished: return TEXT("DeathFinished");
+    default:                               return TEXT("Unknown");
+    }
+}
+
+FString UAstralDebugWidget::GetTargetString() const
+{
+    APlayerController* PC = GetOwningPlayer();
+    APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+    UWorld* World = GetWorld();
+    if (!PC || !Pawn || !World)
+    {
+        return TEXT("(no view)\n");
+    }
+
+    // 조준선 트레이스 — 카메라 기준 전방
+    FVector ViewLocation;
+    FRotator ViewRotation;
+    PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
+
+    const FVector TraceStart = ViewLocation;
+    const FVector TraceEnd = TraceStart + ViewRotation.Vector() * 5000.0f;
+
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(DebugWidget_TargetTrace), false);
+    Params.AddIgnoredActor(Pawn);
+
+    FHitResult Hit;
+    if (!World->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_Pawn, Params) || !Hit.GetActor())
+    {
+        return TEXT("(none)\n");
+    }
+
+    const AActor* Target = Hit.GetActor();
+
+    TStringBuilder<256> Out;
+    Out.Appendf(TEXT("%s\n"), *GetNameSafe(Target));
+    Out.Appendf(TEXT("Team: %d  CanDamage: %s  Dead: %s\n"),
+        UAstralCombatStatics::GetTeamIdAsInt(Target),
+        UAstralCombatStatics::CanDamage(Pawn, Target) ? TEXT("Y") : TEXT("N"),
+        UAstralCombatStatics::IsDeadOrDying(Target) ? TEXT("Y") : TEXT("N"));
+
+    if (const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target))
+    {
+        if (const UAstralHealthSet* TargetHealth = TargetASC->GetSet<UAstralHealthSet>())
+        {
+            Out.Appendf(TEXT("HP: %.0f / %.0f\n"), TargetHealth->GetHealth(), TargetHealth->GetMaxHealth());
+        }
     }
 
     return Out.ToString();

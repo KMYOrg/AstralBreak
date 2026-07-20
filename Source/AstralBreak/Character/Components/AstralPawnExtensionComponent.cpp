@@ -8,6 +8,7 @@
 #include "AstralLogChannels.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "Character/AstralPawnData.h"
+#include "Character/Components/AstralHealthComponent.h"
 #include "Net/UnrealNetwork.h"
 
 class FLifetimeProperty;
@@ -142,6 +143,12 @@ void UAstralPawnExtensionComponent::InitializeAbilitySystem(UAstralAbilitySystem
 	// 	InASC->SetTagRelationshipMapping(PawnData->TagRelationshipMapping);
 	// }
 
+	// 같은 폰의 HealthComponent를 ASC에 연결 (사망 상태 기계 가동)
+	if (UAstralHealthComponent* HealthComponent = UAstralHealthComponent::FindHealthComponent(Pawn))
+	{
+		HealthComponent->InitializeWithAbilitySystem(AbilitySystemComponent);
+	}
+
 	OnAbilitySystemInitialized.Broadcast();
 }
 
@@ -161,6 +168,12 @@ void UAstralPawnExtensionComponent::UninitializeAbilitySystem()
 		AbilitySystemComponent->CancelAbilities(nullptr, &AbilityTypesToIgnore);
 		//AbilitySystemComponent->ClearAbilityInput();
 		AbilitySystemComponent->RemoveAllGameplayCues();
+
+		// HealthComponent 연결 해제 — 이전 아바타가 델리게이트를 물고 있지 않도록
+		if (UAstralHealthComponent* HealthComponent = UAstralHealthComponent::FindHealthComponent(GetOwner()))
+		{
+			HealthComponent->UninitializeFromAbilitySystem();
+		}
 
 		if (AbilitySystemComponent->GetOwnerActor() != nullptr)
 		{

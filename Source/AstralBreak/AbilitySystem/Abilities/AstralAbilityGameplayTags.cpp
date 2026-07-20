@@ -22,4 +22,8 @@ namespace AstralGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG(State_Movement_Sprinting, "State.Movement.Sprinting");
 
 	UE_DEFINE_GAMEPLAY_TAG(State_Stamina_RegenBlocked, "State.Stamina.RegenBlocked");
+
+	UE_DEFINE_GAMEPLAY_TAG(State_Death, "State.Death");
+	UE_DEFINE_GAMEPLAY_TAG(State_Death_Dying, "State.Death.Dying");
+	UE_DEFINE_GAMEPLAY_TAG(State_Death_Dead, "State.Death.Dead");
 }

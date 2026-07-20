@@ -30,4 +30,6 @@ protected:
 	FString GetRemoteRoleString() const;
 	FString GetAttributesString() const;
 	FString GetAbilitiesString() const;
+	FString GetDeathStateString() const;
+	FString GetTargetString() const;
 };

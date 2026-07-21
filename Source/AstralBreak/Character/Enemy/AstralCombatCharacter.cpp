@@ -7,7 +7,7 @@
 #include "Character/Components/AstralHealthComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "TimerManager.h"
+#include "Net/UnrealNetwork.h"
 
 AAstralCombatCharacter::AAstralCombatCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -32,6 +32,13 @@ AAstralCombatCharacter::AAstralCombatCharacter(const FObjectInitializer& ObjectI
 UAbilitySystemComponent* AAstralCombatCharacter::GetAbilitySystemComponent() const
 {
 	return AbilitySystemComponent;
+}
+
+void AAstralCombatCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AAstralCombatCharacter, TeamId);
 }
 
 void AAstralCombatCharacter::PostInitializeComponents()
@@ -76,13 +83,7 @@ void AAstralCombatCharacter::HandleDeathStarted(AActor* OwningActor)
 		MoveComp->DisableMovement();
 	}
 
-	if (HasAuthority())
-	{
-		GetWorldTimerManager().SetTimer(DeathFinishTimerHandle, FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			HealthComponent->FinishDeath();
-		}), DeathFinishDelay, false);
-	}
+	// FinishDeath는 GA_Death(DeathDuration)가 호출 — AbilitySet에 GA_Death 부여 필수
 }
 
 void AAstralCombatCharacter::HandleDeathFinished(AActor* OwningActor)

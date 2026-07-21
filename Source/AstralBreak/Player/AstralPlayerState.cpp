@@ -37,6 +37,19 @@ void AAstralPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 
 	DOREPLIFETIME_WITH_PARAMS_FAST(ThisClass, PawnData, SharedParams);
 
+	DOREPLIFETIME(ThisClass, MyTeamID);
+}
+
+void AAstralPlayerState::SetGenericTeamId(const FGenericTeamId& NewTeamID)
+{
+	if (HasAuthority())
+	{
+		MyTeamID = NewTeamID;
+	}
+	else
+	{
+		UE_LOG(LogAstral, Error, TEXT("AAstralPlayerState::SetGenericTeamId: Cannot set team on non-authority for [%s]."), *GetPathNameSafe(this));
+	}
 }
 
 void AAstralPlayerState::PreInitializeComponents()

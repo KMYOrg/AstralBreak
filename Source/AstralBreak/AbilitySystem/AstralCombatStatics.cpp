@@ -21,8 +21,13 @@ bool UAstralCombatStatics::CanDamage(const AActor* SourceActor, const AActor* Ta
 	const FGenericTeamId SourceTeam = GetTeamId(SourceActor);
 	const FGenericTeamId TargetTeam = GetTeamId(TargetActor);
 
-	// 기본 attitude 해석: 같은 팀=Friendly, 다른 팀=Hostile, NoTeam 관여=Neutral
-	// Hostile일 때만 허용 — 팀 미상/중립은 기본 "때릴 수 없음"
+	// 팀 해석 실패(NoTeam)는 기본 "때릴 수 없음" — 엔진 기본 solver는 A != B를 전부 Hostile로 판정하므로
+	// (NoTeam=Neutral이 아님!) GetAttitude 전에 직접 가드해야 한다
+	if (SourceTeam == FGenericTeamId::NoTeam || TargetTeam == FGenericTeamId::NoTeam)
+	{
+		return false;
+	}
+
 	return FGenericTeamId::GetAttitude(SourceTeam, TargetTeam) == ETeamAttitude::Hostile;
 }
 

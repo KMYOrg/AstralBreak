@@ -108,7 +108,8 @@ void UAstralHeroResourceSet::PostGameplayEffectExecute(const FGameplayEffectModC
         const float LocalUltGain = GetUltGain();
         SetUltGain(0.f);
 
-        // 사망 상태에선 수급 차단
+        // 사망 상태에선 수급 차단.
+        // 단, 킬링블로우(빈사타)는 의도적으로 수급됨 — OnDamaged 시점엔 아직 Dying 태그가 없다 (부활/이월 고려한 디자인)
         if (Data.Target.HasMatchingGameplayTag(AstralGameplayTags::State_Death))
         {
             return;

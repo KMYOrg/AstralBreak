@@ -50,7 +50,15 @@ void UAstralHealthSet::PostAttributeChange(const FGameplayAttribute& Attribute, 
 {
     Super::PostAttributeChange(Attribute, OldValue, NewValue);
 
-    if (Attribute == GetMaxHealthAttribute())
+    if (Attribute == GetHealthAttribute())
+    {
+        // 사망 후 회복(부활/힐)되면 out-of-health 게이트 해제
+        if (bOutOfHealth && (GetHealth() > 0.f))
+        {
+            bOutOfHealth = false;
+        }
+    }
+    else if (Attribute == GetMaxHealthAttribute())
     {
         if (GetHealth() > NewValue)
         {

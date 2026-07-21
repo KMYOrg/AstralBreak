@@ -41,9 +41,10 @@ protected:
 	//~ AActor
 	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	//~ End AActor
 
-	/** 사망 시작 — 물리 반응(콜리전/이동 정지)은 액터 책임. 연출 완료 타이머로 FinishDeath 진입 */
+	/** 사망 시작 — 물리 반응(콜리전/이동 정지)은 액터 책임. FinishDeath 타이밍은 GA_Death의 DeathDuration이 결정 */
 	UFUNCTION()
 	virtual void HandleDeathStarted(AActor* OwningActor);
 
@@ -68,18 +69,11 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Abilities")
 	TArray<TObjectPtr<const UAstralAbilitySet>> AbilitySets;
 
-	/** 팀 ID (플레이어 = 0, 적 = 1) */
-	UPROPERTY(EditAnywhere, Category = "Astral|Team")
+	/** 팀 ID (플레이어 = 0, 적 = 1). 런타임 변경(SetGenericTeamId)이 클라에도 반영되도록 복제 */
+	UPROPERTY(EditAnywhere, Replicated, Category = "Astral|Team")
 	uint8 TeamId = 1;
-
-	/** DeathStarted → FinishDeath까지의 연출 시간 (초) */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|Death", Meta = (ClampMin = "0.0"))
-	float DeathFinishDelay = 3.0f;
 
 	/** FinishDeath 후 액터 제거까지의 시간 (초) */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Death", Meta = (ClampMin = "0.0"))
 	float DestroyAfterDeathDelay = 2.0f;
-
-private:
-	FTimerHandle DeathFinishTimerHandle;
 };

@@ -7,8 +7,8 @@
 #include "AstralGameplayTags.h"
 #include "AstralLogChannels.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "Character/AstralPawnData.h"
-#include "Character/Components/AstralHealthComponent.h"
 #include "Net/UnrealNetwork.h"
 
 class FLifetimeProperty;
@@ -143,12 +143,7 @@ void UAstralPawnExtensionComponent::InitializeAbilitySystem(UAstralAbilitySystem
 	// 	InASC->SetTagRelationshipMapping(PawnData->TagRelationshipMapping);
 	// }
 
-	// 같은 폰의 HealthComponent를 ASC에 연결 (사망 상태 기계 가동)
-	if (UAstralHealthComponent* HealthComponent = UAstralHealthComponent::FindHealthComponent(Pawn))
-	{
-		HealthComponent->InitializeWithAbilitySystem(AbilitySystemComponent);
-	}
-
+	// HealthComponent 등 폰 측 연결은 이 브로드캐스트 구독자가 처리
 	OnAbilitySystemInitialized.Broadcast();
 }
 
@@ -163,17 +158,11 @@ void UAstralPawnExtensionComponent::UninitializeAbilitySystem()
 	if (AbilitySystemComponent->GetAvatarActor() == GetOwner())
 	{
 		FGameplayTagContainer AbilityTypesToIgnore;
-		//AbilityTypesToIgnore.AddTag(AstralGameplayTags::Ability_Behavior_SurvivesDeath);
+		AbilityTypesToIgnore.AddTag(AstralGameplayTags::Ability_Behavior_SurvivesDeath);
 
 		AbilitySystemComponent->CancelAbilities(nullptr, &AbilityTypesToIgnore);
 		//AbilitySystemComponent->ClearAbilityInput();
 		AbilitySystemComponent->RemoveAllGameplayCues();
-
-		// HealthComponent 연결 해제 — 이전 아바타가 델리게이트를 물고 있지 않도록
-		if (UAstralHealthComponent* HealthComponent = UAstralHealthComponent::FindHealthComponent(GetOwner()))
-		{
-			HealthComponent->UninitializeFromAbilitySystem();
-		}
 
 		if (AbilitySystemComponent->GetOwnerActor() != nullptr)
 		{

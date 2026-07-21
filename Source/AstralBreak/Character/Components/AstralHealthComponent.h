@@ -63,6 +63,9 @@ public:
 	/** 사망 완료 — 소유 액터가 연출(몽타주/타이머) 종료 시점에 호출 */
 	virtual void FinishDeath();
 
+	/** 사망 상태 해제 (서버 권위) — 디버그 부활(ReviveSelf)·추후 M6 리스폰용. 태그 정리 + OnDeathReset 발사 */
+	virtual void ResetDeathState();
+
 public:
 	/** HP 변경 (클라/서버 모두 발화 — HP바 등 UI 구독용) */
 	UPROPERTY(BlueprintAssignable)
@@ -73,6 +76,10 @@ public:
 
 	UPROPERTY(BlueprintAssignable)
 	FAstralHealth_DeathEvent OnDeathFinished;
+
+	/** 사망 상태가 해제될 때 (부활/리스폰) — 액터가 콜리전/이동 복구를 구독 */
+	UPROPERTY(BlueprintAssignable)
+	FAstralHealth_DeathEvent OnDeathReset;
 
 protected:
 	virtual void OnUnregister() override;

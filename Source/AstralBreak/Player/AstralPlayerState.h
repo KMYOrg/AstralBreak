@@ -49,7 +49,7 @@ public:
 	//~End of APlayerState interface
 
 	//~IGenericTeamAgentInterface (플레이어는 전원 팀 0 — 4인 협동)
-	virtual void SetGenericTeamId(const FGenericTeamId& NewTeamID) override { MyTeamID = NewTeamID; }
+	virtual void SetGenericTeamId(const FGenericTeamId& NewTeamID) override;
 	virtual FGenericTeamId GetGenericTeamId() const override { return MyTeamID; }
 	//~End of IGenericTeamAgentInterface
 
@@ -82,5 +82,7 @@ private:
 	UPROPERTY()
 	TObjectPtr<const UAstralCombatSet> CombatSet;
 
+	// FGenericTeamId는 USTRUCT라 직접 복제 가능 (Lyra 동일 패턴)
+	UPROPERTY(Replicated)
 	FGenericTeamId MyTeamID = FGenericTeamId(0);
 };

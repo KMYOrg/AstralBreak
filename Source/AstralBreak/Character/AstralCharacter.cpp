@@ -1,10 +1,12 @@
 #include "AstralCharacter.h"
 
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "Character/Components/AstralCharacterMovementComponent.h"
 #include "Character/Components/AstralHealthComponent.h"
 #include "Components/AstralPawnExtensionComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameplayEffect.h"
 #include "Player/AstralPlayerState.h"
@@ -27,13 +29,66 @@ AAstralCharacter::AAstralCharacter(const FObjectInitializer& ObjectInitializer)
 	AstralMoveComp->bOrientRotationToMovement = true;
 
 	PawnExtComponent = CreateDefaultSubobject<UAstralPawnExtensionComponent>(TEXT("PawnExtComponent"));
+	PawnExtComponent->OnAbilitySystemInitialized_RegisterAndCall(FSimpleMulticastDelegate::FDelegate::CreateUObject(this, &ThisClass::OnAbilitySystemInitialized));
+	PawnExtComponent->OnAbilitySystemUninitialized_Register(FSimpleMulticastDelegate::FDelegate::CreateUObject(this, &ThisClass::OnAbilitySystemUninitialized));
 
 	HealthComponent = CreateDefaultSubobject<UAstralHealthComponent>(TEXT("HealthComponent"));
+}
+
+void AAstralCharacter::OnAbilitySystemInitialized()
+{
+	UAstralAbilitySystemComponent* AstralASC = GetAstralAbilitySystemComponent();
+	check(AstralASC);
+
+	HealthComponent->InitializeWithAbilitySystem(AstralASC);
+}
+
+void AAstralCharacter::OnAbilitySystemUninitialized()
+{
+	HealthComponent->UninitializeFromAbilitySystem();
 }
 
 void AAstralCharacter::PreInitializeComponents()
 {
 	Super::PreInitializeComponents();
+}
+
+void AAstralCharacter::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+
+	// HealthComponent 델리게이트는 컴포넌트 수명(=액터 수명) — ASC Init/Uninit 주기와 무관하게 1회 바인딩 (더미와 동일 패턴)
+	HealthComponent->OnDeathStarted.AddDynamic(this, &ThisClass::HandleDeathStarted);
+	HealthComponent->OnDeathReset.AddDynamic(this, &ThisClass::HandleDeathReset);
+	// OnDeathFinished: 현재는 dead 유지 — TODO: M6 리스폰/관전
+}
+
+void AAstralCharacter::HandleDeathStarted(AActor* OwningActor)
+{
+	// 게임플레이 필수 반응만 — 몽타주/래그돌/디졸브 연출은 BP(OnDeathStarted)
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->StopMovementImmediately();
+		MoveComp->DisableMovement();
+	}
+}
+
+void AAstralCharacter::HandleDeathReset(AActor* OwningActor)
+{
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	}
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->SetMovementMode(MOVE_Walking);
+	}
 }
 
 void AAstralCharacter::BeginPlay()
@@ -142,6 +197,37 @@ void AAstralCharacter::ServerDamageSelf_Implementation(float Amount)
 		SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_Damage, Amount);
 		ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
 	}
+#endif
+}
+
+void AAstralCharacter::ReviveSelf()
+{
+#if !UE_BUILD_SHIPPING
+	if (HasAuthority())
+	{
+		ServerReviveSelf_Implementation();
+	}
+	else
+	{
+		ServerReviveSelf();
+	}
+#endif
+}
+
+void AAstralCharacter::ServerReviveSelf_Implementation()
+{
+#if !UE_BUILD_SHIPPING
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+	
+	const float MaxHealth = ASC->GetNumericAttribute(UAstralHealthSet::GetMaxHealthAttribute());
+	ASC->ApplyModToAttribute(UAstralHealthSet::GetHealthAttribute(), EGameplayModOp::Override, MaxHealth);
+
+	// 사망 상태 해제 → OnDeathReset → HandleDeathReset(콜리전/이동 복구). 클라는 DeathState 역행 OnRep이 리플레이
+	HealthComponent->ResetDeathState();
 #endif
 }
 

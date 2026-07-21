@@ -15,6 +15,9 @@ namespace AstralGameplayTags
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Attack_Basic);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Attack_Basic_Melee);
 
+	// 사망 시 CancelAbilities에서 제외되는 어빌리티 표시 (GA_Death 자신, 추후 자가 부활 등)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Behavior_SurvivesDeath);
+
 	/**
 	 * State
 	 */
@@ -25,7 +28,6 @@ namespace AstralGameplayTags
 
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Stamina_RegenBlocked);
 
-	// 사망 상태 — 부모(State.Death)로 매칭하면 Dying/Dead 둘 다 걸림 (어빌리티 차단 / 히트 필터 / 수급 차단)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Death);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Death_Dying);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Death_Dead);

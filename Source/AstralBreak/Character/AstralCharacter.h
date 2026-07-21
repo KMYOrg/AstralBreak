@@ -35,13 +35,32 @@ public:
 	UFUNCTION(Exec)
 	void DamageSelf(float Amount = 25.0f);
 
+	/** 디버그 — 콘솔에서 `ReviveSelf`. HP 전체 회복 + 사망 상태 리셋 (사망 재테스트용) */
+	UFUNCTION(Exec)
+	void ReviveSelf();
+
 protected:
 	UFUNCTION(Server, Reliable)
 	void ServerDamageSelf(float Amount);
 
+	UFUNCTION(Server, Reliable)
+	void ServerReviveSelf();
+
+	virtual void OnAbilitySystemInitialized();
+	virtual void OnAbilitySystemUninitialized();
+
+	/** 사망 물리 반응 — 게임플레이 필수(콜리전/이동 정지)만 C++. 몽타주·래그돌 등 연출은 BP가 OnDeathStarted 구독 */
+	UFUNCTION()
+	virtual void HandleDeathStarted(AActor* OwningActor);
+
+	/** 부활(디버그 ReviveSelf / 추후 M6 리스폰) — 콜리전/이동 복구 */
+	UFUNCTION()
+	virtual void HandleDeathReset(AActor* OwningActor);
+
 protected:
 	//~ AActor
 	virtual void PreInitializeComponents() override;
+	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	//~ End AActor

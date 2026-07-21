@@ -1,9 +1,11 @@
 #include "AstralHealthComponent.h"
 
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "AstralLogChannels.h"
+#include "GameplayEffectTypes.h"
 #include "Net/UnrealNetwork.h"
 
 UAstralHealthComponent::UAstralHealthComponent(const FObjectInitializer& ObjectInitializer)
@@ -90,6 +92,9 @@ void UAstralHealthComponent::UninitializeFromAbilitySystem()
 	HealthChangedDelegateHandle.Reset();
 	HealthSet = nullptr;
 	AbilitySystemComponent = nullptr;
+
+	// 아바타 재사용/재연결 시 이전 사망 상태 잔존 방지 (정리 목적 — 브로드캐스트 없이)
+	DeathState = EAstralDeathState::NotDead;
 }
 
 float UAstralHealthComponent::GetHealth() const
@@ -115,11 +120,36 @@ void UAstralHealthComponent::HandleHealthAttributeChanged(const FOnAttributeChan
 
 void UAstralHealthComponent::HandleOutOfHealth(AActor* DamageInstigator, AActor* DamageCauser, const FGameplayEffectSpec* DamageEffectSpec, float DamageMagnitude, float OldValue, float NewValue)
 {
+#if WITH_SERVER_CODE
 	AActor* Owner = GetOwner();
-	if (Owner && Owner->HasAuthority())
+	if (!Owner || !Owner->HasAuthority() || !AbilitySystemComponent)
 	{
-		StartDeath();
+		return;
 	}
+
+	// GameplayEvent.Death 발송 → GA_Death 트리거. StartDeath는 GA_Death가 호출한다
+	FGameplayEventData Payload;
+	Payload.EventTag = AstralGameplayTags::GameplayEvent_Death;
+	Payload.Instigator = DamageInstigator;
+	Payload.Target = AbilitySystemComponent->GetAvatarActor();
+	Payload.EventMagnitude = DamageMagnitude;
+	if (DamageEffectSpec)
+	{
+		Payload.OptionalObject = DamageEffectSpec->Def;
+		Payload.ContextHandle = DamageEffectSpec->GetEffectContext();
+		Payload.InstigatorTags = *DamageEffectSpec->CapturedSourceTags.GetAggregatedTags();
+		Payload.TargetTags = *DamageEffectSpec->CapturedTargetTags.GetAggregatedTags();
+	}
+
+	FScopedPredictionWindow NewScopedWindow(AbilitySystemComponent, true);
+	const int32 NumTriggeredAbilities = AbilitySystemComponent->HandleGameplayEvent(Payload.EventTag, &Payload);
+
+	// GA_Death 미부여 폰은 죽음이 시작되지 않음 — 데이터 설정 누락을 즉시 드러낸다
+	if (NumTriggeredAbilities <= 0)
+	{
+		UE_LOG(LogAstral, Warning, TEXT("AstralHealthComponent: [%s] hit 0 HP but no ability handled GameplayEvent.Death — grant GA_Death via an AbilitySet."), *GetNameSafe(Owner));
+	}
+#endif
 }
 
 void UAstralHealthComponent::StartDeath()
@@ -134,15 +164,10 @@ void UAstralHealthComponent::StartDeath()
 	AActor* Owner = GetOwner();
 	check(Owner);
 
+	// 어빌리티 취소는 GA_Death의 책임 (SurvivesDeath 예외 + 자기 자신 제외를 GA만 알 수 있음)
 	if (AbilitySystemComponent)
 	{
 		AbilitySystemComponent->SetLooseGameplayTagCount(AstralGameplayTags::State_Death_Dying, 1);
-
-		// 진행 중 어빌리티 정리는 서버 권위 — 클라 예측분은 복제로 종료됨
-		if (Owner->HasAuthority())
-		{
-			AbilitySystemComponent->CancelAbilities();
-		}
 	}
 
 	OnDeathStarted.Broadcast(Owner);
@@ -173,17 +198,47 @@ void UAstralHealthComponent::FinishDeath()
 	Owner->ForceNetUpdate();
 }
 
+void UAstralHealthComponent::ResetDeathState()
+{
+	if (DeathState == EAstralDeathState::NotDead)
+	{
+		return;
+	}
+
+	DeathState = EAstralDeathState::NotDead;
+
+	AActor* Owner = GetOwner();
+	check(Owner);
+
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->SetLooseGameplayTagCount(AstralGameplayTags::State_Death_Dying, 0);
+		AbilitySystemComponent->SetLooseGameplayTagCount(AstralGameplayTags::State_Death_Dead, 0);
+	}
+
+	OnDeathReset.Broadcast(Owner);
+
+	Owner->ForceNetUpdate();
+}
+
 void UAstralHealthComponent::OnRep_DeathState(EAstralDeathState OldDeathState)
 {
 	const EAstralDeathState NewDeathState = DeathState;
 
-	// StartDeath/FinishDeath가 전이를 수행하도록 일단 되돌린 뒤 리플레이 (Lyra 패턴)
+	// 전이 함수들이 직접 전이를 수행하도록 일단 되돌린 뒤 리플레이 (Lyra 패턴)
 	DeathState = OldDeathState;
 
 	if (OldDeathState > NewDeathState)
 	{
-		// 서버가 죽음을 되돌리는 경우는 없음 — 역행은 무시
-		UE_LOG(LogAstral, Warning, TEXT("AstralHealthComponent: Predicted past server death state [%d] -> [%d] for owner [%s]."), (uint8)OldDeathState, (uint8)NewDeathState, *GetNameSafe(GetOwner()));
+		if (NewDeathState == EAstralDeathState::NotDead)
+		{
+			// 부활 (ReviveSelf / 추후 리스폰) — 클라도 태그 정리 + OnDeathReset 리플레이
+			ResetDeathState();
+			return;
+		}
+
+		// NotDead 외의 역행(DeathFinished→DeathStarted 등)은 정상 경로가 아님 — 값만 수용
+		UE_LOG(LogAstral, Warning, TEXT("AstralHealthComponent: Unexpected death state regression [%d] -> [%d] for owner [%s]."), (uint8)OldDeathState, (uint8)NewDeathState, *GetNameSafe(GetOwner()));
 		DeathState = NewDeathState;
 		return;
 	}

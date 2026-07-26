@@ -30,4 +30,10 @@ public:
 	/** State.Death(Dying/Dead 포함) 태그 보유 여부 */
 	UFUNCTION(BlueprintPure, Category = "Astral|Combat")
 	static bool IsDeadOrDying(const AActor* Actor);
+
+	/**
+	 * 전방 스피어 스윕 → CanDamage 필터 → 데미지 GE(SetByCaller.Damage) 적용. 적중한 타겟 수 반환.
+	 * 서버 전용 (데미지 execute는 서버 권위) — Hero 근접 콤보 / 더미 텔레그래프 / M3 몬스터 공격이 공유.
+	 */
+	static int32 ApplyDamageSweep(class UAbilitySystemComponent* SourceASC, AActor* Avatar, TSubclassOf<class UGameplayEffect> DamageEffectClass, float BaseDamage, float TraceStartOffset, float TraceDistance, float TraceRadius, float EffectLevel = 1.0f);
 };

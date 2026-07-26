@@ -27,6 +27,11 @@ public:
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, BreakContributionMultiplier);
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, UltGain);
 
+    ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, MarkStack);
+    ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, MaxMarkStack);
+    ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, MarkGainMultiplier);
+    ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, MarkGain);
+
     mutable FAstralAttributeEvent OnUltFilled;
 
 protected:
@@ -42,6 +47,10 @@ protected:
     UFUNCTION() void OnRep_MaxUltGauge(const FGameplayAttributeData& OldValue);
     UFUNCTION() void OnRep_UltGainMultiplier(const FGameplayAttributeData& OldValue);
     UFUNCTION() void OnRep_BreakContributionMultiplier(const FGameplayAttributeData& OldValue);
+
+    UFUNCTION() void OnRep_MarkStack(const FGameplayAttributeData& OldValue);
+    UFUNCTION() void OnRep_MaxMarkStack(const FGameplayAttributeData& OldValue);
+    UFUNCTION() void OnRep_MarkGainMultiplier(const FGameplayAttributeData& OldValue);
 
     virtual void PreAttributeBaseChange(const FGameplayAttribute& Attribute, float& NewValue) const override;
     virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
@@ -80,6 +89,21 @@ private:
     /** 오의 수급 meta — GE_UltGain(SetByCaller.UltGain)의 착지점. 비복제, 처리 후 0 리셋 */
     UPROPERTY(BlueprintReadOnly, Category = "Astral|Ult", meta = (AllowPrivateAccess = true))
     FGameplayAttributeData UltGain;
+
+    /** 표식 스택 — 히어로 개인 자원 (정수 개념, GAS 관례상 float). 축적: 패링/콤보 피니셔, 소비: 강화 공격 */
+    UPROPERTY(BlueprintReadOnly, Category = "Astral|Mark", ReplicatedUsing = OnRep_MarkStack, meta = (AllowPrivateAccess = true))
+    FGameplayAttributeData MarkStack;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Astral|Mark", ReplicatedUsing = OnRep_MaxMarkStack, meta = (AllowPrivateAccess = true))
+    FGameplayAttributeData MaxMarkStack;
+
+    /** M7 고유 기믹 트리 "표식 강화"의 예약 노브 */
+    UPROPERTY(BlueprintReadOnly, Category = "Astral|Mark", ReplicatedUsing = OnRep_MarkGainMultiplier, meta = (AllowPrivateAccess = true))
+    FGameplayAttributeData MarkGainMultiplier;
+
+    /** 표식 수급 meta — GE_MarkGain(SetByCaller.MarkGain)의 착지점. 비복제, 처리 후 0 리셋 */
+    UPROPERTY(BlueprintReadOnly, Category = "Astral|Mark", meta = (AllowPrivateAccess = true))
+    FGameplayAttributeData MarkGain;
 
     // 서버 전용 — OnUltFilled 1회 발사 게이트
     bool bUltFilled;

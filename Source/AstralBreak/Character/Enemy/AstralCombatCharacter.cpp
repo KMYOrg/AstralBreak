@@ -6,6 +6,7 @@
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "Character/Components/AstralHealthComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
 
@@ -27,6 +28,9 @@ AAstralCombatCharacter::AAstralCombatCharacter(const FObjectInitializer& ObjectI
 	CombatSet = CreateDefaultSubobject<UAstralCombatSet>(TEXT("CombatSet"));
 
 	HealthComponent = CreateDefaultSubobject<UAstralHealthComponent>(TEXT("HealthComponent"));
+
+	// 비렌더 시에도 애님 틱 유지 — B-2 텔레그래프 공격의 서버 노티파이 타이밍 보장 (Hero와 동일 사유)
+	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPose;
 }
 
 UAbilitySystemComponent* AAstralCombatCharacter::GetAbilitySystemComponent() const

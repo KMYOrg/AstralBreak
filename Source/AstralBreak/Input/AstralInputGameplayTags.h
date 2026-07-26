@@ -20,5 +20,6 @@ namespace AstralGameplayTags
 	 * Combat
 	 */
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Attack_Basic);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Attack_Empowered);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_SwitchCombatStyle);
 }

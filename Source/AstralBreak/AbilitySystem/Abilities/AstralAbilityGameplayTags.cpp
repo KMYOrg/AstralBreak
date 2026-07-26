@@ -12,6 +12,7 @@ namespace AstralGameplayTags
 
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Attack_Basic, "Ability.Attack.Basic");
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Attack_Basic_Melee, "Ability.Attack.Basic.Melee");
+	UE_DEFINE_GAMEPLAY_TAG(Ability_Attack_Empowered, "Ability.Attack.Empowered");
 
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Behavior_SurvivesDeath, "Ability.Behavior.SurvivesDeath");
 

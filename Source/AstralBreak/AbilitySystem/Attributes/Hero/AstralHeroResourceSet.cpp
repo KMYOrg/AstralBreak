@@ -16,6 +16,10 @@ UAstralHeroResourceSet::UAstralHeroResourceSet()
     InitMaxUltGauge(100.f);
     InitUltGainMultiplier(1.f);
     InitBreakContributionMultiplier(1.f);
+
+    InitMarkStack(0.f);
+    InitMaxMarkStack(5.f);
+    InitMarkGainMultiplier(1.f);
 }
 
 void UAstralHeroResourceSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -31,6 +35,10 @@ void UAstralHeroResourceSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
     DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, MaxUltGauge,                COND_None, REPNOTIFY_Always);
     DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, UltGainMultiplier,          COND_None, REPNOTIFY_Always);
     DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, BreakContributionMultiplier,COND_None, REPNOTIFY_Always);
+
+    DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, MarkStack,                  COND_None, REPNOTIFY_Always);
+    DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, MaxMarkStack,               COND_None, REPNOTIFY_Always);
+    DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, MarkGainMultiplier,         COND_None, REPNOTIFY_Always);
 }
 
 #define DEFINE_ONREP(Name) \
@@ -47,6 +55,9 @@ DEFINE_ONREP(UltGauge)
 DEFINE_ONREP(MaxUltGauge)
 DEFINE_ONREP(UltGainMultiplier)
 DEFINE_ONREP(BreakContributionMultiplier)
+DEFINE_ONREP(MarkStack)
+DEFINE_ONREP(MaxMarkStack)
+DEFINE_ONREP(MarkGainMultiplier)
 // TODO: 
 
 #undef DEFINE_ONREP
@@ -80,6 +91,13 @@ void UAstralHeroResourceSet::PostAttributeChange(const FGameplayAttribute& Attri
         if (GetUltGauge() > NewValue && ASC)
         {
             ASC->ApplyModToAttribute(GetUltGaugeAttribute(), EGameplayModOp::Override, NewValue);
+        }
+    }
+    else if (Attribute == GetMaxMarkStackAttribute())
+    {
+        if (GetMarkStack() > NewValue && ASC)
+        {
+            ASC->ApplyModToAttribute(GetMarkStackAttribute(), EGameplayModOp::Override, NewValue);
         }
     }
     
@@ -123,6 +141,23 @@ void UAstralHeroResourceSet::PostGameplayEffectExecute(const FGameplayEffectModC
             // OnUltFilled 1회 게이트는 PostAttributeChange에서 발화
         }
     }
+    else if (Data.EvaluatedData.Attribute == GetMarkGainAttribute())
+    {
+        const float LocalMarkGain = GetMarkGain();
+        SetMarkGain(0.f);
+
+        // 사망 상태에선 수급 차단 (UltGain과 동일 규칙)
+        if (Data.Target.HasMatchingGameplayTag(AstralGameplayTags::State_Death))
+        {
+            return;
+        }
+
+        if (LocalMarkGain > 0.f)
+        {
+            const float NewMarkStack = GetMarkStack() + (LocalMarkGain * GetMarkGainMultiplier());
+            SetMarkStack(FMath::Clamp(NewMarkStack, 0.f, GetMaxMarkStack()));
+        }
+    }
 }
 
 void UAstralHeroResourceSet::ClampAttribute(const FGameplayAttribute& Attribute, float& NewValue) const
@@ -143,10 +178,19 @@ void UAstralHeroResourceSet::ClampAttribute(const FGameplayAttribute& Attribute,
     {
         NewValue = FMath::Max(NewValue, 1.f);
     }
+    else if (Attribute == GetMarkStackAttribute())
+    {
+        NewValue = FMath::Clamp(NewValue, 0.f, GetMaxMarkStack());
+    }
+    else if (Attribute == GetMaxMarkStackAttribute())
+    {
+        NewValue = FMath::Max(NewValue, 1.f);
+    }
     else if (Attribute == GetStaminaCostMultiplierAttribute()
           || Attribute == GetStaminaRecoveryMultiplierAttribute()
           || Attribute == GetUltGainMultiplierAttribute()
-          || Attribute == GetBreakContributionMultiplierAttribute())
+          || Attribute == GetBreakContributionMultiplierAttribute()
+          || Attribute == GetMarkGainMultiplierAttribute())
     {
         NewValue = FMath::Max(NewValue, 0.f);
     }

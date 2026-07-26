@@ -26,10 +26,16 @@ protected:
 	void ApplyRegenBlockEffect(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const;
 
 	/**
-	 * UltGainEffectClass(GE_UltGain)를 SetByCaller.UltGain=Amount로 자신에게 적용
-	 * 적중·패링 성공 등 모든 어빌리티발 수급 지점
+	 * UltGainEffectClass(GE_UltGain)를 SetByCaller.UltGain=Amount로 자신에게 적용 - 적중·패링 성공 등 모든 어빌리티발 수급 지점
 	 */
 	void ApplyUltGain(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, float Amount) const;
+
+	/** MarkGainEffectClass(GE_MarkGain)를 SetByCaller.MarkGain=Amount로 자신에게 적용 — 콤보 피니셔/패링 보상 수급 지점 */
+	void ApplyMarkGain(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, float Amount) const;
+
+private:
+	/** SetByCaller 수급 GE 공통 적용 */
+	void ApplySetByCallerGainEffect(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, TSubclassOf<UGameplayEffect> EffectClass, const FGameplayTag& SetByCallerTag, float Amount) const;
 
 protected:
 	/** 스태미나 회복 지연 GE (BP에서 GE_Stamina_RegenBlock 지정 — 딜레이 값은 GE의 Duration) */
@@ -43,4 +49,8 @@ protected:
 	/** 적중 1회(타겟 1기)당 오의 수급량 — 0이면 수급 없음. 광역 다중 적중 시 타겟 수 비례 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ult", Meta = (ClampMin = "0.0"))
 	float UltGainOnHit = 0.0f;
+
+	/** 표식 수급 GE (BP에서 GE_MarkGain 지정 — SetByCaller.MarkGain 모디파이어 1개) */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Mark")
+	TSubclassOf<UGameplayEffect> MarkGainEffectClass;
 };

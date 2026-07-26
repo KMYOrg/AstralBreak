@@ -3,8 +3,11 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
+#include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
+#include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
+#include "GameplayEffect.h"
 
 bool UAstralCombatStatics::CanDamage(const AActor* SourceActor, const AActor* TargetActor)
 {
@@ -74,4 +77,67 @@ bool UAstralCombatStatics::IsDeadOrDying(const AActor* Actor)
 	}
 
 	return false;
+}
+
+int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC, AActor* Avatar, TSubclassOf<UGameplayEffect> DamageEffectClass, float BaseDamage, float TraceStartOffset, float TraceDistance, float TraceRadius, float EffectLevel)
+{
+	if (!SourceASC || !Avatar || !DamageEffectClass)
+	{
+		return 0;
+	}
+
+	UWorld* World = Avatar->GetWorld();
+	if (!World)
+	{
+		return 0;
+	}
+
+	// Sphere Sweep — 아바타 정면
+	const FVector Forward = Avatar->GetActorForwardVector();
+	const FVector Start   = Avatar->GetActorLocation() + Forward * TraceStartOffset;
+	const FVector End     = Start + Forward * TraceDistance;
+
+	TArray<FHitResult> Hits;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(AstralCombat_DamageSweep), false);
+	Params.AddIgnoredActor(Avatar);
+	World->SweepMultiByChannel(Hits, Start, End, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(TraceRadius), Params);
+
+	// 중복 타겟 방지
+	TSet<AActor*> Damaged;
+	int32 NumTargetsHit = 0;
+
+	for (const FHitResult& Hit : Hits)
+	{
+		AActor* TargetActor = Hit.GetActor();
+		if (!TargetActor || Damaged.Contains(TargetActor))
+		{
+			continue;
+		}
+		// 피아 필터 — Hostile만 허용 (아군/중립/사망 대상 오폭 차단)
+		if (!CanDamage(Avatar, TargetActor))
+		{
+			continue;
+		}
+		UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(TargetActor);
+		if (!TargetASC)
+		{
+			continue;
+		}
+
+		FGameplayEffectContextHandle Context = SourceASC->MakeEffectContext();
+		// TODO: 추후 avatar를 무기로 변경
+		Context.AddInstigator(Avatar, Avatar);
+		Context.AddHitResult(Hit);
+
+		const FGameplayEffectSpecHandle SpecHandle = SourceASC->MakeOutgoingSpec(DamageEffectClass, EffectLevel, Context);
+		if (SpecHandle.IsValid())
+		{
+			SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_Damage, BaseDamage);
+			SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
+			Damaged.Add(TargetActor);
+			++NumTargetsHit;
+		}
+	}
+
+	return NumTargetsHit;
 }

@@ -7,6 +7,7 @@
 #include "Character/Components/AstralHealthComponent.h"
 #include "Components/AstralPawnExtensionComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameplayEffect.h"
 #include "Player/AstralPlayerState.h"
@@ -27,6 +28,11 @@ AAstralCharacter::AAstralCharacter(const FObjectInitializer& ObjectInitializer)
 
 	UCharacterMovementComponent* AstralMoveComp = GetCharacterMovement();
 	AstralMoveComp->bOrientRotationToMovement = true;
+
+	// 비렌더 메시(서버에서 화면 밖 폰)에서도 애님 틱 유지 — 기본값이면 NotifyState Begin/End가 틱마다 재발화하고
+	// 히트/콤보 노티파이의 서버 측 타이밍이 깨진다
+	// TODO: 최적화 고민 필요
+	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPose;
 
 	PawnExtComponent = CreateDefaultSubobject<UAstralPawnExtensionComponent>(TEXT("PawnExtComponent"));
 	PawnExtComponent->OnAbilitySystemInitialized_RegisterAndCall(FSimpleMulticastDelegate::FDelegate::CreateUObject(this, &ThisClass::OnAbilitySystemInitialized));

@@ -1,13 +1,24 @@
 #include "AstralCombatStatics.h"
 
+#include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
+#include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
 #include "GameplayEffect.h"
+#include "GameplayEffectExtension.h"
+#include "System/AstralGameData.h"
+
+namespace
+{
+	// 정면 판정 반각 — 120° 콘. M5에서 공격별 세분화가 필요해지면 데이터화
+	constexpr float FrontalHalfAngleDeg = 60.f;
+}
 
 bool UAstralCombatStatics::CanDamage(const AActor* SourceActor, const AActor* TargetActor)
 {
@@ -79,9 +90,16 @@ bool UAstralCombatStatics::IsDeadOrDying(const AActor* Actor)
 	return false;
 }
 
-int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC, AActor* Avatar, TSubclassOf<UGameplayEffect> DamageEffectClass, float BaseDamage, float TraceStartOffset, float TraceDistance, float TraceRadius, float EffectLevel)
+int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC, AActor* Avatar, float BaseDamage, float TraceStartOffset, float TraceDistance, float TraceRadius, float EffectLevel)
 {
-	if (!SourceASC || !Avatar || !DamageEffectClass)
+	if (!SourceASC || !Avatar)
+	{
+		return 0;
+	}
+
+	// 데미지 파이프라인 GE는 전역 단일 — GameData에서 해석 (호출자별 중복 지정 제거)
+	const TSubclassOf<UGameplayEffect> DamageEffectClass = UAstralGameData::Get().DamageGameplayEffect_SetByCaller.LoadSynchronous();
+	if (!DamageEffectClass)
 	{
 		return 0;
 	}
@@ -140,4 +158,75 @@ int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC,
 	}
 
 	return NumTargetsHit;
+}
+
+bool UAstralCombatStatics::ResolveIncomingDamage(FGameplayEffectModCallbackData& Data)
+{
+	UAbilitySystemComponent& TargetASC = Data.Target;
+
+	const bool bParrying = TargetASC.HasMatchingGameplayTag(AstralGameplayTags::State_Defense_Parrying);
+	const bool bGuarding = TargetASC.HasMatchingGameplayTag(AstralGameplayTags::State_Defense_Guarding);
+	if (!bParrying && !bGuarding)
+	{
+		return true;
+	}
+
+	// 가드 불가 데미지
+	FGameplayTagContainer SpecAssetTags;
+	Data.EffectSpec.GetAllAssetTags(SpecAssetTags);
+	if (SpecAssetTags.HasTag(AstralGameplayTags::Damage_Type_Unblockable))
+	{
+		return true;
+	}
+
+	// 위치·전방은 반드시 AvatarActor — 히어로의 HealthSet 오너는 PlayerState
+	AActor* DefenderAvatar = TargetASC.GetAvatarActor();
+	AActor* Attacker = Data.EffectSpec.GetEffectContext().GetOriginalInstigator();
+	if (!DefenderAvatar || !Attacker)
+	{
+		return true;
+	}
+
+	// 정면 판정 (2D — 높이차 무시)
+	const FVector ToAttacker = (Attacker->GetActorLocation() - DefenderAvatar->GetActorLocation()).GetSafeNormal2D();
+	const FVector DefenderForward = DefenderAvatar->GetActorForwardVector().GetSafeNormal2D();
+	if (FVector::DotProduct(DefenderForward, ToAttacker) < FMath::Cos(FMath::DegreesToRadians(FrontalHalfAngleDeg)))
+	{
+		return true;
+	}
+
+	if (bParrying)
+	{
+		// 완전 무효 + 양측 통지 — 보상(표식/오의)은 방어 GA가 Parried 수신 후 처리, 경직은 공격 GA가 Staggered 수신 후 처리
+		FGameplayEventData ParriedPayload;
+		ParriedPayload.Instigator = Attacker;
+		ParriedPayload.Target = DefenderAvatar;
+		ParriedPayload.EventMagnitude = Data.EvaluatedData.Magnitude;
+		UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(DefenderAvatar, AstralGameplayTags::GameplayEvent_Parried, ParriedPayload);
+
+		FGameplayEventData StaggeredPayload;
+		StaggeredPayload.Instigator = DefenderAvatar;
+		StaggeredPayload.Target = Attacker;
+		UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(Attacker, AstralGameplayTags::GameplayEvent_Staggered, StaggeredPayload);
+
+		return false;
+	}
+
+	// 가드 — GuardDamageMultiplier 감쇄 (히어로 전용 ResourceSet, 없으면 안전 기본값)
+	float GuardMultiplier = 0.5f;
+	if (TargetASC.HasAttributeSetForAttribute(UAstralHeroResourceSet::GetGuardDamageMultiplierAttribute()))
+	{
+		GuardMultiplier = TargetASC.GetNumericAttribute(UAstralHeroResourceSet::GetGuardDamageMultiplierAttribute());
+	}
+
+	const float OriginalMagnitude = Data.EvaluatedData.Magnitude;
+	Data.EvaluatedData.Magnitude = OriginalMagnitude * GuardMultiplier;
+
+	FGameplayEventData GuardedPayload;
+	GuardedPayload.Instigator = Attacker;
+	GuardedPayload.Target = DefenderAvatar;
+	GuardedPayload.EventMagnitude = OriginalMagnitude - Data.EvaluatedData.Magnitude; // 막은 양 — 가드 스태미나 소모의 기준
+	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(DefenderAvatar, AstralGameplayTags::GameplayEvent_Guarded, GuardedPayload);
+
+	return true;
 }

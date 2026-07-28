@@ -11,6 +11,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameplayEffect.h"
 #include "Player/AstralPlayerState.h"
+#include "System/AstralGameData.h"
 
 
 AAstralCharacter::AAstralCharacter(const FObjectInitializer& ObjectInitializer)
@@ -186,9 +187,8 @@ void AAstralCharacter::ServerDamageSelf_Implementation(float Amount)
 		return;
 	}
 
-	// 디버그 전용이라 콘텐츠 경로 하드코딩 허용 — 정식 데미지 파이프라인(GE_Damage_Base + SetByCaller.Damage)을 그대로 태운다
-	static const FSoftClassPath DebugDamageEffectPath(TEXT("/Game/AbilitySystem/Effects/Damage/GE_Damage_Base.GE_Damage_Base_C"));
-	UClass* DamageEffectClass = DebugDamageEffectPath.TryLoadClass<UGameplayEffect>();
+	// 정식 데미지 파이프라인(GameData의 Damage GE + SetByCaller.Damage)을 그대로 태운다
+	const TSubclassOf<UGameplayEffect> DamageEffectClass = UAstralGameData::Get().DamageGameplayEffect_SetByCaller.LoadSynchronous();
 	if (!DamageEffectClass)
 	{
 		return;

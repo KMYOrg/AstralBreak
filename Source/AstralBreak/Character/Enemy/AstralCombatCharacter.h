@@ -37,6 +37,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Astral|Combat")
 	UAstralHealthComponent* GetHealthComponent() const { return HealthComponent; }
 
+	UFUNCTION(BlueprintPure, Category = "Astral|Combat")
+	bool IsTelegraphAttackEnabled() const { return bTelegraphAttackEnabled; }
+
+	/**
+	 * 텔레그래프 예고 표시 — 전 머신 DrawDebug (디버그 전용, GameplayCue 도입 시 제거 예정).
+	 * DrawDebug는 월드 로컬이라 서버(ServerOnly GA)에서만 그리면 클라 뷰포트에 안 보임 → 멀티캐스트로 각 머신이 그린다
+	 */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastDrawTelegraphDebug(float Duration, float TraceStartOffset, float TraceDistance, float TraceRadius);
+
 protected:
 	//~ AActor
 	virtual void PostInitializeComponents() override;
@@ -72,6 +82,10 @@ protected:
 	/** 팀 ID (플레이어 = 0, 적 = 1). 런타임 변경(SetGenericTeamId)이 클라에도 반영되도록 복제 */
 	UPROPERTY(EditAnywhere, Replicated, Category = "Astral|Team")
 	uint8 TeamId = 1;
+
+	/** 예고 공격 루프 활성 여부 — GA_Enemy_TelegraphAttack이 매 사이클 확인. 패시브/예고 더미를 레벨에서 구분 배치 (서버 판정 전용) */
+	UPROPERTY(EditAnywhere, Category = "Astral|Combat")
+	bool bTelegraphAttackEnabled = false;
 
 	/** FinishDeath 후 액터 제거까지의 시간 (초) */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Death", Meta = (ClampMin = "0.0"))

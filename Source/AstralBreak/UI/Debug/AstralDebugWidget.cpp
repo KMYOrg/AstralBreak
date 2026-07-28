@@ -123,6 +123,7 @@ FString UAstralDebugWidget::GetAttributesString() const
         Out.Appendf(TEXT("STM: %.0f / %.0f\n"), R->GetStamina(),  R->GetMaxStamina());
         Out.Appendf(TEXT("ULT: %.0f / %.0f (Mul %.2f)\n"), R->GetUltGauge(), R->GetMaxUltGauge(), R->GetUltGainMultiplier());
         Out.Appendf(TEXT("MARK: %.0f / %.0f (Mul %.2f)\n"), R->GetMarkStack(), R->GetMaxMarkStack(), R->GetMarkGainMultiplier());
+        Out.Appendf(TEXT("GRD: x%.2f\n"), R->GetGuardDamageMultiplier());
     }
     else
     {

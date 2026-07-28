@@ -36,11 +36,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Empowered")
 	TObjectPtr<UAnimMontage> AttackMontage;
 
-	/** Damage GE 클래스 (BP에서 GE_Damage_Base 지정) */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|Empowered")
-	TSubclassOf<UGameplayEffect> DamageEffectClass;
-
-	/** 강화 데미지 — 기본 공격보다 높게 (SetByCaller.Damage 주입) */
+	/** 강화 데미지 — 기본 공격보다 높게 (Damage GE는 GameData 전역, SetByCaller.Damage 주입) */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Empowered")
 	float BaseDamage = 60.f;
 

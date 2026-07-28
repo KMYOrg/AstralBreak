@@ -20,6 +20,8 @@ UAstralHeroResourceSet::UAstralHeroResourceSet()
     InitMarkStack(0.f);
     InitMaxMarkStack(5.f);
     InitMarkGainMultiplier(1.f);
+
+    InitGuardDamageMultiplier(0.5f);
 }
 
 void UAstralHeroResourceSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -39,6 +41,8 @@ void UAstralHeroResourceSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
     DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, MarkStack,                  COND_None, REPNOTIFY_Always);
     DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, MaxMarkStack,               COND_None, REPNOTIFY_Always);
     DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, MarkGainMultiplier,         COND_None, REPNOTIFY_Always);
+
+    DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, GuardDamageMultiplier,      COND_None, REPNOTIFY_Always);
 }
 
 #define DEFINE_ONREP(Name) \
@@ -58,7 +62,7 @@ DEFINE_ONREP(BreakContributionMultiplier)
 DEFINE_ONREP(MarkStack)
 DEFINE_ONREP(MaxMarkStack)
 DEFINE_ONREP(MarkGainMultiplier)
-// TODO: 
+DEFINE_ONREP(GuardDamageMultiplier)
 
 #undef DEFINE_ONREP
 
@@ -185,6 +189,11 @@ void UAstralHeroResourceSet::ClampAttribute(const FGameplayAttribute& Attribute,
     else if (Attribute == GetMaxMarkStackAttribute())
     {
         NewValue = FMath::Max(NewValue, 1.f);
+    }
+    else if (Attribute == GetGuardDamageMultiplierAttribute())
+    {
+        // 0 = 완전 무효, 1 = 감쇄 없음 — 증폭(>1)은 비허용
+        NewValue = FMath::Clamp(NewValue, 0.f, 1.f);
     }
     else if (Attribute == GetStaminaCostMultiplierAttribute()
           || Attribute == GetStaminaRecoveryMultiplierAttribute()

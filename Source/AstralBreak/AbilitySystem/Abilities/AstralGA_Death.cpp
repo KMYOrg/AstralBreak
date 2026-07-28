@@ -16,6 +16,11 @@ UAstralGA_Death::UAstralGA_Death(const FObjectInitializer& ObjectInitializer)
 	// 사망 상태에서 발동되는 어빌리티 — 베이스의 State.Death 전면 차단 opt-out
 	ActivationBlockedTags.RemoveTag(AstralGameplayTags::State_Death);
 
+	// asset tag — CancelAbilities의 WithoutTags(SurvivesDeath) 예외가 실제로 매칭되도록
+	FGameplayTagContainer AssetTags;
+	AssetTags.AddTag(AstralGameplayTags::Ability_Behavior_SurvivesDeath);
+	SetAssetTags(AssetTags);
+
 	if (HasAnyFlags(RF_ClassDefaultObject))
 	{
 		// GameplayEvent.Death 수신 시 자동 트리거 (HealthComponent::HandleOutOfHealth가 발송)

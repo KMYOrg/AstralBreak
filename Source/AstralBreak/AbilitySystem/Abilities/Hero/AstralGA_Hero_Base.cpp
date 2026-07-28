@@ -4,6 +4,7 @@
 #include "AstralGA_Hero_Base.h"
 
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
+#include "System/AstralGameData.h"
 
 UAstralGA_Hero_Base::UAstralGA_Hero_Base(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -12,12 +13,18 @@ UAstralGA_Hero_Base::UAstralGA_Hero_Base(const FObjectInitializer& ObjectInitial
 
 void UAstralGA_Hero_Base::ApplyRegenBlockEffect(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
 {
-	if (!RegenBlockEffectClass || !ActorInfo || !ActorInfo->IsNetAuthority())
+	if (!ActorInfo || !ActorInfo->IsNetAuthority())
 	{
 		return;
 	}
 
-	const FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(Handle, ActorInfo, ActivationInfo, RegenBlockEffectClass, GetAbilityLevel());
+	const TSubclassOf<UGameplayEffect> EffectClass = UAstralGameData::Get().StaminaRegenBlockEffect.LoadSynchronous();
+	if (!EffectClass)
+	{
+		return;
+	}
+
+	const FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(Handle, ActorInfo, ActivationInfo, EffectClass, GetAbilityLevel());
 	if (SpecHandle.IsValid())
 	{
 		ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, SpecHandle);
@@ -26,17 +33,25 @@ void UAstralGA_Hero_Base::ApplyRegenBlockEffect(const FGameplayAbilitySpecHandle
 
 void UAstralGA_Hero_Base::ApplyUltGain(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, float Amount) const
 {
-	ApplySetByCallerGainEffect(Handle, ActorInfo, ActivationInfo, UltGainEffectClass, AstralGameplayTags::SetByCaller_UltGain, Amount);
+	if (Amount <= 0.f)
+	{
+		return;
+	}
+	ApplySetByCallerEffect(Handle, ActorInfo, ActivationInfo, UAstralGameData::Get().UltGainGameplayEffect_SetByCaller.LoadSynchronous(), AstralGameplayTags::SetByCaller_UltGain, Amount);
 }
 
 void UAstralGA_Hero_Base::ApplyMarkGain(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, float Amount) const
 {
-	ApplySetByCallerGainEffect(Handle, ActorInfo, ActivationInfo, MarkGainEffectClass, AstralGameplayTags::SetByCaller_MarkGain, Amount);
+	if (Amount <= 0.f)
+	{
+		return;
+	}
+	ApplySetByCallerEffect(Handle, ActorInfo, ActivationInfo, UAstralGameData::Get().MarkGainGameplayEffect_SetByCaller.LoadSynchronous(), AstralGameplayTags::SetByCaller_MarkGain, Amount);
 }
 
-void UAstralGA_Hero_Base::ApplySetByCallerGainEffect(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, TSubclassOf<UGameplayEffect> EffectClass, const FGameplayTag& SetByCallerTag, float Amount) const
+void UAstralGA_Hero_Base::ApplySetByCallerEffect(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, TSubclassOf<UGameplayEffect> EffectClass, const FGameplayTag& SetByCallerTag, float Amount) const
 {
-	if (!EffectClass || Amount <= 0.f || !ActorInfo || !ActorInfo->IsNetAuthority())
+	if (!EffectClass || FMath::IsNearlyZero(Amount) || !ActorInfo || !ActorInfo->IsNetAuthority())
 	{
 		return;
 	}

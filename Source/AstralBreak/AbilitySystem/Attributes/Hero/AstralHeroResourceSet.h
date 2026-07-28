@@ -32,6 +32,8 @@ public:
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, MarkGainMultiplier);
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, MarkGain);
 
+    ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, GuardDamageMultiplier);
+
     mutable FAstralAttributeEvent OnUltFilled;
 
 protected:
@@ -51,6 +53,7 @@ protected:
     UFUNCTION() void OnRep_MarkStack(const FGameplayAttributeData& OldValue);
     UFUNCTION() void OnRep_MaxMarkStack(const FGameplayAttributeData& OldValue);
     UFUNCTION() void OnRep_MarkGainMultiplier(const FGameplayAttributeData& OldValue);
+    UFUNCTION() void OnRep_GuardDamageMultiplier(const FGameplayAttributeData& OldValue);
 
     virtual void PreAttributeBaseChange(const FGameplayAttribute& Attribute, float& NewValue) const override;
     virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
@@ -104,6 +107,10 @@ private:
     /** 표식 수급 meta — GE_MarkGain(SetByCaller.MarkGain)의 착지점. 비복제, 처리 후 0 리셋 */
     UPROPERTY(BlueprintReadOnly, Category = "Astral|Mark", meta = (AllowPrivateAccess = true))
     FGameplayAttributeData MarkGain;
+
+    /** 가드 중 받는 데미지 배율 (0~1, 정면 가드 성공 시에만 적용). M7 "가드 강화"가 이 값을 낮춤 */
+    UPROPERTY(BlueprintReadOnly, Category = "Astral|Defense", ReplicatedUsing = OnRep_GuardDamageMultiplier, meta = (AllowPrivateAccess = true))
+    FGameplayAttributeData GuardDamageMultiplier;
 
     // 서버 전용 — OnUltFilled 1회 발사 게이트
     bool bUltFilled;

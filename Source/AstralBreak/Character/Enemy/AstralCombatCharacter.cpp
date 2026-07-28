@@ -7,6 +7,7 @@
 #include "Character/Components/AstralHealthComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "DrawDebugHelpers.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
 
@@ -71,6 +72,18 @@ void AAstralCombatCharacter::BeginPlay()
 			}
 		}
 	}
+}
+
+void AAstralCombatCharacter::MulticastDrawTelegraphDebug_Implementation(float Duration, float TraceStartOffset, float TraceDistance, float TraceRadius)
+{
+#if ENABLE_DRAW_DEBUG
+	// GA_Enemy_TelegraphAttack의 ApplyDamageSweep와 동일 볼륨 — 발동 시점 기준 1회 표시 (MVP)
+	const FVector Forward = GetActorForwardVector();
+	const FVector Start   = GetActorLocation() + Forward * TraceStartOffset;
+	const FVector End     = Start + Forward * TraceDistance;
+
+	DrawDebugCapsule(GetWorld(), (Start + End) * 0.5f, (TraceDistance * 0.5f) + TraceRadius, TraceRadius, FRotationMatrix::MakeFromZ(Forward).ToQuat(), FColor::Red, false, Duration);
+#endif
 }
 
 void AAstralCombatCharacter::HandleDeathStarted(AActor* OwningActor)

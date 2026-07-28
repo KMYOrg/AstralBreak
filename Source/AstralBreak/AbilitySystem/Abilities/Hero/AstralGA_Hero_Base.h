@@ -20,37 +20,29 @@ public:
 
 protected:
 	/**
-	 * 스태미나 소모 시점(Sprint 종료 / Dodge 커밋 등)에 RegenBlockEffectClass를 오너에 적용
+	 * 스태미나 소모 시점(Sprint 종료 / Dodge 커밋 / 방어 종료 등)에 GameData의 RegenBlock GE를 오너에 적용
 	 * 서버 권위에서만 적용 — 회복 GE의 periodic 틱 자체가 서버 실행
 	 */
 	void ApplyRegenBlockEffect(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const;
 
 	/**
-	 * UltGainEffectClass(GE_UltGain)를 SetByCaller.UltGain=Amount로 자신에게 적용 - 적중·패링 성공 등 모든 어빌리티발 수급 지점
+	 * GameData의 UltGain GE를 SetByCaller.UltGain=Amount로 자신에게 적용 - 적중·패링 성공 등 모든 어빌리티발 수급 지점
 	 */
 	void ApplyUltGain(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, float Amount) const;
 
-	/** MarkGainEffectClass(GE_MarkGain)를 SetByCaller.MarkGain=Amount로 자신에게 적용 — 콤보 피니셔/패링 보상 수급 지점 */
+	/** GameData의 MarkGain GE를 SetByCaller.MarkGain=Amount로 자신에게 적용 — 콤보 피니셔/패링 보상 수급 지점 */
 	void ApplyMarkGain(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, float Amount) const;
 
-private:
-	/** SetByCaller 수급 GE 공통 적용 */
-	void ApplySetByCallerGainEffect(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, TSubclassOf<UGameplayEffect> EffectClass, const FGameplayTag& SetByCallerTag, float Amount) const;
+	/**
+	 * SetByCaller GE 공통 적용 (서버 권위 전용, Amount≈0이면 무시).
+	 * 수급(양수)과 소모(음수 — 가드 피격 스태미나 드레인 등) 양쪽에서 사용 — 부호는 호출자 책임
+	 */
+	void ApplySetByCallerEffect(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, TSubclassOf<UGameplayEffect> EffectClass, const FGameplayTag& SetByCallerTag, float Amount) const;
 
 protected:
-	/** 스태미나 회복 지연 GE (BP에서 GE_Stamina_RegenBlock 지정 — 딜레이 값은 GE의 Duration) */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|Stamina")
-	TSubclassOf<UGameplayEffect> RegenBlockEffectClass;
-
-	/** 오의 수급 GE (BP에서 GE_UltGain 지정 — SetByCaller.UltGain 모디파이어 1개) */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ult")
-	TSubclassOf<UGameplayEffect> UltGainEffectClass;
+	// 공유 GE 참조(RegenBlock/UltGain/MarkGain 등)는 UAstralGameData 소유 — GA에는 수치 노브만 남긴다
 
 	/** 적중 1회(타겟 1기)당 오의 수급량 — 0이면 수급 없음. 광역 다중 적중 시 타겟 수 비례 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ult", Meta = (ClampMin = "0.0"))
 	float UltGainOnHit = 0.0f;
-
-	/** 표식 수급 GE (BP에서 GE_MarkGain 지정 — SetByCaller.MarkGain 모디파이어 1개) */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|Mark")
-	TSubclassOf<UGameplayEffect> MarkGainEffectClass;
 };

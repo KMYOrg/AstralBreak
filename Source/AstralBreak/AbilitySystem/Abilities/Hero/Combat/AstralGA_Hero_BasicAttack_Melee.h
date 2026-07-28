@@ -102,11 +102,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Combo", Meta = (TitleProperty = "Montage"))
 	TArray<FAstralComboStageData> ComboStages;
 
-	/** Damage GE 클래스 (BP에서 GE_Damage_Base 지정) */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|Combo")
-	TSubclassOf<UGameplayEffect> DamageEffectClass;
-
-	/** 기준 데미지 — 단계별 실데미지는 × DamageMultiplier */
+	/** 기준 데미지 — 단계별 실데미지는 × DamageMultiplier (Damage GE는 GameData 전역) */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Combo")
 	float BaseDamage = 25.f;
 

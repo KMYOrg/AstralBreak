@@ -13,6 +13,7 @@
 #include "Components/GameFrameworkComponentManager.h"
 #include "GameModes/AstralGameMode.h"
 #include "Net/UnrealNetwork.h"
+#include "System/AstralGameData.h"
 
 AAstralPlayerState::AAstralPlayerState(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -158,13 +159,19 @@ void AAstralPlayerState::OnHeroDamaged(AActor* DamageInstigator, AActor* DamageC
 	}
 
 	const UAstralPawnData_Hero* HeroData = GetPawnData<UAstralPawnData_Hero>();
-	if (!HeroData || !HeroData->UltGainEffectClass || HeroData->UltGainOnDamagedRatio <= 0.f)
+	if (!HeroData || HeroData->UltGainOnDamagedRatio <= 0.f)
+	{
+		return;
+	}
+
+	const TSubclassOf<UGameplayEffect> UltGainEffectClass = UAstralGameData::Get().UltGainGameplayEffect_SetByCaller.LoadSynchronous();
+	if (!UltGainEffectClass)
 	{
 		return;
 	}
 
 	FGameplayEffectContextHandle Context = AbilitySystemComponent->MakeEffectContext();
-	const FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(HeroData->UltGainEffectClass, 1.0f, Context);
+	const FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(UltGainEffectClass, 1.0f, Context);
 	if (SpecHandle.IsValid())
 	{
 		SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_UltGain, DamageMagnitude * HeroData->UltGainOnDamagedRatio);

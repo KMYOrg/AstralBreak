@@ -2,6 +2,7 @@
 
 #include "GameplayEffectExtension.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/AstralCombatStatics.h"
 #include "Net/UnrealNetwork.h"
 
 
@@ -98,6 +99,12 @@ bool UAstralHealthSet::PreGameplayEffectExecute(FGameplayEffectModCallbackData& 
     if (Data.EvaluatedData.Attribute == GetDamageAttribute())
     {
         if (GetHealth() <= 0.f)
+        {
+            return false;
+        }
+
+        // 방어 판정 (패링 완전 무효 / 가드 감쇄)
+        if (!UAstralCombatStatics::ResolveIncomingDamage(Data))
         {
             return false;
         }

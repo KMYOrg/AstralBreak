@@ -21,6 +21,15 @@ UAstralGA_Hero_BasicAttack_Melee::UAstralGA_Hero_BasicAttack_Melee(const FObject
 
     // 활성 시 부여 (디버그/UI 등)
     ActivationOwnedTags.AddTag(AstralGameplayTags::Ability_Attack_Basic_Melee);
+
+    // asset tag — CancelAbilities/BlockAbilitiesWithTag 매칭 기준 (ActivationOwnedTags와 별개)
+    FGameplayTagContainer AssetTags;
+    AssetTags.AddTag(AstralGameplayTags::Ability_Attack_Basic_Melee);
+    SetAssetTags(AssetTags);
+
+    // 상호배타: 공격 중 다른 공격 차단 (콤보↔강화 몽타주 겹침 방지), 공격 발동 시 방어 캔슬 (최신 입력 우선)
+    BlockAbilitiesWithTag.AddTag(AstralGameplayTags::Ability_Attack);
+    CancelAbilitiesWithTag.AddTag(AstralGameplayTags::Ability_Defense);
 }
 
 void UAstralGA_Hero_BasicAttack_Melee::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
@@ -213,7 +222,7 @@ void UAstralGA_Hero_BasicAttack_Melee::OnHitEventReceived(FGameplayEventData Eve
     UAbilitySystemComponent* SourceASC = GetAbilitySystemComponentFromActorInfo();
 
     const float StageDamage = BaseDamage * Stage.DamageMultiplier;
-    const int32 NumTargetsHit = UAstralCombatStatics::ApplyDamageSweep(SourceASC, Avatar, DamageEffectClass, StageDamage, TraceStartOffset, TraceDistance, TraceRadius, GetAbilityLevel());
+    const int32 NumTargetsHit = UAstralCombatStatics::ApplyDamageSweep(SourceASC, Avatar, StageDamage, TraceStartOffset, TraceDistance, TraceRadius, GetAbilityLevel());
     if (NumTargetsHit > 0)
     {
         // 가한 피해 → 오의 수급 (적중 타겟 수 비례)

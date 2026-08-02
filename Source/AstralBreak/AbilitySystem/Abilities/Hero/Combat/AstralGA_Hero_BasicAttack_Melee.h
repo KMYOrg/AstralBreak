@@ -4,8 +4,10 @@
 #include "AbilitySystem/Abilities/Hero/AstralGA_Hero_Base.h"
 #include "AstralGA_Hero_BasicAttack_Melee.generated.h"
 
+class AAstralWeaponActor;
 class UAnimMontage;
 class UAbilityTask_PlayMontageAndWait;
+class UAstralAbilityTask_WeaponTrace;
 
 /** 콤보 단계 1개의 데이터 — 배열 길이가 곧 콤보 단수 */
 USTRUCT(BlueprintType)
@@ -37,7 +39,8 @@ struct FAstralComboStageData
  *  - 몽타주마다 GameplayEventWindow NotifyState(Begin=ComboWindowOpen, End=ComboBranch) 밴드 1개로 입력 유효 구간을 표시
  *  - 윈도우 열림 이후의 재입력만 버퍼 (이전 선입력/연타는 폐기 — 조작감 오염 방지)
  *  - 윈도우 끝(ComboBranch) 시점에 버퍼가 있으면 다음 단계 몽타주를 재생, 없으면 현재 몽타주가 끝까지 재생되고 종료
- *  - 각 몽타주의 GameplayEvent.Hit 노티파이에서 서버 권위 히트 판정 (공용 ApplyDamageSweep)
+ *  - 각 몽타주의 트레이스 밴드(WeaponTrace.Begin~End)에서 무기 소켓 연속 스윕 판정 (AbilityTask_WeaponTrace, 서버 권위)
+ *  - 무기는 SourceObject(EquipmentInstance) 경유 — 이 GA 자체가 무기 장비의 AbilitySet으로 부여된다
  *  - 단계별 데미지 배율/표식 수급은 FAstralComboStageData 데이터로 — 추후 무기 데이터로 이 배열이 이동 가능
  *
  * 단계 전환 시 이전 몽타주 태스크를 EndTask로 먼저 정리한다 — 새 재생이 이전 태스크의
@@ -65,9 +68,19 @@ protected:
 	UFUNCTION()
 	void OnMontageInterrupted();
 
-	/** 히트 노티파이 — 서버 측 적중 판정 + Damage GE + 수급 (단계 데이터 기반) */
+	/** 트레이스 밴드 시작 — authority에서 무기 트레이스 태스크 시작 */
 	UFUNCTION()
-	void OnHitEventReceived(FGameplayEventData EventData);
+	void OnWeaponTraceBegin(FGameplayEventData EventData);
+
+	/** 트레이스 밴드 끝 — 태스크 종료 */
+	UFUNCTION()
+	void OnWeaponTraceEnd(FGameplayEventData EventData);
+
+	/** 무기 적중 (타겟당 1회) — Damage GE + 수급 (단계 데이터 기반, MarkGain은 밴드당 1회) */
+	UFUNCTION()
+	void OnWeaponHit(const FHitResult& HitResult);
+
+	void StopWeaponTrace();
 
 	/** 입력 윈도우 열림 — 이 시점 이전의 선입력은 폐기하고 버퍼 접수 시작 */
 	UFUNCTION()
@@ -106,17 +119,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Combo")
 	float BaseDamage = 25.f;
 
-	/** Sphere Trace 반경 */
+	/** 무기 트레이스 스피어 반경 — 적중률이 낮으면 반경/밴드 구간을 넓힐 것 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Combo|Trace")
-	float TraceRadius = 80.f;
-
-	/** Trace 거리 (캐릭터 정면) */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|Combo|Trace")
-	float TraceDistance = 200.f;
-
-	/** Trace 시작 오프셋 (캐릭터 중심에서 정면) */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|Combo|Trace")
-	float TraceStartOffset = 50.f;
+	float WeaponTraceRadius = 25.f;
 
 private:
 	/** 현재 콤보 단계 (0-based) */
@@ -135,4 +140,15 @@ private:
 	/** 현재 무장된 재입력 대기 태스크 (1회 발화) */
 	UPROPERTY(Transient)
 	TObjectPtr<class UAbilityTask_WaitInputPress> ComboInputTask;
+
+	/** 진행 중인 무기 트레이스 태스크 (밴드 1개 수명, 서버 전용) */
+	UPROPERTY(Transient)
+	TObjectPtr<UAstralAbilityTask_WeaponTrace> WeaponTraceTask;
+
+	/** 이번 밴드의 무기 액터 (밴드 시작 시 SourceObject 경유 확보) */
+	UPROPERTY(Transient)
+	TObjectPtr<AAstralWeaponActor> ActiveWeaponActor;
+
+	/** 이번 밴드에서 표식 수급을 이미 했는지 (밴드당 1회 게이트) */
+	bool bMarkGainedThisBand = false;
 };

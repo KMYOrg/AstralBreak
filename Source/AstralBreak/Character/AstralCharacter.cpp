@@ -9,6 +9,8 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Character/AstralPawnData.h"
+#include "Equipment/AstralEquipmentManagerComponent.h"
 #include "GameplayEffect.h"
 #include "Player/AstralPlayerState.h"
 #include "System/AstralGameData.h"
@@ -40,6 +42,8 @@ AAstralCharacter::AAstralCharacter(const FObjectInitializer& ObjectInitializer)
 	PawnExtComponent->OnAbilitySystemUninitialized_Register(FSimpleMulticastDelegate::FDelegate::CreateUObject(this, &ThisClass::OnAbilitySystemUninitialized));
 
 	HealthComponent = CreateDefaultSubobject<UAstralHealthComponent>(TEXT("HealthComponent"));
+
+	EquipmentManagerComponent = CreateDefaultSubobject<UAstralEquipmentManagerComponent>(TEXT("EquipmentManagerComponent"));
 }
 
 void AAstralCharacter::OnAbilitySystemInitialized()
@@ -48,10 +52,29 @@ void AAstralCharacter::OnAbilitySystemInitialized()
 	check(AstralASC);
 
 	HealthComponent->InitializeWithAbilitySystem(AstralASC);
+
+	// 기본 장비 장착 (서버) — 장착 소스는 PawnData 플레이스홀더, M1에서 로드아웃 페이로드 복원으로 교체.
+	// 재초기화 경로에서 중복 장착 방지 (리스폰/재빙의 시 어빌리티 누적 차단)
+	if (HasAuthority() && EquipmentManagerComponent && !EquipmentManagerComponent->HasAnyEquipment())
+	{
+		if (const UAstralPawnData* PawnData = PawnExtComponent->GetPawnData<UAstralPawnData>())
+		{
+			for (const FPrimaryAssetId& WeaponId : PawnData->DefaultEquipment)
+			{
+				EquipmentManagerComponent->EquipItemById(WeaponId);
+			}
+		}
+	}
 }
 
 void AAstralCharacter::OnAbilitySystemUninitialized()
 {
+	// 장비 회수 — ASC(PlayerState)가 폰보다 오래 살므로, ASC 분리 전에 부여분을 걷지 않으면 어빌리티가 누적된다
+	if (EquipmentManagerComponent)
+	{
+		EquipmentManagerComponent->UnequipAll();
+	}
+
 	HealthComponent->UninitializeFromAbilitySystem();
 }
 
@@ -202,6 +225,39 @@ void AAstralCharacter::ServerDamageSelf_Implementation(float Amount)
 	{
 		SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_Damage, Amount);
 		ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+	}
+#endif
+}
+
+void AAstralCharacter::EquipWeapon(const FString& WeaponIdString)
+{
+#if !UE_BUILD_SHIPPING
+	FPrimaryAssetId WeaponId = FPrimaryAssetId::FromString(WeaponIdString);
+	if (!WeaponId.IsValid())
+	{
+		// 타입 생략 축약형 — "WD_HSword_A" → "AstralWeaponDefinition:WD_HSword_A"
+		WeaponId = FPrimaryAssetId(TEXT("AstralWeaponDefinition"), FName(*WeaponIdString));
+	}
+
+	if (HasAuthority())
+	{
+		ServerEquipWeapon_Implementation(WeaponId);
+	}
+	else
+	{
+		ServerEquipWeapon(WeaponId);
+	}
+#endif
+}
+
+void AAstralCharacter::ServerEquipWeapon_Implementation(FPrimaryAssetId WeaponId)
+{
+#if !UE_BUILD_SHIPPING
+	if (EquipmentManagerComponent)
+	{
+		// 교체 시맨틱 — 전체 해제 후 장착 (무기 변형 비교 테스트용)
+		EquipmentManagerComponent->UnequipAll();
+		EquipmentManagerComponent->EquipItemById(WeaponId);
 	}
 #endif
 }

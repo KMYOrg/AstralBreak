@@ -4,11 +4,13 @@
 #include "AbilitySystemInterface.h"
 #include "GameFramework/Character.h"
 #include "GenericTeamAgentInterface.h"
+#include "UObject/PrimaryAssetId.h"
 #include "AstralCombatCharacter.generated.h"
 
 class UAstralAbilitySystemComponent;
 class UAstralAbilitySet;
 class UAstralCombatSet;
+class UAstralEquipmentManagerComponent;
 class UAstralHealthComponent;
 class UAstralHealthSet;
 
@@ -78,6 +80,13 @@ protected:
 	/** 스폰 시(서버) 부여할 어빌리티/이펙트 세트 — 더미는 비워도 됨, M3 몬스터 GA용 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Abilities")
 	TArray<TObjectPtr<const UAstralAbilitySet>> AbilitySets;
+
+	/** 스폰 시(서버) 장착할 기본 장비 — 더미는 비워도 됨, M3 무기 든 몬스터용 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Equipment", Meta = (AllowedTypes = "AstralWeaponDefinition"))
+	TArray<FPrimaryAssetId> DefaultEquipment;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Components")
+	TObjectPtr<UAstralEquipmentManagerComponent> EquipmentManagerComponent;
 
 	/** 팀 ID (플레이어 = 0, 적 = 1). 런타임 변경(SetGenericTeamId)이 클라에도 반영되도록 복제 */
 	UPROPERTY(EditAnywhere, Replicated, Category = "Astral|Team")

@@ -38,6 +38,13 @@ public:
 	static int32 ApplyDamageSweep(class UAbilitySystemComponent* SourceASC, AActor* Avatar, float BaseDamage, float TraceStartOffset, float TraceDistance, float TraceRadius, float EffectLevel = 1.0f);
 
 	/**
+	 * 무기 트레이스 적중 1건에 데미지 적용 (서버 전용) — CanDamage 필터 + SetByCaller.Damage(GameData) 주입.
+	 * EffectCauser = WeaponActor (Instigator는 Avatar 유지 — 방어 정면 판정은 OriginalInstigator라 영향 없음).
+	 * 적용 성공 여부 반환.
+	 */
+	static bool ApplyWeaponDamage(class UAbilitySystemComponent* SourceASC, AActor* Avatar, AActor* WeaponActor, const FHitResult& HitResult, float BaseDamage, float EffectLevel = 1.0f);
+
+	/**
 	 * 받는 데미지의 방어 판정 (서버 전용 — HealthSet::PreGameplayEffectExecute의 Damage 분기에서 1줄 호출).
 	 * 정면(120° 콘) 패링 → false 반환(완전 무효) + Parried(방어자)/Staggered(공격자) 이벤트.
 	 * 정면 가드 → Magnitude × GuardDamageMultiplier 감쇄 + Guarded(방어자, magnitude=막은 양) 이벤트.

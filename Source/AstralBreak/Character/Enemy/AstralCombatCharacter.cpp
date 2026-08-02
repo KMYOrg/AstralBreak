@@ -8,6 +8,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
+#include "Equipment/AstralEquipmentManagerComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
 
@@ -29,6 +30,8 @@ AAstralCombatCharacter::AAstralCombatCharacter(const FObjectInitializer& ObjectI
 	CombatSet = CreateDefaultSubobject<UAstralCombatSet>(TEXT("CombatSet"));
 
 	HealthComponent = CreateDefaultSubobject<UAstralHealthComponent>(TEXT("HealthComponent"));
+
+	EquipmentManagerComponent = CreateDefaultSubobject<UAstralEquipmentManagerComponent>(TEXT("EquipmentManagerComponent"));
 
 	// 비렌더 시에도 애님 틱 유지 — B-2 텔레그래프 공격의 서버 노티파이 타이밍 보장 (Hero와 동일 사유)
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPose;
@@ -69,6 +72,15 @@ void AAstralCombatCharacter::BeginPlay()
 			if (AbilitySet)
 			{
 				AbilitySet->GiveToAbilitySystem(AbilitySystemComponent, nullptr, this);
+			}
+		}
+
+		// 기본 장비 — 자기 ASC 소유라 수명 문제는 없지만 회수는 컴포넌트 EndPlay가 동일하게 보장 (Hero와 동일 가드)
+		if (EquipmentManagerComponent && !EquipmentManagerComponent->HasAnyEquipment())
+		{
+			for (const FPrimaryAssetId& WeaponId : DefaultEquipment)
+			{
+				EquipmentManagerComponent->EquipItemById(WeaponId);
 			}
 		}
 	}

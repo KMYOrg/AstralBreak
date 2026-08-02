@@ -3,9 +3,11 @@
 #include "CoreMinimal.h"
 #include "AbilitySystemInterface.h"
 #include "GameFramework/Character.h"
+#include "UObject/PrimaryAssetId.h"
 #include "AstralCharacter.generated.h"
 
 class UAstralAbilitySystemComponent;
+class UAstralEquipmentManagerComponent;
 class UAstralHealthComponent;
 class UAstralPawnExtensionComponent;
 class AAstralPlayerState;
@@ -31,6 +33,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Astral|Character")
 	UAstralHealthComponent* GetHealthComponent() const { return HealthComponent; }
 
+	UFUNCTION(BlueprintPure, Category = "Astral|Character")
+	UAstralEquipmentManagerComponent* GetEquipmentManagerComponent() const { return EquipmentManagerComponent; }
+
 	/** 디버그 — 콘솔에서 `DamageSelf 50`. 데미지 파이프라인(GE_Damage_Base)을 그대로 태워 사망/수급 경로 검증용 */
 	UFUNCTION(Exec)
 	void DamageSelf(float Amount = 25.0f);
@@ -39,12 +44,22 @@ public:
 	UFUNCTION(Exec)
 	void ReviveSelf();
 
+	/**
+	 * 디버그 — 콘솔에서 `EquipWeapon WD_HSword_A` (타입 생략 시 AstralWeaponDefinition 가정).
+	 * 기존 장비 전체 해제 후 교체 — 로비 없이 무기 변형(메쉬·사거리·스탯) 검증용
+	 */
+	UFUNCTION(Exec)
+	void EquipWeapon(const FString& WeaponIdString);
+
 protected:
 	UFUNCTION(Server, Reliable)
 	void ServerDamageSelf(float Amount);
 
 	UFUNCTION(Server, Reliable)
 	void ServerReviveSelf();
+
+	UFUNCTION(Server, Reliable)
+	void ServerEquipWeapon(FPrimaryAssetId WeaponId);
 
 	virtual void OnAbilitySystemInitialized();
 	virtual void OnAbilitySystemUninitialized();
@@ -80,4 +95,7 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Components", Meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAstralHealthComponent> HealthComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Components", Meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UAstralEquipmentManagerComponent> EquipmentManagerComponent;
 };

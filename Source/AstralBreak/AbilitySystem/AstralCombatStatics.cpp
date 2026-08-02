@@ -160,6 +160,48 @@ int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC,
 	return NumTargetsHit;
 }
 
+bool UAstralCombatStatics::ApplyWeaponDamage(UAbilitySystemComponent* SourceASC, AActor* Avatar, AActor* WeaponActor, const FHitResult& HitResult, float BaseDamage, float EffectLevel)
+{
+	if (!SourceASC || !Avatar)
+	{
+		return false;
+	}
+
+	AActor* TargetActor = HitResult.GetActor();
+	// 피아 필터 — Hostile만 허용 (아군/중립/사망 대상 오폭 차단)
+	if (!TargetActor || !CanDamage(Avatar, TargetActor))
+	{
+		return false;
+	}
+
+	UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(TargetActor);
+	if (!TargetASC)
+	{
+		return false;
+	}
+
+	const TSubclassOf<UGameplayEffect> DamageEffectClass = UAstralGameData::Get().DamageGameplayEffect_SetByCaller.LoadSynchronous();
+	if (!DamageEffectClass)
+	{
+		return false;
+	}
+
+	FGameplayEffectContextHandle Context = SourceASC->MakeEffectContext();
+	// Instigator = 폰(방어 정면 판정이 참조), EffectCauser = 무기 액터
+	Context.AddInstigator(Avatar, WeaponActor ? WeaponActor : Avatar);
+	Context.AddHitResult(HitResult);
+
+	const FGameplayEffectSpecHandle SpecHandle = SourceASC->MakeOutgoingSpec(DamageEffectClass, EffectLevel, Context);
+	if (!SpecHandle.IsValid())
+	{
+		return false;
+	}
+
+	SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_Damage, BaseDamage);
+	SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
+	return true;
+}
+
 bool UAstralCombatStatics::ResolveIncomingDamage(FGameplayEffectModCallbackData& Data)
 {
 	UAbilitySystemComponent& TargetASC = Data.Target;

@@ -7,7 +7,9 @@
 #include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
+#include "AbilitySystem/Tasks/AstralAbilityTask_WeaponTrace.h"
 #include "Animation/AnimMontage.h"
+#include "Equipment/AstralWeaponActor.h"
 #include "GameFramework/Pawn.h"
 
 UAstralGA_Hero_BasicAttack_Melee::UAstralGA_Hero_BasicAttack_Melee(const FObjectInitializer& ObjectInitializer)
@@ -68,11 +70,16 @@ void UAstralGA_Hero_BasicAttack_Melee::ActivateAbility(const FGameplayAbilitySpe
         BranchEventTask->ReadyForActivation();
     }
 
-    // 히트 노티파이 — 단계마다 반복 수신
-    if (UAbilityTask_WaitGameplayEvent* HitEventTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, AstralGameplayTags::GameplayEvent_Hit, nullptr, false, true))
+    // 무기 트레이스 밴드 — 단계마다 반복 수신 (Begin=태스크 시작, End=종료)
+    if (UAbilityTask_WaitGameplayEvent* TraceBeginTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, AstralGameplayTags::GameplayEvent_WeaponTrace_Begin, nullptr, false, true))
     {
-        HitEventTask->EventReceived.AddDynamic(this, &ThisClass::OnHitEventReceived);
-        HitEventTask->ReadyForActivation();
+        TraceBeginTask->EventReceived.AddDynamic(this, &ThisClass::OnWeaponTraceBegin);
+        TraceBeginTask->ReadyForActivation();
+    }
+    if (UAbilityTask_WaitGameplayEvent* TraceEndTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, AstralGameplayTags::GameplayEvent_WeaponTrace_End, nullptr, false, true))
+    {
+        TraceEndTask->EventReceived.AddDynamic(this, &ThisClass::OnWeaponTraceEnd);
+        TraceEndTask->ReadyForActivation();
     }
 
     // 원격 폰의 서버 인스턴스만 상시 — 로컬은 윈도우 열림(OnComboWindowOpened) 시점에 
@@ -202,34 +209,71 @@ bool UAstralGA_Hero_BasicAttack_Melee::TryAdvanceCombo()
     return true;
 }
 
-void UAstralGA_Hero_BasicAttack_Melee::OnHitEventReceived(FGameplayEventData EventData)
+void UAstralGA_Hero_BasicAttack_Melee::OnWeaponTraceBegin(FGameplayEventData EventData)
 {
-    // 서버 측 권위만 판정 + GE 적용
+    // 서버 측 권위만 판정 + GE 적용 — 태스크는 authority 인스턴스에서만 생성
     // TODO: 클라이언트 측 vfx효과를 위해 부분적 서버 권위 실행
     if (!HasAuthority(&CurrentActivationInfo))
     {
         return;
     }
 
+    // 겹침 방어 — 이전 밴드가 안 닫혔으면 정리 후 새로 시작
+    StopWeaponTrace();
+
+    ActiveWeaponActor = UAstralAbilityTask_WeaponTrace::FindWeaponActorFromAbility(this);
+    if (!ActiveWeaponActor)
+    {
+        // 무기 미장착(장비 해제 상태 등) — 이번 밴드는 판정 없음
+        return;
+    }
+
+    bMarkGainedThisBand = false;
+
+    WeaponTraceTask = UAstralAbilityTask_WeaponTrace::WeaponTrace(this, ActiveWeaponActor, WeaponTraceRadius);
+    if (WeaponTraceTask)
+    {
+        WeaponTraceTask->OnHitTarget.AddDynamic(this, &ThisClass::OnWeaponHit);
+        WeaponTraceTask->ReadyForActivation();
+    }
+}
+
+void UAstralGA_Hero_BasicAttack_Melee::OnWeaponTraceEnd(FGameplayEventData EventData)
+{
+    StopWeaponTrace();
+}
+
+void UAstralGA_Hero_BasicAttack_Melee::StopWeaponTrace()
+{
+    if (WeaponTraceTask)
+    {
+        WeaponTraceTask->EndTask();
+        WeaponTraceTask = nullptr;
+    }
+    ActiveWeaponActor = nullptr;
+}
+
+void UAstralGA_Hero_BasicAttack_Melee::OnWeaponHit(const FHitResult& HitResult)
+{
     if (!ComboStages.IsValidIndex(ComboIndex))
     {
         return;
     }
 
     const FAstralComboStageData& Stage = ComboStages[ComboIndex];
-
-    APawn* Avatar = Cast<APawn>(GetAvatarActorFromActorInfo());
-    UAbilitySystemComponent* SourceASC = GetAbilitySystemComponentFromActorInfo();
-
     const float StageDamage = BaseDamage * Stage.DamageMultiplier;
-    const int32 NumTargetsHit = UAstralCombatStatics::ApplyDamageSweep(SourceASC, Avatar, StageDamage, TraceStartOffset, TraceDistance, TraceRadius, GetAbilityLevel());
-    if (NumTargetsHit > 0)
-    {
-        // 가한 피해 → 오의 수급 (적중 타겟 수 비례)
-        ApplyUltGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, UltGainOnHit * NumTargetsHit);
 
-        // 단계 데이터 기반 표식 수급 (적중 여부당 1회 — 보통 피니셔 단계에만 설정)
-        ApplyMarkGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, Stage.MarkGain);
+    if (UAstralCombatStatics::ApplyWeaponDamage(GetAbilitySystemComponentFromActorInfo(), GetAvatarActorFromActorInfo(), ActiveWeaponActor, HitResult, StageDamage, GetAbilityLevel()))
+    {
+        // 가한 피해 → 오의 수급 (타겟 1기당 — 태스크가 구간 내 중복을 걸러준다)
+        ApplyUltGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, UltGainOnHit);
+
+        // 단계 데이터 기반 표식 수급 — 밴드당 1회 (첫 적중 시)
+        if (!bMarkGainedThisBand && Stage.MarkGain > 0.f)
+        {
+            bMarkGainedThisBand = true;
+            ApplyMarkGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, Stage.MarkGain);
+        }
     }
 }
 
@@ -265,8 +309,11 @@ void UAstralGA_Hero_BasicAttack_Melee::EndAbility(const FGameplayAbilitySpecHand
     ComboIndex = 0;
     bComboWindowOpen = false;
     bComboInputBuffered = false;
+    bMarkGainedThisBand = false;
     ActiveMontageTask = nullptr;
     ComboInputTask = nullptr;
+    WeaponTraceTask = nullptr;
+    ActiveWeaponActor = nullptr;
 
     Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

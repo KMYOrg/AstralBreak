@@ -6,7 +6,9 @@
 #include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
+#include "AbilitySystem/Tasks/AstralAbilityTask_WeaponTrace.h"
 #include "Animation/AnimMontage.h"
+#include "Equipment/AstralWeaponActor.h"
 #include "GameFramework/Pawn.h"
 
 UAstralGA_Hero_MarkFinisher::UAstralGA_Hero_MarkFinisher(const FObjectInitializer& ObjectInitializer)
@@ -55,28 +57,72 @@ void UAstralGA_Hero_MarkFinisher::ActivateAbility(const FGameplayAbilitySpecHand
 		MontageTask->ReadyForActivation();
 	}
 
-	if (UAbilityTask_WaitGameplayEvent* HitEventTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, AstralGameplayTags::GameplayEvent_Hit, nullptr, false, true))
+	// 무기 트레이스 밴드 (Begin=태스크 시작, End=종료)
+	if (UAbilityTask_WaitGameplayEvent* TraceBeginTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, AstralGameplayTags::GameplayEvent_WeaponTrace_Begin, nullptr, false, true))
 	{
-		HitEventTask->EventReceived.AddDynamic(this, &ThisClass::OnHitEventReceived);
-		HitEventTask->ReadyForActivation();
+		TraceBeginTask->EventReceived.AddDynamic(this, &ThisClass::OnWeaponTraceBegin);
+		TraceBeginTask->ReadyForActivation();
+	}
+	if (UAbilityTask_WaitGameplayEvent* TraceEndTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, AstralGameplayTags::GameplayEvent_WeaponTrace_End, nullptr, false, true))
+	{
+		TraceEndTask->EventReceived.AddDynamic(this, &ThisClass::OnWeaponTraceEnd);
+		TraceEndTask->ReadyForActivation();
 	}
 }
 
-void UAstralGA_Hero_MarkFinisher::OnHitEventReceived(FGameplayEventData EventData)
+void UAstralGA_Hero_MarkFinisher::OnWeaponTraceBegin(FGameplayEventData EventData)
 {
+	// 서버 권위 판정 — authority 인스턴스에서만 태스크 생성
 	if (!HasAuthority(&CurrentActivationInfo))
 	{
 		return;
 	}
 
-	APawn* Avatar = Cast<APawn>(GetAvatarActorFromActorInfo());
-	UAbilitySystemComponent* SourceASC = GetAbilitySystemComponentFromActorInfo();
+	StopWeaponTrace();
 
-	const int32 NumTargetsHit = UAstralCombatStatics::ApplyDamageSweep(SourceASC, Avatar, BaseDamage, TraceStartOffset, TraceDistance, TraceRadius, GetAbilityLevel());
-	if (NumTargetsHit > 0)
+	ActiveWeaponActor = UAstralAbilityTask_WeaponTrace::FindWeaponActorFromAbility(this);
+	if (!ActiveWeaponActor)
 	{
-		ApplyUltGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, UltGainOnHit * NumTargetsHit);
+		return;
 	}
+
+	WeaponTraceTask = UAstralAbilityTask_WeaponTrace::WeaponTrace(this, ActiveWeaponActor, WeaponTraceRadius);
+	if (WeaponTraceTask)
+	{
+		WeaponTraceTask->OnHitTarget.AddDynamic(this, &ThisClass::OnWeaponHit);
+		WeaponTraceTask->ReadyForActivation();
+	}
+}
+
+void UAstralGA_Hero_MarkFinisher::OnWeaponTraceEnd(FGameplayEventData EventData)
+{
+	StopWeaponTrace();
+}
+
+void UAstralGA_Hero_MarkFinisher::StopWeaponTrace()
+{
+	if (WeaponTraceTask)
+	{
+		WeaponTraceTask->EndTask();
+		WeaponTraceTask = nullptr;
+	}
+	ActiveWeaponActor = nullptr;
+}
+
+void UAstralGA_Hero_MarkFinisher::OnWeaponHit(const FHitResult& HitResult)
+{
+	if (UAstralCombatStatics::ApplyWeaponDamage(GetAbilitySystemComponentFromActorInfo(), GetAvatarActorFromActorInfo(), ActiveWeaponActor, HitResult, BaseDamage, GetAbilityLevel()))
+	{
+		ApplyUltGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, UltGainOnHit);
+	}
+}
+
+void UAstralGA_Hero_MarkFinisher::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
+{
+	WeaponTraceTask = nullptr;
+	ActiveWeaponActor = nullptr;
+
+	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 
 void UAstralGA_Hero_MarkFinisher::OnMontageCompleted()

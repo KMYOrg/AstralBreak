@@ -1,0 +1,63 @@
+﻿{
+  "map": "/Game/AstralBreak/_ScriptTest/L_LayoutTest",
+  "mode": "rebuild",
+  "actors": [
+    {
+      "kind": "mesh",
+      "shape": "cube",
+      "label": "SM_Arena_Floor",
+      "location": [ 0, 0, 0 ],
+      "scale": [ 60, 60, 1 ]
+    },
+    {
+      "kind": "mesh",
+      "shape": "cylinder",
+      "label": "SM_Pillar",
+      "scale": [ 2, 2, 8 ],
+      "pattern": {
+        "type": "radial",
+        "count": 16,
+        "radius": 2000,
+        "z": 400
+      }
+    },
+    {
+      "kind": "class",
+      "class": "PlayerStart",
+      "label": "PlayerStart",
+      "pattern": {
+        "type": "radial",
+        "count": 4,
+        "radius": 500,
+        "z": 120,
+        "face_center": true
+      }
+    },
+    {
+      "kind": "class",
+      "class": "TargetPoint",
+      "label": "BossSpawn",
+      "location": [ 0, 0, 100 ]
+    },
+    {
+      "kind": "class",
+      "class": "DirectionalLight",
+      "label": "Sun",
+      "location": [ 0, 0, 2000 ],
+      "rotation": [ -45, -30, 0 ]
+    },
+    {
+      "kind": "class",
+      "class": "SkyLight",
+      "label": "Sky",
+      "location": [ 0, 0, 2000 ]
+    },
+    {
+      "kind": "class",
+      "class": "NavMeshBoundsVolume",
+      "label": "NavBounds",
+      "location": [ 0, 0, 0 ],
+      "scale": [ 35, 35, 12 ]
+    }
+  ]
+}

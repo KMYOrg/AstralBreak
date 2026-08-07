@@ -13,6 +13,7 @@ namespace AstralGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Attack, "Ability.Attack");
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Attack_Basic, "Ability.Attack.Basic");
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Attack_Basic_Melee, "Ability.Attack.Basic.Melee");
+	UE_DEFINE_GAMEPLAY_TAG(Ability_Attack_Basic_Ranged, "Ability.Attack.Basic.Ranged");
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Attack_Empowered, "Ability.Attack.Empowered");
 
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Defense, "Ability.Defense");
@@ -24,7 +25,9 @@ namespace AstralGameplayTags
 	 * State
 	 */
 
+	UE_DEFINE_GAMEPLAY_TAG(State_CombatStyle, "State.CombatStyle");
 	UE_DEFINE_GAMEPLAY_TAG(State_CombatStyle_Melee, "State.CombatStyle.Melee");
+	UE_DEFINE_GAMEPLAY_TAG(State_CombatStyle_Ranged, "State.CombatStyle.Ranged");
 
 	UE_DEFINE_GAMEPLAY_TAG(State_Movement_Sprinting, "State.Movement.Sprinting");
 

@@ -45,6 +45,19 @@ public:
 	static bool ApplyWeaponDamage(class UAbilitySystemComponent* SourceASC, AActor* Avatar, AActor* WeaponActor, const FHitResult& HitResult, float BaseDamage, float EffectLevel = 1.0f);
 
 	/**
+	 * SetByCaller GE를 대상 ASC 자신에게 적용 (서버 전용, Amount≈0이면 무시) — GA 문맥이 없는 호출자용
+	 * (투사체 명중 수급 등 — GA는 발사 후 종료됐을 수 있다). GA 내부에서는 예측 문맥이 실리는
+	 * GA_Hero_Base::ApplySetByCallerEffect를 쓸 것
+	 */
+	static void ApplySetByCallerEffectToSelf(class UAbilitySystemComponent* ASC, TSubclassOf<class UGameplayEffect> EffectClass, const struct FGameplayTag& SetByCallerTag, float Amount, float EffectLevel = 1.0f);
+
+	/** 표식 수급 (GameData MarkGain GE) — 투사체 명중 등 GA 밖의 수급 지점용 (서버 전용) */
+	static void ApplyMarkGainToSelf(class UAbilitySystemComponent* ASC, float Amount);
+
+	/** 오의 수급 (GameData UltGain GE) — 투사체 명중 등 GA 밖의 수급 지점용 (서버 전용) */
+	static void ApplyUltGainToSelf(class UAbilitySystemComponent* ASC, float Amount);
+
+	/**
 	 * 받는 데미지의 방어 판정 (서버 전용 — HealthSet::PreGameplayEffectExecute의 Damage 분기에서 1줄 호출).
 	 * 정면(120° 콘) 패링 → false 반환(완전 무효) + Parried(방어자)/Staggered(공격자) 이벤트.
 	 * 정면 가드 → Magnitude × GuardDamageMultiplier 감쇄 + Guarded(방어자, magnitude=막은 양) 이벤트.

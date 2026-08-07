@@ -82,7 +82,7 @@ protected:
 	TArray<TObjectPtr<const UAstralAbilitySet>> AbilitySets;
 
 	/** 스폰 시(서버) 장착할 기본 장비 — 더미는 비워도 됨, M3 무기 든 몬스터용 */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|Equipment", Meta = (AllowedTypes = "AstralWeaponDefinition"))
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Equipment", Meta = (AllowedTypes = "AstralWeaponDefinition,AstralRangedWeaponDefinition"))
 	TArray<FPrimaryAssetId> DefaultEquipment;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Components")

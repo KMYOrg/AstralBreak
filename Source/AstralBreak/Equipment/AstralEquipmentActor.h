@@ -24,7 +24,15 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Astral|Equipment")
 	void OnEquipmentDataApplied(const UAstralItemDefinition* Definition);
 
+	/**
+	 * (서버 전용 — 클라 액터는 null). 파생이 자기 Def 타입으로 캐스팅해 읽는다 —
+	 */
+	const UAstralItemDefinition* GetAppliedDefinition() const { return AppliedDefinition; }
+
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Astral|Equipment")
 	TObjectPtr<USceneComponent> RootSceneComponent;
+
+	UPROPERTY(Transient)
+	TObjectPtr<const UAstralItemDefinition> AppliedDefinition;
 };

@@ -1,0 +1,22 @@
+﻿{
+  "montages": [
+    {
+      "source": "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_Jump",
+      "dst_dir": "/Game/AstralBreak/_ScriptTest",
+      "name": "AM_JsonTest_01",
+      "blend_in": 0.08,
+      "blend_out": 0.20,
+      "notifies": [
+        {
+          "type": "GameplayEventWindow",
+          "track": "Combat",
+          "start": 0.30,
+          "duration": 0.25,
+          "begin_event_tag": "GameplayEvent.WeaponTrace.Begin",
+          "end_event_tag": "GameplayEvent.WeaponTrace.End",
+          "magnitude": 1.0
+        }
+      ]
+    }
+  ]
+}

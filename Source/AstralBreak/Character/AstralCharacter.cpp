@@ -1,6 +1,7 @@
 #include "AstralCharacter.h"
 
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "Character/Components/AstralCharacterMovementComponent.h"
@@ -9,10 +10,12 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "AstralLogChannels.h"
 #include "Character/AstralPawnData.h"
 #include "Equipment/AstralEquipmentManagerComponent.h"
 #include "GameplayEffect.h"
 #include "Player/AstralPlayerState.h"
+#include "System/AstralAssetManager.h"
 #include "System/AstralGameData.h"
 
 
@@ -59,11 +62,59 @@ void AAstralCharacter::OnAbilitySystemInitialized()
 	{
 		if (const UAstralPawnData* PawnData = PawnExtComponent->GetPawnData<UAstralPawnData>())
 		{
+			// 초기 스타일은 장착 루프보다 먼저 — 스폰 시점의 손/홀스터 소켓 결정이 이 상태를 읽는다.
+			// 빈 태그 = 스타일 시스템 미사용 폰
+			if (PawnData->InitialCombatStyle.IsValid())
+			{
+				SetCombatStyle(PawnData->InitialCombatStyle);
+			}
+
 			for (const FPrimaryAssetId& WeaponId : PawnData->DefaultEquipment)
 			{
 				EquipmentManagerComponent->EquipItemById(WeaponId);
 			}
 		}
+	}
+}
+
+void AAstralCharacter::SetCombatStyle(FGameplayTag NewStyle)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	// 부모 자체(State.CombatStyle)는 상태로 쓰지 않는다 — 자식만 유효
+	if (!NewStyle.MatchesTag(AstralGameplayTags::State_CombatStyle) || NewStyle == AstralGameplayTags::State_CombatStyle)
+	{
+		UE_LOG(LogAstral, Warning, TEXT("SetCombatStyle: %s 는 State.CombatStyle 자식 태그가 아님 — 무시"), *NewStyle.ToString());
+		return;
+	}
+
+	// 서버 전용 쓰기 + TagAndCountToAll — ReplicatedLooseTags 경유로 전 커넥션·후참가 복제.
+	// 보유 중인 스타일 태그를 전부 내리고 새 태그만 올린다 — 스타일 집합을 코드가 모르므로(히어로별 데이터 정의)
+	// 부모 태그 질의로 일괄 해제. 리스폰 시 ASC(PlayerState)에 잔존한 이전 폰의 태그도 이 경로로 자동 정정.
+	FGameplayTagContainer OwnedTags;
+	ASC->GetOwnedGameplayTags(OwnedTags);
+	for (auto TagIt = OwnedTags.CreateConstIterator(); TagIt; ++TagIt)
+	{
+		const FGameplayTag& OwnedTag = *TagIt;
+		if (OwnedTag != NewStyle && OwnedTag != AstralGameplayTags::State_CombatStyle && OwnedTag.MatchesTag(AstralGameplayTags::State_CombatStyle))
+		{
+			ASC->SetLooseGameplayTagCount(OwnedTag, 0, EGameplayTagReplicationState::TagAndCountToAll);
+		}
+	}
+	ASC->SetLooseGameplayTagCount(NewStyle, 1, EGameplayTagReplicationState::TagAndCountToAll);
+
+	if (EquipmentManagerComponent)
+	{
+		EquipmentManagerComponent->RefreshEquipmentActiveState();
 	}
 }
 
@@ -235,8 +286,17 @@ void AAstralCharacter::EquipWeapon(const FString& WeaponIdString)
 	FPrimaryAssetId WeaponId = FPrimaryAssetId::FromString(WeaponIdString);
 	if (!WeaponId.IsValid())
 	{
-		// 타입 생략 축약형 — "WD_HSword_A" → "AstralWeaponDefinition:WD_HSword_A"
-		WeaponId = FPrimaryAssetId(TEXT("AstralWeaponDefinition"), FName(*WeaponIdString));
+		// 타입 생략 축약형 — 무기 타입 후보를 순서대로 시도 (스캔 데이터는 클라에도 있음)
+		static const FName WeaponTypes[] = { FName(TEXT("AstralWeaponDefinition")), FName(TEXT("AstralRangedWeaponDefinition")) };
+		for (const FName& WeaponType : WeaponTypes)
+		{
+			const FPrimaryAssetId Candidate(WeaponType, FName(*WeaponIdString));
+			if (UAstralAssetManager::Get().GetPrimaryAssetPath(Candidate).IsValid())
+			{
+				WeaponId = Candidate;
+				break;
+			}
+		}
 	}
 
 	if (HasAuthority())

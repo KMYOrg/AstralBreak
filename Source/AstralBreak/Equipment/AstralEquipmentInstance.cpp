@@ -19,7 +19,7 @@ APawn* UAstralEquipmentInstance::GetPawn() const
 	return Cast<APawn>(GetOuter());
 }
 
-void UAstralEquipmentInstance::SpawnEquipmentActors(const TArray<FAstralEquipmentActorToSpawn>& ActorsToSpawn, const UAstralItemDefinition* Definition)
+void UAstralEquipmentInstance::SpawnEquipmentActors(const TArray<FAstralEquipmentActorToSpawn>& ActorsToSpawn, const UAstralItemDefinition* Definition, bool bActive)
 {
 	APawn* OwningPawn = GetPawn();
 	if (!OwningPawn || !OwningPawn->HasAuthority())
@@ -52,11 +52,31 @@ void UAstralEquipmentInstance::SpawnEquipmentActors(const TArray<FAstralEquipmen
 			EquipmentActor->OnEquipmentDataApplied(Definition);
 		}
 
+		// 비활성 스타일 장비는 숨김 스폰 — FinishSpawning 전 세팅으로 초기 번치에 bHidden 동봉
+		NewActor->SetActorHiddenInGame(!bActive);
+
 		NewActor->SetActorRelativeTransform(SpawnInfo.AttachTransform);
 		NewActor->AttachToComponent(AttachTarget, FAttachmentTransformRules::KeepRelativeTransform, SpawnInfo.AttachSocket);
 		NewActor->FinishSpawning(FTransform::Identity, /*bIsDefaultTransform=*/true);
 
 		SpawnedActors.Add(NewActor);
+	}
+}
+
+void UAstralEquipmentInstance::SetActorsActive(bool bActive)
+{
+	APawn* OwningPawn = GetPawn();
+	if (!OwningPawn || !OwningPawn->HasAuthority())
+	{
+		return;
+	}
+
+	for (AActor* Actor : SpawnedActors)
+	{
+		if (Actor)
+		{
+			Actor->SetActorHiddenInGame(!bActive);
+		}
 	}
 }
 

@@ -74,3 +74,4 @@ FVector AAstralWeaponActor::GetTraceEndLocation() const
 {
 	return MeshComponent ? MeshComponent->GetSocketLocation(TraceEndSocket) : GetActorLocation();
 }
+

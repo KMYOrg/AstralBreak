@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "GameplayTagContainer.h"
 #include "AstralEquipmentFamily.generated.h"
 
 class AActor;
@@ -42,6 +43,14 @@ public:
 	/** 생성할 인스턴스 클래스 — 미지정 시 UAstralEquipmentInstance */
 	UPROPERTY(EditDefaultsOnly, Category = "Equipment")
 	TSubclassOf<UAstralEquipmentInstance> InstanceType;
+
+	/**
+	 * 이 계열이 속한 전투 스타일 (State.CombatStyle.*) — 활성 스타일과 일치할 때만 손 소켓, 불일치면 홀스터.
+	 * 빈 태그 = 스타일 무관(항상 활성) — 방어구 등. 계열에 두는 이유: 스타일이 게이트하는 대상이
+	 * 계열이 부여하는 어빌리티이므로 (변형에 두면 "낫 변형인데 Ranged 선언" 불일치가 가능해진다)
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Equipment", Meta = (Categories = "State.CombatStyle"))
+	FGameplayTag CombatStyle;
 
 	/** 장착 시 스폰·부착할 액터들 (보통 무기 액터 1개) */
 	UPROPERTY(EditDefaultsOnly, Category = "Equipment", Meta = (TitleProperty = "ActorToSpawn"))

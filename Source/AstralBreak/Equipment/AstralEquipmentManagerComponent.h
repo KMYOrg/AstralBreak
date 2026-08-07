@@ -109,6 +109,13 @@ public:
 	/** 서버 — 전체 해제 (멱등) — EndPlay/ASC 해제 안전망 */
 	void UnequipAll();
 
+	/**
+	 * 서버 — 활성 스타일 변경에 따른 전 장비 표시/숨김 갱신 (비활성 스타일 장비는 숨김).
+	 * 활성 여부는 ASC의 State.CombatStyle.* 태그를 질의 (상태는 ASC 소유 — 이 컴포넌트는 무상태).
+	 * AAstralCharacter::SetCombatStyle이 태그 갱신 직후 호출한다
+	 */
+	void RefreshEquipmentActiveState();
+
 	UFUNCTION(BlueprintPure, Category = "Astral|Equipment")
 	UAstralEquipmentInstance* GetFirstInstanceOfType(TSubclassOf<UAstralEquipmentInstance> InstanceType) const;
 
@@ -121,6 +128,9 @@ public:
 	bool HasAnyEquipment() const { return EquipmentList.Entries.Num() > 0; }
 
 protected:
+	/** 계열이 현재 활성인가 — CombatStyle 미지정(스타일 무관)이거나 ASC가 해당 스타일 태그 보유 시 true */
+	bool IsFamilyActive(const UAstralEquipmentFamily* Family) const;
+
 	//~UActorComponent
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void ReadyForReplication() override;

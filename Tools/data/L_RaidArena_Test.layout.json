@@ -1,0 +1,69 @@
+{
+  "map": "/Game/AstralBreak/_ScriptTest/L_RaidArena_Test",
+  "mode": "rebuild",
+  "actors": [
+    {
+      "kind": "mesh",
+      "shape": "cylinder",
+      "label": "SM_Arena_Floor",
+      "location": [ 0, 0, -25 ],
+      "scale": [ 44, 44, 0.5 ]
+    },
+    {
+      "kind": "mesh",
+      "shape": "/Game/Assets/SlashFX/Demo/Meshes/SM_DemoRoomClamp",
+      "label": "SM_Cover_Pillar",
+      "pattern": {
+        "type": "radial",
+        "count": 12,
+        "radius": 1515,
+        "z": 0,
+        "yaw_offset": 90
+      }
+    },
+    {
+      "kind": "class",
+      "class": "PlayerStart",
+      "label": "PlayerStart",
+      "pattern": {
+        "type": "radial",
+        "count": 4,
+        "radius": 1950,
+        "z": 100,
+        "face_center": true
+      }
+    },
+    {
+      "kind": "class",
+      "class": "TargetPoint",
+      "label": "BossSpawn",
+      "location": [ 0, 0, 100 ]
+    },
+    {
+      "kind": "class",
+      "class": "/Game/Characters/Enemy/BP_TargetDummy.BP_TargetDummy_C",
+      "label": "BossDummy_ScaleRef",
+      "location": [ 0, 0, 100 ]
+    },
+    {
+      "kind": "class",
+      "class": "DirectionalLight",
+      "label": "Sun",
+      "location": [ 0, 0, 2000 ],
+      "rotation": [ -45, -30, 0 ]
+    },
+    {
+      "kind": "class",
+      "class": "SkyLight",
+      "label": "Sky",
+      "location": [ 0, 0, 2000 ]
+    },
+    {
+      "kind": "class",
+      "class": "NavMeshBoundsVolume",
+      "label": "NavBounds",
+      "location": [ 0, 0, 0 ],
+      "scale": [ 24, 24, 12 ]
+    }
+  ]
+}

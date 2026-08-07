@@ -202,6 +202,45 @@ bool UAstralCombatStatics::ApplyWeaponDamage(UAbilitySystemComponent* SourceASC,
 	return true;
 }
 
+void UAstralCombatStatics::ApplySetByCallerEffectToSelf(UAbilitySystemComponent* ASC, TSubclassOf<UGameplayEffect> EffectClass, const FGameplayTag& SetByCallerTag, float Amount, float EffectLevel)
+{
+	if (!ASC || !EffectClass || FMath::IsNearlyZero(Amount))
+	{
+		return;
+	}
+
+	// 서버 권위 전용 — 수급 GE는 예측하지 않는다 (GA_Hero_Base 헬퍼와 동일 정책)
+	if (!ASC->GetOwner() || !ASC->GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	const FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(EffectClass, EffectLevel, ASC->MakeEffectContext());
+	if (SpecHandle.IsValid())
+	{
+		SpecHandle.Data->SetSetByCallerMagnitude(SetByCallerTag, Amount);
+		ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+	}
+}
+
+void UAstralCombatStatics::ApplyMarkGainToSelf(UAbilitySystemComponent* ASC, float Amount)
+{
+	if (Amount <= 0.f)
+	{
+		return;
+	}
+	ApplySetByCallerEffectToSelf(ASC, UAstralGameData::Get().MarkGainGameplayEffect_SetByCaller.LoadSynchronous(), AstralGameplayTags::SetByCaller_MarkGain, Amount);
+}
+
+void UAstralCombatStatics::ApplyUltGainToSelf(UAbilitySystemComponent* ASC, float Amount)
+{
+	if (Amount <= 0.f)
+	{
+		return;
+	}
+	ApplySetByCallerEffectToSelf(ASC, UAstralGameData::Get().UltGainGameplayEffect_SetByCaller.LoadSynchronous(), AstralGameplayTags::SetByCaller_UltGain, Amount);
+}
+
 bool UAstralCombatStatics::ResolveIncomingDamage(FGameplayEffectModCallbackData& Data)
 {
 	UAbilitySystemComponent& TargetASC = Data.Target;

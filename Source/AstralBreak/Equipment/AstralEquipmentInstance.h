@@ -46,11 +46,17 @@ public:
 	}
 
 	/**
-	 * 서버 — 정의의 액터들을 스폰·부착 (pull 모델: 각 AAstralEquipmentActor가 Definition에서
-	 * 자기 데이터를 꺼낸다). 복제 상태·부착이 초기 번치에 동봉되도록 FinishSpawning은 마지막에 호출
+	 * 서버 — 정의의 액터들을 스폰·부착.
+	 * bActive: 초기 표시 상태 — 비활성이면 숨김 스폰 (FinishSpawning 전에 세팅해 초기 번치에 bHidden 동봉)
 	 */
-	virtual void SpawnEquipmentActors(const TArray<FAstralEquipmentActorToSpawn>& ActorsToSpawn, const UAstralItemDefinition* Definition);
+	virtual void SpawnEquipmentActors(const TArray<FAstralEquipmentActorToSpawn>& ActorsToSpawn, const UAstralItemDefinition* Definition, bool bActive);
 	virtual void DestroyEquipmentActors();
+
+	/**
+	 * 서버 — 활성 전환에 따른 스폰 액터 표시/숨김 (bHidden은 액터 복제 프로퍼티 — 클라 자동 전파).
+	 * 전환 연출(머테리얼 등)이 붙으면 이 지점이 훅
+	 */
+	virtual void SetActorsActive(bool bActive);
 
 	virtual void OnEquipped();
 	virtual void OnUnequipped();

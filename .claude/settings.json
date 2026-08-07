@@ -24,10 +24,11 @@
       "Bash(wc *)",
       "Bash(tree *)",
       "Bash(echo *)",
-
+      "Bash(python Tools/ue_exec.py Tools/scripts/*)",
       "Read(./Source/**)",
       "Read(./Config/**)",
       "Read(./Plugins/**)",
+      "Read(./Tools/**)",
       "Read(./*.uproject)",
       "Read(D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Source/**)",
       "Read(D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Plugins/**)"
@@ -60,7 +61,8 @@
       "Bash(curl *)",
       "Bash(powershell *)",
       "Bash(cmd /c del *)",
-      "Bash(cmd /c rmdir *)"
+      "Bash(cmd /c rmdir *)",
+      "Bash(python Tools/ue_exec.py -c*)"
     ]
   }
 }

@@ -141,7 +141,7 @@ UAstralEquipmentInstance* UAstralEquipmentManagerComponent::EquipItemById(const 
 	UAstralEquipmentInstance* Instance = EquipmentList.AddEntry(ItemId, ItemDef);
 	if (Instance)
 	{
-		Instance->SpawnEquipmentActors(ItemDef->EquipmentFamily->ActorsToSpawn, ItemDef);
+		Instance->SpawnEquipmentActors(ItemDef->EquipmentFamily->ActorsToSpawn, ItemDef, IsFamilyActive(ItemDef->EquipmentFamily));
 		Instance->OnEquipped();
 
 		if (IsUsingRegisteredSubObjectList() && IsReadyForReplication())
@@ -186,6 +186,34 @@ void UAstralEquipmentManagerComponent::UnequipAll()
 		{
 			EquipmentList.Entries.RemoveAt(Index);
 			EquipmentList.MarkArrayDirty();
+		}
+	}
+}
+
+bool UAstralEquipmentManagerComponent::IsFamilyActive(const UAstralEquipmentFamily* Family) const
+{
+	if (!Family || !Family->CombatStyle.IsValid())
+	{
+		// 스타일 무관 장비(방어구 등)는 항상 활성
+		return true;
+	}
+
+	const UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner());
+	return ASC ? ASC->HasMatchingGameplayTag(Family->CombatStyle) : true;
+}
+
+void UAstralEquipmentManagerComponent::RefreshEquipmentActiveState()
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	for (const FAstralAppliedEquipmentEntry& Entry : EquipmentList.Entries)
+	{
+		if (Entry.Instance)
+		{
+			Entry.Instance->SetActorsActive(IsFamilyActive(Entry.EquipmentFamily));
 		}
 	}
 }

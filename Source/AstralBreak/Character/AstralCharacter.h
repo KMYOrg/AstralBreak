@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "AbilitySystemInterface.h"
 #include "GameFramework/Character.h"
+#include "GameplayTagContainer.h"
 #include "UObject/PrimaryAssetId.h"
 #include "AstralCharacter.generated.h"
 
@@ -35,6 +36,13 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Astral|Character")
 	UAstralEquipmentManagerComponent* GetEquipmentManagerComponent() const { return EquipmentManagerComponent; }
+
+	/**
+	 * 상태 = ASC 복제 루즈 태그(TagAndCountToAll — 오너·시뮬·후참가 전부 복제), 이 함수 외 쓰기 금지.
+	 * 절대값 세팅이라 리스폰 시 ASC(PlayerState)에 잔존한 이전 폰의 태그도 자동 정정된다.
+	 * 태그 갱신 직후 장비 표시/숨김 갱신 통지 (비활성 스타일 장비는 숨김)
+	 */
+	void SetCombatStyle(FGameplayTag NewStyle);
 
 	/** 디버그 — 콘솔에서 `DamageSelf 50`. 데미지 파이프라인(GE_Damage_Base)을 그대로 태워 사망/수급 경로 검증용 */
 	UFUNCTION(Exec)

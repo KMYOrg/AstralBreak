@@ -25,6 +25,13 @@ struct FAstralEquipmentActorToSpawn
 	/** 계열의 파지 자세 — 액터(씬 루트) 트랜스폼. 변형별 피벗 보정은 MeshOffset(변형 데이터)이 담당 */
 	UPROPERTY(EditDefaultsOnly, Category = "Equipment")
 	FTransform AttachTransform;
+
+	/**
+	 * 로비(비전투 문맥) 코스메틱 표시 소켓 — 등/허리/옆구리 등. 미지정이면 AttachSocket.
+	 * 전투 장착이 아니라 로컬 표시 액터(AAstralCharacter::RefreshLoadoutWeaponDisplay)가 소비
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Equipment")
+	FName DisplaySocket;
 };
 
 /**

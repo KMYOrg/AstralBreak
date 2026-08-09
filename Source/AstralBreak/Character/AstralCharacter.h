@@ -13,6 +13,16 @@ class UAstralHealthComponent;
 class UAstralPawnExtensionComponent;
 class AAstralPlayerState;
 
+/** 장비 복원에 실제 쓰인 소스 — 디버그 가시성용 (3단: 세션 캐시 → PlayerState 로드아웃 → PawnData 폴백) */
+UENUM()
+enum class EAstralLoadoutSource : uint8
+{
+	None,
+	PartyCache,
+	PlayerState,
+	PawnDataFallback,
+};
+
 UCLASS()
 class ASTRALBREAK_API AAstralCharacter : public ACharacter, public IAbilitySystemInterface
 {
@@ -43,6 +53,30 @@ public:
 	 * 태그 갱신 직후 장비 표시/숨김 갱신 통지 (비활성 스타일 장비는 숨김)
 	 */
 	void SetCombatStyle(FGameplayTag NewStyle);
+
+	/**
+	 * 외형 갱신 (전 머신, 멱등) — PlayerState 로드아웃의 CharacterId → CharacterDefinition 메시/AnimBP 적용
+	 * + 로비 무기 코스메틱 표시 갱신.
+	 * PS 복제와 폰 스폰 순서가 비결정적이므로 OnRep_Loadout·빙의·PS 도착 모든 지점에서 호출된다
+	 */
+	void RefreshAppearanceFromLoadout();
+
+	/**
+	 * 로비 무기 코스메틱 (전 머신, 멱등 재구성) — 비전투 문맥(bRestoreLoadoutEquipment=false)에서만
+	 * 복제된 Loadout을 읽어 **비복제 표시 액터**를 로컬 스폰, 계열의 DisplaySocket에 부착.
+	 * 장비 시스템·ASC 무접촉 — 부여 위험 원천 차단 (표현물은 복제 데이터에서 로컬 유도)
+	 */
+	void RefreshLoadoutWeaponDisplay();
+
+	/**
+	 * 서버 — 장비 복원 (3단 소스: PartySubsystem 캐시 → PlayerState.Loadout → PawnData 폴백).
+	 * PawnData.bRestoreLoadoutEquipment=false(Hub)면 전체 생략 — 로비 전투 불가의 실차단 지점.
+	 * bReapply: 늦게 도착한 로드아웃 반영 (UnequipAll 후 재장착)
+	 */
+	void RestoreEquipmentFromLoadout(bool bReapply);
+
+	/** 디버그 — 마지막 장비 복원 소스 */
+	EAstralLoadoutSource GetLastLoadoutSource() const { return LastLoadoutSource; }
 
 	/** 디버그 — 콘솔에서 `DamageSelf 50`. 데미지 파이프라인(GE_Damage_Base)을 그대로 태워 사망/수급 경로 검증용 */
 	UFUNCTION(Exec)
@@ -106,4 +140,11 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Components", Meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAstralEquipmentManagerComponent> EquipmentManagerComponent;
+
+	/** 디버그 — 마지막 장비 복원 소스 (서버 로컬) */
+	EAstralLoadoutSource LastLoadoutSource = EAstralLoadoutSource::None;
+
+	/** 로비 무기 코스메틱 액터 — 머신 로컬·비복제. 로드아웃 변경 시 전량 재구성, EndPlay 정리 */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<AActor>> LoadoutDisplayActors;
 };

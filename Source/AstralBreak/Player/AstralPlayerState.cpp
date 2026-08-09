@@ -7,6 +7,7 @@
 #include "AbilitySystem/Attributes/AstralCombatSet.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
+#include "Character/AstralCharacter.h"
 #include "Character/AstralPawnData.h"
 #include "Character/Hero/AstralPawnData_Hero.h"
 #include "Character/Components/AstralPawnExtensionComponent.h"
@@ -39,6 +40,49 @@ void AAstralPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 	DOREPLIFETIME_WITH_PARAMS_FAST(ThisClass, PawnData, SharedParams);
 
 	DOREPLIFETIME(ThisClass, MyTeamID);
+	DOREPLIFETIME(ThisClass, Loadout);
+	DOREPLIFETIME(ThisClass, bIsReady);
+}
+
+void AAstralPlayerState::SetLoadout(const FAstralPlayerLoadout& InLoadout)
+{
+	if (GetLocalRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	Loadout = InLoadout;
+	NotifyPawnOfLoadoutChange();
+	ForceNetUpdate();
+}
+
+void AAstralPlayerState::SetReady(bool bInReady)
+{
+	if (GetLocalRole() != ROLE_Authority)
+	{
+		return;
+	}
+	bIsReady = bInReady;
+	ForceNetUpdate();
+}
+
+void AAstralPlayerState::OnRep_Loadout()
+{
+	NotifyPawnOfLoadoutChange();
+}
+
+void AAstralPlayerState::NotifyPawnOfLoadoutChange()
+{
+	if (AAstralCharacter* Character = Cast<AAstralCharacter>(GetPawn()))
+	{
+		Character->RefreshAppearanceFromLoadout();
+
+		// 장비 재적용은 서버만 — 늦게 도착한 로드아웃 RPC 대응 (UnequipAll 후 재장착, 멱등이라 안전)
+		if (GetLocalRole() == ROLE_Authority)
+		{
+			Character->RestoreEquipmentFromLoadout(/*bReapply=*/true);
+		}
+	}
 }
 
 void AAstralPlayerState::SetGenericTeamId(const FGenericTeamId& NewTeamID)
@@ -149,6 +193,9 @@ void AAstralPlayerState::SetPawnData(const UAstralPawnData* InPawnData)
 
 void AAstralPlayerState::OnRep_PawnData()
 {
+	// 코스메틱 표시 조건이 PawnData(bRestoreLoadoutEquipment)를 읽는다 — Loadout이 먼저 도착한
+	// 경우의 재갱신 트리거 (멱등이라 중복 무해)
+	NotifyPawnOfLoadoutChange();
 }
 
 void AAstralPlayerState::OnHeroDamaged(AActor* DamageInstigator, AActor* DamageCauser, const FGameplayEffectSpec* DamageEffectSpec, float DamageMagnitude, float OldValue, float NewValue)

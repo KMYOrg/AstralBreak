@@ -11,12 +11,17 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "AstralLogChannels.h"
+#include "Character/AstralCharacterDefinition.h"
 #include "Character/AstralPawnData.h"
+#include "Equipment/AstralEquipmentActor.h"
+#include "Equipment/AstralEquipmentFamily.h"
 #include "Equipment/AstralEquipmentManagerComponent.h"
+#include "Equipment/AstralItemDefinition.h"
 #include "GameplayEffect.h"
 #include "Player/AstralPlayerState.h"
 #include "System/AstralAssetManager.h"
 #include "System/AstralGameData.h"
+#include "System/AstralPartySubsystem.h"
 
 
 AAstralCharacter::AAstralCharacter(const FObjectInitializer& ObjectInitializer)
@@ -56,24 +61,190 @@ void AAstralCharacter::OnAbilitySystemInitialized()
 
 	HealthComponent->InitializeWithAbilitySystem(AstralASC);
 
-	// 기본 장비 장착 (서버) — 장착 소스는 PawnData 플레이스홀더, M1에서 로드아웃 페이로드 복원으로 교체.
+	// 장비 복원 (서버) — 소스는 3단 (세션 캐시 → PlayerState 로드아웃 → PawnData 폴백).
 	// 재초기화 경로에서 중복 장착 방지 (리스폰/재빙의 시 어빌리티 누적 차단)
 	if (HasAuthority() && EquipmentManagerComponent && !EquipmentManagerComponent->HasAnyEquipment())
 	{
 		if (const UAstralPawnData* PawnData = PawnExtComponent->GetPawnData<UAstralPawnData>())
 		{
-			// 초기 스타일은 장착 루프보다 먼저 — 스폰 시점의 손/홀스터 소켓 결정이 이 상태를 읽는다.
+			// 초기 스타일은 장착 루프보다 먼저 — 스폰 시점의 표시 상태 결정이 이 상태를 읽는다.
 			// 빈 태그 = 스타일 시스템 미사용 폰
 			if (PawnData->InitialCombatStyle.IsValid())
 			{
 				SetCombatStyle(PawnData->InitialCombatStyle);
 			}
 
-			for (const FPrimaryAssetId& WeaponId : PawnData->DefaultEquipment)
+			RestoreEquipmentFromLoadout(/*bReapply=*/false);
+		}
+	}
+
+	RefreshAppearanceFromLoadout();
+}
+
+void AAstralCharacter::RefreshAppearanceFromLoadout()
+{
+	// 무기 코스메틱은 CharacterId와 무관하게 갱신 (무기만 골랐어도 표시)
+	RefreshLoadoutWeaponDisplay();
+
+	const AAstralPlayerState* AstralPS = GetAstralPlayerState();
+	if (!AstralPS || !AstralPS->GetLoadout().CharacterId.IsValid())
+	{
+		return;
+	}
+
+	const FSoftObjectPath DefinitionPath = UAstralAssetManager::Get().GetPrimaryAssetPath(AstralPS->GetLoadout().CharacterId);
+	const UAstralCharacterDefinition* CharacterDef = Cast<UAstralCharacterDefinition>(DefinitionPath.TryLoad());
+	if (!CharacterDef)
+	{
+		UE_LOG(LogAstral, Warning, TEXT("RefreshAppearance: CharacterDefinition 해석 실패 %s"), *AstralPS->GetLoadout().CharacterId.ToString());
+		return;
+	}
+
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!MeshComp || CharacterDef->Mesh.IsNull())
+	{
+		return;
+	}
+
+	// 멱등 — 이미 같은 메시면 스킵 (OnRep·빙의·PS 도착 등 여러 지점에서 호출된다)
+	USkeletalMesh* TargetMesh = CharacterDef->Mesh.LoadSynchronous();
+	if (TargetMesh && MeshComp->GetSkeletalMeshAsset() != TargetMesh)
+	{
+		MeshComp->SetSkeletalMesh(TargetMesh);
+		if (CharacterDef->AnimInstanceClass)
+		{
+			MeshComp->SetAnimInstanceClass(CharacterDef->AnimInstanceClass);
+		}
+	}
+}
+
+void AAstralCharacter::RefreshLoadoutWeaponDisplay()
+{
+	// 멱등 재구성 — 기존 표시 액터 전량 정리 후 조건 충족 시 재스폰
+	for (AActor* DisplayActor : LoadoutDisplayActors)
+	{
+		if (DisplayActor)
+		{
+			DisplayActor->Destroy();
+		}
+	}
+	LoadoutDisplayActors.Reset();
+
+	// 표시 조건: 비전투 문맥(장비 미복원 맵 = 로비)에서만 — 전투 맵은 실장비가 표현을 담당
+	const UAstralPawnData* PawnData = PawnExtComponent ? PawnExtComponent->GetPawnData<UAstralPawnData>() : nullptr;
+	const AAstralPlayerState* AstralPS = GetAstralPlayerState();
+	if (!PawnData || PawnData->bRestoreLoadoutEquipment || !AstralPS || AstralPS->GetLoadout().Equipment.Num() == 0)
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* AttachTarget = GetMesh();
+	if (!AttachTarget || !GetWorld())
+	{
+		return;
+	}
+
+	for (const FPrimaryAssetId& ItemId : AstralPS->GetLoadout().Equipment)
+	{
+		const UAstralItemDefinition* ItemDef = UAstralEquipmentManagerComponent::ResolveItemDefinition(ItemId);
+		if (!ItemDef || !ItemDef->EquipmentFamily)
+		{
+			continue;
+		}
+
+		for (const FAstralEquipmentActorToSpawn& SpawnInfo : ItemDef->EquipmentFamily->ActorsToSpawn)
+		{
+			if (!SpawnInfo.ActorToSpawn)
 			{
-				EquipmentManagerComponent->EquipItemById(WeaponId);
+				continue;
+			}
+
+			// 로컬 코스메틱 — 비복제·판정 없음·어빌리티 없음. 각 머신이 복제된 Loadout에서 독립적으로 유도
+			AActor* DisplayActor = GetWorld()->SpawnActorDeferred<AActor>(SpawnInfo.ActorToSpawn, FTransform::Identity, this);
+			if (!DisplayActor)
+			{
+				continue;
+			}
+
+			DisplayActor->SetReplicates(false);
+
+			if (AAstralEquipmentActor* EquipmentActor = Cast<AAstralEquipmentActor>(DisplayActor))
+			{
+				// pull 모델 재사용 — 메시/오프셋 적용은 액터가 스스로 (로컬 호출로도 동작)
+				EquipmentActor->OnEquipmentDataApplied(ItemDef);
+			}
+
+			const FName Socket = SpawnInfo.DisplaySocket.IsNone() ? SpawnInfo.AttachSocket : SpawnInfo.DisplaySocket;
+			DisplayActor->SetActorRelativeTransform(SpawnInfo.AttachTransform);
+			DisplayActor->AttachToComponent(AttachTarget, FAttachmentTransformRules::KeepRelativeTransform, Socket);
+			DisplayActor->FinishSpawning(FTransform::Identity, /*bIsDefaultTransform=*/true);
+
+			LoadoutDisplayActors.Add(DisplayActor);
+		}
+	}
+}
+
+void AAstralCharacter::RestoreEquipmentFromLoadout(bool bReapply)
+{
+	if (!HasAuthority() || !EquipmentManagerComponent)
+	{
+		return;
+	}
+
+	// ASC 준비 전이면 장착 금지 — 부여 없는 반쪽 장착이 생기고, 그게 HasAnyEquipment 가드를 오염시켜
+	// 이후 정상 경로(OnAbilitySystemInitialized의 SetCombatStyle+장착)까지 막는다 (seamless 도착 직후
+	// 로드아웃 재발신이 InitState 완료보다 빠른 케이스). 초기화 완료 시 이 함수가 다시 불린다
+	if (!GetAbilitySystemComponent())
+	{
+		return;
+	}
+
+	const UAstralPawnData* PawnData = PawnExtComponent ? PawnExtComponent->GetPawnData<UAstralPawnData>() : nullptr;
+	if (!PawnData || !PawnData->bRestoreLoadoutEquipment)
+	{
+		// Hub 등 비전투 문맥 — 장착 자체를 차단 (장착=AbilitySet 부여이므로 여기가 로비 전투 불가의 실차단 지점)
+		return;
+	}
+
+	if (bReapply)
+	{
+		EquipmentManagerComponent->UnequipAll();
+	}
+	else if (EquipmentManagerComponent->HasAnyEquipment())
+	{
+		return;
+	}
+
+	// 3단 소스 해석
+	const TArray<FPrimaryAssetId>* EquipmentIds = nullptr;
+	LastLoadoutSource = EAstralLoadoutSource::None;
+
+	const AAstralPlayerState* AstralPS = GetAstralPlayerState();
+	if (AstralPS)
+	{
+		if (const UAstralPartySubsystem* Party = GetGameInstance() ? GetGameInstance()->GetSubsystem<UAstralPartySubsystem>() : nullptr)
+		{
+			if (const FAstralPlayerLoadout* Cached = Party->FindLoadout(AstralPS->GetUniqueId()); Cached && Cached->Equipment.Num() > 0)
+			{
+				EquipmentIds = &Cached->Equipment;
+				LastLoadoutSource = EAstralLoadoutSource::PartyCache;
 			}
 		}
+		if (!EquipmentIds && AstralPS->GetLoadout().Equipment.Num() > 0)
+		{
+			EquipmentIds = &AstralPS->GetLoadout().Equipment;
+			LastLoadoutSource = EAstralLoadoutSource::PlayerState;
+		}
+	}
+	if (!EquipmentIds)
+	{
+		EquipmentIds = &PawnData->DefaultEquipment;
+		LastLoadoutSource = EAstralLoadoutSource::PawnDataFallback;
+	}
+
+	for (const FPrimaryAssetId& ItemId : *EquipmentIds)
+	{
+		EquipmentManagerComponent->EquipItemById(ItemId);
 	}
 }
 
@@ -179,6 +350,16 @@ void AAstralCharacter::BeginPlay()
 
 void AAstralCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	// 코스메틱 정리 — 부착 액터는 폰 파괴 시 자동 소멸되지 않는다
+	for (AActor* DisplayActor : LoadoutDisplayActors)
+	{
+		if (DisplayActor)
+		{
+			DisplayActor->Destroy();
+		}
+	}
+	LoadoutDisplayActors.Reset();
+
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -188,6 +369,8 @@ void AAstralCharacter::PossessedBy(AController* NewController)
 
 	// 서버 경로: Possess 시점 Init State 시작
 	PawnExtComponent->HandleControllerChanged();
+
+	RefreshAppearanceFromLoadout();
 }
 
 void AAstralCharacter::UnPossessed()
@@ -209,6 +392,8 @@ void AAstralCharacter::OnRep_PlayerState()
 	Super::OnRep_PlayerState();
 
 	PawnExtComponent->HandlePlayerStateReplicated();
+
+	RefreshAppearanceFromLoadout();
 }
 
 void AAstralCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)

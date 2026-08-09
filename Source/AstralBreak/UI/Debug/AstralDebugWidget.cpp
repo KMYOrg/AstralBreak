@@ -10,7 +10,10 @@
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "AbilitySystem/Attributes/AstralCombatSet.h"
 #include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
+#include "Character/AstralCharacter.h"
 #include "Character/Components/AstralHealthComponent.h"
+#include "GameModes/AstralGameState.h"
+#include "Player/AstralPlayerState.h"
 
 void UAstralDebugWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
@@ -35,6 +38,47 @@ FString UAstralDebugWidget::BuildDebugString() const
     B.Append(GetAbilitiesString());
     B.Append(TEXT("\n[Target]\n"));
     B.Append(GetTargetString());
+    B.Append(TEXT("\n[Party]\n"));
+    B.Append(GetPartyString());
+    return B.ToString();
+}
+
+FString UAstralDebugWidget::GetPartyString() const
+{
+    TStringBuilder<512> B;
+
+    const UWorld* World = GetWorld();
+    B.Appendf(TEXT("Map: %s\n"), World ? *World->GetMapName() : TEXT("?"));
+
+    const APlayerController* PC = GetOwningPlayer();
+    const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+
+    // 장비 복원 소스 — 서버 로컬 값이라 원격 클라에선 None (리슨 호스트/서버 시점용)
+    if (const AAstralCharacter* Character = Cast<AAstralCharacter>(Pawn))
+    {
+        static const TCHAR* SourceNames[] = { TEXT("None"), TEXT("PartyCache"), TEXT("PlayerState"), TEXT("PawnDataFallback") };
+        B.Appendf(TEXT("EquipSource: %s (서버 로컬)\n"), SourceNames[static_cast<int32>(Character->GetLastLoadoutSource())]);
+    }
+
+    if (const AAstralPlayerState* AstralPS = PC ? PC->GetPlayerState<AAstralPlayerState>() : nullptr)
+    {
+        B.Appendf(TEXT("Character: %s\n"), *AstralPS->GetLoadout().CharacterId.ToString());
+        for (const FPrimaryAssetId& ItemId : AstralPS->GetLoadout().Equipment)
+        {
+            B.Appendf(TEXT("  Equip: %s\n"), *ItemId.ToString());
+        }
+    }
+
+    if (const AAstralGameState* GS = World ? World->GetGameState<AAstralGameState>() : nullptr)
+    {
+        B.Appendf(TEXT("Raid: %s | AllReady: %s\n"), *GS->GetSelectedRaid().MapName, GS->AreAllPlayersReady() ? TEXT("YES") : TEXT("no"));
+        for (const APlayerState* PS : GS->PlayerArray)
+        {
+            const AAstralPlayerState* MemberPS = Cast<AAstralPlayerState>(PS);
+            B.Appendf(TEXT("  %s: %s\n"), *GetNameSafe(PS), (MemberPS && MemberPS->IsReady()) ? TEXT("READY") : TEXT("..."));
+        }
+    }
+
     return B.ToString();
 }
 

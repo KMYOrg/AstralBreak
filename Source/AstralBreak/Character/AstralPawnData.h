@@ -27,9 +27,17 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Abilities")
 	TArray<TObjectPtr<const UAstralAbilitySet>> AbilitySets;
 
-	/** 기본 장비 (플레이스홀더) — M1에서 이 소스가 로드아웃 페이로드 복원으로 교체된다 */
+	/** 기본 장비 — 로드아웃 3단 소스의 폴백 (로비를 거치지 않는 단독 테스트 맵용) */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Equipment", Meta = (AllowedTypes = "AstralWeaponDefinition,AstralRangedWeaponDefinition"))
 	TArray<FPrimaryAssetId> DefaultEquipment;
+
+	/**
+	 * 장비 복원 여부 — Hub=false(로비 전투 불가: 장착=AbilitySet 부여이므로 장비 진입 자체를 차단), Raid=true.
+	 * 원인(장비) 한 곳 차단이 최소 기계 — 부여/발동 차단 대안은 분류 규약·반쪽 장착을 낳는다.
+	 * 한계선: "로비 무기 외형 표시" 기획 확정 시 enum/부여 정책 인자로 확장
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Equipment")
+	bool bRestoreLoadoutEquipment = true;
 
 	/**
 	 * 시작 전투 스타일 — 빈 태그 = 이 폰은 스타일 시스템 미사용 (스타일 태그를 아예 세팅하지 않음).

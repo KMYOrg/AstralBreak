@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/LocalPlayer.h"
+#include "Player/AstralPlayerLoadout.h"
 #include "AstralLocalPlayer.generated.h"
 
 /**
@@ -33,6 +34,13 @@ public:
 	virtual bool SpawnPlayActor(const FString& URL, FString& OutError, UWorld* InWorld) override;
 	virtual void InitOnlineSession() override;
 	//~ End ULocalPlayer interface
+
+	/**
+	 * 마지막 로드아웃 선택 — 토폴로지 무관 페이로드의 클라 측 원본.
+	 * 같은 프로세스 travel / 별도 인스턴스 서버 어느 쪽에 도착하든 PC가 BeginPlayingState에서 재발신한다
+	 */
+	UPROPERTY(Transient)
+	FAstralPlayerLoadout CachedLoadout;
 	
 	// =========================================================
 	// TODO(Settings): 설정 시스템 도입 시 활성화
@@ -65,7 +73,7 @@ protected:
 	
 private:
 	/**
-	 * 이전에 훅을 바인딩했던 PC의 약참조.
+	 * 이전에 훅을 바인딩했던 PC.
 	 * PC가 이미 파괴된 뒤에도 델리게이트 해제 대상 식별에 필요하므로 Weak으로 보관
 	 * 현재는 사용처가 없지만 Settings 훅 추가 시 즉시 활용
 	 */

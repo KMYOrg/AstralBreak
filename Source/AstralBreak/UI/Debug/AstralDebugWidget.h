@@ -32,4 +32,7 @@ protected:
 	FString GetAbilitiesString() const;
 	FString GetDeathStateString() const;
 	FString GetTargetString() const;
+
+	/** M1 — 맵/로드아웃 소스/파티 준비 상태 */
+	FString GetPartyString() const;
 };

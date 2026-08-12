@@ -7,7 +7,7 @@
 #include "Engine/World.h"
 #include "Equipment/AstralEquipmentManagerComponent.h"
 #include "GameModes/AstralGameMode.h"
-#include "GameModes/AstralGameState.h"
+#include "GameModes/AstralHubGameState.h"
 #include "System/AstralAssetManager.h"
 #include "System/AstralPartySubsystem.h"
 #include "UI/Debug/AstralDebugWidget.h"
@@ -137,6 +137,7 @@ void AAstralPlayerController::ServerSetLoadout_Implementation(FAstralPlayerLoado
 		return;
 	}
 
+	// PS에서 
 	AstralPS->SetLoadout(InLoadout);
 
 	// 세션 캐시 (1단) — 같은 프로세스 travel 대비
@@ -165,10 +166,15 @@ void AAstralPlayerController::ServerSelectRaid_Implementation(const FString& Map
 	FAstralRaidRequest Request;
 	Request.MapName = MapName;
 
-	if (AAstralGameState* AstralGS = GetWorld()->GetGameState<AAstralGameState>())
+	// Hub 전용 상태 — Raid 맵에선 HubGameState가 없어 자연 거부
+	AAstralHubGameState* HubGS = GetWorld()->GetGameState<AAstralHubGameState>();
+	if (!HubGS)
 	{
-		AstralGS->SetSelectedRaid(Request);
+		UE_LOG(LogAstral, Warning, TEXT("ServerSelectRaid: HubGameState 없음 (로비가 아님) — 거부"));
+		return;
 	}
+
+	HubGS->SetSelectedRaid(Request);
 	if (UAstralPartySubsystem* Party = GetGameInstance()->GetSubsystem<UAstralPartySubsystem>())
 	{
 		Party->SetSelectedRaid(Request);
@@ -183,20 +189,20 @@ void AAstralPlayerController::ServerStartRaid_Implementation()
 		return;
 	}
 
-	AAstralGameState* AstralGS = GetWorld()->GetGameState<AAstralGameState>();
-	if (!AstralGS || !AstralGS->GetSelectedRaid().IsSet())
+	AAstralHubGameState* HubGS = GetWorld()->GetGameState<AAstralHubGameState>();
+	if (!HubGS || !HubGS->GetSelectedRaid().IsSet())
 	{
-		UE_LOG(LogAstral, Warning, TEXT("ServerStartRaid: 목적지 미선택 — SelectRaid <MapName> 먼저"));
+		UE_LOG(LogAstral, Warning, TEXT("ServerStartRaid: 로비가 아니거나 목적지 미선택 — SelectRaid <MapName> 먼저"));
 		return;
 	}
-	if (!AstralGS->AreAllPlayersReady())
+	if (!HubGS->AreAllPlayersReady())
 	{
 		UE_LOG(LogAstral, Warning, TEXT("ServerStartRaid: 전원 준비 아님 — 거부"));
 		return;
 	}
 
 	// 리슨 유지 travel — seamless 여부는 GameMode.bUseSeamlessTravel (검증 A에서 실경로 확인)
-	GetWorld()->ServerTravel(AstralGS->GetSelectedRaid().MapName + TEXT("?listen"));
+	GetWorld()->ServerTravel(HubGS->GetSelectedRaid().MapName + TEXT("?listen"));
 }
 
 void AAstralPlayerController::ServerReturnToHub_Implementation()

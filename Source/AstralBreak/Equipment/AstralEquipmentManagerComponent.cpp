@@ -218,6 +218,35 @@ void UAstralEquipmentManagerComponent::RefreshEquipmentActiveState()
 	}
 }
 
+bool UAstralEquipmentManagerComponent::HasEquipmentForStyle(const FGameplayTag& StyleTag) const
+{
+	if (!StyleTag.IsValid())
+	{
+		return false;
+	}
+
+	for (const FAstralAppliedEquipmentEntry& Entry : EquipmentList.Entries)
+	{
+		if (Entry.EquipmentFamily && Entry.EquipmentFamily->CombatStyle == StyleTag)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+FGameplayTag UAstralEquipmentManagerComponent::FindFirstEquippedStyle() const
+{
+	for (const FAstralAppliedEquipmentEntry& Entry : EquipmentList.Entries)
+	{
+		if (Entry.EquipmentFamily && Entry.EquipmentFamily->CombatStyle.IsValid())
+		{
+			return Entry.EquipmentFamily->CombatStyle;
+		}
+	}
+	return FGameplayTag();
+}
+
 UAstralEquipmentInstance* UAstralEquipmentManagerComponent::GetFirstInstanceOfType(TSubclassOf<UAstralEquipmentInstance> InstanceType) const
 {
 	for (const FAstralAppliedEquipmentEntry& Entry : EquipmentList.Entries)

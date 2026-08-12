@@ -13,10 +13,7 @@
 #include "AstralLogChannels.h"
 #include "Character/AstralCharacterDefinition.h"
 #include "Character/AstralPawnData.h"
-#include "Equipment/AstralEquipmentActor.h"
-#include "Equipment/AstralEquipmentFamily.h"
 #include "Equipment/AstralEquipmentManagerComponent.h"
-#include "Equipment/AstralItemDefinition.h"
 #include "GameplayEffect.h"
 #include "Player/AstralPlayerState.h"
 #include "System/AstralAssetManager.h"
@@ -83,9 +80,6 @@ void AAstralCharacter::OnAbilitySystemInitialized()
 
 void AAstralCharacter::RefreshAppearanceFromLoadout()
 {
-	// 무기 코스메틱은 CharacterId와 무관하게 갱신 (무기만 골랐어도 표시)
-	RefreshLoadoutWeaponDisplay();
-
 	const AAstralPlayerState* AstralPS = GetAstralPlayerState();
 	if (!AstralPS || !AstralPS->GetLoadout().CharacterId.IsValid())
 	{
@@ -106,7 +100,7 @@ void AAstralCharacter::RefreshAppearanceFromLoadout()
 		return;
 	}
 
-	// 멱등 — 이미 같은 메시면 스킵 (OnRep·빙의·PS 도착 등 여러 지점에서 호출된다)
+	// 이미 같은 메시면 스킵 (OnRep·빙의·PS 도착 등 여러 지점에서 호출된다)
 	USkeletalMesh* TargetMesh = CharacterDef->Mesh.LoadSynchronous();
 	if (TargetMesh && MeshComp->GetSkeletalMeshAsset() != TargetMesh)
 	{
@@ -114,72 +108,6 @@ void AAstralCharacter::RefreshAppearanceFromLoadout()
 		if (CharacterDef->AnimInstanceClass)
 		{
 			MeshComp->SetAnimInstanceClass(CharacterDef->AnimInstanceClass);
-		}
-	}
-}
-
-void AAstralCharacter::RefreshLoadoutWeaponDisplay()
-{
-	// 멱등 재구성 — 기존 표시 액터 전량 정리 후 조건 충족 시 재스폰
-	for (AActor* DisplayActor : LoadoutDisplayActors)
-	{
-		if (DisplayActor)
-		{
-			DisplayActor->Destroy();
-		}
-	}
-	LoadoutDisplayActors.Reset();
-
-	// 표시 조건: 비전투 문맥(장비 미복원 맵 = 로비)에서만 — 전투 맵은 실장비가 표현을 담당
-	const UAstralPawnData* PawnData = PawnExtComponent ? PawnExtComponent->GetPawnData<UAstralPawnData>() : nullptr;
-	const AAstralPlayerState* AstralPS = GetAstralPlayerState();
-	if (!PawnData || PawnData->bRestoreLoadoutEquipment || !AstralPS || AstralPS->GetLoadout().Equipment.Num() == 0)
-	{
-		return;
-	}
-
-	USkeletalMeshComponent* AttachTarget = GetMesh();
-	if (!AttachTarget || !GetWorld())
-	{
-		return;
-	}
-
-	for (const FPrimaryAssetId& ItemId : AstralPS->GetLoadout().Equipment)
-	{
-		const UAstralItemDefinition* ItemDef = UAstralEquipmentManagerComponent::ResolveItemDefinition(ItemId);
-		if (!ItemDef || !ItemDef->EquipmentFamily)
-		{
-			continue;
-		}
-
-		for (const FAstralEquipmentActorToSpawn& SpawnInfo : ItemDef->EquipmentFamily->ActorsToSpawn)
-		{
-			if (!SpawnInfo.ActorToSpawn)
-			{
-				continue;
-			}
-
-			// 로컬 코스메틱 — 비복제·판정 없음·어빌리티 없음. 각 머신이 복제된 Loadout에서 독립적으로 유도
-			AActor* DisplayActor = GetWorld()->SpawnActorDeferred<AActor>(SpawnInfo.ActorToSpawn, FTransform::Identity, this);
-			if (!DisplayActor)
-			{
-				continue;
-			}
-
-			DisplayActor->SetReplicates(false);
-
-			if (AAstralEquipmentActor* EquipmentActor = Cast<AAstralEquipmentActor>(DisplayActor))
-			{
-				// pull 모델 재사용 — 메시/오프셋 적용은 액터가 스스로 (로컬 호출로도 동작)
-				EquipmentActor->OnEquipmentDataApplied(ItemDef);
-			}
-
-			const FName Socket = SpawnInfo.DisplaySocket.IsNone() ? SpawnInfo.AttachSocket : SpawnInfo.DisplaySocket;
-			DisplayActor->SetActorRelativeTransform(SpawnInfo.AttachTransform);
-			DisplayActor->AttachToComponent(AttachTarget, FAttachmentTransformRules::KeepRelativeTransform, Socket);
-			DisplayActor->FinishSpawning(FTransform::Identity, /*bIsDefaultTransform=*/true);
-
-			LoadoutDisplayActors.Add(DisplayActor);
 		}
 	}
 }
@@ -245,6 +173,49 @@ void AAstralCharacter::RestoreEquipmentFromLoadout(bool bReapply)
 	for (const FPrimaryAssetId& ItemId : *EquipmentIds)
 	{
 		EquipmentManagerComponent->EquipItemById(ItemId);
+	}
+
+	// 선택적 로드아웃 정합 — 총만 든 로드아웃인데 초기 스타일이 Melee인 경우 등
+	EnsureCombatStyleMatchesEquipment();
+}
+
+void AAstralCharacter::EnsureCombatStyleMatchesEquipment()
+{
+	if (!HasAuthority() || !EquipmentManagerComponent)
+	{
+		return;
+	}
+
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	// 현 스타일 = 보유 중인 State.CombatStyle 자식 태그
+	FGameplayTag CurrentStyle;
+	FGameplayTagContainer OwnedTags;
+	ASC->GetOwnedGameplayTags(OwnedTags);
+	for (auto TagIt = OwnedTags.CreateConstIterator(); TagIt; ++TagIt)
+	{
+		if (*TagIt != AstralGameplayTags::State_CombatStyle && TagIt->MatchesTag(AstralGameplayTags::State_CombatStyle))
+		{
+			CurrentStyle = *TagIt;
+			break;
+		}
+	}
+
+	if (CurrentStyle.IsValid() && EquipmentManagerComponent->HasEquipmentForStyle(CurrentStyle))
+	{
+		return;
+	}
+
+	// 현 스타일에 장비 없음 — 장비가 있는 스타일로 전환. 스타일 장비가 아예 없으면 유지
+	// (스타일 종속 GA 자체가 장비 부여분이라 잘못 발동될 것이 없다)
+	const FGameplayTag FallbackStyle = EquipmentManagerComponent->FindFirstEquippedStyle();
+	if (FallbackStyle.IsValid() && FallbackStyle != CurrentStyle)
+	{
+		SetCombatStyle(FallbackStyle);
 	}
 }
 
@@ -350,16 +321,6 @@ void AAstralCharacter::BeginPlay()
 
 void AAstralCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	// 코스메틱 정리 — 부착 액터는 폰 파괴 시 자동 소멸되지 않는다
-	for (AActor* DisplayActor : LoadoutDisplayActors)
-	{
-		if (DisplayActor)
-		{
-			DisplayActor->Destroy();
-		}
-	}
-	LoadoutDisplayActors.Reset();
-
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -503,6 +464,9 @@ void AAstralCharacter::ServerEquipWeapon_Implementation(FPrimaryAssetId WeaponId
 		// 교체 시맨틱 — 전체 해제 후 장착 (무기 변형 비교 테스트용)
 		EquipmentManagerComponent->UnequipAll();
 		EquipmentManagerComponent->EquipItemById(WeaponId);
+
+		// 반대 스타일 무기로 교체한 경우 스타일 정합 (안 하면 새 무기가 비활성=숨김)
+		EnsureCombatStyleMatchesEquipment();
 	}
 #endif
 }

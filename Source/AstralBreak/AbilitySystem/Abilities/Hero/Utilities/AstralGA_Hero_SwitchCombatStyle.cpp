@@ -3,6 +3,7 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "Character/AstralCharacter.h"
+#include "Equipment/AstralEquipmentManagerComponent.h"
 
 UAstralGA_Hero_SwitchCombatStyle::UAstralGA_Hero_SwitchCombatStyle(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -31,8 +32,9 @@ void UAstralGA_Hero_SwitchCombatStyle::ActivateAbility(const FGameplayAbilitySpe
 		if (AAstralCharacter* Character = GetAstralCharacterFromActorInfo())
 		{
 			const UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
+			const UAstralEquipmentManagerComponent* EquipmentManager = Character->GetEquipmentManagerComponent();
 
-			// 현재 스타일의 다음 항목으로 순환 — 미발견(INDEX_NONE)이면 첫 항목으로 (초기 미지정 폰 안전망)
+			// 현재 스타일 인덱스 — 미발견(INDEX_NONE)이면 첫 항목부터 후보 탐색
 			int32 CurrentIndex = INDEX_NONE;
 			if (ASC)
 			{
@@ -46,7 +48,19 @@ void UAstralGA_Hero_SwitchCombatStyle::ActivateAbility(const FGameplayAbilitySpe
 				}
 			}
 
-			Character->SetCombatStyle(StyleCycle[(CurrentIndex + 1) % StyleCycle.Num()]);
+			// 다음 후보로 순환하되 해당 스타일의 장비가 있는 것만 — 선택적 로드아웃(한 무기만 장착)에서
+			// 맨손 스타일로 넘어가는 구멍 방지. 유효 후보가 없으면 no-op (전환 입력 무의미)
+			const int32 StartIndex = (CurrentIndex == INDEX_NONE) ? 0 : CurrentIndex + 1;
+			const int32 NumCandidates = (CurrentIndex == INDEX_NONE) ? StyleCycle.Num() : StyleCycle.Num() - 1;
+			for (int32 Step = 0; Step < NumCandidates; ++Step)
+			{
+				const FGameplayTag& Candidate = StyleCycle[(StartIndex + Step) % StyleCycle.Num()];
+				if (EquipmentManager && EquipmentManager->HasEquipmentForStyle(Candidate))
+				{
+					Character->SetCombatStyle(Candidate);
+					break;
+				}
+			}
 		}
 	}
 

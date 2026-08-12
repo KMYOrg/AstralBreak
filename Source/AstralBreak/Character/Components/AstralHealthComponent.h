@@ -24,7 +24,6 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FAstralHealth_AttributeChanged, U
 /**
  * 책임은 상태 기계뿐 — DeathState 전이, State.Death 태그 부여, 어빌리티 취소, 델리게이트
  * 물리 반응(콜리전/이동/래그돌)은 소유 액터가 OnDeathStarted/OnDeathFinished를 구독해 처리
- *
  * Hero: ASC가 PlayerState 소유 → PawnExtensionComponent의 Init/Uninit 경로에서 연결.
  * CombatCharacter(더미/몬스터): 자기 ASC → PostInitializeComponents에서 직접 연결.
  */

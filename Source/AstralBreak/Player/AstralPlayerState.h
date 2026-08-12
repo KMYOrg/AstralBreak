@@ -46,6 +46,11 @@ public:
 
 	const FAstralPlayerLoadout& GetLoadout() const { return Loadout; }
 	bool IsReady() const { return bIsReady; }
+
+	/**
+	 * 실전투 장착은 이 이벤트가 아니라 서버 명시 흐름(RestoreEquipmentFromLoadout)
+	 */
+	FSimpleMulticastDelegate OnLoadoutChanged;
 	
 	//~AActor interface
 	virtual void PreInitializeComponents() override;

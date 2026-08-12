@@ -55,18 +55,11 @@ public:
 	void SetCombatStyle(FGameplayTag NewStyle);
 
 	/**
-	 * 외형 갱신 (전 머신, 멱등) — PlayerState 로드아웃의 CharacterId → CharacterDefinition 메시/AnimBP 적용
-	 * + 로비 무기 코스메틱 표시 갱신.
+	 * 외형 갱신 (전 머신, 멱등) — PlayerState 로드아웃의 CharacterId → CharacterDefinition 메시/AnimBP 적용.
+	 * 로비 코스메틱은 여기 없음 — LoadoutDisplayComponent가 PS.OnLoadoutChanged를 스스로 구독.
 	 * PS 복제와 폰 스폰 순서가 비결정적이므로 OnRep_Loadout·빙의·PS 도착 모든 지점에서 호출된다
 	 */
 	void RefreshAppearanceFromLoadout();
-
-	/**
-	 * 로비 무기 코스메틱 (전 머신, 멱등 재구성) — 비전투 문맥(bRestoreLoadoutEquipment=false)에서만
-	 * 복제된 Loadout을 읽어 **비복제 표시 액터**를 로컬 스폰, 계열의 DisplaySocket에 부착.
-	 * 장비 시스템·ASC 무접촉 — 부여 위험 원천 차단 (표현물은 복제 데이터에서 로컬 유도)
-	 */
-	void RefreshLoadoutWeaponDisplay();
 
 	/**
 	 * 서버 — 장비 복원 (3단 소스: PartySubsystem 캐시 → PlayerState.Loadout → PawnData 폴백).
@@ -77,6 +70,12 @@ public:
 
 	/** 디버그 — 마지막 장비 복원 소스 */
 	EAstralLoadoutSource GetLastLoadoutSource() const { return LastLoadoutSource; }
+
+	/**
+	 * 서버 — 스타일↔장비 정합. 현 스타일에 일치하는 장비가 없으면(선택적 로드아웃 — 한 무기만 장착 등)
+	 * 장비가 있는 첫 스타일로 자동 전환. 장비 변이 지점(로드아웃 복원·교체) 직후 호출된다
+	 */
+	void EnsureCombatStyleMatchesEquipment();
 
 	/** 디버그 — 콘솔에서 `DamageSelf 50`. 데미지 파이프라인(GE_Damage_Base)을 그대로 태워 사망/수급 경로 검증용 */
 	UFUNCTION(Exec)
@@ -143,8 +142,4 @@ protected:
 
 	/** 디버그 — 마지막 장비 복원 소스 (서버 로컬) */
 	EAstralLoadoutSource LastLoadoutSource = EAstralLoadoutSource::None;
-
-	/** 로비 무기 코스메틱 액터 — 머신 로컬·비복제. 로드아웃 변경 시 전량 재구성, EndPlay 정리 */
-	UPROPERTY(Transient)
-	TArray<TObjectPtr<AActor>> LoadoutDisplayActors;
 };

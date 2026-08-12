@@ -76,13 +76,15 @@ void AAstralPlayerState::NotifyPawnOfLoadoutChange()
 	if (AAstralCharacter* Character = Cast<AAstralCharacter>(GetPawn()))
 	{
 		Character->RefreshAppearanceFromLoadout();
-
-		// 장비 재적용은 서버만 — 늦게 도착한 로드아웃 RPC 대응 (UnequipAll 후 재장착, 멱등이라 안전)
+		
 		if (GetLocalRole() == ROLE_Authority)
 		{
 			Character->RestoreEquipmentFromLoadout(/*bReapply=*/true);
 		}
 	}
+
+	// (로비 미리보기 컴포넌트, 추후 로비 UI)
+	OnLoadoutChanged.Broadcast();
 }
 
 void AAstralPlayerState::SetGenericTeamId(const FGenericTeamId& NewTeamID)

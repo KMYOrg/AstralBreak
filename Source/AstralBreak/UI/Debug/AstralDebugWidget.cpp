@@ -12,7 +12,7 @@
 #include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
 #include "Character/AstralCharacter.h"
 #include "Character/Components/AstralHealthComponent.h"
-#include "GameModes/AstralGameState.h"
+#include "GameModes/AstralHubGameState.h"
 #include "Player/AstralPlayerState.h"
 
 void UAstralDebugWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -71,7 +71,11 @@ FString UAstralDebugWidget::GetPartyString() const
 
     if (const AAstralGameState* GS = World ? World->GetGameState<AAstralGameState>() : nullptr)
     {
-        B.Appendf(TEXT("Raid: %s | AllReady: %s\n"), *GS->GetSelectedRaid().MapName, GS->AreAllPlayersReady() ? TEXT("YES") : TEXT("no"));
+        // 로비 상태는 Hub 전용 GameState — Raid 맵에선 미표시
+        if (const AAstralHubGameState* HubGS = Cast<AAstralHubGameState>(GS))
+        {
+            B.Appendf(TEXT("Raid: %s | AllReady: %s\n"), *HubGS->GetSelectedRaid().MapName, HubGS->AreAllPlayersReady() ? TEXT("YES") : TEXT("no"));
+        }
         for (const APlayerState* PS : GS->PlayerArray)
         {
             const AAstralPlayerState* MemberPS = Cast<AAstralPlayerState>(PS);

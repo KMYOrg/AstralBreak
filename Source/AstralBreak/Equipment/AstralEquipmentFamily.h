@@ -28,7 +28,7 @@ struct FAstralEquipmentActorToSpawn
 
 	/**
 	 * 로비(비전투 문맥) 코스메틱 표시 소켓 — 등/허리/옆구리 등. 미지정이면 AttachSocket.
-	 * 전투 장착이 아니라 로컬 표시 액터(AAstralCharacter::RefreshLoadoutWeaponDisplay)가 소비
+	 * 전투 장착이 아니라 로컬 표시 액터(UAstralLoadoutDisplayComponent)가 소비
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "Equipment")
 	FName DisplaySocket;

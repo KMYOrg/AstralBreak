@@ -116,6 +116,12 @@ public:
 	 */
 	void RefreshEquipmentActiveState();
 
+	/** 해당 스타일과 일치하는 계열 장비 보유 여부 — 스타일 무관(빈 태그) 계열은 제외 (태그 비교만 = 종류-무지 유지) */
+	bool HasEquipmentForStyle(const FGameplayTag& StyleTag) const;
+
+	/** 장착 중인 계열들의 첫 유효 스타일 태그 — 없으면 빈 태그. 스타일↔장비 정합의 폴백 대상 */
+	FGameplayTag FindFirstEquippedStyle() const;
+
 	UFUNCTION(BlueprintPure, Category = "Astral|Equipment")
 	UAstralEquipmentInstance* GetFirstInstanceOfType(TSubclassOf<UAstralEquipmentInstance> InstanceType) const;
 

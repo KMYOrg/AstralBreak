@@ -27,11 +27,15 @@ struct FAstralEquipmentActorToSpawn
 	FTransform AttachTransform;
 
 	/**
-	 * 로비(비전투 문맥) 코스메틱 표시 소켓 — 등/허리/옆구리 등. 미지정이면 AttachSocket.
-	 * 전투 장착이 아니라 로컬 표시 액터(UAstralLoadoutDisplayComponent)가 소비
+	 * 이 무기의 수납 위치 — 등/허리/옆구리 등 
+	 * 비활성 상태(비활성 스타일 / 로비 VisualOnly)에서 이 소켓에 부착된다. 미지정이면 비활성 = 숨김 (기존 동작)
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "Equipment")
-	FName DisplaySocket;
+	FName HolsterSocket;
+
+	/** 수납 자세 — HolsterSocket 기준 상대 트랜스폼 */
+	UPROPERTY(EditDefaultsOnly, Category = "Equipment")
+	FTransform HolsterTransform;
 };
 
 /**

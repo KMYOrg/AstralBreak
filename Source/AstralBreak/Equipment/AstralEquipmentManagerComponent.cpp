@@ -34,26 +34,32 @@ UAstralEquipmentInstance* FAstralEquipmentList::AddEntry(const FPrimaryAssetId& 
 	// Outer = 폰 — 인스턴스의 GetPawn()/GetWorld() 경로이자 서브오브젝트 복제 소유자
 	NewEntry.Instance = NewObject<UAstralEquipmentInstance>(OwnerComponent->GetOwner(), InstanceType);
 
-	// 어빌리티/스탯 부여 — SourceObject = Instance (GA가 GetCurrentSourceObject()로 자기 무기를 얻는다)
-	if (UAstralAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	// 어빌리티/스탯 부여 — Full 정책만 (VisualOnly=로비는 액터 표시만 = 로비 전투 불가의 실차단 지점).
+	// SourceObject = Instance (GA가 GetCurrentSourceObject()로 자기 무기를 얻는다)
+	const UAstralEquipmentManagerComponent* Manager = Cast<UAstralEquipmentManagerComponent>(OwnerComponent);
+	if (Manager && Manager->GetEquipmentPolicy() == EAstralEquipmentPolicy::Full)
 	{
-		for (const UAstralAbilitySet* AbilitySet : Family->AbilitySetsToGrant)
+		if (UAstralAbilitySystemComponent* ASC = GetAbilitySystemComponent())
 		{
-			if (AbilitySet)
+			for (const UAstralAbilitySet* AbilitySet : Family->AbilitySetsToGrant)
 			{
-				AbilitySet->GiveToAbilitySystem(ASC, &NewEntry.GrantedHandles, NewEntry.Instance);
+				if (AbilitySet)
+				{
+					AbilitySet->GiveToAbilitySystem(ASC, &NewEntry.GrantedHandles, NewEntry.Instance);
+				}
+			}
+
+			// 변형 능력치 — 같은 부여/회수 기계 재사용
+			if (ItemDef->StatSet)
+			{
+				ItemDef->StatSet->GiveToAbilitySystem(ASC, &NewEntry.GrantedHandles, NewEntry.Instance);
 			}
 		}
-
-		// 변형 능력치 — 같은 부여/회수 기계 재사용
-		if (ItemDef->StatSet)
+		else
 		{
-			ItemDef->StatSet->GiveToAbilitySystem(ASC, &NewEntry.GrantedHandles, NewEntry.Instance);
+			// EquipItemById의 ASC 가드로 도달 불가 — 다른 진입점이 생길 때를 위한 안전망으로 유지
+			UE_LOG(LogAstral, Warning, TEXT("EquipmentList::AddEntry — ASC 없음 (%s). 어빌리티/스탯 부여 생략"), *GetNameSafe(OwnerComponent->GetOwner()));
 		}
-	}
-	else
-	{
-		UE_LOG(LogAstral, Warning, TEXT("EquipmentList::AddEntry — ASC 없음 (%s). 어빌리티/스탯 부여 생략"), *GetNameSafe(OwnerComponent->GetOwner()));
 	}
 
 	MarkItemDirty(NewEntry);
@@ -123,6 +129,21 @@ UAstralEquipmentInstance* UAstralEquipmentManagerComponent::EquipItemById(const 
 		return nullptr;
 	}
 
+	// 정책 차단 — None(관전 등)은 장착 자체가 없다
+	if (EquipmentPolicy == EAstralEquipmentPolicy::None)
+	{
+		return nullptr;
+	}
+
+	// ASC 준비 전 장착 금지 — 부여 없는 반쪽 장착이 생기고 HasAnyEquipment 가드를 오염시켜
+	// 이후 정상 초기화 경로까지 막는다. public이라 디버그 exec·CombatCharacter 경로에서도 직접 불리므로
+	// 가드는 여기(최하단 진입점)가 맞다
+	if (!UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner()))
+	{
+		UE_LOG(LogAstral, Warning, TEXT("EquipItemById: ASC 준비 전 — 장착 거부 (%s, %s). 초기화 완료 후 재시도된다"), *GetNameSafe(GetOwner()), *ItemId.ToString());
+		return nullptr;
+	}
+
 	// 중복 장착 가드
 	for (const FAstralAppliedEquipmentEntry& Entry : EquipmentList.Entries)
 	{
@@ -141,7 +162,7 @@ UAstralEquipmentInstance* UAstralEquipmentManagerComponent::EquipItemById(const 
 	UAstralEquipmentInstance* Instance = EquipmentList.AddEntry(ItemId, ItemDef);
 	if (Instance)
 	{
-		Instance->SpawnEquipmentActors(ItemDef->EquipmentFamily->ActorsToSpawn, ItemDef, IsFamilyActive(ItemDef->EquipmentFamily));
+		Instance->SpawnEquipmentActors(ItemDef->EquipmentFamily->ActorsToSpawn, ItemDef, ComputeAttachState(ItemDef->EquipmentFamily));
 		Instance->OnEquipped();
 
 		if (IsUsingRegisteredSubObjectList() && IsReadyForReplication())
@@ -202,7 +223,17 @@ bool UAstralEquipmentManagerComponent::IsFamilyActive(const UAstralEquipmentFami
 	return ASC ? ASC->HasMatchingGameplayTag(Family->CombatStyle) : true;
 }
 
-void UAstralEquipmentManagerComponent::RefreshEquipmentActiveState()
+EAstralEquipmentAttachState UAstralEquipmentManagerComponent::ComputeAttachState(const UAstralEquipmentFamily* Family) const
+{
+	// VisualOnly(로비)는 전부 홀스터. Full은 활성 스타일만 손 — 비활성 스타일 무기는 등에 걸린다
+	if (EquipmentPolicy != EAstralEquipmentPolicy::Full)
+	{
+		return EAstralEquipmentAttachState::Holstered;
+	}
+	return IsFamilyActive(Family) ? EAstralEquipmentAttachState::Held : EAstralEquipmentAttachState::Holstered;
+}
+
+void UAstralEquipmentManagerComponent::RefreshEquipmentAttachState()
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority())
 	{
@@ -213,7 +244,7 @@ void UAstralEquipmentManagerComponent::RefreshEquipmentActiveState()
 	{
 		if (Entry.Instance)
 		{
-			Entry.Instance->SetActorsActive(IsFamilyActive(Entry.EquipmentFamily));
+			Entry.Instance->SetActorsAttachState(ComputeAttachState(Entry.EquipmentFamily));
 		}
 	}
 }
@@ -233,6 +264,25 @@ bool UAstralEquipmentManagerComponent::HasEquipmentForStyle(const FGameplayTag& 
 		}
 	}
 	return false;
+}
+
+bool UAstralEquipmentManagerComponent::MatchesEquippedItems(const TArray<FPrimaryAssetId>& ItemIds) const
+{
+	// 집합 비교
+	const TSet<FPrimaryAssetId> UniqueIds(ItemIds);
+	if (UniqueIds.Num() != EquipmentList.Entries.Num())
+	{
+		return false;
+	}
+
+	for (const FAstralAppliedEquipmentEntry& Entry : EquipmentList.Entries)
+	{
+		if (!UniqueIds.Contains(Entry.ItemId))
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 FGameplayTag UAstralEquipmentManagerComponent::FindFirstEquippedStyle() const

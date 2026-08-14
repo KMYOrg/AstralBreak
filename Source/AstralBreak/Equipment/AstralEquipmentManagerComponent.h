@@ -4,6 +4,7 @@
 #include "Components/PawnComponent.h"
 #include "Net/Serialization/FastArraySerializer.h"
 #include "AbilitySystem/AstralAbilitySet.h"
+#include "Equipment/AstralEquipmentTypes.h"
 #include "UObject/PrimaryAssetId.h"
 #include "AstralEquipmentManagerComponent.generated.h"
 
@@ -100,7 +101,13 @@ public:
 	 * 어떤 구체 타입의 ID든(AstralWeaponDefinition:... 등) 스캔되어 있으면 해석된다 */
 	static const UAstralItemDefinition* ResolveItemDefinition(const FPrimaryAssetId& ItemId);
 
-	/** 서버 — 장착: 어빌리티/스탯 부여 + 액터 스폰·부착. 같은 ID 재장착은 기존 인스턴스 반환 (멱등) */
+	/**
+	 * 문맥 장착 정책 — 소유 폰이 초기화 시 GameState에서 읽어 주입한다
+	 */
+	void SetEquipmentPolicy(EAstralEquipmentPolicy InPolicy) { EquipmentPolicy = InPolicy; }
+	EAstralEquipmentPolicy GetEquipmentPolicy() const { return EquipmentPolicy; }
+
+	/** 서버 — 장착: 어빌리티/스탯 부여(Full 정책만) + 액터 스폰·부착. 같은 ID 재장착은 기존 인스턴스 반환 (멱등) */
 	UAstralEquipmentInstance* EquipItemById(const FPrimaryAssetId& ItemId);
 
 	/** 서버 — 해제: 부여분 회수 + 액터 정리 */
@@ -110,17 +117,23 @@ public:
 	void UnequipAll();
 
 	/**
-	 * 서버 — 활성 스타일 변경에 따른 전 장비 표시/숨김 갱신 (비활성 스타일 장비는 숨김).
+	 * 서버 — 전 장비 부착 상태 갱신: 정책×스타일로 산출 (Full+활성 스타일=손, 그 외=홀스터).
 	 * 활성 여부는 ASC의 State.CombatStyle.* 태그를 질의 (상태는 ASC 소유 — 이 컴포넌트는 무상태).
 	 * AAstralCharacter::SetCombatStyle이 태그 갱신 직후 호출한다
 	 */
-	void RefreshEquipmentActiveState();
+	void RefreshEquipmentAttachState();
 
 	/** 해당 스타일과 일치하는 계열 장비 보유 여부 — 스타일 무관(빈 태그) 계열은 제외 (태그 비교만 = 종류-무지 유지) */
 	bool HasEquipmentForStyle(const FGameplayTag& StyleTag) const;
 
 	/** 장착 중인 계열들의 첫 유효 스타일 태그 — 없으면 빈 태그. 스타일↔장비 정합의 폴백 대상 */
 	FGameplayTag FindFirstEquippedStyle() const;
+
+	/**
+	 * 현재 장착 ID 집합이 목록과 정확히 일치하는지 — 재적용 경로의 no-op 판정용
+	 * (동일 로드아웃 재발신 시 Destroy/Respawn 복제·GA 취소 방지). 집합 비교 — 순서·중복 무시
+	 */
+	bool MatchesEquippedItems(const TArray<FPrimaryAssetId>& ItemIds) const;
 
 	UFUNCTION(BlueprintPure, Category = "Astral|Equipment")
 	UAstralEquipmentInstance* GetFirstInstanceOfType(TSubclassOf<UAstralEquipmentInstance> InstanceType) const;
@@ -137,6 +150,9 @@ protected:
 	/** 계열이 현재 활성인가 — CombatStyle 미지정(스타일 무관)이거나 ASC가 해당 스타일 태그 보유 시 true */
 	bool IsFamilyActive(const UAstralEquipmentFamily* Family) const;
 
+	/** 부착 상태 산출 — 정책×스타일 결정표: Full+활성=Held, 나머지 전부 Holstered (VisualOnly는 항상 홀스터) */
+	EAstralEquipmentAttachState ComputeAttachState(const UAstralEquipmentFamily* Family) const;
+
 	//~UActorComponent
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void ReadyForReplication() override;
@@ -145,4 +161,7 @@ protected:
 
 	UPROPERTY(Replicated)
 	FAstralEquipmentList EquipmentList;
+
+	/** 문맥 장착 정책 — 서버 소비 전용 (소유 폰이 GameState CDO 값을 주입). 기본 Full = 미주입 폰(적 등) 호환 */
+	EAstralEquipmentPolicy EquipmentPolicy = EAstralEquipmentPolicy::Full;
 };

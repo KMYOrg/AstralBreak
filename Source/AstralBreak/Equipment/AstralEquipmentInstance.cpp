@@ -19,7 +19,7 @@ APawn* UAstralEquipmentInstance::GetPawn() const
 	return Cast<APawn>(GetOuter());
 }
 
-void UAstralEquipmentInstance::SpawnEquipmentActors(const TArray<FAstralEquipmentActorToSpawn>& ActorsToSpawn, const UAstralItemDefinition* Definition, bool bActive)
+void UAstralEquipmentInstance::SpawnEquipmentActors(const TArray<FAstralEquipmentActorToSpawn>& ActorsToSpawn, const UAstralItemDefinition* Definition, EAstralEquipmentAttachState InitialState)
 {
 	APawn* OwningPawn = GetPawn();
 	if (!OwningPawn || !OwningPawn->HasAuthority())
@@ -52,18 +52,16 @@ void UAstralEquipmentInstance::SpawnEquipmentActors(const TArray<FAstralEquipmen
 			EquipmentActor->OnEquipmentDataApplied(Definition);
 		}
 
-		// 비활성 스타일 장비는 숨김 스폰 — FinishSpawning 전 세팅으로 초기 번치에 bHidden 동봉
-		NewActor->SetActorHiddenInGame(!bActive);
-
-		NewActor->SetActorRelativeTransform(SpawnInfo.AttachTransform);
-		NewActor->AttachToComponent(AttachTarget, FAttachmentTransformRules::KeepRelativeTransform, SpawnInfo.AttachSocket);
+		// 초기 부착 상태는 FinishSpawning 전 확정 — 초기 번치에 bHidden·부착 동봉 (원자성)
+		ApplyAttachState(NewActor, SpawnInfo, InitialState, AttachTarget);
 		NewActor->FinishSpawning(FTransform::Identity, /*bIsDefaultTransform=*/true);
 
 		SpawnedActors.Add(NewActor);
+		SpawnedActorInfos.Add(SpawnInfo);
 	}
 }
 
-void UAstralEquipmentInstance::SetActorsActive(bool bActive)
+void UAstralEquipmentInstance::SetActorsAttachState(EAstralEquipmentAttachState State)
 {
 	APawn* OwningPawn = GetPawn();
 	if (!OwningPawn || !OwningPawn->HasAuthority())
@@ -71,13 +69,40 @@ void UAstralEquipmentInstance::SetActorsActive(bool bActive)
 		return;
 	}
 
-	for (AActor* Actor : SpawnedActors)
+	USceneComponent* AttachTarget = OwningPawn->GetRootComponent();
+	if (const ACharacter* Character = Cast<ACharacter>(OwningPawn))
 	{
-		if (Actor)
+		AttachTarget = Character->GetMesh();
+	}
+	if (!AttachTarget)
+	{
+		return;
+	}
+
+	for (int32 Index = 0; Index < SpawnedActors.Num(); ++Index)
+	{
+		AActor* Actor = SpawnedActors[Index];
+		if (Actor && SpawnedActorInfos.IsValidIndex(Index))
 		{
-			Actor->SetActorHiddenInGame(!bActive);
+			ApplyAttachState(Actor, SpawnedActorInfos[Index], State, AttachTarget);
 		}
 	}
+}
+
+void UAstralEquipmentInstance::ApplyAttachState(AActor* Actor, const FAstralEquipmentActorToSpawn& SpawnInfo, EAstralEquipmentAttachState State, USceneComponent* AttachTarget) const
+{
+	const bool bHeld = (State == EAstralEquipmentAttachState::Held);
+	const bool bHasHolster = !SpawnInfo.HolsterSocket.IsNone();
+
+	// 홀스터 소켓 미지정 계열의 홀스터 상태 = 숨김 (기존 동작 보존 — 회귀 없음). bHidden은 복제 프로퍼티
+	Actor->SetActorHiddenInGame(!bHeld && !bHasHolster);
+
+	const FName Socket = (bHeld || !bHasHolster) ? SpawnInfo.AttachSocket : SpawnInfo.HolsterSocket;
+	const FTransform& RelativeTransform = (bHeld || !bHasHolster) ? SpawnInfo.AttachTransform : SpawnInfo.HolsterTransform;
+
+	// 부착 → 상대 트랜스폼 순서 — 재부착(전환) 경로에서도 결정적
+	Actor->AttachToComponent(AttachTarget, FAttachmentTransformRules::KeepRelativeTransform, Socket);
+	Actor->SetActorRelativeTransform(RelativeTransform);
 }
 
 void UAstralEquipmentInstance::DestroyEquipmentActors()
@@ -90,6 +115,7 @@ void UAstralEquipmentInstance::DestroyEquipmentActors()
 		}
 	}
 	SpawnedActors.Reset();
+	SpawnedActorInfos.Reset();
 }
 
 void UAstralEquipmentInstance::OnEquipped()

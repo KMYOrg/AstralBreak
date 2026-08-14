@@ -13,7 +13,7 @@ class UAstralHealthComponent;
 class UAstralPawnExtensionComponent;
 class AAstralPlayerState;
 
-/** 장비 복원에 실제 쓰인 소스 — 디버그 가시성용 (3단: 세션 캐시 → PlayerState 로드아웃 → PawnData 폴백) */
+/** 장비 복원에 실제 쓰인 소스 — 디버그 가시성용 (값 = "무엇을 썼는가", 우선순위 아님) */
 UENUM()
 enum class EAstralLoadoutSource : uint8
 {
@@ -50,21 +50,27 @@ public:
 	/**
 	 * 상태 = ASC 복제 루즈 태그(TagAndCountToAll — 오너·시뮬·후참가 전부 복제), 이 함수 외 쓰기 금지.
 	 * 절대값 세팅이라 리스폰 시 ASC(PlayerState)에 잔존한 이전 폰의 태그도 자동 정정된다.
-	 * 태그 갱신 직후 장비 표시/숨김 갱신 통지 (비활성 스타일 장비는 숨김)
+	 * 태그 갱신 직후 장비 부착 상태 갱신 통지 (비활성 스타일 장비는 홀스터/숨김)
 	 */
 	void SetCombatStyle(FGameplayTag NewStyle);
 
 	/**
+	 * 로드아웃 반영의 단일 진입점 ① 외형(전 머신) ② 장비(서버).
+	 * 호출 지점: ASC 초기화(bReapply=false) · PS.OnLoadoutChanged(bReapply=true)
+	 */
+	void ApplyLoadout(bool bReapplyEquipment);
+
+	/**
 	 * 외형 갱신 (전 머신, 멱등) — PlayerState 로드아웃의 CharacterId → CharacterDefinition 메시/AnimBP 적용.
-	 * 로비 코스메틱은 여기 없음 — LoadoutDisplayComponent가 PS.OnLoadoutChanged를 스스로 구독.
-	 * PS 복제와 폰 스폰 순서가 비결정적이므로 OnRep_Loadout·빙의·PS 도착 모든 지점에서 호출된다
+	 * ApplyLoadout 경유가 정경로. OnRep_PlayerState의 직접 호출은 "PS는 도착했으나 PawnData 복제 전"
+	 * 창의 수 프레임 조기 표시용
 	 */
 	void RefreshAppearanceFromLoadout();
 
 	/**
-	 * 서버 — 장비 복원 (3단 소스: PartySubsystem 캐시 → PlayerState.Loadout → PawnData 폴백).
-	 * PawnData.bRestoreLoadoutEquipment=false(Hub)면 전체 생략 — 로비 전투 불가의 실차단 지점.
-	 * bReapply: 늦게 도착한 로드아웃 반영 (UnequipAll 후 재장착)
+	 * 서버 — 장비 복원 (3단 소스: PlayerState.Loadout → PartySubsystem 캐시 → PawnData 폴백[Full 전용]).
+	 * 장착 정책(GameState 소유)에 따름 — None=생략, VisualOnly=홀스터 표시만(부여 없음), Full=전부.
+	 * bReapply: 늦게 도착한 로드아웃 반영 (동일 장착이면 no-op, 다르면 UnequipAll 후 재장착)
 	 */
 	void RestoreEquipmentFromLoadout(bool bReapply);
 
@@ -105,6 +111,12 @@ protected:
 	virtual void OnAbilitySystemInitialized();
 	virtual void OnAbilitySystemUninitialized();
 
+	/** PS.OnLoadoutChanged 핸들러 — 준비된 폰에 대한 push 경로 (구독 시점 = 초기화 시점) */
+	void HandleLoadoutChanged();
+
+	/** 구독 해제 — ASC 해체·EndPlay 양쪽에서 안전 (멱등) */
+	void UnbindLoadoutChanged();
+
 	/** 사망 물리 반응 — 게임플레이 필수(콜리전/이동 정지)만 C++. 몽타주·래그돌 등 연출은 BP가 OnDeathStarted 구독 */
 	UFUNCTION()
 	virtual void HandleDeathStarted(AActor* OwningActor);
@@ -142,4 +154,8 @@ protected:
 
 	/** 디버그 — 마지막 장비 복원 소스 (서버 로컬) */
 	EAstralLoadoutSource LastLoadoutSource = EAstralLoadoutSource::None;
+
+	TWeakObjectPtr<AAstralPlayerState> BoundLoadoutPlayerState;
+
+	FDelegateHandle LoadoutChangedHandle;
 };

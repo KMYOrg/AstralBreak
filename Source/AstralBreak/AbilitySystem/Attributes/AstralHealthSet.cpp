@@ -3,6 +3,7 @@
 #include "GameplayEffectExtension.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "AbilitySystem/AstralCombatStatics.h"
+#include "AbilitySystem/AstralEventGameplayTags.h"
 #include "Net/UnrealNetwork.h"
 
 
@@ -134,6 +135,22 @@ void UAstralHealthSet::PostGameplayEffectExecute(const FGameplayEffectModCallbac
             const float OldHealth = GetHealth();
             SetHealth(FMath::Clamp(OldHealth - LocalDamage, MinHealth, GetMaxHealth()));
             OnDamaged.Broadcast(Instigator, Causer, &Data.EffectSpec, LocalDamage, OldHealth, GetHealth());
+
+            if (UAstralAbilitySystemComponent* ASC = GetAstralAbilitySystemComponent())
+            {
+                FGameplayEventData Payload;
+                Payload.EventTag = AstralGameplayTags::GameplayEvent_Damaged;
+                Payload.Instigator = Instigator;
+                Payload.Target = ASC->GetAvatarActor();
+                Payload.EventMagnitude = LocalDamage;
+                Payload.OptionalObject = Data.EffectSpec.Def;
+                Payload.ContextHandle = Data.EffectSpec.GetEffectContext();
+                Payload.InstigatorTags = *Data.EffectSpec.CapturedSourceTags.GetAggregatedTags();
+                Payload.TargetTags = *Data.EffectSpec.CapturedTargetTags.GetAggregatedTags();
+
+                FScopedPredictionWindow NewScopedWindow(ASC, true);
+                ASC->HandleGameplayEvent(Payload.EventTag, &Payload);
+            }
         }
     }
     else if (Data.EvaluatedData.Attribute == GetHealingAttribute())

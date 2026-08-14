@@ -25,7 +25,7 @@ public:
 	UAstralAbilitySystemComponent* GetAstralAbilitySystemComponent() const;
 
 	/**
-	 * 클라→서버 로드아웃 발신 — 3단 소스의 2단 (캐시 미스/타 서버 도착 시 복원 경로).
+	 * 클라→서버 로드아웃 발신 — 3단 소스의 1단(PS.Loadout)을 채운다 (캐시 미스/타 서버 도착 시 복원 경로).
 	 * 서버는 ID 해석 검증 후 PlayerState 반영 + PartySubsystem 캐시
 	 */
 	UFUNCTION(Server, Reliable)

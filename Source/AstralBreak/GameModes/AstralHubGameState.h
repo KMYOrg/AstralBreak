@@ -16,6 +16,8 @@ class ASTRALBREAK_API AAstralHubGameState : public AAstralGameState
 	GENERATED_BODY()
 
 public:
+	AAstralHubGameState();
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/** 서버 — 방장이 고른 목적지 */

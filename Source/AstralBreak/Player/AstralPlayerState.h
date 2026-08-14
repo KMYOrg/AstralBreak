@@ -12,7 +12,6 @@ class UAstralHealthSet;
 class UAstralAbilitySystemComponent;
 class UAstralPawnData;
 class AAstralPlayerController;
-struct FGameplayEffectSpec;
 /**
  *
  */
@@ -38,7 +37,7 @@ public:
 
 	void SetPawnData(const UAstralPawnData* InPawnData);
 
-	/** 서버 — 로드아웃 반영 (검증은 PlayerController RPC에서 완료된 상태). 폰에 외형·장비 재적용 통지 */
+	/** 서버 — 로드아웃 반영 (검증은 PlayerController RPC에서 완료된 상태). OnLoadoutChanged로 전파 */
 	void SetLoadout(const FAstralPlayerLoadout& InLoadout);
 
 	/** 서버 — 준비 상태 (로비) */
@@ -48,7 +47,7 @@ public:
 	bool IsReady() const { return bIsReady; }
 
 	/**
-	 * 실전투 장착은 이 이벤트가 아니라 서버 명시 흐름(RestoreEquipmentFromLoadout)
+	 * 로드아웃 변경 통지 (서버 SetLoadout + 클라 OnRep — 전 머신)
 	 */
 	FSimpleMulticastDelegate OnLoadoutChanged;
 	
@@ -71,17 +70,8 @@ public:
 protected:
 
 	UFUNCTION()
-	void OnRep_PawnData();
-
-	UFUNCTION()
 	void OnRep_Loadout();
 
-	/** 로드아웃 변경을 폰에 전파 — 외형(전 머신) + 장비 재적용(서버). 폰 부재 시 무시 (폰 초기화가 다시 읽는다) */
-	void NotifyPawnOfLoadoutChange();
-
-	/** 받은 피해 → 오의 수급 (서버 권위). HealthSet·ResourceSet이 둘 다 이 ASC에 살아서 구독 위치가 여기 */
-	void OnHeroDamaged(AActor* DamageInstigator, AActor* DamageCauser, const FGameplayEffectSpec* DamageEffectSpec, float DamageMagnitude, float OldValue, float NewValue);
-	
 private:
 	
 	// TODO: M1 마일스톤
@@ -89,7 +79,8 @@ private:
 
 protected:
 
-	UPROPERTY(ReplicatedUsing = OnRep_PawnData)
+	// RepNotify 없음 — 클라 InitState 진행은 PawnExtensionComponent 자체의 PawnData 복제가 담당
+	UPROPERTY(Replicated)
 	TObjectPtr<const UAstralPawnData> PawnData;
 
 	/** 로비 선택 — 남의 선택이 보여야 하므로 복제 (구조체 통째 = 원자 복제) */

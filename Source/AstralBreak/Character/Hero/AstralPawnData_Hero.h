@@ -27,8 +27,4 @@ public:
 	//Ability Input Tag 바인딩 설정, InputAction ↔ GameplayTag 매핑 정의
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Astral|Input")
 	TObjectPtr<const UAstralInputConfig> InputConfig;
-
-	/** 받은 피해 1당 오의 수급량 (예: 0.5 = 데미지 20 → 게이지 10). 0이면 수급 없음 (UltGain GE는 GameData 전역) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Astral|Ult", Meta = (ClampMin = "0.0"))
-	float UltGainOnDamagedRatio = 0.0f;
 };

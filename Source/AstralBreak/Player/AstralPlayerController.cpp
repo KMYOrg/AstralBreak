@@ -94,7 +94,7 @@ void AAstralPlayerController::BeginPlayingState()
 		}
 	}
 
-	// 로드아웃 재발신 (2단) — 어느 서버에 도착했든 클라 캐시가 있으면 발신. 서버 측 적용은 멱등이라 중복 무해
+	// 로드아웃 재발신 (1단 PS.Loadout을 채운다) — 어느 서버에 도착했든 클라 캐시가 있으면 발신. 서버 측 적용은 멱등이라 중복 무해
 	if (IsLocalController())
 	{
 		if (const UAstralLocalPlayer* AstralLP = Cast<UAstralLocalPlayer>(GetLocalPlayer()))
@@ -137,10 +137,9 @@ void AAstralPlayerController::ServerSetLoadout_Implementation(FAstralPlayerLoado
 		return;
 	}
 
-	// PS에서 
 	AstralPS->SetLoadout(InLoadout);
 
-	// 세션 캐시 (1단) — 같은 프로세스 travel 대비
+	// 세션 캐시 (2단 폴백) — 같은 프로세스 travel 대비
 	if (UAstralPartySubsystem* Party = GetGameInstance()->GetSubsystem<UAstralPartySubsystem>())
 	{
 		Party->CacheLoadout(AstralPS->GetUniqueId(), InLoadout);
@@ -249,7 +248,7 @@ void AAstralPlayerController::SetLoadout(const FString& CharacterName, const FSt
 		}
 	}
 
-	// 클라 원본 캐시 (2단의 소스) + 즉시 발신
+	// 클라 원본 캐시 (재발신의 소스) + 즉시 발신
 	if (UAstralLocalPlayer* AstralLP = Cast<UAstralLocalPlayer>(GetLocalPlayer()))
 	{
 		AstralLP->CachedLoadout = NewLoadout;

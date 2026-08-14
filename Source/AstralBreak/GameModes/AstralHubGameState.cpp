@@ -3,6 +3,12 @@
 #include "Net/UnrealNetwork.h"
 #include "Player/AstralPlayerState.h"
 
+AAstralHubGameState::AAstralHubGameState()
+{
+	// 로비 = 액터 스폰만(홀스터 표시), 어빌리티·스탯 부여 없음
+	EquipmentPolicy = EAstralEquipmentPolicy::VisualOnly;
+}
+
 void AAstralHubGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);

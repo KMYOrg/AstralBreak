@@ -6,15 +6,12 @@
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "AbilitySystem/Attributes/AstralCombatSet.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
-#include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
-#include "Character/AstralCharacter.h"
 #include "Character/AstralPawnData.h"
-#include "Character/Hero/AstralPawnData_Hero.h"
 #include "Character/Components/AstralPawnExtensionComponent.h"
 #include "Components/GameFrameworkComponentManager.h"
 #include "GameModes/AstralGameMode.h"
+#include "GameModes/AstralGameState.h"
 #include "Net/UnrealNetwork.h"
-#include "System/AstralGameData.h"
 
 AAstralPlayerState::AAstralPlayerState(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -52,7 +49,7 @@ void AAstralPlayerState::SetLoadout(const FAstralPlayerLoadout& InLoadout)
 	}
 
 	Loadout = InLoadout;
-	NotifyPawnOfLoadoutChange();
+	OnLoadoutChanged.Broadcast();
 	ForceNetUpdate();
 }
 
@@ -68,22 +65,6 @@ void AAstralPlayerState::SetReady(bool bInReady)
 
 void AAstralPlayerState::OnRep_Loadout()
 {
-	NotifyPawnOfLoadoutChange();
-}
-
-void AAstralPlayerState::NotifyPawnOfLoadoutChange()
-{
-	if (AAstralCharacter* Character = Cast<AAstralCharacter>(GetPawn()))
-	{
-		Character->RefreshAppearanceFromLoadout();
-		
-		if (GetLocalRole() == ROLE_Authority)
-		{
-			Character->RestoreEquipmentFromLoadout(/*bReapply=*/true);
-		}
-	}
-
-	// (로비 미리보기 컴포넌트, 추후 로비 UI)
 	OnLoadoutChanged.Broadcast();
 }
 
@@ -123,7 +104,12 @@ void AAstralPlayerState::CopyProperties(APlayerState* PlayerState)
 {
 	Super::CopyProperties(PlayerState);
 
-	//@TODO: Copy stats
+	// seamless travel 이월 — Loadout만. 없으면 클라 재발신 RPC 도착 전까지 외형이 기본 메시로 나오고,
+	// 클라 캐시가 비어 있으면 영영 복구되지 않는다.
+	if (AAstralPlayerState* NewPS = Cast<AAstralPlayerState>(PlayerState))
+	{
+		NewPS->Loadout = Loadout;
+	}
 }
 
 AAstralPlayerController* AAstralPlayerState::GetAstralPlayerController() const
@@ -142,12 +128,6 @@ void AAstralPlayerState::PostInitializeComponents()
 
 	check(AbilitySystemComponent);
 	AbilitySystemComponent->InitAbilityActorInfo(this, GetPawn());
-
-	// 받은 피해 → 오의 수급. OnDamaged는 서버에서만 브로드캐스트되므로 구독 자체는 전역, 실행은 서버만
-	if (HealthSet)
-	{
-		HealthSet->OnDamaged.AddUObject(this, &ThisClass::OnHeroDamaged);
-	}
 
 	// TODO : M1 마일스톤
 	// UWorld* World = GetWorld();
@@ -187,45 +167,23 @@ void AAstralPlayerState::SetPawnData(const UAstralPawnData* InPawnData)
 		}
 	}
 
+	// "이 맵에서 누구나 갖는 능력"(이동/점프 등)은 월드(GameState)가 정의.
+	// InitGameState가 PS 생성보다 먼저라 GameState는 항상 존재
+	if (const AAstralGameState* AstralGS = GetWorld() ? GetWorld()->GetGameState<AAstralGameState>() : nullptr)
+	{
+		for (const UAstralAbilitySet* AbilitySet : AstralGS->GetContextAbilitySets())
+		{
+			if (AbilitySet)
+			{
+				AbilitySet->GiveToAbilitySystem(AbilitySystemComponent, nullptr);
+			}
+		}
+	}
+
 	// TODO: M1 마일스톤
 	// UGameFrameworkComponentManager::SendGameFrameworkComponentExtensionEvent(this, NAME_AstralAbilityReady);
 	
 	ForceNetUpdate();
-}
-
-void AAstralPlayerState::OnRep_PawnData()
-{
-	// 코스메틱 표시 조건이 PawnData(bRestoreLoadoutEquipment)를 읽는다 — Loadout이 먼저 도착한
-	// 경우의 재갱신 트리거 (멱등이라 중복 무해)
-	NotifyPawnOfLoadoutChange();
-}
-
-void AAstralPlayerState::OnHeroDamaged(AActor* DamageInstigator, AActor* DamageCauser, const FGameplayEffectSpec* DamageEffectSpec, float DamageMagnitude, float OldValue, float NewValue)
-{
-	if (GetLocalRole() != ROLE_Authority || DamageMagnitude <= 0.f)
-	{
-		return;
-	}
-
-	const UAstralPawnData_Hero* HeroData = GetPawnData<UAstralPawnData_Hero>();
-	if (!HeroData || HeroData->UltGainOnDamagedRatio <= 0.f)
-	{
-		return;
-	}
-
-	const TSubclassOf<UGameplayEffect> UltGainEffectClass = UAstralGameData::Get().UltGainGameplayEffect_SetByCaller.LoadSynchronous();
-	if (!UltGainEffectClass)
-	{
-		return;
-	}
-
-	FGameplayEffectContextHandle Context = AbilitySystemComponent->MakeEffectContext();
-	const FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(UltGainEffectClass, 1.0f, Context);
-	if (SpecHandle.IsValid())
-	{
-		SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_UltGain, DamageMagnitude * HeroData->UltGainOnDamagedRatio);
-		AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
-	}
 }
 
 // TODO: M1 마일스톤

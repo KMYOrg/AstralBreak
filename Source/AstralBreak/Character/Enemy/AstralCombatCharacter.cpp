@@ -10,6 +10,7 @@
 #include "DrawDebugHelpers.h"
 #include "Equipment/AstralEquipmentManagerComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameModes/AstralGameState.h"
 #include "Net/UnrealNetwork.h"
 
 AAstralCombatCharacter::AAstralCombatCharacter(const FObjectInitializer& ObjectInitializer)
@@ -67,6 +68,18 @@ void AAstralCombatCharacter::BeginPlay()
 
 	if (HasAuthority())
 	{
+		// 문맥 장착 정책 주입 — 히어로(OnAbilitySystemInitialized)와 동일. 여기가 BeginPlay인 이유:
+		// 레벨 배치 액터의 PostInitializeComponents는 GameState(GameMode PreInit이 스폰)와 순서 보장이 없고,
+		// BeginPlay는 월드 StartPlay 이후라 보장된다. 장착 루프보다 먼저여야 한다.
+		// TODO: AAstralCharacterBase 추출 시 히어로와 이 주입 코드를 공통화
+		if (EquipmentManagerComponent)
+		{
+			if (const AAstralGameState* AstralGS = GetWorld() ? GetWorld()->GetGameState<AAstralGameState>() : nullptr)
+			{
+				EquipmentManagerComponent->SetEquipmentPolicy(AstralGS->GetEquipmentPolicy());
+			}
+		}
+
 		for (const UAstralAbilitySet* AbilitySet : AbilitySets)
 		{
 			if (AbilitySet)

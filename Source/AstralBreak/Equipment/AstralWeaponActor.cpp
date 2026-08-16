@@ -50,6 +50,12 @@ void AAstralWeaponActor::OnRep_MeshInfo()
 	ApplyMeshInfo();
 }
 
+void AAstralWeaponActor::HandleAttachStateChanged()
+{
+	// 상태별 자세값 교체 — 서버는 SetAttachState, 클라는 OnRep_AttachState 경유
+	ApplyMeshInfo();
+}
+
 void AAstralWeaponActor::ApplyMeshInfo()
 {
 	if (!MeshComponent)
@@ -61,8 +67,11 @@ void AAstralWeaponActor::ApplyMeshInfo()
 	{
 		MeshComponent->SetSkeletalMesh(MeshInfo.Mesh.LoadSynchronous());
 	}
-	// 피벗 보정 — 액터 부착 자세(계열 AttachTransform)와 독립
-	MeshComponent->SetRelativeTransform(MeshInfo.MeshOffset);
+
+	// 상태별 자세값 — 홀스터는 저작된 경우에만 독립값, 아니면 손 자세값 폴백 (그립 정렬).
+	// MeshInfo·AttachState 어느 쪽 OnRep이 먼저 와도 멱등 — 둘 다 현재값을 읽는다
+	const bool bUseHolster = (GetAttachState() == EAstralEquipmentAttachState::Holstered) && MeshInfo.bOverrideHolsterOffset;
+	MeshComponent->SetRelativeTransform(bUseHolster ? MeshInfo.HolsterOffset : MeshInfo.AttachOffset);
 }
 
 FVector AAstralWeaponActor::GetTraceStartLocation() const

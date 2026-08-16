@@ -6,7 +6,10 @@
 
 class USkeletalMesh;
 
-/** 무기 변형 메시 정보 */
+/**
+ * 무기 변형 메시 정보
+ * 저작 워크플로: 에디터에서 해당 소켓에 붙여 보고 조정한 절대 트랜스폼을 그대로 붙여넣는다
+ */
 USTRUCT(BlueprintType)
 struct FAstralWeaponMeshInfo
 {
@@ -15,9 +18,17 @@ struct FAstralWeaponMeshInfo
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
 	TSoftObjectPtr<USkeletalMesh> Mesh;
 
-	/** 메시 피벗 보정 */
+	/** 손(AttachSocket) 상태 자세값 */
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
-	FTransform MeshOffset;
+	FTransform AttachOffset;
+
+	/** 홀스터 자세를 따로 저작할지 — false면 홀스터에서도 AttachOffset 적용 (그립 정렬 폴백) */
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon", Meta = (InlineEditConditionToggle))
+	bool bOverrideHolsterOffset = false;
+
+	/** 홀스터(HolsterSocket) 상태 자세값 */
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon", Meta = (EditCondition = "bOverrideHolsterOffset"))
+	FTransform HolsterOffset;
 };
 
 /**

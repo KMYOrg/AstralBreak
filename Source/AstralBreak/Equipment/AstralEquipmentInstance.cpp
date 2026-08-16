@@ -91,6 +91,12 @@ void UAstralEquipmentInstance::SetActorsAttachState(EAstralEquipmentAttachState 
 
 void UAstralEquipmentInstance::ApplyAttachState(AActor* Actor, const FAstralEquipmentActorToSpawn& SpawnInfo, EAstralEquipmentAttachState State, USceneComponent* AttachTarget) const
 {
+	// 스폰 경로에서는 FinishSpawning 전이라 복제 상태가 초기 번치에 동봉된다
+	if (AAstralEquipmentActor* EquipmentActor = Cast<AAstralEquipmentActor>(Actor))
+	{
+		EquipmentActor->SetAttachState(State);
+	}
+
 	const bool bHeld = (State == EAstralEquipmentAttachState::Held);
 	const bool bHasHolster = !SpawnInfo.HolsterSocket.IsNone();
 

@@ -22,7 +22,7 @@ struct FAstralEquipmentActorToSpawn
 	UPROPERTY(EditDefaultsOnly, Category = "Equipment")
 	FName AttachSocket;
 
-	/** 계열의 파지 자세 — 액터(씬 루트) 트랜스폼. 변형별 피벗 보정은 MeshOffset(변형 데이터)이 담당 */
+	/** 계열의 파지 자세 — 액터(씬 루트) 트랜스폼. 변형별 자세값은 AttachOffset(변형 데이터)이 담당 */
 	UPROPERTY(EditDefaultsOnly, Category = "Equipment")
 	FTransform AttachTransform;
 

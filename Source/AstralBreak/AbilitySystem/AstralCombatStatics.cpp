@@ -3,7 +3,9 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "AbilitySystem/AstralEventGameplayTags.h"
+#include "Equipment/AstralEquipmentManagerComponent.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
@@ -239,6 +241,34 @@ void UAstralCombatStatics::ApplyUltGainToSelf(UAbilitySystemComponent* ASC, floa
 		return;
 	}
 	ApplySetByCallerEffectToSelf(ASC, UAstralGameData::Get().UltGainGameplayEffect_SetByCaller.LoadSynchronous(), AstralGameplayTags::SetByCaller_UltGain, Amount);
+}
+
+void UAstralCombatStatics::ApplyCombatStyle(AActor* Avatar, FGameplayTag DesiredStyle)
+{
+	if (!Avatar)
+	{
+		return;
+	}
+
+	UAstralAbilitySystemComponent* ASC = Cast<UAstralAbilitySystemComponent>(UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Avatar));
+	if (!ASC || !ASC->IsOwnerActorAuthoritative())
+	{
+		return;
+	}
+
+	// 장비 컴포넌트가 없는 pawn Desired 그대로 (정책 없음 = 제약 없음)
+	FGameplayTag Resolved = DesiredStyle;
+	if (const UAstralEquipmentManagerComponent* EquipmentManager = Avatar->FindComponentByClass<UAstralEquipmentManagerComponent>())
+	{
+		Resolved = EquipmentManager->ResolveStyleWithEquipment(DesiredStyle);
+	}
+
+	if (!Resolved.IsValid())
+	{
+		return;
+	}
+
+	ASC->SetCombatStyle(Resolved);
 }
 
 bool UAstralCombatStatics::ResolveIncomingDamage(FGameplayEffectModCallbackData& Data)

@@ -102,9 +102,13 @@ public:
 	static const UAstralItemDefinition* ResolveItemDefinition(const FPrimaryAssetId& ItemId);
 
 	/**
-	 * 문맥 장착 정책 — 소유 폰이 초기화 시 GameState에서 읽어 주입한다
+	 * ASC 결합 + 장착 정책 주입 — 소유 폰이 ASC 준비 시점에 호출
+	 * State.CombatStyle 태그 변경을 감지해 부착 상태를 스스로 갱신
 	 */
-	void SetEquipmentPolicy(EAstralEquipmentPolicy InPolicy) { EquipmentPolicy = InPolicy; }
+	void InitializeWithAbilitySystem(UAstralAbilitySystemComponent* InASC, EAstralEquipmentPolicy InPolicy);
+	
+	void UninitializeFromAbilitySystem();
+
 	EAstralEquipmentPolicy GetEquipmentPolicy() const { return EquipmentPolicy; }
 
 	/** 서버 — 장착: 어빌리티/스탯 부여(Full 정책만) + 액터 스폰·부착. 같은 ID 재장착은 기존 인스턴스 반환 (멱등) */
@@ -119,7 +123,7 @@ public:
 	/**
 	 * 서버 — 전 장비 부착 상태 갱신: 정책×스타일로 산출 (Full+활성 스타일=손, 그 외=홀스터).
 	 * 활성 여부는 ASC의 State.CombatStyle.* 태그를 질의 (상태는 ASC 소유 — 이 컴포넌트는 무상태).
-	 * AAstralCharacter::SetCombatStyle이 태그 갱신 직후 호출한다
+	 * 호출은 State.CombatStyle 태그 구독(InitializeWithAbilitySystem)이 자동으로
 	 */
 	void RefreshEquipmentAttachState();
 
@@ -128,6 +132,13 @@ public:
 
 	/** 장착 중인 계열들의 첫 유효 스타일 태그 — 없으면 빈 태그. 스타일↔장비 정합의 폴백 대상 */
 	FGameplayTag FindFirstEquippedStyle() const;
+
+	/**
+	 * 스타일 유효성 정책 (단일 지점) — Desired가 장비 보유 조건을 만족하면 그대로, 아니면 장비 있는 첫
+	 * 스타일로 폴백. 스타일 장비가 아예 없으면 Desired 그대로 반환 (스타일 종속 GA가 곧 장비 부여분이라 무해).
+	 * ⚠️ 전환 GA의 사이클 후보 필터를 대체하지 않는다 — 순환 시맨틱(다음 유효 후보)과 폴백 시맨틱은 다른 규칙
+	 */
+	FGameplayTag ResolveStyleWithEquipment(FGameplayTag Desired) const;
 
 	/**
 	 * 현재 장착 ID 집합이 목록과 정확히 일치하는지 — 재적용 경로의 no-op 판정용
@@ -153,6 +164,9 @@ protected:
 	/** 부착 상태 산출 — 정책×스타일 결정표: Full+활성=Held, 나머지 전부 Holstered (VisualOnly는 항상 홀스터) */
 	EAstralEquipmentAttachState ComputeAttachState(const UAstralEquipmentFamily* Family) const;
 
+	/** State.CombatStyle(부모) 태그 카운트 변경 핸들러 — 전환 1회에 2번 발동(해제+설정) */
+	void HandleCombatStyleChanged(const FGameplayTag Tag, int32 NewCount);
+
 	//~UActorComponent
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void ReadyForReplication() override;
@@ -162,6 +176,11 @@ protected:
 	UPROPERTY(Replicated)
 	FAstralEquipmentList EquipmentList;
 
-	/** 문맥 장착 정책 — 서버 소비 전용 (소유 폰이 GameState CDO 값을 주입). 기본 Full = 미주입 폰(적 등) 호환 */
+	/** 장착 정책 — 서버 전용 (소유 폰이 GameState CDO 값을 주입). 기본 Full = 미주입 폰(적 등) 호환 */
 	EAstralEquipmentPolicy EquipmentPolicy = EAstralEquipmentPolicy::Full;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAstralAbilitySystemComponent> BoundASC;
+
+	FDelegateHandle CombatStyleChangedHandle;
 };

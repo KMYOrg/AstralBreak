@@ -68,16 +68,15 @@ void AAstralCombatCharacter::BeginPlay()
 
 	if (HasAuthority())
 	{
-		// 문맥 장착 정책 주입 — 히어로(OnAbilitySystemInitialized)와 동일. 여기가 BeginPlay인 이유:
-		// 레벨 배치 액터의 PostInitializeComponents는 GameState(GameMode PreInit이 스폰)와 순서 보장이 없고,
-		// BeginPlay는 월드 StartPlay 이후라 보장된다. 장착 루프보다 먼저여야 한다.
-		// TODO: AAstralCharacterBase 추출 시 히어로와 이 주입 코드를 공통화
+		// TODO: AAstralCharacterBase 추출 시 히어로와 이 코드를 공통화
 		if (EquipmentManagerComponent)
 		{
+			EAstralEquipmentPolicy Policy = EAstralEquipmentPolicy::Full;
 			if (const AAstralGameState* AstralGS = GetWorld() ? GetWorld()->GetGameState<AAstralGameState>() : nullptr)
 			{
-				EquipmentManagerComponent->SetEquipmentPolicy(AstralGS->GetEquipmentPolicy());
+				Policy = AstralGS->GetEquipmentPolicy();
 			}
+			EquipmentManagerComponent->InitializeWithAbilitySystem(AbilitySystemComponent, Policy);
 		}
 
 		for (const UAstralAbilitySet* AbilitySet : AbilitySets)
@@ -97,6 +96,17 @@ void AAstralCombatCharacter::BeginPlay()
 			}
 		}
 	}
+}
+
+void AAstralCombatCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// 스타일 태그 구독 해제 (컴포넌트 EndPlay 안전망과 중복 — 멱등)
+	if (EquipmentManagerComponent)
+	{
+		EquipmentManagerComponent->UninitializeFromAbilitySystem();
+	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void AAstralCombatCharacter::MulticastDrawTelegraphDebug_Implementation(float Duration, float TraceStartOffset, float TraceDistance, float TraceRadius)

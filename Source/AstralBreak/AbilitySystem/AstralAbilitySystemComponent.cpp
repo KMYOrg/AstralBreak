@@ -1,9 +1,53 @@
 #include "AstralAbilitySystemComponent.h"
 
 #include "Abilities/AstralGameplayAbility.h"
+#include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "Animation/AstralAnimInstance.h"
+#include "AstralLogChannels.h"
 
 UE_DEFINE_GAMEPLAY_TAG(TAG_Gameplay_AbilityInputBlocked, "Gameplay.AbilityInputBlocked");
+
+FGameplayTag UAstralAbilitySystemComponent::GetCombatStyle() const
+{
+	FGameplayTagContainer OwnedTags;
+	GetOwnedGameplayTags(OwnedTags);
+	for (auto TagIt = OwnedTags.CreateConstIterator(); TagIt; ++TagIt)
+	{
+		if (*TagIt != AstralGameplayTags::State_CombatStyle && TagIt->MatchesTag(AstralGameplayTags::State_CombatStyle))
+		{
+			return *TagIt;
+		}
+	}
+	return FGameplayTag();
+}
+
+void UAstralAbilitySystemComponent::SetCombatStyle(FGameplayTag NewStyle)
+{
+	if (!IsOwnerActorAuthoritative())
+	{
+		return;
+	}
+
+	// 부모 자체(State.CombatStyle)는 상태로 쓰지 않는다 — 자식만 유효
+	if (!NewStyle.MatchesTag(AstralGameplayTags::State_CombatStyle) || NewStyle == AstralGameplayTags::State_CombatStyle)
+	{
+		UE_LOG(LogAstral, Warning, TEXT("SetCombatStyle: %s 는 State.CombatStyle 자식 태그가 아님 — 무시"), *NewStyle.ToString());
+		return;
+	}
+
+	// 보유 중인 스타일 태그를 전부 내리고 새 태그만 올린다 — 스타일 집합을 코드가 모르므로 부모 태그 질의로 일괄 해제
+	FGameplayTagContainer OwnedTags;
+	GetOwnedGameplayTags(OwnedTags);
+	for (auto TagIt = OwnedTags.CreateConstIterator(); TagIt; ++TagIt)
+	{
+		const FGameplayTag& OwnedTag = *TagIt;
+		if (OwnedTag != NewStyle && OwnedTag != AstralGameplayTags::State_CombatStyle && OwnedTag.MatchesTag(AstralGameplayTags::State_CombatStyle))
+		{
+			SetLooseGameplayTagCount(OwnedTag, 0, EGameplayTagReplicationState::TagAndCountToAll);
+		}
+	}
+	SetLooseGameplayTagCount(NewStyle, 1, EGameplayTagReplicationState::TagAndCountToAll);
+}
 
 UAstralAbilitySystemComponent::UAstralAbilitySystemComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)

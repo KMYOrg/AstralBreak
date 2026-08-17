@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "GenericTeamAgentInterface.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "AstralCombatStatics.generated.h"
@@ -56,6 +57,12 @@ public:
 
 	/** 오의 수급 (GameData UltGain GE) — 투사체 명중 등 GA 밖의 수급 지점용 (서버 전용) */
 	static void ApplyUltGainToSelf(class UAbilitySystemComponent* ASC, float Amount);
+
+	/**
+	 * 서버 — 원하는 전투 스타일을 장비 조건으로 해석해 적용
+	 * 빈 태그면 no-op — 스타일 시스템 미사용 폰에서 경고 x
+	 */
+	static void ApplyCombatStyle(AActor* Avatar, FGameplayTag DesiredStyle);
 
 	/**
 	 * 받는 데미지의 방어 판정 (서버 전용 — HealthSet::PreGameplayEffectExecute의 Damage 분기에서 1줄 호출).

@@ -1,6 +1,7 @@
 #include "AstralEquipmentManagerComponent.h"
 
 #include "AbilitySystemGlobals.h"
+#include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "AstralEquipmentFamily.h"
 #include "AstralEquipmentInstance.h"
 #include "AstralItemDefinition.h"
@@ -266,6 +267,17 @@ bool UAstralEquipmentManagerComponent::HasEquipmentForStyle(const FGameplayTag& 
 	return false;
 }
 
+FGameplayTag UAstralEquipmentManagerComponent::ResolveStyleWithEquipment(FGameplayTag Desired) const
+{
+	if (Desired.IsValid() && HasEquipmentForStyle(Desired))
+	{
+		return Desired;
+	}
+
+	const FGameplayTag Fallback = FindFirstEquippedStyle();
+	return Fallback.IsValid() ? Fallback : Desired;
+}
+
 bool UAstralEquipmentManagerComponent::MatchesEquippedItems(const TArray<FPrimaryAssetId>& ItemIds) const
 {
 	// 집합 비교
@@ -309,10 +321,48 @@ UAstralEquipmentInstance* UAstralEquipmentManagerComponent::GetFirstInstanceOfTy
 	return nullptr;
 }
 
+void UAstralEquipmentManagerComponent::InitializeWithAbilitySystem(UAstralAbilitySystemComponent* InASC, EAstralEquipmentPolicy InPolicy)
+{
+	EquipmentPolicy = InPolicy;
+
+	if (BoundASC == InASC)
+	{
+		return;
+	}
+
+	UninitializeFromAbilitySystem();
+	BoundASC = InASC;
+
+	if (BoundASC)
+	{
+		// 부모 태그 구독이 자식(State.CombatStyle.*) 변경에 반응 — 엔진 GatherTagChangeDelegates가
+		// GetGameplayTagParents()를 순회하며 부모 등록 델리게이트를 발동한다 (GameplayEffectTypes.cpp:818 확인).
+		// AnyCountChange 필수 — NewOrRemoved는 "해제→설정" 쓰기 순서(1→0→1)에 우연히 의존한다
+		CombatStyleChangedHandle = BoundASC->RegisterGameplayTagEvent(AstralGameplayTags::State_CombatStyle, EGameplayTagEventType::AnyCountChange)
+			.AddUObject(this, &ThisClass::HandleCombatStyleChanged);
+	}
+}
+
+void UAstralEquipmentManagerComponent::UninitializeFromAbilitySystem()
+{
+	if (BoundASC && CombatStyleChangedHandle.IsValid())
+	{
+		BoundASC->RegisterGameplayTagEvent(AstralGameplayTags::State_CombatStyle, EGameplayTagEventType::AnyCountChange).Remove(CombatStyleChangedHandle);
+	}
+	CombatStyleChangedHandle.Reset();
+	BoundASC = nullptr;
+}
+
+void UAstralEquipmentManagerComponent::HandleCombatStyleChanged(const FGameplayTag Tag, int32 NewCount)
+{
+	// 전환 1회에 2번 발동(해제+설정) — 같은 프레임이라 중간 상태가 클라에 복제x
+	RefreshEquipmentAttachState();
+}
+
 void UAstralEquipmentManagerComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	// 어빌리티 누수 안전망 — OnAbilitySystemUninitialized 경로가 먼저 비웠으면 no-op (멱등)
 	UnequipAll();
+	UninitializeFromAbilitySystem();
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -321,7 +371,6 @@ void UAstralEquipmentManagerComponent::ReadyForReplication()
 {
 	Super::ReadyForReplication();
 
-	// 복제 준비 전에 장착된 인스턴스들 등록
 	if (IsUsingRegisteredSubObjectList())
 	{
 		for (const FAstralAppliedEquipmentEntry& Entry : EquipmentList.Entries)

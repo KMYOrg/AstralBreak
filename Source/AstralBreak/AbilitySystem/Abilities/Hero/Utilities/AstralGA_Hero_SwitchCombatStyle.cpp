@@ -1,8 +1,8 @@
 #include "AstralGA_Hero_SwitchCombatStyle.h"
 
-#include "AbilitySystemComponent.h"
+#include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
-#include "Character/AstralCharacter.h"
 #include "Equipment/AstralEquipmentManagerComponent.h"
 
 UAstralGA_Hero_SwitchCombatStyle::UAstralGA_Hero_SwitchCombatStyle(const FObjectInitializer& ObjectInitializer)
@@ -29,27 +29,17 @@ void UAstralGA_Hero_SwitchCombatStyle::ActivateAbility(const FGameplayAbilitySpe
 	// 상태 쓰기는 서버 인스턴스만 — 클라 인스턴스는 발동 사실만 예측 (태그는 복제로 도착)
 	if (ActorInfo && ActorInfo->IsNetAuthority() && StyleCycle.Num() > 0)
 	{
-		if (AAstralCharacter* Character = GetAstralCharacterFromActorInfo())
-		{
-			const UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
-			const UAstralEquipmentManagerComponent* EquipmentManager = Character->GetEquipmentManagerComponent();
+		AActor* Avatar = ActorInfo->AvatarActor.Get();
+		const UAstralAbilitySystemComponent* ASC = Cast<UAstralAbilitySystemComponent>(ActorInfo->AbilitySystemComponent.Get());
+		const UAstralEquipmentManagerComponent* EquipmentManager = Avatar ? Avatar->FindComponentByClass<UAstralEquipmentManagerComponent>() : nullptr;
 
-			// 현재 스타일 인덱스 — 미발견(INDEX_NONE)이면 첫 항목부터 후보 탐색
-			int32 CurrentIndex = INDEX_NONE;
-			if (ASC)
-			{
-				for (int32 Index = 0; Index < StyleCycle.Num(); ++Index)
-				{
-					if (ASC->HasMatchingGameplayTag(StyleCycle[Index]))
-					{
-						CurrentIndex = Index;
-						break;
-					}
-				}
-			}
+		if (Avatar && ASC)
+		{
+			// 현재 스타일 인덱스 — 읽기 단일 경로. StyleCycle 밖 스타일 보유 시 INDEX_NONE → 첫 항목부터 탐색
+			const int32 CurrentIndex = StyleCycle.Find(ASC->GetCombatStyle());
 
 			// 다음 후보로 순환하되 해당 스타일의 장비가 있는 것만 — 선택적 로드아웃(한 무기만 장착)에서
-			// 맨손 스타일로 넘어가는 구멍 방지. 유효 후보가 없으면 no-op (전환 입력 무의미)
+			// 맨손 스타일로 넘어가는 구멍 방지. 유효 후보가 없으면 no-op (전환 입력 무의미).
 			const int32 StartIndex = (CurrentIndex == INDEX_NONE) ? 0 : CurrentIndex + 1;
 			const int32 NumCandidates = (CurrentIndex == INDEX_NONE) ? StyleCycle.Num() : StyleCycle.Num() - 1;
 			for (int32 Step = 0; Step < NumCandidates; ++Step)
@@ -57,7 +47,7 @@ void UAstralGA_Hero_SwitchCombatStyle::ActivateAbility(const FGameplayAbilitySpe
 				const FGameplayTag& Candidate = StyleCycle[(StartIndex + Step) % StyleCycle.Num()];
 				if (EquipmentManager && EquipmentManager->HasEquipmentForStyle(Candidate))
 				{
-					Character->SetCombatStyle(Candidate);
+					UAstralCombatStatics::ApplyCombatStyle(Avatar, Candidate);
 					break;
 				}
 			}

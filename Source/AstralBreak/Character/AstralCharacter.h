@@ -48,13 +48,6 @@ public:
 	UAstralEquipmentManagerComponent* GetEquipmentManagerComponent() const { return EquipmentManagerComponent; }
 
 	/**
-	 * 상태 = ASC 복제 루즈 태그(TagAndCountToAll — 오너·시뮬·후참가 전부 복제), 이 함수 외 쓰기 금지.
-	 * 절대값 세팅이라 리스폰 시 ASC(PlayerState)에 잔존한 이전 폰의 태그도 자동 정정된다.
-	 * 태그 갱신 직후 장비 부착 상태 갱신 통지 (비활성 스타일 장비는 홀스터/숨김)
-	 */
-	void SetCombatStyle(FGameplayTag NewStyle);
-
-	/**
 	 * 로드아웃 반영의 단일 진입점 ① 외형(전 머신) ② 장비(서버).
 	 * 호출 지점: ASC 초기화(bReapply=false) · PS.OnLoadoutChanged(bReapply=true)
 	 */
@@ -76,12 +69,6 @@ public:
 
 	/** 디버그 — 마지막 장비 복원 소스 */
 	EAstralLoadoutSource GetLastLoadoutSource() const { return LastLoadoutSource; }
-
-	/**
-	 * 서버 — 스타일↔장비 정합. 현 스타일에 일치하는 장비가 없으면(선택적 로드아웃 — 한 무기만 장착 등)
-	 * 장비가 있는 첫 스타일로 자동 전환. 장비 변이 지점(로드아웃 복원·교체) 직후 호출된다
-	 */
-	void EnsureCombatStyleMatchesEquipment();
 
 	/** 디버그 — 콘솔에서 `DamageSelf 50`. 데미지 파이프라인(GE_Damage_Base)을 그대로 태워 사망/수급 경로 검증용 */
 	UFUNCTION(Exec)

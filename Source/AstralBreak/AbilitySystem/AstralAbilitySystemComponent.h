@@ -18,6 +18,12 @@ public:
 	
 	virtual void InitAbilityActorInfo(AActor* InOwnerActor, AActor* InAvatarActor) override;
 	
+	/** 현재 전투 스타일 — 보유 중인 State.CombatStyle 자식 태그. 없으면 빈 태그 (읽기 단일 경로) */
+	FGameplayTag GetCombatStyle() const;
+
+	/** 서버 — 전투 스타일 설정 (이 함수 외 설정 금지). 부모 태그 검증 + 보유 스타일 일괄 해제 */
+	void SetCombatStyle(FGameplayTag NewStyle);
+
 	void AbilityInputTagPressed(const FGameplayTag& InputTag);
 	void AbilityInputTagReleased(const FGameplayTag& InputTag);
 	

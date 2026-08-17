@@ -31,9 +31,6 @@ namespace AstralGameplayTags
 	 * State
 	 */
 
-	// 전투 스타일 — ASC 복제 루즈 태그 (서버 전용 쓰기, TagAndCountToAll). 소유·전환은 AAstralCharacter::SetCombatStyle.
-	// 스타일 집합은 히어로 데이터(PawnData.InitialCombatStyle / 전환 GA StyleCycle / 계열 CombatStyle)가 정의 —
-	// 부모 태그는 SetCombatStyle의 "보유 스타일 일괄 해제" 질의용 (코드는 자식 목록을 모른다)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_CombatStyle);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_CombatStyle_Melee);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_CombatStyle_Ranged);

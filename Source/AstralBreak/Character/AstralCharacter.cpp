@@ -1,7 +1,7 @@
 #include "AstralCharacter.h"
 
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
-#include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
+#include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "Character/Components/AstralCharacterMovementComponent.h"
@@ -59,24 +59,25 @@ void AAstralCharacter::OnAbilitySystemInitialized()
 
 	HealthComponent->InitializeWithAbilitySystem(AstralASC);
 
+	// 장비 컴포넌트 ASC 결합(스타일 태그 구독)
+	// InitGameState가 폰 스폰보다 먼저
 	if (HasAuthority() && EquipmentManagerComponent)
 	{
+		EAstralEquipmentPolicy Policy = EAstralEquipmentPolicy::Full;
 		if (const AAstralGameState* AstralGS = GetWorld() ? GetWorld()->GetGameState<AAstralGameState>() : nullptr)
 		{
-			EquipmentManagerComponent->SetEquipmentPolicy(AstralGS->GetEquipmentPolicy());
+			Policy = AstralGS->GetEquipmentPolicy();
 		}
+		EquipmentManagerComponent->InitializeWithAbilitySystem(AstralASC, Policy);
 	}
 
 	// 초기 스타일 시드 (서버, 초기화 전용 — 재적용 경로에서 실행 금지) — 장착보다 먼저
-	// 빈 태그 = 스타일 시스템 미사용 폰
+	// 빈 태그 = 스타일 시스템 미사용 폰 (ApplyCombatStyle이 무효 해석 no-op으로 흡수)
 	if (HasAuthority() && EquipmentManagerComponent && !EquipmentManagerComponent->HasAnyEquipment())
 	{
 		if (const UAstralPawnData* PawnData = PawnExtComponent->GetPawnData<UAstralPawnData>())
 		{
-			if (PawnData->InitialCombatStyle.IsValid())
-			{
-				SetCombatStyle(PawnData->InitialCombatStyle);
-			}
+			UAstralCombatStatics::ApplyCombatStyle(this, PawnData->InitialCombatStyle);
 		}
 	}
 	
@@ -246,88 +247,10 @@ void AAstralCharacter::RestoreEquipmentFromLoadout(bool bReapply)
 		EquipmentManagerComponent->EquipItemById(ItemId);
 	}
 
-	// 선택적 로드아웃 정합 — 총만 든 로드아웃인데 초기 스타일이 Melee인 경우 등
-	EnsureCombatStyleMatchesEquipment();
-}
-
-void AAstralCharacter::EnsureCombatStyleMatchesEquipment()
-{
-	if (!HasAuthority() || !EquipmentManagerComponent)
+	// 스타일↔장비 정합 — 현재 스타일 유지 시도, 현 스타일 장비가 없으면(총만 든 로드아웃 등) 장비 있는 쪽으로 폴백
+	if (UAstralAbilitySystemComponent* AstralASC = GetAstralAbilitySystemComponent())
 	{
-		return;
-	}
-
-	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
-	if (!ASC)
-	{
-		return;
-	}
-
-	// 현 스타일 = 보유 중인 State.CombatStyle 자식 태그
-	FGameplayTag CurrentStyle;
-	FGameplayTagContainer OwnedTags;
-	ASC->GetOwnedGameplayTags(OwnedTags);
-	for (auto TagIt = OwnedTags.CreateConstIterator(); TagIt; ++TagIt)
-	{
-		if (*TagIt != AstralGameplayTags::State_CombatStyle && TagIt->MatchesTag(AstralGameplayTags::State_CombatStyle))
-		{
-			CurrentStyle = *TagIt;
-			break;
-		}
-	}
-
-	if (CurrentStyle.IsValid() && EquipmentManagerComponent->HasEquipmentForStyle(CurrentStyle))
-	{
-		return;
-	}
-
-	// 현 스타일에 장비 없음 — 장비가 있는 스타일로 전환. 스타일 장비가 아예 없으면 유지
-	// (스타일 종속 GA 자체가 장비 부여분이라 잘못 발동될 것이 없다)
-	const FGameplayTag FallbackStyle = EquipmentManagerComponent->FindFirstEquippedStyle();
-	if (FallbackStyle.IsValid() && FallbackStyle != CurrentStyle)
-	{
-		SetCombatStyle(FallbackStyle);
-	}
-}
-
-void AAstralCharacter::SetCombatStyle(FGameplayTag NewStyle)
-{
-	if (!HasAuthority())
-	{
-		return;
-	}
-
-	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
-	if (!ASC)
-	{
-		return;
-	}
-
-	// 부모 자체(State.CombatStyle)는 상태로 쓰지 않는다 — 자식만 유효
-	if (!NewStyle.MatchesTag(AstralGameplayTags::State_CombatStyle) || NewStyle == AstralGameplayTags::State_CombatStyle)
-	{
-		UE_LOG(LogAstral, Warning, TEXT("SetCombatStyle: %s 는 State.CombatStyle 자식 태그가 아님 — 무시"), *NewStyle.ToString());
-		return;
-	}
-
-	// 서버 전용 쓰기 + TagAndCountToAll — ReplicatedLooseTags 경유로 전 커넥션·후참가 복제.
-	// 보유 중인 스타일 태그를 전부 내리고 새 태그만 올린다 — 스타일 집합을 코드가 모르므로(히어로별 데이터 정의)
-	// 부모 태그 질의로 일괄 해제. 리스폰 시 ASC(PlayerState)에 잔존한 이전 폰의 태그도 이 경로로 자동 정정.
-	FGameplayTagContainer OwnedTags;
-	ASC->GetOwnedGameplayTags(OwnedTags);
-	for (auto TagIt = OwnedTags.CreateConstIterator(); TagIt; ++TagIt)
-	{
-		const FGameplayTag& OwnedTag = *TagIt;
-		if (OwnedTag != NewStyle && OwnedTag != AstralGameplayTags::State_CombatStyle && OwnedTag.MatchesTag(AstralGameplayTags::State_CombatStyle))
-		{
-			ASC->SetLooseGameplayTagCount(OwnedTag, 0, EGameplayTagReplicationState::TagAndCountToAll);
-		}
-	}
-	ASC->SetLooseGameplayTagCount(NewStyle, 1, EGameplayTagReplicationState::TagAndCountToAll);
-
-	if (EquipmentManagerComponent)
-	{
-		EquipmentManagerComponent->RefreshEquipmentAttachState();
+		UAstralCombatStatics::ApplyCombatStyle(this, AstralASC->GetCombatStyle());
 	}
 }
 
@@ -339,6 +262,7 @@ void AAstralCharacter::OnAbilitySystemUninitialized()
 	if (EquipmentManagerComponent)
 	{
 		EquipmentManagerComponent->UnequipAll();
+		EquipmentManagerComponent->UninitializeFromAbilitySystem();
 	}
 
 	HealthComponent->UninitializeFromAbilitySystem();
@@ -535,8 +459,11 @@ void AAstralCharacter::ServerEquipWeapon_Implementation(FPrimaryAssetId WeaponId
 		EquipmentManagerComponent->UnequipAll();
 		EquipmentManagerComponent->EquipItemById(WeaponId);
 
-		// 반대 스타일 무기로 교체한 경우 스타일 정합 (안 하면 새 무기가 비활성=숨김)
-		EnsureCombatStyleMatchesEquipment();
+		// 반대 스타일 무기로 교체한 경우 스타일 정합 — 현재 스타일 유지 시도, 무효면 폴백
+		if (UAstralAbilitySystemComponent* AstralASC = GetAstralAbilitySystemComponent())
+		{
+			UAstralCombatStatics::ApplyCombatStyle(this, AstralASC->GetCombatStyle());
+		}
 	}
 #endif
 }

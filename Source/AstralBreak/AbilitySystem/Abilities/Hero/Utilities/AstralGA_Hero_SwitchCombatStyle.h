@@ -6,8 +6,8 @@
 
 /**
  * 전투 스타일 전환 — 입력 InputTag.SwitchCombatStyle.
- * 상태를 직접 들지 않는다: 서버 인스턴스가 AAstralCharacter::SetCombatStyle(단일 쓰기 경로)을 호출.
- * 전환 규칙은 StyleCycle 데이터 — 현재 스타일의 다음 항목으로 순환.
+ * 상태를 직접 들지 않는다: 서버 인스턴스가 UAstralCombatStatics::ApplyCombatStyle로 의도만 전달.
+ * 전환 규칙은 StyleCycle 데이터 — 현재 스타일의 다음 유효 후보(장비 보유)로 순환.
  * 히어로별 BP에서 구성하므로 이 GA는 스타일 집합을 모른다. 전환 없는 히어로는 이 GA를 부여받지 않는다.
  * 공격 중 전환은 ActivationBlockedTags(Ability.Attack)로 차단 — 콤보 도중 무기가 바뀌면
  * 트레이스 대상이 뒤바뀌므로. 즉시 종료 (몽타주 없음 — 연출은 이후).

@@ -33,11 +33,7 @@
       "Read(D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Source/**)",
       "Read(D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Plugins/**)"
     ],
-    "ask": [
-      "Edit",
-      "Write",
-      "Bash"
-    ],
+    "ask": [],
     "deny": [
       "Read(**/.env)",
       "Read(**/.env.*)",

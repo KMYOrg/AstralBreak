@@ -12,6 +12,7 @@
 #include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
 #include "Character/AstralCharacter.h"
 #include "Character/Components/AstralHealthComponent.h"
+#include "Character/Components/AstralLoadoutComponent.h"
 #include "GameModes/AstralHubGameState.h"
 #include "Player/AstralPlayerState.h"
 
@@ -54,10 +55,10 @@ FString UAstralDebugWidget::GetPartyString() const
     const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
 
     // 장비 복원 소스 — 서버 로컬 값이라 원격 클라에선 None (리슨 호스트/서버 시점용)
-    if (const AAstralCharacter* Character = Cast<AAstralCharacter>(Pawn))
+    if (const UAstralLoadoutComponent* LoadoutComp = Pawn ? Pawn->FindComponentByClass<UAstralLoadoutComponent>() : nullptr)
     {
         static const TCHAR* SourceNames[] = { TEXT("None"), TEXT("PartyCache"), TEXT("PlayerState"), TEXT("PawnDataFallback") };
-        B.Appendf(TEXT("EquipSource: %s (서버 로컬)\n"), SourceNames[static_cast<int32>(Character->GetLastLoadoutSource())]);
+        B.Appendf(TEXT("EquipSource: %s (서버 로컬)\n"), SourceNames[static_cast<int32>(LoadoutComp->GetLastLoadoutSource())]);
     }
 
     if (const AAstralPlayerState* AstralPS = PC ? PC->GetPlayerState<AAstralPlayerState>() : nullptr)

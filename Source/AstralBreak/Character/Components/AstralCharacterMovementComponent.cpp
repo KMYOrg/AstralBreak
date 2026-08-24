@@ -14,6 +14,41 @@ UAstralCharacterMovementComponent::UAstralCharacterMovementComponent(const FObje
 {
 }
 
+void UAstralCharacterMovementComponent::InitializeWithAbilitySystem(UAstralAbilitySystemComponent* InASC)
+{
+	if (BoundASC == InASC)
+	{
+		return;
+	}
+
+	UninitializeFromAbilitySystem();
+
+	BoundASC = InASC;
+	if (BoundASC)
+	{
+		OnAbilitySystemBound();
+	}
+}
+
+void UAstralCharacterMovementComponent::UninitializeFromAbilitySystem()
+{
+	if (!BoundASC)
+	{
+		return;
+	}
+
+	OnAbilitySystemUnbound();
+	BoundASC = nullptr;
+}
+
+void UAstralCharacterMovementComponent::OnUnregister()
+{
+	// 폰의 해제 경로가 먼저 처리했으면 no-op
+	UninitializeFromAbilitySystem();
+
+	Super::OnUnregister();
+}
+
 const FAstralCharacterGroundInfo& UAstralCharacterMovementComponent::GetGroundInfo()
 {
 	if (!CharacterOwner || (GFrameCounter == CachedGroundInfo.LastUpdateFrame))

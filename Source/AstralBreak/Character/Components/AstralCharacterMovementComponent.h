@@ -4,6 +4,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "AstralCharacterMovementComponent.generated.h"
 
+class UAstralAbilitySystemComponent;
+
 USTRUCT(BlueprintType)
 struct FAstralCharacterGroundInfo
 {
@@ -34,7 +36,21 @@ public:
 	/** 프레임당 1회 캐싱되는 발밑 지면 정보 반환 (Game Thread 전용 — 내부에서 World trace 수행) */
 	UFUNCTION(BlueprintCallable, Category = "Astral|CharacterMovement")
 	const FAstralCharacterGroundInfo& GetGroundInfo();
+	
+	void InitializeWithAbilitySystem(UAstralAbilitySystemComponent* InASC);
+	void UninitializeFromAbilitySystem();
+
+	UAstralAbilitySystemComponent* GetBoundAbilitySystem() const { return BoundASC; }
 
 protected:
+
+	virtual void OnUnregister() override;
+
+	virtual void OnAbilitySystemBound() {}
+	virtual void OnAbilitySystemUnbound() {}
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAstralAbilitySystemComponent> BoundASC;
+
 	FAstralCharacterGroundInfo CachedGroundInfo;
 };

@@ -29,6 +29,9 @@ protected:
 	FString GetRoleString() const;
 	FString GetRemoteRoleString() const;
 	FString GetAttributesString() const;
+
+	/** 스프린트 의도/승인 분리 관측 — 서버 권위 검증(의도 true + 승인 false = 속도 미상승)의 확인 지점 */
+	FString GetMovementString() const;
 	FString GetAbilitiesString() const;
 	FString GetDeathStateString() const;
 	FString GetTargetString() const;

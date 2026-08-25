@@ -14,9 +14,10 @@ UAstralHeroMovementComponent::UAstralHeroMovementComponent(const FObjectInitiali
 
 float UAstralHeroMovementComponent::GetMaxSpeed() const
 {
+	// 베이스가 이미 MoveSpeedMultiplier를 곱해 주므로 여기선 질주 배율만 얹는다 — 곱셈 체인 합성
 	if (bWantsToSprint && CanActuallySprint())
 	{
-		return SprintSpeed;
+		return Super::GetMaxSpeed() * SprintSpeedMultiplier;
 	}
 
 	return Super::GetMaxSpeed();

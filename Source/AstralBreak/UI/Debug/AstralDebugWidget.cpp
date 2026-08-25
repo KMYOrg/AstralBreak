@@ -203,7 +203,7 @@ FString UAstralDebugWidget::GetMovementString() const
         HeroMC->IsSprintAuthorized() ? 1 : 0,
         HeroMC->IsMovingOnGround() ? 1 : 0,
         HeroMC->IsSprinting() ? 1 : 0);
-    Out.Appendf(TEXT("MaxSpeed: %.0f (Vel %.0f)\n"), HeroMC->GetMaxSpeed(), HeroMC->Velocity.Size2D());
+    Out.Appendf(TEXT("MaxSpeed: %.0f (Vel %.0f, MoveMul %.2f)\n"), HeroMC->GetMaxSpeed(), HeroMC->Velocity.Size2D(), HeroMC->GetMoveSpeedMultiplier());
 
     return Out.ToString();
 }

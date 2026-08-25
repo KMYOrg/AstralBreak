@@ -4,6 +4,7 @@
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Animation/AnimMontage.h"
 #include "Character/AstralCharacter.h"
+#include "Character/Components/AstralCharacterMovementComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
 UAstralGA_Hero_Dodge::UAstralGA_Hero_Dodge(const FObjectInitializer& ObjectInitializer)
@@ -63,6 +64,10 @@ void UAstralGA_Hero_Dodge::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 
 	const float Strength = DodgeDistance / FMath::Max(DodgeDuration, 0.01f);
 
+	// 종료 클램프 기준은 배율 적용된 걷기 속도 — MaxWalkSpeed를 직접 읽으면 슬로우/가속 중 회피 직후 속도가 어긋난다
+	const UAstralCharacterMovementComponent* AstralCMC = Cast<UAstralCharacterMovementComponent>(CMC);
+	const float EndClampSpeed = AstralCMC ? AstralCMC->GetScaledMaxWalkSpeed() : CMC->MaxWalkSpeed;
+
 	// 종료 시 잔여 속도를 걷기 속도로 클램프 — 유지 모드면 대시 속도(예: 2500cm/s)가 이월되어 슬링샷 발생
 	UAbilityTask_ApplyRootMotionConstantForce* DashTask = UAbilityTask_ApplyRootMotionConstantForce::ApplyRootMotionConstantForce(
 		this,
@@ -74,7 +79,7 @@ void UAstralGA_Hero_Dodge::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 		/*StrengthOverTime=*/nullptr,
 		ERootMotionFinishVelocityMode::ClampVelocity,
 		/*SetVelocityOnFinish=*/FVector::ZeroVector,
-		/*ClampVelocityOnFinish=*/CMC->MaxWalkSpeed,
+		/*ClampVelocityOnFinish=*/EndClampSpeed,
 		/*bEnableGravity=*/false);
 	DashTask->OnFinish.AddDynamic(this, &UAstralGA_Hero_Dodge::OnDashFinished);
 	DashTask->ReadyForActivation();

@@ -55,6 +55,10 @@ public:
 	UFUNCTION(Exec)
 	void EquipWeapon(const FString& WeaponIdString);
 
+	/** 디버그 — 콘솔에서 `SetMoveSpeedMultiplier 1.5`. 걷기·질주 속도가 함께 변하는지 검증용 */
+	UFUNCTION(Exec)
+	void SetMoveSpeedMultiplier(float Multiplier = 1.0f);
+
 protected:
 	UFUNCTION(Server, Reliable)
 	void ServerDamageSelf(float Amount);
@@ -64,6 +68,9 @@ protected:
 
 	UFUNCTION(Server, Reliable)
 	void ServerEquipWeapon(FPrimaryAssetId WeaponId);
+
+	UFUNCTION(Server, Reliable)
+	void ServerSetMoveSpeedMultiplier(float Multiplier);
 
 	virtual void OnAbilitySystemInitialized();
 	virtual void OnAbilitySystemUninitialized();

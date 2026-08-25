@@ -54,8 +54,8 @@ protected:
 
 protected:
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Astral|HeroMovement")
-	float SprintSpeed = 800.0f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Astral|HeroMovement", Meta = (ClampMin = "1.0"))
+	float SprintSpeedMultiplier = 800.0f / 600.0f;
 
 	/** 플레이어 의도 — 클라 발신(압축 플래그). 서버는 이 값 단독으로 속도를 인정하지 않는다 */
 	bool bWantsToSprint = false;

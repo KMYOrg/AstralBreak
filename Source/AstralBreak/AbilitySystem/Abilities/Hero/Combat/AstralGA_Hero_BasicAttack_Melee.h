@@ -32,6 +32,55 @@ struct FAstralComboStageData
 	float PlayRate = 1.0f;
 };
 
+/** 콤보 스테이지의 몽타주 타임라인 구간 — 서버 입력 게이트의 판정 기준 */
+enum class EAstralComboWindowPhase : uint8
+{
+	/** 스테이지 시작 ~ 윈도우 열림 전 */
+	PreWindow,
+	/** 윈도우 중 (ComboWindowOpen ~ ComboBranch) */
+	WindowOpen,
+	/** branch 이후 ~ 몽타주 끝 — 원격 지각 입력은 여기서도 수용된다 (관용 게이트) */
+	PostWindow
+};
+
+enum class EAstralComboInputState : uint8
+{
+	None,
+	/** 조기 도착 보류 — PreWindow에서만 존재 가능, 윈도우 열림 시 Buffered로 자동 승격 */
+	DeferredUntilWindow,
+	/** 다음 분기(branch / 몽타주 끝)에서 소비 확정 */
+	Buffered
+};
+
+/** 콤보 스테이지 1개의 논리 상태 기계 — 윈도우 타임라인 × 입력 수용 상태 */
+struct FAstralComboStageState
+{
+	/** 새 스테이지 시작 — 두 상태 동시 리셋. 보류분 이월 금지 (이월되면 branch 직후 스팸이 다음 스테이지 입력을 선점) */
+	void BeginStage();
+
+	/** 윈도우 열림 (PreWindow에서만 합법) — 보류분을 버퍼로 승격. 위반 = 노티파이 설정 오류 (ensure + false) */
+	bool OpenWindow();
+
+	/** 윈도우 닫힘 = branch 시점 (WindowOpen에서만 합법). 위반 = 노티파이 설정 오류 (ensure + false) */
+	bool CloseWindow();
+
+	/** 로컬(예측 클라/호스트) 입력 — 윈도우 중에만 버퍼. */
+	void ReceiveLocalInput();
+
+	/** 원격 입력(서버 인스턴스) — 클라 검증을 신뢰하지 않고 서버 자신의 타임라인 구간으로 3분기 */
+	void ReceiveRemoteInput();
+
+	/** 버퍼 소비 — Buffered일 때만 true. Deferred는 소비 불가 (윈도우 전 진행을 소비 규칙 자체가 차단) */
+	bool ConsumeBufferedInput();
+
+	bool IsWindowOpen() const { return WindowPhase == EAstralComboWindowPhase::WindowOpen; }
+	bool HasBufferedInput() const { return InputState == EAstralComboInputState::Buffered; }
+
+private:
+	EAstralComboWindowPhase WindowPhase = EAstralComboWindowPhase::PreWindow;
+	EAstralComboInputState InputState = EAstralComboInputState::None;
+};
+
 /**
  * 근접 기본 공격 — 콤보 체인 (단계별 몽타주 방식).
  *
@@ -82,16 +131,16 @@ protected:
 
 	void StopWeaponTrace();
 
-	/** 입력 윈도우 열림 — 이 시점 이전의 선입력은 폐기하고 버퍼 접수 시작 */
+	/** 입력 윈도우 열림 — 상태 전이(OpenWindow, 보류분 승격 포함) + 로컬은 재입력 무장 시작 */
 	UFUNCTION()
 	void OnComboWindowOpened(FGameplayEventData EventData);
 
-	/** 입력 윈도우 끝(분기 시점) — 버퍼가 있으면 다음 단계 재생 */
-	// TODO: 해당 시점 후 ~ 해당 시점 전 까지 입력 들어오면 콤보 진행되도록 개선 
+	/** 입력 윈도우 끝(분기 시점) — 상태 전이(CloseWindow) + 버퍼가 있으면 다음 단계 재생 */
+	// TODO: 해당 시점 후 ~ 해당 시점 전 까지 입력 들어오면 콤보 진행되도록 개선
 	UFUNCTION()
 	void OnComboBranchReceived(FGameplayEventData EventData);
 
-	/** 재입력 감지 — 윈도우가 열려 있을 때만 버퍼 세팅 (실제 분기는 ComboBranch 시점) */
+	/** 재입력 감지 — 수용/보류 판정은 FAstralComboStageState의 Receive{Local,Remote}Input이 담당 */
 	UFUNCTION()
 	void OnComboInputPressed(float TimeWaited);
 
@@ -99,7 +148,6 @@ protected:
 	 * 재입력 대기 무장/해제.
 	 * 클라 태스크(WaitInputPress)는 소비 시에만 서버로 입력 RPC를 보내므로,
 	 * 로컬(예측 클라/호스트)은 윈도우 구간에만 무장 → 윈도우 안에서 검증된 입력만 서버에 도착한다.
-	 * 원격 폰의 서버 인스턴스는 상시 무장 + 무게이트 수용 (도착 입력 = 이미 클라 검증됨).
 	 */
 	void ArmComboInput();
 	void DisarmComboInput();
@@ -127,11 +175,8 @@ private:
 	/** 현재 콤보 단계 (0-based) */
 	int32 ComboIndex = 0;
 
-	/** 입력 윈도우(ComboWindowOpen ~ ComboBranch)가 열려 있는지 */
-	bool bComboWindowOpen = false;
-
-	/** 윈도우 내 재입력이 들어왔는지 */
-	bool bComboInputBuffered = false;
+	/** 현재 스테이지의 윈도우/입력 상태 기계 */
+	FAstralComboStageState ComboStageState;
 
 	/** 현재 스테이지의 몽타주 태스크 — 전환 시 EndTask로 정리 */
 	UPROPERTY(Transient)

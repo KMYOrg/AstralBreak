@@ -12,6 +12,84 @@
 #include "Equipment/AstralWeaponActor.h"
 #include "GameFramework/Pawn.h"
 
+//////////////////////////////////////////////////////////////////////////
+// FAstralComboStageState
+
+void FAstralComboStageState::BeginStage()
+{
+	WindowPhase = EAstralComboWindowPhase::PreWindow;
+	InputState = EAstralComboInputState::None;
+}
+
+bool FAstralComboStageState::OpenWindow()
+{
+	if (!ensureMsgf(WindowPhase == EAstralComboWindowPhase::PreWindow,
+			TEXT("콤보 윈도우는 PreWindow에서만 열릴 수 있다 — 몽타주에 ComboWindowOpen 노티파이가 중복 배치됐는지 확인")))
+	{
+		return false;
+	}
+
+	WindowPhase = EAstralComboWindowPhase::WindowOpen;
+
+	// 조기 도착 보류분 승격 — 변조 스팸도 여기서야 유효해지므로 "윈도우 열림 시점에 누른 것"과 동일 (타이밍 이득 0)
+	if (InputState == EAstralComboInputState::DeferredUntilWindow)
+	{
+		InputState = EAstralComboInputState::Buffered;
+	}
+
+	return true;
+}
+
+bool FAstralComboStageState::CloseWindow()
+{
+	if (!ensureMsgf(WindowPhase == EAstralComboWindowPhase::WindowOpen,
+			TEXT("콤보 윈도우는 WindowOpen에서만 닫힐 수 있다 — 몽타주에 ComboBranch 노티파이만 있고 ComboWindowOpen이 없는지 확인")))
+	{
+		return false;
+	}
+
+	WindowPhase = EAstralComboWindowPhase::PostWindow;
+	return true;
+}
+
+void FAstralComboStageState::ReceiveLocalInput()
+{
+	if (WindowPhase == EAstralComboWindowPhase::WindowOpen)
+	{
+		InputState = EAstralComboInputState::Buffered;
+	}
+}
+
+void FAstralComboStageState::ReceiveRemoteInput()
+{
+	// 서버 몽타주는 클라보다 ~RTT/2 늦게 시작하므로 평시 도착은 WindowOpen 안 — Pre/Post 분기는 지터/변조 케이스
+	switch (WindowPhase)
+	{
+	case EAstralComboWindowPhase::PreWindow:
+		InputState = EAstralComboInputState::DeferredUntilWindow;
+		break;
+
+	case EAstralComboWindowPhase::WindowOpen:
+	case EAstralComboWindowPhase::PostWindow:
+		InputState = EAstralComboInputState::Buffered;
+		break;
+	}
+}
+
+bool FAstralComboStageState::ConsumeBufferedInput()
+{
+	if (InputState != EAstralComboInputState::Buffered)
+	{
+		return false;
+	}
+
+	InputState = EAstralComboInputState::None;
+	return true;
+}
+
+//////////////////////////////////////////////////////////////////////////
+// UAstralGA_Hero_BasicAttack_Melee
+
 UAstralGA_Hero_BasicAttack_Melee::UAstralGA_Hero_BasicAttack_Melee(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)
 {
@@ -51,8 +129,6 @@ void UAstralGA_Hero_BasicAttack_Melee::ActivateAbility(const FGameplayAbilitySpe
     }
 
     ComboIndex = 0;
-    bComboWindowOpen = false;
-    bComboInputBuffered = false;
 
     PlayComboStage(0);
 
@@ -103,6 +179,9 @@ void UAstralGA_Hero_BasicAttack_Melee::PlayComboStage(int32 StageIndex)
         return;
     }
 
+    // 새 스테이지 = 상태 기계 리셋 (보류분 이월 금지는 BeginStage가 보장)
+    ComboStageState.BeginStage();
+
     // 이전 스테이지 태스크를 먼저 정리 — 새 몽타주 재생이 이전 태스크의 OnInterrupted(→EndAbility)로 이어지는 것 방지.
     // EndTask는 OnDestroy(AbilityEnded=false) 경로라 몽타주 자체는 멈추지 않고, 새 재생이 자연 블렌드로 교체한다
     if (ActiveMontageTask)
@@ -152,38 +231,42 @@ void UAstralGA_Hero_BasicAttack_Melee::DisarmComboInput()
 
 void UAstralGA_Hero_BasicAttack_Melee::OnComboInputPressed(float TimeWaited)
 {
-    const bool bLocal = IsLocallyControlledAvatar();
-
     ComboInputTask = nullptr; // 1회성 태스크
 
-    // 로컬: 윈도우 게이트 적용
-    // 원격 폰의 서버 인스턴스: 도착한 입력은 클라가 윈도우 안에서 검증한 것
-    if (bComboWindowOpen || !bLocal)
+    // 수용/보류 판정은 상태 기계가 소유
+    if (IsLocallyControlledAvatar())
     {
-        bComboInputBuffered = true;
+        ComboStageState.ReceiveLocalInput();
     }
-
-    // 서버 인스턴스는 상시 수신 유지
-    if (!bLocal)
+    else
     {
+        ComboStageState.ReceiveRemoteInput();
+
+        // 서버 인스턴스는 상시 수신 유지
         ArmComboInput();
     }
 }
 
 void UAstralGA_Hero_BasicAttack_Melee::OnComboWindowOpened(FGameplayEventData EventData)
 {
-    bComboWindowOpen = true;
+    if (!ComboStageState.OpenWindow())
+    {
+        return;
+    }
 
+    // 로컬 선입력 폐기는 별도 리셋 불필요 — 무장이 윈도우 한정 + 스테이지 시작 시 BeginStage가 전체 리셋
     if (IsLocallyControlledAvatar())
     {
-        bComboInputBuffered = false;
         ArmComboInput();
     }
 }
 
 void UAstralGA_Hero_BasicAttack_Melee::OnComboBranchReceived(FGameplayEventData EventData)
 {
-    bComboWindowOpen = false;
+    if (!ComboStageState.CloseWindow())
+    {
+        return;
+    }
 
     // 로컬: 윈도우가 닫혔으니 해제 (닫힌 구간의 입력이 서버로 새는 것 차단)
     if (IsLocallyControlledAvatar())
@@ -196,13 +279,17 @@ void UAstralGA_Hero_BasicAttack_Melee::OnComboBranchReceived(FGameplayEventData 
 
 bool UAstralGA_Hero_BasicAttack_Melee::TryAdvanceCombo()
 {
-    if (!bComboInputBuffered || (ComboIndex + 1) >= ComboStages.Num())
+    if ((ComboIndex + 1) >= ComboStages.Num())
+    {
+        return false;
+    }
+
+    if (!ComboStageState.ConsumeBufferedInput())
     {
         return false;
     }
 
     ++ComboIndex;
-    bComboInputBuffered = false;
 
     // 클라(예측)/서버(권위) 각자 다음 단계 재생 — 시뮬 프록시는 몽타주 복제로 동기화
     PlayComboStage(ComboIndex);
@@ -279,11 +366,13 @@ void UAstralGA_Hero_BasicAttack_Melee::OnWeaponHit(const FHitResult& HitResult)
 
 void UAstralGA_Hero_BasicAttack_Melee::OnMontageCompleted()
 {
+    // TODO: 공격 취소 등의 행위로 인해 취소된 경우에 대한 검증 필요
+    
     // 밴드 끝이 블렌드아웃과 겹치면 큐잉된 ComboBranch 이벤트가 어빌리티 종료 후 도착해 유실된다.
-    // 윈도우가 열린 채 몽타주가 끝났다면 여기서 분기 기회를 한 번 더 준다 (밴드 배치에 강건하게)
-    if (bComboWindowOpen)
+    // 윈도우가 열린 채 몽타주가 끝났다면 여기서 닫고 분기 기회를 한 번 더 준다
+    if (ComboStageState.IsWindowOpen())
     {
-        bComboWindowOpen = false;
+        ComboStageState.CloseWindow();
 
         if (IsLocallyControlledAvatar())
         {
@@ -294,6 +383,12 @@ void UAstralGA_Hero_BasicAttack_Melee::OnMontageCompleted()
         {
             return;
         }
+    }
+    // 지각 수용분 — 서버 윈도우(branch)가 닫힌 뒤 도착해 버퍼된 원격 입력의 마지막 분기 기회.
+    // 클라는 자기 윈도우에서 이미 예측 진행했으므로, 서버가 여기서 따라가지 않으면 디싱크가 확정된다
+    else if (!IsLocallyControlledAvatar() && TryAdvanceCombo())
+    {
+        return;
     }
 
     EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
@@ -307,8 +402,7 @@ void UAstralGA_Hero_BasicAttack_Melee::OnMontageInterrupted()
 void UAstralGA_Hero_BasicAttack_Melee::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
     ComboIndex = 0;
-    bComboWindowOpen = false;
-    bComboInputBuffered = false;
+    ComboStageState.BeginStage();
     bMarkGainedThisBand = false;
     ActiveMontageTask = nullptr;
     ComboInputTask = nullptr;

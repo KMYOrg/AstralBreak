@@ -101,8 +101,8 @@ void AAstralProjectile::OnSphereBeginOverlap(UPrimitiveComponent* OverlappedComp
 		Hit = FHitResult(OtherActor, OtherComp, GetActorLocation(), -GetActorForwardVector());
 	}
 
-	// CanDamage 필터 포함 — Hostile이 아니면(아군/중립/사망) 관통 통과
-	if (UAstralCombatStatics::ApplyWeaponDamage(ASC, Avatar, SourceWeaponActor.Get(), Hit, BaseDamage))
+	// CanDamage 필터 포함 — Hostile이 아니면(아군/중립/사망) 관통 통과. EffectCauser = 발사 무기
+	if (UAstralCombatStatics::ApplyAttackHit(ASC, Avatar, SourceWeaponActor.Get(), Hit, BaseDamage))
 	{
 		// 수급은 명중 시점(서버) — 발사 GA는 이미 종료됐을 수 있어 투사체가 직접
 		UAstralCombatStatics::ApplyMarkGainToSelf(ASC, MarkGainOnHit);

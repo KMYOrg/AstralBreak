@@ -33,7 +33,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Astral|Equipment")
 	TArray<AActor*> GetSpawnedActors() const { return SpawnedActors; }
 
-	/** 첫 번째 T형 스폰 액터 — WeaponTrace가 무기 액터를 얻는 경로 */
 	template<typename T>
 	T* GetFirstSpawnedActorOfType() const
 	{
@@ -75,7 +74,7 @@ private:
 	/** 소켓/트랜스폼 결정 + 부착/숨김 적용 — 스폰 시(FinishSpawning 전)와 상태 전환 양쪽이 사용 */
 	void ApplyAttachState(AActor* Actor, const FAstralEquipmentActorToSpawn& SpawnInfo, EAstralEquipmentAttachState State, USceneComponent* AttachTarget) const;
 
-	/** 서버 로컬 캐시 — 비복제. 소비자(WeaponTrace)가 전부 서버 전용이고,
+	/** 서버 로컬 캐시 — 비복제. 소비자(공격 트레이스)가 전부 서버 전용이고,
 	 * 클라에는 액터 자체 복제(bReplicates)가 이미 도달하므로 참조 복제는 추가 정보가 0이다 */
 	UPROPERTY()
 	TArray<TObjectPtr<AActor>> SpawnedActors;

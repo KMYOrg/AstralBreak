@@ -3,12 +3,29 @@
 
 #include "AstralGA_Hero_Base.h"
 
+#include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
+#include "AbilitySystem/Tasks/AstralAbilityTask_AttackTraceWindows.h"
 #include "System/AstralGameData.h"
 
 UAstralGA_Hero_Base::UAstralGA_Hero_Base(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+}
+
+bool UAstralGA_Hero_Base::ApplyAttackHit(const FAstralAttackTraceHit& Hit, float Damage) const
+{
+	return UAstralCombatStatics::ApplyAttackHit(GetAbilitySystemComponentFromActorInfo(), GetAvatarActorFromActorInfo(), Hit.EffectCauser, Hit.HitResult, Damage, GetAbilityLevel());
+}
+
+void UAstralGA_Hero_Base::ApplyUltGain(float Amount) const
+{
+	ApplyUltGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, Amount);
+}
+
+void UAstralGA_Hero_Base::ApplyMarkGain(float Amount) const
+{
+	ApplyMarkGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, Amount);
 }
 
 void UAstralGA_Hero_Base::ApplyRegenBlockEffect(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const

@@ -4,12 +4,11 @@
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputPress.h"
-#include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
-#include "AbilitySystem/Tasks/AstralAbilityTask_WeaponTrace.h"
 #include "Animation/AnimMontage.h"
-#include "Equipment/AstralWeaponActor.h"
+#include "Animation/Notifies/AstralAnimNotifyState_GameplayEventWindow.h"
+#include "AstralLogChannels.h"
 #include "GameFramework/Pawn.h"
 
 //////////////////////////////////////////////////////////////////////////
@@ -42,8 +41,9 @@ bool FAstralComboStageState::OpenWindow()
 
 bool FAstralComboStageState::CloseWindow()
 {
-	if (!ensureMsgf(WindowPhase == EAstralComboWindowPhase::WindowOpen,
-			TEXT("콤보 윈도우는 WindowOpen에서만 닫힐 수 있다 — 몽타주에 ComboBranch 노티파이만 있고 ComboWindowOpen이 없는지 확인")))
+	// 잔여 branch가 도착할 수 있다. 그건 상태 위반이 아니다.
+	// 밴드 저작 오류 검출은 런타임 순서 추론이 아니라 ValidateComboStageMontages(데이터 검증)가 담당
+	if (WindowPhase != EAstralComboWindowPhase::WindowOpen)
 	{
 		return false;
 	}
@@ -128,6 +128,10 @@ void UAstralGA_Hero_BasicAttack_Melee::ActivateAbility(const FGameplayAbilitySpe
         return;
     }
 
+#if !UE_BUILD_SHIPPING
+    ValidateComboStageMontages();
+#endif
+
     ComboIndex = 0;
 
     PlayComboStage(0);
@@ -146,16 +150,12 @@ void UAstralGA_Hero_BasicAttack_Melee::ActivateAbility(const FGameplayAbilitySpe
         BranchEventTask->ReadyForActivation();
     }
 
-    // 무기 트레이스 밴드 — 단계마다 반복 수신 (Begin=태스크 시작, End=종료)
-    if (UAbilityTask_WaitGameplayEvent* TraceBeginTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, AstralGameplayTags::GameplayEvent_WeaponTrace_Begin, nullptr, false, true))
+    // 무기 트레이스 — 밴드(Begin/End) 반복 수신·무기 해석·겹침 방어는 태스크가 소유, GA는 적중 정책만
+    TraceTask = UAstralAbilityTask_AttackTraceWindows::WaitAttackTraceWindows(this, WeaponTraceRadius, AstralGameplayTags::GameplayEvent_WeaponTrace_Begin, AstralGameplayTags::GameplayEvent_WeaponTrace_End);
+    if (TraceTask)
     {
-        TraceBeginTask->EventReceived.AddDynamic(this, &ThisClass::OnWeaponTraceBegin);
-        TraceBeginTask->ReadyForActivation();
-    }
-    if (UAbilityTask_WaitGameplayEvent* TraceEndTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, AstralGameplayTags::GameplayEvent_WeaponTrace_End, nullptr, false, true))
-    {
-        TraceEndTask->EventReceived.AddDynamic(this, &ThisClass::OnWeaponTraceEnd);
-        TraceEndTask->ReadyForActivation();
+        TraceTask->OnHitTarget.AddDynamic(this, &ThisClass::OnAttackTraceHit);
+        TraceTask->ReadyForActivation();
     }
 
     // 원격 폰의 서버 인스턴스만 상시 — 로컬은 윈도우 열림(OnComboWindowOpened) 시점에 
@@ -169,6 +169,87 @@ bool UAstralGA_Hero_BasicAttack_Melee::IsLocallyControlledAvatar() const
 {
     const FGameplayAbilityActorInfo* ActorInfo = GetCurrentActorInfo();
     return ActorInfo && ActorInfo->IsLocallyControlled();
+}
+
+#if !UE_BUILD_SHIPPING
+void UAstralGA_Hero_BasicAttack_Melee::ValidateComboStageMontages()
+{
+    if (bComboStagesValidated)
+    {
+        return;
+    }
+    bComboStagesValidated = true;
+
+    for (int32 Index = 0; Index < ComboStages.Num(); ++Index)
+    {
+        const UAnimMontage* Montage = ComboStages[Index].Montage.Get();
+        if (!Montage)
+        {
+            continue;
+        }
+
+        int32 BranchBandCount = 0;
+
+        for (const FAnimNotifyEvent& Event : Montage->Notifies)
+        {
+            const UAstralAnimNotifyState_GameplayEventWindow* Band = Cast<UAstralAnimNotifyState_GameplayEventWindow>(Event.NotifyStateClass);
+            if (!Band || Band->GetEndEventTag() != AstralGameplayTags::GameplayEvent_ComboBranch)
+            {
+                continue;
+            }
+
+            ++BranchBandCount;
+
+            // 구 CloseWindow ensure가 잡으려던 것 — branch만 있고 여는 쪽이 없는 밴드
+            if (Band->GetBeginEventTag() != AstralGameplayTags::GameplayEvent_ComboWindowOpen)
+            {
+                UE_LOG(LogAstralAbilitySystem, Error,
+                    TEXT("[Combo] %s (스테이지 %d): ComboBranch 밴드의 Begin 태그가 ComboWindowOpen이 아니다 (현재 '%s') — 윈도우가 열리지 않아 분기가 동작하지 않는다"),
+                    *Montage->GetName(), Index, *Band->GetBeginEventTag().ToString());
+            }
+        }
+
+        // 구 OpenWindow ensure가 잡으려던 것 — 밴드 중복 배치
+        if (BranchBandCount > 1)
+        {
+            UE_LOG(LogAstralAbilitySystem, Error,
+                TEXT("[Combo] %s (스테이지 %d): 입력 윈도우 밴드가 %d개 — 스테이지당 1개여야 한다"),
+                *Montage->GetName(), Index, BranchBandCount);
+        }
+        else if (BranchBandCount == 0 && (Index + 1) < ComboStages.Num())
+        {
+            UE_LOG(LogAstralAbilitySystem, Warning,
+                TEXT("[Combo] %s (스테이지 %d): 입력 윈도우 밴드가 없다 — 이 단계에서 다음 단계로 진행할 수 없다"),
+                *Montage->GetName(), Index);
+        }
+    }
+}
+#endif
+
+bool UAstralGA_Hero_BasicAttack_Melee::IsStaleStageEvent(const FGameplayEventData& EventData) const
+{
+    // 출처가 몽타주로 식별되지 않으면(미지정 / 노티파이가 몽타주 아닌 시퀀스에 배치된 경우) 판정하지 않는다
+    const UAnimMontage* SourceMontage = Cast<UAnimMontage>(EventData.OptionalObject.Get());
+    if (!SourceMontage)
+    {
+        return false;
+    }
+
+    if (ComboStages.IsValidIndex(ComboIndex) && ComboStages[ComboIndex].Montage.Get() == SourceMontage)
+    {
+        return false;
+    }
+
+    // 다른 스테이지의 몽타주로 확정될 때만 stale — 모르는 애님은 통과시킨다
+    for (const FAstralComboStageData& Stage : ComboStages)
+    {
+        if (Stage.Montage.Get() == SourceMontage)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void UAstralGA_Hero_BasicAttack_Melee::PlayComboStage(int32 StageIndex)
@@ -263,6 +344,11 @@ void UAstralGA_Hero_BasicAttack_Melee::OnComboWindowOpened(FGameplayEventData Ev
 
 void UAstralGA_Hero_BasicAttack_Melee::OnComboBranchReceived(FGameplayEventData EventData)
 {
+    if (IsStaleStageEvent(EventData))
+    {
+        return;
+    }
+
     if (!ComboStageState.CloseWindow())
     {
         return;
@@ -296,51 +382,7 @@ bool UAstralGA_Hero_BasicAttack_Melee::TryAdvanceCombo()
     return true;
 }
 
-void UAstralGA_Hero_BasicAttack_Melee::OnWeaponTraceBegin(FGameplayEventData EventData)
-{
-    // 서버 측 권위만 판정 + GE 적용 — 태스크는 authority 인스턴스에서만 생성
-    // TODO: 클라이언트 측 vfx효과를 위해 부분적 서버 권위 실행
-    if (!HasAuthority(&CurrentActivationInfo))
-    {
-        return;
-    }
-
-    // 겹침 방어 — 이전 밴드가 안 닫혔으면 정리 후 새로 시작
-    StopWeaponTrace();
-
-    ActiveWeaponActor = UAstralAbilityTask_WeaponTrace::FindWeaponActorFromAbility(this);
-    if (!ActiveWeaponActor)
-    {
-        // 무기 미장착(장비 해제 상태 등) — 이번 밴드는 판정 없음
-        return;
-    }
-
-    bMarkGainedThisBand = false;
-
-    WeaponTraceTask = UAstralAbilityTask_WeaponTrace::WeaponTrace(this, ActiveWeaponActor, WeaponTraceRadius);
-    if (WeaponTraceTask)
-    {
-        WeaponTraceTask->OnHitTarget.AddDynamic(this, &ThisClass::OnWeaponHit);
-        WeaponTraceTask->ReadyForActivation();
-    }
-}
-
-void UAstralGA_Hero_BasicAttack_Melee::OnWeaponTraceEnd(FGameplayEventData EventData)
-{
-    StopWeaponTrace();
-}
-
-void UAstralGA_Hero_BasicAttack_Melee::StopWeaponTrace()
-{
-    if (WeaponTraceTask)
-    {
-        WeaponTraceTask->EndTask();
-        WeaponTraceTask = nullptr;
-    }
-    ActiveWeaponActor = nullptr;
-}
-
-void UAstralGA_Hero_BasicAttack_Melee::OnWeaponHit(const FHitResult& HitResult)
+void UAstralGA_Hero_BasicAttack_Melee::OnAttackTraceHit(const FAstralAttackTraceHit& Hit)
 {
     if (!ComboStages.IsValidIndex(ComboIndex))
     {
@@ -348,19 +390,20 @@ void UAstralGA_Hero_BasicAttack_Melee::OnWeaponHit(const FHitResult& HitResult)
     }
 
     const FAstralComboStageData& Stage = ComboStages[ComboIndex];
-    const float StageDamage = BaseDamage * Stage.DamageMultiplier;
 
-    if (UAstralCombatStatics::ApplyWeaponDamage(GetAbilitySystemComponentFromActorInfo(), GetAvatarActorFromActorInfo(), ActiveWeaponActor, HitResult, StageDamage, GetAbilityLevel()))
+    if (!ApplyAttackHit(Hit, BaseDamage * Stage.DamageMultiplier))
     {
-        // 가한 피해 → 오의 수급 (타겟 1기당 — 태스크가 구간 내 중복을 걸러준다)
-        ApplyUltGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, UltGainOnHit);
+        return;
+    }
 
-        // 단계 데이터 기반 표식 수급 — 밴드당 1회 (첫 적중 시)
-        if (!bMarkGainedThisBand && Stage.MarkGain > 0.f)
-        {
-            bMarkGainedThisBand = true;
-            ApplyMarkGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, Stage.MarkGain);
-        }
+    // 가한 피해 → 오의 수급 (타겟 1기당 — 태스크가 밴드 내 중복을 걸러준다)
+    ApplyUltGain(UltGainOnHit);
+
+    // 단계 데이터 기반 표식 수급 — 밴드당 1회 (첫 적중 시, WindowSerial 비교)
+    if (LastMarkRewardWindow != Hit.WindowSerial && Stage.MarkGain > 0.f)
+    {
+        LastMarkRewardWindow = Hit.WindowSerial;
+        ApplyMarkGain(Stage.MarkGain);
     }
 }
 
@@ -403,11 +446,10 @@ void UAstralGA_Hero_BasicAttack_Melee::EndAbility(const FGameplayAbilitySpecHand
 {
     ComboIndex = 0;
     ComboStageState.BeginStage();
-    bMarkGainedThisBand = false;
+    LastMarkRewardWindow = 0;
     ActiveMontageTask = nullptr;
     ComboInputTask = nullptr;
-    WeaponTraceTask = nullptr;
-    ActiveWeaponActor = nullptr;
+    TraceTask = nullptr;
 
     Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

@@ -39,10 +39,13 @@ public:
 	static int32 ApplyDamageSweep(class UAbilitySystemComponent* SourceASC, AActor* Avatar, float BaseDamage, float TraceStartOffset, float TraceDistance, float TraceRadius, float EffectLevel = 1.0f);
 
 	/**
-	 * 무기 트레이스 적중 1건에 데미지 적용 (서버 전용) — CanDamage 필터 + SetByCaller.Damage(GameData) 주입.
-	 * EffectCauser = WeaponActor (Instigator는 Avatar 유지 — 방어 정면 판정은 OriginalInstigator라 영향 없음).
-	 * 적용 성공 여부 반환.
+	 * 공격 적중 1건에 데미지 적용 (서버 전용) — CanDamage 필터 + SetByCaller.Damage(GameData) 주입.
+	 * 소켓 연속 트레이스·전방 단발 스윕·투사체 충돌이 공유하는 공통 적중 파이프라인.
+	 * EffectCauser = 실제 가해 액터(무기/투사체 등, 없으면 Avatar). Instigator는 Avatar 유지 —
 	 */
+	static bool ApplyAttackHit(class UAbilitySystemComponent* SourceASC, AActor* InstigatorAvatar, AActor* EffectCauser, const FHitResult& HitResult, float Damage, float EffectLevel = 1.0f);
+
+	/** ApplyAttackHit의 마이그레이션 기간 wrapper. 신규 호출처는 ApplyAttackHit를 쓸 것 */
 	static bool ApplyWeaponDamage(class UAbilitySystemComponent* SourceASC, AActor* Avatar, AActor* WeaponActor, const FHitResult& HitResult, float BaseDamage, float EffectLevel = 1.0f);
 
 	/**

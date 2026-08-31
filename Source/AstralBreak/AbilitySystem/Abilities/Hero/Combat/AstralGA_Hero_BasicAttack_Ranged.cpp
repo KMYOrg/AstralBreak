@@ -3,7 +3,7 @@
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
-#include "AbilitySystem/Tasks/AstralAbilityTask_WeaponTrace.h"
+#include "AbilitySystem/Tasks/AstralAbilityTask_AttackTraceWindows.h"
 #include "Animation/AnimMontage.h"
 #include "Engine/World.h"
 #include "Equipment/AstralRangedWeaponActor.h"
@@ -70,7 +70,7 @@ void UAstralGA_Hero_BasicAttack_Ranged::ActivateAbility(const FGameplayAbilitySp
 
 AAstralRangedWeaponActor* UAstralGA_Hero_BasicAttack_Ranged::GetRangedWeaponActor() const
 {
-	return Cast<AAstralRangedWeaponActor>(UAstralAbilityTask_WeaponTrace::FindWeaponActorFromAbility(this));
+	return Cast<AAstralRangedWeaponActor>(UAstralAbilityTask_AttackTraceWindows::FindWeaponActorFromAbility(this));
 }
 
 bool UAstralGA_Hero_BasicAttack_Ranged::ComputeAimTarget(const AAstralRangedWeaponActor* WeaponActor, FVector& OutMuzzleLocation, FVector& OutTargetPoint) const

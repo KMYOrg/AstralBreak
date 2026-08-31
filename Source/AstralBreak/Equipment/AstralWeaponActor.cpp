@@ -9,7 +9,7 @@ AAstralWeaponActor::AAstralWeaponActor()
 	MeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("MeshComponent"));
 	MeshComponent->SetupAttachment(RootSceneComponent);
 
-	// 시각 전용 — 판정은 소켓 스윕(WeaponTrace 태스크)이 하므로 콜리전 불필요 (폰 이동 간섭 방지)
+	// 시각 전용 — 판정은 소켓 스윕(AttackTraceWindows 태스크)이 하므로 콜리전 불필요 (폰 이동 간섭 방지)
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	MeshComponent->SetGenerateOverlapEvents(false);
 }

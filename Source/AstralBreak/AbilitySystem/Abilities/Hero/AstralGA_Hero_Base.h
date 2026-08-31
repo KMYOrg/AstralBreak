@@ -7,6 +7,7 @@
 #include "AstralGA_Hero_Base.generated.h"
 
 class UGameplayEffect;
+struct FAstralAttackTraceHit;
 
 /**
  *
@@ -19,6 +20,18 @@ public:
 	UAstralGA_Hero_Base(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 protected:
+	// 아래 인자 축약 헬퍼들은 로직 공유가 아니라 인자 나열 축소 — GA가 이미 아는 값
+	// (ASC·Avatar·Level·Current* 핸들 3종)을 적중 처리마다 다시 쓰지 않게 한다
+
+	/** 공격 적중 1건에 데미지 적용 */
+	bool ApplyAttackHit(const FAstralAttackTraceHit& Hit, float Damage) const;
+
+	/** ApplyUltGain — 현재 활성화 버전 */
+	void ApplyUltGain(float Amount) const;
+
+	/** ApplyMarkGain — 현재 활성화 버전 */
+	void ApplyMarkGain(float Amount) const;
+
 	/**
 	 * 스태미나 소모 시점(Sprint 종료 / Dodge 커밋 / 방어 종료 등)에 GameData의 RegenBlock GE를 오너에 적용
 	 * 서버 권위에서만 적용 — 회복 GE의 periodic 틱 자체가 서버 실행

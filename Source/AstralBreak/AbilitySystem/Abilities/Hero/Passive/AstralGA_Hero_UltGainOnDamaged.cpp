@@ -25,7 +25,7 @@ void UAstralGA_Hero_UltGainOnDamaged::ActivateAbility(const FGameplayAbilitySpec
 	if (TriggerEventData)
 	{
 		// ApplyUltGain은 서버 권위 체크 내장 + Amount<=0 무시
-		ApplyUltGain(Handle, ActorInfo, ActivationInfo, TriggerEventData->EventMagnitude * GainRatio);
+		ApplyUltGain(TriggerEventData->EventMagnitude * GainRatio);
 	}
 
 	// 즉시 종료 — 비동기 작업 금지 (다단 히트 수급 씹힘 방지)

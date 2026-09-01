@@ -49,11 +49,12 @@ public:
 	static bool ApplyWeaponDamage(class UAbilitySystemComponent* SourceASC, AActor* Avatar, AActor* WeaponActor, const FHitResult& HitResult, float BaseDamage, float EffectLevel = 1.0f);
 
 	/**
-	 * SetByCaller GE를 대상 ASC 자신에게 적용 (서버 전용, Amount≈0이면 무시) — GA 문맥이 없는 호출자용
-	 * (투사체 명중 수급 등 — GA는 발사 후 종료됐을 수 있다). GA 내부에서는 예측 문맥이 실리는
-	 * GA_Hero_Base::ApplySetByCallerEffect를 쓸 것
+	 * SetByCaller GE를 대상 ASC 자신에게 적용 (서버 전용, Amount≈0이면 무시) — GA 컨텍스트가 없는 호출자용
+	 * (투사체 명중 수급 등 — GA는 발사 후 종료됐을 수 있다). 스펙 컨텍스트는 빈 값.
+	 * GA 내부에서는 GA 컨텍스트(어빌리티·SourceObject·레벨)이 스펙에 실리는
+	 * UAstralGameplayAbility::ApplySetByCallerEffect를 쓸 것 — 예측은 양쪽 다 x(수급 GE는 서버 권위).
 	 */
-	static void ApplySetByCallerEffectToSelf(class UAbilitySystemComponent* ASC, TSubclassOf<class UGameplayEffect> EffectClass, const struct FGameplayTag& SetByCallerTag, float Amount, float EffectLevel = 1.0f);
+	static void ApplySetByCallerEffectToSelf(class UAbilitySystemComponent* ASC, const struct FAstralSetByCallerEffect& Effect, float Amount, float EffectLevel = 1.0f);
 
 	/** 표식 수급 (GameData MarkGain GE) — 투사체 명중 등 GA 밖의 수급 지점용 (서버 전용) */
 	static void ApplyMarkGainToSelf(class UAbilitySystemComponent* ASC, float Amount);

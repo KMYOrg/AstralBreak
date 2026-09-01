@@ -190,15 +190,21 @@ bool UAstralCombatStatics::ApplyWeaponDamage(UAbilitySystemComponent* SourceASC,
 	return ApplyAttackHit(SourceASC, Avatar, WeaponActor, HitResult, BaseDamage, EffectLevel);
 }
 
-void UAstralCombatStatics::ApplySetByCallerEffectToSelf(UAbilitySystemComponent* ASC, TSubclassOf<UGameplayEffect> EffectClass, const FGameplayTag& SetByCallerTag, float Amount, float EffectLevel)
+void UAstralCombatStatics::ApplySetByCallerEffectToSelf(UAbilitySystemComponent* ASC, const FAstralSetByCallerEffect& Effect, float Amount, float EffectLevel)
 {
-	if (!ASC || !EffectClass || FMath::IsNearlyZero(Amount))
+	if (!ASC || FMath::IsNearlyZero(Amount))
 	{
 		return;
 	}
 
-	// 서버 권위 전용 — 수급 GE는 예측하지 않는다 (GA_Hero_Base 헬퍼와 동일 정책)
+	// 서버 권위 전용 — 수급 GE는 예측하지 않는다 (GA 헬퍼와 동일 정책)
 	if (!ASC->GetOwner() || !ASC->GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	const TSubclassOf<UGameplayEffect> EffectClass = Effect.Effect.LoadSynchronous();
+	if (!EffectClass || !Effect.SetByCallerTag.IsValid())
 	{
 		return;
 	}
@@ -206,7 +212,7 @@ void UAstralCombatStatics::ApplySetByCallerEffectToSelf(UAbilitySystemComponent*
 	const FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(EffectClass, EffectLevel, ASC->MakeEffectContext());
 	if (SpecHandle.IsValid())
 	{
-		SpecHandle.Data->SetSetByCallerMagnitude(SetByCallerTag, Amount);
+		SpecHandle.Data->SetSetByCallerMagnitude(Effect.SetByCallerTag, Amount);
 		ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
 	}
 }
@@ -217,7 +223,7 @@ void UAstralCombatStatics::ApplyMarkGainToSelf(UAbilitySystemComponent* ASC, flo
 	{
 		return;
 	}
-	ApplySetByCallerEffectToSelf(ASC, UAstralGameData::Get().MarkGainGameplayEffect_SetByCaller.LoadSynchronous(), AstralGameplayTags::SetByCaller_MarkGain, Amount);
+	ApplySetByCallerEffectToSelf(ASC, UAstralGameData::Get().MarkGain, Amount);
 }
 
 void UAstralCombatStatics::ApplyUltGainToSelf(UAbilitySystemComponent* ASC, float Amount)
@@ -226,7 +232,7 @@ void UAstralCombatStatics::ApplyUltGainToSelf(UAbilitySystemComponent* ASC, floa
 	{
 		return;
 	}
-	ApplySetByCallerEffectToSelf(ASC, UAstralGameData::Get().UltGainGameplayEffect_SetByCaller.LoadSynchronous(), AstralGameplayTags::SetByCaller_UltGain, Amount);
+	ApplySetByCallerEffectToSelf(ASC, UAstralGameData::Get().UltGain, Amount);
 }
 
 void UAstralCombatStatics::ApplyCombatStyle(AActor* Avatar, FGameplayTag DesiredStyle)

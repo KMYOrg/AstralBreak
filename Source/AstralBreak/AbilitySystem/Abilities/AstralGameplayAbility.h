@@ -6,6 +6,9 @@
 
 class AAstralCharacter;
 class AAstralPlayerController;
+class UGameplayEffect;
+struct FAstralAttackTraceHit;
+struct FAstralSetByCallerEffect;
 
 /** GA 활성화 정책 */
 UENUM(BlueprintType)
@@ -43,9 +46,22 @@ public:
 	AAstralCharacter* GetAstralCharacterFromActorInfo() const;
 	
 	EAstralAbilityActivationPolicy GetActivationPolicy() const { return ActivationPolicy; }
-	
+
 	void TryActivateAbilityOnSpawn(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilitySpec& Spec) const;
+
+protected:
+	// 인자 축약 헬퍼 계층: GA 컨텍스트(ASC·Avatar·Level·현재 활성화 핸들)로 GE를 "어떻게" 적용하는가만 안다.
+
+	/** 공격 적중 1건에 데미지 적용 */
+	bool ApplyAttackHit(const FAstralAttackTraceHit& Hit, float Damage) const;
 	
+	/**
+	 * (GE, 태그) 쌍은 GameData의 FAstralSetByCallerEffect로만 받는다 — 잘못된 쌍 표현 불가.
+	 * GA 컨텍스트(어빌리티·SourceObject·레벨)이 스펙 컨텍스트에 실린다
+	 * 스태미나류를 예측 적용으로 바꾸게 되면 이 경로가 그 개조 지점 (현재는 양쪽 다 서버 권위 전용)
+	 */
+	void ApplySetByCallerEffect(const FAstralSetByCallerEffect& Effect, float Amount) const;
+
 protected:
 	
 	//~UGameplayAbility interface

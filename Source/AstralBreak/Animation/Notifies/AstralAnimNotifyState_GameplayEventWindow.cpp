@@ -1,6 +1,8 @@
 #include "AstralAnimNotifyState_GameplayEventWindow.h"
 
 #include "AbilitySystemBlueprintLibrary.h"
+#include "Animation/AnimSequenceBase.h"
+#include "Components/SkeletalMeshComponent.h"
 
 UAstralAnimNotifyState_GameplayEventWindow::UAstralAnimNotifyState_GameplayEventWindow(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -17,18 +19,28 @@ void UAstralAnimNotifyState_GameplayEventWindow::NotifyBegin(USkeletalMeshCompon
 {
 	Super::NotifyBegin(MeshComp, Animation, TotalDuration, EventReference);
 
-	if (MeshComp && BeginEventTag.IsValid())
-	{
-		UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(MeshComp->GetOwner(), BeginEventTag, EventData);
-	}
+	SendWindowEvent(MeshComp, Animation, BeginEventTag);
 }
 
 void UAstralAnimNotifyState_GameplayEventWindow::NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
 {
 	Super::NotifyEnd(MeshComp, Animation, EventReference);
 
-	if (MeshComp && EndEventTag.IsValid())
+	SendWindowEvent(MeshComp, Animation, EndEventTag);
+}
+
+void UAstralAnimNotifyState_GameplayEventWindow::SendWindowEvent(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FGameplayTag& EventTag) const
+{
+	if (!MeshComp || !EventTag.IsValid())
 	{
-		UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(MeshComp->GetOwner(), EndEventTag, EventData);
+		return;
 	}
+
+	// 발신 애님을 실어 보낸다 (진단용) — 몽타주 교체 시 구 몽타주의 잔여 NotifyEnd가
+	// (UAnimInstance::TriggerMontageEndedEvent) 새 스테이지에 도착하는 경로가 있어,
+	// 로그에서 "어느 몽타주가 보낸 이벤트인가"를 즉시 볼 수 있어야 추적이 된다.
+	FGameplayEventData Payload = EventData;
+	Payload.OptionalObject = Animation;
+
+	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(MeshComp->GetOwner(), EventTag, Payload);
 }

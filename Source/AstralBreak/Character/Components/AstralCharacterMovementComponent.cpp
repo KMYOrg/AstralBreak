@@ -1,5 +1,7 @@
 #include "AstralCharacterMovementComponent.h"
 
+#include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/Attributes/AstralCombatSet.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/Character.h"
 #include "NativeGameplayTags.h"
@@ -12,6 +14,72 @@ namespace AstralCharacter
 UAstralCharacterMovementComponent::UAstralCharacterMovementComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+}
+
+void UAstralCharacterMovementComponent::InitializeWithAbilitySystem(UAstralAbilitySystemComponent* InASC)
+{
+	if (BoundASC == InASC)
+	{
+		return;
+	}
+
+	UninitializeFromAbilitySystem();
+
+	BoundASC = InASC;
+	if (BoundASC)
+	{
+		OnAbilitySystemBound();
+	}
+}
+
+void UAstralCharacterMovementComponent::UninitializeFromAbilitySystem()
+{
+	if (!BoundASC)
+	{
+		return;
+	}
+
+	OnAbilitySystemUnbound();
+	BoundASC = nullptr;
+}
+
+void UAstralCharacterMovementComponent::OnUnregister()
+{
+	// 폰의 해제 경로가 먼저 처리했으면 no-op
+	UninitializeFromAbilitySystem();
+
+	Super::OnUnregister();
+}
+
+float UAstralCharacterMovementComponent::GetMaxSpeed() const
+{
+	return Super::GetMaxSpeed() * CachedMoveSpeedMultiplier;
+}
+
+void UAstralCharacterMovementComponent::OnAbilitySystemBound()
+{
+	MoveSpeedMultiplierChangedHandle = BoundASC->GetGameplayAttributeValueChangeDelegate(UAstralCombatSet::GetMoveSpeedMultiplierAttribute())
+		.AddUObject(this, &ThisClass::HandleMoveSpeedMultiplierChanged);
+	
+	bool bFound = false;
+	const float Multiplier = BoundASC->GetGameplayAttributeValue(UAstralCombatSet::GetMoveSpeedMultiplierAttribute(), bFound);
+	CachedMoveSpeedMultiplier = bFound ? Multiplier : 1.0f;
+}
+
+void UAstralCharacterMovementComponent::OnAbilitySystemUnbound()
+{
+	if (MoveSpeedMultiplierChangedHandle.IsValid())
+	{
+		BoundASC->GetGameplayAttributeValueChangeDelegate(UAstralCombatSet::GetMoveSpeedMultiplierAttribute()).Remove(MoveSpeedMultiplierChangedHandle);
+		MoveSpeedMultiplierChangedHandle.Reset();
+	}
+
+	CachedMoveSpeedMultiplier = 1.0f;
+}
+
+void UAstralCharacterMovementComponent::HandleMoveSpeedMultiplierChanged(const FOnAttributeChangeData& Data)
+{
+	CachedMoveSpeedMultiplier = Data.NewValue;
 }
 
 const FAstralCharacterGroundInfo& UAstralCharacterMovementComponent::GetGroundInfo()

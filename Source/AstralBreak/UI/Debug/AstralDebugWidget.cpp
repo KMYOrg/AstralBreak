@@ -13,6 +13,7 @@
 #include "Character/AstralCharacter.h"
 #include "Character/Components/AstralHealthComponent.h"
 #include "Character/Components/AstralLoadoutComponent.h"
+#include "Character/Hero/Components/AstralHeroMovementComponent.h"
 #include "GameModes/AstralHubGameState.h"
 #include "Player/AstralPlayerState.h"
 
@@ -35,6 +36,8 @@ FString UAstralDebugWidget::BuildDebugString() const
     B.Appendf(TEXT("Death:    %s\n"), *GetDeathStateString());
     B.Append(TEXT("\n[Attributes]\n"));
     B.Append(GetAttributesString());
+    B.Append(TEXT("\n[Movement]\n"));
+    B.Append(GetMovementString());
     B.Append(TEXT("\n[Abilities]\n"));
     B.Append(GetAbilitiesString());
     B.Append(TEXT("\n[Target]\n"));
@@ -178,6 +181,29 @@ FString UAstralDebugWidget::GetAttributesString() const
     {
         Out.Append(TEXT("(HeroResourceSet not found — Hero PawnData 미등록?)\n"));
     }
+
+    return Out.ToString();
+}
+
+FString UAstralDebugWidget::GetMovementString() const
+{
+    const APlayerController* PC = GetOwningPlayer();
+    const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+    const UAstralHeroMovementComponent* HeroMC = Pawn ? Cast<UAstralHeroMovementComponent>(Pawn->GetMovementComponent()) : nullptr;
+    if (!HeroMC)
+    {
+        return TEXT("(Hero MovementComponent 아님)\n");
+    }
+
+    // Want(클라 의도) / Auth(서버 GAS 승인)를 분리 표시 — 원격 클라의 서버 인스턴스에서
+    // "Want=1 Auth=0 → MaxSpeed는 걷기"가 찍히면 권한 게이트가 동작한 것
+    TStringBuilder<256> Out;
+    Out.Appendf(TEXT("Sprint:   Want=%d Auth=%d Ground=%d -> %d\n"),
+        HeroMC->WantsToSprint() ? 1 : 0,
+        HeroMC->IsSprintAuthorized() ? 1 : 0,
+        HeroMC->IsMovingOnGround() ? 1 : 0,
+        HeroMC->IsSprinting() ? 1 : 0);
+    Out.Appendf(TEXT("MaxSpeed: %.0f (Vel %.0f, MoveMul %.2f)\n"), HeroMC->GetMaxSpeed(), HeroMC->Velocity.Size2D(), HeroMC->GetMoveSpeedMultiplier());
 
     return Out.ToString();
 }

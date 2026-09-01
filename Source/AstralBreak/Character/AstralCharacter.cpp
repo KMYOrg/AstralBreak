@@ -2,6 +2,7 @@
 
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "AbilitySystem/AstralCombatStatics.h"
+#include "AbilitySystem/Attributes/AstralCombatSet.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "Character/Components/AstralCharacterMovementComponent.h"
@@ -60,6 +61,13 @@ void AAstralCharacter::OnAbilitySystemInitialized()
 
 	HealthComponent->InitializeWithAbilitySystem(AstralASC);
 
+	// 이동 컴포넌트 ASC 결합 — 스프린트 승인 게이트(State.Movement.Sprinting 캐시)
+	// 오너 클라도 예측 경로에서 서버와 같은 게이트를 써야 한다
+	if (UAstralCharacterMovementComponent* AstralMoveComp = Cast<UAstralCharacterMovementComponent>(GetCharacterMovement()))
+	{
+		AstralMoveComp->InitializeWithAbilitySystem(AstralASC);
+	}
+
 	// 장비 컴포넌트 ASC 결합(스타일 태그 구독)
 	// InitGameState가 폰 스폰보다 먼저
 	if (HasAuthority() && EquipmentManagerComponent)
@@ -89,6 +97,12 @@ void AAstralCharacter::OnAbilitySystemInitialized()
 void AAstralCharacter::OnAbilitySystemUninitialized()
 {
 	LoadoutComponent->HandleAbilitySystemUninitialized();
+
+	// 이동 컴포넌트 태그 구독 해제 — ASC가 폰보다 오래 살므로 (MC의 OnUnregister 안전망과 중복, 멱등)
+	if (UAstralCharacterMovementComponent* AstralMoveComp = Cast<UAstralCharacterMovementComponent>(GetCharacterMovement()))
+	{
+		AstralMoveComp->UninitializeFromAbilitySystem();
+	}
 
 	// 장비 회수 — ASC(PlayerState)가 폰보다 오래 살므로, ASC 분리 전에 부여분을 걷지 않으면 어빌리티가 누적된다
 	if (EquipmentManagerComponent)
@@ -326,6 +340,31 @@ void AAstralCharacter::ServerReviveSelf_Implementation()
 
 	// 사망 상태 해제 → OnDeathReset → HandleDeathReset(콜리전/이동 복구). 클라는 DeathState 역행 OnRep이 리플레이
 	HealthComponent->ResetDeathState();
+#endif
+}
+
+void AAstralCharacter::SetMoveSpeedMultiplier(float Multiplier)
+{
+#if !UE_BUILD_SHIPPING
+	if (HasAuthority())
+	{
+		ServerSetMoveSpeedMultiplier_Implementation(Multiplier);
+	}
+	else
+	{
+		ServerSetMoveSpeedMultiplier(Multiplier);
+	}
+#endif
+}
+
+void AAstralCharacter::ServerSetMoveSpeedMultiplier_Implementation(float Multiplier)
+{
+#if !UE_BUILD_SHIPPING
+	// 서버 attribute 변경 → MC 캐시 갱신(서버) + 복제 → 클라 attribute 델리게이트 → MC 캐시 갱신(클라)
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		ASC->ApplyModToAttribute(UAstralCombatSet::GetMoveSpeedMultiplierAttribute(), EGameplayModOp::Override, Multiplier);
+	}
 #endif
 }
 

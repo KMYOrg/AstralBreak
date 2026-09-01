@@ -1,9 +1,12 @@
 #include "AstralGameplayAbility.h"
 
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
+#include "AbilitySystem/Tasks/AstralAbilityTask_AttackTraceWindows.h"
 #include "Character/AstralCharacter.h"
 #include "Player/AstralPlayerController.h"
+#include "System/AstralGameData.h"
 
 UAstralGameplayAbility::UAstralGameplayAbility(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -18,6 +21,32 @@ UAstralGameplayAbility::UAstralGameplayAbility(const FObjectInitializer& ObjectI
 	// 사망 중 전면 차단 (부모 태그라 Dying/Dead 모두 매칭).
 	// 죽어서도 써야 하는 예외(자가 부활 등)는 해당 서브클래스에서 ActivationBlockedTags.RemoveTag로 opt-out
 	ActivationBlockedTags.AddTag(AstralGameplayTags::State_Death);
+}
+
+bool UAstralGameplayAbility::ApplyAttackHit(const FAstralAttackTraceHit& Hit, float Damage) const
+{
+	return UAstralCombatStatics::ApplyAttackHit(GetAbilitySystemComponentFromActorInfo(), GetAvatarActorFromActorInfo(), Hit.EffectCauser, Hit.HitResult, Damage, GetAbilityLevel());
+}
+
+void UAstralGameplayAbility::ApplySetByCallerEffect(const FAstralSetByCallerEffect& Effect, float Amount) const
+{
+	if (FMath::IsNearlyZero(Amount) || !CurrentActorInfo || !CurrentActorInfo->IsNetAuthority())
+	{
+		return;
+	}
+
+	const TSubclassOf<UGameplayEffect> EffectClass = Effect.Effect.LoadSynchronous();
+	if (!EffectClass || !Effect.SetByCallerTag.IsValid())
+	{
+		return;
+	}
+
+	const FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, EffectClass, GetAbilityLevel());
+	if (SpecHandle.IsValid())
+	{
+		SpecHandle.Data->SetSetByCallerMagnitude(Effect.SetByCallerTag, Amount);
+		ApplyGameplayEffectSpecToOwner(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, SpecHandle);
+	}
 }
 
 UAstralAbilitySystemComponent* UAstralGameplayAbility::GetAstralAbilitySystemComponentFromActorInfo() const

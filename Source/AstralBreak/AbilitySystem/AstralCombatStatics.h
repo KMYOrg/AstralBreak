@@ -39,18 +39,22 @@ public:
 	static int32 ApplyDamageSweep(class UAbilitySystemComponent* SourceASC, AActor* Avatar, float BaseDamage, float TraceStartOffset, float TraceDistance, float TraceRadius, float EffectLevel = 1.0f);
 
 	/**
-	 * 무기 트레이스 적중 1건에 데미지 적용 (서버 전용) — CanDamage 필터 + SetByCaller.Damage(GameData) 주입.
-	 * EffectCauser = WeaponActor (Instigator는 Avatar 유지 — 방어 정면 판정은 OriginalInstigator라 영향 없음).
-	 * 적용 성공 여부 반환.
+	 * 공격 적중 1건에 데미지 적용 (서버 전용) — CanDamage 필터 + SetByCaller.Damage(GameData) 주입.
+	 * 소켓 연속 트레이스·전방 단발 스윕·투사체 충돌이 공유하는 공통 적중 파이프라인.
+	 * EffectCauser = 실제 가해 액터(무기/투사체 등, 없으면 Avatar). Instigator는 Avatar 유지 —
 	 */
+	static bool ApplyAttackHit(class UAbilitySystemComponent* SourceASC, AActor* InstigatorAvatar, AActor* EffectCauser, const FHitResult& HitResult, float Damage, float EffectLevel = 1.0f);
+
+	/** ApplyAttackHit의 마이그레이션 기간 wrapper. 신규 호출처는 ApplyAttackHit를 쓸 것 */
 	static bool ApplyWeaponDamage(class UAbilitySystemComponent* SourceASC, AActor* Avatar, AActor* WeaponActor, const FHitResult& HitResult, float BaseDamage, float EffectLevel = 1.0f);
 
 	/**
-	 * SetByCaller GE를 대상 ASC 자신에게 적용 (서버 전용, Amount≈0이면 무시) — GA 문맥이 없는 호출자용
-	 * (투사체 명중 수급 등 — GA는 발사 후 종료됐을 수 있다). GA 내부에서는 예측 문맥이 실리는
-	 * GA_Hero_Base::ApplySetByCallerEffect를 쓸 것
+	 * SetByCaller GE를 대상 ASC 자신에게 적용 (서버 전용, Amount≈0이면 무시) — GA 컨텍스트가 없는 호출자용
+	 * (투사체 명중 수급 등 — GA는 발사 후 종료됐을 수 있다). 스펙 컨텍스트는 빈 값.
+	 * GA 내부에서는 GA 컨텍스트(어빌리티·SourceObject·레벨)이 스펙에 실리는
+	 * UAstralGameplayAbility::ApplySetByCallerEffect를 쓸 것 — 예측은 양쪽 다 x(수급 GE는 서버 권위).
 	 */
-	static void ApplySetByCallerEffectToSelf(class UAbilitySystemComponent* ASC, TSubclassOf<class UGameplayEffect> EffectClass, const struct FGameplayTag& SetByCallerTag, float Amount, float EffectLevel = 1.0f);
+	static void ApplySetByCallerEffectToSelf(class UAbilitySystemComponent* ASC, const struct FAstralSetByCallerEffect& Effect, float Amount, float EffectLevel = 1.0f);
 
 	/** 표식 수급 (GameData MarkGain GE) — 투사체 명중 등 GA 밖의 수급 지점용 (서버 전용) */
 	static void ApplyMarkGainToSelf(class UAbilitySystemComponent* ASC, float Amount);

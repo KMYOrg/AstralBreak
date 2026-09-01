@@ -14,7 +14,7 @@ class UStaticMeshComponent;
  * 서버만 콜리전 활성(판정), 클라는 bReplicates + 이동 복제로 표시만.
  * 판정이 월드 오브젝트 기준이라 히트스캔과 달리 랙 컴펜세이션 부채가 없다.
  *
- * 명중(서버): CanDamage 필터는 ApplyWeaponDamage 내부 — Hostile이면 데미지 + 표식/오의 수급 후 소멸,
+ * 명중(서버): CanDamage 필터는 ApplyAttackHit 내부 — Hostile이면 데미지 + 표식/오의 수급 후 소멸,
  * 아군/중립/사망 대상은 관통 통과. 월드 블록(벽) 또는 수명(InitialLifeSpan) 만료 시 소멸.
  * Instigator=폰 (방어 정면 판정 OriginalInstigator 무회귀), EffectCauser=무기.
  *

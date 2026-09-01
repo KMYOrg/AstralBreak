@@ -8,9 +8,7 @@
 #include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
-#include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "Engine/World.h"
-#include "System/AstralGameData.h"
 
 UAstralGA_Hero_Defend::UAstralGA_Hero_Defend(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -144,16 +142,15 @@ void UAstralGA_Hero_Defend::OnInputReleased(float TimeHeld)
 void UAstralGA_Hero_Defend::OnParried(FGameplayEventData EventData)
 {
 	// 패링 보상 — 표식(주 축적원) + 오의. 서버 권위 가드는 Apply 헬퍼 내부에서
-	ApplyMarkGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, ParryMarkGain);
-	ApplyUltGain(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, ParryUltGain);
+	ApplyMarkGain(ParryMarkGain);
+	ApplyUltGain(ParryUltGain);
 }
 
 void UAstralGA_Hero_Defend::OnGuarded(FGameplayEventData EventData)
 {
-	// 막은 양 비례 스태미나 소모 — 음수 SetByCaller (GameData의 StaminaDrain GE).
+	// 막은 양 비례 스태미나 소모 — 음수 주입은 ApplyStaminaDrain 내부.
 	// 고갈 시 가드 브레이크는 스태미나 델리게이트가 처리
-	const float Drain = EventData.EventMagnitude * GuardHitStaminaRatio;
-	ApplySetByCallerEffect(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, UAstralGameData::Get().StaminaDrainGameplayEffect_SetByCaller.LoadSynchronous(), AstralGameplayTags::SetByCaller_StaminaDrain, -Drain);
+	ApplyStaminaDrain(EventData.EventMagnitude * GuardHitStaminaRatio);
 }
 
 void UAstralGA_Hero_Defend::OnStaminaChanged(const FOnAttributeChangeData& Data)

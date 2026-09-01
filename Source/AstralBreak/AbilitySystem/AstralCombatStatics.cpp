@@ -99,9 +99,8 @@ int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC,
 		return 0;
 	}
 
-	// 데미지 파이프라인 GE는 전역 단일 — GameData에서 해석 (호출자별 중복 지정 제거)
-	const TSubclassOf<UGameplayEffect> DamageEffectClass = UAstralGameData::Get().DamageGameplayEffect_SetByCaller.LoadSynchronous();
-	if (!DamageEffectClass)
+	// 데미지 파이프라인 GE는 전역 단일 — 미설정이면 스윕 전에 조기 종료 (적용은 ApplyAttackHit가 해석)
+	if (!UAstralGameData::Get().DamageGameplayEffect_SetByCaller.LoadSynchronous())
 	{
 		return 0;
 	}
@@ -133,27 +132,9 @@ int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC,
 		{
 			continue;
 		}
-		// 피아 필터 — Hostile만 허용 (아군/중립/사망 대상 오폭 차단)
-		if (!CanDamage(Avatar, TargetActor))
+		
+		if (ApplyAttackHit(SourceASC, Avatar, nullptr, Hit, BaseDamage, EffectLevel))
 		{
-			continue;
-		}
-		UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(TargetActor);
-		if (!TargetASC)
-		{
-			continue;
-		}
-
-		FGameplayEffectContextHandle Context = SourceASC->MakeEffectContext();
-		// TODO: 추후 avatar를 무기로 변경
-		Context.AddInstigator(Avatar, Avatar);
-		Context.AddHitResult(Hit);
-
-		const FGameplayEffectSpecHandle SpecHandle = SourceASC->MakeOutgoingSpec(DamageEffectClass, EffectLevel, Context);
-		if (SpecHandle.IsValid())
-		{
-			SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_Damage, BaseDamage);
-			SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
 			Damaged.Add(TargetActor);
 			++NumTargetsHit;
 		}
@@ -162,16 +143,16 @@ int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC,
 	return NumTargetsHit;
 }
 
-bool UAstralCombatStatics::ApplyWeaponDamage(UAbilitySystemComponent* SourceASC, AActor* Avatar, AActor* WeaponActor, const FHitResult& HitResult, float BaseDamage, float EffectLevel)
+bool UAstralCombatStatics::ApplyAttackHit(UAbilitySystemComponent* SourceASC, AActor* InstigatorAvatar, AActor* EffectCauser, const FHitResult& HitResult, float Damage, float EffectLevel)
 {
-	if (!SourceASC || !Avatar)
+	if (!SourceASC || !InstigatorAvatar)
 	{
 		return false;
 	}
 
 	AActor* TargetActor = HitResult.GetActor();
 	// 피아 필터 — Hostile만 허용 (아군/중립/사망 대상 오폭 차단)
-	if (!TargetActor || !CanDamage(Avatar, TargetActor))
+	if (!TargetActor || !CanDamage(InstigatorAvatar, TargetActor))
 	{
 		return false;
 	}
@@ -189,8 +170,8 @@ bool UAstralCombatStatics::ApplyWeaponDamage(UAbilitySystemComponent* SourceASC,
 	}
 
 	FGameplayEffectContextHandle Context = SourceASC->MakeEffectContext();
-	// Instigator = 폰(방어 정면 판정이 참조), EffectCauser = 무기 액터
-	Context.AddInstigator(Avatar, WeaponActor ? WeaponActor : Avatar);
+	// Instigator = 폰(방어 정면 판정이 참조), EffectCauser = 무기/투사체 등 실제 가해 액터
+	Context.AddInstigator(InstigatorAvatar, EffectCauser ? EffectCauser : InstigatorAvatar);
 	Context.AddHitResult(HitResult);
 
 	const FGameplayEffectSpecHandle SpecHandle = SourceASC->MakeOutgoingSpec(DamageEffectClass, EffectLevel, Context);
@@ -199,20 +180,31 @@ bool UAstralCombatStatics::ApplyWeaponDamage(UAbilitySystemComponent* SourceASC,
 		return false;
 	}
 
-	SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_Damage, BaseDamage);
+	SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_Damage, Damage);
 	SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
 	return true;
 }
 
-void UAstralCombatStatics::ApplySetByCallerEffectToSelf(UAbilitySystemComponent* ASC, TSubclassOf<UGameplayEffect> EffectClass, const FGameplayTag& SetByCallerTag, float Amount, float EffectLevel)
+bool UAstralCombatStatics::ApplyWeaponDamage(UAbilitySystemComponent* SourceASC, AActor* Avatar, AActor* WeaponActor, const FHitResult& HitResult, float BaseDamage, float EffectLevel)
 {
-	if (!ASC || !EffectClass || FMath::IsNearlyZero(Amount))
+	return ApplyAttackHit(SourceASC, Avatar, WeaponActor, HitResult, BaseDamage, EffectLevel);
+}
+
+void UAstralCombatStatics::ApplySetByCallerEffectToSelf(UAbilitySystemComponent* ASC, const FAstralSetByCallerEffect& Effect, float Amount, float EffectLevel)
+{
+	if (!ASC || FMath::IsNearlyZero(Amount))
 	{
 		return;
 	}
 
-	// 서버 권위 전용 — 수급 GE는 예측하지 않는다 (GA_Hero_Base 헬퍼와 동일 정책)
+	// 서버 권위 전용 — 수급 GE는 예측하지 않는다 (GA 헬퍼와 동일 정책)
 	if (!ASC->GetOwner() || !ASC->GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	const TSubclassOf<UGameplayEffect> EffectClass = Effect.Effect.LoadSynchronous();
+	if (!EffectClass || !Effect.SetByCallerTag.IsValid())
 	{
 		return;
 	}
@@ -220,7 +212,7 @@ void UAstralCombatStatics::ApplySetByCallerEffectToSelf(UAbilitySystemComponent*
 	const FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(EffectClass, EffectLevel, ASC->MakeEffectContext());
 	if (SpecHandle.IsValid())
 	{
-		SpecHandle.Data->SetSetByCallerMagnitude(SetByCallerTag, Amount);
+		SpecHandle.Data->SetSetByCallerMagnitude(Effect.SetByCallerTag, Amount);
 		ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
 	}
 }
@@ -231,7 +223,7 @@ void UAstralCombatStatics::ApplyMarkGainToSelf(UAbilitySystemComponent* ASC, flo
 	{
 		return;
 	}
-	ApplySetByCallerEffectToSelf(ASC, UAstralGameData::Get().MarkGainGameplayEffect_SetByCaller.LoadSynchronous(), AstralGameplayTags::SetByCaller_MarkGain, Amount);
+	ApplySetByCallerEffectToSelf(ASC, UAstralGameData::Get().MarkGain, Amount);
 }
 
 void UAstralCombatStatics::ApplyUltGainToSelf(UAbilitySystemComponent* ASC, float Amount)
@@ -240,7 +232,7 @@ void UAstralCombatStatics::ApplyUltGainToSelf(UAbilitySystemComponent* ASC, floa
 	{
 		return;
 	}
-	ApplySetByCallerEffectToSelf(ASC, UAstralGameData::Get().UltGainGameplayEffect_SetByCaller.LoadSynchronous(), AstralGameplayTags::SetByCaller_UltGain, Amount);
+	ApplySetByCallerEffectToSelf(ASC, UAstralGameData::Get().UltGain, Amount);
 }
 
 void UAstralCombatStatics::ApplyCombatStyle(AActor* Avatar, FGameplayTag DesiredStyle)

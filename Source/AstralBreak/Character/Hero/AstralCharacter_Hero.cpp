@@ -4,6 +4,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "Components/AstralHeroComponent.h"
 #include "Character/Hero/Components/AstralHeroMovementComponent.h"
+#include "Character/Hero/Components/AstralTargetingComponent.h"
 
 AAstralCharacter_Hero::AAstralCharacter_Hero(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UAstralHeroMovementComponent>(ACharacter::CharacterMovementComponentName))
@@ -23,4 +24,5 @@ AAstralCharacter_Hero::AAstralCharacter_Hero(const FObjectInitializer& ObjectIni
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false; // SpringArm이 회전 제어, 카메라는 팔 끝 고정
 
+	TargetingComponent = CreateDefaultSubobject<UAstralTargetingComponent>(TEXT("TargetingComponent"));
 }

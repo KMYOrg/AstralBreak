@@ -18,6 +18,7 @@
 #include "UserSettings/EnhancedInputUserSettings.h"
 #include "InputMappingContext.h"
 #include "Character/Hero/AstralPawnData_Hero.h"
+#include "Character/Hero/Components/AstralTargetingComponent.h"
 #include "Input/AstralInputGameplayTags.h"
 #include "Misc/UObjectToken.h"
 
@@ -251,6 +252,7 @@ void UAstralHeroComponent::InitializePlayerInput(UInputComponent* PlayerInputCom
 					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_Move, ETriggerEvent::Triggered, this, &ThisClass::Input_Move, /*bLogIfNotFound=*/ false);
 					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_Look_Mouse, ETriggerEvent::Triggered, this, &ThisClass::Input_LookMouse, /*bLogIfNotFound=*/ false);
 					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_Look_Stick, ETriggerEvent::Triggered, this, &ThisClass::Input_LookStick, /*bLogIfNotFound=*/ false);
+					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_LockOn, ETriggerEvent::Started, this, &ThisClass::Input_LockOn, /*bLogIfNotFound=*/ false);
 				}
 			}
 		}
@@ -406,6 +408,15 @@ void UAstralHeroComponent::Input_LookStick(const FInputActionValue& InputActionV
 	{
 		// TODO: Settings 시스템 도입 시 +Value.Y로 적용
 		Pawn->AddControllerPitchInput(-Value.Y * AstralHero::LookPitchRate * World->GetDeltaSeconds());
+	}
+}
+
+void UAstralHeroComponent::Input_LockOn(const FInputActionValue& InputActionValue)
+{
+	// 입력은 전이 요청만 — 후보 선정·상태는 TargetingComponent가 소유
+	if (UAstralTargetingComponent* Targeting = UAstralTargetingComponent::FindTargetingComponent(GetPawn<APawn>()))
+	{
+		Targeting->ToggleLockOn();
 	}
 }
 

@@ -57,6 +57,9 @@ protected:
 	void Input_LookMouse(const FInputActionValue& InputActionValue);
 	void Input_LookStick(const FInputActionValue& InputActionValue);
 
+	/** 락온 토글 — 네이티브 바인딩 (Started 1회). 선정·해제는 TargetingComponent가 소유 */
+	void Input_LockOn(const FInputActionValue& InputActionValue);
+
 protected:
 	
 	/** True when player input bindings have been applied, will never be true for non - players */

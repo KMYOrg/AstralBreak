@@ -14,4 +14,6 @@ namespace AstralGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG(InputTag_Attack_Empowered, "InputTag.Attack.Empowered");
 	UE_DEFINE_GAMEPLAY_TAG(InputTag_Defense, "InputTag.Defense");
 	UE_DEFINE_GAMEPLAY_TAG(InputTag_SwitchCombatStyle, "InputTag.SwitchCombatStyle");
+
+	UE_DEFINE_GAMEPLAY_TAG(InputTag_LockOn, "InputTag.LockOn");
 }

@@ -17,10 +17,8 @@
 #include "Components/GameFrameworkComponentManager.h"
 #include "UserSettings/EnhancedInputUserSettings.h"
 #include "InputMappingContext.h"
-#include "Character/Hero/AstralCharacter_Hero.h"
 #include "Character/Hero/AstralPawnData_Hero.h"
 #include "Character/Hero/Components/AstralTargetingComponent.h"
-#include "GameFramework/SpringArmComponent.h"
 #include "Input/AstralInputGameplayTags.h"
 #include "Misc/UObjectToken.h"
 
@@ -37,10 +35,8 @@ UAstralHeroComponent::UAstralHeroComponent(const FObjectInitializer& ObjectIniti
 	: Super(ObjectInitializer)
 {
 	bReadyToBindInputs = false;
-
-	// 락온 카메라 추적 — 로컬 제어 폰에서만 실질 동작 (틱 초입에서 걸러낸다)
-	PrimaryComponentTick.bCanEverTick = true;
-	PrimaryComponentTick.bStartWithTickEnabled = true;
+	
+	PrimaryComponentTick.bCanEverTick = false;
 }
 
 void UAstralHeroComponent::OnRegister()
@@ -201,90 +197,10 @@ void UAstralHeroComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
-void UAstralHeroComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
-{
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	// 카메라는 로컬 관심사 — 원격 폰의 서버 인스턴스·시뮬 프록시는 아무것도 하지 않는다
-	const APawn* Pawn = GetPawn<APawn>();
-	if (!Pawn || !Pawn->IsLocallyControlled())
-	{
-		return;
-	}
-
-	UpdateLockOnCamera(DeltaTime);
-}
-
 bool UAstralHeroComponent::IsHardLocked() const
 {
 	const UAstralTargetingComponent* Targeting = UAstralTargetingComponent::FindTargetingComponent(GetPawn<APawn>());
 	return Targeting && Targeting->GetMode() == EAstralTargetingMode::HardLocked && Targeting->GetEffectiveTarget().IsSet();
-}
-
-void UAstralHeroComponent::UpdateLockOnCamera(float DeltaTime)
-{
-	AAstralCharacter_Hero* Hero = GetPawn<AAstralCharacter_Hero>();
-	APlayerController* PC = GetController<APlayerController>();
-	if (!Hero || !PC)
-	{
-		return;
-	}
-
-	const bool bLocked = IsHardLocked();
-
-	// 카메라 랙 전환 — 락온 추적 보간 위에 SpringArm 랙이 겹치면 흐물거린다. 해제 시 원래값 복귀
-	if (USpringArmComponent* Boom = Hero->GetCameraBoom())
-	{
-		if (bLocked && !bLockCameraLagApplied)
-		{
-			DefaultCameraLagSpeed = Boom->CameraLagSpeed;
-			Boom->CameraLagSpeed = LockCameraLagSpeed;
-			bLockCameraLagApplied = true;
-		}
-		else if (!bLocked && bLockCameraLagApplied)
-		{
-			Boom->CameraLagSpeed = DefaultCameraLagSpeed;
-			bLockCameraLagApplied = false;
-		}
-	}
-
-	if (!bLocked)
-	{
-		return;
-	}
-
-	// 목표 = 카메라(뷰포인트)에서 조준점(캡슐 중심) 방향. 발밑을 보면 카메라가 내려앉으므로 조준점을 쓴다
-	const FAstralTargetHandle& Target = Hero->GetTargetingComponent()->GetEffectiveTarget();
-
-	FVector ViewLocation;
-	FRotator ViewRotation;
-	PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
-
-	const FVector ToTarget = Target.GetAimLocation() - ViewLocation;
-	if (ToTarget.IsNearlyZero())
-	{
-		return;
-	}
-
-	const FRotator Desired = ToTarget.Rotation();
-	// ⚠️ 정규화 필수 — 카메라 매니저가 클램프한 컨트롤 Pitch는 0~360으로 저장된다 (아래 20° = 340).
-	// 정규화 없이 -90~90인 목표와 선형 보간하면 340 → -5 사이를 거꾸로 돌아 카메라가 뒤집힌다
-	const FRotator Current = PC->GetControlRotation().GetNormalized();
-	FRotator New = Current;
-
-	// Yaw — 항상 보조 (최단 경로 보간)
-	New.Yaw = FMath::RInterpTo(Current, Desired, DeltaTime, LockCameraInterpSpeed).Yaw;
-
-	// Pitch — 부분 자유. 임계 안이면 플레이어 입력 그대로, 밖이면 타겟이 임계 안으로 들어오는 경계까지만 보간
-	const float PitchDelta = FMath::FindDeltaAngleDegrees(Current.Pitch, Desired.Pitch);
-	if (FMath::Abs(PitchDelta) > PitchAssistThreshold)
-	{
-		const float BoundaryPitch = Desired.Pitch - FMath::Sign(PitchDelta) * PitchAssistThreshold;
-		New.Pitch = FMath::Clamp(FMath::FInterpTo(Current.Pitch, BoundaryPitch, DeltaTime, LockCameraInterpSpeed), -89.0f, 89.0f);
-	}
-
-	New.Roll = 0.0f;
-	PC->SetControlRotation(New);
 }
 
 void UAstralHeroComponent::InitializePlayerInput(UInputComponent* PlayerInputComponent)

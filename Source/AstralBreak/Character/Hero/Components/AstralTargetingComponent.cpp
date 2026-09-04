@@ -111,12 +111,14 @@ bool UAstralTargetingComponent::TryLockOn()
 		return false;
 	}
 
-	HardLockTarget.TargetActor = Candidates[BestIndex].Actor;
-	HardLockTarget.TargetPointId = NAME_None;
+	FAstralTargetHandle NewTarget;
+	NewTarget.TargetActor = Candidates[BestIndex].Actor;
+	NewTarget.TargetPointId = NAME_None;
+
 	LosLostTime = 0.f;
 	MaintainAccumulator = 0.f;
 
-	SetMode(EAstralTargetingMode::HardLocked);
+	CommitTargetingState(EAstralTargetingMode::HardLocked, NewTarget);
 
 #if !UE_BUILD_SHIPPING
 	DebugCandidates = MoveTemp(Candidates);
@@ -128,15 +130,10 @@ bool UAstralTargetingComponent::TryLockOn()
 
 void UAstralTargetingComponent::ClearLock()
 {
-	if (Mode != EAstralTargetingMode::HardLocked && !HardLockTarget.IsSet())
-	{
-		return;
-	}
-
-	HardLockTarget.Reset();
 	LosLostTime = 0.f;
 
-	SetMode(EAstralTargetingMode::Idle);
+	// 자동 전환 없음 — 다음 후보로 넘어가지 않는다
+	CommitTargetingState(EAstralTargetingMode::Idle, FAstralTargetHandle());
 }
 
 void UAstralTargetingComponent::ToggleLockOn()
@@ -157,15 +154,22 @@ const FAstralTargetHandle& UAstralTargetingComponent::GetEffectiveTarget() const
 	return (Mode == EAstralTargetingMode::HardLocked) ? HardLockTarget : EmptyHandle;
 }
 
-void UAstralTargetingComponent::SetMode(EAstralTargetingMode NewMode)
+void UAstralTargetingComponent::CommitTargetingState(EAstralTargetingMode NewMode, const FAstralTargetHandle& NewTarget)
 {
-	if (Mode == NewMode)
+	const bool bModeChanged = (Mode != NewMode);
+	const bool bTargetChanged = (HardLockTarget.TargetActor != NewTarget.TargetActor) || (HardLockTarget.TargetPointId != NewTarget.TargetPointId);
+	if (!bModeChanged && !bTargetChanged)
 	{
 		return;
 	}
 
-	UE_LOG(LogAstral, Verbose, TEXT("[Targeting] %s: %d -> %d (target=%s)"), *GetNameSafe(GetOwner()), static_cast<int32>(Mode), static_cast<int32>(NewMode), *GetNameSafe(HardLockTarget.TargetActor.Get()));
+	UE_LOG(LogAstral, Verbose, TEXT("[Targeting] %s: mode %d -> %d, target %s -> %s"), *GetNameSafe(GetOwner()),
+		static_cast<int32>(Mode), static_cast<int32>(NewMode), *GetNameSafe(HardLockTarget.TargetActor.Get()), *GetNameSafe(NewTarget.TargetActor.Get()));
+
 	Mode = NewMode;
+	HardLockTarget = NewTarget;
+
+	OnTargetingChanged.Broadcast();
 }
 
 bool UAstralTargetingComponent::GetViewPoint(FVector& OutLocation, FRotator& OutRotation) const

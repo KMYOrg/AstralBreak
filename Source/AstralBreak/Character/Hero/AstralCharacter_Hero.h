@@ -8,6 +8,7 @@
 
 class USpringArmComponent;
 class UCameraComponent;
+class UAstralHeroCameraComponent;
 class UAstralHeroComponent;
 class UAstralTargetingComponent;
 
@@ -22,8 +23,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Astral|Hero")
 	UAstralTargetingComponent* GetTargetingComponent() const { return TargetingComponent; }
 
-	/** 락온 카메라 추적이 CameraLag를 전환할 때 쓴다 (HeroComponent) */
-	USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
+	UFUNCTION(BlueprintPure, Category = "Astral|Hero")
+	UAstralHeroCameraComponent* GetHeroCameraComponent() const { return HeroCameraComponent; }
+
+protected:
+	//~AActor
+	virtual void PostInitializeComponents() override;
+	//~End AActor
 
 protected:
 	/** 3인칭 카메라 팔. 소울라이크 회전: 마우스가 카메라 독립 제어. */
@@ -33,11 +39,15 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Hero", Meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UCameraComponent> FollowCamera;
 
-	/** Hero 전용 초기화 허브. Input/Camera/Lockon을 InitState 체인으로 중재 */
+	/** Hero 전용 초기화 허브. Input/Lockon 입력을 InitState 체인으로 중재 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Hero", Meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAstralHeroComponent> HeroComponent;
 
-	/** 락온 타게팅 — 후보 탐색·점수·상태 기계 (히어로 전용, 로컬 전용) */
+	/** 락온 타게팅 — 누구를 (후보 탐색·점수·상태 기계). 히어로 전용, 로컬 전용 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Hero", Meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAstralTargetingComponent> TargetingComponent;
+
+	/** 락온 카메라 — 타깃을 화면에 어떻게 유지하는가. 붐·카메라·타게팅 참조를 이 폰이 주입한다 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Hero", Meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UAstralHeroCameraComponent> HeroCameraComponent;
 };

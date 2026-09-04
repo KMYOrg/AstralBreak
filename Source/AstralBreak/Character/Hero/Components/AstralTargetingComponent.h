@@ -8,6 +8,8 @@
 
 class UAstralHealthComponent;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FAstralTargetingChangedDelegate);
+
 /** 타게팅 모드. M2.5는 Idle ↔ HardLocked 전이만 — SoftTracking(어택 어시스트)은 자리만 확보 */
 UENUM(BlueprintType)
 enum class EAstralTargetingMode : uint8
@@ -61,6 +63,9 @@ public:
 
 	/** 디버그 — LOS 상실 누적 (초). LosGraceTime 도달 시 해제 */
 	float GetLosLostTime() const { return LosLostTime; }
+	
+	UPROPERTY(BlueprintAssignable, Category = "Astral|Targeting")
+	FAstralTargetingChangedDelegate OnTargetingChanged;
 
 protected:
 	//~UActorComponent
@@ -85,7 +90,7 @@ protected:
 	UFUNCTION()
 	void HandleOwnerDeathStarted(AActor* OwningActor);
 
-	void SetMode(EAstralTargetingMode NewMode);
+	void CommitTargetingState(EAstralTargetingMode NewMode, const FAstralTargetHandle& NewTarget);
 
 #if !UE_BUILD_SHIPPING
 	/** 디버그 후보 갱신 — 정식 선정 경로가 아니다 (위젯 표시·가중치 튜닝용) */

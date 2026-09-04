@@ -47,8 +47,19 @@ protected:
 	virtual void OnRegister() override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	virtual void InitializePlayerInput(UInputComponent* PlayerInputComponent);
+
+	/**
+	 * 락온 카메라 추적 — ControlRotation을 타겟 방향으로 보간한다.
+	 * 컨트롤 회전이 곧 카메라(SpringArm bUsePawnControlRotation)이자 이동 기저(Input_Move)라 별도 카메라 계층이 없다.
+	 * Yaw는 항상 보조, Pitch는 플레이어 입력 유지 — 목표와의 차이가 PitchAssistThreshold를 넘을 때만 경계까지 보간.
+	 * 락온이 아니면 CameraLag 복귀만 하고 빠진다 → 해제 시 기존 동작으로 자동 복귀
+	 */
+	void UpdateLockOnCamera(float DeltaTime);
+
+	bool IsHardLocked() const;
 
 	void Input_AbilityInputTagPressed(FGameplayTag InputTag);
 	void Input_AbilityInputTagReleased(FGameplayTag InputTag);
@@ -61,7 +72,24 @@ protected:
 	void Input_LockOn(const FInputActionValue& InputActionValue);
 
 protected:
-	
+
+	/** 락온 카메라 — 컨트롤 회전 보간 속도 (RInterpTo). 튜닝값, 추후 테스트로 조정 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|LockOn Camera", Meta = (ClampMin = "0.0"))
+	float LockCameraInterpSpeed = 8.0f;
+
+	/** 락온 카메라 — Pitch 개입 임계 (도). 목표 Pitch와의 차이가 이 값을 넘을 때만 경계까지 보정 (타겟이 화면 밖으로 나갈 때만) */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|LockOn Camera", Meta = (ClampMin = "0.0", ClampMax = "89.0"))
+	float PitchAssistThreshold = 15.0f;
+
+	/** 락온 중 SpringArm CameraLagSpeed — 락온 보간 + 랙 보간 이중 겹침으로 흐물거리는 것 방지 (높을수록 랙 약함) */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|LockOn Camera", Meta = (ClampMin = "0.0"))
+	float LockCameraLagSpeed = 25.0f;
+
 	/** True when player input bindings have been applied, will never be true for non - players */
 	bool bReadyToBindInputs;
+
+private:
+	/** 락온 진입 시 캐시한 원래 CameraLagSpeed */
+	float DefaultCameraLagSpeed = 0.0f;
+	bool bLockCameraLagApplied = false;
 };

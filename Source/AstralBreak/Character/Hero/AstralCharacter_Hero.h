@@ -22,6 +22,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Astral|Hero")
 	UAstralTargetingComponent* GetTargetingComponent() const { return TargetingComponent; }
 
+	/** 락온 카메라 추적이 CameraLag를 전환할 때 쓴다 (HeroComponent) */
+	USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
+
 protected:
 	/** 3인칭 카메라 팔. 소울라이크 회전: 마우스가 카메라 독립 제어. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Hero", Meta = (AllowPrivateAccess = "true"))

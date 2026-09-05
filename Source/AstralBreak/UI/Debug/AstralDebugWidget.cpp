@@ -13,6 +13,7 @@
 #include "Character/AstralCharacter.h"
 #include "Character/Components/AstralHealthComponent.h"
 #include "Character/Components/AstralLoadoutComponent.h"
+#include "Character/Hero/Components/AstralHeroCameraComponent.h"
 #include "Character/Hero/Components/AstralHeroMovementComponent.h"
 #include "Character/Hero/Components/AstralTargetingComponent.h"
 #include "GameModes/AstralHubGameState.h"
@@ -369,6 +370,25 @@ FString UAstralDebugWidget::GetLockOnString() const
     {
         Out.Append(TEXT("Target: (none)\n"));
     }
+
+#if !UE_BUILD_SHIPPING
+    // 카메라 관측 — 실제 카메라 POV 기준 오차·화면 투영, 락온 시점부터의 수렴 반감기 (보간 속도 튜닝용)
+    const UAstralHeroCameraComponent* Camera = Pawn ? Pawn->FindComponentByClass<UAstralHeroCameraComponent>() : nullptr;
+    if (Camera && Target.IsSet())
+    {
+        const FAstralLockOnCameraDebugStats& S = Camera->GetDebugStats();
+        Out.Appendf(TEXT("Cam: d=%.0f  yawErr=%+.1f  pitchErr=%+.1f  screen=(%+.2f, %+.2f)%s\n"),
+            S.Distance, S.YawErrorDeg, S.PitchErrorDeg, S.ScreenOffset.X, S.ScreenOffset.Y, S.bOnScreen ? TEXT("") : TEXT(" OFF"));
+        if (S.YawHalfLifeSeconds >= 0.f)
+        {
+            Out.Appendf(TEXT("     t=%.2fs  init=%+.1f  halfLife=%.2fs\n"), S.ElapsedSinceLock, S.InitialYawErrorDeg, S.YawHalfLifeSeconds);
+        }
+        else
+        {
+            Out.Appendf(TEXT("     t=%.2fs  init=%+.1f  halfLife=--\n"), S.ElapsedSinceLock, S.InitialYawErrorDeg);
+        }
+    }
+#endif
 
     // 후보 목록 — '*' 현재 타겟, '>' 지금 선정한다면 뽑힐 후보 (히스테리시스 포함). 둘이 다르면 임계가 교체를 막고 있는 것
     const AActor* Best = Targeting->GetDebugBestCandidate();

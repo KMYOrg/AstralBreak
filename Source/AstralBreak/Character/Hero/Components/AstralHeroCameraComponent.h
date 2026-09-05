@@ -29,8 +29,36 @@ struct FAstralLockOnCameraParams
 	float PitchAssistThreshold = 15.0f;
 };
 
+#if !UE_BUILD_SHIPPING
+/** 락온 카메라 관측 — 디버그 위젯이 읽기만 한다. 실제 카메라 POV 기준 오차·화면 투영·수렴 반감기 (보간 속도 튜닝용) */
+struct FAstralLockOnCameraDebugStats
+{
+	/** 폰 캡슐 중심 ↔ 조준점 (cm) */
+	float Distance = 0.f;
+
+	/** 실제 카메라 시선 대비 조준점 방위 오차 (도, 부호 있음) */
+	float YawErrorDeg = 0.f;
+	float PitchErrorDeg = 0.f;
+
+	/** 조준점의 화면 투영 — 중심 0, 정규화 [-1, 1] */
+	FVector2D ScreenOffset = FVector2D::ZeroVector;
+	bool bOnScreen = false;
+
+	/** 락온(또는 타겟 교체) 시점의 Yaw 오차 — 반감기 기준 */
+	float InitialYawErrorDeg = 0.f;
+
+	/** 락온 이후 경과 (초) */
+	float ElapsedSinceLock = 0.f;
+
+	/** |Yaw 오차|가 초기값의 절반 아래로 처음 내려간 시각 (초). 미도달 = -1 */
+	float YawHalfLifeSeconds = -1.f;
+};
+#endif
+
 /**
  * 히어로 카메라 — "타깃을 화면에 어떻게 유지하는가" [히어로 전용 · 로컬 전용].
+ * 조준 원점은 카메라 POV — 회전 → 카메라 이동 → 목표 재계산의 되먹임으로 유효 보간 속도가 거리에 따라 감쇠하지만
+ * (d/(L+d)), Phase 2 측정에서 붐 피벗·명목 위치와 체감 차이가 없어 화면 중앙 정합이 정확한 POV를 유지한다.
  * 타겟 액터 소멸은 TargetingComponent의 매 프레임 약한 참조 검사가 ClearLock → 이벤트로 이어지고
  * 그 사이 한 프레임은 틱 초입 재검사가 건너뛴다
  */
@@ -44,8 +72,9 @@ public:
 
 	void InitializeCamera(USpringArmComponent* InCameraBoom, UCameraComponent* InFollowCamera, UAstralTargetingComponent* InTargeting);
 
-	/** 락온 카메라 프로필이 SpringArm에 적용된 상태인가 (디버그·검증용) */
-	bool IsLockOnProfileApplied() const { return bLockOnProfileApplied; }
+#if !UE_BUILD_SHIPPING
+	const FAstralLockOnCameraDebugStats& GetDebugStats() const { return DebugStats; }
+#endif
 
 protected:
 	//~UActorComponent
@@ -54,7 +83,7 @@ protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	//~End UActorComponent
 
-	/** 타게팅 변경 이벤트 — 프로필 적용/복구 + 틱 on/off */
+	/** 타게팅 변경 이벤트 — 틱 on/off (+ 관측 리셋) */
 	UFUNCTION()
 	void HandleTargetingChanged();
 
@@ -64,16 +93,17 @@ protected:
 	/** ControlRotation 보조 보간 — Yaw는 항상, Pitch는 임계 밖에서만 경계까지. */
 	void UpdateLockOnCamera(float DeltaTime);
 
-	/** SpringArm 프로필 적용/복구 — 현재는 CameraLagSpeed 하나 */
-	void ApplyCameraProfile(bool bLockOn);
+#if !UE_BUILD_SHIPPING
+	/** 락온 시작·타겟 교체 시점 — 초기 Yaw 오차 기록, 반감기 리셋 */
+	void ResetDebugStats();
+
+	/** 매 틱 — 실제 카메라 POV 기준 오차·화면 투영·반감기 갱신 */
+	void UpdateDebugStats(float DeltaTime, const APlayerController* PC, const FVector& ViewLocation, const FRotator& ViewRotation, const FVector& AimLocation);
+#endif
 
 protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|LockOn Camera", Meta = (ShowOnlyInnerProperties))
 	FAstralLockOnCameraParams Params;
-
-	/** 락온 중 SpringArm CameraLagSpeed — 느슨한 멤버로 둔다 (Phase 2 조준 원점 결정 후 승격 또는 삭제). */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|LockOn Camera", Meta = (ClampMin = "0.0"))
-	float LockCameraLagSpeed = 25.0f;
 
 private:
 	UPROPERTY(Transient)
@@ -84,7 +114,8 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UAstralTargetingComponent> Targeting;
-	
-	float DefaultCameraLagSpeed = 0.0f;
-	bool bLockOnProfileApplied = false;
+
+#if !UE_BUILD_SHIPPING
+	FAstralLockOnCameraDebugStats DebugStats;
+#endif
 };

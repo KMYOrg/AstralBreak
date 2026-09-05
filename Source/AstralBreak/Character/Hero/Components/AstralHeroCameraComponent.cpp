@@ -44,8 +44,6 @@ void UAstralHeroCameraComponent::BeginPlay()
 
 void UAstralHeroCameraComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	ApplyCameraProfile(false);
-
 	if (Targeting)
 	{
 		Targeting->OnTargetingChanged.RemoveDynamic(this, &ThisClass::HandleTargetingChanged);
@@ -57,8 +55,15 @@ void UAstralHeroCameraComponent::EndPlay(const EEndPlayReason::Type EndPlayReaso
 void UAstralHeroCameraComponent::HandleTargetingChanged()
 {
 	const bool bLocked = IsTrackingTarget();
-	ApplyCameraProfile(bLocked);
 	SetComponentTickEnabled(bLocked);
+
+#if !UE_BUILD_SHIPPING
+	// 락온 시작·타겟 교체마다 반감기 측정을 새로 시작
+	if (bLocked)
+	{
+		ResetDebugStats();
+	}
+#endif
 }
 
 bool UAstralHeroCameraComponent::IsTrackingTarget() const
@@ -87,26 +92,6 @@ void UAstralHeroCameraComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	UpdateLockOnCamera(DeltaTime);
 }
 
-void UAstralHeroCameraComponent::ApplyCameraProfile(bool bLockOn)
-{
-	if (!CameraBoom)
-	{
-		return;
-	}
-
-	if (bLockOn && !bLockOnProfileApplied)
-	{
-		DefaultCameraLagSpeed = CameraBoom->CameraLagSpeed;
-		CameraBoom->CameraLagSpeed = LockCameraLagSpeed;
-		bLockOnProfileApplied = true;
-	}
-	else if (!bLockOn && bLockOnProfileApplied)
-	{
-		CameraBoom->CameraLagSpeed = DefaultCameraLagSpeed;
-		bLockOnProfileApplied = false;
-	}
-}
-
 void UAstralHeroCameraComponent::UpdateLockOnCamera(float DeltaTime)
 {
 	APlayerController* PC = GetController<APlayerController>();
@@ -115,18 +100,25 @@ void UAstralHeroCameraComponent::UpdateLockOnCamera(float DeltaTime)
 		return;
 	}
 
-	// 조준 원점 = 카메라 POV. 조준점은 캡슐 중심 (발밑을 보면 카메라가 내려앉는다)
+	// 조준 원점 = 카메라 POV (Phase 2 확정 — 헤더 주석), 조준점 = 캡슐 중심 (발밑을 보면 카메라가 내려앉는다)
 	FVector ViewLocation;
 	FRotator ViewRotation;
 	PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
 
-	const FVector ToTarget = Targeting->GetEffectiveTarget().GetAimLocation() - ViewLocation;
+	const FVector AimLocation = Targeting->GetEffectiveTarget().GetAimLocation();
+
+#if !UE_BUILD_SHIPPING
+	UpdateDebugStats(DeltaTime, PC, ViewLocation, ViewRotation, AimLocation);
+#endif
+
+	const FVector ToTarget = AimLocation - ViewLocation;
 	if (ToTarget.IsNearlyZero())
 	{
 		return;
 	}
 
 	const FRotator Desired = ToTarget.Rotation();
+	// 정규화 필수 — 카메라 매니저가 클램프한 컨트롤 Pitch는 0~360으로 저장된다 (아래 20° = 340)
 	const FRotator Current = PC->GetControlRotation().GetNormalized();
 	FRotator New = Current;
 
@@ -137,7 +129,7 @@ void UAstralHeroCameraComponent::UpdateLockOnCamera(float DeltaTime)
 	const float PitchDelta = FMath::FindDeltaAngleDegrees(Current.Pitch, Desired.Pitch);
 	if (FMath::Abs(PitchDelta) > Params.PitchAssistThreshold)
 	{
-		// Pitch 한계는 카메라 매니저의 값 — 여기 상수 사본을 두면 한계를 바꿀 때 조용히 어긋난다 (refactor §5)
+		// Pitch 한계는 카메라 매니저의 값 — 여기 상수 사본을 두면 한계를 바꿀 때 조용히 어긋난다
 		const APlayerCameraManager* PCM = PC->PlayerCameraManager;
 		const float MinPitch = PCM ? PCM->ViewPitchMin : -89.0f;
 		const float MaxPitch = PCM ? PCM->ViewPitchMax :  89.0f;
@@ -149,3 +141,63 @@ void UAstralHeroCameraComponent::UpdateLockOnCamera(float DeltaTime)
 	New.Roll = 0.0f;
 	PC->SetControlRotation(New);
 }
+
+#if !UE_BUILD_SHIPPING
+void UAstralHeroCameraComponent::ResetDebugStats()
+{
+	DebugStats = FAstralLockOnCameraDebugStats();
+
+	// 초기 Yaw 오차는 지금 당장 — 첫 틱을 기다리면 한 프레임 보정된 값이 기준이 된다
+	const APlayerController* PC = GetController<APlayerController>();
+	if (PC && Targeting)
+	{
+		FVector ViewLocation;
+		FRotator ViewRotation;
+		PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
+
+		const FVector ToTarget2D = (Targeting->GetEffectiveTarget().GetAimLocation() - ViewLocation).GetSafeNormal2D();
+		if (!ToTarget2D.IsNearlyZero())
+		{
+			DebugStats.InitialYawErrorDeg = FMath::FindDeltaAngleDegrees(ViewRotation.Yaw, ToTarget2D.Rotation().Yaw);
+		}
+	}
+}
+
+void UAstralHeroCameraComponent::UpdateDebugStats(float DeltaTime, const APlayerController* PC, const FVector& ViewLocation, const FRotator& ViewRotation, const FVector& AimLocation)
+{
+	DebugStats.ElapsedSinceLock += DeltaTime;
+
+	if (const APawn* Pawn = GetPawn<APawn>())
+	{
+		DebugStats.Distance = FVector::Dist(Pawn->GetActorLocation(), AimLocation);
+	}
+
+	// 플레이어가 보는 중심 편차 — 실제 카메라 시선 기준
+	const FVector ToTarget = AimLocation - ViewLocation;
+	if (!ToTarget.IsNearlyZero())
+	{
+		const FRotator ToTargetRot = ToTarget.Rotation();
+		DebugStats.YawErrorDeg = FMath::FindDeltaAngleDegrees(ViewRotation.Yaw, ToTargetRot.Yaw);
+		DebugStats.PitchErrorDeg = FMath::FindDeltaAngleDegrees(ViewRotation.Pitch, ToTargetRot.Pitch);
+	}
+
+	// 화면 투영 — 중심 0, [-1, 1]
+	FVector2D ScreenPos;
+	int32 ViewportX = 0;
+	int32 ViewportY = 0;
+	PC->GetViewportSize(ViewportX, ViewportY);
+	DebugStats.bOnScreen = PC->ProjectWorldLocationToScreen(AimLocation, ScreenPos, /*bPlayerViewportRelative=*/true) && ViewportX > 0 && ViewportY > 0;
+	if (DebugStats.bOnScreen)
+	{
+		DebugStats.ScreenOffset.X = (ScreenPos.X / ViewportX) * 2.0f - 1.0f;
+		DebugStats.ScreenOffset.Y = (ScreenPos.Y / ViewportY) * 2.0f - 1.0f;
+	}
+
+	// 반감기 — |오차|가 초기값의 절반 아래로 처음 내려간 시각. 초기 오차가 작으면(이미 정면) 의미 없음
+	if (DebugStats.YawHalfLifeSeconds < 0.f && FMath::Abs(DebugStats.InitialYawErrorDeg) > 1.0f
+		&& FMath::Abs(DebugStats.YawErrorDeg) <= FMath::Abs(DebugStats.InitialYawErrorDeg) * 0.5f)
+	{
+		DebugStats.YawHalfLifeSeconds = DebugStats.ElapsedSinceLock;
+	}
+}
+#endif

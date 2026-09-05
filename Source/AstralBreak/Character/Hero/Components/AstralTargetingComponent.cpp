@@ -1,6 +1,7 @@
 #include "AstralTargetingComponent.h"
 
 #include "AbilitySystem/AstralCombatStatics.h"
+#include "AstralCollisionChannels.h"
 #include "AstralLogChannels.h"
 #include "Character/Components/AstralHealthComponent.h"
 #include "CollisionQueryParams.h"
@@ -269,12 +270,11 @@ bool UAstralTargetingComponent::HasLineOfSight(const AActor* Target, const FVect
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(AstralTargeting_LOS), false);
 	QueryParams.AddIgnoredActor(Pawn);
-
+	
 	FHitResult Hit;
-	const bool bBlocked = World->LineTraceSingleByChannel(Hit, Pawn->GetActorLocation(), AimLocation, ECC_Visibility, QueryParams);
+	const bool bBlocked = World->LineTraceSingleByChannel(Hit, Pawn->GetActorLocation(), AimLocation, Astral_TraceChannel_TargetLOS, QueryParams);
 
-	// 캡슐(Pawn 프로파일)은 Visibility를 무시하고 메시는 막는다 — 타겟 자신에 막힌 것은 가시
-	// TODO: 전용 채널로 trace 예정
+	// 타겟 자신에 막힌 것은 가시 — 컴포넌트가 Custom 프리셋이라 채널 기본값(Block)을 받은 경우의 안전망
 	return !bBlocked || (Hit.GetActor() == Target);
 }
 

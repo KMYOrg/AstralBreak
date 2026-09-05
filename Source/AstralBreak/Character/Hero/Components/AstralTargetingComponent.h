@@ -80,7 +80,7 @@ protected:
 	/** 유지 조건 검사 (MaintainInterval 주기) — 하나라도 깨지면 ClearLock */
 	void CheckMaintainConditions(float Interval);
 
-	/** 폰 캡슐 중심 → 조준점 Visibility 트레이스. 타겟 자신에 막히는 것은 가시로 본다 */
+	/** 폰 캡슐 중심 → 조준점 AstralTargetLOS 채널 트레이스 (월드 지오메트리만 가린다). 타겟 자신에 막히는 것은 가시로 본다 */
 	bool HasLineOfSight(const AActor* Target, const FVector& AimLocation) const;
 
 	/** 로컬 뷰포인트 — 로컬 제어 PlayerController가 없으면 false */

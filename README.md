@@ -76,8 +76,9 @@ Lyra의 초기화·모듈 분리 패턴을 참고하되, 필요한 것만 가져
 | **전역** | `AstralGameInstance` · `AstralAssetManager` · `AstralGameData` · `AstralPartySubsystem` | 전역 GE 참조 단일 소유, 서버 세션 캐시 |
 | **문맥(월드)** | `AstralGameMode` → `AstralGameState` / `AstralHubGameState` | "이 맵에서 무엇이 허용되는가" |
 | **플레이어** | `PlayerController` · `PlayerState`(ASC 소유) · `LocalPlayer` | 로비 RPC, 로드아웃 원본 보관 |
-| **폰 (히어로)** | `AstralCharacter` + PawnExtension · Health · Equipment · Loadout · Hero | 폰은 조립만, 지식은 컴포넌트에 |
-| **폰 (적)** | `AstralCombatCharacter` (자체 ASC) | InitState 없이 스폰 즉시 완결 초기화 |
+| **폰 (공통)** | `AstralCharacter` + PawnExtension · Health · Equipment | ASC 출처와 무관한 결합·사망 처리 단일 경로 |
+| **폰 (히어로)** | `AstralCharacter_Hero` + Loadout · Hero · Targeting · Camera | ASC는 PlayerState에서 빌림, InitState 체인으로 대기 |
+| **폰 (적)** | `AstralCombatCharacter` (자체 ASC) | PostInitializeComponents에서 즉시 결합, 대기 없음 |
 | **GAS** | ASC · AbilitySet · AttributeSet 4종 · `CombatStatics` · `AbilityTask_WeaponTrace` | 팀 판정 · 방어 해석 · 데미지 적용 |
 | **장비** | `ItemDefinition` → `WeaponDefinition` / `EquipmentFamily` / `EquipmentInstance` / `WeaponActor` | 계열 × 변형 2축 |
 

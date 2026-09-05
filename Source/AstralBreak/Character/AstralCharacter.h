@@ -9,9 +9,7 @@
 class UAstralAbilitySystemComponent;
 class UAstralEquipmentManagerComponent;
 class UAstralHealthComponent;
-class UAstralLoadoutComponent;
 class UAstralPawnExtensionComponent;
-class AAstralPlayerState;
 
 UCLASS()
 class ASTRALBREAK_API AAstralCharacter : public ACharacter, public IAbilitySystemInterface
@@ -26,9 +24,6 @@ public:
 	//~ End IAbilitySystemInterface
 
 	UFUNCTION(BlueprintCallable, Category = "Astral|Character")
-	AAstralPlayerState* GetAstralPlayerState() const;
-
-	UFUNCTION(BlueprintCallable, Category = "Astral|Character")
 	UAstralAbilitySystemComponent* GetAstralAbilitySystemComponent() const;
 
 	UFUNCTION(BlueprintPure, Category = "Astral|Character")
@@ -38,7 +33,7 @@ public:
 	UAstralEquipmentManagerComponent* GetEquipmentManagerComponent() const { return EquipmentManagerComponent; }
 
 	UFUNCTION(BlueprintPure, Category = "Astral|Character")
-	UAstralLoadoutComponent* GetLoadoutComponent() const { return LoadoutComponent; }
+	UAstralPawnExtensionComponent* GetPawnExtensionComponent() const { return PawnExtComponent; }
 
 	/** 디버그 — 콘솔에서 `DamageSelf 50`. 데미지 파이프라인(GE_Damage_Base)을 그대로 태워 사망/수급 경로 검증용 */
 	UFUNCTION(Exec)
@@ -79,6 +74,10 @@ protected:
 	UFUNCTION()
 	virtual void HandleDeathStarted(AActor* OwningActor);
 
+	/** 사망 완료 — 기본은 dead 유지 (Hero: TODO M6 리스폰/관전). CombatCharacter는 LifeSpan 정리로 오버라이드 */
+	UFUNCTION()
+	virtual void HandleDeathFinished(AActor* OwningActor);
+
 	/** 부활(디버그 ReviveSelf / 추후 M6 리스폰) — 콜리전/이동 복구 */
 	UFUNCTION()
 	virtual void HandleDeathReset(AActor* OwningActor);
@@ -109,7 +108,4 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Components", Meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAstralEquipmentManagerComponent> EquipmentManagerComponent;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Components", Meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UAstralLoadoutComponent> LoadoutComponent;
 };

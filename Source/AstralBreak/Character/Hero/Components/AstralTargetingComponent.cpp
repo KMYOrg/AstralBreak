@@ -126,8 +126,11 @@ bool UAstralTargetingComponent::TryLockOn()
 	return true;
 }
 
-bool UAstralTargetingComponent::CycleTarget(float Direction)
+bool UAstralTargetingComponent::CycleTarget(EAstralTargetSwitchDirection Direction)
 {
+	// 경계 enum → 순수 산술 함수의 float 부호 (변환은 여기 1회)
+	const float DirectionSign = (Direction == EAstralTargetSwitchDirection::Right) ? +1.f : -1.f;
+
 	if (Mode != EAstralTargetingMode::HardLocked || !HardLockTarget.IsSet())
 	{
 		return false;
@@ -146,10 +149,10 @@ bool UAstralTargetingComponent::CycleTarget(float Direction)
 	TArray<FAstralTargetCandidate> Candidates;
 	GatherCandidates(Candidates);
 
-	const int32 NextIndex = AstralTargeting::SelectCycleCandidate(Candidates, CurrentYawDeg, Direction);
+	const int32 NextIndex = AstralTargeting::SelectCycleCandidate(Candidates, CurrentYawDeg, DirectionSign);
 	if (NextIndex == INDEX_NONE)
 	{
-		UE_LOG(LogAstral, Verbose, TEXT("[Targeting] CycleTarget(%+.0f): 그 방향에 후보 없음 (%s)"), Direction, *GetNameSafe(GetOwner()));
+		UE_LOG(LogAstral, Verbose, TEXT("[Targeting] CycleTarget(%+.0f): 그 방향에 후보 없음 (%s)"), DirectionSign, *GetNameSafe(GetOwner()));
 		return false;
 	}
 

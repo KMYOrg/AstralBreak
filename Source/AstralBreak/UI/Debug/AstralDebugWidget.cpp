@@ -372,30 +372,28 @@ FString UAstralDebugWidget::GetLockOnString() const
         Out.Append(TEXT("Target: (none)\n"));
     }
 
-    // 전환 입력 기계 — 스틱 latch · 마우스 무장 상태 · 마우스 누적(MouseAccumulationThreshold 실측용, thr=off면 누적만 한다).
-    // mouse=REARM-WAIT는 전환 직후 멈춤(RearmPause)을 기다리는 중 — 그동안 입력은 버려진다
+#if !UE_BUILD_SHIPPING
+    // 전환 입력 인식기 스냅샷 — 스틱 latch · 마우스 페이즈 · 마우스 누적(MouseAccumulationThreshold 실측용, thr=off면 누적만 한다).
+    // mouse=WaitingForPause는 전환 직후 멈춤(RearmPause)을 기다리는 중 — 그동안 입력은 버려진다
     if (const UAstralHeroComponent* Hero = UAstralHeroComponent::FindHeroComponent(Pawn))
     {
-        static const TCHAR* LatchNames[] = { TEXT("Neutral"), TEXT("LatchedLeft"), TEXT("LatchedRight") };
-        Out.Appendf(TEXT("Switch: latch=%s  mouse=%s"), LatchNames[static_cast<int32>(Hero->GetTargetCycleInputState())],
-            Hero->IsMouseSwitchArmed() ? TEXT("armed") : TEXT("REARM-WAIT"));
+        static const TCHAR* StickNames[] = { TEXT("Neutral"), TEXT("LatchedLeft"), TEXT("LatchedRight") };
+        static const TCHAR* MouseNames[] = { TEXT("Armed"), TEXT("Accumulating"), TEXT("WaitingForPause") };
+        const FAstralTargetSwitchInputDebugSnapshot S = Hero->GetTargetSwitchInputDebugSnapshot();
 
-        Out.Appendf(TEXT("  mouseAccum=%+.1f"), Hero->GetMouseSwitchAccumulation());
-        const float WindowAge = Hero->GetMouseSwitchWindowAge();
-        if (WindowAge >= 0.f)
+        Out.Appendf(TEXT("Switch: stick=%s  mouse=%s  accum=%+.1f"),
+            StickNames[static_cast<int32>(S.StickPhase)], MouseNames[static_cast<int32>(S.MousePhase)], S.MouseAccumulation);
+        if (S.WindowAge >= 0.f)
         {
-            Out.Appendf(TEXT(" (win %.2fs)"), WindowAge);
+            Out.Appendf(TEXT(" (win %.2fs)"), S.WindowAge);
         }
-        const float Age = Hero->GetMouseSwitchAccumulationAge();
-        if (Age >= 0.f)
+        if (S.IdleAge >= 0.f)
         {
-            Out.Appendf(TEXT(" (idle %.2fs)"), Age);
+            Out.Appendf(TEXT(" (idle %.2fs)"), S.IdleAge);
         }
-
-        const float Threshold = Hero->GetTargetSwitchParams().MouseAccumulationThreshold;
-        if (Threshold > 0.f)
+        if (S.AccumulationThreshold > 0.f)
         {
-            Out.Appendf(TEXT("  thr=%.1f\n"), Threshold);
+            Out.Appendf(TEXT("  thr=%.1f\n"), S.AccumulationThreshold);
         }
         else
         {
@@ -403,7 +401,6 @@ FString UAstralDebugWidget::GetLockOnString() const
         }
     }
 
-#if !UE_BUILD_SHIPPING
     // 카메라 관측 — 실제 카메라 POV 기준 오차·화면 투영, 락온 시점부터의 수렴 반감기 (보간 속도 튜닝용)
     const UAstralHeroCameraComponent* Camera = Pawn ? Pawn->FindComponentByClass<UAstralHeroCameraComponent>() : nullptr;
     if (Camera && Target.IsSet())

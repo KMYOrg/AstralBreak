@@ -6,6 +6,16 @@
 class AActor;
 
 /**
+ * 수동 타겟 전환 방향 — 입력(HeroComponent) → 타게팅(CycleTarget) 경계 타입.
+ */
+UENUM()
+enum class EAstralTargetSwitchDirection : uint8
+{
+	Left,
+	Right
+};
+
+/**
  * 후보 선정 튜닝값 — 컴포넌트가 EditDefaultsOnly로 노출하고 순수 함수는 이 값만 받는다.
  */
 USTRUCT(BlueprintType)

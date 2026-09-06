@@ -53,7 +53,7 @@ public:
 	 * Direction 부호 쪽(현재 타겟 기준 최단 각)으로 가장 가까운 후보로 전환.
 	 * 후보 집합은 획득 필터 그대로(AcquireRange·MaxAcquireYaw·LOS·CanDamage) — 카메라 뒤·벽 뒤·사거리 밖으로는 전환되지 않는다.
 	 */
-	bool CycleTarget(float Direction);
+	bool CycleTarget(EAstralTargetSwitchDirection Direction);
 
 	UFUNCTION(BlueprintPure, Category = "Astral|Targeting")
 	EAstralTargetingMode GetMode() const { return Mode; }

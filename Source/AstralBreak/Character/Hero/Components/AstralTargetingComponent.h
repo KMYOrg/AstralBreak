@@ -49,6 +49,12 @@ public:
 	/** 락온 입력(토글) — 상태 차트의 "락온 입력" 전이: HardLocked면 해제, 아니면 획득 시도 */
 	void ToggleLockOn();
 
+	/**
+	 * Direction 부호 쪽(현재 타겟 기준 최단 각)으로 가장 가까운 후보로 전환.
+	 * 후보 집합은 획득 필터 그대로(AcquireRange·MaxAcquireYaw·LOS·CanDamage) — 카메라 뒤·벽 뒤·사거리 밖으로는 전환되지 않는다.
+	 */
+	bool CycleTarget(float Direction);
+
 	UFUNCTION(BlueprintPure, Category = "Astral|Targeting")
 	EAstralTargetingMode GetMode() const { return Mode; }
 
@@ -117,10 +123,10 @@ private:
 	UPROPERTY(Transient)
 	FAstralTargetHandle HardLockTarget;
 
-	/** 유지 검사 누적 시간 */
+	/** 유지 검사 누적 시간 — 타겟이 바뀌면 CommitTargetingState가 리셋 */
 	float MaintainAccumulator = 0.f;
 
-	/** LOS 상실 누적 (초) — 회복 시 0으로 리셋 */
+	/** LOS 상실 누적 (초) — 회복 시 0. 타겟이 바뀌면 CommitTargetingState가 리셋 */
 	float LosLostTime = 0.f;
 
 	UPROPERTY(Transient)

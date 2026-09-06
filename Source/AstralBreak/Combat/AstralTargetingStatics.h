@@ -92,7 +92,15 @@ namespace AstralTargeting
 	/**
 	 * 최선 후보 인덱스 — 히스테리시스 적용.
 	 * CurrentIndex가 유효하면 다른 후보는 현재 점수 + RetargetThreshold를 넘어야 교체된다. 후보 없음 = INDEX_NONE.
-	 * ⚠️ 자동 선정 전용 — 수동 전환(3단계 CycleTarget)은 이 경로를 쓰지 않는다 (명시적 입력은 히스테리시스 대상이 아니다)
 	 */
 	ASTRALBREAK_API int32 SelectBestCandidate(const TArray<FAstralTargetCandidate>& Candidates, int32 CurrentIndex, const FAstralTargetingParams& Params);
+
+	/** 수동 전환 각도 타이브레이커 허용값 (도) — 이 안이면 각도 동률로 보고 Score → Distance로 넘긴다 */
+	constexpr float CycleAngleTolerance = 0.5f;
+
+	/**
+	 * 수동 전환 후보 — CurrentYawDeg에서 Direction 쪽으로 가장 가까운 후보.
+	 * 타이브레이커: |Step| 최소(CycleAngleTolerance) → Score 높음 → Distance 가까움. bIsCurrentTarget 후보는 제외.
+	 */
+	ASTRALBREAK_API int32 SelectCycleCandidate(const TArray<FAstralTargetCandidate>& Candidates, float CurrentYawDeg, float Direction);
 }

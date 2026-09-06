@@ -260,6 +260,7 @@ void UAstralHeroComponent::InitializePlayerInput(UInputComponent* PlayerInputCom
 					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_Move, ETriggerEvent::Triggered, this, &ThisClass::Input_Move, /*bLogIfNotFound=*/ false);
 					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_Look_Mouse, ETriggerEvent::Triggered, this, &ThisClass::Input_LookMouse, /*bLogIfNotFound=*/ false);
 					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_Look_Stick, ETriggerEvent::Triggered, this, &ThisClass::Input_LookStick, /*bLogIfNotFound=*/ false);
+					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_Look_Stick, ETriggerEvent::Completed, this, &ThisClass::Input_LookStickCompleted, /*bLogIfNotFound=*/ false);
 					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_LockOn, ETriggerEvent::Started, this, &ThisClass::Input_LockOn, /*bLogIfNotFound=*/ false);
 				}
 			}
@@ -380,10 +381,24 @@ void UAstralHeroComponent::Input_LookMouse(const FInputActionValue& InputActionV
 	
 	const FVector2D Value = InputActionValue.Get<FVector2D>();
 
-	// 락온 게이트 — Yaw는 카메라 추적이 소유 (입력은 버린다, 3단계에서 타겟 전환으로 라우팅). Pitch는 통과
-	if (Value.X != 0.0f && !IsHardLocked())
+	// 락온 게이트 — Yaw는 카메라 추적이 소유. 락온 중 Yaw 입력은 타겟 전환(누적·감쇠·쿨다운)으로 라우팅, Pitch는 통과.
+	// 락온 밖에서는 전환 입력 상태를 방어적으로 비운다 (세션 경계 리셋은 Input_LockOn이 확실히)
+	const bool bHardLocked = IsHardLocked();
+	if (!bHardLocked)
 	{
-		Pawn->AddControllerYawInput(Value.X);
+		ResetTargetSwitchInputState();
+	}
+
+	if (Value.X != 0.0f)
+	{
+		if (bHardLocked)
+		{
+			HandleMouseTargetSwitch(Value.X);
+		}
+		else
+		{
+			Pawn->AddControllerYawInput(Value.X);
+		}
 	}
 
 	if (Value.Y != 0.0f)
@@ -408,8 +423,18 @@ void UAstralHeroComponent::Input_LookStick(const FInputActionValue& InputActionV
 	const UWorld* World = GetWorld();
 	check(World);
 
-	// 락온 게이트 — 마우스와 동일 (Yaw 차단, Pitch 통과)
-	if (Value.X != 0.0f && !IsHardLocked())
+	// 락온 게이트 — 마우스와 동일 (Yaw는 전환 latch로, Pitch 통과). X가 0이어도 latch 전이표(해제 임계)에 넣는다
+	const bool bHardLocked = IsHardLocked();
+	if (!bHardLocked)
+	{
+		ResetTargetSwitchInputState();
+	}
+
+	if (bHardLocked)
+	{
+		HandleStickTargetSwitch(Value.X);
+	}
+	else if (Value.X != 0.0f)
 	{
 		Pawn->AddControllerYawInput(Value.X * AstralHero::LookYawRate * World->GetDeltaSeconds());
 	}
@@ -421,12 +446,155 @@ void UAstralHeroComponent::Input_LookStick(const FInputActionValue& InputActionV
 	}
 }
 
+void UAstralHeroComponent::Input_LookStickCompleted(const FInputActionValue& InputActionValue)
+{
+	// 스틱을 완전히 놓음 — 어느 latch 상태에서든 Neutral.
+	CycleInputState = EAstralTargetCycleInput::Neutral;
+}
+
 void UAstralHeroComponent::Input_LockOn(const FInputActionValue& InputActionValue)
 {
+	// 세션 경계 — 이전 락온의 latch·누적·쿨다운이 다음 락온의 첫 전환을 먹지 않게 (타이밍이 아니라 상태 전이에 건다)
+	ResetTargetSwitchInputState();
+
 	// 입력은 전이 요청만 — 후보 선정·상태는 TargetingComponent가 소유
 	if (UAstralTargetingComponent* Targeting = UAstralTargetingComponent::FindTargetingComponent(GetPawn<APawn>()))
 	{
 		Targeting->ToggleLockOn();
 	}
+}
+
+void UAstralHeroComponent::HandleStickTargetSwitch(float AxisX)
+{
+	const float Engage = TargetSwitchParams.StickEngageThreshold;
+	const float Release = FMath::Min(TargetSwitchParams.StickReleaseThreshold, Engage);
+
+	switch (CycleInputState)
+	{
+	case EAstralTargetCycleInput::Neutral:
+		if (AxisX >= Engage)
+		{
+			CycleInputState = EAstralTargetCycleInput::LatchedRight;
+			RequestCycleTarget(+1.f);
+		}
+		else if (AxisX <= -Engage)
+		{
+			CycleInputState = EAstralTargetCycleInput::LatchedLeft;
+			RequestCycleTarget(-1.f);
+		}
+		break;
+
+	case EAstralTargetCycleInput::LatchedRight:
+		if (FMath::Abs(AxisX) <= Release)
+		{
+			CycleInputState = EAstralTargetCycleInput::Neutral;
+		}
+		else if (AxisX <= -Engage)
+		{
+			CycleInputState = EAstralTargetCycleInput::LatchedLeft;
+			RequestCycleTarget(-1.f);
+		}
+		break;
+
+	case EAstralTargetCycleInput::LatchedLeft:
+		if (FMath::Abs(AxisX) <= Release)
+		{
+			CycleInputState = EAstralTargetCycleInput::Neutral;
+		}
+		else if (AxisX >= Engage)
+		{
+			CycleInputState = EAstralTargetCycleInput::LatchedRight;
+			RequestCycleTarget(+1.f);
+		}
+		break;
+	}
+}
+
+void UAstralHeroComponent::HandleMouseTargetSwitch(float DeltaX)
+{
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	const double Now = World->GetTimeSeconds();
+	const FAstralTargetSwitchInputParams& P = TargetSwitchParams;
+
+	// 입력 공백 — 마지막 입력 이후 경과.
+	const double Gap = (LastMouseSwitchInputTime < 0.0) ? TNumericLimits<double>::Max() : (Now - LastMouseSwitchInputTime);
+	const bool bPaused = (Gap >= P.MouseRearmPause);
+
+	// 재전환 — 전환 후에는 마우스가 RearmPause 이상 멈춘 뒤의 첫 입력에서만 다시
+	if (!bMouseSwitchArmed && bPaused)
+	{
+		bMouseSwitchArmed = true;
+	}
+
+	// 누적 창 — 기준은 첫 입력. 공백 뒤 첫 입력이거나 창이 만료됐으면 새 창.
+	// (마지막 입력 기준 감쇠는 끊김 없는 느린 드래그를 못 걸러 결국 임계에 닿는다)
+	const bool bWindowExpired = (MouseSwitchWindowStartTime < 0.0) || bPaused || ((Now - MouseSwitchWindowStartTime) > P.MouseAccumulationWindow);
+	if (bWindowExpired)
+	{
+		MouseSwitchAccumulation = 0.f;
+		MouseSwitchWindowStartTime = Now;
+	}
+
+	LastMouseSwitchInputTime = Now;
+
+	// 입력 폐기 (누적하지 않는다)
+	if (!bMouseSwitchArmed)
+	{
+		MouseSwitchAccumulation = 0.f;
+		return;
+	}
+
+	MouseSwitchAccumulation += DeltaX;
+
+	// 임계 — 0 이하는 비활성 (누적·위젯 표시는 유지, 실측으로 값을 정한 뒤 켜진다)
+	if (P.MouseAccumulationThreshold > 0.f && FMath::Abs(MouseSwitchAccumulation) >= P.MouseAccumulationThreshold)
+	{
+		RequestCycleTarget(FMath::Sign(MouseSwitchAccumulation));
+		MouseSwitchAccumulation = 0.f;
+		MouseSwitchWindowStartTime = -1.0;
+		bMouseSwitchArmed = false;   // 멈출 때까지 잠근다
+	}
+}
+
+void UAstralHeroComponent::ResetTargetSwitchInputState()
+{
+	CycleInputState = EAstralTargetCycleInput::Neutral;
+	MouseSwitchAccumulation = 0.f;
+	MouseSwitchWindowStartTime = -1.0;
+	LastMouseSwitchInputTime = -1.0;
+	bMouseSwitchArmed = true;
+}
+
+void UAstralHeroComponent::RequestCycleTarget(float Direction)
+{
+	if (UAstralTargetingComponent* Targeting = UAstralTargetingComponent::FindTargetingComponent(GetPawn<APawn>()))
+	{
+		Targeting->CycleTarget(Direction);
+	}
+}
+
+float UAstralHeroComponent::GetMouseSwitchAccumulationAge() const
+{
+	const UWorld* World = GetWorld();
+	if (!World || LastMouseSwitchInputTime < 0.0)
+	{
+		return -1.f;
+	}
+	return static_cast<float>(World->GetTimeSeconds() - LastMouseSwitchInputTime);
+}
+
+float UAstralHeroComponent::GetMouseSwitchWindowAge() const
+{
+	const UWorld* World = GetWorld();
+	if (!World || MouseSwitchWindowStartTime < 0.0)
+	{
+		return -1.f;
+	}
+	return static_cast<float>(World->GetTimeSeconds() - MouseSwitchWindowStartTime);
 }
 

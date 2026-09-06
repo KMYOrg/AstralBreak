@@ -73,4 +73,61 @@ namespace AstralTargeting
 
 		return BestIndex;
 	}
+
+	int32 SelectCycleCandidate(const TArray<FAstralTargetCandidate>& Candidates, float CurrentYawDeg, float Direction)
+	{
+		if (FMath::IsNearlyZero(Direction))
+		{
+			return INDEX_NONE;
+		}
+		const float DirectionSign = FMath::Sign(Direction);
+
+		int32 BestIndex = INDEX_NONE;
+		float BestAbsStep = TNumericLimits<float>::Max();
+
+		for (int32 Index = 0; Index < Candidates.Num(); ++Index)
+		{
+			const FAstralTargetCandidate& Candidate = Candidates[Index];
+			if (Candidate.bIsCurrentTarget)
+			{
+				continue;
+			}
+
+			// 최단 부호각 — ±180 래핑에서 단순 뺄셈은 방향이 뒤집힌다
+			const float Step = FMath::FindDeltaAngleDegrees(CurrentYawDeg, Candidate.YawDeg);
+			if (Step * DirectionSign <= 0.f)
+			{
+				continue;
+			}
+
+			const float AbsStep = FMath::Abs(Step);
+			if (BestIndex == INDEX_NONE)
+			{
+				BestIndex = Index;
+				BestAbsStep = AbsStep;
+				continue;
+			}
+
+			const float Diff = AbsStep - BestAbsStep;
+			if (Diff < -CycleAngleTolerance)
+			{
+				BestIndex = Index;
+				BestAbsStep = AbsStep;
+			}
+			else if (Diff <= CycleAngleTolerance)
+			{
+				// 각도 동률 — 입력 배열 순서에 의존하지 않도록 Score → Distance로 결정
+				const FAstralTargetCandidate& Best = Candidates[BestIndex];
+				const bool bBetterScore = Candidate.Score > Best.Score + KINDA_SMALL_NUMBER;
+				const bool bSameScore = FMath::IsNearlyEqual(Candidate.Score, Best.Score);
+				if (bBetterScore || (bSameScore && Candidate.Distance < Best.Distance))
+				{
+					BestIndex = Index;
+					BestAbsStep = AbsStep;
+				}
+			}
+		}
+
+		return BestIndex;
+	}
 }

@@ -116,9 +116,48 @@ bool UAstralTargetingComponent::TryLockOn()
 	NewTarget.TargetActor = Candidates[BestIndex].Actor;
 	NewTarget.TargetPointId = NAME_None;
 
-	LosLostTime = 0.f;
-	MaintainAccumulator = 0.f;
+	CommitTargetingState(EAstralTargetingMode::HardLocked, NewTarget);
 
+#if !UE_BUILD_SHIPPING
+	DebugCandidates = MoveTemp(Candidates);
+	DebugBestCandidate = HardLockTarget.TargetActor;
+#endif
+
+	return true;
+}
+
+bool UAstralTargetingComponent::CycleTarget(float Direction)
+{
+	if (Mode != EAstralTargetingMode::HardLocked || !HardLockTarget.IsSet())
+	{
+		return false;
+	}
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	if (!GetViewPoint(ViewLocation, ViewRotation))
+	{
+		return false;
+	}
+
+	// 기준 각은 후보 배열에서 찾지 않는다 — 유지 조건에 각도 제한이 없어 현재 타겟이 MaxAcquireYaw 밖(등 뒤)이면 배열에 없다
+	const float CurrentYawDeg = AstralTargeting::ComputeYawDeg(ViewLocation, ViewRotation.Yaw, HardLockTarget.GetAimLocation());
+	
+	TArray<FAstralTargetCandidate> Candidates;
+	GatherCandidates(Candidates);
+
+	const int32 NextIndex = AstralTargeting::SelectCycleCandidate(Candidates, CurrentYawDeg, Direction);
+	if (NextIndex == INDEX_NONE)
+	{
+		UE_LOG(LogAstral, Verbose, TEXT("[Targeting] CycleTarget(%+.0f): 그 방향에 후보 없음 (%s)"), Direction, *GetNameSafe(GetOwner()));
+		return false;
+	}
+
+	FAstralTargetHandle NewTarget;
+	NewTarget.TargetActor = Candidates[NextIndex].Actor;
+	NewTarget.TargetPointId = NAME_None;
+
+	// 단일 쓰기 경로 — LosLostTime 등 타겟 종속 상태 리셋과 구독자 통지는 Commit이 한다
 	CommitTargetingState(EAstralTargetingMode::HardLocked, NewTarget);
 
 #if !UE_BUILD_SHIPPING
@@ -131,8 +170,6 @@ bool UAstralTargetingComponent::TryLockOn()
 
 void UAstralTargetingComponent::ClearLock()
 {
-	LosLostTime = 0.f;
-
 	// 자동 전환 없음 — 다음 후보로 넘어가지 않는다
 	CommitTargetingState(EAstralTargetingMode::Idle, FAstralTargetHandle());
 }
@@ -169,6 +206,12 @@ void UAstralTargetingComponent::CommitTargetingState(EAstralTargetingMode NewMod
 
 	Mode = NewMode;
 	HardLockTarget = NewTarget;
+
+	if (bTargetChanged)
+	{
+		LosLostTime = 0.f;
+		MaintainAccumulator = 0.f;
+	}
 
 	OnTargetingChanged.Broadcast();
 }

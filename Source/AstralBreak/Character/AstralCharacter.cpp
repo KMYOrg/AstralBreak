@@ -13,11 +13,9 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "AstralLogChannels.h"
 #include "Character/AstralPawnData.h"
-#include "Character/Components/AstralLoadoutComponent.h"
 #include "Equipment/AstralEquipmentManagerComponent.h"
 #include "GameModes/AstralGameState.h"
 #include "GameplayEffect.h"
-#include "Player/AstralPlayerState.h"
 #include "System/AstralAssetManager.h"
 #include "System/AstralGameData.h"
 
@@ -38,10 +36,10 @@ AAstralCharacter::AAstralCharacter(const FObjectInitializer& ObjectInitializer)
 	UCharacterMovementComponent* AstralMoveComp = GetCharacterMovement();
 	AstralMoveComp->bOrientRotationToMovement = true;
 
-	// 비렌더 메시(서버에서 화면 밖 폰)에서도 애님 틱 유지 — 기본값이면 NotifyState Begin/End가 틱마다 재발화하고
-	// 히트/콤보 노티파이의 서버 측 타이밍이 깨진다
-	// TODO: 최적화 고민 필요
-	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPose;
+
+	// TODO: 비용 - 서버가 모든 캐릭터의 포즈를 매 프레임 평가. 규모가 커지면 OnlyTickMontagesAndRefreshBonesWhenPlayingMontages
+	// (몽타주 재생 중에만 갱신)로 낮추는 것을 검토
+	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 
 	PawnExtComponent = CreateDefaultSubobject<UAstralPawnExtensionComponent>(TEXT("PawnExtComponent"));
 	PawnExtComponent->OnAbilitySystemInitialized_RegisterAndCall(FSimpleMulticastDelegate::FDelegate::CreateUObject(this, &ThisClass::OnAbilitySystemInitialized));
@@ -50,8 +48,6 @@ AAstralCharacter::AAstralCharacter(const FObjectInitializer& ObjectInitializer)
 	HealthComponent = CreateDefaultSubobject<UAstralHealthComponent>(TEXT("HealthComponent"));
 
 	EquipmentManagerComponent = CreateDefaultSubobject<UAstralEquipmentManagerComponent>(TEXT("EquipmentManagerComponent"));
-
-	LoadoutComponent = CreateDefaultSubobject<UAstralLoadoutComponent>(TEXT("LoadoutComponent"));
 }
 
 void AAstralCharacter::OnAbilitySystemInitialized()
@@ -69,7 +65,8 @@ void AAstralCharacter::OnAbilitySystemInitialized()
 	}
 
 	// 장비 컴포넌트 ASC 결합(스타일 태그 구독)
-	// InitGameState가 폰 스폰보다 먼저
+	// GameState는 GameMode::PreInitializeComponents(InitGameState)에서 생기므로 스폰 폰(히어로)은 물론
+	// 레벨 배치 폰(적)의 PostInitializeComponents 시점에도 존재한다.
 	if (HasAuthority() && EquipmentManagerComponent)
 	{
 		EAstralEquipmentPolicy Policy = EAstralEquipmentPolicy::Full;
@@ -81,7 +78,7 @@ void AAstralCharacter::OnAbilitySystemInitialized()
 	}
 
 	// 초기 스타일 시드 (서버, 초기화 전용 — 재적용 경로에서 실행 금지) — 장착보다 먼저
-	// 빈 태그 = 스타일 시스템 미사용 폰 (ApplyCombatStyle이 무효 해석 no-op으로 흡수)
+	// 빈 태그 = 스타일 시스템 미사용 폰 (ApplyCombatStyle이 무효 해석 no-op으로 흡수).
 	if (HasAuthority() && EquipmentManagerComponent && !EquipmentManagerComponent->HasAnyEquipment())
 	{
 		if (const UAstralPawnData* PawnData = PawnExtComponent->GetPawnData<UAstralPawnData>())
@@ -89,15 +86,10 @@ void AAstralCharacter::OnAbilitySystemInitialized()
 			UAstralCombatStatics::ApplyCombatStyle(this, PawnData->InitialCombatStyle);
 		}
 	}
-	
-	// 로드아웃 초기화 — PS 구독 + 초기 1회 적용
-	LoadoutComponent->HandleAbilitySystemInitialized();
 }
 
 void AAstralCharacter::OnAbilitySystemUninitialized()
 {
-	LoadoutComponent->HandleAbilitySystemUninitialized();
-
 	// 이동 컴포넌트 태그 구독 해제 — ASC가 폰보다 오래 살므로 (MC의 OnUnregister 안전망과 중복, 멱등)
 	if (UAstralCharacterMovementComponent* AstralMoveComp = Cast<UAstralCharacterMovementComponent>(GetCharacterMovement()))
 	{
@@ -123,10 +115,10 @@ void AAstralCharacter::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
 
-	// HealthComponent 델리게이트는 컴포넌트 수명(=액터 수명) — ASC Init/Uninit 주기와 무관하게 1회 바인딩 (더미와 동일 패턴)
+	// HealthComponent 델리게이트는 컴포넌트 수명(=액터 수명) — ASC Init/Uninit 주기와 무관하게 1회 바인딩
 	HealthComponent->OnDeathStarted.AddDynamic(this, &ThisClass::HandleDeathStarted);
+	HealthComponent->OnDeathFinished.AddDynamic(this, &ThisClass::HandleDeathFinished);
 	HealthComponent->OnDeathReset.AddDynamic(this, &ThisClass::HandleDeathReset);
-	// OnDeathFinished: 현재는 dead 유지 — TODO: M6 리스폰/관전
 }
 
 void AAstralCharacter::HandleDeathStarted(AActor* OwningActor)
@@ -142,6 +134,11 @@ void AAstralCharacter::HandleDeathStarted(AActor* OwningActor)
 		MoveComp->StopMovementImmediately();
 		MoveComp->DisableMovement();
 	}
+}
+
+void AAstralCharacter::HandleDeathFinished(AActor* OwningActor)
+{
+	// 기본은 dead 유지 — Hero: TODO M6 리스폰/관전. CombatCharacter가 LifeSpan 정리로 오버라이드
 }
 
 void AAstralCharacter::HandleDeathReset(AActor* OwningActor)
@@ -210,11 +207,6 @@ UAbilitySystemComponent* AAstralCharacter::GetAbilitySystemComponent() const
 	}
 
 	return PawnExtComponent->GetAstralAbilitySystemComponent();
-}
-
-AAstralPlayerState* AAstralCharacter::GetAstralPlayerState() const
-{
-	return CastChecked<AAstralPlayerState>(GetPlayerState(), ECastCheckedType::NullAllowed);
 }
 
 UAstralAbilitySystemComponent* AAstralCharacter::GetAstralAbilitySystemComponent() const

@@ -13,36 +13,77 @@
 #include "Character/AstralCharacter.h"
 #include "Character/Components/AstralHealthComponent.h"
 #include "Character/Components/AstralLoadoutComponent.h"
+#include "Character/Hero/Components/AstralHeroCameraComponent.h"
+#include "Character/Hero/Components/AstralHeroComponent.h"
 #include "Character/Hero/Components/AstralHeroMovementComponent.h"
+#include "Character/Hero/Components/AstralTargetingComponent.h"
 #include "GameModes/AstralHubGameState.h"
 #include "Player/AstralPlayerState.h"
 
 void UAstralDebugWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
     Super::NativeTick(MyGeometry, InDeltaTime);
-    if (DebugText)
+
+    if (!DebugText)
     {
-        DebugText->SetText(FText::FromString(BuildDebugString()));
+        return;
     }
+
+    // 슬롯이 있는 섹션은 자기 TextBlock으로, 없으면 좌측 열에 이어 붙인다 (WBP가 1열 구성이어도 동작)
+    TStringBuilder<2048> Main;
+    Main.Append(BuildStatusString());
+
+    if (LockOnText)
+    {
+        LockOnText->SetText(FText::FromString(BuildLockOnString()));
+    }
+    else
+    {
+        Main.Append(TEXT("\n"));
+        Main.Append(BuildLockOnString());
+    }
+
+    if (PartyText)
+    {
+        PartyText->SetText(FText::FromString(BuildPartyString()));
+    }
+    else
+    {
+        Main.Append(TEXT("\n"));
+        Main.Append(BuildPartyString());
+    }
+
+    DebugText->SetText(FText::FromString(Main.ToString()));
 }
 
-FString UAstralDebugWidget::BuildDebugString() const
+FString UAstralDebugWidget::BuildStatusString() const
 {
-    TStringBuilder<2048> B;
+    TStringBuilder<1024> B;
     B.Append(TEXT("=== AstralBreak Debug ===\n"));
-    B.Appendf(TEXT("NetMode:  %s\n"),  *GetNetModeString());
-    B.Appendf(TEXT("Role:     %s\n"),  *GetRoleString());
-    B.Appendf(TEXT("Remote:   %s\n"),  *GetRemoteRoleString());
-    B.Appendf(TEXT("Death:    %s\n"), *GetDeathStateString());
+    B.Appendf(TEXT("%s | %s / %s | Death: %s\n"), *GetNetModeString(), *GetRoleString(), *GetRemoteRoleString(), *GetDeathStateString());
     B.Append(TEXT("\n[Attributes]\n"));
     B.Append(GetAttributesString());
     B.Append(TEXT("\n[Movement]\n"));
     B.Append(GetMovementString());
     B.Append(TEXT("\n[Abilities]\n"));
     B.Append(GetAbilitiesString());
+    return B.ToString();
+}
+
+FString UAstralDebugWidget::BuildLockOnString() const
+{
+    TStringBuilder<1024> B;
+    B.Append(TEXT("[LockOn]\n"));
+    B.Append(GetLockOnString());
     B.Append(TEXT("\n[Target]\n"));
     B.Append(GetTargetString());
-    B.Append(TEXT("\n[Party]\n"));
+    return B.ToString();
+}
+
+FString UAstralDebugWidget::BuildPartyString() const
+{
+    TStringBuilder<512> B;
+    B.Append(TEXT("[Party]\n"));
     B.Append(GetPartyString());
     return B.ToString();
 }
@@ -154,28 +195,30 @@ FString UAstralDebugWidget::GetAttributesString() const
         return TEXT("NoASC\n");
     }
     
+    // 2줄 압축 — 1행: 체력·데미지 배율, 2행: 히어로 자원
     TStringBuilder<512> Out;
     if (const UAstralHealthSet* H = ASC->GetSet<UAstralHealthSet>())
     {
-        Out.Appendf(TEXT("HP:        %.0f / %.0f\n"), H->GetHealth(),    H->GetMaxHealth());
-        Out.Appendf(TEXT("InDmgMul:  %.2f\n"),         H->GetIncomingDamageMultiplier());
+        Out.Appendf(TEXT("HP %.0f/%.0f  InDmg x%.2f"), H->GetHealth(), H->GetMaxHealth(), H->GetIncomingDamageMultiplier());
     }
     else
     {
-        Out.Append(TEXT("(HealthSet not found)\n"));
+        Out.Append(TEXT("(HealthSet not found)"));
     }
 
     if (const UAstralCombatSet* C = ASC->GetSet<UAstralCombatSet>())
     {
-        Out.Appendf(TEXT("OutDmgMul: %.2f\n"), C->GetOutgoingDamageMultiplier());
+        Out.Appendf(TEXT("  OutDmg x%.2f"), C->GetOutgoingDamageMultiplier());
     }
+    Out.Append(TEXT("\n"));
 
     if (const UAstralHeroResourceSet* R = ASC->GetSet<UAstralHeroResourceSet>())
     {
-        Out.Appendf(TEXT("STM: %.0f / %.0f\n"), R->GetStamina(),  R->GetMaxStamina());
-        Out.Appendf(TEXT("ULT: %.0f / %.0f (Mul %.2f)\n"), R->GetUltGauge(), R->GetMaxUltGauge(), R->GetUltGainMultiplier());
-        Out.Appendf(TEXT("MARK: %.0f / %.0f (Mul %.2f)\n"), R->GetMarkStack(), R->GetMaxMarkStack(), R->GetMarkGainMultiplier());
-        Out.Appendf(TEXT("GRD: x%.2f\n"), R->GetGuardDamageMultiplier());
+        Out.Appendf(TEXT("STM %.0f/%.0f  ULT %.0f/%.0f (x%.2f)  MARK %.0f/%.0f (x%.2f)  GRD x%.2f\n"),
+            R->GetStamina(), R->GetMaxStamina(),
+            R->GetUltGauge(), R->GetMaxUltGauge(), R->GetUltGainMultiplier(),
+            R->GetMarkStack(), R->GetMaxMarkStack(), R->GetMarkGainMultiplier(),
+            R->GetGuardDamageMultiplier());
     }
     else
     {
@@ -198,12 +241,12 @@ FString UAstralDebugWidget::GetMovementString() const
     // Want(클라 의도) / Auth(서버 GAS 승인)를 분리 표시 — 원격 클라의 서버 인스턴스에서
     // "Want=1 Auth=0 → MaxSpeed는 걷기"가 찍히면 권한 게이트가 동작한 것
     TStringBuilder<256> Out;
-    Out.Appendf(TEXT("Sprint:   Want=%d Auth=%d Ground=%d -> %d\n"),
+    Out.Appendf(TEXT("Sprint Want=%d Auth=%d Ground=%d -> %d | MaxSpeed %.0f (Vel %.0f, x%.2f)\n"),
         HeroMC->WantsToSprint() ? 1 : 0,
         HeroMC->IsSprintAuthorized() ? 1 : 0,
         HeroMC->IsMovingOnGround() ? 1 : 0,
-        HeroMC->IsSprinting() ? 1 : 0);
-    Out.Appendf(TEXT("MaxSpeed: %.0f (Vel %.0f, MoveMul %.2f)\n"), HeroMC->GetMaxSpeed(), HeroMC->Velocity.Size2D(), HeroMC->GetMoveSpeedMultiplier());
+        HeroMC->IsSprinting() ? 1 : 0,
+        HeroMC->GetMaxSpeed(), HeroMC->Velocity.Size2D(), HeroMC->GetMoveSpeedMultiplier());
 
     return Out.ToString();
 }
@@ -299,6 +342,94 @@ FString UAstralDebugWidget::GetTargetString() const
         {
             Out.Appendf(TEXT("HP: %.0f / %.0f\n"), TargetHealth->GetHealth(), TargetHealth->GetMaxHealth());
         }
+    }
+
+    return Out.ToString();
+}
+
+FString UAstralDebugWidget::GetLockOnString() const
+{
+    const APlayerController* PC = GetOwningPlayer();
+    const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+    const UAstralTargetingComponent* Targeting = UAstralTargetingComponent::FindTargetingComponent(Pawn);
+    if (!Targeting)
+    {
+        return TEXT("(no TargetingComponent)\n");
+    }
+
+    static const TCHAR* ModeNames[] = { TEXT("Idle"), TEXT("SoftTracking"), TEXT("HardLocked") };
+
+    TStringBuilder<1024> Out;
+    Out.Appendf(TEXT("Mode: %s\n"), ModeNames[static_cast<int32>(Targeting->GetMode())]);
+
+    const FAstralTargetHandle& Target = Targeting->GetEffectiveTarget();
+    if (Target.IsSet())
+    {
+        Out.Appendf(TEXT("Target: %s  LosLost: %.2fs\n"), *GetNameSafe(Target.TargetActor.Get()), Targeting->GetLosLostTime());
+    }
+    else
+    {
+        Out.Append(TEXT("Target: (none)\n"));
+    }
+
+#if !UE_BUILD_SHIPPING
+    // 전환 입력 인식기 스냅샷 — 스틱 latch · 마우스 페이즈 · 마우스 누적(MouseAccumulationThreshold 실측용, thr=off면 누적만 한다).
+    // mouse=WaitingForPause는 전환 직후 멈춤(RearmPause)을 기다리는 중 — 그동안 입력은 버려진다
+    if (const UAstralHeroComponent* Hero = UAstralHeroComponent::FindHeroComponent(Pawn))
+    {
+        static const TCHAR* StickNames[] = { TEXT("Neutral"), TEXT("LatchedLeft"), TEXT("LatchedRight") };
+        static const TCHAR* MouseNames[] = { TEXT("Armed"), TEXT("Accumulating"), TEXT("WaitingForPause") };
+        const FAstralTargetSwitchInputDebugSnapshot S = Hero->GetTargetSwitchInputDebugSnapshot();
+
+        Out.Appendf(TEXT("Switch: stick=%s  mouse=%s  accum=%+.1f"),
+            StickNames[static_cast<int32>(S.StickPhase)], MouseNames[static_cast<int32>(S.MousePhase)], S.MouseAccumulation);
+        if (S.WindowAge >= 0.f)
+        {
+            Out.Appendf(TEXT(" (win %.2fs)"), S.WindowAge);
+        }
+        if (S.IdleAge >= 0.f)
+        {
+            Out.Appendf(TEXT(" (idle %.2fs)"), S.IdleAge);
+        }
+        if (S.AccumulationThreshold > 0.f)
+        {
+            Out.Appendf(TEXT("  thr=%.1f\n"), S.AccumulationThreshold);
+        }
+        else
+        {
+            Out.Append(TEXT("  thr=off\n"));
+        }
+    }
+
+    // 카메라 관측 — 실제 카메라 POV 기준 오차·화면 투영, 락온 시점부터의 수렴 반감기 (보간 속도 튜닝용)
+    const UAstralHeroCameraComponent* Camera = Pawn ? Pawn->FindComponentByClass<UAstralHeroCameraComponent>() : nullptr;
+    if (Camera && Target.IsSet())
+    {
+        const FAstralLockOnCameraDebugStats& S = Camera->GetDebugStats();
+        Out.Appendf(TEXT("Cam: d=%.0f  yawErr=%+.1f  pitchErr=%+.1f  screen=(%+.2f, %+.2f)%s\n"),
+            S.Distance, S.YawErrorDeg, S.PitchErrorDeg, S.ScreenOffset.X, S.ScreenOffset.Y, S.bOnScreen ? TEXT("") : TEXT(" OFF"));
+        if (S.YawHalfLifeSeconds >= 0.f)
+        {
+            Out.Appendf(TEXT("     t=%.2fs  init=%+.1f  halfLife=%.2fs\n"), S.ElapsedSinceLock, S.InitialYawErrorDeg, S.YawHalfLifeSeconds);
+        }
+        else
+        {
+            Out.Appendf(TEXT("     t=%.2fs  init=%+.1f  halfLife=--\n"), S.ElapsedSinceLock, S.InitialYawErrorDeg);
+        }
+    }
+#endif
+
+    // 후보 목록 — '*' 현재 타겟, '>' 지금 선정한다면 뽑힐 후보 (히스테리시스 포함). 둘이 다르면 임계가 교체를 막고 있는 것
+    const AActor* Best = Targeting->GetDebugBestCandidate();
+    const TArray<FAstralTargetCandidate>& Candidates = Targeting->GetDebugCandidates();
+    Out.Appendf(TEXT("Candidates: %d\n"), Candidates.Num());
+    for (const FAstralTargetCandidate& Candidate : Candidates)
+    {
+        const AActor* Actor = Candidate.Actor.Get();
+        Out.Appendf(TEXT("  %s%s %s  d=%.0f  yaw=%+.1f  score=%.3f\n"),
+            Candidate.bIsCurrentTarget ? TEXT("*") : TEXT(" "),
+            (Actor && Actor == Best) ? TEXT(">") : TEXT(" "),
+            *GetNameSafe(Actor), Candidate.Distance, Candidate.YawDeg, Candidate.Score);
     }
 
     return Out.ToString();

@@ -18,6 +18,7 @@
 #include "UserSettings/EnhancedInputUserSettings.h"
 #include "InputMappingContext.h"
 #include "Character/Hero/AstralPawnData_Hero.h"
+#include "Character/Hero/Components/AstralTargetingComponent.h"
 #include "Input/AstralInputGameplayTags.h"
 #include "Misc/UObjectToken.h"
 
@@ -34,6 +35,8 @@ UAstralHeroComponent::UAstralHeroComponent(const FObjectInitializer& ObjectIniti
 	: Super(ObjectInitializer)
 {
 	bReadyToBindInputs = false;
+	
+	PrimaryComponentTick.bCanEverTick = false;
 }
 
 void UAstralHeroComponent::OnRegister()
@@ -180,6 +183,8 @@ void UAstralHeroComponent::CheckDefaultInitialization()
 void UAstralHeroComponent::BeginPlay()
 {
 	Super::BeginPlay();
+	
+	CachedTargeting = UAstralTargetingComponent::FindTargetingComponent(GetPawn<APawn>());
 
 	BindOnActorInitStateChanged(UAstralPawnExtensionComponent::NAME_ActorFeatureName, FGameplayTag(), false);
 
@@ -192,6 +197,28 @@ void UAstralHeroComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	UnregisterInitStateFeature();
 
 	Super::EndPlay(EndPlayReason);
+}
+
+#if WITH_EDITOR
+void UAstralHeroComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	// Release > Engage는 데이터 오류 — 편집 시점에 정규화 (ValidateComboStageMontages와 같은 "런타임 보정 → 데이터 검증" 이동)
+	TargetSwitchParams.StickReleaseThreshold = FMath::Min(TargetSwitchParams.StickReleaseThreshold, TargetSwitchParams.StickEngageThreshold);
+}
+#endif
+
+UAstralTargetingComponent* UAstralHeroComponent::GetTargeting() const
+{
+	// BeginPlay 전 호출(정상 경로에선 없다)만 지연 해석 — 캐시는 BeginPlay가 채운다
+	return CachedTargeting ? CachedTargeting.Get() : UAstralTargetingComponent::FindTargetingComponent(GetPawn<APawn>());
+}
+
+bool UAstralHeroComponent::IsHardLocked() const
+{
+	const UAstralTargetingComponent* Targeting = GetTargeting();
+	return Targeting && Targeting->GetMode() == EAstralTargetingMode::HardLocked && Targeting->GetEffectiveTarget().IsSet();
 }
 
 void UAstralHeroComponent::InitializePlayerInput(UInputComponent* PlayerInputComponent)
@@ -251,6 +278,8 @@ void UAstralHeroComponent::InitializePlayerInput(UInputComponent* PlayerInputCom
 					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_Move, ETriggerEvent::Triggered, this, &ThisClass::Input_Move, /*bLogIfNotFound=*/ false);
 					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_Look_Mouse, ETriggerEvent::Triggered, this, &ThisClass::Input_LookMouse, /*bLogIfNotFound=*/ false);
 					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_Look_Stick, ETriggerEvent::Triggered, this, &ThisClass::Input_LookStick, /*bLogIfNotFound=*/ false);
+					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_Look_Stick, ETriggerEvent::Completed, this, &ThisClass::Input_LookStickCompleted, /*bLogIfNotFound=*/ false);
+					AstralIC->BindNativeAction(InputConfig, AstralGameplayTags::InputTag_LockOn, ETriggerEvent::Started, this, &ThisClass::Input_LockOn, /*bLogIfNotFound=*/ false);
 				}
 			}
 		}
@@ -369,10 +398,23 @@ void UAstralHeroComponent::Input_LookMouse(const FInputActionValue& InputActionV
 	}
 	
 	const FVector2D Value = InputActionValue.Get<FVector2D>();
-
-	if (Value.X != 0.0f)
+	const bool bHardLocked = IsHardLocked();
+	if (bHardLocked)
 	{
-		Pawn->AddControllerYawInput(Value.X);
+		if (Value.X != 0.0f)
+		{
+			const UWorld* World = GetWorld();
+			check(World);
+			ApplyTargetSwitch(TargetSwitchInput.ConsumeMouse(Value.X, World->GetTimeSeconds(), TargetSwitchParams));
+		}
+	}
+	else
+	{
+		TargetSwitchInput.Reset();
+		if (Value.X != 0.0f)
+		{
+			Pawn->AddControllerYawInput(Value.X);
+		}
 	}
 
 	if (Value.Y != 0.0f)
@@ -397,9 +439,19 @@ void UAstralHeroComponent::Input_LookStick(const FInputActionValue& InputActionV
 	const UWorld* World = GetWorld();
 	check(World);
 
-	if (Value.X != 0.0f)
+	// 락온 게이트 — 마우스와 동일 (Yaw는 전환 인식기로, Pitch 통과). X가 0이어도 인식기에 넣는다 (해제 임계 판정)
+	const bool bHardLocked = IsHardLocked();
+	if (bHardLocked)
 	{
-		Pawn->AddControllerYawInput(Value.X * AstralHero::LookYawRate * World->GetDeltaSeconds());
+		ApplyTargetSwitch(TargetSwitchInput.ConsumeStick(Value.X, TargetSwitchParams));
+	}
+	else
+	{
+		TargetSwitchInput.Reset();
+		if (Value.X != 0.0f)
+		{
+			Pawn->AddControllerYawInput(Value.X * AstralHero::LookYawRate * World->GetDeltaSeconds());
+		}
 	}
 
 	if (Value.Y != 0.0f)
@@ -408,4 +460,43 @@ void UAstralHeroComponent::Input_LookStick(const FInputActionValue& InputActionV
 		Pawn->AddControllerPitchInput(-Value.Y * AstralHero::LookPitchRate * World->GetDeltaSeconds());
 	}
 }
+
+void UAstralHeroComponent::Input_LookStickCompleted(const FInputActionValue& InputActionValue)
+{
+	// 스틱을 완전히 놓음 — 어느 latch 상태에서든 Neutral
+	TargetSwitchInput.CompleteStick();
+}
+
+void UAstralHeroComponent::Input_LockOn(const FInputActionValue& InputActionValue)
+{
+	// 세션 경계 — 이전 락온의 latch·창·잠금이 다음 락온의 첫 전환을 먹지 않게 (타이밍이 아니라 상태 전이에 건다)
+	TargetSwitchInput.Reset();
+
+	// 입력은 전이 요청만 — 후보 선정·상태는 TargetingComponent가 소유
+	if (UAstralTargetingComponent* Targeting = GetTargeting())
+	{
+		Targeting->ToggleLockOn();
+	}
+}
+
+void UAstralHeroComponent::ApplyTargetSwitch(const FAstralTargetSwitchResult& Result)
+{
+	if (!Result.IsSet())
+	{
+		return;
+	}
+
+	if (UAstralTargetingComponent* Targeting = GetTargeting())
+	{
+		Targeting->CycleTarget(*Result);
+	}
+}
+
+#if !UE_BUILD_SHIPPING
+FAstralTargetSwitchInputDebugSnapshot UAstralHeroComponent::GetTargetSwitchInputDebugSnapshot() const
+{
+	const UWorld* World = GetWorld();
+	return TargetSwitchInput.MakeDebugSnapshot(World ? World->GetTimeSeconds() : 0.0, TargetSwitchParams);
+}
+#endif
 

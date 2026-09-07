@@ -1,26 +1,24 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AbilitySystemInterface.h"
-#include "GameFramework/Character.h"
+#include "Character/AstralCharacter.h"
 #include "GenericTeamAgentInterface.h"
 #include "UObject/PrimaryAssetId.h"
 #include "AstralCombatCharacter.generated.h"
 
-class UAstralAbilitySystemComponent;
 class UAstralAbilitySet;
+class UAstralAbilitySystemComponent;
 class UAstralCombatSet;
-class UAstralEquipmentManagerComponent;
-class UAstralHealthComponent;
 class UAstralHealthSet;
 
 /**
- * 자기 자신이 ASC를 소유하는 전투 캐릭터 베이스 — 타겟 더미(M2)와 M3 몬스터의 공통 조상.
- * Hero(ASC를 PlayerState에서 빌려옴)와 달리 InitState 체인/PawnExtension 없이 스폰 즉시 완결 초기화.
+ * 자기 자신이 ASC를 소유하는 전투 캐릭터 — 타겟 더미(M2)와 M3 몬스터의 공통 조상 
+ * Hero와 달리 PlayerState를 기다릴 필요가 없어 PostInitializeComponents에서 PawnExtension에 자기 ASC를 바로 넘긴다.
  * HealthSet/CombatSet은 PlayerState와 동일하게 CDO 서브오브젝트 패턴 (스폰 시점부터 존재, 복제 타이밍 안전).
+ * InitState 체인은 PawnData가 없어 Spawned에 머무르지만 아무도 기다리지 않는다 — M3에서 적 PawnData 도입 시 자연 진행
  */
 UCLASS()
-class ASTRALBREAK_API AAstralCombatCharacter : public ACharacter, public IAbilitySystemInterface, public IGenericTeamAgentInterface
+class ASTRALBREAK_API AAstralCombatCharacter : public AAstralCharacter, public IGenericTeamAgentInterface
 {
 	GENERATED_BODY()
 
@@ -28,6 +26,7 @@ public:
 	AAstralCombatCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	//~ IAbilitySystemInterface
+	/** 자기 ASC를 직접 — PawnExtension 결합 전(복제 초기 번치 등)에도 유효해야 한다 */
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 	//~ End IAbilitySystemInterface
 
@@ -35,9 +34,6 @@ public:
 	virtual void SetGenericTeamId(const FGenericTeamId& NewTeamID) override { TeamId = NewTeamID.GetId(); }
 	virtual FGenericTeamId GetGenericTeamId() const override { return FGenericTeamId(TeamId); }
 	//~ End IGenericTeamAgentInterface
-
-	UFUNCTION(BlueprintPure, Category = "Astral|Combat")
-	UAstralHealthComponent* GetHealthComponent() const { return HealthComponent; }
 
 	UFUNCTION(BlueprintPure, Category = "Astral|Combat")
 	bool IsTelegraphAttackEnabled() const { return bTelegraphAttackEnabled; }
@@ -53,24 +49,17 @@ protected:
 	//~ AActor
 	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
-	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	//~ End AActor
 
-	/** 사망 시작 — 물리 반응(콜리전/이동 정지)은 액터 책임. FinishDeath 타이밍은 GA_Death의 DeathDuration이 결정 */
-	UFUNCTION()
-	virtual void HandleDeathStarted(AActor* OwningActor);
-
-	/** 사망 완료 — MVP는 LifeSpan으로 정리. M3에서 스폰/디스폰 인터페이스로 교체 예정 (풀링 대비) */
-	UFUNCTION()
-	virtual void HandleDeathFinished(AActor* OwningActor);
+	//~ AAstralCharacter
+	/** 사망 완료 — MVP는 LifeSpan으로 정리. M3에서 스폰/디스폰 인터페이스로 교체 예정 */
+	virtual void HandleDeathFinished(AActor* OwningActor) override;
+	//~ End AAstralCharacter
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Components")
 	TObjectPtr<UAstralAbilitySystemComponent> AbilitySystemComponent;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Components")
-	TObjectPtr<UAstralHealthComponent> HealthComponent;
 
 	UPROPERTY()
 	TObjectPtr<const UAstralHealthSet> HealthSet;
@@ -85,9 +74,6 @@ protected:
 	/** 스폰 시(서버) 장착할 기본 장비 — 더미는 비워도 됨, M3 무기 든 몬스터용 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Equipment", Meta = (AllowedTypes = "AstralWeaponDefinition,AstralRangedWeaponDefinition"))
 	TArray<FPrimaryAssetId> DefaultEquipment;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Components")
-	TObjectPtr<UAstralEquipmentManagerComponent> EquipmentManagerComponent;
 
 	/** 팀 ID (플레이어 = 0, 적 = 1). 런타임 변경(SetGenericTeamId)이 클라에도 반영되도록 복제 */
 	UPROPERTY(EditAnywhere, Replicated, Category = "Astral|Team")

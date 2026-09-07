@@ -7,6 +7,7 @@
 #include "Character/Hero/Components/AstralHeroCameraComponent.h"
 #include "Character/Hero/Components/AstralHeroMovementComponent.h"
 #include "Character/Hero/Components/AstralTargetingComponent.h"
+#include "MotionWarpingComponent.h"
 #include "Player/AstralPlayerState.h"
 
 AAstralCharacter_Hero::AAstralCharacter_Hero(const FObjectInitializer& ObjectInitializer)
@@ -30,6 +31,7 @@ AAstralCharacter_Hero::AAstralCharacter_Hero(const FObjectInitializer& ObjectIni
 	LoadoutComponent = CreateDefaultSubobject<UAstralLoadoutComponent>(TEXT("LoadoutComponent"));
 	TargetingComponent = CreateDefaultSubobject<UAstralTargetingComponent>(TEXT("TargetingComponent"));
 	HeroCameraComponent = CreateDefaultSubobject<UAstralHeroCameraComponent>(TEXT("HeroCameraComponent"));
+	MotionWarpingComponent = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarpingComponent"));
 }
 
 void AAstralCharacter_Hero::PostInitializeComponents()

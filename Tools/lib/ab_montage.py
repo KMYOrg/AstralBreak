@@ -123,6 +123,32 @@ def add_notify_state(montage, track_name: str, start: float, duration: float,
     return ns
 
 
+MOTION_WARPING_CLASS = "/Script/MotionWarping.AnimNotifyState_MotionWarping"
+
+
+def add_motion_warping_window(montage, track_name: str, start: float, duration: float,
+                              warp_target_name: str, warp_rotation: bool = True,
+                              warp_translation: bool = False, **modifier_props):
+    """MotionWarping 밴드 배치 (락온 4단계 — 회전 전용 방향 보정).
+
+    설정값은 NotifyState가 아니라 그 안의 RootMotionModifier 서브오브젝트에 있다
+    (엔진이 SkewWarp를 기본 서브오브젝트로 만들어 둔다 — 새로 만들지 않는다).
+    warp_translation 기본 False: 워프 타겟 위치가 아바타 현재 위치라 병진 워프가 켜지면
+    전진 루트모션이 제자리로 수렴한다.
+    modifier_props: rotation_method / warp_max_rotation_rate / warp_rotation_time_multiplier 등 추가 프로퍼티
+    """
+    ns = add_notify_state(montage, track_name, start, duration, MOTION_WARPING_CLASS)
+    modifier = ns.get_editor_property("root_motion_modifier")
+    if modifier is None:
+        raise RuntimeError("MotionWarping NotifyState에 root_motion_modifier가 없다 (엔진 기본 서브오브젝트 누락)")
+    modifier.set_editor_property("warp_target_name", warp_target_name)
+    modifier.set_editor_property("warp_rotation", warp_rotation)
+    modifier.set_editor_property("warp_translation", warp_translation)
+    for k, v in modifier_props.items():
+        modifier.set_editor_property(k, v)
+    return ns
+
+
 # ─────────────────────────── 저장/검증 ───────────────────────────
 
 def save(montage) -> bool:
@@ -140,12 +166,62 @@ def describe(montage) -> dict:
     }
 
 
+def _safe_prop(obj, name):
+    try:
+        return obj.get_editor_property(name)
+    except Exception:
+        return None
+
+
+def describe_notifies(montage) -> list:
+    """모든 notify/notify state를 [트랙, 클래스, 시작, 종료, 주요 프로퍼티]로 덤프한다.
+    밴드 배치 검증(워프 밴드가 WeaponTrace 시작 전에 끝나는가 등)과 probe용.
+    실측: FAnimNotifyEvent는 시간·트랙 프로퍼티가 Python에 안 나온다 — AnimationLibrary의
+    get_anim_notify_event_trigger_time / duration과 트랙별 조회로 우회."""
+    out = []
+    for track in _abl.get_animation_notify_track_names(montage):
+        for ev in _abl.get_animation_notify_events_for_track(montage, track):
+            state = _safe_prop(ev, "notify_state_class")
+            notify = _safe_prop(ev, "notify")
+            obj = state or notify
+            start = float(_abl.get_anim_notify_event_trigger_time(ev))
+            duration = float(_abl.get_anim_notify_event_duration(ev)) if state else 0.0
+            entry = {
+                "track": str(track),
+                "class": obj.get_class().get_name() if obj else "?",
+                "start": round(start, 4),
+                "end": round(start + duration, 4),
+            }
+            if obj:
+                for key in ("begin_event_tag", "end_event_tag", "event_tag"):
+                    v = _safe_prop(obj, key)
+                    if v is not None:
+                        entry[key] = str(_safe_prop(v, "tag_name"))
+                mod = _safe_prop(obj, "root_motion_modifier")
+                if mod is not None:
+                    entry["modifier"] = mod.get_class().get_name()
+                    for key in ("warp_target_name", "warp_rotation", "warp_translation",
+                                "rotation_type", "rotation_method", "warp_max_rotation_rate",
+                                "warp_rotation_time_multiplier"):
+                        v = _safe_prop(mod, key)
+                        if v is not None:
+                            entry[key] = str(v)
+            out.append(entry)
+    out.sort(key=lambda e: e["start"])
+    return out
+
+
 # ─────────────────────────── 배치 ───────────────────────────
 
 NOTIFY_CLASSES = {
     "GameplayEvent": "/Script/AstralBreak.AstralAnimNotify_GameplayEvent",
     "GameplayEventWindow": "/Script/AstralBreak.AstralAnimNotifyState_GameplayEventWindow",
+    "MotionWarping": MOTION_WARPING_CLASS,
 }
+
+# MotionWarping 스펙에서 modifier로 전달되는 키 (NotifyState가 아니라 서브오브젝트 프로퍼티)
+MOTION_WARPING_MODIFIER_KEYS = ("rotation_method", "warp_max_rotation_rate",
+                                "warp_rotation_time_multiplier")
 
 
 def build_from_spec(spec: dict, dry_run: bool = False) -> dict:
@@ -186,6 +262,17 @@ def build_from_spec(spec: dict, dry_run: bool = False) -> dict:
         clear_track(mon, t)
 
     for n in spec.get("notifies", []):
+        if n["type"] == "MotionWarping":
+            # {"type": "MotionWarping", "track": "Facing", "start": 0.0, "duration": 0.2,
+            #  "warp_target_name": "BasicMelee.Stage0", "warp_rotation": true, "warp_translation": false}
+            extra = {k: n[k] for k in MOTION_WARPING_MODIFIER_KEYS if k in n}
+            add_motion_warping_window(mon, n.get("track", "Facing"), n["start"], n["duration"],
+                                      n["warp_target_name"],
+                                      warp_rotation=n.get("warp_rotation", True),
+                                      warp_translation=n.get("warp_translation", False),
+                                      **extra)
+            continue
+
         cls_path = NOTIFY_CLASSES.get(n["type"], n["type"])
         props = {}
         for key in ("event_tag", "begin_event_tag", "end_event_tag"):

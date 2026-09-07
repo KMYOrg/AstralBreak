@@ -82,4 +82,41 @@ bool FAstralTargetingSelectCycleCandidateTest::RunTest(const FString& Parameters
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAstralTargetingClampFacingYawTest, "AstralBreak.Targeting.ClampFacingYaw", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FAstralTargetingClampFacingYawTest::RunTest(const FString& Parameters)
+{
+	using namespace AstralTargeting;
+	constexpr float Tolerance = 0.01f;
+
+	// 상한 안 — 원하는 각 그대로
+	TestNearlyEqual(TEXT("within: 0 -> 45 (max 90)"), ClampFacingYaw(0.f, 45.f, 90.f), 45.f, Tolerance);
+	TestNearlyEqual(TEXT("within: 0 -> -45 (max 90)"), ClampFacingYaw(0.f, -45.f, 90.f), -45.f, Tolerance);
+
+	// 상한 밖 — 폴백이 아니라 클램프 (락온 4단계 완료 기준 3)
+	TestNearlyEqual(TEXT("clamp: 0 -> 170 (max 90) = 90"), ClampFacingYaw(0.f, 170.f, 90.f), 90.f, Tolerance);
+	TestNearlyEqual(TEXT("clamp: 0 -> -170 (max 90) = -90"), ClampFacingYaw(0.f, -170.f, 90.f), -90.f, Tolerance);
+
+	// ±180 래핑 — 현재 +170 · 원하는 -70: 단순 차 −240이 아니라 최단 +120 → 우측 90만큼 = -100
+	TestNearlyEqual(TEXT("wrap: +170 -> -70 (max 90) = -100"), ClampFacingYaw(170.f, -70.f, 90.f), -100.f, Tolerance);
+	// 현재 -170 · 원하는 +170: 최단 -20 (좌측) → 그대로 +170
+	TestNearlyEqual(TEXT("wrap: -170 -> +170 (max 90) = 170"), ClampFacingYaw(-170.f, 170.f, 90.f), 170.f, Tolerance);
+
+	// 정확히 뒤(180) — 어느 쪽이든 상한만큼만
+	TestNearlyEqual(TEXT("behind: |0 -> 180| (max 90) = 90"), FMath::Abs(ClampFacingYaw(0.f, 180.f, 90.f)), 90.f, Tolerance);
+
+	// 상한 0 — 회전 없음
+	TestNearlyEqual(TEXT("max 0: no change"), ClampFacingYaw(30.f, 120.f, 0.f), 30.f, Tolerance);
+
+	// 결과는 정규화 (-180, 180]
+	TestNearlyEqual(TEXT("normalized: 170 + 30 = -160"), ClampFacingYaw(170.f, -160.f, 90.f), -160.f, Tolerance);
+
+	// ComputeFacingYaw — 수평 겹침은 폴백
+	TestNearlyEqual(TEXT("facing yaw: +X = 0"), ComputeFacingYaw(FVector::ZeroVector, FVector(100.f, 0.f, 0.f), 55.f), 0.f, Tolerance);
+	TestNearlyEqual(TEXT("facing yaw: +Y = 90"), ComputeFacingYaw(FVector::ZeroVector, FVector(0.f, 100.f, 0.f), 55.f), 90.f, Tolerance);
+	TestNearlyEqual(TEXT("facing yaw: overlap -> fallback"), ComputeFacingYaw(FVector::ZeroVector, FVector(0.f, 0.f, 300.f), 55.f), 55.f, Tolerance);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

@@ -3,11 +3,35 @@
 
 #include "AstralGA_Hero_Base.h"
 
+#include "Character/Hero/AstralCharacter_Hero.h"
+#include "Character/Hero/Components/AstralTargetingComponent.h"
+#include "Combat/AstralTargetingStatics.h"
 #include "System/AstralGameData.h"
 
 UAstralGA_Hero_Base::UAstralGA_Hero_Base(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+}
+
+FAstralTargetHandle UAstralGA_Hero_Base::ResolveEffectiveTarget() const
+{
+	// GetAstralCharacterFromActorInfo는 베이스(AAstralCharacter)를 돌려주므로 히어로 캐스트는 여기서
+	const AAstralCharacter_Hero* Hero = Cast<AAstralCharacter_Hero>(GetAvatarActorFromActorInfo());
+	const UAstralTargetingComponent* Targeting = Hero ? Hero->GetTargetingComponent() : nullptr;
+	return Targeting ? Targeting->GetEffectiveTarget() : FAstralTargetHandle();
+}
+
+FRotator UAstralGA_Hero_Base::ComputeClampedFacing(const FVector& AimLocation, float MaxAssistYaw) const
+{
+	const AActor* Avatar = GetAvatarActorFromActorInfo();
+	if (!Avatar)
+	{
+		return FRotator::ZeroRotator;
+	}
+
+	const float CurrentYaw = Avatar->GetActorRotation().Yaw;
+	const float DesiredYaw = AstralTargeting::ComputeFacingYaw(Avatar->GetActorLocation(), AimLocation, CurrentYaw);
+	return FRotator(0.f, AstralTargeting::ClampFacingYaw(CurrentYaw, DesiredYaw, MaxAssistYaw), 0.f);
 }
 
 void UAstralGA_Hero_Base::ApplyUltGain(float Amount) const

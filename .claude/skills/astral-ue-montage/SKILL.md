@@ -45,6 +45,22 @@ BOM이 붙어 있으면 `json.load` 가 실패한다.
 
 - `GameplayEvent` — 단발. `event_tag`, `event_data`
 - `GameplayEventWindow` — 구간. `begin_event_tag`, `end_event_tag`, `event_data`
+- `MotionWarping` — 구간(엔진). `warp_target_name`, `warp_rotation`(기본 True), `warp_translation`(기본 **False** — 회전 전용 방향 보정), 선택 `rotation_method` / `warp_max_rotation_rate` / `warp_rotation_time_multiplier`.
+  설정값은 NotifyState가 아니라 그 안의 `root_motion_modifier` 서브오브젝트(SkewWarp, 엔진이 기본 생성)에 있다 — `add_motion_warping_window()`가 처리한다.
+  기존 몽타주에 밴드만 추가할 때는 `Tools/data/facing_warp.json` + `Tools/scripts/lockon_apply_facing_warp.py` (트랙 `Facing`을 비우고 재배치, 멱등)
+
+# 타임라인 조회
+
+`describe_notifies(montage)` — 트랙·클래스·시작·종료·태그·워프 설정을 시간순으로 덤프.
+`FAnimNotifyEvent`는 Python에 시간·트랙 프로퍼티가 노출되지 않는다 — `AnimationLibrary.get_anim_notify_event_trigger_time / get_anim_notify_event_duration`과 트랙별 조회(`get_animation_notify_events_for_track`)로만 읽을 수 있다. `tag.tag_name`으로 태그 문자열을 얻는다.
+
+# EditDefaultsOnly 구조체 필드
+
+BP CDO의 구조체 배열(예: `combo_stages`) 원소의 `EditDefaultsOnly` 필드는 Python struct 인스턴스에 `set_editor_property`가 막힌다("cannot be edited on instances"). `export_text()` → 문자열 치환 → `import_text()`로 우회한 뒤 배열을 통째로 CDO에 되돌려 쓴다 (`lockon_setup_facing_data.py` 참조).
+
+# Remote Execution 연결
+
+에디터가 떠 있는데 "UE 에디터를 찾지 못했습니다"면 Project Settings → Plugins → Python → Multicast Time-To-Live가 0인지 확인 (1이어야 한다. DefaultEngine.ini에 1로 고정됨).
 
 `event_data` 는 `make_event_data(magnitude=...)` 로만 만든다.
 `instigator`, `target`, `context_handle`, `target_data` 는 런타임 전용이므로 절대 설정하지 않는다.

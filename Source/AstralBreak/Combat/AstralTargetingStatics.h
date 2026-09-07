@@ -113,4 +113,13 @@ namespace AstralTargeting
 	 * 타이브레이커: |Step| 최소(CycleAngleTolerance) → Score 높음 → Distance 가까움. bIsCurrentTarget 후보는 제외.
 	 */
 	ASTRALBREAK_API int32 SelectCycleCandidate(const TArray<FAstralTargetCandidate>& Candidates, float CurrentYawDeg, float Direction);
+
+	/** From → To 수평 방향의 절대 yaw (도). 두 점이 수평으로 겹치면 FallbackYaw */
+	ASTRALBREAK_API float ComputeFacingYaw(const FVector& From, const FVector& To, float FallbackYaw);
+
+	/**
+	 * CurrentYaw에서 DesiredYaw 쪽으로 최대 MaxAssistYaw만큼만 (도, 정규화된 절대 yaw 반환).
+	 * ±180 래핑은 최단 부호각으로 처리 — 단순 뺄셈은 경계에서 방향이 뒤집힌다. 초과 시 폴백이 아니라 클램프 (락온 설계 §5)
+	 */
+	ASTRALBREAK_API float ClampFacingYaw(float CurrentYaw, float DesiredYaw, float MaxAssistYaw);
 }

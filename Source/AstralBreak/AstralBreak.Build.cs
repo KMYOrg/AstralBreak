@@ -31,6 +31,9 @@ public class AstralBreak : ModuleRules
 			"ModularGameplay",
 			"GameFeatures",
 
+			// 공격 방향 보정 — anim 루트모션의 로컬 트랜스폼을 월드 변환 직전에 수정 (락온 4단계)
+			"MotionWarping",
+
 			// 팀/피아 판정 (IGenericTeamAgentInterface) + 추후 M3 AIController/Perception
 			"AIModule",
 			

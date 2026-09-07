@@ -6,9 +6,11 @@
 #include "Abilities/Tasks/AbilityTask_WaitInputPress.h"
 #include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
+#include "AbilitySystem/Abilities/AstralAttackMontageValidation.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/Notifies/AstralAnimNotifyState_GameplayEventWindow.h"
 #include "AstralLogChannels.h"
+#include "Combat/AstralCombatTypes.h"
 #include "GameFramework/Pawn.h"
 
 //////////////////////////////////////////////////////////////////////////
@@ -180,13 +182,31 @@ void UAstralGA_Hero_BasicAttack_Melee::ValidateComboStageMontages()
     }
     bComboStagesValidated = true;
 
+    // 워프 타겟 이름 중복 — 같은 이름이면 스테이지 경계에서 이전 타겟이 덮여 리플레이 안전성(이름 분리)이 깨진다
+    TSet<FName> SeenWarpNames;
+
     for (int32 Index = 0; Index < ComboStages.Num(); ++Index)
     {
-        const UAnimMontage* Montage = ComboStages[Index].Montage.Get();
+        const FAstralComboStageData& StageData = ComboStages[Index];
+        const UAnimMontage* Montage = StageData.Montage.Get();
         if (!Montage)
         {
             continue;
         }
+
+        if (!StageData.FacingWarpTargetName.IsNone())
+        {
+            bool bAlreadySeen = false;
+            SeenWarpNames.Add(StageData.FacingWarpTargetName, &bAlreadySeen);
+            if (bAlreadySeen)
+            {
+                UE_LOG(LogAstralAbilitySystem, Error, TEXT("[Combo] %s (스테이지 %d): 워프 타겟 이름 '%s'가 다른 스테이지와 중복 — 스테이지별로 고유해야 한다"),
+                    *GetName(), Index, *StageData.FacingWarpTargetName.ToString());
+            }
+        }
+
+        AstralAttackMontage::ValidateFacingWarpBand(Montage, StageData.FacingWarpTargetName, AstralGameplayTags::GameplayEvent_WeaponTrace_Begin,
+            FString::Printf(TEXT("%s 스테이지 %d"), *GetName(), Index));
 
         int32 BranchBandCount = 0;
 
@@ -273,6 +293,9 @@ void UAstralGA_Hero_BasicAttack_Melee::PlayComboStage(int32 StageIndex)
 
     const FAstralComboStageData& Stage = ComboStages[StageIndex];
 
+    // 방향 보정 — 이전 스테이지 타겟은 EndAbility까지 지우지 않는다 — 스테이지 경계를 걸친 리플레이가 올바른 타겟을 찾도록 (5단계)
+    InstallStageFacingWarp(Stage);
+
     ActiveMontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, Stage.Montage, Stage.PlayRate, NAME_None, /*bStopWhenAbilityEnds=*/true, 1.f);
     if (ActiveMontageTask)
     {
@@ -282,6 +305,26 @@ void UAstralGA_Hero_BasicAttack_Melee::PlayComboStage(int32 StageIndex)
         ActiveMontageTask->OnCancelled.AddDynamic(this, &ThisClass::OnMontageInterrupted);
         ActiveMontageTask->ReadyForActivation();
     }
+}
+
+void UAstralGA_Hero_BasicAttack_Melee::InstallStageFacingWarp(const FAstralComboStageData& Stage)
+{
+    if (Stage.FacingWarpTargetName.IsNone())
+    {
+        return;
+    }
+
+    // 방향 소스 분기는 GA의 정책 — 락온 우선. 타겟 없음 = 워프 없음 (7단계에서 이동 입력 방향이 붙는다)
+    const FAstralTargetHandle Target = ResolveEffectiveTarget();
+    if (!Target.IsSet())
+    {
+        return;
+    }
+
+    FAstralFacingWarpCommand Command;
+    Command.WarpTargetName = Stage.FacingWarpTargetName;
+    Command.DesiredFacing = ComputeClampedFacing(Target.GetAimLocation(), Stage.MaxAssistYaw);
+    SetFacingWarp(Command);
 }
 
 void UAstralGA_Hero_BasicAttack_Melee::ArmComboInput()
@@ -450,6 +493,17 @@ void UAstralGA_Hero_BasicAttack_Melee::EndAbility(const FGameplayAbilitySpecHand
     ActiveMontageTask = nullptr;
     ComboInputTask = nullptr;
     TraceTask = nullptr;
+
+    // 스테이지별 워프 타겟 일괄 해제 — 이름 지정 (RemoveAllWarpTargets는 다른 시스템의 타겟까지 지운다)
+    TArray<FName> WarpNames;
+    for (const FAstralComboStageData& Stage : ComboStages)
+    {
+        if (!Stage.FacingWarpTargetName.IsNone())
+        {
+            WarpNames.AddUnique(Stage.FacingWarpTargetName);
+        }
+    }
+    ClearFacingWarps(WarpNames);
 
     Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

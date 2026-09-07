@@ -12,6 +12,7 @@ class UAstralHeroComponent;
 class UAstralLoadoutComponent;
 class UAstralTargetingComponent;
 class UCameraComponent;
+class UMotionWarpingComponent;
 class USpringArmComponent;
 
 /**
@@ -72,4 +73,8 @@ protected:
 	/** 락온 카메라 — 타깃을 화면에 어떻게 유지하는가. 붐·카메라·타게팅 참조를 이 폰이 주입한다 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Hero", Meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAstralHeroCameraComponent> HeroCameraComponent;
+
+	/** 공격 방향 보정 — anim 루트모션의 로컬 트랜스폼을 월드 변환 직전에 수정 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Hero", Meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UMotionWarpingComponent> MotionWarpingComponent;
 };

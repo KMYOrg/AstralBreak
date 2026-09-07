@@ -2,29 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "Abilities/Tasks/AbilityTask.h"
-#include "Engine/HitResult.h"
+#include "Combat/AstralCombatTypes.h"
 #include "GameplayTagContainer.h"
 #include "AstralAbilityTask_AttackTraceWindows.generated.h"
 
 class AAstralWeaponActor;
 class UGameplayAbility;
-
-USTRUCT(BlueprintType)
-struct FAstralAttackTraceHit
-{
-	GENERATED_BODY()
-
-	UPROPERTY(BlueprintReadOnly, Category = "Astral|Attack")
-	FHitResult HitResult;
-
-	/** 밴드 시작 시 해석된 무기 — 데미지 GE의 EffectCauser로 쓸 것 */
-	UPROPERTY(BlueprintReadOnly, Category = "Astral|Attack")
-	TObjectPtr<AActor> EffectCauser = nullptr;
-
-	/** 밴드 경계 식별자 (활성화 내 1부터 증가) — "밴드당 1회" 게이트는 이 값 비교로 */
-	UPROPERTY(BlueprintReadOnly, Category = "Astral|Attack")
-	int32 WindowSerial = 0;
-};
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAstralAttackTraceHitDelegate, const FAstralAttackTraceHit&, Hit);
 

@@ -47,7 +47,20 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Empowered|Trace")
 	float WeaponTraceRadius = 35.f;
 
+	/** 워프 타겟 이름 — AttackMontage의 MotionWarping 노티파이와 일치해야 한다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Empowered|Facing")
+	FName FacingWarpTargetName = TEXT("MarkFinisher.Facing");
+
+	/** 총 보정 상한 (도) — 피니셔는 콤보보다 넓게. 초과 시 폴백이 아니라 클램프 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Empowered|Facing", Meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float MaxAssistYaw = 120.f;
+
 private:
+#if !UE_BUILD_SHIPPING
+	/** AttackMontage의 Facing 워프 밴드 저작 검증 (활성화 1회차) */
+	bool bMontageValidated = false;
+#endif
+
 	/** 트레이스 윈도우 태스크 — 어빌리티 수명 (밴드 수명·무기 해석·겹침 방어는 태스크 소유) */
 	UPROPERTY(Transient)
 	TObjectPtr<UAstralAbilityTask_AttackTraceWindows> TraceTask;

@@ -4,10 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "AbilitySystem/Abilities/AstralGameplayAbility.h"
+#include "Combat/AstralTargetHandle.h"
 #include "AstralGA_Hero_Base.generated.h"
 
 /**
- *
+ * 히어로 전용 GA 베이스 — "히어로 전용 무언가를 아는" 바인딩 층.
+ *  - 자원 바인딩: AstralHeroResourceSet(오의·표식·스태미나) 대상 헬퍼
+ *  - 타게팅 바인딩: UAstralTargetingComponent(히어로 전용 컴포넌트) 조회
  */
 UCLASS()
 class ASTRALBREAK_API UAstralGA_Hero_Base : public UAstralGameplayAbility
@@ -15,6 +18,18 @@ class ASTRALBREAK_API UAstralGA_Hero_Base : public UAstralGameplayAbility
 	GENERATED_BODY()
 public:
 	UAstralGA_Hero_Base(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+
+protected:
+	// 타게팅 바인딩 층
+
+	/** 하드 락 타겟 — 없으면 빈 핸들 */
+	FAstralTargetHandle ResolveEffectiveTarget() const;
+
+	/**
+	 * 아바타 → AimLocation 방향의 yaw를 현재 아바타 yaw 기준 ±MaxAssistYaw로 클램프한 최종 facing.
+	 * 스냅샷 — 호출 시점 값이며 밴드 중 재계산하지 않는다. 초과 시 폴백이 아니라 클램프
+	 */
+	FRotator ComputeClampedFacing(const FVector& AimLocation, float MaxAssistYaw) const;
 
 protected:
 	// 자원 바인딩 층

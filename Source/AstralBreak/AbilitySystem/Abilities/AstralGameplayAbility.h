@@ -8,6 +8,7 @@ class AAstralCharacter;
 class AAstralPlayerController;
 class UGameplayEffect;
 struct FAstralAttackTraceHit;
+struct FAstralFacingWarpCommand;
 struct FAstralSetByCallerEffect;
 
 /** GA 활성화 정책 */
@@ -61,6 +62,18 @@ protected:
 	 * 스태미나류를 예측 적용으로 바꾸게 되면 이 경로가 그 개조 지점 (현재는 양쪽 다 서버 권위 전용)
 	 */
 	void ApplySetByCallerEffect(const FAstralSetByCallerEffect& Effect, float Amount) const;
+
+	/**
+	 * 공격 방향 보정 — 아바타의 UMotionWarpingComponent에 워프 타겟을 지정
+	 * 방향 소스 결정·클램프·설치 시점은 개별 GA(정책), 밴드 수명은 엔진 UAnimNotifyState_MotionWarping.
+	 */
+	void SetFacingWarp(const FAstralFacingWarpCommand& Command) const;
+
+	/** 이름을 지정해 해제 — RemoveAllWarpTargets는 다른 시스템의 타겟까지 지운다 */
+	void ClearFacingWarp(FName WarpTargetName) const;
+
+	/** 여러 이름 일괄 해제 (콤보 스테이지별 타겟을 EndAbility에서 한 번에) */
+	void ClearFacingWarps(const TArray<FName>& WarpTargetNames) const;
 
 protected:
 	

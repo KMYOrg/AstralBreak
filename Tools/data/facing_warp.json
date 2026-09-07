@@ -1,0 +1,34 @@
+{
+  "_comment": "락온 4단계 워프 밴드 스펙. start/duration은 초. 밴드는 선딜(앞쪽)에 두고 WeaponTrace 시작 전에 끝낸다 (늦게 끝나면 전진이 곡선으로 휜다). WeaponTrace 시작 실측(2026-09-07, lockon_probe_montage_notifies.py): Attack1 0.280 · Attack2 0.585 · Attack3 0.581 · Finisher1 0.752. warp_target_name은 GA 데이터(FacingWarpTargetName)와 일치해야 한다 — ValidateComboStageMontages가 런타임에 대조.",
+  "track": "Facing",
+  "defaults": {
+    "warp_rotation": true,
+    "warp_translation": false
+  },
+  "montages": [
+    {
+      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack1",
+      "warp_target_name": "BasicMelee.Stage0",
+      "start": 0.0,
+      "duration": 0.22
+    },
+    {
+      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack2",
+      "warp_target_name": "BasicMelee.Stage1",
+      "start": 0.0,
+      "duration": 0.5
+    },
+    {
+      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack3",
+      "warp_target_name": "BasicMelee.Stage2",
+      "start": 0.0,
+      "duration": 0.5
+    },
+    {
+      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Finisher1",
+      "warp_target_name": "MarkFinisher.Facing",
+      "start": 0.0,
+      "duration": 0.65
+    }
+  ]
+}

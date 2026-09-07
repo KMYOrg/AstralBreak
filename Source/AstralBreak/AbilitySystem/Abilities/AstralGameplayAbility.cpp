@@ -4,9 +4,21 @@
 #include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "AbilitySystem/Tasks/AstralAbilityTask_AttackTraceWindows.h"
+#include "AstralLogChannels.h"
 #include "Character/AstralCharacter.h"
+#include "Combat/AstralCombatTypes.h"
+#include "MotionWarpingComponent.h"
 #include "Player/AstralPlayerController.h"
 #include "System/AstralGameData.h"
+
+namespace
+{
+	UMotionWarpingComponent* FindMotionWarpingComponent(const FGameplayAbilityActorInfo* ActorInfo)
+	{
+		const AActor* Avatar = ActorInfo ? ActorInfo->AvatarActor.Get() : nullptr;
+		return Avatar ? Avatar->FindComponentByClass<UMotionWarpingComponent>() : nullptr;
+	}
+}
 
 UAstralGameplayAbility::UAstralGameplayAbility(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -46,6 +58,58 @@ void UAstralGameplayAbility::ApplySetByCallerEffect(const FAstralSetByCallerEffe
 	{
 		SpecHandle.Data->SetSetByCallerMagnitude(Effect.SetByCallerTag, Amount);
 		ApplyGameplayEffectSpecToOwner(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, SpecHandle);
+	}
+}
+
+void UAstralGameplayAbility::SetFacingWarp(const FAstralFacingWarpCommand& Command) const
+{
+	if (!CurrentActorInfo || Command.WarpTargetName.IsNone())
+	{
+		return;
+	}
+
+	// 4단계 게이트 — (Standalone, 리슨 호스트 캐릭터). 5단계에서 제거
+	const bool bWarpAuthorized = CurrentActorInfo->IsLocallyControlled() && CurrentActorInfo->IsNetAuthority();
+	if (!bWarpAuthorized)
+	{
+		return;
+	}
+
+	AActor* Avatar = CurrentActorInfo->AvatarActor.Get();
+	UMotionWarpingComponent* MotionWarping = FindMotionWarpingComponent(CurrentActorInfo);
+	if (!Avatar || !MotionWarping)
+	{
+		UE_LOG(LogAstralAbilitySystem, Warning, TEXT("[FacingWarp] %s: 아바타 %s에 MotionWarpingComponent 없음 — 워프 생략"), *GetNameSafe(this), *GetNameSafe(Avatar));
+		return;
+	}
+
+	// 엔진은 WarpTargets를 COND_SimulatedOnly로 복제하므로 이것이 시뮬 프록시에도 전파된다 (자율 프록시 제외)
+	MotionWarping->AddOrUpdateWarpTargetFromLocationAndRotation(Command.WarpTargetName, Avatar->GetActorLocation(), Command.DesiredFacing);
+}
+
+void UAstralGameplayAbility::ClearFacingWarp(FName WarpTargetName) const
+{
+	if (WarpTargetName.IsNone())
+	{
+		return;
+	}
+
+	if (UMotionWarpingComponent* MotionWarping = FindMotionWarpingComponent(CurrentActorInfo))
+	{
+		MotionWarping->RemoveWarpTarget(WarpTargetName);
+	}
+}
+
+void UAstralGameplayAbility::ClearFacingWarps(const TArray<FName>& WarpTargetNames) const
+{
+	if (WarpTargetNames.Num() == 0)
+	{
+		return;
+	}
+
+	if (UMotionWarpingComponent* MotionWarping = FindMotionWarpingComponent(CurrentActorInfo))
+	{
+		MotionWarping->RemoveWarpTargets(WarpTargetNames);
 	}
 }
 

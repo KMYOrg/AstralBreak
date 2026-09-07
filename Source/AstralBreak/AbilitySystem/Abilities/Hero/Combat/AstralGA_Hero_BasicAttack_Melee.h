@@ -29,6 +29,17 @@ struct FAstralComboStageData
 	/** 재생 속도 */
 	UPROPERTY(EditDefaultsOnly, Meta = (ClampMin = "0.1"))
 	float PlayRate = 1.0f;
+
+	/**
+	 * 이 스테이지의 워프 타겟 이름 — 몽타주 MotionWarping 노티파이의 WarpTargetName과 일치해야 한다 (ValidateComboStageMontages가 대조).
+	 * 어빌리티별로 고유한 이름 작성, 비워 두면 이 스테이지는 보정 없음
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Facing")
+	FName FacingWarpTargetName;
+
+	/** 총 보정 상한 (도). 초과 시 폴백이 아니라 클램프 (락온 설계 §5). 기준은 이 스테이지 시작 시점의 아바타 yaw — 스테이지마다 누적된다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Facing", Meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float MaxAssistYaw = 90.f;
 };
 
 /** 콤보 스테이지의 몽타주 타임라인 구간 — 서버 입력 게이트의 판정 기준 */
@@ -110,8 +121,15 @@ protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
-	/** StageIndex 단계의 몽타주 재생 — 이전 스테이지 태스크 정리 포함 */
+	/** StageIndex 단계의 몽타주 재생 — 이전 스테이지 태스크 정리 + 방향 보정 스냅샷 포함 */
 	void PlayComboStage(int32 StageIndex);
+
+	/**
+	 * 스테이지 시작 시 방향 보정 워프 타겟 생성 (정책: 방향 소스 결정 + 클램프).
+	 * 락온 타겟이 있으면 그쪽, 없으면 워프 없음 — 7단계에서 이동 입력 방향 소스가 여기 붙는다.
+	 * 스냅샷은 지금 1회 — 밴드 중 타겟이 움직여도 따라 돌지 않는다
+	 */
+	void InstallStageFacingWarp(const FAstralComboStageData& Stage);
 
 	UFUNCTION()
 	void OnMontageCompleted();
@@ -197,7 +215,7 @@ private:
 	
 #if !UE_BUILD_SHIPPING
 	/**
-	 * 콤보 몽타주들의 입력 윈도우 밴드 저작 검증 (활성화 1회차, InstancedPerActor라 폰당 1회).
+	 * 콤보 몽타주들의 밴드 저작 검증 (활성화 1회차, InstancedPerActor라 폰당 1회) — 입력 윈도우 밴드 + Facing 워프 밴드 + 워프 이름 중복.
 	 * 런타임 이벤트 순서로 추론하던 것을 데이터 검증으로 옮긴 것 — 몽타주 이름과 함께 결정적으로 진단된다
 	 */
 	void ValidateComboStageMontages();

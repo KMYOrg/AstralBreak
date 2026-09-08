@@ -323,7 +323,7 @@ void UAstralGA_Hero_BasicAttack_Melee::InstallStageFacingWarp(const FAstralCombo
 
     FAstralFacingWarpCommand Command;
     Command.WarpTargetName = Stage.FacingWarpTargetName;
-    Command.DesiredFacing = ComputeClampedFacing(Target.GetAimLocation(), Stage.MaxAssistYaw);
+    Command.DesiredFacing = ComputeFacingToward(Target.GetAimLocation());
     SetFacingWarp(Command);
 }
 

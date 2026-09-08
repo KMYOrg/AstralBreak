@@ -51,10 +51,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Empowered|Facing")
 	FName FacingWarpTargetName = TEXT("MarkFinisher.Facing");
 
-	/** 총 보정 상한 (도) — 피니셔는 콤보보다 넓게. 초과 시 폴백이 아니라 클램프 */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|Empowered|Facing", Meta = (ClampMin = "0.0", ClampMax = "180.0"))
-	float MaxAssistYaw = 120.f;
-
 private:
 #if !UE_BUILD_SHIPPING
 	/** AttackMontage의 Facing 워프 밴드 저작 검증 (활성화 1회차) */

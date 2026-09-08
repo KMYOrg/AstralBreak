@@ -36,10 +36,6 @@ struct FAstralComboStageData
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "Facing")
 	FName FacingWarpTargetName;
-
-	/** 총 보정 상한 (도). 초과 시 폴백이 아니라 클램프 (락온 설계 §5). 기준은 이 스테이지 시작 시점의 아바타 yaw — 스테이지마다 누적된다 */
-	UPROPERTY(EditDefaultsOnly, Category = "Facing", Meta = (ClampMin = "0.0", ClampMax = "180.0"))
-	float MaxAssistYaw = 90.f;
 };
 
 /** 콤보 스테이지의 몽타주 타임라인 구간 — 서버 입력 게이트의 판정 기준 */

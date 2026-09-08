@@ -56,6 +56,21 @@ float UAstralCharacterMovementComponent::GetMaxSpeed() const
 	return Super::GetMaxSpeed() * CachedMoveSpeedMultiplier;
 }
 
+float UAstralCharacterMovementComponent::SlideAlongSurface(const FVector& Delta, float Time, const FVector& Normal, FHitResult& Hit, bool bHandleImpact)
+{
+	// 루트모션 공격 중 폰 충돌 = 제자리 정지 (슬라이드 0)
+	if (HasAnimRootMotion() && Cast<APawn>(Hit.GetActor()))
+	{
+		if (bHandleImpact)
+		{
+			HandleImpact(Hit, Time, Delta);
+		}
+		return 0.f;
+	}
+
+	return Super::SlideAlongSurface(Delta, Time, Normal, Hit, bHandleImpact);
+}
+
 void UAstralCharacterMovementComponent::OnAbilitySystemBound()
 {
 	MoveSpeedMultiplierChangedHandle = BoundASC->GetGameplayAttributeValueChangeDelegate(UAstralCombatSet::GetMoveSpeedMultiplierAttribute())

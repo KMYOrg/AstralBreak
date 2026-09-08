@@ -1,7 +1,7 @@
 """락온 4단계 — 공격 GA BP의 Facing 데이터 세팅.
 
-GA_Hero_BasicAttack_Melee: ComboStages[i].FacingWarpTargetName = BasicMelee.Stage{i} (MaxAssistYaw는 C++ 기본 90 유지).
-GA_Hero_MarkFinisher: C++ 기본값(MarkFinisher.Facing / 120)이라 확인만 한다.
+GA_Hero_BasicAttack_Melee: ComboStages[i].FacingWarpTargetName = BasicMelee.Stage{i}.
+GA_Hero_MarkFinisher: C++ 기본값(MarkFinisher.Facing)이라 확인만 한다.
 워프 이름은 Tools/data/facing_warp.json의 warp_target_name과 일치해야 한다 — ValidateComboStageMontages가 런타임에 대조.
     python Tools/ue_exec.py Tools/scripts/lockon_setup_facing_data.py
 """
@@ -40,8 +40,7 @@ for i, stage in enumerate(stages):
     set_struct_field_via_text(s, "FacingWarpTargetName", STAGE_NAME_FMT.format(i))
     montage = s.get_editor_property("montage")
     print(f"   stage {i}: montage={montage.get_name() if montage else None} "
-          f"warp={s.get_editor_property('facing_warp_target_name')} "
-          f"max_assist_yaw={s.get_editor_property('max_assist_yaw')}")
+          f"warp={s.get_editor_property('facing_warp_target_name')}")
     new_stages.append(s)
 
 # 구조체 배열은 값 복사라 통째로 되돌려 써야 CDO에 반영된다
@@ -52,7 +51,6 @@ fin = unreal.load_asset(FINISHER_BP)
 if fin:
     fcdo = unreal.get_default_object(fin.generated_class())
     print(f"== {FINISHER_BP}: warp={fcdo.get_editor_property('facing_warp_target_name')} "
-          f"max_assist_yaw={fcdo.get_editor_property('max_assist_yaw')} "
           f"montage={fcdo.get_editor_property('attack_montage')}")
 else:
     print(f"[MISSING] {FINISHER_BP}")

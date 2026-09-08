@@ -25,11 +25,8 @@ protected:
 	/** 하드 락 타겟 — 없으면 빈 핸들 */
 	FAstralTargetHandle ResolveEffectiveTarget() const;
 
-	/**
-	 * 아바타 → AimLocation 방향의 yaw를 현재 아바타 yaw 기준 ±MaxAssistYaw로 클램프한 최종 facing.
-	 * 스냅샷 — 호출 시점 값이며 밴드 중 재계산하지 않는다. 초과 시 폴백이 아니라 클램프
-	 */
-	FRotator ComputeClampedFacing(const FVector& AimLocation, float MaxAssistYaw) const;
+	/** 아바타 → AimLocation 방향의 facing (yaw만). 스냅샷 — 호출 시점 값이며 밴드 중 재계산하지 않는다. */
+	FRotator ComputeFacingToward(const FVector& AimLocation) const;
 
 protected:
 	// 자원 바인딩 층

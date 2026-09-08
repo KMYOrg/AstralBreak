@@ -59,7 +59,7 @@ void UAstralGA_Hero_MarkFinisher::ActivateAbility(const FGameplayAbilitySpecHand
 	{
 		FAstralFacingWarpCommand Command;
 		Command.WarpTargetName = FacingWarpTargetName;
-		Command.DesiredFacing = ComputeClampedFacing(Target.GetAimLocation(), MaxAssistYaw);
+		Command.DesiredFacing = ComputeFacingToward(Target.GetAimLocation());
 		SetFacingWarp(Command);
 	}
 

@@ -3,6 +3,7 @@
 
 #include "AstralGA_Hero_Base.h"
 
+#include "AstralLogChannels.h"
 #include "Character/Hero/AstralCharacter_Hero.h"
 #include "Character/Hero/Components/AstralTargetingComponent.h"
 #include "Combat/AstralTargetingStatics.h"
@@ -21,7 +22,7 @@ FAstralTargetHandle UAstralGA_Hero_Base::ResolveEffectiveTarget() const
 	return Targeting ? Targeting->GetEffectiveTarget() : FAstralTargetHandle();
 }
 
-FRotator UAstralGA_Hero_Base::ComputeClampedFacing(const FVector& AimLocation, float MaxAssistYaw) const
+FRotator UAstralGA_Hero_Base::ComputeFacingToward(const FVector& AimLocation) const
 {
 	const AActor* Avatar = GetAvatarActorFromActorInfo();
 	if (!Avatar)
@@ -31,7 +32,7 @@ FRotator UAstralGA_Hero_Base::ComputeClampedFacing(const FVector& AimLocation, f
 
 	const float CurrentYaw = Avatar->GetActorRotation().Yaw;
 	const float DesiredYaw = AstralTargeting::ComputeFacingYaw(Avatar->GetActorLocation(), AimLocation, CurrentYaw);
-	return FRotator(0.f, AstralTargeting::ClampFacingYaw(CurrentYaw, DesiredYaw, MaxAssistYaw), 0.f);
+	return FRotator(0.f, DesiredYaw, 0.f);
 }
 
 void UAstralGA_Hero_Base::ApplyUltGain(float Amount) const

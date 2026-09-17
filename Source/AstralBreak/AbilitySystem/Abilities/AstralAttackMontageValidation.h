@@ -21,5 +21,13 @@ namespace AstralAttackMontage
 	 * @param Context 로그 접두 (GA 이름 · 스테이지 등)
 	 */
 	ASTRALBREAK_API void ValidateFacingWarpBand(const UAnimMontage* Montage, FName ExpectedWarpTargetName, const FGameplayTag& TraceBeginEventTag, const FString& Context);
+
+	/**
+	 * 폰 충돌 정책 밴드 검증 (root-motion-pawn-collision-policy.md):
+	 *   - 밴드 없음 = Warning (공격 루트모션이 적 캡슐을 따라 슬라이드해 적 주위를 돈다)
+	 *   - 같은 NotifyState 인스턴스가 두 번 배치 = Error (TObjectKey가 같아져 CMC가 둘을 구분 못 한다)
+	 *   - 밴드끼리 부분 겹침 = Error (완전 중첩 또는 비겹침만 허용, A.End == B.Begin 인접은 허용)
+	 */
+	ASTRALBREAK_API void ValidatePawnCollisionBands(const UAnimMontage* Montage, const FString& Context);
 }
 #endif

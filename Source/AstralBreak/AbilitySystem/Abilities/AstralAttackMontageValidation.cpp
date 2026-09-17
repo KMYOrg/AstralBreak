@@ -5,6 +5,7 @@
 #include "AnimNotifyState_MotionWarping.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/Notifies/AstralAnimNotifyState_GameplayEventWindow.h"
+#include "Animation/Notifies/AstralAnimNotifyState_RootMotionPawnCollisionPolicy.h"
 #include "AstralLogChannels.h"
 #include "RootMotionModifier.h"
 
@@ -100,6 +101,70 @@ namespace AstralAttackMontage
 			if (EarliestTraceBegin < TNumericLimits<float>::Max() && BandEnd > EarliestTraceBegin + KINDA_SMALL_NUMBER)
 			{
 				UE_LOG(LogAstralAbilitySystem, Warning, TEXT("%s: 워프 밴드 종료(%.3f)가 WeaponTrace 시작(%.3f)보다 늦다 — 루트모션 변위가 로컬 공간이라 전진이 곡선으로 휜다. 밴드를 선딜 안에 끝낼 것"), *Prefix, BandEnd, EarliestTraceBegin);
+			}
+		}
+	}
+
+	void ValidatePawnCollisionBands(const UAnimMontage* Montage, const FString& Context)
+	{
+		if (!Montage)
+		{
+			return;
+		}
+
+		const FString Prefix = FString::Printf(TEXT("[PawnCollision] %s (%s)"), *Context, *Montage->GetName());
+
+		struct FBand
+		{
+			const UAstralAnimNotifyState_RootMotionPawnCollisionPolicy* Notify = nullptr;
+			float Start = 0.f;
+			float End = 0.f;
+		};
+		TArray<FBand> Bands;
+
+		for (const FAnimNotifyEvent& Event : Montage->Notifies)
+		{
+			if (const UAstralAnimNotifyState_RootMotionPawnCollisionPolicy* Notify = Cast<UAstralAnimNotifyState_RootMotionPawnCollisionPolicy>(Event.NotifyStateClass))
+			{
+				FBand& Band = Bands.AddDefaulted_GetRef();
+				Band.Notify = Notify;
+				Band.Start = Event.GetTriggerTime();
+				Band.End = Event.GetEndTriggerTime();
+			}
+		}
+
+		if (Bands.Num() == 0)
+		{
+			UE_LOG(LogAstralAbilitySystem, Warning, TEXT("%s: 폰 충돌 정책 밴드가 없다 — 공격 루트모션이 적 캡슐을 따라 슬라이드해 적 주위를 돈다 (StopOnHit 밴드 권장)"), *Prefix);
+			return;
+		}
+
+		for (int32 A = 0; A < Bands.Num(); ++A)
+		{
+			if (Bands[A].Start >= Bands[A].End)
+			{
+				UE_LOG(LogAstralAbilitySystem, Error, TEXT("%s: 정책 밴드 길이가 0 이하 (%.3f ~ %.3f)"), *Prefix, Bands[A].Start, Bands[A].End);
+			}
+
+			for (int32 B = A + 1; B < Bands.Num(); ++B)
+			{
+				// 같은 인스턴스 두 번 — CMC의 source 키(TObjectKey × InstanceID)가 같아져 End 하나가 둘을 지운다
+				if (Bands[A].Notify == Bands[B].Notify)
+				{
+					UE_LOG(LogAstralAbilitySystem, Error, TEXT("%s: 같은 정책 NotifyState 인스턴스가 두 번 배치됐다 (%.3f~%.3f, %.3f~%.3f) — 각각 별도 노티파이로 둘 것"), *Prefix, Bands[A].Start, Bands[A].End, Bands[B].Start, Bands[B].End);
+					continue;
+				}
+
+				// 부분 겹침 금지 — 완전 중첩(한쪽이 다른 쪽을 포함) 또는 비겹침(인접 포함)만
+				const float OverlapStart = FMath::Max(Bands[A].Start, Bands[B].Start);
+				const float OverlapEnd = FMath::Min(Bands[A].End, Bands[B].End);
+				const bool bOverlaps = OverlapEnd > OverlapStart + KINDA_SMALL_NUMBER;
+				const bool bAContainsB = Bands[A].Start <= Bands[B].Start + KINDA_SMALL_NUMBER && Bands[A].End >= Bands[B].End - KINDA_SMALL_NUMBER;
+				const bool bBContainsA = Bands[B].Start <= Bands[A].Start + KINDA_SMALL_NUMBER && Bands[B].End >= Bands[A].End - KINDA_SMALL_NUMBER;
+				if (bOverlaps && !bAContainsB && !bBContainsA)
+				{
+					UE_LOG(LogAstralAbilitySystem, Error, TEXT("%s: 정책 밴드가 부분적으로 겹친다 (%.3f~%.3f vs %.3f~%.3f) — 완전 중첩 또는 인접만 허용"), *Prefix, Bands[A].Start, Bands[A].End, Bands[B].Start, Bands[B].End);
+				}
 			}
 		}
 	}

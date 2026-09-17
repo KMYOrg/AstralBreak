@@ -49,6 +49,8 @@ public:
 	EAstralAbilityActivationPolicy GetActivationPolicy() const { return ActivationPolicy; }
 
 	void TryActivateAbilityOnSpawn(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilitySpec& Spec) const;
+	
+	virtual bool MakeActivationEventData(const FGameplayAbilityActorInfo& ActorInfo, FGameplayEventData& OutEventData) const { return false; }
 
 protected:
 	// 인자 축약 헬퍼 계층: GA 컨텍스트(ASC·Avatar·Level·현재 활성화 핸들)로 GE를 "어떻게" 적용하는가만 안다.
@@ -64,8 +66,9 @@ protected:
 	void ApplySetByCallerEffect(const FAstralSetByCallerEffect& Effect, float Amount) const;
 
 	/**
-	 * 공격 방향 보정 — 아바타의 UMotionWarpingComponent에 워프 타겟을 지정
-	 * 방향 소스 결정·클램프·설치 시점은 개별 GA(정책), 밴드 수명은 엔진 UAnimNotifyState_MotionWarping.
+	 * 공격 방향 보정 — 아바타의 UMotionWarpingComponent에 워프 타겟을 지정 (기계: 워프 타겟 수명만).
+	 * 방향의 출처는 역할별로 다르고(로컬 캡처 / 서버 승인 스냅샷) 그 결정은 호출자(GA) 몫 — 여기는 시뮬 프록시만 제외한다
+	 * (시뮬 프록시는 WarpTargets의 COND_SimulatedOnly 복제가 처리). 밴드 수명은 엔진 UAnimNotifyState_MotionWarping
 	 */
 	void SetFacingWarp(const FAstralFacingWarpCommand& Command) const;
 

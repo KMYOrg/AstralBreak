@@ -22,14 +22,9 @@ namespace
 	constexpr float FrontalHalfAngleDeg = 60.f;
 }
 
-bool UAstralCombatStatics::CanDamage(const AActor* SourceActor, const AActor* TargetActor)
+bool UAstralCombatStatics::AreHostile(const AActor* SourceActor, const AActor* TargetActor)
 {
 	if (!SourceActor || !TargetActor || SourceActor == TargetActor)
-	{
-		return false;
-	}
-
-	if (IsDeadOrDying(TargetActor))
 	{
 		return false;
 	}
@@ -37,7 +32,7 @@ bool UAstralCombatStatics::CanDamage(const AActor* SourceActor, const AActor* Ta
 	const FGenericTeamId SourceTeam = GetTeamId(SourceActor);
 	const FGenericTeamId TargetTeam = GetTeamId(TargetActor);
 
-	// 팀 해석 실패(NoTeam)는 기본 "때릴 수 없음" — 엔진 기본 solver는 A != B를 전부 Hostile로 판정하므로
+	// 팀 해석 실패(NoTeam)는 기본 "적대 아님" — 엔진 기본 solver는 A != B를 전부 Hostile로 판정하므로
 	// (NoTeam=Neutral이 아님!) GetAttitude 전에 직접 가드해야 한다
 	if (SourceTeam == FGenericTeamId::NoTeam || TargetTeam == FGenericTeamId::NoTeam)
 	{
@@ -45,6 +40,11 @@ bool UAstralCombatStatics::CanDamage(const AActor* SourceActor, const AActor* Ta
 	}
 
 	return FGenericTeamId::GetAttitude(SourceTeam, TargetTeam) == ETeamAttitude::Hostile;
+}
+
+bool UAstralCombatStatics::CanDamage(const AActor* SourceActor, const AActor* TargetActor)
+{
+	return AreHostile(SourceActor, TargetActor) && !IsDeadOrDying(TargetActor);
 }
 
 FGenericTeamId UAstralCombatStatics::GetTeamId(const AActor* Actor)

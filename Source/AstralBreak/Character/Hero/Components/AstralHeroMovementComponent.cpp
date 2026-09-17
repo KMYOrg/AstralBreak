@@ -77,6 +77,7 @@ void UAstralHeroMovementComponent::HandleSprintTagChanged(const FGameplayTag Tag
 
 FAstralSavedMove_Hero::FAstralSavedMove_Hero()
 	: bSavedWantsToSprint(0)
+	, SavedPawnCollisionPolicy(EAstralRootMotionPawnCollisionPolicy::Normal)
 {
 }
 
@@ -84,6 +85,20 @@ void FAstralSavedMove_Hero::Clear()
 {
 	Super::Clear();
 	bSavedWantsToSprint = 0;
+	SavedPawnCollisionPolicy = EAstralRootMotionPawnCollisionPolicy::Normal;
+}
+
+void FAstralSavedMove_Hero::PostUpdate(ACharacter* C, EPostUpdateMode PostUpdateMode)
+{
+	Super::PostUpdate(C, PostUpdateMode);
+
+	if (PostUpdateMode == PostUpdate_Record)
+	{
+		if (const UAstralHeroMovementComponent* HeroMC = GetHeroMovementComponent(C))
+		{
+			SavedPawnCollisionPolicy = HeroMC->GetAuthoredPawnCollisionPolicy();
+		}
+	}
 }
 
 uint8 FAstralSavedMove_Hero::GetCompressedFlags() const
@@ -113,6 +128,8 @@ void FAstralSavedMove_Hero::PrepMoveFor(ACharacter* C)
 	if (UAstralHeroMovementComponent* HeroMC = GetHeroMovementComponent(C))
 	{
 		HeroMC->SetSprinting(bSavedWantsToSprint != 0);
+		// 리플레이(bClientUpdating) 창에서만 읽힌다 — 루프가 끝나면 저작 정책으로 자동 복귀
+		HeroMC->SetReplayPawnCollisionPolicy(SavedPawnCollisionPolicy);
 	}
 }
 

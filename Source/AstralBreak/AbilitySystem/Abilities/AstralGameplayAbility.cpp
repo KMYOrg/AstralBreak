@@ -68,22 +68,20 @@ void UAstralGameplayAbility::SetFacingWarp(const FAstralFacingWarpCommand& Comma
 		return;
 	}
 
-	// 4단계 게이트 — (Standalone, 리슨 호스트 캐릭터). 5단계에서 제거
-	const bool bWarpAuthorized = CurrentActorInfo->IsLocallyControlled() && CurrentActorInfo->IsNetAuthority();
-	if (!bWarpAuthorized)
+	AActor* Avatar = CurrentActorInfo->AvatarActor.Get();
+	
+	if (!Avatar || Avatar->GetLocalRole() == ROLE_SimulatedProxy)
 	{
 		return;
 	}
 
-	AActor* Avatar = CurrentActorInfo->AvatarActor.Get();
 	UMotionWarpingComponent* MotionWarping = FindMotionWarpingComponent(CurrentActorInfo);
-	if (!Avatar || !MotionWarping)
+	if (!MotionWarping)
 	{
 		UE_LOG(LogAstralAbilitySystem, Warning, TEXT("[FacingWarp] %s: 아바타 %s에 MotionWarpingComponent 없음 — 워프 생략"), *GetNameSafe(this), *GetNameSafe(Avatar));
 		return;
 	}
 
-	// 엔진은 WarpTargets를 COND_SimulatedOnly로 복제하므로 이것이 시뮬 프록시에도 전파된다 (자율 프록시 제외)
 	MotionWarping->AddOrUpdateWarpTargetFromLocationAndRotation(Command.WarpTargetName, Avatar->GetActorLocation(), Command.DesiredFacing);
 }
 

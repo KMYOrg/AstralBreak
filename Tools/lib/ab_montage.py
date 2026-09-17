@@ -124,6 +124,24 @@ def add_notify_state(montage, track_name: str, start: float, duration: float,
 
 
 MOTION_WARPING_CLASS = "/Script/MotionWarping.AnimNotifyState_MotionWarping"
+PAWN_COLLISION_CLASS = "/Script/AstralBreak.AstralAnimNotifyState_RootMotionPawnCollisionPolicy"
+
+
+def pawn_collision_policy(name: str):
+    """'StopOnHit' / 'Normal' -> unreal.AstralRootMotionPawnCollisionPolicy."""
+    enum = unreal.AstralRootMotionPawnCollisionPolicy
+    key = "STOP_ON_HIT" if name.replace("_", "").lower() == "stoponhit" else name.upper()
+    if not hasattr(enum, key):
+        raise RuntimeError(f"알 수 없는 폰 충돌 정책: {name} (StopOnHit / Normal)")
+    return getattr(enum, key)
+
+
+def add_pawn_collision_window(montage, track_name: str, start: float, duration: float,
+                              policy: str = "StopOnHit"):
+    """루트모션 폰 충돌 정책 밴드 (root-motion-pawn-collision-policy.md).
+    Branching Point 노티파이라 그 프레임 이동보다 먼저 정책이 걸린다. 밴드끼리 부분 겹침 금지(완전 중첩·인접만)."""
+    return add_notify_state(montage, track_name, start, duration, PAWN_COLLISION_CLASS,
+                            policy=pawn_collision_policy(policy))
 
 
 def add_motion_warping_window(montage, track_name: str, start: float, duration: float,
@@ -197,6 +215,9 @@ def describe_notifies(montage) -> list:
                     v = _safe_prop(obj, key)
                     if v is not None:
                         entry[key] = str(_safe_prop(v, "tag_name"))
+                policy = _safe_prop(obj, "policy")
+                if policy is not None:
+                    entry["policy"] = str(policy)
                 mod = _safe_prop(obj, "root_motion_modifier")
                 if mod is not None:
                     entry["modifier"] = mod.get_class().get_name()
@@ -217,6 +238,7 @@ NOTIFY_CLASSES = {
     "GameplayEvent": "/Script/AstralBreak.AstralAnimNotify_GameplayEvent",
     "GameplayEventWindow": "/Script/AstralBreak.AstralAnimNotifyState_GameplayEventWindow",
     "MotionWarping": MOTION_WARPING_CLASS,
+    "PawnCollisionPolicy": PAWN_COLLISION_CLASS,
 }
 
 # MotionWarping 스펙에서 modifier로 전달되는 키 (NotifyState가 아니라 서브오브젝트 프로퍼티)
@@ -271,6 +293,12 @@ def build_from_spec(spec: dict, dry_run: bool = False) -> dict:
                                       warp_rotation=n.get("warp_rotation", True),
                                       warp_translation=n.get("warp_translation", False),
                                       **extra)
+            continue
+
+        if n["type"] == "PawnCollisionPolicy":
+            # {"type": "PawnCollisionPolicy", "track": "PawnCollision", "start": 0.0, "duration": 1.25, "policy": "StopOnHit"}
+            add_pawn_collision_window(mon, n.get("track", "PawnCollision"), n["start"], n["duration"],
+                                      n.get("policy", "StopOnHit"))
             continue
 
         cls_path = NOTIFY_CLASSES.get(n["type"], n["type"])

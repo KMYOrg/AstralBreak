@@ -1,6 +1,7 @@
 #include "AstralAbilitySystemComponent.h"
 
 #include "Abilities/AstralGameplayAbility.h"
+#include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "Animation/AstralAnimInstance.h"
 #include "AstralLogChannels.h"
@@ -203,7 +204,7 @@ void UAstralAbilitySystemComponent::ProcessAbilityInput(float DeltaTime, bool bG
 
 	for (const FGameplayAbilitySpecHandle& AbilitySpecHandle : AbilitiesToActivate)
 	{
-		TryActivateAbility(AbilitySpecHandle);
+		TryActivateAbilityFromInput(AbilitySpecHandle);
 	}
 
 	for (const FGameplayAbilitySpecHandle& SpecHandle : InputReleasedSpecHandles)
@@ -224,6 +225,41 @@ void UAstralAbilitySystemComponent::ProcessAbilityInput(float DeltaTime, bool bG
 
 	InputPressedSpecHandles.Reset();
 	InputReleasedSpecHandles.Reset();
+}
+
+void UAstralAbilitySystemComponent::TryActivateAbilityFromInput(const FGameplayAbilitySpecHandle& Handle)
+{
+	FGameplayAbilitySpec* Spec = FindAbilitySpecFromHandle(Handle);
+	if (!Spec || !Spec->Ability)
+	{
+		return;
+	}
+
+	// primary instance 우선 (InstancedPerActor) — 인스턴스가 BP 파생의 오버라이드를 들고 있다
+	const UAstralGameplayAbility* AstralAbility = Cast<UAstralGameplayAbility>(Spec->GetPrimaryInstance());
+	if (!AstralAbility)
+	{
+		AstralAbility = Cast<UAstralGameplayAbility>(Spec->Ability);
+	}
+
+	FGameplayEventData EventData;
+	if (AstralAbility && AbilityActorInfo.IsValid() && AstralAbility->MakeActivationEventData(*AbilityActorInfo, EventData))
+	{
+		if (Spec->PendingRemove || Spec->RemoveAfterActivation)
+		{
+			return;
+		}
+		const AActor* Avatar = AbilityActorInfo->AvatarActor.Get();
+		if (!Avatar || Avatar->GetLocalRole() == ROLE_SimulatedProxy)
+		{
+			return;
+		}
+
+		TriggerAbilityFromGameplayEvent(Handle, AbilityActorInfo.Get(), AstralGameplayTags::GameplayEvent_ActivateWithFacing, &EventData, *this);
+		return;
+	}
+
+	TryActivateAbility(Handle);
 }
 
 void UAstralAbilitySystemComponent::ClearAbilityInput()

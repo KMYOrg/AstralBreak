@@ -50,17 +50,15 @@ void UAstralGA_Hero_MarkFinisher::ActivateAbility(const FGameplayAbilitySpecHand
 	{
 		bMontageValidated = true;
 		AstralAttackMontage::ValidateFacingWarpBand(AttackMontage, FacingWarpTargetName, AstralGameplayTags::GameplayEvent_WeaponTrace_Begin, GetName());
+		AstralAttackMontage::ValidatePawnCollisionBands(AttackMontage, GetName());
 	}
 #endif
 
-	// 방향 보정 — 발동 시 1회 스냅샷 (락온 타겟이 있을 때만)
-	const FAstralTargetHandle Target = ResolveEffectiveTarget();
-	if (Target.IsSet())
+	// 방향 확정 — 발동 시 1회 (Stage 0). 제안은 활성화 이벤트에서, 서버는 승인 후 설치 (5단계)
+	BeginFacingSession(TriggerEventData);
+	if (!FacingWarpTargetName.IsNone())
 	{
-		FAstralFacingWarpCommand Command;
-		Command.WarpTargetName = FacingWarpTargetName;
-		Command.DesiredFacing = ComputeFacingToward(Target.GetAimLocation());
-		SetFacingWarp(Command);
+		ResolveFacingForStage(0, FacingWarpTargetName);
 	}
 
 	if (UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, AttackMontage, 1.f, NAME_None, /*bStopWhenAbilityEnds=*/true, 1.f))
@@ -91,6 +89,8 @@ void UAstralGA_Hero_MarkFinisher::OnAttackTraceHit(const FAstralAttackTraceHit& 
 void UAstralGA_Hero_MarkFinisher::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
 	TraceTask = nullptr;
+
+	EndFacingSession();
 
 	// 워프 타겟 해제 — 이름 지정 (다른 시스템의 타겟은 건드리지 않는다)
 	ClearFacingWarp(FacingWarpTargetName);

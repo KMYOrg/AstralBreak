@@ -24,6 +24,11 @@ protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
+	//~UAstralGA_Hero_Base — Facing 세션 (5단계). 단발이라 Stage 0뿐
+	virtual bool UsesFacingWarp() const override { return true; }
+	virtual int32 GetFacingStageCount() const override { return 1; }
+	//~End UAstralGA_Hero_Base
+
 	UFUNCTION()
 	void OnMontageCompleted();
 

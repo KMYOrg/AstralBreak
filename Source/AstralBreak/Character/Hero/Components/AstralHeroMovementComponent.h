@@ -82,7 +82,10 @@ public:
 
 	/** SavedMove 데이터를 MC로 복원 (호출 시점: 서버 보정 수신 후 리플레이 직전) */
 	virtual void PrepMoveFor(ACharacter* C) override;
-	
+
+	/** PostUpdate_Record에서 이 move가 실제로 쓴 폰 충돌 정책을 기록 */
+	virtual void PostUpdate(ACharacter* C, EPostUpdateMode PostUpdateMode) override;
+
 	virtual bool CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const override;
 
 protected:
@@ -90,6 +93,9 @@ protected:
 
 	/** move 시점의 스프린트 의도 */
 	uint8 bSavedWantsToSprint : 1;
+
+	/** 이 move가 쓴 폰 충돌 정책 — 리플레이 복원 전용 로컬 필드 */
+	EAstralRootMotionPawnCollisionPolicy SavedPawnCollisionPolicy;
 };
 
 class FAstralNetworkPredictionData_Client_Hero : public FNetworkPredictionData_Client_Character

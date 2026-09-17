@@ -48,6 +48,8 @@ BOM이 붙어 있으면 `json.load` 가 실패한다.
 - `MotionWarping` — 구간(엔진). `warp_target_name`, `warp_rotation`(기본 True), `warp_translation`(기본 **False** — 회전 전용 방향 보정), 선택 `rotation_method` / `warp_max_rotation_rate` / `warp_rotation_time_multiplier`.
   설정값은 NotifyState가 아니라 그 안의 `root_motion_modifier` 서브오브젝트(SkewWarp, 엔진이 기본 생성)에 있다 — `add_motion_warping_window()`가 처리한다.
   기존 몽타주에 밴드만 추가할 때는 `Tools/data/facing_warp.json` + `Tools/scripts/lockon_apply_facing_warp.py` (트랙 `Facing`을 비우고 재배치, 멱등)
+- `PawnCollisionPolicy` — 구간(프로젝트, Branching Point). `policy`: `StopOnHit` / `Normal`. 루트모션 중 적대 Pawn 충돌 거동.
+  밴드끼리 부분 겹침 금지(완전 중첩·인접만). 기존 몽타주는 `Tools/data/pawn_collision.json` + `Tools/scripts/apply_pawn_collision_bands.py` (트랙 `PawnCollision`, `duration: null` = 몽타주 끝까지)
 
 # 타임라인 조회
 

@@ -117,15 +117,13 @@ protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
-	/** StageIndex 단계의 몽타주 재생 — 이전 스테이지 태스크 정리 + 방향 보정 스냅샷 포함 */
-	void PlayComboStage(int32 StageIndex);
+	//~UAstralGA_Hero_Base — Facing 세션 (5단계)
+	virtual bool UsesFacingWarp() const override { return true; }
+	virtual int32 GetFacingStageCount() const override { return ComboStages.Num(); }
+	//~End UAstralGA_Hero_Base
 
-	/**
-	 * 스테이지 시작 시 방향 보정 워프 타겟 생성 (정책: 방향 소스 결정 + 클램프).
-	 * 락온 타겟이 있으면 그쪽, 없으면 워프 없음 — 7단계에서 이동 입력 방향 소스가 여기 붙는다.
-	 * 스냅샷은 지금 1회 — 밴드 중 타겟이 움직여도 따라 돌지 않는다
-	 */
-	void InstallStageFacingWarp(const FAstralComboStageData& Stage);
+	/** StageIndex 단계의 몽타주 재생 — 이전 스테이지 태스크 정리 + 방향 확정(ResolveFacingForStage) 포함 */
+	void PlayComboStage(int32 StageIndex);
 
 	UFUNCTION()
 	void OnMontageCompleted();

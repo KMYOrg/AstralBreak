@@ -23,4 +23,7 @@ namespace AstralGameplayTags
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Parried);   // 방어자에게 — 패링 성공 (magnitude = 무효화한 데미지)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Guarded);   // 방어자에게 — 가드 성공 (magnitude = 막은 양)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Staggered); // 공격자에게 — 패링당해 경직
+
+	// 입력 활성화에 Facing TargetData를 실어 보낼 때의 이벤트 태그 — ASC가 TriggerAbilityFromGameplayEvent(SpecHandle 지정)에 쓴다.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_ActivateWithFacing);
 }

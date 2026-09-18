@@ -7,6 +7,8 @@
 
 class UAnimMontage;
 class UAbilityTask_PlayMontageAndWait;
+class UAstralFacingSession;
+struct FAstralFacingStageResolution;
 
 /** 콤보 단계 1개의 데이터 — 배열 길이가 곧 콤보 단수 */
 USTRUCT(BlueprintType)
@@ -117,13 +119,21 @@ protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
-	//~UAstralGA_Hero_Base — Facing 세션 (5단계)
-	virtual bool UsesFacingWarp() const override { return true; }
-	virtual int32 GetFacingStageCount() const override { return ComboStages.Num(); }
-	//~End UAstralGA_Hero_Base
+	//~UAstralGameplayAbility — 입력 활성화에 Stage 0 Facing 제안을 싣는다 (호스트·클라 공통 경로). 읽기 전용 — 세션은 만들지 않는다
+	virtual EAstralInputActivationPreparation MakeActivationEventData(const FGameplayAbilityActorInfo& ActorInfo, FGameplayEventData& OutEventData) const override;
+	//~End UAstralGameplayAbility
 
-	/** StageIndex 단계의 몽타주 재생 — 이전 스테이지 태스크 정리 + 방향 확정(ResolveFacingForStage) 포함 */
+	/** StageIndex 단계의 몽타주 재생 — 이전 스테이지 태스크 정리 + 방향 확정(FacingSession::AdvanceStage) + 워프 설치 */
 	void PlayComboStage(int32 StageIndex);
+
+	/**
+	 * 활성화마다 새 Facing 세션 — Stage 0은 TriggerEventData에서 추출, 로컬은 이벤트 밖 활성화에 한해 라이브 캡처 폴백
+	 * (원격 폰의 서버 인스턴스는 폴백하지 않는다 — 승인 스냅샷만)
+	 */
+	void BeginFacingSession(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData);
+
+	/** 확정 결과 → 워프 설치/제거 — 이름이 있는 단계만. NoWarp는 자기 이름을 제거한다 (이전 활성화의 잔여) */
+	void ApplyFacingResolution(const FAstralFacingStageResolution& Resolution, FName WarpTargetName);
 
 	UFUNCTION()
 	void OnMontageCompleted();
@@ -200,6 +210,10 @@ private:
 	/** 트레이스 윈도우 태스크 — 어빌리티 수명 (밴드 수명·무기 해석·겹침 방어는 태스크 소유) */
 	UPROPERTY(Transient)
 	TObjectPtr<UAstralAbilityTask_AttackTraceWindows> TraceTask;
+
+	/** Facing 네트워크 세션 — 활성화마다 새 객체 (InstancedPerActor 인스턴스 재사용과 무관한 활성화별 정체성). EndAbility가 키를 대조해 End */
+	UPROPERTY(Transient)
+	TObjectPtr<UAstralFacingSession> FacingSession;
 
 	/**
 	 * 표식 수급을 마지막으로 지급한 밴드의 WindowSerial (밴드당 1회 게이트, 0 = 미지급).

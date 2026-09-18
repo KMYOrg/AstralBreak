@@ -6,6 +6,8 @@
 #include "AstralGA_Hero_MarkFinisher.generated.h"
 
 class UAnimMontage;
+class UAstralFacingSession;
+struct FAstralFacingStageResolution;
 
 /**
  * 고유 자원 강화 공격 — 표식(MarkStack)을 소비하는 강화 근접 일격.
@@ -24,10 +26,15 @@ protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
-	//~UAstralGA_Hero_Base — Facing 세션 (5단계). 단발이라 Stage 0뿐
-	virtual bool UsesFacingWarp() const override { return true; }
-	virtual int32 GetFacingStageCount() const override { return 1; }
-	//~End UAstralGA_Hero_Base
+	//~UAstralGameplayAbility — 입력 활성화에 Stage 0 Facing 제안을 싣는다. 단발이라 Stage 0뿐
+	virtual EAstralInputActivationPreparation MakeActivationEventData(const FGameplayAbilityActorInfo& ActorInfo, FGameplayEventData& OutEventData) const override;
+	//~End UAstralGameplayAbility
+
+	/** 활성화마다 새 Facing 세션 (NumStages = 1) — Stage 0은 TriggerEventData에서, 로컬은 이벤트 밖 활성화에 한해 라이브 캡처 폴백 */
+	void BeginFacingSession(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData);
+
+	/** 확정 결과 → 워프 설치/제거 (FacingWarpTargetName) */
+	void ApplyFacingResolution(const FAstralFacingStageResolution& Resolution);
 
 	UFUNCTION()
 	void OnMontageCompleted();
@@ -65,4 +72,8 @@ private:
 	/** 트레이스 윈도우 태스크 — 어빌리티 수명 (밴드 수명·무기 해석·겹침 방어는 태스크 소유) */
 	UPROPERTY(Transient)
 	TObjectPtr<UAstralAbilityTask_AttackTraceWindows> TraceTask;
+
+	/** Facing 네트워크 세션 — 활성화마다 새 객체. EndAbility가 키를 대조해 End */
+	UPROPERTY(Transient)
+	TObjectPtr<UAstralFacingSession> FacingSession;
 };

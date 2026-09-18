@@ -25,6 +25,18 @@ enum class EAstralAbilityActivationPolicy : uint8
 	Manual
 };
 
+/** 입력 활성화 직전 데이터 작성 결과 — ASC::TryActivateAbilityFromInput가 이 값으로 활성화 경로를 고른다 */
+UENUM()
+enum class EAstralInputActivationPreparation : uint8
+{
+	/** 기존 TryActivateAbility */
+	Default,
+	/** 작성한 데이터로 Spec 지정 이벤트 활성화 (TriggerAbilityFromGameplayEvent) */
+	WithEventData,
+	/** 작성 실패 — 이번 입력은 일반 활성화로 폴백하지 않는다 */
+	Failed
+};
+
 UCLASS()
 class ASTRALBREAK_API UAstralGameplayAbility : public UGameplayAbility
 {
@@ -49,8 +61,9 @@ public:
 	EAstralAbilityActivationPolicy GetActivationPolicy() const { return ActivationPolicy; }
 
 	void TryActivateAbilityOnSpawn(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilitySpec& Spec) const;
-	
-	virtual bool MakeActivationEventData(const FGameplayAbilityActorInfo& ActorInfo, FGameplayEventData& OutEventData) const { return false; }
+
+	/** 입력 활성화 직전 초기 데이터 작성 훅 — 범용 계약. 데이터의 종류(Facing 등)는 구체 GA가 정의한다. */
+	virtual EAstralInputActivationPreparation MakeActivationEventData(const FGameplayAbilityActorInfo& ActorInfo, FGameplayEventData& OutEventData) const { return EAstralInputActivationPreparation::Default; }
 
 protected:
 	// 인자 축약 헬퍼 계층: GA 컨텍스트(ASC·Avatar·Level·현재 활성화 핸들)로 GE를 "어떻게" 적용하는가만 안다.
@@ -67,7 +80,7 @@ protected:
 
 	/**
 	 * 공격 방향 보정 — 아바타의 UMotionWarpingComponent에 워프 타겟을 지정 (기계: 워프 타겟 수명만).
-	 * 방향의 출처는 역할별로 다르고(로컬 캡처 / 서버 승인 스냅샷) 그 결정은 호출자(GA) 몫 — 여기는 시뮬 프록시만 제외한다
+	 * 방향의 출처(로컬 캡처 / 서버 승인 스냅샷)와 확정은 UAstralFacingSession, 이름·시점은 호출자(GA) 몫 — 여기는 시뮬 프록시만 제외한다
 	 * (시뮬 프록시는 WarpTargets의 COND_SimulatedOnly 복제가 처리). 밴드 수명은 엔진 UAnimNotifyState_MotionWarping
 	 */
 	void SetFacingWarp(const FAstralFacingWarpCommand& Command) const;

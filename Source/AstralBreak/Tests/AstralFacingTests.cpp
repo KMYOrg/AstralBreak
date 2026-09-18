@@ -3,9 +3,11 @@
 // 네트워크·몽타주·접촉은 PIE 수동 검증 (stage-5-network.md)
 
 #include "Misc/AutomationTest.h"
+#include "AbilitySystem/Facing/AstralFacingSession.h"
 #include "Combat/AstralFacingTypes.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
+#include "UObject/Package.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -240,6 +242,95 @@ bool FAstralFacingValidateTest::RunTest(const FString& Parameters)
 
 	// 거리 거부가 방위보다 먼저
 	TestEqual(TEXT("far and wrong -> OutOfRange"), ValidateBearing(ValidateRange + 100.f, 0.f, 180.f), E::OutOfRange);
+
+	return true;
+}
+
+// 세션 계약 — ASC·월드 없이 확인 가능한 것만: 단계 1회 계약(중복 AdvanceStage는 이전 결과), Stage 0 출처, End 멱등·종료 후 무소비.
+// 수신 구독·GAS 캐시·GC는 UObject/ASC 경로라 PIE 몫 (설계 §12)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAstralFacingSessionTest, "AstralBreak.Facing.Session", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FAstralFacingSessionTest::RunTest(const FString& Parameters)
+{
+	using D = EAstralFacingDecision;
+
+	// 로컬(호스트) — Stage 0은 Begin 값, Stage 1~N은 인자. 같은 단계 재호출은 이전 결과
+	{
+		UAstralFacingSession* Session = NewObject<UAstralFacingSession>(GetTransientPackage());
+		FAstralFacingSessionContext Context;
+		Context.NumStages = 3;
+		Context.Role = EAstralFacingSessionRole::LocalAuthority;
+
+		TestTrue(TEXT("begin"), Session->Begin(Context, MakeLockOn(0, 10)));
+		TestTrue(TEXT("active"), Session->IsActive());
+		// Begin 중복은 ensure로 막는다 — Automation이 ensure를 오류로 집계하므로 여기서 재현하지 않는다
+
+		// Stage 0 — LocalProposal은 무시된다 (Begin 값이 서버와 같은 양자화 값)
+		FAstralFacingStageResolution R0 = Session->AdvanceStage(0, MakeLockOn(0, 99));
+		TestEqual(TEXT("stage0 warp"), R0.Decision, D::Warp);
+		TestTrue(TEXT("stage0 uses begin value"), R0.Proposal.IsSet() && R0.Proposal->QuantizedDesiredYaw == 10);
+		TestTrue(TEXT("stage0 yaw dequantized"), FMath::IsNearlyEqual(R0.GetWarpYaw(), AstralFacing::DequantizeYaw(10), KINDA_SMALL_NUMBER));
+
+		// 중복 호출 — 다른 값을 넘겨도 이전 결과
+		FAstralFacingStageResolution R0Again = Session->AdvanceStage(0, MakeLockOn(0, 55));
+		TestEqual(TEXT("stage0 duplicate keeps decision"), R0Again.Decision, D::Warp);
+		TestTrue(TEXT("stage0 duplicate keeps value"), R0Again.Proposal.IsSet() && R0Again.Proposal->QuantizedDesiredYaw == 10);
+
+		// Stage 1 — 인자 사용
+		FAstralFacingStageResolution R1 = Session->AdvanceStage(1, MakeLockOn(1, 20));
+		TestEqual(TEXT("stage1 warp"), R1.Decision, D::Warp);
+		TestTrue(TEXT("stage1 uses local"), R1.Proposal.IsSet() && R1.Proposal->QuantizedDesiredYaw == 20);
+		FAstralFacingStageResolution R1Again = Session->AdvanceStage(1, MakeLockOn(1, 77));
+		TestTrue(TEXT("stage1 duplicate keeps value"), R1Again.Proposal.IsSet() && R1Again.Proposal->QuantizedDesiredYaw == 20);
+
+		// Stage 2 — 명시적 None / 미전달
+		TestEqual(TEXT("stage2 explicit none"), Session->AdvanceStage(2, FAstralFacingProposal::MakeNone(2)).Decision, D::NoWarp_ExplicitNone);
+
+		// End 멱등 · 종료 후 AdvanceStage는 Missing
+		Session->End();
+		TestFalse(TEXT("inactive after end"), Session->IsActive());
+		Session->End();
+		TestEqual(TEXT("advance after end"), Session->AdvanceStage(0, MakeLockOn(0, 1)).Decision, D::NoWarp_Missing);
+	}
+
+	// 로컬 — Stage 1에 아무것도 안 넘기면 Missing, Stage 0 미수신도 Missing
+	{
+		UAstralFacingSession* Session = NewObject<UAstralFacingSession>(GetTransientPackage());
+		FAstralFacingSessionContext Context;
+		Context.NumStages = 2;
+		Context.Role = EAstralFacingSessionRole::AutonomousProxy; // ASC 없음 → 송신 생략, 결정은 동일
+
+		TestTrue(TEXT("begin without stage0"), Session->Begin(Context, TOptional<FAstralFacingProposal>()));
+		TestEqual(TEXT("stage0 missing"), Session->AdvanceStage(0, TOptional<FAstralFacingProposal>()).Decision, D::NoWarp_Missing);
+		TestEqual(TEXT("stage1 missing"), Session->AdvanceStage(1, TOptional<FAstralFacingProposal>()).Decision, D::NoWarp_Missing);
+		Session->End();
+	}
+
+	// 활성화 대조
+	{
+		UAstralFacingSession* Session = NewObject<UAstralFacingSession>(GetTransientPackage());
+		FAstralFacingSessionContext Context;
+		Context.NumStages = 1;
+		Context.SpecHandle = FGameplayAbilitySpecHandle();
+		Context.ActivationKey = FPredictionKey();
+		Context.ActivationKey.Current = 7;
+		TestTrue(TEXT("begin"), Session->Begin(Context, TOptional<FAstralFacingProposal>()));
+
+		FPredictionKey Same; Same.Current = 7;
+		FPredictionKey Other; Other.Current = 8;
+		TestTrue(TEXT("matches same key"), Session->MatchesActivation(Context.SpecHandle, Same));
+		TestFalse(TEXT("rejects other key"), Session->MatchesActivation(Context.SpecHandle, Other));
+		Session->End();
+	}
+
+	// NumStages 0은 시작 불가
+	{
+		UAstralFacingSession* Session = NewObject<UAstralFacingSession>(GetTransientPackage());
+		FAstralFacingSessionContext Context;
+		Context.NumStages = 0;
+		TestFalse(TEXT("zero stages"), Session->Begin(Context, TOptional<FAstralFacingProposal>()));
+		TestFalse(TEXT("inactive"), Session->IsActive());
+	}
 
 	return true;
 }

@@ -21,4 +21,6 @@ namespace AstralGameplayTags
 
 	UE_DEFINE_GAMEPLAY_TAG(GameplayEvent_ActivateFromInput, "GameplayEvent.Ability.ActivateFromInput");
 
+	UE_DEFINE_GAMEPLAY_TAG(GameplayEvent_Ranged_Fire, "GameplayEvent.Ranged.Fire");
+
 }

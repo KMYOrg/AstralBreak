@@ -28,6 +28,9 @@ protected:
 	/** 하드 락 타겟 — 없으면 빈 핸들 */
 	FAstralTargetHandle ResolveEffectiveTarget() const;
 
+	/** 활성화 전의 CurrentActorInfo를 쓸 수 없는 경우 */
+	static FAstralTargetHandle ResolveEffectiveTarget(const AActor* Avatar);
+
 	/**
 	 * 아바타 → 락온 타겟 조준점 yaw를 양자화. 타겟 없음 = 명시적 None.
 	 * 스냅샷 — 호출 시점 값이며 밴드 중 재계산하지 않는다. StageIndex는 uint8 범위(0~255)여야 한다

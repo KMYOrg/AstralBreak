@@ -4,6 +4,7 @@
 
 #include "AnimNotifyState_MotionWarping.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/Notifies/AstralAnimNotify_GameplayEvent.h"
 #include "Animation/Notifies/AstralAnimNotifyState_GameplayEventWindow.h"
 #include "Animation/Notifies/AstralAnimNotifyState_RootMotionPawnCollisionPolicy.h"
 #include "AstralLogChannels.h"
@@ -11,7 +12,71 @@
 
 namespace AstralAttackMontage
 {
-	void ValidateFacingWarpBand(const UAnimMontage* Montage, FName ExpectedWarpTargetName, const FGameplayTag& TraceBeginEventTag, const FString& Context)
+	TOptional<float> FindEarliestWindowBegin(const UAnimMontage* Montage, const FGameplayTag& BeginEventTag)
+	{
+		TOptional<float> Earliest;
+		if (!Montage || !BeginEventTag.IsValid())
+		{
+			return Earliest;
+		}
+
+		for (const FAnimNotifyEvent& Event : Montage->Notifies)
+		{
+			const UAstralAnimNotifyState_GameplayEventWindow* Band = Cast<UAstralAnimNotifyState_GameplayEventWindow>(Event.NotifyStateClass);
+			if (Band && Band->GetBeginEventTag() == BeginEventTag)
+			{
+				const float Begin = Event.GetTriggerTime();
+				Earliest = Earliest.IsSet() ? FMath::Min(*Earliest, Begin) : Begin;
+			}
+		}
+		return Earliest;
+	}
+
+	TOptional<float> ValidateFireNotify(const UAnimMontage* Montage, const FGameplayTag& FireEventTag, const FString& Context)
+	{
+		TOptional<float> FireTime;
+		if (!Montage)
+		{
+			return FireTime;
+		}
+
+		const FString Prefix = FString::Printf(TEXT("[RangedFire] %s (%s)"), *Context, *Montage->GetName());
+
+		// 단발 노티파이는 NotifyStateClass가 아니라 Notify 쪽 — 밴드 검색과 다른 경로
+		int32 Count = 0;
+		for (const FAnimNotifyEvent& Event : Montage->Notifies)
+		{
+			const UAstralAnimNotify_GameplayEvent* Notify = Cast<UAstralAnimNotify_GameplayEvent>(Event.Notify);
+			if (!Notify || Notify->GetEventTag() != FireEventTag)
+			{
+				continue;
+			}
+
+			++Count;
+			const float TriggerTime = Event.GetTriggerTime();
+			if (TriggerTime <= 0.f)
+			{
+				// 엔진 추출 조건 (Start <= Cur && End > Prev) — 첫 틱은 Prev = 0이라 0초 즉발 노티파이는 걸리지 않는다
+				UE_LOG(LogAstralAbilitySystem, Error, TEXT("%s: 발사 노티파이가 %.3f초 — 0초에 두면 첫 틱에 누락된다. 최소 한 프레임 뒤로 옮길 것"), *Prefix, TriggerTime);
+				continue;
+			}
+			FireTime = TriggerTime;
+		}
+
+		if (Count == 0)
+		{
+			UE_LOG(LogAstralAbilitySystem, Error, TEXT("%s: 발사 노티파이('%s')가 없다 — 몽타주가 끝나도 발사되지 않는다"), *Prefix, *FireEventTag.ToString());
+		}
+		else if (Count > 1)
+		{
+			UE_LOG(LogAstralAbilitySystem, Error, TEXT("%s: 발사 노티파이가 %d개 — 활성화당 단발이라 1개여야 한다 (첫 발화만 처리된다)"), *Prefix, Count);
+			FireTime.Reset();
+		}
+
+		return FireTime;
+	}
+
+	void ValidateFacingWarpBand(const UAnimMontage* Montage, FName ExpectedWarpTargetName, TOptional<float> BoundaryTime, const FString& Context)
 	{
 		if (!Montage)
 		{
@@ -20,24 +85,14 @@ namespace AstralAttackMontage
 
 		const FString Prefix = FString::Printf(TEXT("[FacingWarp] %s (%s)"), *Context, *Montage->GetName());
 
-		// 워프 밴드 수집 + 가장 이른 WeaponTrace 밴드 시작
+		// 워프 밴드 수집 — 경계 시각은 호출자가 계산해 넘긴다 (노티파이 종류를 여기서 알 필요가 없다)
 		TArray<const FAnimNotifyEvent*> WarpBands;
-		float EarliestTraceBegin = TNumericLimits<float>::Max();
 
 		for (const FAnimNotifyEvent& Event : Montage->Notifies)
 		{
 			if (Cast<UAnimNotifyState_MotionWarping>(Event.NotifyStateClass))
 			{
 				WarpBands.Add(&Event);
-				continue;
-			}
-
-			if (const UAstralAnimNotifyState_GameplayEventWindow* Band = Cast<UAstralAnimNotifyState_GameplayEventWindow>(Event.NotifyStateClass))
-			{
-				if (TraceBeginEventTag.IsValid() && Band->GetBeginEventTag() == TraceBeginEventTag)
-				{
-					EarliestTraceBegin = FMath::Min(EarliestTraceBegin, Event.GetTriggerTime());
-				}
 			}
 		}
 
@@ -98,9 +153,9 @@ namespace AstralAttackMontage
 				UE_LOG(LogAstralAbilitySystem, Error, TEXT("%s: 워프 밴드 길이가 0 이하 (%.3f ~ %.3f)"), *Prefix, BandStart, BandEnd);
 			}
 
-			if (EarliestTraceBegin < TNumericLimits<float>::Max() && BandEnd > EarliestTraceBegin + KINDA_SMALL_NUMBER)
+			if (BoundaryTime.IsSet() && BandEnd > *BoundaryTime + KINDA_SMALL_NUMBER)
 			{
-				UE_LOG(LogAstralAbilitySystem, Warning, TEXT("%s: 워프 밴드 종료(%.3f)가 WeaponTrace 시작(%.3f)보다 늦다 — 루트모션 변위가 로컬 공간이라 전진이 곡선으로 휜다. 밴드를 선딜 안에 끝낼 것"), *Prefix, BandEnd, EarliestTraceBegin);
+				UE_LOG(LogAstralAbilitySystem, Warning, TEXT("%s: 워프 밴드 종료(%.3f)가 경계 시각(%.3f, WeaponTrace 시작 또는 발사 시점)보다 늦다 — 회전이 판정과 겹친다. 밴드를 선딜 안에 끝낼 것"), *Prefix, BandEnd, *BoundaryTime);
 			}
 		}
 	}

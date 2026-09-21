@@ -19,8 +19,13 @@ UAstralGA_Hero_Base::UAstralGA_Hero_Base(const FObjectInitializer& ObjectInitial
 
 FAstralTargetHandle UAstralGA_Hero_Base::ResolveEffectiveTarget() const
 {
+	return ResolveEffectiveTarget(GetAvatarActorFromActorInfo());
+}
+
+FAstralTargetHandle UAstralGA_Hero_Base::ResolveEffectiveTarget(const AActor* Avatar)
+{
 	// GetAstralCharacterFromActorInfo는 베이스(AAstralCharacter)를 돌려주므로 히어로 캐스트는 여기서
-	const AAstralCharacter_Hero* Hero = Cast<AAstralCharacter_Hero>(GetAvatarActorFromActorInfo());
+	const AAstralCharacter_Hero* Hero = Cast<AAstralCharacter_Hero>(Avatar);
 	const UAstralTargetingComponent* Targeting = Hero ? Hero->GetTargetingComponent() : nullptr;
 	return Targeting ? Targeting->GetEffectiveTarget() : FAstralTargetHandle();
 }
@@ -35,15 +40,8 @@ FAstralFacingProposal UAstralGA_Hero_Base::CaptureFacingProposal(const AActor* A
 
 	FAstralFacingProposal Proposal = FAstralFacingProposal::MakeNone(static_cast<uint8>(StageIndex));
 
-	const AAstralCharacter_Hero* Hero = Cast<AAstralCharacter_Hero>(Avatar);
-	const UAstralTargetingComponent* Targeting = Hero ? Hero->GetTargetingComponent() : nullptr;
-	if (!Targeting)
-	{
-		return Proposal;
-	}
-
-	const FAstralTargetHandle& Target = Targeting->GetEffectiveTarget();
-	if (!Target.IsSet())
+	const FAstralTargetHandle Target = ResolveEffectiveTarget(Avatar);
+	if (!Avatar || !Target.IsSet())
 	{
 		return Proposal;
 	}

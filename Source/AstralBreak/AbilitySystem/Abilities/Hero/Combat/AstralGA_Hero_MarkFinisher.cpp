@@ -51,7 +51,7 @@ void UAstralGA_Hero_MarkFinisher::ActivateAbility(const FGameplayAbilitySpecHand
 	if (!bMontageValidated)
 	{
 		bMontageValidated = true;
-		AstralAttackMontage::ValidateFacingWarpBand(AttackMontage, FacingWarpTargetName, AstralGameplayTags::GameplayEvent_WeaponTrace_Begin, GetName());
+		AstralAttackMontage::ValidateFacingWarpBand(AttackMontage, FacingWarpTargetName, AstralAttackMontage::FindEarliestWindowBegin(AttackMontage, AstralGameplayTags::GameplayEvent_WeaponTrace_Begin), GetName());
 		AstralAttackMontage::ValidatePawnCollisionBands(AttackMontage, GetName());
 	}
 #endif

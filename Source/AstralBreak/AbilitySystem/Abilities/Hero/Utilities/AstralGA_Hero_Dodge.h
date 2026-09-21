@@ -8,7 +8,9 @@ class UAnimMontage;
 
 /**
  * 회피(대시) 어빌리티 (OnInputTriggered).
- * RootMotionSource(ConstantForce)로 이동 입력 방향 대시 — 전용 애니 없이 동작 (MVP).
+ * RootMotionSource(ConstantForce)로 대시 — 전용 애니 없이 동작 (MVP). 이동 수단은 테스트용이며 몽타주 이동으로 교체 예정.
+ * 방향 결정(AstralDodge::ResolveDirection — 입력 → 락온 타겟 반대 → 백스텝)과 이동 실행을 분리하고,
+ * 최종 Yaw를 활성화 이벤트에 실어 클라·서버가 같은 값을 복원한다 (락온 6단계). 서버는 입력·타겟을 재현해 거부하지 않는다.
  * 비용은 표준 CostGameplayEffect 경로(CommitAbility) 사용
  * i-frame(무적)은 이번 패스 범위 밖 — 도입 시 ActivationOwnedTags + HealthSet 차단으로 확장.
  */
@@ -20,11 +22,17 @@ class ASTRALBREAK_API UAstralGA_Hero_Dodge : public UAstralGA_Hero_Base
 public:
 	UAstralGA_Hero_Dodge(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
+	//~UAstralGameplayAbility — 회피 방향(Yaw)을 활성화 이벤트에 싣는다. 읽기 전용
+	virtual EAstralInputActivationPreparation MakeActivationEventData(const FGameplayAbilityActorInfo& ActorInfo, FGameplayEventData& OutEventData) const override;
+	//~End UAstralGameplayAbility
+
 protected:
 	//~UGameplayAbility interface
 	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const override;
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	//~End of UGameplayAbility interface
+
+	FVector CaptureDodgeDirection(const AActor* Avatar) const;
 
 	/** RootMotion 태스크 종료 콜백 */
 	UFUNCTION()
@@ -39,7 +47,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Dodge", Meta = (ClampMin = "0.01"))
 	float DodgeDuration = 0.2f;
 
-	/** 이동 입력이 없을 때 백스텝(-Forward)할지 여부. false면 전방 대시 */
+	/** 이동 입력·락온이 없을 때 백스텝(-Forward)할지 여부. false면 전방 대시 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Dodge")
 	bool bDodgeBackwardWhenIdle = true;
 

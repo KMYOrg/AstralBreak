@@ -146,53 +146,57 @@ FString FGameplayAbilityTargetData_AstralFacing::ToString() const
 		Proposal.StageIndex, AstralFacing::ToString(Proposal.Source), *GetNameSafe(Proposal.TargetActor.Get()), Proposal.QuantizedDesiredYaw);
 }
 
-bool FGameplayAbilityTargetData_AstralFacing::NetSerialize(FArchive& Ar, UPackageMap* Map, bool& bOutSuccess)
+void FAstralFacingProposal::NetSerializeFields(FArchive& Ar, UPackageMap* Map)
 {
-	uint8 SourceByte = static_cast<uint8>(Proposal.Source);
+	uint8 SourceByte = static_cast<uint8>(Source);
 	Ar << SourceByte;
-	Ar << Proposal.StageIndex;
-	Ar << Proposal.QuantizedDesiredYaw;
+	Ar << StageIndex;
+	Ar << QuantizedDesiredYaw;
 
 	// Actor — UPackageMap 경로. 메모리 아카이브(테스트)에서는 UObject 직렬화가 no-op이라 bHasActor로 방어
-	uint8 bHasActor = Proposal.TargetActor.IsValid() ? 1 : 0;
+	uint8 bHasActor = TargetActor.IsValid() ? 1 : 0;
 	Ar << bHasActor;
 	if (bHasActor)
 	{
-		UObject* ActorObject = Proposal.TargetActor.Get();
+		UObject* ActorObject = TargetActor.Get();
 		Ar << ActorObject;
 		if (Ar.IsLoading())
 		{
-			Proposal.TargetActor = Cast<AActor>(ActorObject);
+			TargetActor = Cast<AActor>(ActorObject);
 		}
 	}
 	else if (Ar.IsLoading())
 	{
-		Proposal.TargetActor = nullptr;
+		TargetActor = nullptr;
 	}
 
 	// TargetPointId — MVP는 항상 NAME_None. FName은 아카이브 종류에 따라 직렬화가 다르므로 문자열로 (드문 경로)
-	uint8 bHasPointId = Proposal.TargetPointId.IsNone() ? 0 : 1;
+	uint8 bHasPointId = TargetPointId.IsNone() ? 0 : 1;
 	Ar << bHasPointId;
 	if (bHasPointId)
 	{
-		FString PointIdString = Ar.IsSaving() ? Proposal.TargetPointId.ToString() : FString();
+		FString PointIdString = Ar.IsSaving() ? TargetPointId.ToString() : FString();
 		Ar << PointIdString;
 		if (Ar.IsLoading())
 		{
-			Proposal.TargetPointId = FName(*PointIdString);
+			TargetPointId = FName(*PointIdString);
 		}
 	}
 	else if (Ar.IsLoading())
 	{
-		Proposal.TargetPointId = NAME_None;
+		TargetPointId = NAME_None;
 	}
 
 	if (Ar.IsLoading())
 	{
-		Proposal.Source = (SourceByte <= static_cast<uint8>(EAstralFacingSource::LockOn)) ? static_cast<EAstralFacingSource>(SourceByte) : EAstralFacingSource::None;
-		Proposal.NormalizeNone();
+		Source = (SourceByte <= static_cast<uint8>(EAstralFacingSource::LockOn)) ? static_cast<EAstralFacingSource>(SourceByte) : EAstralFacingSource::None;
+		NormalizeNone();
 	}
+}
 
+bool FGameplayAbilityTargetData_AstralFacing::NetSerialize(FArchive& Ar, UPackageMap* Map, bool& bOutSuccess)
+{
+	Proposal.NetSerializeFields(Ar, Map);
 	bOutSuccess = true;
 	return true;
 }

@@ -279,7 +279,7 @@ void UAstralGA_Hero_BasicAttack_Melee::ValidateComboStageMontages()
         }
 
         const FString StageContext = FString::Printf(TEXT("%s 스테이지 %d"), *GetName(), Index);
-        AstralAttackMontage::ValidateFacingWarpBand(Montage, StageData.FacingWarpTargetName, AstralGameplayTags::GameplayEvent_WeaponTrace_Begin, StageContext);
+        AstralAttackMontage::ValidateFacingWarpBand(Montage, StageData.FacingWarpTargetName, AstralAttackMontage::FindEarliestWindowBegin(Montage, AstralGameplayTags::GameplayEvent_WeaponTrace_Begin), StageContext);
         AstralAttackMontage::ValidatePawnCollisionBands(Montage, StageContext);
 
         int32 BranchBandCount = 0;

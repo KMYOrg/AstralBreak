@@ -110,6 +110,8 @@ struct ASTRALBREAK_API FAstralFacingProposal
 
 	bool operator==(const FAstralFacingProposal& Other) const;
 	bool operator!=(const FAstralFacingProposal& Other) const { return !(*this == Other); }
+	
+	void NetSerializeFields(FArchive& Ar, class UPackageMap* Map);
 };
 
 /**

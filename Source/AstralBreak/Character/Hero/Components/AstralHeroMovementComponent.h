@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 #include "Character/Components/AstralCharacterMovementComponent.h"
+#include "Combat/AstralInputFacingTypes.h"
 #include "AstralHeroMovementComponent.generated.h"
 
 /**
@@ -25,7 +26,23 @@ public:
 
 	/** 서버가 원격 클라의 의도를 수신하는 지점 — 신뢰 대상이 아니다 (승인은 GetMaxSpeed의 게이트가 판단) */
 	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
+
+	/** 입력 회전 샘플의 수명 창 — 설치된 샘플이 없으면(호스트·Standalone: SavedMove 경로가 없다) 라이브 입력으로 만들고, 이동 뒤 항상 해제 */
+	virtual void PerformMovement(float DeltaSeconds) override;
 	//~End UCharacterMovementComponent
+
+	/** 현재 실행 중인 move의 샘플. PerformMovement 밖(시뮬 프록시 SimulateMovement 등)에서는 false — 보정 없음 */
+	bool GetInputFacingSampleForCurrentMove(FAstralInputFacingSample& OutSample) const;
+
+	/** move 시작 전에 설치 — SetMoveFor(예측)·PrepMoveFor(재실행)·ServerMove(서버)가 호출. PerformMovement가 소비 후 해제한다 */
+	void InstallCurrentMoveInputFacing(const FAstralInputFacingSample& Sample);
+	void ClearCurrentMoveInputFacing();
+
+	/**
+	 * 라이브 샘플 — 폰이 이번 틱 소비한 이동 입력(AddMovementInput과 같은 카메라 기준 월드 벡터, 무입력이면 0) + 현재 Yaw + 로컬 락온 억제.
+	 * 부호는 여기서 한 번 고른다 (소유 클라·호스트). 서버·재실행은 고르지 않는다
+	 */
+	FAstralInputFacingSample MakeLiveInputFacingSample() const;
 
 	/** Sprint GA에서 호출 — 의도만 세팅한다. SavedMove 리플레이 복원도 이 경로를 쓴다 */
 	void SetSprinting(bool bNewSprinting) { bWantsToSprint = bNewSprinting; }
@@ -52,6 +69,9 @@ protected:
 	/** State.Movement.Sprinting 카운트 변경 — 승인 캐시 갱신 */
 	void HandleSprintTagChanged(const FGameplayTag Tag, int32 NewCount);
 
+	/** 로컬 락온 선택 중인가 — 샘플 억제 플래그의 원천 (로컬 제어 폰만. 서버는 패킷 샘플의 플래그를 쓴다) */
+	bool IsLocalLockOnActive() const;
+
 protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Astral|HeroMovement", Meta = (ClampMin = "1.0"))
@@ -64,6 +84,11 @@ protected:
 	bool bSprintAuthorized = false;
 
 	FDelegateHandle SprintTagChangedHandle;
+
+private:
+	/** 현재 move의 입력 회전 샘플 — PerformMovement 안에서만 유효 */
+	FAstralInputFacingSample CurrentMoveInputFacing;
+	bool bHasCurrentMoveInputFacing = false;
 };
 
 class FAstralSavedMove_Hero : public FSavedMove_Character

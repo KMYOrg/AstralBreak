@@ -2,6 +2,7 @@
 
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
+#include "Character/Hero/Components/AstralTargetingComponent.h"
 #include "GameFramework/Character.h"
 
 //////////////////////////////////////////////////////////////////////////
@@ -70,6 +71,66 @@ void UAstralHeroMovementComponent::OnAbilitySystemUnbound()
 void UAstralHeroMovementComponent::HandleSprintTagChanged(const FGameplayTag Tag, int32 NewCount)
 {
 	bSprintAuthorized = (NewCount > 0);
+}
+
+void UAstralHeroMovementComponent::PerformMovement(float DeltaSeconds)
+{
+	// 예측 클라·재실행·서버는 각자의 경로가 move 시작 전에 설치한다 (커밋 3). 설치된 것이 없으면 이 move의 라이브 샘플을 만든다
+	if (!bHasCurrentMoveInputFacing)
+	{
+		InstallCurrentMoveInputFacing(MakeLiveInputFacingSample());
+	}
+
+	Super::PerformMovement(DeltaSeconds);
+
+	// 샘플 수명은 move 하나 — 다음 평가(다른 move·시뮬레이션)에 새지 않게 항상 해제
+	ClearCurrentMoveInputFacing();
+}
+
+bool UAstralHeroMovementComponent::GetInputFacingSampleForCurrentMove(FAstralInputFacingSample& OutSample) const
+{
+	if (!bHasCurrentMoveInputFacing)
+	{
+		return false;
+	}
+	OutSample = CurrentMoveInputFacing;
+	return true;
+}
+
+void UAstralHeroMovementComponent::InstallCurrentMoveInputFacing(const FAstralInputFacingSample& Sample)
+{
+	CurrentMoveInputFacing = Sample;
+	bHasCurrentMoveInputFacing = true;
+}
+
+void UAstralHeroMovementComponent::ClearCurrentMoveInputFacing()
+{
+	CurrentMoveInputFacing = FAstralInputFacingSample();
+	bHasCurrentMoveInputFacing = false;
+}
+
+FAstralInputFacingSample UAstralHeroMovementComponent::MakeLiveInputFacingSample() const
+{
+	if (!CharacterOwner)
+	{
+		return FAstralInputFacingSample();
+	}
+
+	// CMC 틱이 ConsumeInputVector로 소비한 이번 틱의 이동 입력 — 원격 폰의 서버 인스턴스·시뮬 프록시는 입력을 더하지 않으므로 0
+	const FVector WorldInput = CharacterOwner->GetLastMovementInputVector();
+	return AstralInputFacing::MakeSample(WorldInput, CharacterOwner->GetActorRotation().Yaw, IsLocalLockOnActive());
+}
+
+bool UAstralHeroMovementComponent::IsLocalLockOnActive() const
+{
+	if (!CharacterOwner || !CharacterOwner->IsLocallyControlled())
+	{
+		return false;
+	}
+
+	// 록온 우선 — 하드 락 중에는 입력 회전을 요청하지 않는다 (기존 Facing 소유권 슬롯은 커밋 4에서 합류)
+	const UAstralTargetingComponent* Targeting = UAstralTargetingComponent::FindTargetingComponent(CharacterOwner);
+	return Targeting && Targeting->GetMode() == EAstralTargetingMode::HardLocked;
 }
 
 //////////////////////////////////////////////////////////////////////////

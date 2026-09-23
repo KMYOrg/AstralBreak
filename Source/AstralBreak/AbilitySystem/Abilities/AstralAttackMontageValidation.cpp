@@ -6,6 +6,7 @@
 #include "Animation/AnimMontage.h"
 #include "Animation/Notifies/AstralAnimNotify_GameplayEvent.h"
 #include "Animation/Notifies/AstralAnimNotifyState_GameplayEventWindow.h"
+#include "Animation/Notifies/AstralAnimNotifyState_InputFacing.h"
 #include "Animation/Notifies/AstralAnimNotifyState_RootMotionPawnCollisionPolicy.h"
 #include "AstralLogChannels.h"
 #include "RootMotionModifier.h"
@@ -90,7 +91,8 @@ namespace AstralAttackMontage
 
 		for (const FAnimNotifyEvent& Event : Montage->Notifies)
 		{
-			if (Cast<UAnimNotifyState_MotionWarping>(Event.NotifyStateClass))
+			// 입력 회전 창(7단계)도 MotionWarping 파생이지만 락온 워프가 아니다 — 여기서 세지 않는다 (전용 검증은 별도)
+			if (Cast<UAnimNotifyState_MotionWarping>(Event.NotifyStateClass) && !Cast<UAstralAnimNotifyState_InputFacing>(Event.NotifyStateClass))
 			{
 				WarpBands.Add(&Event);
 			}

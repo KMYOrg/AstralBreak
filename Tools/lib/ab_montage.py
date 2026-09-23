@@ -125,6 +125,8 @@ def add_notify_state(montage, track_name: str, start: float, duration: float,
 
 MOTION_WARPING_CLASS = "/Script/MotionWarping.AnimNotifyState_MotionWarping"
 PAWN_COLLISION_CLASS = "/Script/AstralBreak.AstralAnimNotifyState_RootMotionPawnCollisionPolicy"
+INPUT_FACING_CLASS = "/Script/AstralBreak.AstralAnimNotifyState_InputFacing"
+INPUT_FACING_MODIFIER_CLASS_NAME = "AstralRootMotionModifier_InputFacing"
 
 
 def pawn_collision_policy(name: str):
@@ -167,10 +169,43 @@ def add_motion_warping_window(montage, track_name: str, start: float, duration: 
     return ns
 
 
+INPUT_FACING_SETTING_KEYS = ("rotation_speed", "input_threshold", "opposite_turn_acceptance_degrees")
+
+
+def add_input_facing_window(montage, track_name: str, start: float, duration: float, **settings):
+    """입력 회전 창 배치 (락온 7단계 — stage-7-moveinput-facing.md).
+
+    MotionWarping 파생 NotifyState라 엔진이 몽타주 위치로 발견해 Modifier를 만든다 (Begin/End 발화 무관).
+    설정값은 NotifyState가 아니라 root_motion_modifier(전용 UAstralRootMotionModifier_InputFacing)의 settings 구조체에 있다.
+    저작 제약: 창 길이 ≥ 2/최소FPS × 최대PlayRate (15FPS·PlayRate1이면 0.134초), 다른 MotionWarping 창과 시작·끝이 모두 같으면 안 된다
+    (ContainsModifier가 (애니, 시작, 끝)으로 중복 판정), 입력 창끼리 중첩 금지, WeaponTrace 시작 전에 끝낼 것.
+    settings: rotation_speed / input_threshold / opposite_turn_acceptance_degrees
+    """
+    ns = add_notify_state(montage, track_name, start, duration, INPUT_FACING_CLASS)
+    modifier = ns.get_editor_property("root_motion_modifier")
+    if modifier is None:
+        raise RuntimeError("InputFacing NotifyState에 root_motion_modifier가 없다")
+    if modifier.get_class().get_name() != INPUT_FACING_MODIFIER_CLASS_NAME:
+        raise RuntimeError(f"InputFacing 템플릿 타입 불일치: {modifier.get_class().get_name()} "
+                           f"(기대 {INPUT_FACING_MODIFIER_CLASS_NAME} — 생성자 서브오브젝트 교체 확인)")
+    if settings:
+        unknown = set(settings) - set(INPUT_FACING_SETTING_KEYS)
+        if unknown:
+            raise RuntimeError(f"알 수 없는 InputFacing 설정: {sorted(unknown)}")
+        s = modifier.get_editor_property("settings")
+        for k, v in settings.items():
+            s.set_editor_property(k, v)
+        modifier.set_editor_property("settings", s)
+    return ns
+
+
 # ─────────────────────────── 저장/검증 ───────────────────────────
 
 def save(montage) -> bool:
-    return _eal.save_loaded_asset(montage)
+    """항상 디스크에 쓴다 (only_if_is_dirty=False).
+    실측(2026-09-22): AnimationLibrary.add_animation_notify_state_event / add_animation_notify_track은 패키지를 더티로
+    표시하지 않는다 — 기본값(더티일 때만)이면 True를 돌려주면서 실제로는 저장하지 않는다. 트랙을 비운 경우에만 우연히 더티였다."""
+    return _eal.save_loaded_asset(montage, False)
 
 
 def describe(montage) -> dict:
@@ -227,6 +262,12 @@ def describe_notifies(montage) -> list:
                         v = _safe_prop(mod, key)
                         if v is not None:
                             entry[key] = str(v)
+                    settings = _safe_prop(mod, "settings")
+                    if settings is not None:
+                        for key in INPUT_FACING_SETTING_KEYS:
+                            v = _safe_prop(settings, key)
+                            if v is not None:
+                                entry[key] = round(float(v), 4)
             out.append(entry)
     out.sort(key=lambda e: e["start"])
     return out
@@ -239,6 +280,7 @@ NOTIFY_CLASSES = {
     "GameplayEventWindow": "/Script/AstralBreak.AstralAnimNotifyState_GameplayEventWindow",
     "MotionWarping": MOTION_WARPING_CLASS,
     "PawnCollisionPolicy": PAWN_COLLISION_CLASS,
+    "InputFacing": INPUT_FACING_CLASS,
 }
 
 # MotionWarping 스펙에서 modifier로 전달되는 키 (NotifyState가 아니라 서브오브젝트 프로퍼티)
@@ -299,6 +341,12 @@ def build_from_spec(spec: dict, dry_run: bool = False) -> dict:
             # {"type": "PawnCollisionPolicy", "track": "PawnCollision", "start": 0.0, "duration": 1.25, "policy": "StopOnHit"}
             add_pawn_collision_window(mon, n.get("track", "PawnCollision"), n["start"], n["duration"],
                                       n.get("policy", "StopOnHit"))
+            continue
+
+        if n["type"] == "InputFacing":
+            # {"type": "InputFacing", "track": "InputFacing", "start": 0.0, "duration": 0.26, "rotation_speed": 720}
+            extra = {k: n[k] for k in INPUT_FACING_SETTING_KEYS if k in n}
+            add_input_facing_window(mon, n.get("track", "InputFacing"), n["start"], n["duration"], **extra)
             continue
 
         cls_path = NOTIFY_CLASSES.get(n["type"], n["type"])

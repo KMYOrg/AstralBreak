@@ -6,7 +6,9 @@
 #include "AbilitySystem/Tasks/AstralAbilityTask_AttackTraceWindows.h"
 #include "AstralLogChannels.h"
 #include "Character/AstralCharacter.h"
+#include "Character/Hero/Components/AstralHeroMovementComponent.h"
 #include "Combat/AstralCombatTypes.h"
+#include "Combat/AstralInputFacingTypes.h"
 #include "MotionWarpingComponent.h"
 #include "Player/AstralPlayerController.h"
 #include "System/AstralGameData.h"
@@ -17,6 +19,13 @@ namespace
 	{
 		const AActor* Avatar = ActorInfo ? ActorInfo->AvatarActor.Get() : nullptr;
 		return Avatar ? Avatar->FindComponentByClass<UMotionWarpingComponent>() : nullptr;
+	}
+
+	/** Facing 소유권 슬롯의 주인 — 히어로 CMC. 적(베이스 CMC)은 슬롯이 없다 (입력 회전 자체가 히어로 전용) */
+	UAstralHeroMovementComponent* FindHeroMovementComponent(const FGameplayAbilityActorInfo* ActorInfo)
+	{
+		const ACharacter* Character = ActorInfo ? Cast<ACharacter>(ActorInfo->AvatarActor.Get()) : nullptr;
+		return Character ? Cast<UAstralHeroMovementComponent>(Character->GetCharacterMovement()) : nullptr;
 	}
 }
 
@@ -83,10 +92,22 @@ void UAstralGameplayAbility::SetFacingWarp(const FAstralFacingWarpCommand& Comma
 	}
 
 	MotionWarping->AddOrUpdateWarpTargetFromLocationAndRotation(Command.WarpTargetName, Avatar->GetActorLocation(), Command.DesiredFacing);
+
+	// 이 활성화가 현재 스테이지의 회전 소유자 — 입력 회전 억제
+	if (UAstralHeroMovementComponent* HeroMC = FindHeroMovementComponent(CurrentActorInfo))
+	{
+		HeroMC->SetFacingOwner(MakeFacingOwnerId());
+	}
 }
 
 void UAstralGameplayAbility::ClearFacingWarp(FName WarpTargetName) const
 {
+	// 소유권 해제가 먼저 — 이름 없는 단계의 NoWarp도 여기로 온다. 다른 활성화의 슬롯은 건드리지 않는다
+	if (UAstralHeroMovementComponent* HeroMC = FindHeroMovementComponent(CurrentActorInfo))
+	{
+		HeroMC->ClearFacingOwnerIfMatches(MakeFacingOwnerId());
+	}
+
 	if (WarpTargetName.IsNone())
 	{
 		return;
@@ -100,6 +121,12 @@ void UAstralGameplayAbility::ClearFacingWarp(FName WarpTargetName) const
 
 void UAstralGameplayAbility::ClearFacingWarps(const TArray<FName>& WarpTargetNames) const
 {
+	// 일괄 경로는 단건 Clear를 거치지 않는다 — 소유권 해제를 여기서도, 목록이 비어 있어도
+	if (UAstralHeroMovementComponent* HeroMC = FindHeroMovementComponent(CurrentActorInfo))
+	{
+		HeroMC->ClearFacingOwnerIfMatches(MakeFacingOwnerId());
+	}
+
 	if (WarpTargetNames.Num() == 0)
 	{
 		return;
@@ -109,6 +136,14 @@ void UAstralGameplayAbility::ClearFacingWarps(const TArray<FName>& WarpTargetNam
 	{
 		MotionWarping->RemoveWarpTargets(WarpTargetNames);
 	}
+}
+
+FAstralFacingOwnerId UAstralGameplayAbility::MakeFacingOwnerId() const
+{
+	FAstralFacingOwnerId Id;
+	Id.SpecHandle = CurrentSpecHandle;
+	Id.PredictionKey = CurrentActivationInfo.GetActivationPredictionKey().Current;
+	return Id;
 }
 
 UAstralAbilitySystemComponent* UAstralGameplayAbility::GetAstralAbilitySystemComponentFromActorInfo() const

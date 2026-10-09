@@ -1,7 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayAbilitySpecHandle.h"
 #include "AstralInputFacingTypes.generated.h"
+
+class UAnimSequenceBase;
 
 /** 튜닝 값 — 단일 원본은 NotifyState에 인스턴싱된 Modifier 템플릿 (NotifyState 자체에 중복 보관하지 않는다) */
 USTRUCT(BlueprintType)
@@ -59,6 +62,58 @@ struct ASTRALBREAK_API FAstralInputFacingSample
 	void SerializeBits(FArchive& Ar);
 
 	FString ToString() const;
+};
+
+/**
+ * 기존 Facing(락온 워프) 회전 소유권 식별 — 활성화 단위 (SpecHandle + 활성화 예측 키).
+ * 같은 Spec의 순차 재활성화는 이전 활성화의 EndAbility(Clear)가 다음 활성화(Set)보다 먼저라 Set/Clear가 교차하지 않는다 — 세대 카운터는 두지 않는다.
+ * 호스트는 예측 키가 0이라 SpecHandle만으로 구분되며, 다른 Spec(근접·원거리·피니셔)은 핸들이 다르다
+ */
+struct ASTRALBREAK_API FAstralFacingOwnerId
+{
+	FGameplayAbilitySpecHandle SpecHandle;
+	int16 PredictionKey = 0;
+
+	bool IsValid() const { return SpecHandle.IsValid(); }
+	bool operator==(const FAstralFacingOwnerId& Other) const { return SpecHandle == Other.SpecHandle && PredictionKey == Other.PredictionKey; }
+	bool operator!=(const FAstralFacingOwnerId& Other) const { return !(*this == Other); }
+};
+
+/**
+ * 관찰자용 승인 샘플 — 서버가 창 안에서 소비한 입력과 그 적용 문맥(몽타주·창 시작). AAstralCharacter_Hero가 COND_SimulatedOnly로 복제한다.
+ * 관찰자의 Modifier는 자기 창(Animation·StartTime)과 일치할 때만 쓴다 — 로컬 MontageInstanceID는 네트워크 공통 ID가 아니라 쓰지 않는다.
+ * 프로퍼티 복제라 move별 이력이 아니라 최신 값만 도착한다. 최종 위치·회전은 서버 이동 복제가 기준
+ */
+USTRUCT()
+struct ASTRALBREAK_API FAstralInputFacingPresentation
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TObjectPtr<const UAnimSequenceBase> Animation = nullptr;
+
+	UPROPERTY()
+	float WindowStart = 0.f;
+
+	UPROPERTY()
+	uint16 WorldInputYaw = 0;
+
+	UPROPERTY()
+	uint8 InputMagnitude = 0;
+
+	UPROPERTY()
+	bool bPositiveTurn = true;
+
+	/** 서버가 이 창에서 입력 회전을 적용 중인가 — 무입력·억제·창 종료면 false (관찰자는 추가 회전 생략) */
+	UPROPERTY()
+	bool bActive = false;
+
+	bool MatchesWindow(const UAnimSequenceBase* InAnimation, float InWindowStart) const;
+	FAstralInputFacingSample ToSample() const;
+	bool operator==(const FAstralInputFacingPresentation& Other) const;
+	bool operator!=(const FAstralInputFacingPresentation& Other) const { return !(*this == Other); }
+
+	static FAstralInputFacingPresentation Make(const UAnimSequenceBase* InAnimation, float InWindowStart, const FAstralInputFacingSample& Sample, bool bInActive);
 };
 
 namespace AstralInputFacing

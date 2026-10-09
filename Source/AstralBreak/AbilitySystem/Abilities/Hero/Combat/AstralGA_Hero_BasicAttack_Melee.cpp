@@ -222,19 +222,17 @@ void UAstralGA_Hero_BasicAttack_Melee::BeginFacingSession(const FGameplayAbility
 
 void UAstralGA_Hero_BasicAttack_Melee::ApplyFacingResolution(const FAstralFacingStageResolution& Resolution, FName WarpTargetName)
 {
-    if (!WarpTargetName.IsNone())
+    // 매 단계 정확히 하나 — Set 또는 Clear. 이름 없는 단계도 Clear(NAME_None)로 "이 단계는 Facing 소유 없음"을 전달한다 (입력 회전 소유권 슬롯)
+    if (!WarpTargetName.IsNone() && Resolution.ShouldWarp())
     {
-        if (Resolution.ShouldWarp())
-        {
-            FAstralFacingWarpCommand Command;
-            Command.WarpTargetName = WarpTargetName;
-            Command.DesiredFacing = FRotator(0.f, Resolution.GetWarpYaw(), 0.f);
-            SetFacingWarp(Command);
-        }
-        else
-        {
-            ClearFacingWarp(WarpTargetName);
-        }
+        FAstralFacingWarpCommand Command;
+        Command.WarpTargetName = WarpTargetName;
+        Command.DesiredFacing = FRotator(0.f, Resolution.GetWarpYaw(), 0.f);
+        SetFacingWarp(Command);
+    }
+    else
+    {
+        ClearFacingWarp(WarpTargetName);
     }
 
     AstralFacingDebug::LogStageDecision(this, FacingSession, Resolution, WarpTargetName);

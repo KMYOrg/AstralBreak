@@ -196,19 +196,17 @@ void UAstralGA_Hero_BasicAttack_Ranged::BeginFacingSession(const FGameplayAbilit
 
 void UAstralGA_Hero_BasicAttack_Ranged::ApplyFacingResolution(const FAstralFacingStageResolution& Resolution)
 {
-	if (!FacingWarpTargetName.IsNone())
+	// Set 또는 Clear 정확히 하나 — 이름이 비어도 Clear로 Facing 소유 없음을 전달한다 (입력 회전 소유권 슬롯)
+	if (!FacingWarpTargetName.IsNone() && Resolution.ShouldWarp())
 	{
-		if (Resolution.ShouldWarp())
-		{
-			FAstralFacingWarpCommand Command;
-			Command.WarpTargetName = FacingWarpTargetName;
-			Command.DesiredFacing = FRotator(0.f, Resolution.GetWarpYaw(), 0.f);
-			SetFacingWarp(Command);
-		}
-		else
-		{
-			ClearFacingWarp(FacingWarpTargetName);
-		}
+		FAstralFacingWarpCommand Command;
+		Command.WarpTargetName = FacingWarpTargetName;
+		Command.DesiredFacing = FRotator(0.f, Resolution.GetWarpYaw(), 0.f);
+		SetFacingWarp(Command);
+	}
+	else
+	{
+		ClearFacingWarp(FacingWarpTargetName);
 	}
 
 	// 서버가 거부한 타겟(아군·시체·자기 자신·범위 밖)은 발사 시점 조준점으로도 쓰지 않는다 — 폴백 방향으로

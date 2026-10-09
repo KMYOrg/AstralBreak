@@ -21,9 +21,21 @@ public:
 
 	//~URootMotionModifier
 	virtual FTransform ProcessRootMotion(const FTransform& InRootMotion, float DeltaSeconds) override;
+	/** 활성 → 제거/비활성 전이에서 서버 표현 샘플을 비활성으로 — 창 종료·몽타주 교체·취소를 EndNotify 발화 없이 잡는다 */
+	virtual void OnStateChanged(ERootMotionModifierState LastState) override;
 	//~End URootMotionModifier
 
 	const FAstralInputFacingSettings& GetSettings() const { return Settings; }
+
+protected:
+	/**
+	 * 역할별 샘플 원천 — 소유자·서버는 CMC의 현재 move 샘플(억제 = 샘플 플래그 ∨ 라이브 소유권 슬롯, 재실행은 샘플 플래그만),
+	 * 시뮬 프록시는 Hero의 복제 표현 샘플(자기 창과 일치할 때만). false면 이번 평가 보정 없음
+	 */
+	bool ResolveSample(const AActor* Actor, const class UAstralHeroMovementComponent* HeroMC, FAstralInputFacingSample& OutSample, bool& bOutSuppressed) const;
+
+	/** 서버(권위 인스턴스)만 — 이번 평가의 샘플·활성 여부를 Hero 표현 프로퍼티에 기록 */
+	void WritePresentation(const AActor* Actor, const FAstralInputFacingSample& Sample, bool bActive) const;
 
 protected:
 	/** 튜닝 값 — NotifyState의 RootMotionModifier 아래에서 편집 */

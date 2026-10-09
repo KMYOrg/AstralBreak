@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Character/AstralCharacter.h"
+#include "Combat/AstralInputFacingTypes.h"
 #include "AstralCharacter_Hero.generated.h"
 
 class AAstralPlayerState;
@@ -39,9 +40,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Astral|Hero")
 	UAstralHeroCameraComponent* GetHeroCameraComponent() const { return HeroCameraComponent; }
 
+	// 입력 회전 관찰자 표현 (락온 7단계) — 단일 원본은 이 액터. CMC는 복제하지 않으므로 여기 둔다
+
+	/** 서버 전용 — 입력 Modifier가 창 안에서 소비한 샘플과 적용 문맥을 기록. 값이 같으면 쓰지 않는다 */
+	void SetInputFacingPresentation(const FAstralInputFacingPresentation& Presentation);
+
+	/** 시뮬 프록시의 입력 Modifier가 읽는다 — 자기 창과 일치할 때만 유효 */
+	const FAstralInputFacingPresentation& GetInputFacingPresentation() const { return InputFacingPresentation; }
+
 protected:
 	//~AActor
 	virtual void PostInitializeComponents() override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	//~End AActor
 
 	//~AAstralCharacter
@@ -77,4 +87,11 @@ protected:
 	/** 공격 방향 보정 — anim 루트모션의 로컬 트랜스폼을 월드 변환 직전에 수정 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Astral|Hero", Meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UMotionWarpingComponent> MotionWarpingComponent;
+
+	/**
+	 * 관찰자용 승인 입력 샘플 — COND_SimulatedOnly (소유 클라는 CMC 예측 샘플, 서버는 패킷 샘플을 쓴다).
+	 * 최신 값만 도착하고 몽타주 복제와 원자적이지 않다 — 관찰자는 창·몽타주 일치를 확인하고 추정만 하며, 최종 자세는 이동 복제가 기준
+	 */
+	UPROPERTY(Replicated)
+	FAstralInputFacingPresentation InputFacingPresentation;
 };

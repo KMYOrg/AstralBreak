@@ -131,19 +131,17 @@ void UAstralGA_Hero_MarkFinisher::BeginFacingSession(const FGameplayAbilitySpecH
 
 void UAstralGA_Hero_MarkFinisher::ApplyFacingResolution(const FAstralFacingStageResolution& Resolution)
 {
-	if (!FacingWarpTargetName.IsNone())
+	// Set 또는 Clear 정확히 하나 — 이름이 비어도 Clear로 Facing 소유 없음을 전달한다 (입력 회전 소유권 슬롯)
+	if (!FacingWarpTargetName.IsNone() && Resolution.ShouldWarp())
 	{
-		if (Resolution.ShouldWarp())
-		{
-			FAstralFacingWarpCommand Command;
-			Command.WarpTargetName = FacingWarpTargetName;
-			Command.DesiredFacing = FRotator(0.f, Resolution.GetWarpYaw(), 0.f);
-			SetFacingWarp(Command);
-		}
-		else
-		{
-			ClearFacingWarp(FacingWarpTargetName);
-		}
+		FAstralFacingWarpCommand Command;
+		Command.WarpTargetName = FacingWarpTargetName;
+		Command.DesiredFacing = FRotator(0.f, Resolution.GetWarpYaw(), 0.f);
+		SetFacingWarp(Command);
+	}
+	else
+	{
+		ClearFacingWarp(FacingWarpTargetName);
 	}
 
 	AstralFacingDebug::LogStageDecision(this, FacingSession, Resolution, FacingWarpTargetName);

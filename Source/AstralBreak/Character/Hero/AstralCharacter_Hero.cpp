@@ -8,6 +8,7 @@
 #include "Character/Hero/Components/AstralHeroMovementComponent.h"
 #include "Character/Hero/Components/AstralTargetingComponent.h"
 #include "MotionWarpingComponent.h"
+#include "Net/UnrealNetwork.h"
 #include "Player/AstralPlayerState.h"
 
 AAstralCharacter_Hero::AAstralCharacter_Hero(const FObjectInitializer& ObjectInitializer)
@@ -42,6 +43,23 @@ void AAstralCharacter_Hero::PostInitializeComponents()
 	{
 		HeroCameraComponent->InitializeCamera(CameraBoom, FollowCamera, TargetingComponent);
 	}
+}
+
+void AAstralCharacter_Hero::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	// 관찰자만 — 소유 클라는 자기 예측 샘플을 쓰므로 서버 값으로 덮지 않는다
+	DOREPLIFETIME_CONDITION(AAstralCharacter_Hero, InputFacingPresentation, COND_SimulatedOnly);
+}
+
+void AAstralCharacter_Hero::SetInputFacingPresentation(const FAstralInputFacingPresentation& Presentation)
+{
+	if (!HasAuthority() || InputFacingPresentation == Presentation)
+	{
+		return;
+	}
+	InputFacingPresentation = Presentation;
 }
 
 AAstralPlayerState* AAstralCharacter_Hero::GetAstralPlayerState() const

@@ -8,6 +8,7 @@ class AAstralCharacter;
 class AAstralPlayerController;
 class UGameplayEffect;
 struct FAstralAttackTraceHit;
+struct FAstralFacingOwnerId;
 struct FAstralFacingWarpCommand;
 struct FAstralSetByCallerEffect;
 
@@ -81,15 +82,22 @@ protected:
 	/**
 	 * 공격 방향 보정 — 아바타의 UMotionWarpingComponent에 워프 타겟을 지정 (기계: 워프 타겟 수명만).
 	 * 방향의 출처(로컬 캡처 / 서버 승인 스냅샷)와 확정은 UAstralFacingSession, 이름·시점은 호출자(GA) 몫 — 여기는 시뮬 프록시만 제외한다
-	 * (시뮬 프록시는 WarpTargets의 COND_SimulatedOnly 복제가 처리). 밴드 수명은 엔진 UAnimNotifyState_MotionWarping
+	 * (시뮬 프록시는 WarpTargets의 COND_SimulatedOnly 복제가 처리). 밴드 수명은 엔진 UAnimNotifyState_MotionWarping.
+	 * 설치 성공 시 이 활성화를 Facing 소유자로 등록한다 — 입력 회전(7단계)은 소유자가 있는 동안 기여하지 않는다
 	 */
 	void SetFacingWarp(const FAstralFacingWarpCommand& Command) const;
 
-	/** 이름을 지정해 해제 — RemoveAllWarpTargets는 다른 시스템의 타겟까지 지운다 */
+	/**
+	 * 이름을 지정해 해제 — RemoveAllWarpTargets는 다른 시스템의 타겟까지 지운다.
+	 * 이름 검사보다 먼저 이 활성화의 Facing 소유권을 해제한다 — 이름 없는 단계(NAME_None)도 NoWarp 확정을 전달하려고 호출한다
+	 */
 	void ClearFacingWarp(FName WarpTargetName) const;
 
-	/** 여러 이름 일괄 해제 (콤보 스테이지별 타겟을 EndAbility에서 한 번에) */
+	/** 여러 이름 일괄 해제 (콤보 스테이지별 타겟을 EndAbility에서 한 번에). 목록이 비어도 소유권은 해제한다 */
 	void ClearFacingWarps(const TArray<FName>& WarpTargetNames) const;
+
+	/** 이 활성화의 Facing 소유권 식별 — SpecHandle + 활성화 예측 키 */
+	FAstralFacingOwnerId MakeFacingOwnerId() const;
 
 protected:
 	

@@ -65,6 +65,47 @@ FString FAstralInputFacingSample::ToString() const
 }
 
 //////////////////////////////////////////////////////////////////////////
+// FAstralInputFacingPresentation
+
+bool FAstralInputFacingPresentation::MatchesWindow(const UAnimSequenceBase* InAnimation, float InWindowStart) const
+{
+	return Animation != nullptr && Animation == InAnimation && FMath::IsNearlyEqual(WindowStart, InWindowStart, 1e-4f);
+}
+
+FAstralInputFacingSample FAstralInputFacingPresentation::ToSample() const
+{
+	FAstralInputFacingSample Sample;
+	Sample.WorldInputYaw = WorldInputYaw;
+	Sample.InputMagnitude = InputMagnitude;
+	Sample.bPositiveTurn = bPositiveTurn;
+	Sample.bSuppressInputFacing = false; // 억제는 서버가 이미 판단했다 (bActive)
+	Sample.NormalizeNone();
+	return Sample;
+}
+
+bool FAstralInputFacingPresentation::operator==(const FAstralInputFacingPresentation& Other) const
+{
+	return Animation == Other.Animation
+		&& WindowStart == Other.WindowStart
+		&& WorldInputYaw == Other.WorldInputYaw
+		&& InputMagnitude == Other.InputMagnitude
+		&& bPositiveTurn == Other.bPositiveTurn
+		&& bActive == Other.bActive;
+}
+
+FAstralInputFacingPresentation FAstralInputFacingPresentation::Make(const UAnimSequenceBase* InAnimation, float InWindowStart, const FAstralInputFacingSample& Sample, bool bInActive)
+{
+	FAstralInputFacingPresentation Presentation;
+	Presentation.Animation = InAnimation;
+	Presentation.WindowStart = InWindowStart;
+	Presentation.WorldInputYaw = Sample.WorldInputYaw;
+	Presentation.InputMagnitude = Sample.InputMagnitude;
+	Presentation.bPositiveTurn = Sample.bPositiveTurn;
+	Presentation.bActive = bInActive;
+	return Presentation;
+}
+
+//////////////////////////////////////////////////////////////////////////
 // AstralInputFacing — 순수 함수
 
 namespace AstralInputFacing

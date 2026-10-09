@@ -3,6 +3,7 @@
 // Modifier 수명·CMC 보정·관찰자 표현은 PIE 검증 (stage-7-moveinput-facing.md §9)
 
 #include "Misc/AutomationTest.h"
+#include "Character/Hero/Components/AstralHeroMovementComponent.h"
 #include "Combat/AstralInputFacingTypes.h"
 #include "Serialization/BitReader.h"
 #include "Serialization/BitWriter.h"
@@ -278,6 +279,150 @@ bool FAstralInputFacingComposeTest::RunTest(const FString& Parameters)
 		const FQuat OriginalLocal = FRotator(0.f, 10.f, 0.f).Quaternion();
 		const FQuat Local = ComposeLocalRotation(Actor, MeshRelative, OriginalLocal, 0.f);
 		TestTrue(TEXT("compose: zero add keeps original"), Local.Equals(OriginalLocal, 1e-6f));
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAstralInputFacingOwnerSlotTest, "AstralBreak.InputFacing.OwnerSlot", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FAstralInputFacingOwnerSlotTest::RunTest(const FString& Parameters)
+{
+	// Facing 소유권 슬롯 — 캐릭터당 하나, 마지막 유효 Set/Clear가 현재 상태. 다른 활성화의 Clear는 무시
+	UAstralHeroMovementComponent* HeroMC = NewObject<UAstralHeroMovementComponent>(GetTransientPackage());
+	TestNotNull(TEXT("fixture: cmc"), HeroMC);
+	if (!HeroMC)
+	{
+		return false;
+	}
+
+	// GenerateNewHandle은 모듈 밖으로 내보내지지 않는다 — 테스트에서는 리플렉션으로 Handle 값을 직접 넣어 구분되는 핸들을 만든다
+	const auto MakeSpecHandle = [](int32 Value)
+	{
+		FGameplayAbilitySpecHandle Handle;
+		if (const FIntProperty* HandleProp = CastField<FIntProperty>(FGameplayAbilitySpecHandle::StaticStruct()->FindPropertyByName(TEXT("Handle"))))
+		{
+			HandleProp->SetPropertyValue_InContainer(&Handle, Value);
+		}
+		return Handle;
+	};
+
+	FAstralFacingOwnerId Melee;
+	Melee.SpecHandle = MakeSpecHandle(101);
+	Melee.PredictionKey = 7;
+	TestTrue(TEXT("fixture: handle valid"), Melee.SpecHandle.IsValid());
+
+	FAstralFacingOwnerId MeleeOtherActivation = Melee;
+	MeleeOtherActivation.PredictionKey = 8;
+
+	FAstralFacingOwnerId Finisher;
+	Finisher.SpecHandle = MakeSpecHandle(202);
+	Finisher.PredictionKey = 0; // 호스트 — 예측 키 없음, SpecHandle로 구분
+
+	TestFalse(TEXT("initial: inactive"), HeroMC->IsFacingOwnerActive());
+
+	HeroMC->SetFacingOwner(Melee);
+	TestTrue(TEXT("set: active"), HeroMC->IsFacingOwnerActive());
+
+	// 다른 활성화(같은 Spec 다른 키·다른 Spec)의 늦은 Clear는 지우지 않는다
+	HeroMC->ClearFacingOwnerIfMatches(MeleeOtherActivation);
+	TestTrue(TEXT("clear other key: still active"), HeroMC->IsFacingOwnerActive());
+	HeroMC->ClearFacingOwnerIfMatches(Finisher);
+	TestTrue(TEXT("clear other spec: still active"), HeroMC->IsFacingOwnerActive());
+
+	// 같은 활성화의 Clear — 워프 이름과 무관하게(슬롯은 이름을 모른다) 해제
+	HeroMC->ClearFacingOwnerIfMatches(Melee);
+	TestFalse(TEXT("clear same: inactive"), HeroMC->IsFacingOwnerActive());
+
+	// Set 덮어쓰기 — 마지막 Set이 소유자. 이전 소유자의 Clear는 무효
+	HeroMC->SetFacingOwner(Melee);
+	HeroMC->SetFacingOwner(Finisher);
+	HeroMC->ClearFacingOwnerIfMatches(Melee);
+	TestTrue(TEXT("overwrite: previous owner clear ignored"), HeroMC->IsFacingOwnerActive());
+	HeroMC->ClearFacingOwnerIfMatches(Finisher);
+	TestFalse(TEXT("overwrite: current owner clear works"), HeroMC->IsFacingOwnerActive());
+
+	// 무효 식별로 Set은 무시, 빈 슬롯 Clear는 무해
+	HeroMC->SetFacingOwner(FAstralFacingOwnerId());
+	TestFalse(TEXT("invalid set: ignored"), HeroMC->IsFacingOwnerActive());
+	HeroMC->ClearFacingOwnerIfMatches(Melee);
+	TestFalse(TEXT("clear on empty: harmless"), HeroMC->IsFacingOwnerActive());
+
+	// 호스트 재활성화 — 같은 Spec·키 0이 순차로 Set/Clear/Set. 이전 EndAbility의 Clear가 다음 Set보다 먼저이므로 세대 없이 구분된다
+	HeroMC->SetFacingOwner(Finisher);
+	HeroMC->ClearFacingOwnerIfMatches(Finisher);
+	HeroMC->SetFacingOwner(Finisher);
+	TestTrue(TEXT("host reactivation: active"), HeroMC->IsFacingOwnerActive());
+
+	// 표현 샘플 — 창 일치 판정과 샘플 복원
+	{
+		using namespace AstralInputFacing;
+		const FAstralInputFacingSample Sample = MakeSample(FVector(0.f, 1.f, 0.f), 0.f, true);
+		const FAstralInputFacingPresentation P = FAstralInputFacingPresentation::Make(nullptr, 0.25f, Sample, true);
+		TestFalse(TEXT("presentation: null animation never matches"), P.MatchesWindow(nullptr, 0.25f));
+		const FAstralInputFacingSample Restored = P.ToSample();
+		TestEqual(TEXT("presentation: yaw"), Restored.WorldInputYaw, Sample.WorldInputYaw);
+		TestEqual(TEXT("presentation: magnitude"), Restored.InputMagnitude, Sample.InputMagnitude);
+		TestEqual(TEXT("presentation: sign"), Restored.bPositiveTurn, Sample.bPositiveTurn);
+		TestFalse(TEXT("presentation: suppress dropped (server decided)"), Restored.bSuppressInputFacing);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAstralInputFacingMoveDataTest, "AstralBreak.InputFacing.MoveData", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FAstralInputFacingMoveDataTest::RunTest(const FString& Parameters)
+{
+	using namespace AstralInputFacing;
+
+	// 확장 이동 패킷 — New/Pending/Old 세 슬롯이 각자 샘플을 싣고 독립적으로 왕복한다 (최신 값으로 덮이지 않는다).
+	// 베이스 필드 직렬화는 캐릭터 없이 동작하므로(CMC 인자는 미사용) CDO를 넘긴다. ClientFillNetworkMoveData는 캐릭터가 필요해 PIE 검증
+	UAstralHeroMovementComponent& CMC = *GetMutableDefault<UAstralHeroMovementComponent>();
+
+	const FAstralInputFacingSample NewSample = MakeSample(FVector(1.f, 0.f, 0.f), 90.f, false);
+	const FAstralInputFacingSample PendingSample = MakeSample(FVector(0.f, -1.f, 0.f), 0.f, true);
+	const FAstralInputFacingSample OldSample = MakeSample(FVector::ZeroVector, 0.f, true);
+	TestTrue(TEXT("fixture: samples differ"), NewSample != PendingSample && PendingSample != OldSample && NewSample != OldSample);
+
+	FAstralCharacterNetworkMoveDataContainer_Hero Source;
+	Source.bHasPendingMove = true;
+	Source.bHasOldMove = true;
+	static_cast<FAstralCharacterNetworkMoveData_Hero*>(Source.GetNewMoveData())->InputFacing = NewSample;
+	static_cast<FAstralCharacterNetworkMoveData_Hero*>(Source.GetPendingMoveData())->InputFacing = PendingSample;
+	static_cast<FAstralCharacterNetworkMoveData_Hero*>(Source.GetOldMoveData())->InputFacing = OldSample;
+
+	FBitWriter Writer(4096, true);
+	TestTrue(TEXT("write"), Source.Serialize(CMC, Writer, nullptr));
+	TestFalse(TEXT("write: no error"), Writer.IsError());
+
+	FBitReader Reader(Writer.GetData(), Writer.GetNumBits());
+	FAstralCharacterNetworkMoveDataContainer_Hero Loaded;
+	TestTrue(TEXT("read"), Loaded.Serialize(CMC, Reader, nullptr));
+	TestFalse(TEXT("read: no error"), Reader.IsError());
+	TestTrue(TEXT("read: consumed all bits"), Reader.AtEnd());
+
+	TestTrue(TEXT("flags: pending"), Loaded.bHasPendingMove);
+	TestTrue(TEXT("flags: old"), Loaded.bHasOldMove);
+	TestTrue(TEXT("slot: new"), static_cast<FAstralCharacterNetworkMoveData_Hero*>(Loaded.GetNewMoveData())->InputFacing == NewSample);
+	TestTrue(TEXT("slot: pending"), static_cast<FAstralCharacterNetworkMoveData_Hero*>(Loaded.GetPendingMoveData())->InputFacing == PendingSample);
+	TestTrue(TEXT("slot: old"), static_cast<FAstralCharacterNetworkMoveData_Hero*>(Loaded.GetOldMoveData())->InputFacing == OldSample);
+
+	// 단일 move — 슬롯 플래그가 꺼진 슬롯은 직렬화되지 않고, 비트 수는 (베이스 + 26) 하나분만큼만 줄어든다
+	{
+		FAstralCharacterNetworkMoveDataContainer_Hero Single;
+		static_cast<FAstralCharacterNetworkMoveData_Hero*>(Single.GetNewMoveData())->InputFacing = NewSample;
+		FBitWriter SingleWriter(4096, true);
+		Single.Serialize(CMC, SingleWriter, nullptr);
+		TestTrue(TEXT("single: fewer bits than triple"), SingleWriter.GetNumBits() < Writer.GetNumBits());
+
+		FBitReader SingleReader(SingleWriter.GetData(), SingleWriter.GetNumBits());
+		FAstralCharacterNetworkMoveDataContainer_Hero SingleLoaded;
+		SingleLoaded.Serialize(CMC, SingleReader, nullptr);
+		TestFalse(TEXT("single: no pending"), SingleLoaded.bHasPendingMove);
+		TestFalse(TEXT("single: no old"), SingleLoaded.bHasOldMove);
+		TestTrue(TEXT("single: new slot"), static_cast<FAstralCharacterNetworkMoveData_Hero*>(SingleLoaded.GetNewMoveData())->InputFacing == NewSample);
+		TestTrue(TEXT("single: consumed all bits"), SingleReader.AtEnd());
 	}
 
 	return true;

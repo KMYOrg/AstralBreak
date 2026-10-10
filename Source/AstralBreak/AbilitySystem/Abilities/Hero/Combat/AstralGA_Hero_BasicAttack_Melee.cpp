@@ -6,9 +6,13 @@
 #include "Abilities/Tasks/AbilityTask_WaitInputPress.h"
 #include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
+#include "AbilitySystem/Abilities/AstralAttackMontageValidation.h"
+#include "AbilitySystem/Facing/AstralFacingDebug.h"
+#include "AbilitySystem/Facing/AstralFacingSession.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/Notifies/AstralAnimNotifyState_GameplayEventWindow.h"
 #include "AstralLogChannels.h"
+#include "Combat/AstralCombatTypes.h"
 #include "GameFramework/Pawn.h"
 
 //////////////////////////////////////////////////////////////////////////
@@ -134,6 +138,9 @@ void UAstralGA_Hero_BasicAttack_Melee::ActivateAbility(const FGameplayAbilitySpe
 
     ComboIndex = 0;
 
+    // Facing 세션 — Stage 0은 TriggerEventData(활성화 이벤트)에서, 서버는 Stage 1~N 수신기 등록
+    BeginFacingSession(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+
     PlayComboStage(0);
 
     // 입력 윈도우 열림 노티파이 — 단계마다 반복 수신 (태스크는 어빌리티 수명)
@@ -171,6 +178,66 @@ bool UAstralGA_Hero_BasicAttack_Melee::IsLocallyControlledAvatar() const
     return ActorInfo && ActorInfo->IsLocallyControlled();
 }
 
+EAstralInputActivationPreparation UAstralGA_Hero_BasicAttack_Melee::MakeActivationEventData(const FGameplayAbilityActorInfo& ActorInfo, FGameplayEventData& OutEventData) const
+{
+    const AActor* Avatar = ActorInfo.AvatarActor.Get();
+    if (!Avatar)
+    {
+        return EAstralInputActivationPreparation::Failed;
+    }
+
+    OutEventData.Instigator = Avatar;
+    OutEventData.Target = Avatar;
+
+    // 디버그 — Stage 0 송신 생략: 이벤트 경로는 유지하되 페이로드만 비운다 (서버 Missing · 로컬 폴백 Warp → 불일치 재현)
+    if (!AstralFacingDebug::ShouldDropSend(0))
+    {
+        // 타겟 없음은 유효한 None이며 실패가 아니다
+        OutEventData.TargetData = FGameplayAbilityTargetData_AstralFacing::MakeHandle(CaptureFacingProposal(Avatar, 0));
+        ASTRAL_FACING_STAT(Prepared);
+    }
+    return EAstralInputActivationPreparation::WithEventData;
+}
+
+void UAstralGA_Hero_BasicAttack_Melee::BeginFacingSession(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
+{
+    const int32 NumStages = ComboStages.Num();
+    const FAstralFacingSessionContext Context = FAstralFacingSessionContext::FromActorInfo(*ActorInfo, Handle, ActivationInfo, NumStages);
+
+    TOptional<FAstralFacingProposal> StageZero;
+    FAstralFacingProposal Extracted;
+    if (TriggerEventData && FGameplayAbilityTargetData_AstralFacing::ExtractProposal(TriggerEventData->TargetData, NumStages, Extracted))
+    {
+        StageZero = Extracted;
+    }
+    else if (Context.Role != EAstralFacingSessionRole::RemoteServer)
+    {
+        // 로컬 폴백 — 이벤트 경로 밖의 활성화(디버그 훅·다른 호출자). 정상 경로에서 찍히면 이벤트 경로가 깨진 것
+        StageZero = CaptureFacingProposal(ActorInfo->AvatarActor.Get(), 0);
+    }
+
+    FacingSession = NewObject<UAstralFacingSession>(this);
+    FacingSession->Begin(Context, StageZero);
+}
+
+void UAstralGA_Hero_BasicAttack_Melee::ApplyFacingResolution(const FAstralFacingStageResolution& Resolution, FName WarpTargetName)
+{
+    // 매 단계 정확히 하나 — Set 또는 Clear. 이름 없는 단계도 Clear(NAME_None)로 "이 단계는 Facing 소유 없음"을 전달한다 (입력 회전 소유권 슬롯)
+    if (!WarpTargetName.IsNone() && Resolution.ShouldWarp())
+    {
+        FAstralFacingWarpCommand Command;
+        Command.WarpTargetName = WarpTargetName;
+        Command.DesiredFacing = FRotator(0.f, Resolution.GetWarpYaw(), 0.f);
+        SetFacingWarp(Command);
+    }
+    else
+    {
+        ClearFacingWarp(WarpTargetName);
+    }
+
+    AstralFacingDebug::LogStageDecision(this, FacingSession, Resolution, WarpTargetName);
+}
+
 #if !UE_BUILD_SHIPPING
 void UAstralGA_Hero_BasicAttack_Melee::ValidateComboStageMontages()
 {
@@ -180,13 +247,38 @@ void UAstralGA_Hero_BasicAttack_Melee::ValidateComboStageMontages()
     }
     bComboStagesValidated = true;
 
+    // StageIndex는 uint8로 전송된다 (5단계 TargetData)
+    if (ComboStages.Num() > 256)
+    {
+        UE_LOG(LogAstralAbilitySystem, Error, TEXT("[Combo] %s: 스테이지가 %d개 — StageIndex(uint8) 범위 256을 넘는다"), *GetName(), ComboStages.Num());
+    }
+
+    // 워프 타겟 이름 중복 — 같은 이름이면 스테이지 경계에서 이전 타겟이 덮여 리플레이 안전성(이름 분리)이 깨진다
+    TSet<FName> SeenWarpNames;
+
     for (int32 Index = 0; Index < ComboStages.Num(); ++Index)
     {
-        const UAnimMontage* Montage = ComboStages[Index].Montage.Get();
+        const FAstralComboStageData& StageData = ComboStages[Index];
+        const UAnimMontage* Montage = StageData.Montage.Get();
         if (!Montage)
         {
             continue;
         }
+
+        if (!StageData.FacingWarpTargetName.IsNone())
+        {
+            bool bAlreadySeen = false;
+            SeenWarpNames.Add(StageData.FacingWarpTargetName, &bAlreadySeen);
+            if (bAlreadySeen)
+            {
+                UE_LOG(LogAstralAbilitySystem, Error, TEXT("[Combo] %s (스테이지 %d): 워프 타겟 이름 '%s'가 다른 스테이지와 중복 — 스테이지별로 고유해야 한다"),
+                    *GetName(), Index, *StageData.FacingWarpTargetName.ToString());
+            }
+        }
+
+        const FString StageContext = FString::Printf(TEXT("%s 스테이지 %d"), *GetName(), Index);
+        AstralAttackMontage::ValidateFacingWarpBand(Montage, StageData.FacingWarpTargetName, AstralAttackMontage::FindEarliestWindowBegin(Montage, AstralGameplayTags::GameplayEvent_WeaponTrace_Begin), StageContext);
+        AstralAttackMontage::ValidatePawnCollisionBands(Montage, StageContext);
 
         int32 BranchBandCount = 0;
 
@@ -272,6 +364,19 @@ void UAstralGA_Hero_BasicAttack_Melee::PlayComboStage(int32 StageIndex)
     }
 
     const FAstralComboStageData& Stage = ComboStages[StageIndex];
+    
+    // 이전 스테이지 타겟은 EndAbility까지 지우지 않는다 — 스테이지 경계를 걸친 리플레이가 올바른 타겟을 찾도록
+    if (FacingSession)
+    {
+        // 로컬 Stage 1~N만 지금 캡처 — Stage 0은 Begin에 전달됐고, 원격 폰의 서버 인스턴스는 보관함에서만 결정한다
+        TOptional<FAstralFacingProposal> LocalProposal;
+        if (StageIndex > 0 && IsLocallyControlledAvatar())
+        {
+            LocalProposal = CaptureFacingProposal(GetAvatarActorFromActorInfo(), StageIndex);
+        }
+
+        ApplyFacingResolution(FacingSession->AdvanceStage(StageIndex, LocalProposal), Stage.FacingWarpTargetName);
+    }
 
     ActiveMontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, Stage.Montage, Stage.PlayRate, NAME_None, /*bStopWhenAbilityEnds=*/true, 1.f);
     if (ActiveMontageTask)
@@ -450,6 +555,33 @@ void UAstralGA_Hero_BasicAttack_Melee::EndAbility(const FGameplayAbilitySpecHand
     ActiveMontageTask = nullptr;
     ComboInputTask = nullptr;
     TraceTask = nullptr;
+
+    // Facing 세션 종료 — 이 활성화의 세션만 (취소 경로 OnMontageInterrupted → 즉시 EndAbility도 여기로 온다).
+    // 엔진(RemoteEndOrCancelAbility)이 키를 대조해 넘기므로 불일치는 정상 경로가 아니다 — 관측용 ensure, 세션은 다음 활성화가 교체
+    if (FacingSession)
+    {
+        if (FacingSession->MatchesActivation(Handle, ActivationInfo.GetActivationPredictionKey()))
+        {
+            FacingSession->End();
+            FacingSession = nullptr;
+        }
+        else
+        {
+            ensureMsgf(false, TEXT("[Facing] %s: EndAbility 활성화 키 불일치 (Key=%d, Session=%d) — 세션 유지"),
+                *GetName(), ActivationInfo.GetActivationPredictionKey().Current, FacingSession->GetActivationKey().Current);
+        }
+    }
+
+    // 스테이지별 워프 타겟 일괄 해제 — 이름 지정 (RemoveAllWarpTargets는 다른 시스템의 타겟까지 지운다)
+    TArray<FName> WarpNames;
+    for (const FAstralComboStageData& Stage : ComboStages)
+    {
+        if (!Stage.FacingWarpTargetName.IsNone())
+        {
+            WarpNames.AddUnique(Stage.FacingWarpTargetName);
+        }
+    }
+    ClearFacingWarps(WarpNames);
 
     Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

@@ -54,6 +54,10 @@ public:
 	UFUNCTION(Exec)
 	void SetMoveSpeedMultiplier(float Multiplier = 1.0f);
 
+	/** 디버그 — 콘솔에서 `CancelAttack`. 활성 공격 GA(Ability.Attack)를 로컬에서 취소한다. */
+	UFUNCTION(Exec)
+	void CancelAttack();
+
 protected:
 	UFUNCTION(Server, Reliable)
 	void ServerDamageSelf(float Amount);

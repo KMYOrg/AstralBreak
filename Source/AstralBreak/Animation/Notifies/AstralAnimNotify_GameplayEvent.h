@@ -20,6 +20,9 @@ public:
 public:
 	virtual void Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
 
+	/** 애셋 검증용 — 단발 발사 노티파이 탐색 (AstralAttackMontage::ValidateFireNotify) */
+	const FGameplayTag& GetEventTag() const { return EventTag; }
+
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Astral|GameplayEvent")
 	FGameplayTag EventTag;

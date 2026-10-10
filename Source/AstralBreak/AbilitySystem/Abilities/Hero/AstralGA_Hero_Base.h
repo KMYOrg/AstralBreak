@@ -4,10 +4,16 @@
 
 #include "CoreMinimal.h"
 #include "AbilitySystem/Abilities/AstralGameplayAbility.h"
+#include "Combat/AstralTargetHandle.h"
 #include "AstralGA_Hero_Base.generated.h"
 
+struct FAstralFacingProposal;
+
 /**
- *
+ * 히어로 전용 GA 베이스 — "히어로 전용 무언가를 아는" 바인딩 층.
+ *  - 자원 바인딩: AstralHeroResourceSet(오의·표식·스태미나) 대상 헬퍼
+ *  - 타게팅 바인딩: UAstralTargetingComponent(히어로 전용 컴포넌트) 조회 → 타겟 핸들 / Facing 제안 값
+ * 기계(GE 적용·워프 타겟 수명)는 UAstralGameplayAbility, 정책(언제·어느 단계·어느 이름)은 개별 GA.
  */
 UCLASS()
 class ASTRALBREAK_API UAstralGA_Hero_Base : public UAstralGameplayAbility
@@ -15,6 +21,21 @@ class ASTRALBREAK_API UAstralGA_Hero_Base : public UAstralGameplayAbility
 	GENERATED_BODY()
 public:
 	UAstralGA_Hero_Base(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+
+protected:
+	// 타게팅 바인딩 층 — 읽기 전용. RPC·보관함·카운터·세션 생성은 하지 않는다
+
+	/** 하드 락 타겟 — 없으면 빈 핸들 */
+	FAstralTargetHandle ResolveEffectiveTarget() const;
+
+	/** 활성화 전의 CurrentActorInfo를 쓸 수 없는 경우 */
+	static FAstralTargetHandle ResolveEffectiveTarget(const AActor* Avatar);
+
+	/**
+	 * 아바타 → 락온 타겟 조준점 yaw를 양자화. 타겟 없음 = 명시적 None.
+	 * 스냅샷 — 호출 시점 값이며 밴드 중 재계산하지 않는다. StageIndex는 uint8 범위(0~255)여야 한다
+	 */
+	FAstralFacingProposal CaptureFacingProposal(const AActor* Avatar, int32 StageIndex) const;
 
 protected:
 	// 자원 바인딩 층

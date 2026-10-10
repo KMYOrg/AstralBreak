@@ -31,8 +31,11 @@ public:
 	void ClearAbilityInput();
 
 	void TryActivateAbilitiesOnSpawn();
-	
+
 protected:
+
+	void TryActivateAbilityFromInput(const FGameplayAbilitySpecHandle& Handle);
+
 	
 	virtual void AbilitySpecInputPressed(FGameplayAbilitySpec& Spec) override;
 	virtual void AbilitySpecInputReleased(FGameplayAbilitySpec& Spec) override;

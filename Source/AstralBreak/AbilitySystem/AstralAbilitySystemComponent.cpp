@@ -1,6 +1,7 @@
 #include "AstralAbilitySystemComponent.h"
 
 #include "Abilities/AstralGameplayAbility.h"
+#include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "Animation/AstralAnimInstance.h"
 #include "AstralLogChannels.h"
@@ -203,7 +204,7 @@ void UAstralAbilitySystemComponent::ProcessAbilityInput(float DeltaTime, bool bG
 
 	for (const FGameplayAbilitySpecHandle& AbilitySpecHandle : AbilitiesToActivate)
 	{
-		TryActivateAbility(AbilitySpecHandle);
+		TryActivateAbilityFromInput(AbilitySpecHandle);
 	}
 
 	for (const FGameplayAbilitySpecHandle& SpecHandle : InputReleasedSpecHandles)
@@ -224,6 +225,58 @@ void UAstralAbilitySystemComponent::ProcessAbilityInput(float DeltaTime, bool bG
 
 	InputPressedSpecHandles.Reset();
 	InputReleasedSpecHandles.Reset();
+}
+
+void UAstralAbilitySystemComponent::TryActivateAbilityFromInput(const FGameplayAbilitySpecHandle& Handle)
+{
+	FGameplayAbilitySpec* Spec = FindAbilitySpecFromHandle(Handle);
+	if (!Spec || !Spec->Ability)
+	{
+		return;
+	}
+
+	// primary instance 우선 (InstancedPerActor) — 인스턴스가 BP 파생의 오버라이드를 들고 있다
+	const UAstralGameplayAbility* AstralAbility = Cast<UAstralGameplayAbility>(Spec->GetPrimaryInstance());
+	if (!AstralAbility)
+	{
+		AstralAbility = Cast<UAstralGameplayAbility>(Spec->Ability);
+	}
+
+	// 실행 전 데이터 작성 훅 — ASC는 데이터의 종류를 모른다. 결과에 따라 활성화 경로만 고른다
+	FGameplayEventData EventData;
+	const EAstralInputActivationPreparation Preparation = (AstralAbility && AbilityActorInfo.IsValid())
+		? AstralAbility->MakeActivationEventData(*AbilityActorInfo, EventData)
+		: EAstralInputActivationPreparation::Default;
+
+	switch (Preparation)
+	{
+	case EAstralInputActivationPreparation::Default:
+		TryActivateAbility(Handle);
+		return;
+
+	case EAstralInputActivationPreparation::Failed:
+		// 작성 실패는 일반 활성화로 폴백하지 않는다 — 데이터 없이 활성화되면 서버·클라 문맥이 갈린다
+		UE_LOG(LogAstralAbilitySystem, Verbose, TEXT("[ASC] %s: 활성화 데이터 작성 실패 — 이번 입력 무시"), *GetNameSafe(AstralAbility));
+		return;
+
+	case EAstralInputActivationPreparation::WithEventData:
+	{
+		// 이벤트 경로 가드 — 일반 활성화의 엔진 가드를 재구현하지 않는다 (Default 경로는 그대로)
+		if (Spec->PendingRemove || Spec->RemoveAfterActivation)
+		{
+			return;
+		}
+		const AActor* Avatar = AbilityActorInfo->AvatarActor.Get();
+		if (!Avatar || Avatar->GetLocalRole() == ROLE_SimulatedProxy)
+		{
+			return;
+		}
+
+		// 태그는 엔진이 EventTag에 스탬프만 한다 (라우팅 없음, SpecHandle 직접 지정) — 의미는 "입력으로 활성화"뿐
+		TriggerAbilityFromGameplayEvent(Handle, AbilityActorInfo.Get(), AstralGameplayTags::GameplayEvent_ActivateFromInput, &EventData, *this);
+		return;
+	}
+	}
 }
 
 void UAstralAbilitySystemComponent::ClearAbilityInput()

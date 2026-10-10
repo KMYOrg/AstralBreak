@@ -17,7 +17,15 @@ class ASTRALBREAK_API UAstralCombatStatics : public UBlueprintFunctionLibrary
 	GENERATED_BODY()
 
 public:
-	/** Source가 Target에게 데미지를 넣을 수 있는가 — Hostile 관계이고 Target이 사망 상태가 아닐 때만 true */
+	/**
+	 * 두 액터가 Hostile 관계인가 — 팀만 본다 (생존 상태 무관).
+	 * 이동 시뮬레이션(폰 충돌 정책)처럼 예측 경로에서 쓰는 판정 — 사망 태그는 서버 먼저·클라 나중이라
+	 * CanDamage를 재사용하면 RTT/2 동안 서버·클라 정책이 갈린다. NoTeam은 Hostile이 아니다
+	 */
+	UFUNCTION(BlueprintPure, Category = "Astral|Combat")
+	static bool AreHostile(const AActor* SourceActor, const AActor* TargetActor);
+
+	/** Source가 Target에게 데미지를 넣을 수 있는가 — AreHostile ∧ Target이 사망 상태가 아님 (게임플레이 판정) */
 	UFUNCTION(BlueprintPure, Category = "Astral|Combat")
 	static bool CanDamage(const AActor* SourceActor, const AActor* TargetActor);
 

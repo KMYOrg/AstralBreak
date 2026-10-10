@@ -130,4 +130,22 @@ namespace AstralTargeting
 
 		return BestIndex;
 	}
+
+	float ComputeFacingYaw(const FVector& From, const FVector& To, float FallbackYaw)
+	{
+		const FVector Direction2D = (To - From).GetSafeNormal2D();
+		if (Direction2D.IsNearlyZero())
+		{
+			return FallbackYaw;
+		}
+		return Direction2D.Rotation().Yaw;
+	}
+
+	float ClampFacingYaw(float CurrentYaw, float DesiredYaw, float MaxAssistYaw)
+	{
+		const float MaxDelta = FMath::Max(MaxAssistYaw, 0.f);
+		const float Delta = FMath::FindDeltaAngleDegrees(CurrentYaw, DesiredYaw);
+		const float ClampedDelta = FMath::Clamp(Delta, -MaxDelta, MaxDelta);
+		return FRotator::NormalizeAxis(CurrentYaw + ClampedDelta);
+	}
 }

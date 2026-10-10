@@ -123,10 +123,89 @@ def add_notify_state(montage, track_name: str, start: float, duration: float,
     return ns
 
 
+MOTION_WARPING_CLASS = "/Script/MotionWarping.AnimNotifyState_MotionWarping"
+PAWN_COLLISION_CLASS = "/Script/AstralBreak.AstralAnimNotifyState_RootMotionPawnCollisionPolicy"
+INPUT_FACING_CLASS = "/Script/AstralBreak.AstralAnimNotifyState_InputFacing"
+INPUT_FACING_MODIFIER_CLASS_NAME = "AstralRootMotionModifier_InputFacing"
+
+
+def pawn_collision_policy(name: str):
+    """'StopOnHit' / 'Normal' -> unreal.AstralRootMotionPawnCollisionPolicy."""
+    enum = unreal.AstralRootMotionPawnCollisionPolicy
+    key = "STOP_ON_HIT" if name.replace("_", "").lower() == "stoponhit" else name.upper()
+    if not hasattr(enum, key):
+        raise RuntimeError(f"알 수 없는 폰 충돌 정책: {name} (StopOnHit / Normal)")
+    return getattr(enum, key)
+
+
+def add_pawn_collision_window(montage, track_name: str, start: float, duration: float,
+                              policy: str = "StopOnHit"):
+    """루트모션 폰 충돌 정책 밴드 (root-motion-pawn-collision-policy.md).
+    Branching Point 노티파이라 그 프레임 이동보다 먼저 정책이 걸린다. 밴드끼리 부분 겹침 금지(완전 중첩·인접만)."""
+    return add_notify_state(montage, track_name, start, duration, PAWN_COLLISION_CLASS,
+                            policy=pawn_collision_policy(policy))
+
+
+def add_motion_warping_window(montage, track_name: str, start: float, duration: float,
+                              warp_target_name: str, warp_rotation: bool = True,
+                              warp_translation: bool = False, **modifier_props):
+    """MotionWarping 밴드 배치 (락온 4단계 — 회전 전용 방향 보정).
+
+    설정값은 NotifyState가 아니라 그 안의 RootMotionModifier 서브오브젝트에 있다
+    (엔진이 SkewWarp를 기본 서브오브젝트로 만들어 둔다 — 새로 만들지 않는다).
+    warp_translation 기본 False: 워프 타겟 위치가 아바타 현재 위치라 병진 워프가 켜지면
+    전진 루트모션이 제자리로 수렴한다.
+    modifier_props: rotation_method / warp_max_rotation_rate / warp_rotation_time_multiplier 등 추가 프로퍼티
+    """
+    ns = add_notify_state(montage, track_name, start, duration, MOTION_WARPING_CLASS)
+    modifier = ns.get_editor_property("root_motion_modifier")
+    if modifier is None:
+        raise RuntimeError("MotionWarping NotifyState에 root_motion_modifier가 없다 (엔진 기본 서브오브젝트 누락)")
+    modifier.set_editor_property("warp_target_name", warp_target_name)
+    modifier.set_editor_property("warp_rotation", warp_rotation)
+    modifier.set_editor_property("warp_translation", warp_translation)
+    for k, v in modifier_props.items():
+        modifier.set_editor_property(k, v)
+    return ns
+
+
+INPUT_FACING_SETTING_KEYS = ("rotation_speed", "input_threshold", "opposite_turn_acceptance_degrees")
+
+
+def add_input_facing_window(montage, track_name: str, start: float, duration: float, **settings):
+    """입력 회전 창 배치 (락온 7단계 — stage-7-moveinput-facing.md).
+
+    MotionWarping 파생 NotifyState라 엔진이 몽타주 위치로 발견해 Modifier를 만든다 (Begin/End 발화 무관).
+    설정값은 NotifyState가 아니라 root_motion_modifier(전용 UAstralRootMotionModifier_InputFacing)의 settings 구조체에 있다.
+    저작 제약: 창 길이 ≥ 2/최소FPS × 최대PlayRate (15FPS·PlayRate1이면 0.134초), 다른 MotionWarping 창과 시작·끝이 모두 같으면 안 된다
+    (ContainsModifier가 (애니, 시작, 끝)으로 중복 판정), 입력 창끼리 중첩 금지, WeaponTrace 시작 전에 끝낼 것.
+    settings: rotation_speed / input_threshold / opposite_turn_acceptance_degrees
+    """
+    ns = add_notify_state(montage, track_name, start, duration, INPUT_FACING_CLASS)
+    modifier = ns.get_editor_property("root_motion_modifier")
+    if modifier is None:
+        raise RuntimeError("InputFacing NotifyState에 root_motion_modifier가 없다")
+    if modifier.get_class().get_name() != INPUT_FACING_MODIFIER_CLASS_NAME:
+        raise RuntimeError(f"InputFacing 템플릿 타입 불일치: {modifier.get_class().get_name()} "
+                           f"(기대 {INPUT_FACING_MODIFIER_CLASS_NAME} — 생성자 서브오브젝트 교체 확인)")
+    if settings:
+        unknown = set(settings) - set(INPUT_FACING_SETTING_KEYS)
+        if unknown:
+            raise RuntimeError(f"알 수 없는 InputFacing 설정: {sorted(unknown)}")
+        s = modifier.get_editor_property("settings")
+        for k, v in settings.items():
+            s.set_editor_property(k, v)
+        modifier.set_editor_property("settings", s)
+    return ns
+
+
 # ─────────────────────────── 저장/검증 ───────────────────────────
 
 def save(montage) -> bool:
-    return _eal.save_loaded_asset(montage)
+    """항상 디스크에 쓴다 (only_if_is_dirty=False).
+    실측(2026-09-22): AnimationLibrary.add_animation_notify_state_event / add_animation_notify_track은 패키지를 더티로
+    표시하지 않는다 — 기본값(더티일 때만)이면 True를 돌려주면서 실제로는 저장하지 않는다. 트랙을 비운 경우에만 우연히 더티였다."""
+    return _eal.save_loaded_asset(montage, False)
 
 
 def describe(montage) -> dict:
@@ -140,12 +219,73 @@ def describe(montage) -> dict:
     }
 
 
+def _safe_prop(obj, name):
+    try:
+        return obj.get_editor_property(name)
+    except Exception:
+        return None
+
+
+def describe_notifies(montage) -> list:
+    """모든 notify/notify state를 [트랙, 클래스, 시작, 종료, 주요 프로퍼티]로 덤프한다.
+    밴드 배치 검증(워프 밴드가 WeaponTrace 시작 전에 끝나는가 등)과 probe용.
+    실측: FAnimNotifyEvent는 시간·트랙 프로퍼티가 Python에 안 나온다 — AnimationLibrary의
+    get_anim_notify_event_trigger_time / duration과 트랙별 조회로 우회."""
+    out = []
+    for track in _abl.get_animation_notify_track_names(montage):
+        for ev in _abl.get_animation_notify_events_for_track(montage, track):
+            state = _safe_prop(ev, "notify_state_class")
+            notify = _safe_prop(ev, "notify")
+            obj = state or notify
+            start = float(_abl.get_anim_notify_event_trigger_time(ev))
+            duration = float(_abl.get_anim_notify_event_duration(ev)) if state else 0.0
+            entry = {
+                "track": str(track),
+                "class": obj.get_class().get_name() if obj else "?",
+                "start": round(start, 4),
+                "end": round(start + duration, 4),
+            }
+            if obj:
+                for key in ("begin_event_tag", "end_event_tag", "event_tag"):
+                    v = _safe_prop(obj, key)
+                    if v is not None:
+                        entry[key] = str(_safe_prop(v, "tag_name"))
+                policy = _safe_prop(obj, "policy")
+                if policy is not None:
+                    entry["policy"] = str(policy)
+                mod = _safe_prop(obj, "root_motion_modifier")
+                if mod is not None:
+                    entry["modifier"] = mod.get_class().get_name()
+                    for key in ("warp_target_name", "warp_rotation", "warp_translation",
+                                "rotation_type", "rotation_method", "warp_max_rotation_rate",
+                                "warp_rotation_time_multiplier"):
+                        v = _safe_prop(mod, key)
+                        if v is not None:
+                            entry[key] = str(v)
+                    settings = _safe_prop(mod, "settings")
+                    if settings is not None:
+                        for key in INPUT_FACING_SETTING_KEYS:
+                            v = _safe_prop(settings, key)
+                            if v is not None:
+                                entry[key] = round(float(v), 4)
+            out.append(entry)
+    out.sort(key=lambda e: e["start"])
+    return out
+
+
 # ─────────────────────────── 배치 ───────────────────────────
 
 NOTIFY_CLASSES = {
     "GameplayEvent": "/Script/AstralBreak.AstralAnimNotify_GameplayEvent",
     "GameplayEventWindow": "/Script/AstralBreak.AstralAnimNotifyState_GameplayEventWindow",
+    "MotionWarping": MOTION_WARPING_CLASS,
+    "PawnCollisionPolicy": PAWN_COLLISION_CLASS,
+    "InputFacing": INPUT_FACING_CLASS,
 }
+
+# MotionWarping 스펙에서 modifier로 전달되는 키 (NotifyState가 아니라 서브오브젝트 프로퍼티)
+MOTION_WARPING_MODIFIER_KEYS = ("rotation_method", "warp_max_rotation_rate",
+                                "warp_rotation_time_multiplier")
 
 
 def build_from_spec(spec: dict, dry_run: bool = False) -> dict:
@@ -186,6 +326,29 @@ def build_from_spec(spec: dict, dry_run: bool = False) -> dict:
         clear_track(mon, t)
 
     for n in spec.get("notifies", []):
+        if n["type"] == "MotionWarping":
+            # {"type": "MotionWarping", "track": "Facing", "start": 0.0, "duration": 0.2,
+            #  "warp_target_name": "BasicMelee.Stage0", "warp_rotation": true, "warp_translation": false}
+            extra = {k: n[k] for k in MOTION_WARPING_MODIFIER_KEYS if k in n}
+            add_motion_warping_window(mon, n.get("track", "Facing"), n["start"], n["duration"],
+                                      n["warp_target_name"],
+                                      warp_rotation=n.get("warp_rotation", True),
+                                      warp_translation=n.get("warp_translation", False),
+                                      **extra)
+            continue
+
+        if n["type"] == "PawnCollisionPolicy":
+            # {"type": "PawnCollisionPolicy", "track": "PawnCollision", "start": 0.0, "duration": 1.25, "policy": "StopOnHit"}
+            add_pawn_collision_window(mon, n.get("track", "PawnCollision"), n["start"], n["duration"],
+                                      n.get("policy", "StopOnHit"))
+            continue
+
+        if n["type"] == "InputFacing":
+            # {"type": "InputFacing", "track": "InputFacing", "start": 0.0, "duration": 0.26, "rotation_speed": 720}
+            extra = {k: n[k] for k in INPUT_FACING_SETTING_KEYS if k in n}
+            add_input_facing_window(mon, n.get("track", "InputFacing"), n["start"], n["duration"], **extra)
+            continue
+
         cls_path = NOTIFY_CLASSES.get(n["type"], n["type"])
         props = {}
         for key in ("event_tag", "begin_event_tag", "end_event_tag"):

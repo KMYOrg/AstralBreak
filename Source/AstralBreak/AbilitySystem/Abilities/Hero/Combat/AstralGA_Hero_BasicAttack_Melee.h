@@ -7,6 +7,8 @@
 
 class UAnimMontage;
 class UAbilityTask_PlayMontageAndWait;
+class UAstralFacingSession;
+struct FAstralFacingStageResolution;
 
 /** 콤보 단계 1개의 데이터 — 배열 길이가 곧 콤보 단수 */
 USTRUCT(BlueprintType)
@@ -29,6 +31,13 @@ struct FAstralComboStageData
 	/** 재생 속도 */
 	UPROPERTY(EditDefaultsOnly, Meta = (ClampMin = "0.1"))
 	float PlayRate = 1.0f;
+
+	/**
+	 * 이 스테이지의 워프 타겟 이름 — 몽타주 MotionWarping 노티파이의 WarpTargetName과 일치해야 한다 (ValidateComboStageMontages가 대조).
+	 * 어빌리티별로 고유한 이름 작성, 비워 두면 이 스테이지는 보정 없음
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Facing")
+	FName FacingWarpTargetName;
 };
 
 /** 콤보 스테이지의 몽타주 타임라인 구간 — 서버 입력 게이트의 판정 기준 */
@@ -110,8 +119,21 @@ protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
-	/** StageIndex 단계의 몽타주 재생 — 이전 스테이지 태스크 정리 포함 */
+	//~UAstralGameplayAbility — 입력 활성화에 Stage 0 Facing 제안을 싣는다 (호스트·클라 공통 경로). 읽기 전용 — 세션은 만들지 않는다
+	virtual EAstralInputActivationPreparation MakeActivationEventData(const FGameplayAbilityActorInfo& ActorInfo, FGameplayEventData& OutEventData) const override;
+	//~End UAstralGameplayAbility
+
+	/** StageIndex 단계의 몽타주 재생 — 이전 스테이지 태스크 정리 + 방향 확정(FacingSession::AdvanceStage) + 워프 설치 */
 	void PlayComboStage(int32 StageIndex);
+
+	/**
+	 * 활성화마다 새 Facing 세션 — Stage 0은 TriggerEventData에서 추출, 로컬은 이벤트 밖 활성화에 한해 라이브 캡처 폴백
+	 * (원격 폰의 서버 인스턴스는 폴백하지 않는다 — 승인 스냅샷만)
+	 */
+	void BeginFacingSession(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData);
+
+	/** 확정 결과 → 워프 설치/제거 — 이름이 있는 단계만. NoWarp는 자기 이름을 제거한다 (이전 활성화의 잔여) */
+	void ApplyFacingResolution(const FAstralFacingStageResolution& Resolution, FName WarpTargetName);
 
 	UFUNCTION()
 	void OnMontageCompleted();
@@ -189,6 +211,10 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UAstralAbilityTask_AttackTraceWindows> TraceTask;
 
+	/** Facing 네트워크 세션 — 활성화마다 새 객체 (InstancedPerActor 인스턴스 재사용과 무관한 활성화별 정체성). EndAbility가 키를 대조해 End */
+	UPROPERTY(Transient)
+	TObjectPtr<UAstralFacingSession> FacingSession;
+
 	/**
 	 * 표식 수급을 마지막으로 지급한 밴드의 WindowSerial (밴드당 1회 게이트, 0 = 미지급).
 	 * Serial은 1부터 시작하므로 리셋값 0과 충돌하지 않는다 — InstancedPerActor 재활성화 안전
@@ -197,7 +223,7 @@ private:
 	
 #if !UE_BUILD_SHIPPING
 	/**
-	 * 콤보 몽타주들의 입력 윈도우 밴드 저작 검증 (활성화 1회차, InstancedPerActor라 폰당 1회).
+	 * 콤보 몽타주들의 밴드 저작 검증 (활성화 1회차, InstancedPerActor라 폰당 1회) — 입력 윈도우 밴드 + Facing 워프 밴드 + 워프 이름 중복.
 	 * 런타임 이벤트 순서로 추론하던 것을 데이터 검증으로 옮긴 것 — 몽타주 이름과 함께 결정적으로 진단된다
 	 */
 	void ValidateComboStageMontages();

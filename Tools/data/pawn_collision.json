@@ -1,0 +1,10 @@
+{
+  "_comment": "루트모션 폰 충돌 정책 밴드 스펙 (root-motion-pawn-collision-policy.md). duration을 null로 두면 몽타주 전체 길이. 초기값은 검증된 동작(전체 길이 StopOnHit)을 그대로 — 선딜 통과·후딜 Normal 같은 세분화는 이후 튜닝. 밴드끼리 부분 겹침 금지.",
+  "track": "PawnCollision",
+  "montages": [
+    { "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack1",   "bands": [ { "start": 0.0, "duration": null, "policy": "StopOnHit" } ] },
+    { "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack2",   "bands": [ { "start": 0.0, "duration": null, "policy": "StopOnHit" } ] },
+    { "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack3",   "bands": [ { "start": 0.0, "duration": null, "policy": "StopOnHit" } ] },
+    { "montage": "/Game/Animation/Hero/Montages/AM_Hero_Finisher1", "bands": [ { "start": 0.0, "duration": null, "policy": "StopOnHit" } ] }
+  ]
+}

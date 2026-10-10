@@ -23,4 +23,11 @@ namespace AstralGameplayTags
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Parried);   // 방어자에게 — 패링 성공 (magnitude = 무효화한 데미지)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Guarded);   // 방어자에게 — 가드 성공 (magnitude = 막은 양)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Staggered); // 공격자에게 — 패링당해 경직
+
+	// 입력 활성화에 초기 데이터(MakeActivationEventData)를 실어 보낼 때의 이벤트 태그 — ASC가 TriggerAbilityFromGameplayEvent(SpecHandle 지정)에 쓴다.
+	// 엔진은 이 태그를 EventTag에 스탬프만 하고 라우팅하지 않는다. 데이터 종류(Facing 등)는 구체 GA가 정의하므로 태그는 의미를 갖지 않는다
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_ActivateFromInput);
+
+	// 원거리 발사 시점 — FireMontage의 단발 UAstralAnimNotify_GameplayEvent (0초에 두지 않는다 — 엔진 추출 조건상 첫 틱에 누락된다)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Ranged_Fire);
 }

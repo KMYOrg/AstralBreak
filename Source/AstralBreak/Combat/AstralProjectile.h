@@ -31,6 +31,12 @@ public:
 	/** 서버 — Deferred 스폰 직후, FinishSpawning 전에 호출 (발사 GA가 주입) */
 	void InitializeProjectile(UAbilitySystemComponent* InSourceASC, AActor* InSourceAvatar, AActor* InSourceWeaponActor, float InBaseDamage, float InMarkGainOnHit, float InUltGainOnHit);
 
+	/** 총구 여유 검사용 (CDO에서 읽는다) — 판정 스피어 반경. 검사 형상과 실제 스폰 형상을 같은 출처에서 */
+	float GetCollisionRadius() const;
+
+	/** 총구 여유 검사용 (CDO에서 읽는다) — 판정 스피어가 Block으로 응답하는 오브젝트 타입 (벽·지형) */
+	FCollisionObjectQueryParams GetBlockingObjectTypes() const;
+
 protected:
 	virtual void BeginPlay() override;
 

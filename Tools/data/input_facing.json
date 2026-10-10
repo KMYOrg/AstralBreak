@@ -1,0 +1,26 @@
+{
+  "_comment": "락온 7단계 입력 회전 창 스펙 (stage-7-moveinput-facing.md §8). start/duration은 초. 창은 선딜에 두고 WeaponTrace 시작 전에 끝낸다 (실측: Attack1 0.280 · Attack2 0.585 · Attack3 0.581). 락온 Facing 창(facing_warp.json 실측: A1 0~0.264, A2 0~0.53, A3 0.136~0.528)과 시작·끝이 모두 같으면 안 된다 — 엔진 ContainsModifier가 (애니, 시작, 끝)으로 중복 판정. 길이 하한 0.134초(15FPS·PlayRate1 2프레임). 피니셔·원거리는 마커 없음 = 기존 동작 유지.",
+  "track": "InputFacing",
+  "defaults": {
+    "rotation_speed": 720.0,
+    "input_threshold": 0.1,
+    "opposite_turn_acceptance_degrees": 2.0
+  },
+  "montages": [
+    {
+      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack1",
+      "start": 0.0,
+      "duration": 0.26
+    },
+    {
+      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack2",
+      "start": 0.0,
+      "duration": 0.55
+    },
+    {
+      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack3",
+      "start": 0.0,
+      "duration": 0.55
+    }
+  ]
+}

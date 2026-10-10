@@ -63,6 +63,31 @@ void AAstralProjectile::InitializeProjectile(UAbilitySystemComponent* InSourceAS
 	}
 }
 
+float AAstralProjectile::GetCollisionRadius() const
+{
+	return CollisionComponent ? CollisionComponent->GetScaledSphereRadius() : 0.f;
+}
+
+FCollisionObjectQueryParams AAstralProjectile::GetBlockingObjectTypes() const
+{
+	FCollisionObjectQueryParams Params;
+	if (!CollisionComponent)
+	{
+		return Params;
+	}
+
+	// 판정 스피어의 응답 설정에서 Block 채널만 — 투사체가 실제로 막히는 것과 총구 여유 검사가 같은 집합을 본다
+	for (int32 Channel = 0; Channel < ECC_MAX; ++Channel)
+	{
+		const ECollisionChannel CollisionChannel = static_cast<ECollisionChannel>(Channel);
+		if (CollisionComponent->GetCollisionResponseToChannel(CollisionChannel) == ECR_Block)
+		{
+			Params.AddObjectTypesToQuery(CollisionChannel);
+		}
+	}
+	return Params;
+}
+
 void AAstralProjectile::BeginPlay()
 {
 	Super::BeginPlay();

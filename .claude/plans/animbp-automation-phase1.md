@@ -46,7 +46,8 @@
 | :--- | :--- | :--- |
 | `UAstralAnimInstance` ([AstralAnimInstance.h](../../Source/AstralBreak/Animation/AstralAnimInstance.h)) | 유일한 AnimInstance 베이스. `NativeUpdateAnimation`(게임 스레드)에서 `FAstralAnimSnapshot`을 채우고 `NativeThreadSafeUpdateAnimation`(워커)에서 BlueprintReadOnly 프로퍼티로 산출 | **이미 스레드 안전 스냅샷 패턴** |
 | 노출 프로퍼티 | `Speed`, `Acceleration`, `MovementDirection`(-180~180), `bIsOnGround`, `bIsInAir`, `bIsJumping`, `bIsFalling`, `bHasMovementInput`, `GroundDistance` + `GameplayTagPropertyMap` | 전부 `BlueprintReadOnly, Transient` → Transition Rule에서 바로 참조 가능 |
-| 없는 것 | 락온 상태 플래그, 전투 스타일 플래그 | Phase 5 결정 사항 (§G) |
+| 없는 것 | 락온 상태 플래그, 전투 스타일 플래그 | **결정(2026-10-10): strafe는 락온이 아니라 추후 "사격 후 일정 시간" 모드로 도입한다. Phase 5 범위에서 Lock-On Locomotion은 보류.** 관련 선행 작업은 §F Phase 5 보류 표 |
+| 회전 모드 | `bOrientRotationToMovement = true` 고정 (`AstralCharacter.cpp:38`). 락온은 카메라 Yaw 입력과 입력 회전 억제만 바꾼다 (`AstralHeroComponent.cpp:401,443`, `AstralHeroMovementComponent.cpp:178`) | ✅ 현재는 락온 중에도 몸이 이동 방향을 향함 → strafe 자세가 어느 머신에서도 나오지 않는다 |
 | 노티파이 | `AstralAnimNotify_GameplayEvent`, `AnimNotifyState_GameplayEventWindow`, `_RootMotionPawnCollisionPolicy`, `_InputFacing`(MotionWarping 파생) | 몽타주 저작은 `Tools/lib/ab_montage.py`가 이미 자동화 |
 
 ### A-4. 애셋 현황 (AnimBP 자동화의 입력)
@@ -405,7 +406,7 @@ Python 측은 `mcp` 공식 SDK(FastMCP)로 각 Tool을 등록하고 입력 스�
 ```
 
 - `ref`는 배치 안에서 앞 작업이 만든 노드를 뒤 작업이 가리키는 임시 이름. 응답에서 `ref → node_guid` 표로 확정된다.
-- `rule.kind` MVP: `"bool_variable"`(`{"variable": "bIsFalling", "negate": false}`), `"compare"`(변수 vs 상수, `> >= < <= == !=`), `"and"`(위 둘의 목록). 함수 호출은 Phase 4 후반.
+- `rule`은 선언적 AST (§G-3 "Transition Rule 설계"). 종류: `var`(`{"kind":"var","name":"bIsFalling"}`), `not`, `and`/`or`(`items` 배열), `compare`(`{"kind":"compare","left":{"kind":"var","name":"Speed"},"op":">","right":{"kind":"literal","value":10.0}}`), `call`(화이트리스트 함수), `literal`, `automatic`(그래프 없이 전이 프로퍼티만). 생성기는 BoundGraph를 Result 노드만 남기고 비운 뒤 AST에서 재생성하고, AST 원문을 그래프 안 주석 노드에 기록한다.
 - `set_property.property` 허용 목록(초기): SequencePlayer `bLoopAnimation, PlayRate, StartPosition`; BlendSpacePlayer `bLoop, PlayRate`; Slot `SlotName`; SaveCachedPose `CacheName`; Transition `CrossfadeDuration, PriorityOrder, BlendMode, Bidirectional, bDisabled`; State `bAlwaysResetOnEntry`. 애셋 참조는 `asset` 필드로만(`SetAnimationAsset` 경유).
 
 ```jsonc
@@ -480,13 +481,21 @@ Python 측은 `mcp` 공식 SDK(FastMCP)로 각 Tool을 등록하고 입력 스�
 | :--- | :--- |
 | `create_state_machine`(Finalize → 자동 서브그래프), `add_state`(PostPlacedNewNode → BoundGraph), Entry 연결(`EntryNode->GetOutputPin()` ↔ State `In`) | 상태 2개·Entry 연결된 상태머신 컴파일 통과 |
 | `add_transition`: `FGraphNodeCreator<UAnimStateTransitionNode>` → Finalize(BoundGraph 생성) → `CreateConnections(Prev, Next)` | 양방향·우선순위·크로스페이드 반영 |
-| `set_transition_rule` MVP: BoundGraph(`UAnimationTransitionGraph`)에 `UK2Node_VariableGet`(`SetSelfMember`) ± `UK2Node_CallFunction`(`Greater_DoubleDouble` 등, 상수는 `TrySetDefaultValue`) → `GetResultNode()->FindPin("bCanEnterTransition")` 연결 | `Speed > 10`, `bIsFalling`, AND 조합 컴파일 통과·PIE에서 전이 관측 |
+| `set_transition_rule`: 규칙 AST → 테이블 기반 생성기. BoundGraph(`UAnimationTransitionGraph`)를 Result 노드만 남기고 비움 → `UK2Node_VariableGet`(`SetSelfMember`), `UK2Node_CallFunction`(표에서 고른 `UKismetMathLibrary` 함수, 상수는 `TrySetDefaultValue`), `BooleanAND/OR/NOT` 조립 → `GetResultNode()->FindPin("bCanEnterTransition")` 연결 → AST JSON을 `UEdGraphNode_Comment`에 기록. `automatic`은 전이 노드 프로퍼티만 설정 | `bIsFalling`, `Speed > 10`, AND/OR/NOT 조합, 자동 규칙 컴파일 통과·PIE에서 전이 관측. 같은 AST 2회 적용 → revision 동일(멱등). Inspector `rule_source`가 주석 노드에서 복원됨. ❓ float 변수 핀 → double 함수 핀 연결 허용 여부를 첫 항목으로 실측, 거부되면 표에 변환 노드 삽입 규칙 추가 |
 | 상태 내부 그래프 편집 = Phase 3 Mutator를 `BoundGraph`에 그대로 적용 (`GetPoseSinkPinInsideState`) | |
 | `create_blendspace`(2D, 축 설정 API 조사 포함) | |
 
 ### Phase 5 — 실제 캐릭터 적용
 
-Free Locomotion(`BS_Hero_Locomotion1D` + `Speed`), Lock-On Locomotion(8방향 2D BS + `Speed`/`MovementDirection`), Jump(`bIsInAir`/`bIsJumping`/`bIsFalling`/`bIsOnGround`), Attack(Slot + LayeredBlendPerBone). **`ABP_Hero_Base`에 적용하기 전에 복제본에서 전 과정 수행 → diff 검토 → 승인 후 원본.** AnimInstance 변경(락온 플래그 등)은 별도 커밋·별도 승인.
+Free Locomotion(`BS_Hero_Locomotion1D` + `Speed`), Jump(`bIsInAir`/`bIsJumping`/`bIsFalling`/`bIsOnGround`), Attack(Slot + LayeredBlendPerBone). **`ABP_Hero_Base`에 적용하기 전에 복제본에서 전 과정 수행 → diff 검토 → 승인 후 원본.**
+
+**보류 — Strafe Locomotion (2026-10-10 결정).** strafe는 락온 상태가 아니라 **추후 "사격 후 일정 시간 유지되는 strafe 모드"**로 도입한다. Phase 5에서는 다루지 않는다. 그때 필요한 선행 게임플레이 작업은 아래와 같고, 조사 결과만 남긴다.
+
+| # | 작업 | 근거 |
+| :---: | :--- | :--- |
+| S-A | strafe 모드 중 회전 모드 전환: `bOrientRotationToMovement` 해제 + 조준 방향 Yaw 유지. 서버·소유 클라가 같은 규칙으로 계산해야 시뮬 프록시에 이동 복제로 전달된다 | 현재 `AstralCharacter.cpp:38` 고정 → strafe 자세가 어느 머신에서도 나오지 않는다 |
+| S-B | strafe 모드 상태를 전 머신에 전달. 후보: 서버가 사격 GA 실행 시 ASC에 `State.Strafe` 태그를 지속시간 GE로 부여 → ASC Mixed 모드로 전 머신 복제 → `UAstralAnimInstance`에 `bIsStrafing` 프로퍼티 추가 + `GameplayTagPropertyMap` 매핑 | `AstralPlayerState.cpp:21`, `AstralAnimInstance.cpp:55`. 사격이 서버 권위 GA라 별도 RPC 없이 태그 경로만으로 충분할 가능성이 높다 ⚠️ |
+| S-C | 8방향 2D BlendSpace(`Speed`/`MovementDirection`) + 1D/2D 선택은 `bIsStrafing` | S-A가 끝나면 `MovementDirection`은 모든 머신에서 자동으로 strafe 각도를 낸다 |
 
 ### Phase 6 — 고급·안정화
 
@@ -533,9 +542,60 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 | MCP 서버 위치 | `Tools/mcp/anim_graph_mcp/` (기존 Tools 관례 유지) |
 | 포트·토큰 | 18765, 토큰 검사 켬 |
 | 테스트 AnimBP 경로 | `/Game/Animation/Test/ABP_McpTest` (Git 추적, Phase 2.5 산출물) |
-| Transition Rule MVP 노드 | `UK2Node_CallFunction` + 구체 함수 (PromotableOperator 미사용) |
-| Phase 5의 AnimInstance 변경 | 락온 플래그 추가 여부. 대안: `MovementDirection` 기반 2D BS는 플래그 없이도 동작(시뮬 프록시 포함) — 락온 상태가 로컬 전용(TargetingComponent 비복제)인 현 구조와도 맞다 |
+| Transition Rule 방식 | **결정됨(2026-10-10): 선언적 AST + 테이블 기반 생성기 + 그래프 전체 재생성 + 원본 보존.** 아래 "Transition Rule 설계" |
+| Strafe Locomotion | **보류(2026-10-10)**: 락온이 아니라 추후 "사격 후 일정 시간" 모드. §F Phase 5 보류 표 S-A/B/C |
+
+**Transition Rule 설계 (범용성·유지보수 기준)**
+
+평가 경로: 런타임은 Result 노드의 `bCanEnterTransition`을 노드 노출 입력으로 평가한다 (`Runtime/Engine/Private/Animation/AnimNode_StateMachine.cpp:862 GetEvaluateGraphExposedInputs().Execute`). 규칙 그래프는 다른 애님 노드 핀과 같은 방식으로 컴파일되므로, bool 변수 직결 규칙은 일반 핀과 같은 최적화 경로를 타고 비교·함수 노드가 끼면 생성된 BP 함수 호출이 된다 ⚠️(최적화 세부는 일반 지식).
+
+| 요소 | 내용 | 얻는 것 |
+| :--- | :--- | :--- |
+| 선언적 AST | `var` · `not` · `and` · `or` · `compare` · `call` · `literal` · `automatic` | 프로젝트 비의존. 변수 이름만 바꾸면 어느 UE5 프로젝트에서도 동작 |
+| 테이블 기반 생성기 | (연산자, 피연산자 타입) → `UKismetMathLibrary` 함수명 표. 타입은 AnimBP 생성 클래스의 `FProperty`에서 읽어 결정 (`Greater_DoubleDouble`, `EqualEqual_BoolBool`, `BooleanAND` 등 전부 `BlueprintPure`) | 엔진 변경 시 표 한 곳만 수정. 핀 이름·타입이 함수 시그니처로 고정 → 조립이 결정적. `UK2Node_PromotableOperator`는 연결 순서에 따라 타입이 정해져 비결정적이므로 쓰지 않는다 |
+| 그래프 전체 재생성 | `set_transition_rule`은 BoundGraph를 Result 노드만 남기고 비운 뒤 AST에서 다시 그린다 | 멱등. diff·패치 로직 없음. 같은 입력 → 같은 그래프 → 같은 revision |
+| 원본 보존 | AST JSON을 BoundGraph 안 `UEdGraphNode_Comment`(`Editor/UnrealEd/Public/EdGraphNode_Comment.h` ✅)에 기록 | Inspector가 K2 노드를 역컴파일하지 않고 `rule_source`를 복원. 에디터에서 사람이 봐도 의도가 보임. 도구 소유 그래프 표식 (사람이 손으로 고친 규칙은 주석 노드가 없거나 해시 불일치 → 덮어쓰기 전 경고) |
+| 함수 호출 화이트리스트 | `call`은 `BlueprintPure` ∧ `BlueprintThreadSafe` 메타 ∧ 소유 클래스가 {해당 AnimInstance 계열, `UAnimInstance`, `UKismetMathLibrary`}인 함수만 | 스레드 안전성을 메타데이터 신뢰가 아니라 플러그인 검사로 |
+| 프로젝트 정책 (도구 제약과 분리) | AstralBreak는 복잡 조건을 `UAstralAnimInstance`의 스냅샷 패턴(C++ `NativeThreadSafeUpdateAnimation`)에서 bool로 계산하고 규칙은 `var` 하나를 기본으로 한다 | C++ 테스트 가능, fast path 유리. `compare`/`and`는 C++ 변경이 과한 경우와 타 프로젝트용 |
+
+조립 방식 후보 비교(참고): ① bool 변수 참조 · ② 비교(CallFunction+구체 함수) · ③ 비교(PromotableOperator) · ④ C++ 사전 계산 참조 · ⑤ 자동 규칙(`bAutomaticRuleBasedOnSequencePlayerInState`) · ⑥ ThreadSafe 함수 호출 · ⑦ AND/OR 조합 · ⑧ 범용 표현식 컴파일러. 채택 설계는 ①②④⑤⑥⑦을 AST 종류로 흡수하고 ③·⑧은 제외한다.
 | Phase 2 착수 승인 | 본 문서 검토 후 |
+
+---
+
+## Phase 2 결과 (2026-10-10, 브랜치 `feat/ai_auto_ABP`)
+
+§F Phase 2 의 2-1 ~ 2-5 완료. 2-6(settings.json 허용 목록)은 사용자 승인 대기.
+
+| 산출물 | 위치 |
+| :--- | :--- |
+| 에디터 플러그인 | `Plugins/AnimGraphMcp/` — 모듈 `AnimGraphMcpEditor`(Editor, Default). uproject 에 등록 |
+| C++ 구성 | `Bridge/AnimMcpTypes`(오류 코드·봉투·파라미터 헬퍼) · `Bridge/AnimMcpDispatcher`(tool 테이블·request_id 캐시 256) · `Bridge/AnimMcpHttpBridge`(HTTPServer 라우트 `POST /v1/<tool>`, 토큰 전처리기, 상태 조회만 면제) · `Core/AnimMcpAssetResolver` · `Core/AnimMcpGraphInspector`(그래프 트리·변수·revision) · `Tools/AnimMcpTools_{Status,Inspect}` |
+| 설정 | `DefaultEngine.ini [AnimGraphMcp] Port/bRequireToken/bAutoStart`, 커맨드라인 `-AnimGraphMcpPort=`, 콘솔 `AnimGraphMcp.Start/Stop/Status` |
+| Python | `Tools/mcp/anim_graph_mcp/{bridge,server}.py`(mcp 2.x `MCPServer`), `Tools/mcp/{smoke_test,mcp_client_test,wait_for_bridge}.py`, venv `Tools/mcp/.venv`(gitignore) |
+| Claude Code 등록 | 프로젝트 루트 `.mcp.json` → 서버 `anim-graph-mcp` |
+
+**검증 (Development 에디터, ABP_Hero_Base 읽기 전용)**
+
+- `get_editor_status` 200 · 토큰 없는 조회 401 · 같은 request_id 재전송 봉투 동일 · 없는 애셋 404 `ASSET_NOT_FOUND` → `smoke_test.py` PASS
+- stdio MCP 클라이언트로 initialize → list_tools(2) → 두 Tool 호출 → `mcp_client_test.py` PASS
+- 핸들러가 게임 스레드에서 실행됨 (`game_thread: true`, `ensure` 미발화). 에디터 기동 중 리스너는 먼저 열리고 응답은 로딩 완료 후 — 클라이언트 타임아웃으로 흡수
+- Development · DebugGame 양쪽 빌드 성공 (MSVC 14.38)
+
+**조사 결론 갱신**
+
+- A-2 ❓ 해소: `PythonScriptPlugin`·`EditorScriptingUtilities` 모두 `enabled: true` 로 보고됨. uproject 에 없어도 활성 — 경로는 미추적이지만 새 플러그인은 이에 의존하지 않는다.
+- `ABP_Hero_Base` 의 TargetSkeleton 은 `/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F` (UEFN 마네킹이 아님). Phase 2.5 테스트 AnimBP 는 이 스켈레톤으로 만든다.
+- 구조: 루트 `AnimGraph` 노드 4 → 상태머신 `Locomotions`(노드 24) → 상태 `Idle`·`Move` 외 전이 그래프 다수 (총 22 그래프). Phase 3 Inspector 의 1차 덤프 대상.
+
+**편차·메모**
+
+- `mcp` 패키지는 2.3.0 — 1.x 의 `FastMCP` 가 `mcp.server.mcpserver.MCPServer` 로 바뀜. `requirements.txt` 는 `mcp>=2,<3`.
+- Git Bash 에서 `/Game/...` 인자는 MSYS 경로 변환에 걸린다 → 스크립트 호출 시 `MSYS_NO_PATHCONV=1`. MCP 경로(JSON 본문)는 영향 없음.
+- revision 해시는 아직 FAnimNode 프로퍼티 값을 포함하지 않는다 (§D-3 ❓ 그대로, Phase 3).
+- 토큰 파일 경로를 절대 경로로 보고하도록 수정 — DebugGame 에 반영, Development 는 에디터 종료 후 재빌드 필요.
+
+**Phase 2.5 착수 조건**: 본 결과 검토. 테스트 AnimBP 경로 `/Game/Animation/Test/ABP_McpTest`, 스켈레톤 `SKEL_UE5_F`, 시퀀스 `AS_Hero_Rifle_Idle`.
 
 ---
 

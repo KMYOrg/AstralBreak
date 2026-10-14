@@ -87,6 +87,7 @@ DerivedDataCache/*
 # Python (Tools/ 자동화 스크립트)
 __pycache__/
 *.py[cod]
+Tools/mcp/.venv/
 
 # Claude Code — 개인 설정 (팀 공유 설정은 .claude/settings.json)
 .claude/settings.local.json

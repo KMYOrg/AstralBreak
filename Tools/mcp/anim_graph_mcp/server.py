@@ -54,5 +54,116 @@ def get_anim_blueprint_info(asset_path: str) -> dict:
     return bridge.call("get_anim_blueprint_info", {"asset_path": asset_path})
 
 
+@mcp.tool()
+def get_anim_graph_structure(asset_path: str, graph_guid: str | None = None, depth: int = 1) -> dict:
+    """Nodes, pins and connections of one graph of an Animation Blueprint.
+
+    Args:
+        asset_path: Content path of the Animation Blueprint.
+        graph_guid: Graph to inspect (from get_anim_blueprint_info). Omit for the root AnimGraph.
+        depth: How many levels of sub-graphs (state machines, states, transitions) to include. 0 = this graph only, -1 = all.
+
+    Node identity is node_guid; pins are addressed by name. Use the returned revision as expected_revision when applying changes.
+    """
+    params = {"asset_path": asset_path, "depth": depth}
+    if graph_guid:
+        params["graph_guid"] = graph_guid
+    return bridge.call("get_anim_graph_structure", params)
+
+
+@mcp.tool()
+def list_animation_assets(skeleton: str | None = None, asset_class: str = "all", path_prefix: str = "/Game", limit: int = 200) -> dict:
+    """List animation assets (AnimSequence, BlendSpace, AnimMontage, AnimComposite) from the asset registry.
+
+    Args:
+        skeleton: Skeleton asset path; when given, only assets built for that skeleton are returned.
+        asset_class: AnimSequence | BlendSpace | AnimMontage | AnimComposite | all.
+        path_prefix: Content folder to search recursively.
+        limit: Maximum number of entries to return.
+    """
+    params = {"class": asset_class, "path_prefix": path_prefix, "limit": limit}
+    if skeleton:
+        params["skeleton"] = skeleton
+    return bridge.call("list_animation_assets", params)
+
+
+@mcp.tool()
+def create_animation_blueprint(asset_path: str, skeleton: str, parent_class: str = "/Script/Engine.AnimInstance",
+                               preview_mesh: str | None = None, overwrite: bool = False) -> dict:
+    """Create a new Animation Blueprint with an empty AnimGraph (only the Output Pose node).
+
+    Args:
+        asset_path: Where to create it, e.g. "/Game/Animation/Test/ABP_McpTest". Never target a production asset.
+        skeleton: Target skeleton asset path.
+        parent_class: AnimInstance subclass, e.g. "/Script/AstralBreak.AstralAnimInstance".
+        preview_mesh: Optional skeletal mesh for the preview viewport.
+        overwrite: If true, an existing asset at asset_path is DELETED first. Ask the user before using this.
+
+    Returns the same summary as get_anim_blueprint_info plus created=true. The asset is not saved to disk yet.
+    """
+    params = {"asset_path": asset_path, "skeleton": skeleton, "parent_class": parent_class, "overwrite": overwrite}
+    if preview_mesh:
+        params["preview_mesh"] = preview_mesh
+    return bridge.call("create_animation_blueprint", params)
+
+
+_OPERATIONS_DOC = """
+    Each operation is a dict:
+      {"op": "add_node", "ref": "idle", "graph": "<graph_guid or omit for root AnimGraph>",
+       "class": "AnimGraphNode_SequencePlayer", "pos": [-400, 0], "asset": "/Game/.../AS_Idle"}
+      {"op": "connect", "from": {"ref": "idle", "pin": "Pose"}, "to": {"node": "<root_node_guid>", "pin": "Result"}}
+    'ref' names a node created earlier in the same batch so later operations can address it before its guid exists.
+"""
+
+
+@mcp.tool()
+def preview_graph_operations(asset_path: str, operations: list[dict]) -> dict:
+    """Validate a batch of graph operations without changing the asset. Always call this before apply_graph_operations.
+
+    Args:
+        asset_path: Animation Blueprint to plan against.
+        operations: Ordered list of operations.
+""" + _OPERATIONS_DOC
+    return bridge.call("preview_graph_operations", {"asset_path": asset_path, "operations": operations})
+
+
+@mcp.tool()
+def apply_graph_operations(asset_path: str, operations: list[dict], expected_revision: str | None = None,
+                           compile: bool = False, save: bool = False) -> dict:
+    """Apply a batch of graph operations in one undoable transaction. Validated first; a mid-batch failure is rolled back.
+
+    Args:
+        asset_path: Animation Blueprint to modify.
+        operations: Ordered list of operations (same format as preview_graph_operations).
+        expected_revision: Revision from the last inspection; the call aborts with REVISION_MISMATCH if the graph changed.
+        compile: Compile after applying and include the result.
+        save: Save to disk after a successful compile (requires compile=true to be meaningful).
+
+    Returns revision_before/after, refs (ref name -> node_guid), per-operation results, compile result and saved flag.
+""" + _OPERATIONS_DOC
+    params = {"asset_path": asset_path, "operations": operations, "compile": compile, "save": save}
+    if expected_revision:
+        params["expected_revision"] = expected_revision
+    return bridge.call("apply_graph_operations", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def compile_animation_blueprint(asset_path: str, save_on_success: bool = False) -> dict:
+    """Compile an Animation Blueprint. Errors and warnings come back with node_guid/graph_guid when they point at a node.
+
+    Args:
+        asset_path: Animation Blueprint to compile.
+        save_on_success: Save the package when there are no errors.
+    """
+    return bridge.call("compile_animation_blueprint", {"asset_path": asset_path, "save_on_success": save_on_success},
+                       timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def save_animation_blueprint(asset_path: str) -> dict:
+    """Save an Animation Blueprint package to disk (forced, even if the editor does not consider it dirty)."""
+    return bridge.call("save_animation_blueprint", {"asset_path": asset_path})
+
+
 if __name__ == "__main__":
     mcp.run()

@@ -174,6 +174,210 @@ namespace AnimMcpGraphInspector
 		return Obj;
 	}
 
+	UEdGraph* FindGraphByGuid(UAnimBlueprint* Blueprint, const FGuid& Guid)
+	{
+		TArray<FGraphRecord> Graphs;
+		CollectGraphs(Blueprint, Graphs);
+		for (const FGraphRecord& Record : Graphs)
+		{
+			if (Record.Graph->GraphGuid == Guid)
+			{
+				return Record.Graph;
+			}
+		}
+		return nullptr;
+	}
+
+	UEdGraphNode* FindNodeByGuid(UAnimBlueprint* Blueprint, const FGuid& Guid)
+	{
+		TArray<FGraphRecord> Graphs;
+		CollectGraphs(Blueprint, Graphs);
+		for (const FGraphRecord& Record : Graphs)
+		{
+			for (UEdGraphNode* Node : Record.Graph->Nodes)
+			{
+				if (Node && Node->NodeGuid == Guid)
+				{
+					return Node;
+				}
+			}
+		}
+		return nullptr;
+	}
+
+	TSharedRef<FJsonObject> DescribePin(const UEdGraphPin* Pin)
+	{
+		TSharedRef<FJsonObject> Obj = AnimMcpJson::MakeObject();
+		Obj->SetStringField(TEXT("name"), Pin->PinName.ToString());
+		Obj->SetStringField(TEXT("dir"), PinDirectionToString(Pin->Direction));
+
+		FString Type = Pin->PinType.PinCategory.ToString();
+		if (Pin->PinType.PinSubCategoryObject.IsValid())
+		{
+			Type += TEXT(":") + Pin->PinType.PinSubCategoryObject->GetName();
+		}
+		else if (!Pin->PinType.PinSubCategory.IsNone())
+		{
+			Type += TEXT(":") + Pin->PinType.PinSubCategory.ToString();
+		}
+		if (Pin->PinType.IsArray())
+		{
+			Type += TEXT("[]");
+		}
+		Obj->SetStringField(TEXT("type"), Type);
+
+		if (Pin->DefaultObject)
+		{
+			Obj->SetStringField(TEXT("default"), Pin->DefaultObject->GetPathName());
+		}
+		else
+		{
+			Obj->SetField(TEXT("default"), AnimMcpJson::StringOrNull(Pin->DefaultValue));
+		}
+		Obj->SetBoolField(TEXT("hidden"), Pin->bHidden);
+
+		TArray<TSharedPtr<FJsonValue>> Linked;
+		for (const UEdGraphPin* Other : Pin->LinkedTo)
+		{
+			if (Other && Other->GetOwningNodeUnchecked())
+			{
+				Linked.Add(MakeShared<FJsonValueString>(Other->GetOwningNodeUnchecked()->NodeGuid.ToString() + TEXT(":") + Other->PinName.ToString()));
+			}
+		}
+		Obj->SetArrayField(TEXT("linked"), Linked);
+		return Obj;
+	}
+
+	TSharedRef<FJsonObject> DescribeNode(UEdGraphNode* Node)
+	{
+		TSharedRef<FJsonObject> Obj = AnimMcpJson::MakeObject();
+		Obj->SetStringField(TEXT("node_guid"), Node->NodeGuid.ToString());
+		Obj->SetField(TEXT("graph_guid"), Node->GetGraph() ? AnimMcpJson::StringOrNull(Node->GetGraph()->GraphGuid.ToString()) : MakeShared<FJsonValueNull>());
+		Obj->SetStringField(TEXT("class"), Node->GetClass()->GetName());
+		Obj->SetStringField(TEXT("title"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+
+		TArray<TSharedPtr<FJsonValue>> Pos;
+		Pos.Add(MakeShared<FJsonValueNumber>(Node->NodePosX));
+		Pos.Add(MakeShared<FJsonValueNumber>(Node->NodePosY));
+		Obj->SetArrayField(TEXT("pos"), Pos);
+
+		if (UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node))
+		{
+			Obj->SetField(TEXT("asset"), AnimMcpJson::ObjectPathOrNull(AnimNode->GetAnimationAsset()));
+			Obj->SetBoolField(TEXT("is_sink"), AnimNode->IsSinkNode());
+		}
+		else
+		{
+			Obj->SetField(TEXT("asset"), MakeShared<FJsonValueNull>());
+		}
+		if (!Node->NodeComment.IsEmpty())
+		{
+			Obj->SetStringField(TEXT("comment"), Node->NodeComment);
+		}
+
+		TArray<TSharedPtr<FJsonValue>> Pins;
+		for (const UEdGraphPin* Pin : Node->Pins)
+		{
+			if (Pin)
+			{
+				Pins.Add(MakeShared<FJsonValueObject>(DescribePin(Pin)));
+			}
+		}
+		Obj->SetArrayField(TEXT("pins"), Pins);
+
+		TArray<TSharedPtr<FJsonValue>> SubGraphs;
+		for (UEdGraph* Sub : Node->GetSubGraphs())
+		{
+			if (Sub)
+			{
+				SubGraphs.Add(MakeShared<FJsonValueString>(Sub->GraphGuid.ToString()));
+			}
+		}
+		Obj->SetArrayField(TEXT("sub_graphs"), SubGraphs);
+		return Obj;
+	}
+
+	TSharedRef<FJsonObject> BuildGraphStructure(UAnimBlueprint* Blueprint, UEdGraph* Graph, int32 Depth, FAnimMcpContext& Context)
+	{
+		check(Blueprint && Graph);
+
+		// 대상 그래프 집합 — Depth 만큼 하위로
+		TArray<FGraphRecord> Records;
+		{
+			struct FPending { UEdGraph* Graph; UEdGraph* Parent; int32 Level; };
+			TArray<FPending> Queue;
+			Queue.Add({ Graph, nullptr, 0 });
+			TSet<UEdGraph*> Visited;
+			while (Queue.Num() > 0)
+			{
+				const FPending Current = Queue[0];
+				Queue.RemoveAt(0);
+				if (!Current.Graph || Visited.Contains(Current.Graph))
+				{
+					continue;
+				}
+				Visited.Add(Current.Graph);
+				Records.Add({ Current.Graph, Current.Parent });
+				if (Depth < 0 || Current.Level < Depth)
+				{
+					for (UEdGraph* Sub : Current.Graph->SubGraphs)
+					{
+						Queue.Add({ Sub, Current.Graph, Current.Level + 1 });
+					}
+				}
+			}
+		}
+
+		TArray<TSharedPtr<FJsonValue>> GraphArray, NodeArray, ConnectionArray;
+		for (const FGraphRecord& Record : Records)
+		{
+			GraphArray.Add(MakeShared<FJsonValueObject>(DescribeGraph(Record)));
+			for (UEdGraphNode* Node : Record.Graph->Nodes)
+			{
+				if (!Node)
+				{
+					continue;
+				}
+				NodeArray.Add(MakeShared<FJsonValueObject>(DescribeNode(Node)));
+				for (const UEdGraphPin* Pin : Node->Pins)
+				{
+					if (!Pin || Pin->Direction != EGPD_Output)
+					{
+						continue;
+					}
+					for (const UEdGraphPin* Other : Pin->LinkedTo)
+					{
+						if (!Other || !Other->GetOwningNodeUnchecked())
+						{
+							continue;
+						}
+						TSharedRef<FJsonObject> From = AnimMcpJson::MakeObject();
+						From->SetStringField(TEXT("node"), Node->NodeGuid.ToString());
+						From->SetStringField(TEXT("pin"), Pin->PinName.ToString());
+						TSharedRef<FJsonObject> To = AnimMcpJson::MakeObject();
+						To->SetStringField(TEXT("node"), Other->GetOwningNodeUnchecked()->NodeGuid.ToString());
+						To->SetStringField(TEXT("pin"), Other->PinName.ToString());
+						TSharedRef<FJsonObject> Conn = AnimMcpJson::MakeObject();
+						Conn->SetObjectField(TEXT("from"), From);
+						Conn->SetObjectField(TEXT("to"), To);
+						ConnectionArray.Add(MakeShared<FJsonValueObject>(Conn));
+					}
+				}
+			}
+		}
+
+		TSharedRef<FJsonObject> Result = AnimMcpJson::MakeObject();
+		Result->SetStringField(TEXT("schema_version"), TEXT("1.0"));
+		Result->SetStringField(TEXT("asset_path"), Blueprint->GetPathName());
+		Result->SetStringField(TEXT("revision"), ComputeRevision(Blueprint));
+		Result->SetStringField(TEXT("root_graph_guid"), Graph->GraphGuid.ToString());
+		Result->SetNumberField(TEXT("depth"), Depth);
+		Result->SetArrayField(TEXT("graphs"), GraphArray);
+		Result->SetArrayField(TEXT("nodes"), NodeArray);
+		Result->SetArrayField(TEXT("connections"), ConnectionArray);
+		return Result;
+	}
+
 	TSharedRef<FJsonObject> BuildBlueprintInfo(UAnimBlueprint* Blueprint, FAnimMcpContext& Context)
 	{
 		check(Blueprint);

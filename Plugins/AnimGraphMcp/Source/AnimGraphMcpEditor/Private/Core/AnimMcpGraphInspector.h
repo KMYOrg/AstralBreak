@@ -5,6 +5,8 @@
 
 class UAnimBlueprint;
 class UEdGraph;
+class UEdGraphNode;
+class UEdGraphPin;
 struct FAnimMcpContext;
 
 /**
@@ -35,4 +37,19 @@ namespace AnimMcpGraphInspector
 	TSharedRef<FJsonObject> BuildBlueprintInfo(UAnimBlueprint* Blueprint, FAnimMcpContext& Context);
 
 	TSharedRef<FJsonObject> DescribeGraph(const FGraphRecord& Record);
+
+	/** 핀: name, dir, type, default, hidden, linked["nodeguid:pin"] */
+	TSharedRef<FJsonObject> DescribePin(const UEdGraphPin* Pin);
+
+	/** 노드: node_guid, graph_guid, class, title, pos, asset, pins[], sub_graphs[] */
+	TSharedRef<FJsonObject> DescribeNode(UEdGraphNode* Node);
+
+	/**
+	 * get_anim_graph_structure 응답 — Graph 와 하위 그래프(Depth: 0 = 이 그래프만, -1 = 전부)의 노드·연결.
+	 * 연결은 출력 핀 쪽에서 한 번만 기록한다
+	 */
+	TSharedRef<FJsonObject> BuildGraphStructure(UAnimBlueprint* Blueprint, UEdGraph* Graph, int32 Depth, FAnimMcpContext& Context);
+
+	UEdGraph* FindGraphByGuid(UAnimBlueprint* Blueprint, const FGuid& Guid);
+	UEdGraphNode* FindNodeByGuid(UAnimBlueprint* Blueprint, const FGuid& Guid);
 }

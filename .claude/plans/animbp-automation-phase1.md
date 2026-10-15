@@ -599,6 +599,33 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 
 ---
 
+## Phase 2.5 결과 (2026-10-14, 브랜치 `feat/ai_auto_ABP`)
+
+§14.7 시나리오 9단계 전부 통과 (`Tools/mcp/phase25_test.py` PASS). 운영 애셋 무변경.
+
+| 산출물 | 위치 |
+| :--- | :--- |
+| 생성 | `Core/AnimMcpBlueprintFactory` — 팩토리 미사용(모달 회피), `FKismetEditorUtilities::CreateBlueprint` + 스켈레톤 3곳 세팅 재현. overwrite 시 `DeleteAsset` 후 메모리에 남은 객체는 임시 패키지로 이동 |
+| 쓰기 기계 | `Core/AnimMcpGraphMutator` — Guid/핀 해석, 노드 클래스 해석(UAnimGraphNode_Base 파생만), `FGraphNodeCreator` 경로 생성, `SetAnimationAsset`, `CanCreateConnection` 검증 후 `TryCreateConnection` |
+| 배치 | `Core/AnimMcpOperations` — `add_node`·`connect` AST, ref 표, 전체 사전 검증, `FScopedTransaction`, **보상 롤백**(만든 노드 DestroyNode·링크 스냅샷 복원) + `Cancel` + revision 대조 |
+| 컴파일·저장 | `Core/AnimMcpCompiler` — `FCompilerResultsLog` 토큰 → node_guid 매핑, `UEditorAssetSubsystem::SaveLoadedAsset(…, false)` |
+| Inspector 확장 | `DescribeNode`/`DescribePin`/`BuildGraphStructure`(depth), `FindGraphByGuid`/`FindNodeByGuid` |
+| Tool 7개 추가 | `get_anim_graph_structure` · `list_animation_assets` · `create_animation_blueprint` · `save_animation_blueprint` · `preview_graph_operations` · `apply_graph_operations` · `compile_animation_blueprint` (총 9) |
+| 테스트 애셋 | `/Game/Animation/Test/ABP_McpTest` (SequencePlayer `AS_IdleRifleAiming_02` → Output Pose) |
+
+**검증**: 스켈레톤 필터 애셋 22건 · 생성(덮어쓰기 포함) · 루트 그래프 노드 `AnimGraphNode_Root` 핀 `Result` 확인 · preview valid & 그래프 불변 · apply 2 op + 컴파일 0/0 + 저장 · 재조회 연결 1건·revision 일치 · 실패 배치(없는 핀) `PIN_NOT_FOUND`, `rollback_verified=true`, 이후 revision 불변 · 중복 ref 거부. **에디터 재시작 후 재조회**: 노드 Guid·연결·애셋 참조 동일, `BS_UpToDate` (영속 확인). Development·DebugGame 빌드 성공.
+
+**해결한 결함 2건**
+- 실패 응답 조립 시 실패 op 의 `error.details` 객체를 바깥 `details` 로 재사용하고 그 안에 `applied` 를 넣어 **JSON 순환 참조** → 직렬화 무한 재귀로 에디터 크래시(종료 코드 3) 2회. 바깥 details 를 새 객체로 만들고 원인은 `cause` 아래에 둠. 교훈: 같은 `FJsonObject` 를 두 컨테이너에 넣을 때 트리인지 확인.
+- 롤백을 `GEditor->UndoTransaction` 에 맡기던 설계를 보상 방식으로 교체. 크래시 원인은 아니었으나 결과가 에디터 Undo 버퍼 상태에 의존하지 않게 됨 (§D-4 "Undo ≠ 원자성" 원칙 구현).
+- overwrite 시 `DeleteAsset` 뒤 같은 이름의 UBlueprint 가 메모리에 남아 `CreateBlueprint` 의 check 에 걸리는 경우 발생(재현 1회). 임시 패키지로 Rename + MarkAsGarbage 로 이름을 비우는 폴백 추가.
+
+**조사 결론 갱신 (❓ 해소)**: Root 입력 핀 이름 `Result`, SequencePlayer 출력 핀 `Pose` 실측 확인. `FScopedTransaction::Cancel` 은 기록만 버린다(소스 확인) — 상태 복구는 보상 코드가 담당.
+
+**Phase 3 착수 조건**: 본 결과 검토. 범위는 §F Phase 3 (Inspector 바인딩·revision 에 노드 프로퍼티 포함, remove_node/disconnect/set_property(허용 목록)/expose_pin, BlendSpacePlayer·Slot·LayeredBlend·BlendListByBool·CachedPose).
+
+---
+
 ## 부록 — 확인에 사용한 파일
 
 **프로젝트**: `AstralBreak.uproject`, `Source/AstralBreak.Build.cs`, `Source/AstralBreakEditor.Target.cs`, `Config/DefaultEngine.ini`, `Config/DefaultGame.ini`, `Source/AstralBreak/Animation/AstralAnimInstance.{h,cpp}`, `Tools/ue_exec.py`, `Tools/lib/ab_blueprint.py`, `.claude/settings.json`, `Content/Animation/**`, `Content/Characters/**`

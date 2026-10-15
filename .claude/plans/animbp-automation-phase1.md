@@ -626,6 +626,38 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 
 ---
 
+## Phase 3 결과 (2026-10-15, 브랜치 `feat/ai_auto_ABP`)
+
+핸드오프 §14 작업 전부 구현. `Tools/mcp/phase3_test.py` 7개 절 **PASS** (거부 10종 · 롤백 검증 · revision 규칙 · 재시작 후 재조회). 운영 애셋 `ABP_Hero_Base` 는 읽기만. Development · DebugGame 빌드 성공, 경고 0.
+
+**사용자 확정 결정 (구현 전, 2026-10-15)**
+- `remove_node` 롤백 = **분리 보관**: 적용 시 `UEdGraph::RemoveNode(Node, bBreakAllLinks=true)` 로 Nodes 배열에서만 빼고 객체는 유지(`EdGraph.cpp:260` — RemoveNode 는 파괴하지 않는다). 실패 시 `AddNode` 로 복귀 + 링크 복원. 배치 성공 확정 시 트랜잭션 안에서 `DestroyNode()` 로 서브그래프까지 정리(StateMachine 파생은 `DestroyNode` 가 `RemoveGraph`).
+- `set_property` 허용 목록 = **확장 목록** (`Core/AnimMcpPropertyRules.cpp` 표). LayerSetup(본 필터)은 Phase 5 보류.
+
+| 산출물 | 위치 |
+| :--- | :--- |
+| 허용 목록 | `Core/AnimMcpPropertyRules.{h,cpp}` (신규) — 클래스 이름 상속 매칭, 스코프 Node/FNode/NodeRef, 읽기 전용 플래그, JSON↔ImportText 변환, 값→JSON |
+| Inspector | 노드 `properties{}`(허용 목록 값) · `optional_pins[{property, shown, can_toggle, bound}]` · `has_binding`. revision 에 EditAnywhere 프로퍼티 + FAnimNode 멤버 포함 (PoseLink·Transient·FText 제외, 노출 핀은 (이름,bShowPin)) |
+| Mutator | `Disconnect/DisconnectAll` · `DetachNode/ReattachNode/FinalizeRemoval` · `SetPropertyFromJson/Text`(+노출 핀 기본값 동기화) · `SetAsset/RestoreAsset` · `SetPinVisible` · `SetCachedPoseSource` · `SetBlendListEnum` · `AddBlendPose/RemoveLastBlendPose` |
+| Operations | op 8종: `add_node`(+`enum`·`properties`) · `connect` · `disconnect` · `remove_node` · `set_property` · `set_asset` · `expose_pin` · `add_blend_pose`. 되돌리기 저널(op 별 클로저, 역순 실행). 핀은 (노드 포인터, 핀 이름) 으로 기억 — ReconstructNode 뒤에도 유효 |
+| 지원 노드 | SequencePlayer · BlendSpacePlayer · Slot · LayeredBoneBlend · BlendListByBool · BlendListByEnum · Save/UseCachedPose · StateMachine(생성만) — 전부 생성·연결·컴파일 0 에러 |
+| 테스트 | `Tools/mcp/phase3_test.py` (+`--recheck` 재시작 비교, 상태 파일 `phase3_state.json`) |
+
+**검증 수치**: `ABP_Hero_Base` 전체 덤프 그래프 21 · 노드 69 · 연결 50 · 바인딩 0 · Linked Layer 0. **revision 계산(프로퍼티 포함) 315ms** — info 와 structure 가 같은 값, 2회 계산 동일(결정적). 속성만 바꾼 변경이 revision 을 바꾸고 같은 값 재적용은 유지. 9개 op 가 섞인 배치의 index 9 실패 → `rollback_verified=true`, 분리 보관 노드 복귀·프로퍼티·연결 수 복원. 같은 배치 2회 → `REVISION_MISMATCH`.
+
+**실측으로 바로잡은 것 3건**
+- **포즈 출력 핀은 단일 연결** — `UAnimationGraphSchema::CanCreateConnection` 이 출력 쪽에도 BREAK_OTHERS 를 돌려 두 번째 연결이 첫 연결을 끊는다. 공유는 Save/UseCachedPose 가 정석. 테스트 시나리오를 그에 맞게 고쳤다 (도구 결함 아님).
+- **노출 핀의 기본값이 진실** — 핀이 보이는 동안 컴파일은 핀 → 구조체로 복사하고, 핀을 숨길 때도 핀 값이 구조체로 되돌아간다 (`AnimBlueprintNodeOptionalPinManager.cpp:108-121`). 구조체만 바꾸면 컴파일에서 덮어쓰인다. `set_property` 는 연결되지 않은 노출 핀의 기본값도 같은 값으로 맞춘다 (`PropertyValueToString_Direct` → `TrySetDefaultValue`).
+- **블렌드 포즈 제거 시 고아 핀** — BlendTime 0.1 / BlendWeights 1.0 처럼 비기본값 핀은 재구성 때 고아로 남아 컴파일 경고를 낸다. 엔진의 `RemovePinFromBlendList` 와 같이 제거 인덱스 핀에 `SetSavePinIfOrphaned(false)` 를 먹인 뒤 재구성.
+
+**접근 제한 우회 (MinimalAPI · protected)**: `UAnimGraphNode_BlendListByEnum::BoundEnum/VisibleEnumEntries` 는 protected → `GetEnum()`/`ReloadEnum()`(공개 가상) 과 `FindPropertyByName("VisibleEnumEntries")` 리플렉션. `ExposeEnumElementAsPin` 은 비내보내기 → 같은 순서(`VisibleEnumEntries.Add` · `Node.AddPose()` · `ReconstructNode`) 재현. `FAnimNode_BlendListBase::BlendPose` 는 protected → 길이는 `GetBlendTimes().Num()`. `FPoseLinkBase::StaticStruct()` 는 API 매크로가 없어 구조체 상속 사슬 이름 비교로 판정.
+
+**운용 메모**: Python 원격 실행(`quit_editor.py`)이 에디터를 못 찾는 경우가 있었다(브리지는 정상). 테스트 전용 에디터는 `taskkill //F` 로 내렸다 — Phase 6 안정화에서 `quit_editor` Tool 추가를 검토.
+
+**Phase 4 착수 조건**: 본 결과 검토. 범위는 §F Phase 4 (State Machine · State · Transition · `set_transition_rule` AST). 첫 실측 항목은 float 변수 핀 → double 함수 핀 연결 허용 여부.
+
+---
+
 ## 부록 — 확인에 사용한 파일
 
 **프로젝트**: `AstralBreak.uproject`, `Source/AstralBreak.Build.cs`, `Source/AstralBreakEditor.Target.cs`, `Config/DefaultEngine.ini`, `Config/DefaultGame.ini`, `Source/AstralBreak/Animation/AstralAnimInstance.{h,cpp}`, `Tools/ue_exec.py`, `Tools/lib/ab_blueprint.py`, `.claude/settings.json`, `Content/Animation/**`, `Content/Characters/**`

@@ -11,8 +11,16 @@ namespace AnimMcpTools
 	namespace
 	{
 		const TCHAR* OperationsDoc =
-			TEXT("Operations: add_node {ref?, graph?(guid; default root AnimGraph), class (e.g. AnimGraphNode_SequencePlayer), pos?[x,y], asset?}, "
-			     "connect {from:{node|ref, pin}, to:{node|ref, pin}}. 'ref' names a node created earlier in the same batch.");
+			TEXT("Operations: "
+			     "add_node {ref?, graph?(guid; default root AnimGraph), class (e.g. AnimGraphNode_SequencePlayer), pos?[x,y], asset?, enum?(BlendListByEnum only), properties?{name:value}} | "
+			     "connect {from:{node|ref, pin}, to:{node|ref, pin}} | "
+			     "disconnect {from:{node|ref, pin}, to?:{node|ref, pin}} (no 'to' = break all links of 'from') | "
+			     "remove_node {node|ref} | "
+			     "set_property {node|ref, property, value} (allow-listed properties only; see node 'properties' in get_anim_graph_structure) | "
+			     "set_asset {node|ref, asset} | "
+			     "expose_pin {node|ref, property, visible?=true} (see node 'optional_pins') | "
+			     "add_blend_pose {node|ref, entry?(enum element for BlendListByEnum)}. "
+			     "'ref' names a node created by an earlier add_node in the same batch.");
 	}
 
 	void RegisterGraphTools(FAnimMcpDispatcher& Dispatcher)

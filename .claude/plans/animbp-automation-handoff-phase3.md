@@ -16,8 +16,8 @@ Unreal Engine 5.7.4 Source Build 환경에서 Claude Code 가 Animation Blueprin
 | 목표 | 상태 |
 | :--- | :---: |
 | AnimBP 애셋 자동 생성 및 조회 | ✅ |
-| 기존 AnimGraph · State Machine 구조 분석 | 🔶 그래프 트리·노드·핀·연결 조회 가능. 바인딩·Linked Layer 내용, 상태머신 전용 뷰는 미구현 |
-| AnimGraph 노드 생성·수정·삭제 및 Pin 연결 | 🔶 생성·연결만. 삭제·연결 해제·속성 변경·핀 노출은 Phase 3 |
+| 기존 AnimGraph · State Machine 구조 분석 | 🔶 그래프 트리·노드·핀·연결·허용 목록 프로퍼티 값·바인딩 보유·노출 핀 조회 가능(Phase 3). 상태머신 전용 뷰는 Phase 4 |
+| AnimGraph 노드 생성·수정·삭제 및 Pin 연결 | ✅ Phase 3 — add_node·connect·disconnect·remove_node·set_property·set_asset·expose_pin·add_blend_pose |
 | State Machine · State · Transition 자동 구성 | ⬜ Phase 4 |
 | Transition Rule 및 블렌딩 조건 설정 | ⬜ Phase 4 (설계 확정: §9) |
 | AnimSequence · BlendSpace · Montage 연결 | 🔶 애셋 플레이어 노드에 애셋 할당 가능. BlendSpace 생성은 Phase 4 |
@@ -145,34 +145,34 @@ Phase 3·4 에서 새로 필요한 API(핀 노출 `SetPinVisibility`, 노드 프
 
 **노드 식별**: 입력은 항상 `node_guid`(+ 배치 내 임시 `ref`). 표시 이름은 응답에만 있다.
 
-**revision**: 그래프 Guid·클래스·이름, 노드 Guid·클래스·위치, 핀 이름·방향·카테고리·기본값·연결을 결정적 순서로 이어 SHA1. **노드 내부 FAnimNode 프로퍼티 값은 아직 미포함** → Phase 3 에서 `set_property` 를 넣을 때 함께 포함해야 한다(안 넣으면 속성만 바꾼 변경이 revision 에 안 잡힌다).
+**revision**: 그래프 Guid·클래스·이름, 노드 Guid·클래스·위치, 핀 이름·방향·카테고리·기본값·연결, **그리고 노드의 EditAnywhere 프로퍼티 + FAnimNode 멤버 값**(Phase 3; PoseLink·Transient·FText 제외, 노출 핀은 (이름, bShowPin))을 결정적 순서로 이어 SHA1. `ABP_Hero_Base`(그래프 21·노드 69) 계산 315ms.
 
-**Phase 3 에서 추가할 조회**: 노드 프로퍼티 값(`GetFNodeProperty` 리플렉션, 허용 목록 기준), Property Binding 보유 여부(`UAnimGraphNode_Base::GetBinding`), 상태머신 전용 뷰 `get_state_machine_structure`(states/transitions/entry) — 후자는 Phase 4 와 묶어도 된다.
+**Phase 3 에서 추가된 조회** (노드 항목): `properties{}` — 허용 목록 프로퍼티의 현재 값(set_property 가 받는 이름과 동일) · `optional_pins[{property, shown, can_toggle, bound}]` · `has_binding`. 바인딩은 보존 대상으로만 표기(편집은 Phase 6). 상태머신 전용 뷰 `get_state_machine_structure` 는 Phase 4.
 
 ---
 
-### 8. AnimGraph 편집 (구현 범위와 Phase 3 목표)
+### 8. AnimGraph 편집 (Phase 3 구현 완료 · 2026-10-15)
 
-**구현된 op**
+**구현된 op** (전부 `preview_graph_operations` / `apply_graph_operations` 의 `operations[]`)
 
-| op | 입력 | 동작 |
+| op | 입력 | 동작 · 롤백 |
 | :--- | :--- | :--- |
-| `add_node` | `ref?, graph?(guid, 생략=루트 AnimGraph), class, pos?[x,y], asset?` | `FGraphNodeCreator` 생성, 애셋 플레이어면 `SetAnimationAsset`. 스켈레톤 불일치는 경고 진단 |
-| `connect` | `from:{node|ref, pin}, to:{node|ref, pin}` | `CanCreateConnection` 검증 → `TryCreateConnection` |
+| `add_node` | `ref?, graph?(guid, 생략=루트), class, pos?[x,y], asset?, enum?(BlendListByEnum), properties?{name:value}` | `FGraphNodeCreator` 생성 → enum 바인딩(`ReloadEnum`+재구성) → properties 는 set_property 와 같은 경로. 롤백 = `DestroyNode` |
+| `connect` | `from:{node|ref, pin}, to:{node|ref, pin}` | `CanCreateConnection` → `TryCreateConnection`. 롤백 = 양 끝 핀 링크 스냅샷(노드, 핀 이름) 복원 |
+| `disconnect` | `from:{node|ref, pin}, to?:{node|ref, pin}` | `to` 있으면 `BreakSinglePinLink`, 없으면 `BreakPinLinks`. 롤백 = 스냅샷 복원 |
+| `remove_node` | `node|ref` | **분리 보관**(사용자 확정): `UEdGraph::RemoveNode(링크 끊기)` 로 Nodes 에서만 제외, 객체 유지. 롤백 = `AddNode` + 링크 복원. 배치 성공 확정 시 `DestroyNode`(서브그래프 정리). `CanUserDeleteNode()==false`(Root·Result·Entry) 거부. 제거된 노드를 뒤 op 가 가리키면 `NODE_NOT_FOUND` |
+| `set_property` | `node|ref, property, value` | 허용 목록(§8-1) 리플렉션 `ImportText` → `PreEditChange/PostEditChangeProperty` → **노출된 비연결 핀의 기본값도 동기화**(핀이 진실: 컴파일·숨김 시 핀→구조체 복사). NodeRef 규칙(UseCachedPose.SaveCachedPoseNode)은 value 가 노드 참조. 롤백 = 이전 ExportText 재적용 |
+| `set_asset` | `node|ref, asset` | `SetAnimationAsset`. 롤백 = 이전 애셋(null 이면 리플렉션으로 직접 복원) |
+| `expose_pin` | `node|ref, property, visible?=true` | `ShowPinForProperties` 이름 검색 → `SetPinVisibility`(내부 ReconstructNode). 같은 상태면 no-op. 롤백 = 반대 값 |
+| `add_blend_pose` | `node|ref, entry?` | LayeredBoneBlend: `AddPinToBlendByFilter`. BlendListByEnum: `ExposeEnumElementAsPin` 재현(entry 필수, _MAX·중복 거부). 롤백 = 마지막 포즈 제거(제거 인덱스 핀 `SetSavePinIfOrphaned(false)` 후 재구성 — 고아 핀 방지) |
 
-**Phase 3 목표 op** (지침서 §8 의 나머지)
+**8-1. set_property 허용 목록** (`Core/AnimMcpPropertyRules.cpp`, 사용자 확정 "확장 목록"): SequencePlayer `bLoopAnimation, PlayRate, StartPosition, PlayRateBasis` · BlendSpacePlayer `bLoop, PlayRate, StartPosition, X, Y, bResetPlayTimeWhenBlendSpaceChanges` · Slot `SlotName, bAlwaysUpdateSourcePose` · SaveCachedPose `CacheName`(Node) · UseCachedPose `SaveCachedPoseNode`(NodeRef) · LayeredBoneBlend `bMeshSpaceRotationBlend, bMeshSpaceScaleBlend, bBlendRootMotionBasedOnRootBone, LODThreshold` · BlendListBase(ByBool·ByEnum) `BlendTime[]` · BlendListByEnum `BoundEnum, VisibleEnumEntries`(읽기 전용) · Transition `CrossfadeDuration, PriorityOrder, BlendMode, Bidirectional, bDisabled, bAutomaticRuleBasedOnSequencePlayerInState, AutomaticRuleTriggerTime` · State `bAlwaysResetOnEntry`. 표는 클래스 이름으로 매칭하고 상위 클래스를 거슬러 올라간다. LayerSetup(본 필터)은 Phase 5 보류.
 
-| op | 설계 메모 |
-| :--- | :--- |
-| `remove_node` | `BreakAllNodeLinks` + `DestroyNode`. 롤백은 삭제 전 스냅샷이 필요하므로 **삭제는 보상 롤백이 어려운 유일한 op** — 삭제 op 가 포함된 배치는 "삭제를 마지막에만 허용"하거나 삭제 전 노드를 임시 패키지로 Rename 해 두고 실패 시 되돌리는 방식 중 택일. 결정 필요 |
-| `disconnect` | `Schema->BreakSinglePinLink(A,B)` 또는 핀 전체 `BreakPinLinks`. 스냅샷 복원으로 롤백 |
-| `set_property` | 허용 목록 기반. 대상은 `GetFNodeProperty()` 가 가리키는 FAnimNode 구조체의 프로퍼티. 적용 후 `PostEditChangeProperty` + 필요 시 `ReconstructNode`. 초기 허용 목록: SequencePlayer `bLoopAnimation, PlayRate, StartPosition`; BlendSpacePlayer `bLoop, PlayRate`; Slot `SlotName`; SaveCachedPose `CacheName`; Transition `CrossfadeDuration, PriorityOrder, BlendMode, Bidirectional, bDisabled`; State `bAlwaysResetOnEntry`. 애셋 참조는 `asset` 필드로만 |
-| `expose_pin` | `UAnimGraphNode_Base::ShowPinForProperties` 에서 프로퍼티 인덱스를 찾아 `SetPinVisibility(bool, index)` (내부에서 ReconstructNode). **핀 포인터는 재구성 뒤 무효** → op 사이에 핀 포인터를 보관하지 않고 매번 이름으로 재탐색 |
-| `set_asset` | 기존 노드의 애셋 교체 (`SetAnimationAsset`) |
-
-**Phase 3 지원 노드**: SequencePlayer(됨), BlendSpacePlayer, Slot, LayeredBoneBlend(`AddPinToBlendByFilter` 로 레이어 추가), BlendListByBool, BlendListByEnum, SaveCachedPose/UseCachedPose, StateMachine(생성만 — 내부는 Phase 4), Root(기존 노드만).
+**지원 노드** (전부 생성·연결·컴파일 0 에러 확인): SequencePlayer · BlendSpacePlayer · Slot · LayeredBoneBlend · BlendListByBool · BlendListByEnum · SaveCachedPose/UseCachedPose · StateMachine(생성만 — 내부는 Phase 4) · Root(기존 노드만).
 
 **속성 변경 원칙** (변경 없음): ① 노드별 공식 Setter ② 허용 목록 기반 리플렉션 ③ 노드별 특수 처리. 임의 프로퍼티 범용 명령은 금지.
+
+**실측으로 확인한 엔진 동작** (Phase 4~5 에서 그대로 적용): 포즈 출력 핀은 **단일 연결**(두 번째 연결이 첫 연결을 끊는다 — 공유는 Save/UseCachedPose) · 노출 핀의 기본값이 구조체 값보다 우선 · 비기본값 핀은 재구성 때 고아로 남는다.
 
 ---
 
@@ -204,14 +204,14 @@ Python 측 함수명 = 플러그인 라우트명. 모든 응답은 봉투 `{ok, 
 | `get_anim_graph_structure` | `asset_path, graph_guid?, depth=1` | §7. depth 0 = 그 그래프만, -1 = 전부 |
 | `list_animation_assets` | `skeleton?, asset_class=all, path_prefix=/Game, limit=200` | 클래스: AnimSequence·BlendSpace·AnimMontage·AnimComposite·all |
 | `create_animation_blueprint` | `asset_path, skeleton, parent_class=/Script/Engine.AnimInstance, preview_mesh?, overwrite=false` | overwrite 는 기존 애셋 **삭제** — 사용자 확인 후 |
-| `preview_graph_operations` | `asset_path, operations[]` | 그래프 불변. `valid, revision, planned[], would_create, would_connect` |
+| `preview_graph_operations` | `asset_path, operations[]` | 그래프 불변. `valid, revision, planned[{index, op, ref, ok, error?, note?}], would_create, would_connect, would_disconnect, would_remove, would_modify`. 미생성 ref 를 가리키는 op 는 클래스 수준 검증 후 `note` 로 apply 시점 검증을 예고 |
 | `apply_graph_operations` | `asset_path, operations[], expected_revision?, compile=false, save=false` | 사전 전체 검증 → 트랜잭션 → 실패 시 보상 롤백+`rollback_verified` → `refs{ref→guid}, revision_before/after, compile, saved` |
 | `compile_animation_blueprint` | `asset_path, save_on_success=false` | `ok, num_errors, num_warnings, status, messages[{level,text,node_guid,graph_guid,object}]` |
 | `save_animation_blueprint` | `asset_path` | 강제 저장 |
 
 **오류 코드**: `BAD_REQUEST`(400) · `UNAUTHORIZED`(401) · `TOOL_NOT_FOUND`/`ASSET_NOT_FOUND`/`GRAPH_NOT_FOUND`/`NODE_NOT_FOUND`/`PIN_NOT_FOUND`(404) · `ASSET_EXISTS`/`REVISION_MISMATCH`(409) · `CONNECTION_REJECTED`/`PROPERTY_NOT_ALLOWED`/`COMPILE_FAILED`/`SAVE_FAILED`(400) · `INTERNAL`(500). Python 측 추가: `EDITOR_GONE`, `TIMEOUT`, `TRANSPORT`, `BAD_RESPONSE`.
 
-**Phase 3 에서 추가될 Tool 후보**: `get_state_machine_structure`(Phase 4 와 묶어도 됨), `validate_anim_graph`(컴파일 없는 구조 검증 = diagnostics 만), `get_operation_result`(request_id 캐시 조회). 새 op 는 Tool 추가가 아니라 `operations[]` 의 `op` 종류 추가다.
+**Phase 3 은 Tool 을 추가하지 않았다** — 전부 `operations[]` 의 `op` 종류 추가(§8). Tool 9개 그대로이므로 Claude Code 재시작 없이 바로 쓸 수 있다. 후보로 남은 Tool: `get_state_machine_structure`(Phase 4), `validate_anim_graph`, `get_operation_result`, `quit_editor`(Phase 6 — Python 원격 실행이 에디터를 못 찾는 경우가 있었다).
 
 ---
 
@@ -240,15 +240,15 @@ Python 측 함수명 = 플러그인 라우트명. 모든 응답은 봉투 `{ok, 
 | :--- | :---: | :--- |
 | 1 조사·설계 | ✅ 2026-10-10 | phase1 문서 |
 | 2 통신 골격 | ✅ 2026-10-10 | 플러그인·HTTP·Dispatcher·MCP 서버·상태/정보 Tool. 커밋 `a669c33` |
-| 2.5 최소 수직 통합 | ✅ 2026-10-14 | 생성→SequencePlayer→Root 연결→컴파일→저장→재조회(재시작 후 포함). Tool 9개. **미커밋** (아래 §16) |
-| **3 범용 AnimGraph 편집** | ⬜ **다음** | §8 op 추가, 노드 종류 확대, Inspector 프로퍼티·바인딩, revision 에 프로퍼티 포함 |
-| 4 State Machine | ⬜ | §9 |
+| 2.5 최소 수직 통합 | ✅ 2026-10-14 | 생성→SequencePlayer→Root 연결→컴파일→저장→재조회(재시작 후 포함). Tool 9개. 커밋 `d87608f` |
+| 3 범용 AnimGraph 편집 | ✅ 2026-10-15 | §8 op 8종, 노드 9종, Inspector 프로퍼티·바인딩·노출 핀, revision 에 프로퍼티 포함. `phase3_test.py` PASS(재시작 포함). phase1 문서 "Phase 3 결과" |
+| **4 State Machine** | ⬜ **다음** | §9 |
 | 5 실제 캐릭터 적용 | ⬜ | Free Locomotion · Jump · Attack. **복제본에서 먼저**, diff 검토 후 원본. strafe 보류 |
 | 6 고급·안정화 | ⬜ | Linked Layer 편집, Property Binding, Alias/Conduit, Automation Test, 타 프로젝트 재현 |
 
 ---
 
-### 14. 이번 세션의 작업: Phase 3
+### 14. Phase 3 작업 목록 (✅ 2026-10-15 완료 — 결과는 phase1 문서 "Phase 3 결과" 절)
 
 **목표**: 기존 AnimBP 를 "읽고 → 필요한 부분만 고치고 → 검증하는" 범용 편집이 되게 한다.
 
@@ -301,32 +301,28 @@ Python 측 함수명 = 플러그인 라우트명. 모든 응답은 봉투 `{ok, 
 
 ---
 
-### 17. 미커밋 변경 (Phase 2.5, 2026-10-14 기준)
+### 17. 미커밋 변경 (Phase 3, 2026-10-15 기준)
 
-사용자가 커밋 여부를 결정한다. 테스트 애셋을 저장소에 넣을지도 사용자 판단.
+Phase 2.5 는 `d87608f` 로 커밋됨. 사용자가 커밋 여부를 결정한다. `Tools/mcp/phase3_state.json` 은 재시작 비교용 임시 상태 파일 — 저장소에 넣지 않아도 된다(gitignore 후보). 테스트 애셋 `ABP_McpTest.uasset` 은 내용이 바뀌었다.
 
 ```
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/AnimGraphMcpEditorModule.cpp
+ M .claude/plans/animbp-automation-phase1.md                 ("Phase 3 결과" 절)
+ M .claude/plans/animbp-automation-handoff-phase3.md         (§1·§7·§8·§10·§13·§14·§17 갱신)
+ M Content/Animation/Test/ABP_McpTest.uasset
  M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpGraphInspector.{h,cpp}
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools.h
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools_Inspect.cpp
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpGraphMutator.{h,cpp}
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpOperations.{h,cpp}
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools_Graph.cpp
  M Tools/mcp/anim_graph_mcp/server.py
- M .claude/plans/animbp-automation-phase1.md
-?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpBlueprintFactory.{h,cpp}
-?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpCompiler.{h,cpp}
-?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpGraphMutator.{h,cpp}
-?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpOperations.{h,cpp}
-?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools_{Assets,Graph,Compile}.cpp
-?? Tools/mcp/phase25_test.py
-?? Tools/scripts/quit_editor.py
-?? Content/Animation/Test/ABP_McpTest.uasset
-?? .claude/plans/animbp-automation-handoff-phase3.md   (이 문서)
+?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpPropertyRules.{h,cpp}
+?? Tools/mcp/phase3_test.py
+?? Tools/mcp/phase3_state.json   (임시)
 ```
 
-커밋 메시지 초안: `Feat: AnimGraph MCP Phase 2.5 — AnimBP 생성·노드 추가·연결·컴파일·저장 Tool 및 보상 롤백`
+커밋 메시지 초안: `Feat: AnimGraph MCP Phase 3 — 범용 AnimGraph 편집 op 8종·허용 목록·되돌리기 저널·revision 프로퍼티 포함`
 
 ---
 
-### 최종 지시 (새 세션용)
+### 최종 지시 (새 세션용 — Phase 4)
 
-Phase 3 를 수행한다. 먼저 이 문서와 phase1 문서 §B-3(AnimGraph 노드 API)·§D-4(복구 전략)를 읽고, 현재 코드(`Core/AnimMcpOperations.cpp`, `Core/AnimMcpGraphMutator.cpp`, `Core/AnimMcpGraphInspector.cpp`)를 훑어 §14 의 작업 목록을 확인한다. `remove_node` 롤백 방식과 `set_property` 허용 목록은 **구현 전에 사용자와 확정**한다. 그 외 §14.1~14.3 은 확인 없이 진행하되, 각 단계 끝에 빌드(두 구성)·테스트·에디터 재시작 재조회를 통과시키고 §15 산출물을 남긴다.
+Phase 4(State Machine) 를 수행한다. 먼저 이 문서 §9 와 phase1 문서 §B-4(State Machine 계층)·§B-5(Transition Rule 표현식)·§F Phase 4·"Phase 3 결과"(실측 엔진 동작 3건)를 읽고, 현재 코드(`Core/AnimMcpOperations.cpp` 의 되돌리기 저널 패턴, `Core/AnimMcpGraphMutator.cpp`, `Core/AnimMcpPropertyRules.cpp`)를 훑는다. 새 op(`add_state`·`add_transition`·`set_transition_rule`·`connect_entry` 등)는 같은 저널 패턴으로 추가하고, 상태 내부 그래프 편집은 기존 op 를 `graph` 인자로 BoundGraph 에 적용한다. **첫 실측 항목**: float 변수 핀 → double 함수 핀 연결 허용 여부(§9 ❓). `set_transition_rule` 의 AST 스키마와 `call` 화이트리스트 범위는 구현 전에 사용자와 확정한다. 각 단계 끝에 빌드(두 구성)·`phase4_test.py`·에디터 재시작 재조회를 통과시키고 phase1 문서에 "Phase 4 결과" 절을 남긴다.

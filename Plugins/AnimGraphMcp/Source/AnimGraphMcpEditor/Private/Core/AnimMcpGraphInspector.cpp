@@ -2,6 +2,9 @@
 
 #include "AnimGraphNode_Base.h"
 #include "AnimGraphNode_LinkedAnimLayer.h"
+#include "AnimGraphNode_SaveCachedPose.h"
+#include "AnimGraphNode_UseCachedPose.h"
+#include "AnimMcpPropertyRules.h"
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimBlueprintGeneratedClass.h"
 #include "Animation/Skeleton.h"
@@ -51,6 +54,86 @@ namespace AnimMcpGraphInspector
 		FString PinDirectionToString(EEdGraphPinDirection Direction)
 		{
 			return Direction == EGPD_Input ? TEXT("in") : TEXT("out");
+		}
+
+		/** 구조체 상속 사슬에 이 이름이 있는가 — StaticStruct() 링크 의존 없이 판정 (FPoseLinkBase 는 API 매크로가 없다) */
+		bool StructDerivesFrom(const UStruct* Struct, const TCHAR* BaseName)
+		{
+			for (const UStruct* S = Struct; S; S = S->GetSuperStruct())
+			{
+				if (S->GetName() == BaseName)
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/** FPoseLink · FComponentSpacePoseLink · 그 배열 — 컴파일러가 LinkID 를 바꾸므로 revision 에서 제외 */
+		bool IsPoseLinkProperty(const FProperty* Property)
+		{
+			if (const FStructProperty* SP = CastField<FStructProperty>(Property))
+			{
+				return StructDerivesFrom(SP->Struct, TEXT("PoseLinkBase"));
+			}
+			if (const FArrayProperty* AP = CastField<FArrayProperty>(Property))
+			{
+				return IsPoseLinkProperty(AP->Inner);
+			}
+			return false;
+		}
+
+		bool ShouldSkipForRevision(const FProperty* Property)
+		{
+			return Property->HasAnyPropertyFlags(CPF_Transient | CPF_Deprecated) || IsPoseLinkProperty(Property) || CastField<FTextProperty>(Property) != nullptr;
+		}
+
+		void AppendStructValues(const UStruct* Struct, const void* Container, UObject* Owner, const FString& Prefix, FString& Out)
+		{
+			for (TFieldIterator<FProperty> It(Struct); It; ++It)
+			{
+				FProperty* Property = *It;
+				if (ShouldSkipForRevision(Property))
+				{
+					continue;
+				}
+				FString Text;
+				Property->ExportText_Direct(Text, Property->ContainerPtrToValuePtr<void>(Container), nullptr, Owner, PPF_None);
+				Out += FString::Printf(TEXT("V|%s%s|%s\n"), *Prefix, *Property->GetName(), *Text);
+			}
+		}
+	}
+
+	void AppendEditableProperties(UEdGraphNode* Node, FString& Out)
+	{
+		UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node);
+		for (TFieldIterator<FProperty> It(Node->GetClass()); It; ++It)
+		{
+			FProperty* Property = *It;
+			if (!Property->HasAnyPropertyFlags(CPF_Edit) || ShouldSkipForRevision(Property))
+			{
+				continue;
+			}
+
+			// 노출 핀 상태 — FOptionalPinFromProperty 에는 FText 툴팁이 들어 있어 통째로 내보내지 않고 (이름, bShowPin) 만 넣는다
+			if (AnimNode && Property->GetFName() == GET_MEMBER_NAME_CHECKED(UAnimGraphNode_Base, ShowPinForProperties))
+			{
+				for (const FOptionalPinFromProperty& Optional : AnimNode->ShowPinForProperties)
+				{
+					Out += FString::Printf(TEXT("O|%s|%d\n"), *Optional.PropertyName.ToString(), Optional.bShowPin ? 1 : 0);
+				}
+				continue;
+			}
+
+			if (const FStructProperty* SP = CastField<FStructProperty>(Property); SP && StructDerivesFrom(SP->Struct, TEXT("AnimNode_Base")))
+			{
+				AppendStructValues(SP->Struct, SP->ContainerPtrToValuePtr<void>(Node), Node, SP->GetName() + TEXT("."), Out);
+				continue;
+			}
+
+			FString Text;
+			Property->ExportText_Direct(Text, Property->ContainerPtrToValuePtr<void>(Node), nullptr, Node, PPF_None);
+			Out += FString::Printf(TEXT("V|%s|%s\n"), *Property->GetName(), *Text);
 		}
 	}
 
@@ -125,6 +208,7 @@ namespace AnimMcpGraphInspector
 			for (UEdGraphNode* Node : Nodes)
 			{
 				Buffer += FString::Printf(TEXT("N|%s|%s|%d|%d\n"), *Node->NodeGuid.ToString(), *Node->GetClass()->GetName(), Node->NodePosX, Node->NodePosY);
+				AppendEditableProperties(Node, Buffer);
 
 				TArray<UEdGraphPin*> Pins = Node->Pins;
 				Pins.RemoveAll([](UEdGraphPin* P) { return P == nullptr; });
@@ -265,6 +349,23 @@ namespace AnimMcpGraphInspector
 		{
 			Obj->SetField(TEXT("asset"), AnimMcpJson::ObjectPathOrNull(AnimNode->GetAnimationAsset()));
 			Obj->SetBoolField(TEXT("is_sink"), AnimNode->IsSinkNode());
+
+			// 노출 가능 핀과 바인딩 보유 — 바인딩은 편집하지 않고 보존 대상으로만 표기
+			TArray<TSharedPtr<FJsonValue>> OptionalPins;
+			bool bAnyBinding = false;
+			for (const FOptionalPinFromProperty& Optional : AnimNode->ShowPinForProperties)
+			{
+				const bool bBound = AnimNode->HasBinding(Optional.PropertyName);
+				bAnyBinding |= bBound;
+				TSharedRef<FJsonObject> O = AnimMcpJson::MakeObject();
+				O->SetStringField(TEXT("property"), Optional.PropertyName.ToString());
+				O->SetBoolField(TEXT("shown"), Optional.bShowPin);
+				O->SetBoolField(TEXT("can_toggle"), Optional.bCanToggleVisibility);
+				O->SetBoolField(TEXT("bound"), bBound);
+				OptionalPins.Add(MakeShared<FJsonValueObject>(O));
+			}
+			Obj->SetArrayField(TEXT("optional_pins"), OptionalPins);
+			Obj->SetBoolField(TEXT("has_binding"), bAnyBinding);
 		}
 		else
 		{
@@ -274,6 +375,28 @@ namespace AnimMcpGraphInspector
 		{
 			Obj->SetStringField(TEXT("comment"), Node->NodeComment);
 		}
+
+		// 허용 목록 프로퍼티의 현재 값 — set_property 가 받는 이름과 같다
+		TSharedRef<FJsonObject> Properties = AnimMcpJson::MakeObject();
+		for (const AnimMcpPropertyRules::FRule& Rule : AnimMcpPropertyRules::RulesFor(Node->GetClass()))
+		{
+			if (Rule.Scope == AnimMcpPropertyRules::EScope::NodeRef)
+			{
+				if (UAnimGraphNode_UseCachedPose* UseNode = Cast<UAnimGraphNode_UseCachedPose>(Node))
+				{
+					UAnimGraphNode_SaveCachedPose* Source = UseNode->SaveCachedPoseNode.Get();
+					Properties->SetField(Rule.Property.ToString(), Source ? AnimMcpJson::StringOrNull(Source->NodeGuid.ToString()) : MakeShared<FJsonValueNull>());
+				}
+				continue;
+			}
+			FAnimMcpError Ignored;
+			AnimMcpPropertyRules::FResolved Resolved;
+			if (AnimMcpPropertyRules::ResolveOnNode(Node, Rule.Property, Resolved, Ignored) && Resolved.Property && Resolved.Container)
+			{
+				Properties->SetField(Rule.Property.ToString(), AnimMcpPropertyRules::PropertyToJson(Resolved.Property, Resolved.Property->ContainerPtrToValuePtr<void>(Resolved.Container), Node));
+			}
+		}
+		Obj->SetObjectField(TEXT("properties"), Properties);
 
 		TArray<TSharedPtr<FJsonValue>> Pins;
 		for (const UEdGraphPin* Pin : Node->Pins)

@@ -1,0 +1,83 @@
+{
+ "revision": "sha1:764d8a5a4864c5611f672d3756288666ff02e866",
+ "nodes": [
+  "08FF72C340931A52ADA224A1147D4BB9",
+  "12D9239A4A7BD3E07796A2B0A5AF0285",
+  "133F5F804A1D97F2A9D9418FF2D05851",
+  "1C3B7F69455E5BE39A69C8B9F1293A7C",
+  "76809EE84F8C1C4B2DC00C837E21AAF3",
+  "9FF59E944D8347EF6FD9C2A23A95E009",
+  "A681370B42C6BEDFBF4595AD9E42A9E1",
+  "BEB71BA94C75B260EBE1FFB3BC43CAFE",
+  "D093850A47512FA3097EE6AFDF649350",
+  "D2C0886C42C3FAC3DE56C59789A163AC",
+  "E09ACA8B44CC5688EACB2B84DB79619D",
+  "EC9B46D44D6D39E813A841B7A6FBCAD5"
+ ],
+ "connections": [
+  "{\"from\": {\"node\": \"12D9239A4A7BD3E07796A2B0A5AF0285\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"76809EE84F8C1C4B2DC00C837E21AAF3\", \"pin\": \"Source\"}}",
+  "{\"from\": {\"node\": \"76809EE84F8C1C4B2DC00C837E21AAF3\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"9FF59E944D8347EF6FD9C2A23A95E009\", \"pin\": \"Result\"}}",
+  "{\"from\": {\"node\": \"A681370B42C6BEDFBF4595AD9E42A9E1\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"12D9239A4A7BD3E07796A2B0A5AF0285\", \"pin\": \"BlendPose_0\"}}",
+  "{\"from\": {\"node\": \"E09ACA8B44CC5688EACB2B84DB79619D\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"12D9239A4A7BD3E07796A2B0A5AF0285\", \"pin\": \"BlendPose_1\"}}"
+ ],
+ "properties": {
+  "9FF59E944D8347EF6FD9C2A23A95E009": {},
+  "A681370B42C6BEDFBF4595AD9E42A9E1": {
+   "bLoopAnimation": true,
+   "PlayRate": 2,
+   "StartPosition": 0.10000000149011612,
+   "PlayRateBasis": 1
+  },
+  "E09ACA8B44CC5688EACB2B84DB79619D": {
+   "bLoopAnimation": true,
+   "PlayRate": 1,
+   "StartPosition": 0,
+   "PlayRateBasis": 1
+  },
+  "1C3B7F69455E5BE39A69C8B9F1293A7C": {
+   "bLoopAnimation": true,
+   "PlayRate": 1,
+   "StartPosition": 0,
+   "PlayRateBasis": 1
+  },
+  "12D9239A4A7BD3E07796A2B0A5AF0285": {
+   "BlendTime": [
+    0.10000000149011612,
+    0.10000000149011612
+   ]
+  },
+  "08FF72C340931A52ADA224A1147D4BB9": {
+   "CacheName": "McpCache"
+  },
+  "133F5F804A1D97F2A9D9418FF2D05851": {
+   "bMeshSpaceRotationBlend": false,
+   "bMeshSpaceScaleBlend": false,
+   "bBlendRootMotionBasedOnRootBone": true,
+   "LODThreshold": -1
+  },
+  "EC9B46D44D6D39E813A841B7A6FBCAD5": {
+   "BoundEnum": "/Script/CoreUObject.Enum'/Script/Engine.EAlphaBlendOption'",
+   "VisibleEnumEntries": [
+    "EAlphaBlendOption::Linear"
+   ],
+   "BlendTime": [
+    0.10000000149011612,
+    0.10000000149011612
+   ]
+  },
+  "BEB71BA94C75B260EBE1FFB3BC43CAFE": {},
+  "D2C0886C42C3FAC3DE56C59789A163AC": {
+   "bLoop": true,
+   "PlayRate": 0.5,
+   "StartPosition": 0,
+   "X": 0,
+   "Y": 0,
+   "bResetPlayTimeWhenBlendSpaceChanges": true
+  },
+  "76809EE84F8C1C4B2DC00C837E21AAF3": {
+   "SlotName": "UpperBody",
+   "bAlwaysUpdateSourcePose": false
+  },
+  "D093850A47512FA3097EE6AFDF649350": {}
+ }
+}

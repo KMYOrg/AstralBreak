@@ -64,6 +64,8 @@ def get_anim_graph_structure(asset_path: str, graph_guid: str | None = None, dep
         depth: How many levels of sub-graphs (state machines, states, transitions) to include. 0 = this graph only, -1 = all.
 
     Node identity is node_guid; pins are addressed by name. Use the returned revision as expected_revision when applying changes.
+    Each node also carries "properties" (allow-listed values set_property can change), "optional_pins" (pins expose_pin can
+    toggle, with "bound" for property bindings that must be preserved) and "has_binding".
     """
     params = {"asset_path": asset_path, "depth": depth}
     if graph_guid:
@@ -108,11 +110,21 @@ def create_animation_blueprint(asset_path: str, skeleton: str, parent_class: str
 
 
 _OPERATIONS_DOC = """
-    Each operation is a dict:
+    Each operation is a dict. Nodes are addressed by {"node": "<guid>"} or {"ref": "<name>"} ('ref' = a node created by an
+    earlier add_node in the same batch). Pins are addressed by name (see get_anim_graph_structure).
       {"op": "add_node", "ref": "idle", "graph": "<graph_guid or omit for root AnimGraph>",
-       "class": "AnimGraphNode_SequencePlayer", "pos": [-400, 0], "asset": "/Game/.../AS_Idle"}
+       "class": "AnimGraphNode_SequencePlayer", "pos": [-400, 0], "asset": "/Game/.../AS_Idle",
+       "properties": {"bLoopAnimation": true}, "enum": "/Script/Engine.EAlphaBlendOption" (BlendListByEnum only)}
       {"op": "connect", "from": {"ref": "idle", "pin": "Pose"}, "to": {"node": "<root_node_guid>", "pin": "Result"}}
-    'ref' names a node created earlier in the same batch so later operations can address it before its guid exists.
+      {"op": "disconnect", "from": {"node": "<guid>", "pin": "Pose"}, "to": {...}}   # omit "to" to break every link of "from"
+      {"op": "remove_node", "node": "<guid>"}                                         # not allowed for Output Pose / result / entry nodes
+      {"op": "set_property", "node": "<guid>", "property": "PlayRate", "value": 1.5}   # allow-listed only; node "properties" lists them
+      {"op": "set_property", "node": "<use_cached_pose_guid>", "property": "SaveCachedPoseNode", "value": {"ref": "save"}}
+      {"op": "set_asset", "node": "<guid>", "asset": "/Game/.../AS_Other"}
+      {"op": "expose_pin", "node": "<guid>", "property": "PlayRate", "visible": true}  # node "optional_pins" lists candidates
+      {"op": "add_blend_pose", "node": "<layered_blend_guid>"}                        # BlendListByEnum needs "entry": "<enum element>"
+    Supported node classes include SequencePlayer, BlendSpacePlayer, Slot, LayeredBoneBlend, BlendListByBool, BlendListByEnum,
+    SaveCachedPose/UseCachedPose and StateMachine (creation only; states and transitions come in a later phase).
 """
 
 

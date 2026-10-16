@@ -686,6 +686,38 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 
 ---
 
+## Phase 5 결과 (2026-10-16, 브랜치 `feat/ai_auto_ABP`)
+
+**선행 실측이 범위를 바꿨다.** 운영 애셋 `ABP_Hero_Base` 를 `depth=-1` 로 덤프하니 이동·점프 상태머신이 **상태 내부까지 사람이 이미 완성**한 상태였다 (Idle=`AS_Idle` · Move=`BS_Hero_Locomotion1D` X←`Get Speed` K2 노드 · JumpStart/FallLoop/FallLand 시퀀스 · alias 4 · conduit 2 · 전이 12). 복제본에 "구성할 것" 이 Attack 레이어뿐이라, 사용자 확정(2026-10-16)으로 범위를 바꿨다:
+
+- **적용 범위 = 새 ABP 처음부터 재구성** (`/Game/Animation/Hero/ABP_Hero_McpBuild`) → 운영 애셋과 구조 비교 → 검토 뒤 원본엔 Attack 레이어만 적용 후보.
+- **도구 추가 = VariableGet 노드 · LayerSetup 본 필터** (같은 배치 ref 그래프·duplicate Tool 은 보류). **BlendSpace = 기존 재사용**. **Attack 슬롯 = `UpperBody` 신설** (몽타주 5개는 전부 `DefaultSlot` — 콘텐츠 작업은 별도).
+
+| 산출물 | 위치 |
+| :--- | :--- |
+| 변수 Get 노드 | `add_node {class:"K2Node_VariableGet", variable}` — `Core/AnimMcpGraphMutator` `VariableClassOf`(규칙 생성기와 공유) · `IsVariableGetClassName` · `ValidateVariableGetGraph`(AnimGraph·상태 그래프만, 전이 규칙·상태머신 그래프 거부) · `ResolveVariable`(BlueprintVisible) · `AddVariableGetNode`(`FGraphNodeCreator<UK2Node_VariableGet>` + `SetFromProperty(self)`, 출력 핀 = 변수 이름). `Operations::ResolveAddNode/ApplyAddNode` 분기, asset·enum·properties 거부 |
+| LayerSetup 본 필터 | `Core/AnimMcpPropertyRules` 허용 목록에 LayeredBoneBlend `BlendMode`·`LayerSetup` 추가. `JsonToImportText` 가 **구조체(JSON 객체 → `(Field=Value,...)`)·구조체 배열을 재귀** 변환, 없는 필드 거부, 생략 필드 기본값. `PropertyToJson` 이 구조체 → 객체로 되돌린다. `Mutator::ValidateLayerSetup` — LayeredBoneBlend · BlendMode==BranchFilter · 항목 수 == 포즈 수(+같은 배치 앞선 `add_blend_pose`, `FBatchState::PendingBlendPoses`) · 본 이름이 `TargetSkeleton` 에 존재 |
+| 테스트 | `phase4_test.py` **B2 절** 추가(상태 내부 채우기 · VariableGet→BlendSpace.X · 거부 6종 · 롤백) · **`phase5_test.py`** 신규(LayerSetup 1·2 포즈 · 조회 왕복 · 거부 6종 · 롤백 · `--recheck`) · `phase3_test.py`·`phase4_test.py` 회귀 PASS |
+| 히어로 빌드 | **`Tools/mcp/phase5_build_hero.py`** — 빈 ABP 에서 루트(SM → SaveCachedPose → UseCachedPose×2 → Slot DefaultSlot/UpperBody → LayeredBoneBlend(spine_01, 메시 공간 회전) → Inertialization → Output) · 상태 5 · 전이 11(규칙 AST) · 상태 내부(애셋 플레이어 · Speed→X) 를 배치 3개로 구성, 컴파일 0 에러, 저장. `--overwrite`·`--recheck`. 비교 문서 **`.claude/plans/animbp-phase5-hero-diff.md`** 자동 생성 |
+
+**실측으로 바로잡은 것 2건**
+- **`ExportText_Direct(Delta=null)` 는 0 값을 비운다** — `FProperty::ExportText_Direct` 는 `!Identical(Data, Delta)` 일 때만 쓰므로(Property.cpp:1005-1007) 값이 0 인 enum(`BranchFilter`)·숫자는 빈 문자열이 된다. 조회에서 `BlendMode:""` 로 드러났고, **롤백용 이전 값 저장(`SetPropertyFromJson`·`ImportPropertyText`)에도 같은 함정**이 있었다(0 값에서 바꾼 뒤 롤백하면 `ImportText("")` 실패). 셋 다 `ExportTextItem_Direct`(무조건 씀)로 바꾸고, enum 은 `GetNameStringByValue` 로 직접 이름을 낸다. Inspector 의 revision 해시는 그대로 `ExportText_Direct` 를 써서 기존 상태 파일과 호환된다.
+- **사전 검증은 같은 배치의 `add_blend_pose` 를 모른다** — LayerSetup 항목 수 검증이 배치 적용 전 포즈 수로 거부했다. Preview 가 앞선 `add_blend_pose` 수를 노드별로 세어 더한다.
+
+**실측 확정 (핸드오프 §3-2 의 미검증 경로)**: 상태 내부는 `add_state` 응답의 `bound_graph_guid` 를 다음 배치의 `add_node.graph` 에 넘겨 채운다. StateResult 입력 핀 이름은 **`Result`**. 같은 배치 안에서는 `graph` 가 guid 문자열만 받아 상태 생성과 내부 채우기가 두 배치로 나뉜다(보류한 편의 기능). `AnimGraphNode_Inertialization` 은 허용 목록 없이도 `add_node` 로 생성·연결·컴파일된다 (핀 `Source`/`Pose`).
+
+**검증 수치**: `ABP_Hero_McpBuild` 그래프 18 · 노드 82 · 연결 59 · 상태 5 · 전이 11, 컴파일 0 에러 0 경고, 에디터 재시작 후 revision·노드 집합·state_machines 뷰 동일. 운영 애셋(그래프 21 · 노드 69 · 상태 11 · 전이 12)은 읽기만, revision `f11a834d…` 유지. Development · DebugGame 빌드 성공, 경고 0.
+
+**운영 애셋 관찰(도구 미개입)**: `EndInAir → IdleAlias` 규칙이 `Speed >= 20`, `EndInAir → MoveAlias` 가 `Speed < 20` 으로 읽힌다 — 의도가 반대라면 사람이 고칠 항목.
+
+**원본 적용 (2026-10-16, 사용자 승인 뒤)**: 비교 문서 검토 후 `ABP_Hero_Base` 에 UpperBody 레이어만 적용했다 — `expected_revision=f11a834d…` 으로 보호한 **배치 하나(op 16)**. 컴파일 0 에러 0 경고, 저장(revision `af9dca59…`).
+
+**배선 실수와 재적용 (같은 날)**: 첫 적용은 상태머신 출력을 캐시해 `Slot DefaultSlot` 과 `Slot UpperBody` 를 **나란히** 두고 LayeredBoneBlend 로 합쳤다. 사용자 PIE 에서 **공격 몽타주 중 상체가 깨짐** — 몽타주는 DefaultSlot(전신)에서 도는데 비어 있는 UpperBody 슬롯은 로코모션 포즈를 그대로 내보내고, 그것이 `spine_01` 이하를 가중치 1 로 덮어 몽타주 상체를 지운다. 올바른 패턴은 **상체 슬롯을 전신 슬롯 뒤에**: `SM → Slot DefaultSlot → SaveCachedPose "FullBody" → UseCachedPose → Layer.BasePose` / `UseCachedPose → Slot UpperBody → Layer.BlendPoses_0` — 상체 슬롯이 비면 전신 출력이 그대로 통과해 블렌드가 항등이다. `expected_revision=af9dca59…` 배치 하나(op 10: BasePose 링크 해제 · SaveCachedPose FullBody · UseCachedPose 추가 · 기존 UpperBody 용 UseCachedPose 를 FullBody 로 교체 · Locomotion 캐시와 UseCachedPose 제거 · SM→DefaultSlot 직결 복구)로 재배선, 컴파일 0 에러 0 경고, 저장. **최종 revision `3c146b5f04c1648922feca885ba1eb8a0a52e118`**, 노드 74 · 연결 54, 상태머신 무변경, 에디터 재시작 후 재조회·컴파일 일치. `phase5_build_hero.py` 와 `ABP_Hero_McpBuild` 도 같은 배선으로 고쳐 재생성(revision `e8b13f62…`). PIE 재확인은 사용자. 되돌리기는 `git checkout -- Content/Animation/Hero/ABP_Hero_Base.uasset`.
+
+**Phase 6 착수 조건**: 본 결과 검토. 후보 — Alias/Conduit 생성 · 상태머신/상태 이름 변경 op · 같은 배치 `graph:{ref}` · `duplicate_animation_blueprint` · `create_blendspace` · Linked Layer · Property Binding · Automation Test 연동 · `quit_editor` Tool · 타 프로젝트 재현.
+
+---
+
 ## 부록 — 확인에 사용한 파일
 
 **프로젝트**: `AstralBreak.uproject`, `Source/AstralBreak.Build.cs`, `Source/AstralBreakEditor.Target.cs`, `Config/DefaultEngine.ini`, `Config/DefaultGame.ini`, `Source/AstralBreak/Animation/AstralAnimInstance.{h,cpp}`, `Tools/ue_exec.py`, `Tools/lib/ab_blueprint.py`, `.claude/settings.json`, `Content/Animation/**`, `Content/Characters/**`

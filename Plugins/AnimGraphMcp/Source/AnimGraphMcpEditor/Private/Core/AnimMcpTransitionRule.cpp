@@ -1,6 +1,7 @@
 #include "AnimMcpTransitionRule.h"
 
 #include "AnimGraphNode_TransitionResult.h"
+#include "AnimMcpGraphMutator.h"
 #include "AnimMcpLog.h"
 #include "AnimStateTransitionNode.h"
 #include "Animation/AnimBlueprint.h"
@@ -95,9 +96,8 @@ namespace AnimMcpTransitionRule
 
 		UClass* VariableClassOf(UAnimBlueprint* Blueprint)
 		{
-			if (Blueprint->SkeletonGeneratedClass) { return Blueprint->SkeletonGeneratedClass; }
-			if (Blueprint->GeneratedClass) { return Blueprint->GeneratedClass; }
-			return Blueprint->ParentClass;
+			// Phase 5 부터 add_node(K2Node_VariableGet) 와 같은 해석을 쓴다
+			return AnimMcpGraphMutator::VariableClassOf(Blueprint);
 		}
 
 		/** 리터럴 → 핀 기본값 텍스트 (TrySetDefaultValue 가 받는 형식) */

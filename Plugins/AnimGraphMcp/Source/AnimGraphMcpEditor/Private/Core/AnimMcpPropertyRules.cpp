@@ -46,7 +46,9 @@ namespace AnimMcpPropertyRules
 					{ TEXT("SaveCachedPoseNode"), EScope::NodeRef } } },
 				{ TEXT("AnimGraphNode_LayeredBoneBlend"), {
 					{ TEXT("bMeshSpaceRotationBlend"), EScope::FNode }, { TEXT("bMeshSpaceScaleBlend"), EScope::FNode },
-					{ TEXT("bBlendRootMotionBasedOnRootBone"), EScope::FNode }, { TEXT("LODThreshold"), EScope::FNode } } },
+					{ TEXT("bBlendRootMotionBasedOnRootBone"), EScope::FNode }, { TEXT("LODThreshold"), EScope::FNode },
+					// Phase 5 (2026-10-16 사용자 확정): 본 필터. LayerSetup = [{BranchFilters:[{BoneName, BlendDepth}]}] 포즈당 1개 (BoneMaskFilter.h:16-37)
+					{ TEXT("BlendMode"), EScope::FNode }, { TEXT("LayerSetup"), EScope::FNode } } },
 				{ TEXT("AnimGraphNode_BlendListBase"), {
 					{ TEXT("BlendTime"), EScope::FNode } } },
 				{ TEXT("AnimGraphNode_BlendListByEnum"), {
@@ -138,6 +140,76 @@ namespace AnimMcpPropertyRules
 			}
 			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' has type %s which set_property does not support"), *PropName, *Property->GetCPPType()));
 			return false;
+		}
+
+		FString DescribeStructFields(const UScriptStruct* Struct)
+		{
+			TArray<FString> Names;
+			for (TFieldIterator<FProperty> It(Struct); It; ++It)
+			{
+				Names.Add(It->GetName());
+			}
+			return FString::Join(Names, TEXT(", "));
+		}
+
+		/**
+		 * JSON → ImportText (재귀). 배열 "(a,b)" · 구조체 "(Field=Value,...)" (주어진 필드만 — 나머지는 기본값) · 스칼라.
+		 * 컨테이너 안의 문자열은 따옴표로 감싼다 (ImportText 의 구조체/배열 파서 규칙)
+		 */
+		bool ValueToImportText(const FProperty* Property, const TSharedPtr<FJsonValue>& Value, bool bInsideContainer, FString& OutText, FAnimMcpError& OutError)
+		{
+			if (!Value.IsValid() || Value->Type == EJson::Null)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' requires a non-null value"), *Property->GetName()));
+				return false;
+			}
+			if (const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
+			{
+				if (Value->Type != EJson::Array)
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' expects an array"), *Property->GetName()));
+					return false;
+				}
+				TArray<FString> Items;
+				for (const TSharedPtr<FJsonValue>& Element : Value->AsArray())
+				{
+					FString Item;
+					if (!ValueToImportText(ArrayProp->Inner, Element, /*bInsideContainer*/ true, Item, OutError))
+					{
+						return false;
+					}
+					Items.Add(Item);
+				}
+				OutText = TEXT("(") + FString::Join(Items, TEXT(",")) + TEXT(")");
+				return true;
+			}
+			if (const FStructProperty* StructProp = CastField<FStructProperty>(Property))
+			{
+				if (Value->Type != EJson::Object)
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' expects an object with fields {%s}"), *Property->GetName(), *DescribeStructFields(StructProp->Struct)));
+					return false;
+				}
+				TArray<FString> Fields;
+				for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Value->AsObject()->Values)
+				{
+					const FProperty* Member = StructProp->Struct->FindPropertyByName(FName(*Pair.Key));
+					if (!Member)
+					{
+						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' has no field '%s' (fields: %s)"), *StructProp->Struct->GetName(), *Pair.Key, *DescribeStructFields(StructProp->Struct)));
+						return false;
+					}
+					FString Text;
+					if (!ValueToImportText(Member, Pair.Value, /*bInsideContainer*/ true, Text, OutError))
+					{
+						return false;
+					}
+					Fields.Add(Member->GetName() + TEXT("=") + Text);
+				}
+				OutText = TEXT("(") + FString::Join(Fields, TEXT(",")) + TEXT(")");
+				return true;
+			}
+			return ScalarToImportText(Property, Value, bInsideContainer, OutText, OutError);
 		}
 	}
 
@@ -266,27 +338,7 @@ namespace AnimMcpPropertyRules
 			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_property requires a non-null 'value'"));
 			return false;
 		}
-		if (const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
-		{
-			if (Value->Type != EJson::Array)
-			{
-				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' expects an array"), *Property->GetName()));
-				return false;
-			}
-			TArray<FString> Items;
-			for (const TSharedPtr<FJsonValue>& Element : Value->AsArray())
-			{
-				FString Item;
-				if (!Element.IsValid() || !ScalarToImportText(ArrayProp->Inner, Element, /*bInsideArray*/ true, Item, OutError))
-				{
-					return false;
-				}
-				Items.Add(Item);
-			}
-			OutText = TEXT("(") + FString::Join(Items, TEXT(",")) + TEXT(")");
-			return true;
-		}
-		return ScalarToImportText(Property, Value, /*bInsideArray*/ false, OutText, OutError);
+		return ValueToImportText(Property, Value, /*bInsideContainer*/ false, OutText, OutError);
 	}
 
 	TSharedPtr<FJsonValue> PropertyToJson(const FProperty* Property, const void* ValuePtr, UObject* Owner)
@@ -321,8 +373,27 @@ namespace AnimMcpPropertyRules
 			}
 			return MakeShared<FJsonValueArray>(Items);
 		}
+		// 구조체 → 객체 (필드 이름 = set_property 가 받는 이름). LayerSetup 의 FInputBlendPose/FBranchFilter 가 여기로 온다
+		if (const FStructProperty* StructProp = CastField<FStructProperty>(Property))
+		{
+			TSharedRef<FJsonObject> Obj = MakeShared<FJsonObject>();
+			for (TFieldIterator<FProperty> It(StructProp->Struct); It; ++It)
+			{
+				Obj->SetField(It->GetName(), PropertyToJson(*It, It->ContainerPtrToValuePtr<void>(ValuePtr), Owner));
+			}
+			return MakeShared<FJsonValueObject>(Obj);
+		}
+		// enum 은 이름으로. ExportText_Direct(Delta=null) 는 값이 0 이면 "기본값과 같다" 고 보고 아무것도 쓰지 않는다 (Property.cpp:1005-1007) — ExportTextItem_Direct 는 무조건 쓴다
+		if (const FEnumProperty* EnumProp = CastField<FEnumProperty>(Property))
+		{
+			return MakeShared<FJsonValueString>(EnumProp->GetEnum()->GetNameStringByValue(EnumProp->GetUnderlyingProperty()->GetSignedIntPropertyValue(ValuePtr)));
+		}
+		if (const FByteProperty* ByteProp = CastField<FByteProperty>(Property); ByteProp && ByteProp->Enum)
+		{
+			return MakeShared<FJsonValueString>(ByteProp->Enum->GetNameStringByValue(ByteProp->GetPropertyValue(ValuePtr)));
+		}
 		FString Text;
-		Property->ExportText_Direct(Text, ValuePtr, nullptr, Owner, PPF_None);
+		Property->ExportTextItem_Direct(Text, ValuePtr, nullptr, Owner, PPF_None);
 		return MakeShared<FJsonValueString>(Text);
 	}
 }

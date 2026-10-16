@@ -13,10 +13,12 @@ namespace AnimMcpTools
 		const TCHAR* OperationsDoc =
 			TEXT("Operations: "
 			     "add_node {ref?, graph?(guid; default root AnimGraph), class (e.g. AnimGraphNode_SequencePlayer), pos?[x,y], asset?, enum?(BlendListByEnum only), properties?{name:value}} | "
+			     "add_node {ref?, graph?, class:\"K2Node_VariableGet\", variable:\"<BlueprintVisible property>\", pos?} (variable getter inside AnimGraph/state graphs; output pin = variable name, e.g. connect Speed -> BlendSpacePlayer.X) | "
 			     "connect {from:{node|ref, pin}, to:{node|ref, pin}} | "
 			     "disconnect {from:{node|ref, pin}, to?:{node|ref, pin}} (no 'to' = break all links of 'from') | "
 			     "remove_node {node|ref} | "
-			     "set_property {node|ref, property, value} (allow-listed properties only; see node 'properties' in get_anim_graph_structure) | "
+			     "set_property {node|ref, property, value} (allow-listed properties only; see node 'properties' in get_anim_graph_structure; "
+			     "LayeredBoneBlend.LayerSetup = [{BranchFilters:[{BoneName, BlendDepth}]}, ...] one entry per blend pose, bones checked against the target skeleton) | "
 			     "set_asset {node|ref, asset} | "
 			     "expose_pin {node|ref, property, visible?=true} (see node 'optional_pins') | "
 			     "add_blend_pose {node|ref, entry?(enum element for BlendListByEnum)} | "

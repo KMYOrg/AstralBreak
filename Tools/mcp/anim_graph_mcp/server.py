@@ -117,6 +117,9 @@ _OPERATIONS_DOC = """
       {"op": "add_node", "ref": "idle", "graph": "<graph_guid or omit for root AnimGraph>",
        "class": "AnimGraphNode_SequencePlayer", "pos": [-400, 0], "asset": "/Game/.../AS_Idle",
        "properties": {"bLoopAnimation": true}, "enum": "/Script/Engine.EAlphaBlendOption" (BlendListByEnum only)}
+      {"op": "add_node", "ref": "speed", "graph": "<state bound_graph_guid>", "class": "K2Node_VariableGet", "variable": "Speed", "pos": [-700, 100]}
+          # variable getter (AnimInstance BlueprintVisible property) inside the AnimGraph or a state graph; output pin = variable name.
+          # Then {"op": "connect", "from": {"ref": "speed", "pin": "Speed"}, "to": {"ref": "bs", "pin": "X"}} drives BlendSpacePlayer.X.
       {"op": "connect", "from": {"ref": "idle", "pin": "Pose"}, "to": {"node": "<root_node_guid>", "pin": "Result"}}
       {"op": "disconnect", "from": {"node": "<guid>", "pin": "Pose"}, "to": {...}}   # omit "to" to break every link of "from"
       {"op": "remove_node", "node": "<guid>"}                                         # not allowed for Output Pose / result / entry nodes
@@ -125,6 +128,8 @@ _OPERATIONS_DOC = """
       {"op": "set_asset", "node": "<guid>", "asset": "/Game/.../AS_Other"}
       {"op": "expose_pin", "node": "<guid>", "property": "PlayRate", "visible": true}  # node "optional_pins" lists candidates
       {"op": "add_blend_pose", "node": "<layered_blend_guid>"}                        # BlendListByEnum needs "entry": "<enum element>"
+      {"op": "set_property", "node": "<layered_blend_guid>", "property": "LayerSetup",
+       "value": [{"BranchFilters": [{"BoneName": "spine_01", "BlendDepth": 0}]}]}    # one entry per blend pose (after add_blend_pose); bones must exist in the skeleton
     State machines (the StateMachine node's editor graph; see "state_machines" in get_anim_graph_structure):
       {"op": "add_state", "ref": "idle", "sm": {"ref": "sm"}, "name": "Idle", "pos": [0, 0]}      # or "graph": "<state machine graph guid>"
       {"op": "set_entry_state", "sm": {"ref": "sm"}, "state": {"ref": "idle"}}
@@ -138,7 +143,8 @@ _OPERATIONS_DOC = """
     The rule graph is regenerated from the tree and the tree is stored in a comment node; re-applying the same tree is a no-op.
     Removing a state also removes its transitions, like the editor does.
     Supported node classes include SequencePlayer, BlendSpacePlayer, Slot, LayeredBoneBlend, BlendListByBool, BlendListByEnum,
-    SaveCachedPose/UseCachedPose and StateMachine. State internals (the state's bound graph) are edited with the ordinary ops via "graph".
+    SaveCachedPose/UseCachedPose, StateMachine and K2Node_VariableGet (with "variable"). State internals (the state's bound graph,
+    see state "bound_graph_guid") are edited with the ordinary ops via "graph"; its sink node is AnimGraphNode_StateResult with input pin "Result".
 """
 
 

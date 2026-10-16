@@ -132,4 +132,34 @@ namespace AnimMcpGraphMutator
 	bool AddBlendPose(UEdGraphNode* Node, const FString& EnumEntry, FAnimMcpError& OutError);
 	/** 마지막 포즈 제거 — AddBlendPose 롤백 전용 (링크는 호출자가 먼저 복원·해제) */
 	void RemoveLastBlendPose(UEdGraphNode* Node);
+
+	//~ Phase 5 (2026-10-16 사용자 확정: VariableGet 노드 · LayerSetup 본 필터)
+
+	/** 변수 참조의 소유 클래스 — SkeletonGeneratedClass → GeneratedClass → ParentClass. Transition Rule 생성기와 공유 */
+	UClass* VariableClassOf(UAnimBlueprint* Blueprint);
+
+	/** add_node 의 class 가 변수 Get 노드를 뜻하는가: "K2Node_VariableGet" · "VariableGet" · "/Script/BlueprintGraph.K2Node_VariableGet" */
+	bool IsVariableGetClassName(const FString& ClassName);
+
+	/**
+	 * 변수 Get 노드를 놓을 수 있는 그래프인가 — AnimGraph 와 상태 내부(UAnimationStateGraph) 만.
+	 * 전이 규칙 그래프(UAnimationTransitionGraph)는 도구가 AST 로 소유하므로 거부, 상태머신 그래프는 포즈 그래프가 아니라 거부
+	 */
+	bool ValidateVariableGetGraph(UEdGraph* Graph, FAnimMcpError& OutError);
+
+	/** BlueprintVisible 프로퍼티 해석 — get_anim_blueprint_info.variables 와 같은 집합. 없으면 BAD_REQUEST */
+	FProperty* ResolveVariable(UAnimBlueprint* Blueprint, const FString& Name, FAnimMcpError& OutError);
+
+	/**
+	 * UK2Node_VariableGet(self 문맥) 생성 — 규칙 생성기와 같은 SetFromProperty 경로 (K2Node_Variable.h:120). Finalize 가 핀을 만든다.
+	 * 출력 핀 이름 = 변수 이름. 포즈 그래프의 스키마(UAnimationGraphSchema : UEdGraphSchema_K2)가 float 핀 → BlendSpace X 등 K2 연결을 허용한다
+	 */
+	UEdGraphNode* AddVariableGetNode(UEdGraph* Graph, FProperty* Property, UClass* VarClass, const FVector2D& Position, FAnimMcpError& OutError);
+
+	/**
+	 * LayeredBoneBlend.LayerSetup 값 검증 (set_property 전). 노드가 LayeredBoneBlend · BlendMode == BranchFilter ·
+	 * 항목 수 == 블렌드 포즈 수 + ExtraPoses (같은 배치의 앞선 add_blend_pose 를 Preview 가 더해 준다) · 모든 BoneName 이 TargetSkeleton 에 존재.
+	 * 값 형태는 JsonToImportText 가 따로 본다
+	 */
+	bool ValidateLayerSetup(UEdGraphNode* Node, const TSharedPtr<FJsonValue>& Value, FAnimMcpError& OutError, int32 ExtraPoses = 0);
 }

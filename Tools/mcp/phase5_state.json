@@ -1,0 +1,30 @@
+{
+ "revision": "sha1:c6026a426ca9f2d0205fa3b100ccdff00ea1b627",
+ "nodes": [
+  "A2E58D574862C5BC4F26B7A67C909286",
+  "AC913AF042FA6A21FCCE5CA51211828D",
+  "B9C252B54CAEEAA13F1B129E75D95F8D",
+  "FB032947406E060B0FED62994B1B2547"
+ ],
+ "layer": {
+  "bMeshSpaceRotationBlend": false,
+  "bMeshSpaceScaleBlend": false,
+  "bBlendRootMotionBasedOnRootBone": true,
+  "LODThreshold": -1,
+  "BlendMode": "BranchFilter",
+  "LayerSetup": [
+   {
+    "BranchFilters": [
+     {
+      "BoneName": "spine_01",
+      "BlendDepth": 0
+     }
+    ]
+   },
+   {
+    "BranchFilters": []
+   }
+  ]
+ },
+ "layer_guid": "B9C252B54CAEEAA13F1B129E75D95F8D"
+}

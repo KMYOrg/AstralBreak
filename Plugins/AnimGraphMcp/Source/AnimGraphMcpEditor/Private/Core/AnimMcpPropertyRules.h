@@ -13,7 +13,7 @@ struct FAnimMcpError;
  * set_property 허용 목록 — Inspector(값 조회·revision) 와 Mutator(값 설정) 가 같은 표를 본다.
  * 원칙(핸드오프 §8): ① 노드별 공식 Setter ② 허용 목록 기반 리플렉션 ③ 노드별 특수 처리. 임의 프로퍼티 범용 명령은 없다.
  * 표는 클래스 이름으로 매칭하고 상위 클래스를 거슬러 올라간다 (BlendListByBool/ByEnum 은 BlendListBase 규칙을 상속).
- * 2026-10-15 사용자 확정: "확장 목록". LayerSetup(본 필터)은 Phase 5 로 보류.
+ * 2026-10-15 사용자 확정: "확장 목록". 2026-10-16 Phase 5: LayeredBoneBlend 의 LayerSetup(본 필터)·BlendMode 추가 — 구조체 배열은 JSON 객체 배열로 받는다.
  */
 namespace AnimMcpPropertyRules
 {
@@ -62,12 +62,13 @@ namespace AnimMcpPropertyRules
 	bool ResolveOnNode(UEdGraphNode* Node, FName Property, FResolved& Out, FAnimMcpError& OutError);
 
 	/**
-	 * JSON 값 → FProperty::ImportText 가 받는 텍스트.
-	 * bool → True/False · 숫자 → 정수/실수 문자열 · 문자열 → 그대로(enum 이름·FName·FString) · 배열 → "(a,b,c)" (요소는 Inner 타입 규칙).
-	 * 오브젝트·구조체 값은 거부 (BAD_REQUEST)
+	 * JSON 값 → FProperty::ImportText 가 받는 텍스트 (재귀).
+	 * bool → True/False · 숫자 → 정수/실수 문자열 · 문자열 → 그대로(enum 이름·FName·FString) · 배열 → "(a,b,c)" (요소는 Inner 타입 규칙)
+	 * · 구조체(JSON 객체) → "(Field=Value,...)" — 필드 이름은 USTRUCT 멤버 이름 그대로, 없는 필드는 거부, 생략한 필드는 기본값 (Phase 5: LayerSetup).
+	 * 오브젝트 참조 값은 거부 (BAD_REQUEST)
 	 */
 	bool JsonToImportText(const FProperty* Property, const TSharedPtr<FJsonValue>& Value, FString& OutText, FAnimMcpError& OutError);
 
-	/** 프로퍼티 현재 값 → JSON (bool/number 는 네이티브 타입, 그 외는 ExportText 문자열). ValuePtr 는 ContainerPtrToValuePtr 결과 */
+	/** 프로퍼티 현재 값 → JSON (bool/number 는 네이티브 타입, 배열·구조체는 재귀, 그 외는 ExportText 문자열). ValuePtr 는 ContainerPtrToValuePtr 결과 */
 	TSharedPtr<FJsonValue> PropertyToJson(const FProperty* Property, const void* ValuePtr, UObject* Owner);
 }

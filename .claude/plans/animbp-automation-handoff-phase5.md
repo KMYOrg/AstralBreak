@@ -5,6 +5,7 @@
 > 최초 지침서(Phase 1 착수 시 전달)를 **Phase 4 까지 구현된 상태**에 맞춰 다시 쓴 것이다. 완료된 Phase 는 결과만 남기고, 미확정이던 항목은 전부 확정값으로 바꾸었다.
 > 설계 근거·엔진 소스 경로·API 검증표·각 Phase 의 상세 결과는 [animbp-automation-phase1.md](animbp-automation-phase1.md) 에 있다 (§B API 검증표 · §C 아키텍처 결정 · §F 단계 계획 · §G 위험 · "Phase 2/2.5/3/4 결과"). 구조를 재논의하기 전에 그 문서를 먼저 읽는다.
 > 이 문서는 [animbp-automation-handoff-phase3.md](animbp-automation-handoff-phase3.md) 를 대체한다.
+> **2026-10-16 추기: Phase 5 완료.** 실측 결과 운영 애셋에 이동·점프가 이미 완성돼 있어 범위를 "새 ABP 처음부터 재구성" 으로 바꿨다(§14.0 사용자 확정). 결과·추가 도구·함정은 phase1 문서 "Phase 5 결과", 빌드 vs 운영 비교는 [animbp-phase5-hero-diff.md](animbp-phase5-hero-diff.md). §13·§17 만 갱신했고 나머지 절은 착수 시점 그대로다.
 
 ---
 
@@ -257,8 +258,8 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 | 2.5 최소 수직 통합 | ✅ 2026-10-14 | 생성→노드→연결→컴파일→저장→재조회. Tool 9개. 커밋 `d87608f` |
 | 3 범용 AnimGraph 편집 | ✅ 2026-10-15 | op 8종 · 노드 9종 · 프로퍼티/바인딩/노출 핀 · revision 에 프로퍼티. 커밋 `2a85228` |
 | 4 State Machine | ✅ 2026-10-15 | op 4종 · 규칙 AST · `state_machines[]`. `phase4_test.py` + phase3 회귀 PASS. **미커밋**(§17) |
-| **5 실제 캐릭터 적용** | ⬜ **다음** | §14 |
-| 6 고급·안정화 | ⬜ | Linked Layer 편집 · Property Binding · Alias/Conduit · LayerSetup · Automation Test · 타 프로젝트 재현 · `quit_editor` Tool |
+| 5 실제 캐릭터 적용 | ✅ 2026-10-16 | 범위 변경(새 ABP 재구성) · VariableGet 노드 · LayerSetup · `phase5_test.py` · `phase5_build_hero.py` · 비교 문서. 검토 뒤 **원본에 UpperBody 레이어 적용·저장(PIE 확인은 사용자)**. 결과는 phase1 문서 "Phase 5 결과" |
+| **6 고급·안정화** | ⬜ **다음** | Alias/Conduit 생성 · 이름 변경 op · 같은 배치 `graph:{ref}` · duplicate · create_blendspace · Linked Layer · Property Binding · Automation Test · 타 프로젝트 재현 · `quit_editor` Tool |
 
 ---
 
@@ -320,28 +321,33 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 
 ---
 
-### 17. 미커밋 변경 (Phase 4, 2026-10-16 기준)
+### 17. 미커밋 변경 (Phase 5, 2026-10-16 기준)
 
-Phase 3 까지 커밋됨(`2a85228`). 아래는 사용자가 커밋 여부를 결정한다. `Tools/mcp/phase{3,4}_state.json` 은 재시작 비교용 임시 파일(gitignore 후보; phase3_state.json 은 이미 추적 중). 테스트 애셋 `ABP_McpTest.uasset` 은 상태머신을 포함하도록 바뀌었다.
+Phase 4 까지 커밋됨(`3737c67`). 아래는 사용자가 커밋 여부를 결정한다. `Tools/mcp/phase*_state.json` 은 재시작 비교용 임시 파일. 테스트 애셋 `ABP_McpTest`·`ABP_McpLayerTest` 는 덮어쓰기 대상. **`ABP_Hero_McpBuild.uasset` 은 Phase 5 산출물(운영 애셋 아님)** — 커밋 여부는 사용자 결정.
 
 ```
- M .claude/plans/animbp-automation-phase1.md                 ("Phase 4 결과" 절)
- M .claude/plans/animbp-automation-handoff-phase3.md         (Phase 4 반영 — 이 문서가 대체)
-?? .claude/plans/animbp-automation-handoff-phase5.md         (이 문서)
+ M .claude/plans/animbp-automation-phase1.md                 ("Phase 5 결과" 절)
+ M .claude/plans/animbp-automation-handoff-phase5.md         (§13 · §17)
+?? .claude/plans/animbp-phase5-hero-diff.md                  (빌드 vs 운영 비교 — phase5_build_hero.py 가 생성)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpGraphMutator.{h,cpp}     (VariableGet · ValidateLayerSetup · ExportTextItem_Direct)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpOperations.{h,cpp}       (add_node VariableGet 분기 · PendingBlendPoses)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpPropertyRules.{h,cpp}    (LayerSetup·BlendMode · 구조체 JSON 재귀 · enum 이름)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpTransitionRule.cpp       (VariableClassOf 공유)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools_Graph.cpp         (Tool 설명)
+ M Tools/mcp/anim_graph_mcp/server.py                                                          (docstring)
+ M Tools/mcp/phase4_test.py                                                                     (B2 절)
+ M Tools/mcp/phase3_state.json · phase4_state.json   (임시)
+?? Tools/mcp/phase5_test.py
+?? Tools/mcp/phase5_build_hero.py
+?? Tools/mcp/phase5_state.json · phase5_build_state.json   (임시)
  M Content/Animation/Test/ABP_McpTest.uasset
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpGraphInspector.{h,cpp}   (state_machines 뷰)
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpGraphMutator.{h,cpp}     (상태머신 함수 · 통지 없는 링크 해제)
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpOperations.{h,cpp}       (op 4종 · 전이 연쇄 삭제)
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools_Graph.cpp
- M Tools/mcp/anim_graph_mcp/server.py
- M Tools/mcp/phase3_state.json   (임시)
-?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpTransitionRule.{h,cpp}
-?? Tools/mcp/phase4_test.py
-?? Tools/mcp/debug_dump_rules.py
-?? Tools/mcp/phase4_state.json   (임시)
+?? Content/Animation/Test/ABP_McpLayerTest.uasset
+?? Content/Animation/Hero/ABP_Hero_McpBuild.uasset
+ M Content/Animation/Hero/ABP_Hero_Base.uasset              (운영 애셋 — UpperBody 레이어 적용·재배선, 사용자 승인 2026-10-16, revision 3c146b5f…)
+?? Tools/mcp/phase5_prod_state.json   (임시 — 운영 애셋 재시작 비교용)
 ```
 
-커밋 메시지 초안: `Feat: AnimGraph MCP Phase 4 — State Machine op 4종·Transition Rule AST 생성기·state_machines 뷰`
+커밋 메시지 초안: `Feat: AnimGraph MCP Phase 5 — VariableGet 노드·LayerSetup 본 필터·히어로 ABP 도구 재구성`
 
 ---
 

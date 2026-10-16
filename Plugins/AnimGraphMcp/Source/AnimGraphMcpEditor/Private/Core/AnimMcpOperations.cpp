@@ -16,6 +16,7 @@
 #include "AnimationStateMachineGraph.h"
 #include "AnimationTransitionGraph.h"
 #include "EdGraphSchema_K2.h"
+#include "K2Node_VariableGet.h"
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimationAsset.h"
 #include "Bridge/AnimMcpTypes.h"
@@ -95,6 +96,8 @@ namespace AnimMcpOperations
 			TMap<FString, UClass*> PendingRefClasses;
 			/** 이 배치에서 remove_node 된 노드 (뒤 op 가 가리키면 거부) */
 			TSet<UEdGraphNode*> Removed;
+			/** Preview 전용 — 이 배치의 앞선 add_blend_pose 수 (뒤 set_property LayerSetup 의 항목 수 검증에 더한다) */
+			TMap<UEdGraphNode*, int32> PendingBlendPoses;
 
 			/** 되돌리기 — 적용 순서대로 쌓고 역순으로 실행 */
 			TArray<TFunction<void()>> Undo;
@@ -202,6 +205,10 @@ namespace AnimMcpOperations
 			UEnum* Enum = nullptr;
 			FVector2D Position = FVector2D::ZeroVector;
 			TSharedPtr<FJsonObject> Properties;
+			/** Phase 5 — class:"K2Node_VariableGet" + variable. NodeClass 는 UK2Node_VariableGet */
+			bool bVariableGet = false;
+			FProperty* Variable = nullptr;
+			UClass* VarClass = nullptr;
 		};
 
 		bool ResolveAddNode(FBatchState& State, const FOperation& Op, FAddNodeArgs& Out, FAnimMcpContext& Context, FAnimMcpError& OutError)
@@ -230,17 +237,43 @@ namespace AnimMcpOperations
 				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("add_node requires 'class'"));
 				return false;
 			}
-			Out.NodeClass = AnimMcpGraphMutator::ResolveNodeClass(ClassName, OutError);
-			if (!Out.NodeClass)
-			{
-				return false;
-			}
 
 			const TArray<TSharedPtr<FJsonValue>>* Pos = nullptr;
 			if (Op.Json->TryGetArrayField(TEXT("pos"), Pos) && Pos && Pos->Num() == 2)
 			{
 				Out.Position.X = (*Pos)[0]->AsNumber();
 				Out.Position.Y = (*Pos)[1]->AsNumber();
+			}
+
+			// Phase 5 — 변수 Get 노드. AnimGraphNode 가 아니므로 asset·enum·properties 는 받지 않는다
+			if (AnimMcpGraphMutator::IsVariableGetClassName(ClassName))
+			{
+				Out.bVariableGet = true;
+				Out.NodeClass = UK2Node_VariableGet::StaticClass();
+				FString VarName;
+				if (!Op.Json->TryGetStringField(TEXT("variable"), VarName) || VarName.IsEmpty())
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("add_node K2Node_VariableGet requires 'variable' (a BlueprintVisible property name; see get_anim_blueprint_info.variables)"));
+					return false;
+				}
+				if (Op.Json->HasField(TEXT("asset")) || Op.Json->HasField(TEXT("enum")) || Op.Json->HasField(TEXT("properties")))
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("'asset', 'enum' and 'properties' are not accepted for K2Node_VariableGet"));
+					return false;
+				}
+				if (!AnimMcpGraphMutator::ValidateVariableGetGraph(Out.Graph, OutError))
+				{
+					return false;
+				}
+				Out.VarClass = AnimMcpGraphMutator::VariableClassOf(State.Blueprint);
+				Out.Variable = AnimMcpGraphMutator::ResolveVariable(State.Blueprint, VarName, OutError);
+				return Out.Variable != nullptr;
+			}
+
+			Out.NodeClass = AnimMcpGraphMutator::ResolveNodeClass(ClassName, OutError);
+			if (!Out.NodeClass)
+			{
+				return false;
 			}
 
 			FString AssetPath;
@@ -700,6 +733,11 @@ namespace AnimMcpOperations
 						if (NodeClass)
 						{
 							bOk = AnimMcpGraphMutator::ValidatePropertyOnClass(NodeClass, FName(*PropertyName), Op.Json->TryGetField(TEXT("value")), Error);
+							// LayerSetup 은 노드가 있어야 포즈 수·스켈레톤 본을 볼 수 있다 (미생성 ref 면 apply 가 본다)
+							if (bOk && Node && PropertyName == TEXT("LayerSetup"))
+							{
+								bOk = AnimMcpGraphMutator::ValidateLayerSetup(Node, Op.Json->TryGetField(TEXT("value")), Error, State.PendingBlendPoses.FindRef(Node));
+							}
 							if (bOk)
 							{
 								// NodeRef 값은 지금 해석 가능한지 본다 (미생성 ref 면 미룸)
@@ -786,6 +824,10 @@ namespace AnimMcpOperations
 					if (Node)
 					{
 						bOk = AnimMcpGraphMutator::ValidateAddBlendPose(Node, Entry, Error);
+						if (bOk)
+						{
+							++State.PendingBlendPoses.FindOrAdd(Node);
+						}
 					}
 					else if (bPending)
 					{
@@ -822,6 +864,23 @@ namespace AnimMcpOperations
 			{
 				return false;
 			}
+			if (Args.bVariableGet)
+			{
+				UEdGraphNode* VarNode = AnimMcpGraphMutator::AddVariableGetNode(Args.Graph, Args.Variable, Args.VarClass, Args.Position, Error);
+				if (!VarNode)
+				{
+					return false;
+				}
+				State.Undo.Add([VarNode]() { AnimMcpGraphMutator::DestroyNodeQuietly(VarNode); });
+				if (!Op.Ref.IsEmpty())
+				{
+					State.Refs.Add(Op.Ref, VarNode);
+				}
+				Entry->SetStringField(TEXT("node_guid"), VarNode->NodeGuid.ToString());
+				Entry->SetStringField(TEXT("variable"), Args.Variable->GetName());
+				return true;
+			}
+
 			UAnimGraphNode_Base* Node = AnimMcpGraphMutator::AddNode(Args.Graph, Args.NodeClass, Args.Position, Args.Asset, Error);
 			if (!Node)
 			{

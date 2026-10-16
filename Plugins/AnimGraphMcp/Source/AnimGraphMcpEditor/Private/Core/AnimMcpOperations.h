@@ -16,6 +16,7 @@ struct FAnimMcpError;
  *
  * 지원 op:
  *   add_node       { ref?, graph?(guid, 생략=루트 AnimGraph), class, pos?[x,y], asset?, enum?(BlendListByEnum), properties?{name:value} }
+ *   add_node       { ref?, graph?, class:"K2Node_VariableGet", variable, pos? }  변수 Get 노드 (Phase 5) — AnimGraph·상태 그래프만, 출력 핀 = 변수 이름
  *   connect        { from:{node|ref, pin}, to:{node|ref, pin} }
  *   disconnect     { from:{node|ref, pin}, to?:{node|ref, pin} }      to 생략 = from 핀의 링크 전부
  *   remove_node    { node|ref }                                        분리 보관 → 성공 확정 시 DestroyNode

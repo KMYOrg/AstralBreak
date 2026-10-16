@@ -6,6 +6,8 @@
 검사 항목(핸드오프 최종 지시):
   A. 운영 애셋 state_machines 뷰 (상태·전이·rule_generated=false 표기)
   B. 상태머신 구성 — 상태 3개 · Entry · 전이 4개(규칙: var / compare(float var vs literal, 첫 실측) / and·or·not / automatic / call) → 컴파일 0 에러
+  B2. (Phase 5) 상태 내부 채우기 — bound_graph_guid 에 SequencePlayer → StateResult.Result · K2Node_VariableGet(Speed) → BlendSpacePlayer.X
+      → 컴파일 0 에러 · 거부 6종(variable 누락·없는 변수·규칙/상태머신 그래프·asset·set_property) · 중간 실패 롤백
   C. 뷰: entry_state · from/to · rule_source 복원 · rule_modified=false
   D. 멱등 — 같은 AST 재적용 → unchanged, revision 동일. 다른 AST → 교체(replaced_nodes)
   E. 거부 — 없는 변수 · 타입 불일치 · 리터럴끼리 비교 · 화이트리스트 외 함수 · 전이 아닌 노드 · Entry 를 전이 끝점으로 · 이름 중복
@@ -141,6 +143,78 @@ def section_b_to_f() -> None:
     t_entry = next(o for o in r1["result"]["operations"] if o["op"] == "add_transition" and o["ref"] == "t_idle_run")
     print(f"t_idle_run rule_nodes={t_entry.get('rule_nodes')} source={t_entry.get('rule_source')}")
     check(t_entry.get("rule_nodes") == 2, "float 변수 > literal 규칙 = VariableGet + Greater_DoubleDouble 2 노드 (float→double 핀 호환 실측)")
+
+    # -------------------------------------------------------------------------------------------------------------
+    print("\n=== B2. 상태 내부 채우기 (bound graph) + K2Node_VariableGet — Phase 5 실측 고정 ===")
+    s_b = structure(-1)
+    sm_b = the_sm(s_b, refs["sm"])
+    bound = {st["node_guid"]: st["bound_graph_guid"] for st in sm_b["states"]}
+    idle_graph, run_graph = bound[refs["idle"]], bound[refs["run"]]
+
+    def state_result(graph_guid: str) -> dict:
+        return next(n for n in s_b["nodes"] if n["graph_guid"] == graph_guid and n["class"] == "AnimGraphNode_StateResult")
+
+    idle_result, run_result = state_result(idle_graph), state_result(run_graph)
+    check(any(p["name"] == "Result" and p["dir"] == "in" for p in idle_result["pins"]), "StateResult 입력 핀 이름 == 'Result'")
+    blendspaces = must(bridge.call("list_animation_assets", {"skeleton": SKELETON, "class": "BlendSpace", "limit": 10}), "list bs")["assets"]
+    bs = next((a["asset_path"] for a in blendspaces if "Locomotion1D" in a["asset_path"]), blendspaces[0]["asset_path"] if blendspaces else None)
+    check(bs is not None, f"스켈레톤용 BlendSpace 존재: {bs}")
+    ops_in = [
+        {"op": "add_node", "ref": "idle_seq", "graph": idle_graph, "class": "AnimGraphNode_SequencePlayer", "pos": [-400, 0], "asset": idle,
+         "properties": {"bLoopAnimation": True}},
+        {"op": "connect", "from": {"ref": "idle_seq", "pin": "Pose"}, "to": {"node": idle_result["node_guid"], "pin": "Result"}},
+        {"op": "add_node", "ref": "speed", "graph": run_graph, "class": "K2Node_VariableGet", "variable": "Speed", "pos": [-800, 120]},
+        {"op": "add_node", "ref": "bs", "graph": run_graph, "class": "AnimGraphNode_BlendSpacePlayer", "pos": [-400, 0], "asset": bs},
+        {"op": "connect", "from": {"ref": "speed", "pin": "Speed"}, "to": {"ref": "bs", "pin": "X"}},
+        {"op": "connect", "from": {"ref": "bs", "pin": "Pose"}, "to": {"node": run_result["node_guid"], "pin": "Result"}},
+    ]
+    pv_in = preview(ops_in)
+    check(pv_in.get("ok") and pv_in["result"]["valid"], "상태 내부 preview valid")
+    if not (pv_in.get("ok") and pv_in["result"]["valid"]):
+        print(json.dumps(pv_in, ensure_ascii=False, indent=1)[:3000])
+    r_in = apply(ops_in, expected=s_b["revision"], compile=True)
+    if not r_in.get("ok"):
+        print(json.dumps(r_in, ensure_ascii=False, indent=1)[:4000])
+        sys.exit(1)
+    for m in r_in["result"]["compile"].get("messages", []):
+        print(f"   compile[{m['level']}] {m['text']}")
+    check(r_in["result"]["compile"].get("num_errors") == 0, f"상태 내부(Sequence · VariableGet→BlendSpace.X) 컴파일 0 에러 (warnings={r_in['result']['compile'].get('num_warnings')})")
+    var_entry = next(o for o in r_in["result"]["operations"] if o.get("ref") == "speed")
+    check(var_entry.get("variable") == "Speed", f"add_node K2Node_VariableGet 응답 variable={var_entry.get('variable')}")
+    refs.update(r_in["result"]["refs"])
+    s_in = structure(-1)
+    speed_node = next(n for n in s_in["nodes"] if n["node_guid"] == refs["speed"])
+    speed_pin = next(p for p in speed_node["pins"] if p["name"] == "Speed")
+    check(speed_node["class"] == "K2Node_VariableGet" and speed_node["graph_guid"] == run_graph, "VariableGet 노드가 Run 상태 그래프에 있음")
+    check(speed_pin["dir"] == "out" and speed_pin["linked"] == [f"{refs['bs']}:X"], f"Speed 출력 핀 → BlendSpacePlayer.X 연결: {speed_pin['linked']}")
+    inner_idle = [n["class"] for n in s_in["nodes"] if n["graph_guid"] == idle_graph]
+    check(sorted(inner_idle) == ["AnimGraphNode_SequencePlayer", "AnimGraphNode_StateResult"], f"Idle 상태 내부 노드: {sorted(inner_idle)}")
+
+    print("--- B2 거부 (preview) ---")
+    t_rule_graph = transition_by_guid(sm_b, refs["t_idle_run"])["rule_graph_guid"]
+    cases_in = {
+        "variable 누락": ([{"op": "add_node", "graph": run_graph, "class": "K2Node_VariableGet"}], "BAD_REQUEST"),
+        "없는 변수": ([{"op": "add_node", "graph": run_graph, "class": "K2Node_VariableGet", "variable": "NoSuchVar"}], "BAD_REQUEST"),
+        "전이 규칙 그래프에 VariableGet": ([{"op": "add_node", "graph": t_rule_graph, "class": "K2Node_VariableGet", "variable": "Speed"}], "BAD_REQUEST"),
+        "상태머신 그래프에 VariableGet": ([{"op": "add_node", "graph": sm_b["graph_guid"], "class": "K2Node_VariableGet", "variable": "Speed"}], "BAD_REQUEST"),
+        "VariableGet 에 asset": ([{"op": "add_node", "graph": run_graph, "class": "K2Node_VariableGet", "variable": "Speed", "asset": idle}], "BAD_REQUEST"),
+        "VariableGet 에 set_property": ([{"op": "set_property", "node": refs["speed"], "property": "PlayRate", "value": 1.0}], "PROPERTY_NOT_ALLOWED"),
+    }
+    for name, (ops_bad, code) in cases_in.items():
+        env = preview(ops_bad)
+        errs = planned_errors(env)
+        check(env.get("ok") and not env["result"]["valid"] and code in errs, f"거부: {name} → {errs}")
+
+    print("--- B2 롤백 ---")
+    rev_in = s_in["revision"]
+    bad_in = apply([
+        {"op": "add_node", "ref": "tmp_seq", "graph": idle_graph, "class": "AnimGraphNode_SequencePlayer", "asset": other},
+        {"op": "add_node", "ref": "tmp_var", "graph": idle_graph, "class": "K2Node_VariableGet", "variable": "bIsFalling"},
+        {"op": "connect", "from": {"ref": "tmp_seq", "pin": "NoSuchPin"}, "to": {"node": idle_result["node_guid"], "pin": "Result"}},
+    ])
+    det_in = bad_in.get("error", {}).get("details", {})
+    check(not bad_in.get("ok") and det_in.get("failed_index") == 2 and det_in.get("rollback_verified") is True, "상태 내부 배치 중간 실패 → rollback_verified")
+    check(structure(0)["revision"] == rev_in, "롤백 후 revision == 실패 전")
 
     # -------------------------------------------------------------------------------------------------------------
     print("\n=== C. 상태머신 뷰 ===")

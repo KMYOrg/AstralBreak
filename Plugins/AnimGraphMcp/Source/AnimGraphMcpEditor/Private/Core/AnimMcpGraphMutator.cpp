@@ -11,8 +11,13 @@
 #include "AnimStateNodeBase.h"
 #include "AnimStateEntryNode.h"
 #include "AnimStateTransitionNode.h"
+#include "AnimationGraph.h"
 #include "AnimationStateMachineGraph.h"
+#include "AnimationTransitionGraph.h"
+#include "AnimNodes/AnimNode_LayeredBoneBlend.h"
+#include "K2Node_VariableGet.h"
 #include "Kismet2/Kismet2NameValidators.h"
+#include "ReferenceSkeleton.h"
 #include "AnimMcpGraphInspector.h"
 #include "AnimMcpLog.h"
 #include "AnimMcpPropertyRules.h"
@@ -532,8 +537,9 @@ namespace AnimMcpGraphMutator
 			Node->Modify();
 			Node->PreEditChange(EditProperty);
 
+			// ExportTextItem_Direct: 값이 기본값(0)이어도 무조건 쓴다 — ExportText_Direct 는 Delta=null 일 때 0 값을 건너뛰어 빈 문자열이 된다 (Property.cpp:1005)
 			FString OldText;
-			Resolved.Property->ExportText_Direct(OldText, ValuePtr, nullptr, Node, PPF_None);
+			Resolved.Property->ExportTextItem_Direct(OldText, ValuePtr, nullptr, Node, PPF_None);
 
 			const TCHAR* Result = Resolved.Property->ImportText_Direct(*ImportText, ValuePtr, Node, PPF_None, GLog);
 			if (!Result)
@@ -573,6 +579,10 @@ namespace AnimMcpGraphMutator
 		{
 			return false;
 		}
+		if (Property == TEXT("LayerSetup") && !ValidateLayerSetup(Node, Value, OutError))
+		{
+			return false;
+		}
 		if (Resolved.Rule->bReadOnly)
 		{
 			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::PropertyNotAllowed, FString::Printf(TEXT("Property '%s' is read-only"), *Property.ToString()));
@@ -588,7 +598,8 @@ namespace AnimMcpGraphMutator
 		{
 			return false;
 		}
-		Resolved.Property->ExportText_Direct(OutOldText, Resolved.Property->ContainerPtrToValuePtr<void>(Resolved.Container), nullptr, Node, PPF_None);
+		// 롤백용 이전 값 — ExportTextItem_Direct (0 값도 기록; ExportText_Direct 는 비운다 → 롤백 ImportText("") 실패)
+		Resolved.Property->ExportTextItem_Direct(OutOldText, Resolved.Property->ContainerPtrToValuePtr<void>(Resolved.Container), nullptr, Node, PPF_None);
 		return ImportPropertyText(Node, Resolved, ImportText, OutError);
 	}
 
@@ -924,5 +935,140 @@ namespace AnimMcpGraphMutator
 				BlendNode->ReconstructNode();
 			}
 		}
+	}
+
+	//~ Phase 5
+
+	UClass* VariableClassOf(UAnimBlueprint* Blueprint)
+	{
+		if (!Blueprint) { return nullptr; }
+		if (Blueprint->SkeletonGeneratedClass) { return Blueprint->SkeletonGeneratedClass; }
+		if (Blueprint->GeneratedClass) { return Blueprint->GeneratedClass; }
+		return Blueprint->ParentClass;
+	}
+
+	bool IsVariableGetClassName(const FString& InClassName)
+	{
+		const FString ClassName = InClassName.TrimStartAndEnd();
+		return ClassName == TEXT("K2Node_VariableGet") || ClassName == TEXT("VariableGet") || ClassName == TEXT("/Script/BlueprintGraph.K2Node_VariableGet");
+	}
+
+	bool ValidateVariableGetGraph(UEdGraph* Graph, FAnimMcpError& OutError)
+	{
+		if (!Graph)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::GraphNotFound, TEXT("K2Node_VariableGet needs a target graph"));
+			return false;
+		}
+		if (Graph->IsA<UAnimationTransitionGraph>())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("K2Node_VariableGet cannot be placed in a transition rule graph; use set_transition_rule with a rule tree instead"));
+			return false;
+		}
+		if (!Graph->IsA<UAnimationGraph>())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("K2Node_VariableGet can only be placed in the AnimGraph or a state's bound graph, not in a %s"), *Graph->GetClass()->GetName()));
+			return false;
+		}
+		return true;
+	}
+
+	FProperty* ResolveVariable(UAnimBlueprint* Blueprint, const FString& Name, FAnimMcpError& OutError)
+	{
+		UClass* VarClass = VariableClassOf(Blueprint);
+		FProperty* Property = VarClass ? VarClass->FindPropertyByName(FName(*Name)) : nullptr;
+		if (!Property || !Property->HasAnyPropertyFlags(CPF_BlueprintVisible))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("variable '%s' is not a BlueprintVisible property of %s (see get_anim_blueprint_info.variables)"), *Name, VarClass ? *VarClass->GetName() : TEXT("?")));
+			return nullptr;
+		}
+		return Property;
+	}
+
+	UEdGraphNode* AddVariableGetNode(UEdGraph* Graph, FProperty* Property, UClass* VarClass, const FVector2D& Position, FAnimMcpError& OutError)
+	{
+		if (!Graph || !Property || !VarClass)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("AddVariableGetNode called without graph, property or class"));
+			return nullptr;
+		}
+		Graph->Modify();
+
+		FGraphNodeCreator<UK2Node_VariableGet> Creator(*Graph);
+		UK2Node_VariableGet* Node = Creator.CreateNode(/*bSelectNewNode*/ false);
+		Node->SetFromProperty(Property, /*bSelfContext*/ true, VarClass);
+		Node->NodePosX = static_cast<int32>(Position.X);
+		Node->NodePosY = static_cast<int32>(Position.Y);
+		Creator.Finalize();
+
+		if (!Node->FindPin(Property->GetFName(), EGPD_Output))
+		{
+			DestroyNodeQuietly(Node);
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, FString::Printf(TEXT("variable node for '%s' has no output pin of that name"), *Property->GetName()));
+			return nullptr;
+		}
+		UE_LOG(LogAnimGraphMcp, Verbose, TEXT("Added K2Node_VariableGet(%s) %s to graph %s"), *Property->GetName(), *Node->NodeGuid.ToString(), *Graph->GetName());
+		return Node;
+	}
+
+	bool ValidateLayerSetup(UEdGraphNode* Node, const TSharedPtr<FJsonValue>& Value, FAnimMcpError& OutError, int32 ExtraPoses)
+	{
+		UAnimGraphNode_LayeredBoneBlend* Blend = Cast<UAnimGraphNode_LayeredBoneBlend>(Node);
+		if (!Blend)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("LayerSetup is only valid on AnimGraphNode_LayeredBoneBlend"));
+			return false;
+		}
+		if (Blend->Node.BlendMode != ELayeredBoneBlendMode::BranchFilter)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("LayerSetup is used only when BlendMode is BranchFilter; set_property BlendMode first"));
+			return false;
+		}
+		if (!Value.IsValid() || Value->Type != EJson::Array)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("LayerSetup expects an array with one entry {BranchFilters:[{BoneName, BlendDepth}]} per blend pose"));
+			return false;
+		}
+		const int32 NumPoses = Blend->Node.BlendPoses.Num() + ExtraPoses;
+		const TArray<TSharedPtr<FJsonValue>>& Entries = Value->AsArray();
+		if (Entries.Num() != NumPoses)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("LayerSetup needs exactly %d entries (one per blend pose%s; use add_blend_pose to add poses), got %d"), NumPoses, ExtraPoses > 0 ? TEXT(" including add_blend_pose earlier in this batch") : TEXT(""), Entries.Num()));
+			return false;
+		}
+		const UAnimBlueprint* Blueprint = Blend->GetAnimBlueprint();
+		const USkeleton* Skeleton = Blueprint ? Blueprint->TargetSkeleton : nullptr;
+		for (int32 i = 0; i < Entries.Num(); ++i)
+		{
+			const TSharedPtr<FJsonValue>& Entry = Entries[i];
+			if (!Entry.IsValid() || Entry->Type != EJson::Object)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("LayerSetup[%d] must be an object {BranchFilters:[{BoneName, BlendDepth}]}"), i));
+				return false;
+			}
+			const TArray<TSharedPtr<FJsonValue>>* Filters = nullptr;
+			if (!Entry->AsObject()->TryGetArrayField(TEXT("BranchFilters"), Filters) || !Filters)
+			{
+				continue; // 필터 없는 포즈 = 전신 (엔진 기본과 같다)
+			}
+			for (int32 f = 0; f < Filters->Num(); ++f)
+			{
+				const TSharedPtr<FJsonValue>& Filter = (*Filters)[f];
+				FString Bone;
+				if (!Filter.IsValid() || Filter->Type != EJson::Object || !Filter->AsObject()->TryGetStringField(TEXT("BoneName"), Bone) || Bone.IsEmpty())
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("LayerSetup[%d].BranchFilters[%d] needs a BoneName"), i, f));
+					return false;
+				}
+				if (Skeleton && Skeleton->GetReferenceSkeleton().FindBoneIndex(FName(*Bone)) == INDEX_NONE)
+				{
+					TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+					Details->SetStringField(TEXT("skeleton"), Skeleton->GetPathName());
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("LayerSetup[%d].BranchFilters[%d]: bone '%s' does not exist in the target skeleton"), i, f, *Bone), Details);
+					return false;
+				}
+			}
+		}
+		return true;
 	}
 }

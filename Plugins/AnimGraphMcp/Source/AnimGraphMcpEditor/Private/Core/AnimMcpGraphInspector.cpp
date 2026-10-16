@@ -5,6 +5,13 @@
 #include "AnimGraphNode_SaveCachedPose.h"
 #include "AnimGraphNode_UseCachedPose.h"
 #include "AnimMcpPropertyRules.h"
+#include "AnimMcpTransitionRule.h"
+#include "AnimStateAliasNode.h"
+#include "AnimStateConduitNode.h"
+#include "AnimStateEntryNode.h"
+#include "AnimStateNode.h"
+#include "AnimStateNodeBase.h"
+#include "AnimStateTransitionNode.h"
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimBlueprintGeneratedClass.h"
 #include "Animation/Skeleton.h"
@@ -489,8 +496,18 @@ namespace AnimMcpGraphInspector
 			}
 		}
 
+		// 상태머신 전용 뷰 — 조회 범위에 든 UAnimationStateMachineGraph 마다 (2026-10-15 확정: 새 Tool 대신 structure 응답 확장)
+		TArray<TSharedPtr<FJsonValue>> StateMachines;
+		for (const FGraphRecord& Record : Records)
+		{
+			if (UAnimationStateMachineGraph* SMGraph = Cast<UAnimationStateMachineGraph>(Record.Graph))
+			{
+				StateMachines.Add(MakeShared<FJsonValueObject>(DescribeStateMachine(SMGraph)));
+			}
+		}
+
 		TSharedRef<FJsonObject> Result = AnimMcpJson::MakeObject();
-		Result->SetStringField(TEXT("schema_version"), TEXT("1.0"));
+		Result->SetStringField(TEXT("schema_version"), TEXT("1.1"));
 		Result->SetStringField(TEXT("asset_path"), Blueprint->GetPathName());
 		Result->SetStringField(TEXT("revision"), ComputeRevision(Blueprint));
 		Result->SetStringField(TEXT("root_graph_guid"), Graph->GraphGuid.ToString());
@@ -498,7 +515,104 @@ namespace AnimMcpGraphInspector
 		Result->SetArrayField(TEXT("graphs"), GraphArray);
 		Result->SetArrayField(TEXT("nodes"), NodeArray);
 		Result->SetArrayField(TEXT("connections"), ConnectionArray);
+		Result->SetArrayField(TEXT("state_machines"), StateMachines);
 		return Result;
+	}
+
+	TSharedRef<FJsonObject> DescribeStateMachine(UAnimationStateMachineGraph* Graph)
+	{
+		TSharedRef<FJsonObject> Obj = AnimMcpJson::MakeObject();
+		Obj->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+		Obj->SetStringField(TEXT("name"), Graph->GetName());
+		UEdGraphNode* Owner = FindOwnerNode(Graph);
+		Obj->SetField(TEXT("node_guid"), Owner ? AnimMcpJson::StringOrNull(Owner->NodeGuid.ToString()) : MakeShared<FJsonValueNull>());
+
+		UEdGraphNode* EntryTarget = Graph->EntryNode ? Graph->EntryNode->GetOutputNode() : nullptr;
+		Obj->SetField(TEXT("entry_node_guid"), Graph->EntryNode ? AnimMcpJson::StringOrNull(Graph->EntryNode->NodeGuid.ToString()) : MakeShared<FJsonValueNull>());
+		Obj->SetField(TEXT("entry_state"), EntryTarget ? AnimMcpJson::StringOrNull(EntryTarget->NodeGuid.ToString()) : MakeShared<FJsonValueNull>());
+
+		TArray<TSharedPtr<FJsonValue>> States, Transitions;
+		for (UEdGraphNode* Node : Graph->Nodes)
+		{
+			UAnimStateNodeBase* StateBase = Cast<UAnimStateNodeBase>(Node);
+			if (!StateBase)
+			{
+				continue;
+			}
+			if (UAnimStateTransitionNode* Transition = Cast<UAnimStateTransitionNode>(Node))
+			{
+				TSharedRef<FJsonObject> T = AnimMcpJson::MakeObject();
+				T->SetStringField(TEXT("node_guid"), Transition->NodeGuid.ToString());
+				T->SetStringField(TEXT("name"), Transition->GetStateName());
+				UAnimStateNodeBase* Prev = Transition->GetPreviousState();
+				UAnimStateNodeBase* Next = Transition->GetNextState();
+				T->SetField(TEXT("from"), Prev ? AnimMcpJson::StringOrNull(Prev->NodeGuid.ToString()) : MakeShared<FJsonValueNull>());
+				T->SetField(TEXT("to"), Next ? AnimMcpJson::StringOrNull(Next->NodeGuid.ToString()) : MakeShared<FJsonValueNull>());
+				T->SetField(TEXT("from_name"), Prev ? AnimMcpJson::StringOrNull(Prev->GetStateName()) : MakeShared<FJsonValueNull>());
+				T->SetField(TEXT("to_name"), Next ? AnimMcpJson::StringOrNull(Next->GetStateName()) : MakeShared<FJsonValueNull>());
+				T->SetNumberField(TEXT("priority_order"), Transition->PriorityOrder);
+				T->SetNumberField(TEXT("crossfade_duration"), Transition->CrossfadeDuration);
+				T->SetStringField(TEXT("blend_mode"), StaticEnum<EAlphaBlendOption>()->GetNameStringByValue(static_cast<int64>(Transition->BlendMode)));
+				T->SetBoolField(TEXT("bidirectional"), Transition->Bidirectional);
+				T->SetBoolField(TEXT("disabled"), Transition->bDisabled);
+				T->SetBoolField(TEXT("automatic"), Transition->bAutomaticRuleBasedOnSequencePlayerInState);
+				T->SetNumberField(TEXT("automatic_trigger_time"), Transition->AutomaticRuleTriggerTime);
+				T->SetBoolField(TEXT("shared_rules"), Transition->bSharedRules);
+				T->SetField(TEXT("rule_graph_guid"), Transition->BoundGraph ? AnimMcpJson::StringOrNull(Transition->BoundGraph->GraphGuid.ToString()) : MakeShared<FJsonValueNull>());
+
+				// 도구가 만든 규칙이면 원문 복원 + 사람 편집 감지. 없으면 규칙 노드 수만
+				const AnimMcpTransitionRule::FSource Source = AnimMcpTransitionRule::ReadSource(Transition->BoundGraph);
+				T->SetBoolField(TEXT("rule_generated"), Source.bHasSource);
+				TSharedPtr<FJsonValue> SourceValue = Source.Source.IsValid() ? TSharedPtr<FJsonValue>(MakeShared<FJsonValueObject>(Source.Source)) : TSharedPtr<FJsonValue>(MakeShared<FJsonValueNull>());
+				T->SetField(TEXT("rule_source"), SourceValue);
+				T->SetBoolField(TEXT("rule_modified"), Source.bHasSource && Source.bModified);
+				TArray<UEdGraphNode*> RuleNodes;
+				AnimMcpTransitionRule::CollectRuleNodes(Transition->BoundGraph, RuleNodes);
+				T->SetNumberField(TEXT("rule_node_count"), RuleNodes.Num());
+				Transitions.Add(MakeShared<FJsonValueObject>(T));
+			}
+			else
+			{
+				TSharedRef<FJsonObject> S = AnimMcpJson::MakeObject();
+				S->SetStringField(TEXT("node_guid"), StateBase->NodeGuid.ToString());
+				S->SetStringField(TEXT("name"), StateBase->GetStateName());
+				S->SetStringField(TEXT("class"), StateBase->GetClass()->GetName());
+				const TCHAR* Kind = TEXT("state");
+				if (Cast<UAnimStateConduitNode>(StateBase)) { Kind = TEXT("conduit"); }
+				else if (Cast<UAnimStateAliasNode>(StateBase)) { Kind = TEXT("alias"); }
+				S->SetStringField(TEXT("kind"), Kind);
+				UEdGraph* Bound = StateBase->GetBoundGraph();
+				S->SetField(TEXT("bound_graph_guid"), Bound ? AnimMcpJson::StringOrNull(Bound->GraphGuid.ToString()) : MakeShared<FJsonValueNull>());
+				if (UAnimStateNode* StateNode = Cast<UAnimStateNode>(StateBase))
+				{
+					S->SetBoolField(TEXT("always_reset_on_entry"), StateNode->bAlwaysResetOnEntry);
+				}
+				TArray<FString> Out, In;
+				for (UEdGraphPin* Pin : StateBase->Pins)
+				{
+					if (!Pin)
+					{
+						continue;
+					}
+					for (UEdGraphPin* Other : Pin->LinkedTo)
+					{
+						if (UAnimStateTransitionNode* T = Other ? Cast<UAnimStateTransitionNode>(Other->GetOwningNodeUnchecked()) : nullptr)
+						{
+							(Pin->Direction == EGPD_Output ? Out : In).Add(T->NodeGuid.ToString());
+						}
+					}
+				}
+				TArray<TSharedPtr<FJsonValue>> OutArr, InArr;
+				for (const FString& G : Out) { OutArr.Add(MakeShared<FJsonValueString>(G)); }
+				for (const FString& G : In) { InArr.Add(MakeShared<FJsonValueString>(G)); }
+				S->SetArrayField(TEXT("outgoing_transitions"), OutArr);
+				S->SetArrayField(TEXT("incoming_transitions"), InArr);
+				States.Add(MakeShared<FJsonValueObject>(S));
+			}
+		}
+		Obj->SetArrayField(TEXT("states"), States);
+		Obj->SetArrayField(TEXT("transitions"), Transitions);
+		return Obj;
 	}
 
 	TSharedRef<FJsonObject> BuildBlueprintInfo(UAnimBlueprint* Blueprint, FAnimMcpContext& Context)

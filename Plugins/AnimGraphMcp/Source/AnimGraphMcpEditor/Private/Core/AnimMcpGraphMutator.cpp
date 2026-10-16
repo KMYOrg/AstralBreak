@@ -5,7 +5,14 @@
 #include "AnimGraphNode_BlendListByEnum.h"
 #include "AnimGraphNode_LayeredBoneBlend.h"
 #include "AnimGraphNode_SaveCachedPose.h"
+#include "AnimGraphNode_StateMachineBase.h"
 #include "AnimGraphNode_UseCachedPose.h"
+#include "AnimStateNode.h"
+#include "AnimStateNodeBase.h"
+#include "AnimStateEntryNode.h"
+#include "AnimStateTransitionNode.h"
+#include "AnimationStateMachineGraph.h"
+#include "Kismet2/Kismet2NameValidators.h"
 #include "AnimMcpGraphInspector.h"
 #include "AnimMcpLog.h"
 #include "AnimMcpPropertyRules.h"
@@ -296,10 +303,8 @@ namespace AnimMcpGraphMutator
 		return true;
 	}
 
-	void DetachNode(UEdGraphNode* Node)
+	void BreakAllLinksQuietly(UEdGraphNode* Node)
 	{
-		UEdGraph* Graph = Node->GetGraph();
-		Graph->Modify();
 		Node->Modify();
 		for (UEdGraphPin* Pin : Node->Pins)
 		{
@@ -307,16 +312,27 @@ namespace AnimMcpGraphMutator
 			{
 				continue;
 			}
-			for (UEdGraphPin* Other : Pin->LinkedTo)
+			const TArray<UEdGraphPin*> Linked = Pin->LinkedTo;
+			for (UEdGraphPin* Other : Linked)
 			{
 				if (Other && Other->GetOwningNodeUnchecked())
 				{
 					Other->GetOwningNodeUnchecked()->Modify();
 				}
+				// BreakLinkTo 는 상대 노드에 PinConnectionListChanged 를 보내지 않는다 — 전이 노드는 링크가 0 이 되면 그 통지에서 스스로 DestroyNode 한다
+				// (AnimStateTransitionNode.cpp:323-337). 분리 보관·롤백 중에는 그 연쇄를 막아야 한다
+				Pin->BreakLinkTo(Other);
 			}
 		}
-		// Nodes 배열에서만 제거 + 링크 끊기. 객체·서브그래프는 그대로 — 롤백이 ReattachNode 로 되돌릴 수 있다
-		Graph->RemoveNode(Node, /*bBreakAllLinks*/ true);
+	}
+
+	void DetachNode(UEdGraphNode* Node)
+	{
+		UEdGraph* Graph = Node->GetGraph();
+		Graph->Modify();
+		BreakAllLinksQuietly(Node);
+		// Nodes 배열에서만 제거. 객체·서브그래프는 그대로 — 롤백이 ReattachNode 로 되돌릴 수 있다
+		Graph->RemoveNode(Node, /*bBreakAllLinks*/ false);
 	}
 
 	void ReattachNode(UEdGraph* Graph, UEdGraphNode* Node)
@@ -330,6 +346,180 @@ namespace AnimMcpGraphMutator
 		// 이미 Nodes 에서 빠져 있다 — DestroyNode 는 RemoveNode 를 다시 부르지만(0건 제거) 서브그래프 제거·포즈 워치 정리 등 파생 클래스 후처리를 수행한다
 		Node->Modify();
 		Node->DestroyNode();
+	}
+
+	void DestroyNodeQuietly(UEdGraphNode* Node)
+	{
+		if (UEdGraph* Graph = Node->GetGraph())
+		{
+			Graph->Modify();
+		}
+		BreakAllLinksQuietly(Node);
+		Node->DestroyNode();
+	}
+
+	//~ State Machine (Phase 4)
+
+	UAnimationStateMachineGraph* ResolveStateMachineGraph(UEdGraphNode* StateMachineNode, FAnimMcpError& OutError)
+	{
+		UAnimGraphNode_StateMachineBase* SM = Cast<UAnimGraphNode_StateMachineBase>(StateMachineNode);
+		if (!SM || !SM->EditorStateMachineGraph)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Node %s is not a state machine with an editor graph"), StateMachineNode ? *StateMachineNode->GetClass()->GetName() : TEXT("null")));
+			return nullptr;
+		}
+		return SM->EditorStateMachineGraph;
+	}
+
+	UAnimationStateMachineGraph* AsStateMachineGraph(UEdGraph* Graph, FAnimMcpError& OutError)
+	{
+		UAnimationStateMachineGraph* SMGraph = Cast<UAnimationStateMachineGraph>(Graph);
+		if (!SMGraph)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Graph %s is not a state machine graph"), Graph ? *Graph->GetName() : TEXT("null")));
+		}
+		return SMGraph;
+	}
+
+	bool ValidateStateName(UEdGraphNode* StateNode, const FString& Name, FAnimMcpError& OutError)
+	{
+		if (Name.IsEmpty())
+		{
+			return true;
+		}
+		TSharedPtr<INameValidatorInterface> Validator = FNameValidatorFactory::MakeValidator(StateNode);
+		const EValidatorResult Result = Validator.IsValid() ? Validator->IsValid(Name) : EValidatorResult::Ok;
+		if (Result != EValidatorResult::Ok && Result != EValidatorResult::ExistingName)
+		{
+			const TCHAR* Reason = TEXT("invalid");
+			switch (Result)
+			{
+			case EValidatorResult::AlreadyInUse: Reason = TEXT("already in use"); break;
+			case EValidatorResult::EmptyName: Reason = TEXT("empty"); break;
+			case EValidatorResult::TooLong: Reason = TEXT("too long"); break;
+			case EValidatorResult::ContainsInvalidCharacters: Reason = TEXT("contains invalid characters"); break;
+			default: break;
+			}
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("State name '%s' rejected: %s"), *Name, Reason));
+			return false;
+		}
+		return true;
+	}
+
+	UAnimStateNode* AddState(UAnimationStateMachineGraph* Graph, const FString& Name, const FVector2D& Position, FAnimMcpError& OutError)
+	{
+		Graph->Modify();
+		// Finalize → PostPlacedNewNode 가 BoundGraph(UAnimationStateGraph + StateResult) 를 만들고 SubGraphs 에 넣는다 (AnimStateNode.cpp:130-156)
+		FGraphNodeCreator<UAnimStateNode> Creator(*Graph);
+		UAnimStateNode* Node = Creator.CreateNode(/*bSelectNewNode*/ false);
+		Node->NodePosX = static_cast<int32>(Position.X);
+		Node->NodePosY = static_cast<int32>(Position.Y);
+		Creator.Finalize();
+
+		if (!Name.IsEmpty())
+		{
+			if (!ValidateStateName(Node, Name, OutError))
+			{
+				// 이름이 거부되면 노드도 남기지 않는다 (호출자는 실패로 처리)
+				DestroyNodeQuietly(Node);
+				return nullptr;
+			}
+			// OnRenameNode = FBlueprintEditorUtils::RenameGraph(BoundGraph, Name) — 상태 이름은 BoundGraph 이름이다
+			Node->OnRenameNode(Name);
+		}
+		return Node;
+	}
+
+	bool ValidateTransitionEndpoints(UEdGraphNode* From, UEdGraphNode* To, FAnimMcpError& OutError)
+	{
+		UAnimStateNodeBase* A = Cast<UAnimStateNodeBase>(From);
+		UAnimStateNodeBase* B = Cast<UAnimStateNodeBase>(To);
+		if (!A || !B || Cast<UAnimStateTransitionNode>(A) || Cast<UAnimStateTransitionNode>(B))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("add_transition endpoints must be state (or conduit/alias) nodes, not transitions or the entry node"));
+			return false;
+		}
+		if (A->GetGraph() != B->GetGraph())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("add_transition endpoints must be in the same state machine graph"));
+			return false;
+		}
+		if (!A->GetOutputPin() || !B->GetInputPin())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("add_transition endpoint has no transition pins"));
+			return false;
+		}
+		return true;
+	}
+
+	UAnimStateTransitionNode* AddTransition(UEdGraphNode* From, UEdGraphNode* To, FAnimMcpError& OutError)
+	{
+		if (!ValidateTransitionEndpoints(From, To, OutError))
+		{
+			return nullptr;
+		}
+		UAnimStateNodeBase* A = CastChecked<UAnimStateNodeBase>(From);
+		UAnimStateNodeBase* B = CastChecked<UAnimStateNodeBase>(To);
+		UEdGraph* Graph = A->GetGraph();
+		Graph->Modify();
+		A->Modify();
+		B->Modify();
+
+		// 에디터의 드래그 연결과 같은 경로 — CreateAutomaticConversionNodeAndConnections (AnimationStateMachineSchema.cpp:244-272):
+		// 템플릿 스폰(=Guid·PostPlacedNewNode(BoundGraph)·기본 핀) 뒤 CreateConnections(Prev, Next)
+		FGraphNodeCreator<UAnimStateTransitionNode> Creator(*Graph);
+		UAnimStateTransitionNode* Transition = Creator.CreateNode(/*bSelectNewNode*/ false);
+		Transition->NodePosX = (A->NodePosX + B->NodePosX) / 2;
+		Transition->NodePosY = (A->NodePosY + B->NodePosY) / 2;
+		Creator.Finalize();
+		Transition->CreateConnections(A, B);
+		return Transition;
+	}
+
+	bool SetEntryState(UAnimationStateMachineGraph* Graph, UEdGraphNode* StateNode, FAnimMcpError& OutError)
+	{
+		UAnimStateNodeBase* State = Cast<UAnimStateNodeBase>(StateNode);
+		if (!Graph || !Graph->EntryNode || !State || Cast<UAnimStateTransitionNode>(State) || State->GetGraph() != Graph)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_entry_state needs a state node inside the given state machine graph"));
+			return false;
+		}
+		UEdGraphPin* EntryOut = Graph->EntryNode->GetOutputPin();
+		UEdGraphPin* StateIn = State->GetInputPin();
+		if (!EntryOut || !StateIn)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("Entry or state pin missing"));
+			return false;
+		}
+		Graph->Modify();
+		Graph->EntryNode->Modify();
+		State->Modify();
+		// 스키마가 BREAK_OTHERS_A 로 이전 Entry 연결을 끊는다 (AnimationStateMachineSchema.cpp:160-168). 이전 상태 노드가 받는 통지는 무해하다
+		if (!Graph->GetSchema()->TryCreateConnection(EntryOut, StateIn))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::ConnectionRejected, TEXT("Schema rejected the entry connection"));
+			return false;
+		}
+		return true;
+	}
+
+	void CollectLinkedTransitions(UEdGraphNode* StateNode, TArray<UEdGraphNode*>& OutTransitions)
+	{
+		for (UEdGraphPin* Pin : StateNode->Pins)
+		{
+			if (!Pin)
+			{
+				continue;
+			}
+			for (UEdGraphPin* Other : Pin->LinkedTo)
+			{
+				UEdGraphNode* OtherNode = Other ? Other->GetOwningNodeUnchecked() : nullptr;
+				if (OtherNode && OtherNode->IsA<UAnimStateTransitionNode>())
+				{
+					OutTransitions.AddUnique(OtherNode);
+				}
+			}
+		}
 	}
 
 	namespace

@@ -1,6 +1,8 @@
 # AI Animation Blueprint Automation
 ## 개발 지침서 (개정판) — Phase 3 착수용 핸드오프
 
+> **대체됨 (2026-10-16):** Phase 4 까지 반영한 개정 2판은 [animbp-automation-handoff-phase5.md](animbp-automation-handoff-phase5.md) 다. 이 문서는 Phase 3·4 작업 당시 기록으로만 남긴다.
+
 > 작성 2026-10-14 · 브랜치 `feat/ai_auto_ABP` · 기준 엔진 UE 5.7.4 소스 빌드
 > 이 문서는 최초 지침서(Phase 1 착수 시 전달)를 **현재 구현 상태에 맞춰 개정**한 것이다. "후보", "조사 대상"이던 항목은 확정값으로 바꾸었고, 완료된 Phase 는 결과만 남겼다.
 > 설계 근거·엔진 소스 경로·검증표의 원문은 [animbp-automation-phase1.md](animbp-automation-phase1.md) 에 있다. 구조를 재논의하기 전에 그 문서의 §B(API 검증표)·§C(아키텍처 결정)·§G(위험)를 먼저 읽는다.
@@ -18,8 +20,8 @@ Unreal Engine 5.7.4 Source Build 환경에서 Claude Code 가 Animation Blueprin
 | AnimBP 애셋 자동 생성 및 조회 | ✅ |
 | 기존 AnimGraph · State Machine 구조 분석 | 🔶 그래프 트리·노드·핀·연결·허용 목록 프로퍼티 값·바인딩 보유·노출 핀 조회 가능(Phase 3). 상태머신 전용 뷰는 Phase 4 |
 | AnimGraph 노드 생성·수정·삭제 및 Pin 연결 | ✅ Phase 3 — add_node·connect·disconnect·remove_node·set_property·set_asset·expose_pin·add_blend_pose |
-| State Machine · State · Transition 자동 구성 | ⬜ Phase 4 |
-| Transition Rule 및 블렌딩 조건 설정 | ⬜ Phase 4 (설계 확정: §9) |
+| State Machine · State · Transition 자동 구성 | ✅ Phase 4 — add_state·add_transition·set_entry_state, 상태 삭제 시 전이 연쇄 |
+| Transition Rule 및 블렌딩 조건 설정 | ✅ Phase 4 — set_transition_rule(JSON AST, 멱등, rule_source 복원), 전이 properties(crossfade·priority·blend_mode…) |
 | AnimSequence · BlendSpace · Montage 연결 | 🔶 애셋 플레이어 노드에 애셋 할당 가능. BlendSpace 생성은 Phase 4 |
 | 기존 C++ AnimInstance 와 연동 | 🔶 부모 클래스 지정·변수 목록 조회 가능. 변수 참조 노드는 Phase 4 |
 | 컴파일 및 오류 분석 | ✅ 노드 Guid 매핑 포함 |
@@ -176,20 +178,35 @@ Phase 3·4 에서 새로 필요한 API(핀 노출 `SetPinVisibility`, 노드 프
 
 ---
 
-### 9. State Machine 및 Transition Rule (Phase 4 · 설계 확정)
+### 9. State Machine 및 Transition Rule (Phase 4 · 구현 완료 2026-10-15)
 
-API 는 전부 확인됨 (phase1 §B-4). 핵심: `UAnimGraphNode_StateMachine` 을 Creator 로 만들면 `PostPlacedNewNode` 가 상태머신 그래프와 Entry 노드까지 만든다. `UAnimStateNode` 도 같은 방식으로 BoundGraph(+StateResult) 가 생긴다. 전이는 `UAnimStateTransitionNode` 생성(BoundGraph+TransitionResult 자동) 후 `CreateConnections(Prev, Next)`. Entry 연결은 `EntryNode->GetOutputPin()` ↔ State `In`.
+**op 4종** (`Core/AnimMcpOperations`, 되돌리기 저널 패턴 동일)
 
-**Transition Rule 설계 (2026-10-10 결정, 범용성·유지보수 기준)**
+| op | 입력 | 동작 · 롤백 |
+| :--- | :--- | :--- |
+| `add_state` | `ref?, sm:{node|ref} \| graph:guid, name?, pos?` | `FGraphNodeCreator<UAnimStateNode>` → Finalize(BoundGraph+StateResult 자동) → 엔진 이름 검증기 → `OnRenameNode`(=BoundGraph 이름). 롤백 = `DestroyNode`(BoundGraph 제거) |
+| `add_transition` | `ref?, from:{node|ref}, to:{node|ref}, properties?, rule?` | Creator → Finalize(BoundGraph+TransitionResult 자동) → `CreateConnections(From, To)` → properties(set_property 경로) → rule(아래). 롤백 = `DestroyNode` |
+| `set_entry_state` | `sm \| graph, state:{node|ref}` | `EntryNode->GetOutputPin()` ↔ `State->GetInputPin()` `TryCreateConnection` (스키마가 이전 Entry 연결을 끊음). 롤백 = Entry 핀 스냅샷 복원 |
+| `set_transition_rule` | `node|ref (transition), rule` | 기존 규칙 노드·주석을 분리 보관 → AST 에서 전체 재생성 → `bAutomaticRuleBasedOnSequencePlayerInState` 설정. **같은 원문 + 그래프 미변경이면 no-op (`unchanged:true`)**. 롤백 = 생성 노드 제거 + 보관 노드 복귀 + Result 핀 기본값·플래그 복원 |
+| `remove_node` (확장) | 상태 노드 | 연결된 전이를 먼저 분리 → 상태 분리. 성공 확정 시 전부 `DestroyNode` (에디터와 같은 결과) |
 
-- 선언적 AST: `var` · `not` · `and` · `or` · `compare` · `call` · `literal` · `automatic`
-- (연산자, 피연산자 타입) → `UKismetMathLibrary` 함수명 테이블 생성기. 타입은 변수의 `FProperty` 에서 읽는다. `UK2Node_PromotableOperator` 는 쓰지 않는다(연결 순서 의존)
-- `set_transition_rule` 은 BoundGraph 를 Result 노드만 남기고 비운 뒤 AST 에서 **전체 재생성** (멱등)
-- AST 원문을 BoundGraph 안 `UEdGraphNode_Comment` 에 기록 → Inspector 가 `rule_source` 를 복원, 사람 편집 감지
-- `call` 은 `BlueprintPure ∧ BlueprintThreadSafe ∧ 소유 클래스 ∈ {해당 AnimInstance 계열, UAnimInstance, UKismetMathLibrary}` 화이트리스트
-- `automatic` 은 그래프 없이 `bAutomaticRuleBasedOnSequencePlayerInState` 만 설정
-- 프로젝트 정책: 복잡 조건은 C++ AnimInstance 에서 bool 로 계산하고 규칙은 `var` 기본
-- Result 핀 이름 `bCanEnterTransition`(`PinShownByDefault`). ❓ float 변수 핀 → double 함수 핀 연결 허용 여부는 Phase 4 첫 실측 항목
+**규칙 AST** (`Core/AnimMcpTransitionRule`, 2026-10-15 사용자 확정 "JSON 트리")
+
+```jsonc
+{"var": "bIsFalling"}                                                     // BlueprintVisible 프로퍼티 → UK2Node_VariableGet(self)
+{"not": R} · {"and": [R, R, ...]} · {"or": [R, R, ...]}                    // Not_PreBool · BooleanAND/OR 사슬
+{"compare": {"op": ">", "left": {"var": "Speed"}, "right": {"literal": 10.0}}}  // (op × 타입) → UKismetMathLibrary 표. Real·Int·Int64 전 연산, Bool·Name 은 ==/!=
+{"literal": true}                                                          // 상대 핀 기본값으로 (노드 없음). 최상위 literal 은 Result 핀 기본값
+{"call": {"function": "FMax", "class"?: "/Script/...", "args": {"A": R, "B": R}}}  // BlueprintPure ∧ HasFunctionBlueprintThreadSafeMetaData ∧ 소유 ∈ {AnimInstance 사슬, UKismetMathLibrary}. 모든 입력 파라미터 필수
+{"automatic": true, "trigger_time"?: -1.0}                                 // 그래프 없이 플래그만 (최상위 전용)
+```
+
+- 정규화 JSON(키 순서 고정) + 생성 직후 그래프 해시를 BoundGraph 의 `UEdGraphNode_Comment` 첫 줄 `AnimGraphMcp rule_source v1` 아래 기록. Inspector 가 `rule_source` 복원, 해시 불일치 = `rule_modified`(사람 편집).
+- **float 변수 핀 → double 함수 핀: 허용 확정** (`EdGraphSchema_K2.cpp:4533` PC_Real 은 서브타입 무관 호환). 변환 노드 불필요.
+- `UK2Node_PromotableOperator` 미사용 유지. 프로젝트 정책(복잡 조건은 C++ bool) 유지.
+- 조회는 새 Tool 없이 `get_anim_graph_structure` 의 `state_machines[]` (사용자 확정) — §10.
+
+**엔진 함정 2건 (phase1 "Phase 4 결과")**: 전이 노드는 링크 0 통지에 자살하므로 분리·복원은 `BreakLinkTo`(통지 없음) 로 · 주석 노드 `PostPlacedNewNode` 가 `NodeComment` 를 "Comment" 로 되돌리므로 원문은 Finalize 뒤에 쓴다.
 
 ---
 
@@ -201,7 +218,7 @@ Python 측 함수명 = 플러그인 라우트명. 모든 응답은 봉투 `{ok, 
 | :--- | :--- | :--- |
 | `get_editor_status` | — | 토큰 면제. 엔진·프로젝트·PIE·플러그인 상태·열린 에디터·포트·Tool 목록 |
 | `get_anim_blueprint_info` | `asset_path` | §7 |
-| `get_anim_graph_structure` | `asset_path, graph_guid?, depth=1` | §7. depth 0 = 그 그래프만, -1 = 전부 |
+| `get_anim_graph_structure` | `asset_path, graph_guid?, depth=1` | §7. depth 0 = 그 그래프만, -1 = 전부. **Phase 4: `state_machines[]`** (범위 안의 상태머신 그래프마다 entry_state · states[{name, kind(state/conduit/alias), bound_graph_guid, in/out}] · transitions[{from, to, crossfade_duration, priority_order, blend_mode, bidirectional, disabled, automatic, rule_graph_guid, rule_generated, rule_source, rule_modified, rule_node_count}]), schema_version 1.1 |
 | `list_animation_assets` | `skeleton?, asset_class=all, path_prefix=/Game, limit=200` | 클래스: AnimSequence·BlendSpace·AnimMontage·AnimComposite·all |
 | `create_animation_blueprint` | `asset_path, skeleton, parent_class=/Script/Engine.AnimInstance, preview_mesh?, overwrite=false` | overwrite 는 기존 애셋 **삭제** — 사용자 확인 후 |
 | `preview_graph_operations` | `asset_path, operations[]` | 그래프 불변. `valid, revision, planned[{index, op, ref, ok, error?, note?}], would_create, would_connect, would_disconnect, would_remove, would_modify`. 미생성 ref 를 가리키는 op 는 클래스 수준 검증 후 `note` 로 apply 시점 검증을 예고 |
@@ -242,8 +259,8 @@ Python 측 함수명 = 플러그인 라우트명. 모든 응답은 봉투 `{ok, 
 | 2 통신 골격 | ✅ 2026-10-10 | 플러그인·HTTP·Dispatcher·MCP 서버·상태/정보 Tool. 커밋 `a669c33` |
 | 2.5 최소 수직 통합 | ✅ 2026-10-14 | 생성→SequencePlayer→Root 연결→컴파일→저장→재조회(재시작 후 포함). Tool 9개. 커밋 `d87608f` |
 | 3 범용 AnimGraph 편집 | ✅ 2026-10-15 | §8 op 8종, 노드 9종, Inspector 프로퍼티·바인딩·노출 핀, revision 에 프로퍼티 포함. `phase3_test.py` PASS(재시작 포함). phase1 문서 "Phase 3 결과" |
-| **4 State Machine** | ⬜ **다음** | §9 |
-| 5 실제 캐릭터 적용 | ⬜ | Free Locomotion · Jump · Attack. **복제본에서 먼저**, diff 검토 후 원본. strafe 보류 |
+| 4 State Machine | ✅ 2026-10-15 | §9 op 4종 + 규칙 AST 생성기 + `state_machines[]` 뷰. `phase4_test.py` PASS(재시작 포함) + phase3 회귀 PASS. phase1 문서 "Phase 4 결과" |
+| **5 실제 캐릭터 적용** | ⬜ **다음** | Free Locomotion · Jump · Attack. **복제본에서 먼저**, diff 검토 후 원본. strafe 보류. 선행 결정: BlendSpace 생성 vs 재사용, 복제 Tool |
 | 6 고급·안정화 | ⬜ | Linked Layer 편집, Property Binding, Alias/Conduit, Automation Test, 타 프로젝트 재현 |
 
 ---
@@ -301,28 +318,29 @@ Python 측 함수명 = 플러그인 라우트명. 모든 응답은 봉투 `{ok, 
 
 ---
 
-### 17. 미커밋 변경 (Phase 3, 2026-10-15 기준)
+### 17. 미커밋 변경 (Phase 4, 2026-10-15 기준)
 
-Phase 2.5 는 `d87608f` 로 커밋됨. 사용자가 커밋 여부를 결정한다. `Tools/mcp/phase3_state.json` 은 재시작 비교용 임시 상태 파일 — 저장소에 넣지 않아도 된다(gitignore 후보). 테스트 애셋 `ABP_McpTest.uasset` 은 내용이 바뀌었다.
+Phase 3 는 `2a85228` 로 커밋됨. 사용자가 커밋 여부를 결정한다. `Tools/mcp/phase{3,4}_state.json` 은 재시작 비교용 임시 상태 파일 — 저장소에 넣지 않아도 된다(gitignore 후보). 테스트 애셋 `ABP_McpTest.uasset` 은 내용이 바뀌었다(이제 상태머신 포함).
 
 ```
- M .claude/plans/animbp-automation-phase1.md                 ("Phase 3 결과" 절)
- M .claude/plans/animbp-automation-handoff-phase3.md         (§1·§7·§8·§10·§13·§14·§17 갱신)
+ M .claude/plans/animbp-automation-phase1.md                 ("Phase 4 결과" 절)
+ M .claude/plans/animbp-automation-handoff-phase3.md         (§1·§9·§10·§13·§17·최종 지시 갱신)
  M Content/Animation/Test/ABP_McpTest.uasset
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpGraphInspector.{h,cpp}
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpGraphMutator.{h,cpp}
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpOperations.{h,cpp}
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpGraphInspector.{h,cpp}   (state_machines 뷰)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpGraphMutator.{h,cpp}     (상태머신 함수 · 통지 없는 링크 해제)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpOperations.{h,cpp}       (op 4종 · 전이 연쇄 삭제)
  M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools_Graph.cpp
  M Tools/mcp/anim_graph_mcp/server.py
-?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpPropertyRules.{h,cpp}
-?? Tools/mcp/phase3_test.py
-?? Tools/mcp/phase3_state.json   (임시)
+?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpTransitionRule.{h,cpp}
+?? Tools/mcp/phase4_test.py
+?? Tools/mcp/debug_dump_rules.py
+?? Tools/mcp/phase4_state.json   (임시)
 ```
 
-커밋 메시지 초안: `Feat: AnimGraph MCP Phase 3 — 범용 AnimGraph 편집 op 8종·허용 목록·되돌리기 저널·revision 프로퍼티 포함`
+커밋 메시지 초안: `Feat: AnimGraph MCP Phase 4 — State Machine op 4종·Transition Rule AST 생성기·state_machines 뷰`
 
 ---
 
-### 최종 지시 (새 세션용 — Phase 4)
+### 최종 지시 (새 세션용 — Phase 5)
 
-Phase 4(State Machine) 를 수행한다. 먼저 이 문서 §9 와 phase1 문서 §B-4(State Machine 계층)·§B-5(Transition Rule 표현식)·§F Phase 4·"Phase 3 결과"(실측 엔진 동작 3건)를 읽고, 현재 코드(`Core/AnimMcpOperations.cpp` 의 되돌리기 저널 패턴, `Core/AnimMcpGraphMutator.cpp`, `Core/AnimMcpPropertyRules.cpp`)를 훑는다. 새 op(`add_state`·`add_transition`·`set_transition_rule`·`connect_entry` 등)는 같은 저널 패턴으로 추가하고, 상태 내부 그래프 편집은 기존 op 를 `graph` 인자로 BoundGraph 에 적용한다. **첫 실측 항목**: float 변수 핀 → double 함수 핀 연결 허용 여부(§9 ❓). `set_transition_rule` 의 AST 스키마와 `call` 화이트리스트 범위는 구현 전에 사용자와 확정한다. 각 단계 끝에 빌드(두 구성)·`phase4_test.py`·에디터 재시작 재조회를 통과시키고 phase1 문서에 "Phase 4 결과" 절을 남긴다.
+Phase 5(실제 캐릭터 적용) 를 수행한다. 먼저 이 문서 §3(시나리오·범위)·§8·§9 와 phase1 문서 §A-4(애셋 현황)·§F Phase 5·"Phase 3/4 결과"(실측 엔진 동작)를 읽고, `get_anim_graph_structure(ABP_Hero_Base, depth=-1)` 로 운영 애셋의 현재 구조(상태머신 Locomotions · 상태 11 · 전이 12 · Linked Layer 0 · 바인딩 0)를 덤프해 **무엇이 이미 있고 무엇을 추가할지** 먼저 정리한다. 작업은 **복제본**에서만 — 복제 수단(`duplicate_animation_blueprint` Tool 추가 vs 에디터에서 사용자가 복제)과 BlendSpace(기존 `BS_Hero_Locomotion1D` 재사용 vs `create_blendspace` 구현)는 **구현 전에 사용자와 확정**한다. 완료 기준은 복제본에서 Free Locomotion · Jump · Attack 이 컴파일 0 에러로 구성되고, 원본과 복제본의 structure diff 를 사용자가 검토한 뒤에만 원본에 적용한다. strafe 는 보류 유지(§3).

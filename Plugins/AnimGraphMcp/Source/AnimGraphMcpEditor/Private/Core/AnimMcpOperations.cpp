@@ -1,12 +1,21 @@
 #include "AnimMcpOperations.h"
 
 #include "AnimGraphNode_Base.h"
+#include "AnimGraphNode_TransitionResult.h"
 #include "AnimMcpAssetResolver.h"
 #include "AnimMcpCompiler.h"
 #include "AnimMcpGraphInspector.h"
 #include "AnimMcpGraphMutator.h"
 #include "AnimMcpLog.h"
 #include "AnimMcpPropertyRules.h"
+#include "AnimMcpTransitionRule.h"
+#include "AnimStateEntryNode.h"
+#include "AnimStateNode.h"
+#include "AnimStateNodeBase.h"
+#include "AnimStateTransitionNode.h"
+#include "AnimationStateMachineGraph.h"
+#include "AnimationTransitionGraph.h"
+#include "EdGraphSchema_K2.h"
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimationAsset.h"
 #include "Bridge/AnimMcpTypes.h"
@@ -45,7 +54,10 @@ namespace AnimMcpOperations
 			return Out;
 		}
 
-		/** 스냅샷 복원 — 현재 링크를 다 끊고 기록된 상대와 다시 잇는다. MakeLinkTo 는 양방향이라 상대 핀의 LinkedTo 도 함께 맞는다 */
+		/**
+		 * 스냅샷 복원 — 현재 링크를 통지 없이 다 끊고 기록된 상대와 다시 잇는다. MakeLinkTo 는 양방향이라 상대 핀의 LinkedTo 도 함께 맞는다.
+		 * 통지 없이: 전이 노드는 링크 0 통지에서 스스로 DestroyNode 하므로(AnimStateTransitionNode.cpp:323) 롤백 중 연쇄를 막는다
+		 */
 		void RestorePin(const FPinLinks& Snapshot)
 		{
 			UEdGraphPin* Pin = Snapshot.Node ? Snapshot.Node->FindPin(Snapshot.Pin) : nullptr;
@@ -54,7 +66,15 @@ namespace AnimMcpOperations
 				return;
 			}
 			Snapshot.Node->Modify();
-			Pin->BreakAllPinLinks(/*bNotifyNodes*/ true);
+			const TArray<UEdGraphPin*> Current = Pin->LinkedTo;
+			for (UEdGraphPin* Other : Current)
+			{
+				if (Other && Other->GetOwningNodeUnchecked())
+				{
+					Other->GetOwningNodeUnchecked()->Modify();
+				}
+				Pin->BreakLinkTo(Other);
+			}
 			for (const TPair<UEdGraphNode*, FName>& Other : Snapshot.Linked)
 			{
 				UEdGraphPin* OtherPin = Other.Key ? Other.Key->FindPin(Other.Value) : nullptr;
@@ -364,6 +384,78 @@ namespace AnimMcpOperations
 
 		const TCHAR* DeferredNote = TEXT("target node is created earlier in this batch; full check happens at apply");
 
+		/** ref 정의를 등록 (add_node · add_state · add_transition 공통). 중복이면 false */
+		bool RegisterPendingRef(FBatchState& State, const FOperation& Op, UClass* NodeClass, FAnimMcpError& OutError)
+		{
+			if (Op.Ref.IsEmpty())
+			{
+				return true;
+			}
+			if (State.PendingRefClasses.Contains(Op.Ref) || State.Refs.Contains(Op.Ref))
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("ref '%s' is defined twice in this batch"), *Op.Ref));
+				return false;
+			}
+			State.PendingRefClasses.Add(Op.Ref, NodeClass);
+			return true;
+		}
+
+		//~ State Machine 인자 해석
+
+		/** {sm:{node|ref}} 또는 {graph:"guid"} → 상태머신 그래프. 미생성 ref 면 bOutPending */
+		UAnimationStateMachineGraph* ResolveStateMachine(FBatchState& State, const FOperation& Op, bool& bOutPending, FAnimMcpError& OutError)
+		{
+			bOutPending = false;
+			FString GraphGuid;
+			if (Op.Json->TryGetStringField(TEXT("graph"), GraphGuid) && !GraphGuid.IsEmpty())
+			{
+				UEdGraph* Graph = AnimMcpGraphMutator::FindGraph(State.Blueprint, GraphGuid, OutError);
+				return Graph ? AnimMcpGraphMutator::AsStateMachineGraph(Graph, OutError) : nullptr;
+			}
+			const TSharedPtr<FJsonValue> SM = Op.Json->TryGetField(TEXT("sm"));
+			if (!SM.IsValid())
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("%s requires 'sm' {node|ref} (state machine node) or 'graph' (state machine graph guid)"), *Op.Op));
+				return nullptr;
+			}
+			UEdGraphNode* Node = ResolveNodeRef(State, SM, bOutPending, OutError);
+			if (!Node)
+			{
+				return nullptr;
+			}
+			return AnimMcpGraphMutator::ResolveStateMachineGraph(Node, OutError);
+		}
+
+		/** {ref:"x"} 참조가 미생성일 때 그 클래스 (Validate 전용) */
+		const UClass* PendingClassOf(FBatchState& State, const TSharedPtr<FJsonValue>& Value)
+		{
+			FString Ref;
+			if (Value.IsValid() && Value->Type == EJson::Object && Value->AsObject()->TryGetStringField(TEXT("ref"), Ref))
+			{
+				return State.PendingRefClasses.FindRef(Ref);
+			}
+			return nullptr;
+		}
+
+		bool IsStateClassName(const UClass* Class)
+		{
+			for (const UClass* C = Class; C; C = C->GetSuperClass())
+			{
+				if (C->GetName() == TEXT("AnimStateNodeBase")) { return true; }
+			}
+			return false;
+		}
+
+		FVector2D ReadPos(const FOperation& Op, const FVector2D& Default)
+		{
+			const TArray<TSharedPtr<FJsonValue>>* Pos = nullptr;
+			if (Op.Json->TryGetArrayField(TEXT("pos"), Pos) && Pos && Pos->Num() == 2)
+			{
+				return FVector2D((*Pos)[0]->AsNumber(), (*Pos)[1]->AsNumber());
+			}
+			return Default;
+		}
+
 		/**
 		 * 공통 검증 — Preview 본체. Apply 도 적용 전에 같은 함수를 돌린다.
 		 * 미생성 ref 를 가리키는 op 는 클래스 수준에서 할 수 있는 검증만 하고 나머지는 apply 로 미룬다 (note)
@@ -380,22 +472,155 @@ namespace AnimMcpOperations
 				if (Op.Op == TEXT("add_node"))
 				{
 					FAddNodeArgs Args;
-					bOk = ResolveAddNode(State, Op, Args, Context, Error);
+					bOk = ResolveAddNode(State, Op, Args, Context, Error) && RegisterPendingRef(State, Op, Args.NodeClass, Error);
 					if (bOk)
 					{
 						++Counts.Create;
-						if (!Op.Ref.IsEmpty())
+					}
+				}
+				else if (Op.Op == TEXT("add_state"))
+				{
+					bool bPending = false;
+					UAnimationStateMachineGraph* SMGraph = ResolveStateMachine(State, Op, bPending, Error);
+					bOk = (SMGraph != nullptr) || bPending;
+					if (bOk && SMGraph)
+					{
+						// 이름 중복은 그래프에 있는 상태 이름과만 비교 가능 — 같은 배치의 다른 add_state 와의 중복은 apply 가 잡는다
+						FString Name;
+						Op.Json->TryGetStringField(TEXT("name"), Name);
+						for (UEdGraphNode* Existing : SMGraph->Nodes)
 						{
-							if (State.PendingRefClasses.Contains(Op.Ref) || State.Refs.Contains(Op.Ref))
+							if (UAnimStateNodeBase* S = Cast<UAnimStateNodeBase>(Existing); S && !Name.IsEmpty() && S->GetStateName() == Name && !Cast<UAnimStateTransitionNode>(S))
 							{
 								bOk = false;
-								Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("ref '%s' is defined twice in this batch"), *Op.Ref));
-							}
-							else
-							{
-								State.PendingRefClasses.Add(Op.Ref, Args.NodeClass);
+								Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("State name '%s' already exists in this state machine"), *Name));
+								break;
 							}
 						}
+					}
+					bOk = bOk && RegisterPendingRef(State, Op, UAnimStateNode::StaticClass(), Error);
+					if (bOk)
+					{
+						++Counts.Create;
+						Note = bPending ? DeferredNote : nullptr;
+					}
+				}
+				else if (Op.Op == TEXT("add_transition"))
+				{
+					bool bFromPending = false, bToPending = false;
+					UEdGraphNode* From = ResolveNodeRef(State, Op.Json->TryGetField(TEXT("from")), bFromPending, Error);
+					UEdGraphNode* To = (From || bFromPending) ? ResolveNodeRef(State, Op.Json->TryGetField(TEXT("to")), bToPending, Error) : nullptr;
+					bOk = (From || bFromPending) && (To || bToPending);
+					if (bOk && From && To)
+					{
+						bOk = AnimMcpGraphMutator::ValidateTransitionEndpoints(From, To, Error);
+					}
+					else if (bOk)
+					{
+						const UClass* FromClass = From ? From->GetClass() : PendingClassOf(State, Op.Json->TryGetField(TEXT("from")));
+						const UClass* ToClass = To ? To->GetClass() : PendingClassOf(State, Op.Json->TryGetField(TEXT("to")));
+						if (!IsStateClassName(FromClass) || !IsStateClassName(ToClass) || (FromClass && FromClass->GetName() == TEXT("AnimStateTransitionNode")) || (ToClass && ToClass->GetName() == TEXT("AnimStateTransitionNode")))
+						{
+							bOk = false;
+							Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("add_transition endpoints must be state nodes"));
+						}
+						Note = DeferredNote;
+					}
+					if (bOk && Op.Json->HasField(TEXT("rule")))
+					{
+						FString Canonical;
+						bool bAuto = false;
+						double Trigger = -1.0;
+						bOk = AnimMcpTransitionRule::Validate(State.Blueprint, Op.Json->HasTypedField<EJson::Object>(TEXT("rule")) ? Op.Json->GetObjectField(TEXT("rule")) : nullptr, Canonical, bAuto, Trigger, Error);
+					}
+					if (bOk && Op.Json->HasTypedField<EJson::Object>(TEXT("properties")))
+					{
+						for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Op.Json->GetObjectField(TEXT("properties"))->Values)
+						{
+							if (!AnimMcpGraphMutator::ValidatePropertyOnClass(UAnimStateTransitionNode::StaticClass(), FName(*Pair.Key), Pair.Value, Error))
+							{
+								bOk = false;
+								break;
+							}
+						}
+					}
+					bOk = bOk && RegisterPendingRef(State, Op, UAnimStateTransitionNode::StaticClass(), Error);
+					if (bOk)
+					{
+						++Counts.Create;
+					}
+				}
+				else if (Op.Op == TEXT("set_entry_state"))
+				{
+					bool bSMPending = false, bStatePending = false;
+					UAnimationStateMachineGraph* SMGraph = ResolveStateMachine(State, Op, bSMPending, Error);
+					UEdGraphNode* StateNode = (SMGraph || bSMPending) ? ResolveNodeRef(State, Op.Json->TryGetField(TEXT("state")), bStatePending, Error) : nullptr;
+					bOk = (SMGraph || bSMPending) && (StateNode || bStatePending);
+					if (bOk && SMGraph && StateNode)
+					{
+						bOk = Cast<UAnimStateNodeBase>(StateNode) && !Cast<UAnimStateTransitionNode>(StateNode) && StateNode->GetGraph() == SMGraph;
+						if (!bOk)
+						{
+							Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_entry_state: 'state' must be a state node inside the state machine"));
+						}
+					}
+					else if (bOk)
+					{
+						Note = DeferredNote;
+					}
+					if (bOk)
+					{
+						++Counts.Connect;
+					}
+				}
+				else if (Op.Op == TEXT("set_transition_rule"))
+				{
+					bool bPending = false;
+					UClass* PendingClass = nullptr;
+					UEdGraphNode* Node = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
+					const UClass* NodeClass = Node ? Node->GetClass() : PendingClass;
+					if (NodeClass)
+					{
+						if (NodeClass->GetName() != TEXT("AnimStateTransitionNode"))
+						{
+							Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("set_transition_rule target must be a transition node, got %s"), *NodeClass->GetName()));
+						}
+						else
+						{
+							FString Canonical;
+							bool bAuto = false;
+							double Trigger = -1.0;
+							bOk = AnimMcpTransitionRule::Validate(State.Blueprint, Op.Json->HasTypedField<EJson::Object>(TEXT("rule")) ? Op.Json->GetObjectField(TEXT("rule")) : nullptr, Canonical, bAuto, Trigger, Error);
+							if (bOk && Node)
+							{
+								const AnimMcpTransitionRule::FSource Existing = AnimMcpTransitionRule::ReadSource(Cast<UAnimStateTransitionNode>(Node)->BoundGraph);
+								if (Existing.bHasSource && Existing.Canonical == Canonical && !Existing.bModified)
+								{
+									Note = TEXT("rule is already applied with the same source; apply will be a no-op");
+								}
+								else if (!Existing.bHasSource)
+								{
+									TArray<UEdGraphNode*> RuleNodes;
+									AnimMcpTransitionRule::CollectRuleNodes(Cast<UAnimStateTransitionNode>(Node)->BoundGraph, RuleNodes);
+									if (RuleNodes.Num() > 0)
+									{
+										Note = TEXT("existing rule graph was not generated by this tool; it will be replaced");
+									}
+								}
+								else if (Existing.bModified)
+								{
+									Note = TEXT("existing generated rule was edited by hand; it will be replaced");
+								}
+							}
+							else if (bOk)
+							{
+								Note = DeferredNote;
+							}
+						}
+					}
+					if (bOk)
+					{
+						++Counts.Modify;
 					}
 				}
 				else if (Op.Op == TEXT("connect"))
@@ -437,6 +662,16 @@ namespace AnimMcpOperations
 						if (bOk)
 						{
 							State.Removed.Add(Node);
+							// 상태를 지우면 전이도 함께 사라진다 — 뒤 op 가 그 전이를 가리키면 거부
+							if (Cast<UAnimStateNodeBase>(Node) && !Cast<UAnimStateTransitionNode>(Node))
+							{
+								TArray<UEdGraphNode*> Transitions;
+								AnimMcpGraphMutator::CollectLinkedTransitions(Node, Transitions);
+								for (UEdGraphNode* T : Transitions)
+								{
+									State.Removed.Add(T);
+								}
+							}
 						}
 					}
 					else if (bPending)
@@ -569,7 +804,7 @@ namespace AnimMcpOperations
 				}
 				else
 				{
-					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s' (supported: add_node, connect, disconnect, remove_node, set_property, set_asset, expose_pin, add_blend_pose)"), *Op.Op));
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s' (supported: add_node, connect, disconnect, remove_node, set_property, set_asset, expose_pin, add_blend_pose, add_state, add_transition, set_entry_state, set_transition_rule)"), *Op.Op));
 				}
 
 				bAllOk &= bOk;
@@ -593,16 +828,7 @@ namespace AnimMcpOperations
 				return false;
 			}
 			// 만든 노드는 되돌릴 때 통째로 지운다 — 그 위의 enum·properties 는 별도 되돌리기가 필요 없다
-			State.Undo.Add([Node]()
-			{
-				if (UEdGraph* Graph = Node->GetGraph())
-				{
-					Graph->Modify();
-				}
-				Node->Modify();
-				Node->BreakAllNodeLinks();
-				Node->DestroyNode();
-			});
+			State.Undo.Add([Node]() { AnimMcpGraphMutator::DestroyNodeQuietly(Node); });
 			if (!Op.Ref.IsEmpty())
 			{
 				State.Refs.Add(Op.Ref, Node);
@@ -690,27 +916,270 @@ namespace AnimMcpOperations
 			{
 				return false;
 			}
-			UEdGraph* Graph = Node->GetGraph();
-			TArray<FPinLinks> Links;
-			for (UEdGraphPin* Pin : Node->Pins)
+			// 상태 노드를 지우면 그 전이도 함께 사라진다 (에디터와 같은 결과). 전이를 먼저 분리해야 상태의 링크를 끊어도 전이가 자살하지 않는다
+			TArray<UEdGraphNode*> Targets;
+			if (Cast<UAnimStateNodeBase>(Node) && !Cast<UAnimStateTransitionNode>(Node))
 			{
-				if (Pin && Pin->LinkedTo.Num() > 0)
+				AnimMcpGraphMutator::CollectLinkedTransitions(Node, Targets);
+			}
+			Targets.Add(Node);
+
+			for (UEdGraphNode* Target : Targets)
+			{
+				UEdGraph* Graph = Target->GetGraph();
+				TArray<FPinLinks> Links;
+				for (UEdGraphPin* Pin : Target->Pins)
 				{
-					Links.Add(SnapshotPin(Pin));
+					if (Pin && Pin->LinkedTo.Num() > 0)
+					{
+						Links.Add(SnapshotPin(Pin));
+					}
+				}
+				AnimMcpGraphMutator::DetachNode(Target);
+				State.Removed.Add(Target);
+				State.Detached.Add(Target);
+				State.Undo.Add([Graph, Target, Links]()
+				{
+					AnimMcpGraphMutator::ReattachNode(Graph, Target);
+					for (const FPinLinks& L : Links)
+					{
+						RestorePin(L);
+					}
+				});
+			}
+			return true;
+		}
+
+		//~ State Machine (Phase 4)
+
+		bool ApplyAddState(FBatchState& State, const FOperation& Op, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UAnimationStateMachineGraph* SMGraph = ResolveStateMachine(State, Op, bPending, Error);
+			if (!SMGraph)
+			{
+				return false;
+			}
+			FString Name;
+			Op.Json->TryGetStringField(TEXT("name"), Name);
+			UAnimStateNode* Node = AnimMcpGraphMutator::AddState(SMGraph, Name, ReadPos(Op, FVector2D(0, 0)), Error);
+			if (!Node)
+			{
+				return false;
+			}
+			// UAnimStateNode::DestroyNode 가 BoundGraph 도 제거한다 (AnimStateNode.cpp:158-170)
+			State.Undo.Add([Node]() { AnimMcpGraphMutator::DestroyNodeQuietly(Node); });
+			if (!Op.Ref.IsEmpty())
+			{
+				State.Refs.Add(Op.Ref, Node);
+			}
+			Entry->SetStringField(TEXT("node_guid"), Node->NodeGuid.ToString());
+			Entry->SetStringField(TEXT("name"), Node->GetStateName());
+			Entry->SetStringField(TEXT("bound_graph_guid"), Node->BoundGraph ? Node->BoundGraph->GraphGuid.ToString() : FString());
+			return true;
+		}
+
+		/** 전이 규칙 교체 — 기존 규칙 노드 분리 보관 → 생성 → automatic 플래그. 되돌리기는 생성 노드 제거 + 보관 노드 복귀 + 플래그·Result 핀 기본값 복원 */
+		bool ReplaceTransitionRule(FBatchState& State, UAnimStateTransitionNode* Transition, const TSharedPtr<FJsonObject>& Rule, const FString& Canonical, bool bAutomatic, double TriggerTime, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
+		{
+			UAnimationTransitionGraph* Graph = Cast<UAnimationTransitionGraph>(Transition->BoundGraph);
+			UAnimGraphNode_TransitionResult* Result = Graph ? Graph->GetResultNode() : nullptr;
+			if (!Graph || !Result)
+			{
+				Error = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("transition has no rule graph"));
+				return false;
+			}
+
+			// 멱등 — 같은 원문이고 사람이 손대지 않았으면 아무것도 바꾸지 않는다
+			const AnimMcpTransitionRule::FSource Existing = AnimMcpTransitionRule::ReadSource(Graph);
+			if (Existing.bHasSource && Existing.Canonical == Canonical && !Existing.bModified
+				&& Transition->bAutomaticRuleBasedOnSequencePlayerInState == bAutomatic
+				&& (!bAutomatic || FMath::IsNearlyEqual(Transition->AutomaticRuleTriggerTime, static_cast<float>(TriggerTime))))
+			{
+				Entry->SetBoolField(TEXT("unchanged"), true);
+				return true;
+			}
+
+			// 1) 기존 규칙 노드(Result·주석 제외)와 도구 주석을 분리 보관
+			TArray<UEdGraphNode*> Old;
+			for (UEdGraphNode* N : Graph->Nodes)
+			{
+				if (N && !N->IsA<UAnimGraphNode_TransitionResult>())
+				{
+					Old.Add(N);
 				}
 			}
-			AnimMcpGraphMutator::DetachNode(Node);
-			State.Removed.Add(Node);
-			State.Detached.Add(Node);
-			State.Undo.Add([Graph, Node, Links]()
+			UEdGraphPin* ResultPin = Result->FindPin(TEXT("bCanEnterTransition"), EGPD_Input);
+			const FPinLinks ResultBefore = ResultPin ? SnapshotPin(ResultPin) : FPinLinks();
+			const FString ResultDefaultBefore = ResultPin ? ResultPin->DefaultValue : FString();
+			const bool bAutoBefore = Transition->bAutomaticRuleBasedOnSequencePlayerInState;
+			const float TriggerBefore = Transition->AutomaticRuleTriggerTime;
+
+			TArray<TPair<UEdGraphNode*, TArray<FPinLinks>>> OldLinks;
+			for (UEdGraphNode* N : Old)
 			{
-				AnimMcpGraphMutator::ReattachNode(Graph, Node);
-				for (const FPinLinks& L : Links)
+				TArray<FPinLinks> Links;
+				for (UEdGraphPin* Pin : N->Pins)
 				{
-					RestorePin(L);
+					if (Pin && Pin->LinkedTo.Num() > 0)
+					{
+						Links.Add(SnapshotPin(Pin));
+					}
 				}
+				OldLinks.Emplace(N, Links);
+				AnimMcpGraphMutator::DetachNode(N);
+				State.Removed.Add(N);
+				State.Detached.Add(N);
+			}
+
+			// 2) 생성 + 플래그
+			TArray<UEdGraphNode*> Created;
+			Transition->Modify();
+			Transition->bAutomaticRuleBasedOnSequencePlayerInState = bAutomatic;
+			if (bAutomatic)
+			{
+				Transition->AutomaticRuleTriggerTime = static_cast<float>(TriggerTime);
+			}
+			const bool bBuilt = AnimMcpTransitionRule::Build(Transition, Rule, Canonical, bAutomatic, Created, Error);
+
+			// 3) 되돌리기 (생성 실패했어도 부분 생성분이 있으므로 항상 등록)
+			State.Undo.Add([Graph, Transition, Created, OldLinks, ResultBefore, ResultDefaultBefore, bAutoBefore, TriggerBefore, ResultPinNode = ResultPin ? ResultPin->GetOwningNode() : nullptr]()
+			{
+				for (int32 i = Created.Num() - 1; i >= 0; --i)
+				{
+					AnimMcpGraphMutator::DestroyNodeQuietly(Created[i]);
+				}
+				for (const TPair<UEdGraphNode*, TArray<FPinLinks>>& Pair : OldLinks)
+				{
+					AnimMcpGraphMutator::ReattachNode(Graph, Pair.Key);
+				}
+				for (const TPair<UEdGraphNode*, TArray<FPinLinks>>& Pair : OldLinks)
+				{
+					for (const FPinLinks& L : Pair.Value)
+					{
+						RestorePin(L);
+					}
+				}
+				if (ResultPinNode)
+				{
+					RestorePin(ResultBefore);
+					if (UEdGraphPin* Pin = ResultPinNode->FindPin(TEXT("bCanEnterTransition"), EGPD_Input))
+					{
+						GetDefault<UEdGraphSchema_K2>()->TrySetDefaultValue(*Pin, ResultDefaultBefore);
+					}
+				}
+				Transition->Modify();
+				Transition->bAutomaticRuleBasedOnSequencePlayerInState = bAutoBefore;
+				Transition->AutomaticRuleTriggerTime = TriggerBefore;
 			});
+			if (!bBuilt)
+			{
+				return false;
+			}
+			Entry->SetStringField(TEXT("rule_source"), Canonical);
+			Entry->SetNumberField(TEXT("rule_nodes"), Created.Num() - 1); // 주석 제외
+			Entry->SetNumberField(TEXT("replaced_nodes"), Old.Num());
 			return true;
+		}
+
+		bool ApplyAddTransition(FBatchState& State, const FOperation& Op, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UEdGraphNode* From = ResolveNodeRef(State, Op.Json->TryGetField(TEXT("from")), bPending, Error);
+			UEdGraphNode* To = From ? ResolveNodeRef(State, Op.Json->TryGetField(TEXT("to")), bPending, Error) : nullptr;
+			if (!From || !To)
+			{
+				return false;
+			}
+			UAnimStateTransitionNode* Transition = AnimMcpGraphMutator::AddTransition(From, To, Error);
+			if (!Transition)
+			{
+				return false;
+			}
+			// UAnimStateTransitionNode::DestroyNode 가 BoundGraph(규칙 그래프) 도 제거한다 — 그 안에 만든 규칙 노드도 함께
+			State.Undo.Add([Transition]() { AnimMcpGraphMutator::DestroyNodeQuietly(Transition); });
+			if (!Op.Ref.IsEmpty())
+			{
+				State.Refs.Add(Op.Ref, Transition);
+			}
+			Entry->SetStringField(TEXT("node_guid"), Transition->NodeGuid.ToString());
+			Entry->SetStringField(TEXT("rule_graph_guid"), Transition->BoundGraph ? Transition->BoundGraph->GraphGuid.ToString() : FString());
+
+			if (Op.Json->HasTypedField<EJson::Object>(TEXT("properties")))
+			{
+				for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Op.Json->GetObjectField(TEXT("properties"))->Values)
+				{
+					FString OldText;
+					if (!AnimMcpGraphMutator::SetPropertyFromJson(Transition, FName(*Pair.Key), Pair.Value, OldText, Error))
+					{
+						return false;
+					}
+				}
+			}
+			if (Op.Json->HasTypedField<EJson::Object>(TEXT("rule")))
+			{
+				FString Canonical;
+				bool bAuto = false;
+				double Trigger = -1.0;
+				const TSharedPtr<FJsonObject> Rule = Op.Json->GetObjectField(TEXT("rule"));
+				if (!AnimMcpTransitionRule::Validate(State.Blueprint, Rule, Canonical, bAuto, Trigger, Error))
+				{
+					return false;
+				}
+				if (!ReplaceTransitionRule(State, Transition, Rule, Canonical, bAuto, Trigger, Entry, Error))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+
+		bool ApplySetEntryState(FBatchState& State, const FOperation& Op, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UAnimationStateMachineGraph* SMGraph = ResolveStateMachine(State, Op, bPending, Error);
+			UEdGraphNode* StateNode = SMGraph ? ResolveNodeRef(State, Op.Json->TryGetField(TEXT("state")), bPending, Error) : nullptr;
+			if (!SMGraph || !StateNode)
+			{
+				return false;
+			}
+			UEdGraphPin* EntryOut = SMGraph->EntryNode ? SMGraph->EntryNode->GetOutputPin() : nullptr;
+			if (!EntryOut)
+			{
+				Error = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("state machine has no entry node"));
+				return false;
+			}
+			const FPinLinks EntryBefore = SnapshotPin(EntryOut);
+			if (!AnimMcpGraphMutator::SetEntryState(SMGraph, StateNode, Error))
+			{
+				return false;
+			}
+			State.Undo.Add([EntryBefore]() { RestorePin(EntryBefore); });
+			return true;
+		}
+
+		bool ApplySetTransitionRule(FBatchState& State, const FOperation& Op, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UClass* PendingClass = nullptr;
+			UAnimStateTransitionNode* Transition = Cast<UAnimStateTransitionNode>(ResolveOpTarget(State, Op, bPending, PendingClass, Error));
+			if (!Transition)
+			{
+				if (!Error.IsSet())
+				{
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_transition_rule target is not a transition node"));
+				}
+				return false;
+			}
+			const TSharedPtr<FJsonObject> Rule = Op.Json->HasTypedField<EJson::Object>(TEXT("rule")) ? Op.Json->GetObjectField(TEXT("rule")) : nullptr;
+			FString Canonical;
+			bool bAuto = false;
+			double Trigger = -1.0;
+			if (!AnimMcpTransitionRule::Validate(State.Blueprint, Rule, Canonical, bAuto, Trigger, Error))
+			{
+				return false;
+			}
+			return ReplaceTransitionRule(State, Transition, Rule, Canonical, bAuto, Trigger, Entry, Error);
 		}
 
 		bool ApplySetProperty(FBatchState& State, const FOperation& Op, FAnimMcpError& Error)
@@ -861,8 +1330,8 @@ namespace AnimMcpOperations
 				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("operations[%d] has no 'op'"), Index));
 				return false;
 			}
-			// add_node 의 ref 만 "정의" 다. 다른 op 의 ref 는 "참조" 이므로 Op.Ref 에 두지 않는다 (중복 정의 검사와 섞이지 않게)
-			if (Op.Op == TEXT("add_node"))
+			// 노드를 만드는 op 의 ref 만 "정의" 다. 다른 op 의 ref 는 "참조" 이므로 Op.Ref 에 두지 않는다 (중복 정의 검사와 섞이지 않게)
+			if (Op.Op == TEXT("add_node") || Op.Op == TEXT("add_state") || Op.Op == TEXT("add_transition"))
 			{
 				Op.Json->TryGetStringField(TEXT("ref"), Op.Ref);
 			}
@@ -954,6 +1423,10 @@ namespace AnimMcpOperations
 				else if (Op.Op == TEXT("set_asset"))      { bOk = ApplySetAsset(State, Op, Context, Error); }
 				else if (Op.Op == TEXT("expose_pin"))     { bOk = ApplyExposePin(State, Op, Error); }
 				else if (Op.Op == TEXT("add_blend_pose")) { bOk = ApplyAddBlendPose(State, Op, Error); }
+				else if (Op.Op == TEXT("add_state"))      { bOk = ApplyAddState(State, Op, Entry, Error); }
+				else if (Op.Op == TEXT("add_transition")) { bOk = ApplyAddTransition(State, Op, Entry, Error); }
+				else if (Op.Op == TEXT("set_entry_state")) { bOk = ApplySetEntryState(State, Op, Error); }
+				else if (Op.Op == TEXT("set_transition_rule")) { bOk = ApplySetTransitionRule(State, Op, Entry, Error); }
 				else
 				{
 					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s'"), *Op.Op));

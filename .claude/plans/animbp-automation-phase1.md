@@ -658,6 +658,34 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 
 ---
 
+## Phase 4 결과 (2026-10-15, 브랜치 `feat/ai_auto_ABP`)
+
+§F Phase 4 전부 구현 (BlendSpace 생성 제외 — Phase 5 로). `Tools/mcp/phase4_test.py` 7개 절 **PASS** (운영 애셋 뷰 · 상태머신 구성 · 뷰 · 멱등/교체/call · 거부 9종 · 롤백 · 재시작 재조회) + `phase3_test.py` 회귀 PASS. Development · DebugGame 빌드 성공, 경고 0.
+
+**사용자 확정 결정 (구현 전, 2026-10-15)**: 규칙 입력 = **JSON 트리 AST** · `call` = **§9 화이트리스트**(BlueprintPure ∧ `HasFunctionBlueprintThreadSafeMetaData` ∧ 소유 클래스 ∈ {AnimInstance 사슬, UKismetMathLibrary}) · 상태머신 조회 = **structure 응답 확장** `state_machines[]` (새 Tool 없음 → 재시작 불필요).
+
+**❓ 해소 — float 변수 핀 → double 함수 핀**: 소스에서 바로 확인. `UEdGraphSchema_K2::ArePinTypesCompatible` (EdGraphSchema_K2.cpp:4533-4537) 는 PC_Real 이면 float/double 무관하게 항상 호환이고 바이트코드에 암시 변환을 넣는다. 실측: `Speed`(float) → `Greater_DoubleDouble.A` 연결·컴파일 0 에러. 변환 노드 규칙 불필요.
+
+| 산출물 | 위치 |
+| :--- | :--- |
+| 규칙 생성기 | `Core/AnimMcpTransitionRule.{h,cpp}` (신규) — `Validate`(타입·화이트리스트·정규화 JSON) · `Build`(AST → UK2Node_VariableGet / UK2Node_CallFunction, (op×타입) 표, 깊이별 배치) · `ReadSource`/`HashRuleGraph`(주석 노드에서 원문 복원 + 사람 편집 감지) |
+| Mutator | `AddState`(Creator → BoundGraph 자동 → 이름 검증기 → `OnRenameNode`) · `AddTransition`(Creator → `CreateConnections`) · `SetEntryState` · `CollectLinkedTransitions` · **`BreakAllLinksQuietly`/`DestroyNodeQuietly`** |
+| Operations | op 4종 `add_state` · `add_transition`(+`properties`·`rule` 인라인) · `set_entry_state` · `set_transition_rule`. `remove_node` 가 상태를 지우면 전이도 연쇄 분리·삭제 |
+| Inspector | `state_machines[{graph_guid, node_guid, entry_state, states[{name, kind, bound_graph_guid, in/out transitions}], transitions[{from, to, crossfade, priority, blend_mode, automatic, rule_graph_guid, rule_generated, rule_source, rule_modified, rule_node_count}]}]`, schema_version 1.1 |
+| 테스트 | `Tools/mcp/phase4_test.py` (+`--recheck`), 디버그 덤프 `Tools/mcp/debug_dump_rules.py` |
+
+**검증 수치**: 운영 애셋 `ABP_Hero_Base` 상태머신 1(Locomotions) · 상태 11(Alias 2 포함) · 전이 12, 전부 `rule_generated=false`(도구 미개입 표기). 테스트: 상태 3 · Entry · 전이 4 · 규칙 4종(var · compare(float>literal) · and/or/not 9노드 · automatic) 컴파일 0 에러. 같은 AST 재적용 `unchanged=true` 로 revision 동일(멱등). `call` FMax 로 교체 시 이전 노드 2 + 주석 1 분리. 7-op 배치(규칙 교체·Entry 변경·상태 추가·전이 추가·상태 삭제 연쇄·노드 추가) index 6 실패 → `rollback_verified=true`, 상태 3/전이 4/Entry/규칙 원문 전부 복원. Fall 삭제 → 전이 2개 연쇄 삭제 후 컴파일 0 에러.
+
+**실측으로 바로잡은 것 2건**
+- **전이 노드의 자살 통지** — `UAnimStateTransitionNode::PinConnectionListChanged` 는 자기 핀 링크가 0 이 되는 통지를 받으면 `DestroyNode` 한다 (AnimStateTransitionNode.cpp:323-337). `BreakAllPinLinks(true)`·`BreakAllNodeLinks`·`RemoveNode(bBreakAllLinks=true)` 는 상대 노드에 통지하므로, 상태를 분리 보관하면 전이가 즉시 사라져 롤백이 불가능해진다. 분리·복원·되돌리기 경로는 전부 `BreakLinkTo`(통지 없음) 로 끊고, 상태 삭제는 전이를 먼저 명시적으로 분리한다 (에디터와 같은 최종 결과).
+- **주석 노드 원문** — `UEdGraphNode_Comment::PostPlacedNewNode` 가 `NodeComment` 를 기본 "Comment" 로 되돌린다 (EdGraphNode_Comment.cpp:97). 원문은 `Finalize()` 뒤에 써야 한다. 첫 실행에서 `rule_source` 가 전부 null 로 나온 원인.
+
+**규칙 그래프 멱등의 구현**: 전체 재생성이라 노드 Guid 가 바뀌므로 "같은 AST 2회 → 같은 revision" 은 재생성으로는 성립하지 않는다. 대신 주석에 (원문, 생성 직후 그래프 해시) 를 두고, 원문이 같고 해시가 일치(사람이 손대지 않음)하면 **no-op** 으로 처리한다. 해시는 Guid 대신 (위치, 클래스, 함수/변수 이름, 핀 기본값, 인덱스 기반 링크) 로 계산해 재생성해도 같다.
+
+**Phase 5 착수 조건**: 본 결과 검토. 범위는 §F Phase 5 — `ABP_Hero_Base` **복제본**에서 Free Locomotion(`BS_Hero_Locomotion1D` + `Speed`) · Jump · Attack(Slot + LayeredBlendPerBone) 을 구성하고 diff 검토 후 원본 적용. 선행: `create_blendspace`(축 설정 API 조사) 또는 기존 BlendSpace 재사용 결정, 복제 Tool(`duplicate_animation_blueprint`) 필요 여부.
+
+---
+
 ## 부록 — 확인에 사용한 파일
 
 **프로젝트**: `AstralBreak.uproject`, `Source/AstralBreak.Build.cs`, `Source/AstralBreakEditor.Target.cs`, `Config/DefaultEngine.ini`, `Config/DefaultGame.ini`, `Source/AstralBreak/Animation/AstralAnimInstance.{h,cpp}`, `Tools/ue_exec.py`, `Tools/lib/ab_blueprint.py`, `.claude/settings.json`, `Content/Animation/**`, `Content/Characters/**`

@@ -7,6 +7,9 @@ class UAnimationAsset;
 class UAnimBlueprint;
 class UAnimGraphNode_Base;
 class UAnimGraphNode_AssetPlayerBase;
+class UAnimationStateMachineGraph;
+class UAnimStateNode;
+class UAnimStateTransitionNode;
 class UClass;
 class UEdGraph;
 class UEdGraphNode;
@@ -60,12 +63,39 @@ namespace AnimMcpGraphMutator
 	bool ValidateRemovable(UEdGraphNode* Node, FAnimMcpError& OutError);
 
 	/**
-	 * 분리 보관 (2026-10-15 결정) — Graph->RemoveNode(링크 끊기) 로 Nodes 배열에서만 빼고 객체는 유지한다.
-	 * 롤백은 ReattachNode, 배치 성공 확정은 FinalizeRemoval. 서브그래프(StateMachine)는 Finalize 때 DestroyNode 가 제거한다
+	 * 분리 보관 (2026-10-15 결정) — 링크를 통지 없이 끊고 Graph->RemoveNode 로 Nodes 배열에서만 빼며 객체는 유지한다.
+	 * 롤백은 ReattachNode, 배치 성공 확정은 FinalizeRemoval. 서브그래프(StateMachine·State·Transition)는 Finalize 때 DestroyNode 가 제거한다.
+	 * 통지 없이 끊는 이유: 전이 노드는 자기 핀 링크가 0 이 되는 통지를 받으면 스스로 DestroyNode 한다 — 보관 중엔 그 연쇄를 막는다
 	 */
+	void BreakAllLinksQuietly(UEdGraphNode* Node);
 	void DetachNode(UEdGraphNode* Node);
 	void ReattachNode(UEdGraph* Graph, UEdGraphNode* Node);
 	void FinalizeRemoval(UEdGraphNode* Node);
+	/** 이 배치가 만든 노드의 롤백 — 링크를 통지 없이 끊고 DestroyNode */
+	void DestroyNodeQuietly(UEdGraphNode* Node);
+
+	//~ State Machine (Phase 4)
+
+	/** StateMachine 노드 → 편집용 상태머신 그래프 (UAnimGraphNode_StateMachineBase::EditorStateMachineGraph) */
+	UAnimationStateMachineGraph* ResolveStateMachineGraph(UEdGraphNode* StateMachineNode, FAnimMcpError& OutError);
+	UAnimationStateMachineGraph* AsStateMachineGraph(UEdGraph* Graph, FAnimMcpError& OutError);
+
+	/** 상태 이름 검증 — 엔진 이름 검증기(중복·빈 이름·금지 문자). 빈 이름은 통과(자동 이름) */
+	bool ValidateStateName(UEdGraphNode* StateNode, const FString& Name, FAnimMcpError& OutError);
+
+	/** 상태 추가 — Creator → Finalize(BoundGraph 자동) → 이름 지정(OnRenameNode = BoundGraph 이름). 이름 거부 시 노드를 남기지 않고 null */
+	UAnimStateNode* AddState(UAnimationStateMachineGraph* Graph, const FString& Name, const FVector2D& Position, FAnimMcpError& OutError);
+
+	bool ValidateTransitionEndpoints(UEdGraphNode* From, UEdGraphNode* To, FAnimMcpError& OutError);
+
+	/** 전이 추가 — Creator → Finalize(BoundGraph+TransitionResult 자동) → CreateConnections(From, To). 에디터 드래그 연결과 같은 경로 */
+	UAnimStateTransitionNode* AddTransition(UEdGraphNode* From, UEdGraphNode* To, FAnimMcpError& OutError);
+
+	/** Entry → State. 스키마가 이전 Entry 연결을 끊는다 */
+	bool SetEntryState(UAnimationStateMachineGraph* Graph, UEdGraphNode* StateNode, FAnimMcpError& OutError);
+
+	/** 상태 노드에 연결된 전이 노드 전부 (remove_node 연쇄 — 에디터도 상태를 지우면 전이가 함께 사라진다) */
+	void CollectLinkedTransitions(UEdGraphNode* StateNode, TArray<UEdGraphNode*>& OutTransitions);
 
 	/**
 	 * 허용 목록 프로퍼티 설정 — ImportText. OutOldText 는 설정 전 값(ExportText) 으로 롤백에 쓴다.

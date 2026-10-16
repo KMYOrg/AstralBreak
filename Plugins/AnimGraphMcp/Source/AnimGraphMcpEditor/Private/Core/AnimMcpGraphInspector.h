@@ -4,6 +4,7 @@
 #include "Dom/JsonObject.h"
 
 class UAnimBlueprint;
+class UAnimationStateMachineGraph;
 class UEdGraph;
 class UEdGraphNode;
 class UEdGraphPin;
@@ -57,6 +58,13 @@ namespace AnimMcpGraphInspector
 	 * 연결은 출력 핀 쪽에서 한 번만 기록한다
 	 */
 	TSharedRef<FJsonObject> BuildGraphStructure(UAnimBlueprint* Blueprint, UEdGraph* Graph, int32 Depth, FAnimMcpContext& Context);
+
+	/**
+	 * 상태머신 뷰 (Phase 4) — structure 응답의 state_machines[] 항목:
+	 * graph_guid, node_guid(소유 StateMachine 노드), entry_state, states[{node_guid, name, kind(state|conduit|alias), bound_graph_guid, outgoing/incoming_transitions}],
+	 * transitions[{node_guid, from, to, priority_order, crossfade_duration, blend_mode, bidirectional, disabled, automatic, rule_graph_guid, rule_generated, rule_source, rule_modified, rule_node_count}]
+	 */
+	TSharedRef<FJsonObject> DescribeStateMachine(UAnimationStateMachineGraph* Graph);
 
 	UEdGraph* FindGraphByGuid(UAnimBlueprint* Blueprint, const FGuid& Guid);
 	UEdGraphNode* FindNodeByGuid(UAnimBlueprint* Blueprint, const FGuid& Guid);

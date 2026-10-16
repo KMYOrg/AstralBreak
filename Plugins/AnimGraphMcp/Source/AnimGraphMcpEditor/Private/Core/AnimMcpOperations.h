@@ -23,6 +23,12 @@ struct FAnimMcpError;
  *   set_asset      { node|ref, asset }
  *   expose_pin     { node|ref, property, visible?=true }
  *   add_blend_pose { node|ref, entry?(BlendListByEnum 요소 이름) }
+ * State Machine (Phase 4):
+ *   add_state           { ref?, sm:{node|ref} | graph:guid, name?, pos? }          UAnimStateNode (BoundGraph 자동) + 이름
+ *   add_transition      { ref?, from:{node|ref}, to:{node|ref}, properties?, rule? } UAnimStateTransitionNode + CreateConnections (+규칙)
+ *   set_entry_state     { sm:{node|ref} | graph:guid, state:{node|ref} }           Entry → State (이전 Entry 연결은 스키마가 끊음)
+ *   set_transition_rule { node|ref (transition), rule }                           AST → 규칙 그래프 전체 재생성 (AnimMcpTransitionRule), 멱등
+ *   remove_node 가 상태를 지우면 연결된 전이도 함께 분리·삭제된다 (에디터와 같은 결과)
  * ref 는 배치 안에서 앞 op 가 만든 노드를 뒤 op 가 가리키는 임시 이름. 응답 refs 에서 guid 로 확정된다.
  */
 namespace AnimMcpOperations

@@ -66,6 +66,8 @@ def get_anim_graph_structure(asset_path: str, graph_guid: str | None = None, dep
     Node identity is node_guid; pins are addressed by name. Use the returned revision as expected_revision when applying changes.
     Each node also carries "properties" (allow-listed values set_property can change), "optional_pins" (pins expose_pin can
     toggle, with "bound" for property bindings that must be preserved) and "has_binding".
+    "state_machines" lists every state machine graph in range: entry_state, states (name, bound_graph_guid, transitions in/out) and
+    transitions (from/to, crossfade, priority, automatic, rule_source = the rule tree this tool generated, rule_modified = edited by hand since).
     """
     params = {"asset_path": asset_path, "depth": depth}
     if graph_guid:
@@ -123,8 +125,20 @@ _OPERATIONS_DOC = """
       {"op": "set_asset", "node": "<guid>", "asset": "/Game/.../AS_Other"}
       {"op": "expose_pin", "node": "<guid>", "property": "PlayRate", "visible": true}  # node "optional_pins" lists candidates
       {"op": "add_blend_pose", "node": "<layered_blend_guid>"}                        # BlendListByEnum needs "entry": "<enum element>"
+    State machines (the StateMachine node's editor graph; see "state_machines" in get_anim_graph_structure):
+      {"op": "add_state", "ref": "idle", "sm": {"ref": "sm"}, "name": "Idle", "pos": [0, 0]}      # or "graph": "<state machine graph guid>"
+      {"op": "set_entry_state", "sm": {"ref": "sm"}, "state": {"ref": "idle"}}
+      {"op": "add_transition", "ref": "t1", "from": {"ref": "idle"}, "to": {"ref": "run"},
+       "properties": {"CrossfadeDuration": 0.2}, "rule": {"compare": {"op": ">", "left": {"var": "Speed"}, "right": {"literal": 10.0}}}}
+      {"op": "set_transition_rule", "node": "<transition guid>", "rule": {"and": [{"var": "bIsFalling"}, {"not": {"var": "bIsOnGround"}}]}}
+    Rule trees: {"var": "<BlueprintVisible property>"} | {"not": R} | {"and": [R, R, ...]} | {"or": [R, R, ...]}
+      | {"compare": {"op": ">|<|>=|<=|==|!=", "left": R, "right": R}} (one side may be {"literal": v}; real/int/int64 ordered, bool/name ==/!= only)
+      | {"literal": true} | {"call": {"function": "GetCurveValue", "args": {"CurveName": {"literal": "Foo"}}}} (BlueprintPure + BlueprintThreadSafe,
+      AnimInstance class chain or KismetMathLibrary) | {"automatic": true, "trigger_time": -1.0} (no graph; uses the asset player's remaining time).
+    The rule graph is regenerated from the tree and the tree is stored in a comment node; re-applying the same tree is a no-op.
+    Removing a state also removes its transitions, like the editor does.
     Supported node classes include SequencePlayer, BlendSpacePlayer, Slot, LayeredBoneBlend, BlendListByBool, BlendListByEnum,
-    SaveCachedPose/UseCachedPose and StateMachine (creation only; states and transitions come in a later phase).
+    SaveCachedPose/UseCachedPose and StateMachine. State internals (the state's bound graph) are edited with the ordinary ops via "graph".
 """
 
 

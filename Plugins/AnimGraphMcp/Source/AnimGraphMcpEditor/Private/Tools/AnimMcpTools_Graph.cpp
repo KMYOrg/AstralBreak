@@ -19,8 +19,12 @@ namespace AnimMcpTools
 			     "set_property {node|ref, property, value} (allow-listed properties only; see node 'properties' in get_anim_graph_structure) | "
 			     "set_asset {node|ref, asset} | "
 			     "expose_pin {node|ref, property, visible?=true} (see node 'optional_pins') | "
-			     "add_blend_pose {node|ref, entry?(enum element for BlendListByEnum)}. "
-			     "'ref' names a node created by an earlier add_node in the same batch.");
+			     "add_blend_pose {node|ref, entry?(enum element for BlendListByEnum)} | "
+			     "add_state {ref?, sm:{node|ref}|graph, name?, pos?} | "
+			     "add_transition {ref?, from:{node|ref}, to:{node|ref}, properties?, rule?} | "
+			     "set_entry_state {sm:{node|ref}|graph, state:{node|ref}} | "
+			     "set_transition_rule {node|ref, rule} where rule is a JSON tree of {var}|{not}|{and:[..]}|{or:[..]}|{compare:{op,left,right}}|{literal}|{call:{function,args}}|{automatic:true,trigger_time?}. "
+			     "'ref' names a node created by an earlier add_node/add_state/add_transition in the same batch.");
 	}
 
 	void RegisterGraphTools(FAnimMcpDispatcher& Dispatcher)

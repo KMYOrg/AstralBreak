@@ -1,0 +1,162 @@
+{
+ "revision": "sha1:525b2bc3b658d66e30e975c05578e78bc1b849bd",
+ "nodes": [
+  "04C4490E426E37F8B9BD64B48A516400",
+  "0BEDD3FE419577376993B8B59F3EF7FA",
+  "1114AAF0497B685F3D50AC9F428DFD9F",
+  "1253CD7B4F075A8F00DA5CBDE24C6838",
+  "2321BACD48C3441866AFD5A6844C89B2",
+  "2536BA9641808501576F76822F5B86FC",
+  "3659E8324C21B94A4D39D0B58739A51B",
+  "3E2F6A8346D66909D2473B87CD2C4347",
+  "3ECC751B4EDF23517879ABB8DE20AD78",
+  "4AC7DA444647076AA6CE3D8602936FA6",
+  "4D7F212841199D1561BF7AB2F08E22D5",
+  "587079A740C555765447D3B19DE3E3EF",
+  "6C241ADC408BD03A674B669C7665B432",
+  "713F3D4442B004CEDE02C08ED3DC3681",
+  "97858F10478618CDD6CB15A3E51DD63D",
+  "97D57BED41E2E554219E2F8BF7C7B5C2",
+  "9FD442534617431C33DD83814543DF84",
+  "A2796245435F92CC3BB21D97552344DF",
+  "A3B3C66F4F95A400CA0A79B36ABB7714",
+  "ACD67B3B4108FEA69A15D6B270BD735F",
+  "CB83AA3843775E27D293C2A2CD8DFCEE",
+  "D42513E8413480987387DAA868BCEF9E",
+  "D8EC96A8468E2D2D9477D9BF8C475CF0",
+  "E8B9B0794ABDAFA220911D8F9AF27CB8",
+  "FD3477654B3B5117B126CDB5072FE6E2"
+ ],
+ "state_machines": [
+  {
+   "graph_guid": "A5D3B1EE4935E4827DB6EEB8FB6245B1",
+   "name": "New State Machine",
+   "node_guid": "FD3477654B3B5117B126CDB5072FE6E2",
+   "entry_node_guid": "9FD442534617431C33DD83814543DF84",
+   "entry_state": "D42513E8413480987387DAA868BCEF9E",
+   "states": [
+    {
+     "node_guid": "D42513E8413480987387DAA868BCEF9E",
+     "name": "Idle",
+     "class": "AnimStateNode",
+     "kind": "state",
+     "bound_graph_guid": "FDC8816B439F664CA0644B9AFC319DAB",
+     "always_reset_on_entry": false,
+     "outgoing_transitions": [
+      "04C4490E426E37F8B9BD64B48A516400"
+     ],
+     "incoming_transitions": [
+      "D8EC96A8468E2D2D9477D9BF8C475CF0"
+     ]
+    },
+    {
+     "node_guid": "97858F10478618CDD6CB15A3E51DD63D",
+     "name": "Run",
+     "class": "AnimStateNode",
+     "kind": "state",
+     "bound_graph_guid": "44ACEDFB40D24E8E44BEE0A4F9DC9E08",
+     "always_reset_on_entry": false,
+     "outgoing_transitions": [
+      "D8EC96A8468E2D2D9477D9BF8C475CF0"
+     ],
+     "incoming_transitions": [
+      "04C4490E426E37F8B9BD64B48A516400"
+     ]
+    }
+   ],
+   "transitions": [
+    {
+     "node_guid": "04C4490E426E37F8B9BD64B48A516400",
+     "name": "Transition",
+     "from": "D42513E8413480987387DAA868BCEF9E",
+     "to": "97858F10478618CDD6CB15A3E51DD63D",
+     "from_name": "Idle",
+     "to_name": "Run",
+     "priority_order": 2,
+     "crossfade_duration": 0.15000000596046448,
+     "blend_mode": "HermiteCubic",
+     "bidirectional": false,
+     "disabled": false,
+     "automatic": false,
+     "automatic_trigger_time": -1,
+     "shared_rules": false,
+     "rule_graph_guid": "55E818BC43F52099EAD0E38E11709028",
+     "rule_generated": true,
+     "rule_source": {
+      "compare": {
+       "op": ">",
+       "left": {
+        "call": {
+         "function": "FMax",
+         "args": {
+          "A": {
+           "var": "Speed"
+          },
+          "B": {
+           "literal": 0
+          }
+         }
+        }
+       },
+       "right": {
+        "literal": 300
+       }
+      }
+     },
+     "rule_modified": false,
+     "rule_node_count": 3
+    },
+    {
+     "node_guid": "D8EC96A8468E2D2D9477D9BF8C475CF0",
+     "name": "Transition",
+     "from": "97858F10478618CDD6CB15A3E51DD63D",
+     "to": "D42513E8413480987387DAA868BCEF9E",
+     "from_name": "Run",
+     "to_name": "Idle",
+     "priority_order": 1,
+     "crossfade_duration": 0.20000000298023224,
+     "blend_mode": "HermiteCubic",
+     "bidirectional": false,
+     "disabled": false,
+     "automatic": false,
+     "automatic_trigger_time": -1,
+     "shared_rules": false,
+     "rule_graph_guid": "DFDC02BC479984EE0DD1039824EE1B0B",
+     "rule_generated": true,
+     "rule_source": {
+      "and": [
+       {
+        "var": "bIsOnGround"
+       },
+       {
+        "not": {
+         "var": "bIsJumping"
+        }
+       },
+       {
+        "or": [
+         {
+          "compare": {
+           "op": "<=",
+           "left": {
+            "var": "Speed"
+           },
+           "right": {
+            "literal": 1
+           }
+          }
+         },
+         {
+          "var": "bHasMovementInput"
+         }
+        ]
+       }
+      ]
+     },
+     "rule_modified": false,
+     "rule_node_count": 9
+    }
+   ]
+  }
+ ]
+}

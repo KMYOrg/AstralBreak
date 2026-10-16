@@ -3,11 +3,15 @@
 #include "Bridge/AnimMcpDispatcher.h"
 #include "Bridge/AnimMcpHttpBridge.h"
 #include "Bridge/AnimMcpTypes.h"
+#include "Core/AnimMcpAssetProtection.h"
 #include "Editor.h"
+#include "FileHelpers.h"
+#include "HAL/PlatformProcess.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/App.h"
 #include "Misc/EngineVersion.h"
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "UObject/Package.h"
 
 namespace AnimMcpTools
 {
@@ -42,6 +46,15 @@ namespace AnimMcpTools
 				Result->SetBoolField(TEXT("game_thread"), IsInGameThread());
 				Result->SetBoolField(TEXT("is_editor"), GIsEditor);
 				Result->SetBoolField(TEXT("is_pie"), GEditor && GEditor->PlayWorld != nullptr);
+				// Phase 6-2: quit_editor 뒤 프로세스 소멸 폴링용 · 보호 목록 · 저장 안 된 패키지 수
+				Result->SetNumberField(TEXT("process_id"), FPlatformProcess::GetCurrentProcessId());
+				Result->SetObjectField(TEXT("protection"), AnimMcpAssetProtection::DescribeRules());
+				{
+					TArray<UPackage*> DirtyContent, DirtyWorlds;
+					FEditorFileUtils::GetDirtyContentPackages(DirtyContent);
+					FEditorFileUtils::GetDirtyWorldPackages(DirtyWorlds);
+					Result->SetNumberField(TEXT("dirty_package_count"), DirtyContent.Num() + DirtyWorlds.Num());
+				}
 
 				if (TSharedPtr<IPlugin> Self = IPluginManager::Get().FindPlugin(TEXT("AnimGraphMcp")))
 				{

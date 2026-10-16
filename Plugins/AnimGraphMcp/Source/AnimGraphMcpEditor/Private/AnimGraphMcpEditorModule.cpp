@@ -15,6 +15,7 @@ DEFINE_LOG_CATEGORY(LogAnimGraphMcp);
  *   Port=18765
  *   bRequireToken=True
  *   bAutoStart=True
+ *   +ProtectedAssets=/Game/...   +ProtectedPaths=/Game/.../   (Phase 6-2 삭제·덮어쓰기 보호, Core/AnimMcpAssetProtection)
  * 콘솔: AnimGraphMcp.Start / AnimGraphMcp.Stop / AnimGraphMcp.Status
  */
 class FAnimGraphMcpEditorModule : public IModuleInterface
@@ -104,6 +105,7 @@ private:
 		AnimMcpTools::RegisterAssetTools(*Dispatcher);
 		AnimMcpTools::RegisterGraphTools(*Dispatcher);
 		AnimMcpTools::RegisterCompileTools(*Dispatcher);
+		AnimMcpTools::RegisterEditorTools(*Dispatcher);
 
 		if (!Bridge->Start(Port, bRequireToken, Dispatcher.ToSharedRef()))
 		{

@@ -23,6 +23,10 @@ namespace AnimMcpErrorCodes
 	inline const TCHAR* const PropertyNotAllowed = TEXT("PROPERTY_NOT_ALLOWED");
 	inline const TCHAR* const CompileFailed      = TEXT("COMPILE_FAILED");
 	inline const TCHAR* const SaveFailed         = TEXT("SAVE_FAILED");
+	// Phase 6-2 애셋 수명
+	inline const TCHAR* const AssetProtected     = TEXT("ASSET_PROTECTED");   // 403 — [AnimGraphMcp] ProtectedAssets/ProtectedPaths
+	inline const TCHAR* const AssetReferenced    = TEXT("ASSET_REFERENCED");  // 409 — 다른 애셋이 참조 중 (force 없이는 삭제 거부)
+	inline const TCHAR* const DirtyPackages      = TEXT("DIRTY_PACKAGES");    // 409 — 저장 안 된 패키지가 있어 quit 거부
 	inline const TCHAR* const Internal           = TEXT("INTERNAL");
 }
 

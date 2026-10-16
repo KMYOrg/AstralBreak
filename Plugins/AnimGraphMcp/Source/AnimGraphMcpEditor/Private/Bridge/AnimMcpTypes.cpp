@@ -20,7 +20,12 @@ int32 FAnimMcpError::ToHttpStatus() const
 	{
 		return 404;
 	}
-	if (Code == AnimMcpErrorCodes::RevisionMismatch || Code == AnimMcpErrorCodes::AssetExists)
+	if (Code == AnimMcpErrorCodes::AssetProtected)
+	{
+		return 403;
+	}
+	if (Code == AnimMcpErrorCodes::RevisionMismatch || Code == AnimMcpErrorCodes::AssetExists
+		|| Code == AnimMcpErrorCodes::AssetReferenced || Code == AnimMcpErrorCodes::DirtyPackages)
 	{
 		return 409;
 	}

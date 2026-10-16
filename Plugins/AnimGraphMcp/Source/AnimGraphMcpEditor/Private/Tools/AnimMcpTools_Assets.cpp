@@ -11,6 +11,8 @@
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Bridge/AnimMcpDispatcher.h"
 #include "Bridge/AnimMcpTypes.h"
+#include "Core/AnimMcpAssetOps.h"
+#include "Core/AnimMcpAssetProtection.h"
 #include "Core/AnimMcpAssetResolver.h"
 #include "Core/AnimMcpBlueprintFactory.h"
 #include "Core/AnimMcpCompiler.h"
@@ -150,6 +152,124 @@ namespace AnimMcpTools
 				Result->SetStringField(TEXT("asset_path"), Blueprint->GetPathName());
 				Result->SetBoolField(TEXT("saved"), true);
 				Result->SetStringField(TEXT("revision"), AnimMcpGraphInspector::ComputeRevision(Blueprint));
+				return Result;
+			});
+
+		// ---- Phase 6-2 애셋 수명 ----------------------------------------------------------------------------------
+
+		Dispatcher.RegisterTool(TEXT("duplicate_animation_blueprint"),
+			TEXT("Duplicate an Animation Blueprint to a new path. Params: source_path, dest_path, overwrite? (default false; true deletes an existing dest — refused for protected assets), preserve_node_guids? (default true: node guids stay identical to the source so revisions/guids line up), save? (default false)."),
+			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
+			{
+				FString SourcePath, DestPath;
+				if (!Context.Request.GetRequiredString(TEXT("source_path"), SourcePath, OutError)) { return nullptr; }
+				if (!Context.Request.GetRequiredString(TEXT("dest_path"), DestPath, OutError)) { return nullptr; }
+				const bool bOverwrite = Context.Request.GetOptionalBool(TEXT("overwrite"), false);
+				const bool bPreserveGuids = Context.Request.GetOptionalBool(TEXT("preserve_node_guids"), true);
+				const bool bSave = Context.Request.GetOptionalBool(TEXT("save"), false);
+
+				UAnimBlueprint* Source = AnimMcpAssetResolver::LoadAnimBlueprint(SourcePath, OutError);
+				if (!Source) { return nullptr; }
+
+				const FString DestPackage = AnimMcpAssetResolver::ToPackagePath(DestPath);
+				FText PathReason;
+				if (!FPackageName::IsValidLongPackageName(DestPackage, /*bIncludeReadOnlyRoots*/ false, &PathReason))
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Invalid dest_path '%s': %s"), *DestPackage, *PathReason.ToString()));
+					return nullptr;
+				}
+				const FString DestObjectPath = DestPackage + TEXT(".") + FPackageName::GetLongPackageAssetName(DestPackage);
+				if (DestObjectPath.Equals(Source->GetPathName(), ESearchCase::IgnoreCase))
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("dest_path must differ from source_path"));
+					return nullptr;
+				}
+
+				if (AnimMcpAssetResolver::AssetExists(DestObjectPath))
+				{
+					if (!bOverwrite)
+					{
+						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::AssetExists, FString::Printf(TEXT("'%s' already exists (pass overwrite=true to replace)"), *DestObjectPath));
+						return nullptr;
+					}
+					if (!AnimMcpAssetProtection::EnsureNotProtected(DestObjectPath, TEXT("overwrite"), OutError)) { return nullptr; }
+					if (!AnimMcpAssetOps::DeleteAssetAtPath(DestObjectPath, Context, OutError)) { return nullptr; }
+					Context.AddDiagnostic(TEXT("info"), TEXT("ASSET_REPLACED"), FString::Printf(TEXT("Deleted existing '%s' before duplicating"), *DestObjectPath));
+				}
+
+				const FString SourceRevision = AnimMcpGraphInspector::ComputeRevision(Source);
+				UAnimBlueprint* Duplicate = AnimMcpAssetOps::DuplicateAnimBlueprint(Source, DestObjectPath, bPreserveGuids, Context, OutError);
+				if (!Duplicate) { return nullptr; }
+
+				bool bSaved = false;
+				if (bSave)
+				{
+					FAnimMcpError SaveError;
+					bSaved = AnimMcpCompiler::Save(Duplicate, SaveError);
+					if (!bSaved)
+					{
+						Context.AddDiagnostic(TEXT("error"), *SaveError.Code, SaveError.Message);
+					}
+				}
+
+				TSharedRef<FJsonObject> Result = AnimMcpGraphInspector::BuildBlueprintInfo(Duplicate, Context);
+				Result->SetBoolField(TEXT("duplicated"), true);
+				Result->SetStringField(TEXT("source_path"), Source->GetPathName());
+				Result->SetStringField(TEXT("source_revision"), SourceRevision);
+				Result->SetBoolField(TEXT("node_guids_preserved"), bPreserveGuids);
+				Result->SetBoolField(TEXT("saved"), bSaved);
+				return Result;
+			});
+
+		Dispatcher.RegisterTool(TEXT("delete_animation_blueprint"),
+			TEXT("Delete an Animation Blueprint asset (file + in-memory). Params: asset_path, confirm (must be true), force? (default false; required when other assets reference it — their references become null). Refused with ASSET_PROTECTED for assets in [AnimGraphMcp] ProtectedAssets/ProtectedPaths."),
+			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
+			{
+				FString AssetPath;
+				if (!Context.Request.GetRequiredString(TEXT("asset_path"), AssetPath, OutError)) { return nullptr; }
+				if (!Context.Request.GetOptionalBool(TEXT("confirm"), false))
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("delete_animation_blueprint requires confirm=true"));
+					return nullptr;
+				}
+				const bool bForce = Context.Request.GetOptionalBool(TEXT("force"), false);
+
+				// AnimBP 만 지운다 — 다른 클래스는 BAD_REQUEST (LoadAssetOfClass)
+				UAnimBlueprint* Blueprint = AnimMcpAssetResolver::LoadAnimBlueprint(AssetPath, OutError);
+				if (!Blueprint) { return nullptr; }
+				const FString ObjectPath = Blueprint->GetPathName();
+
+				if (!AnimMcpAssetProtection::EnsureNotProtected(ObjectPath, TEXT("delete"), OutError)) { return nullptr; }
+
+				const TArray<FString> Referencers = AnimMcpAssetOps::FindReferencers(ObjectPath);
+				TArray<TSharedPtr<FJsonValue>> ReferencerValues;
+				for (const FString& R : Referencers) { ReferencerValues.Add(MakeShared<FJsonValueString>(R)); }
+				if (Referencers.Num() > 0)
+				{
+					if (!bForce)
+					{
+						TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+						Details->SetStringField(TEXT("asset_path"), ObjectPath);
+						Details->SetArrayField(TEXT("referencers"), ReferencerValues);
+						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::AssetReferenced,
+							FString::Printf(TEXT("'%s' is referenced by %d asset(s); pass force=true to delete anyway (references become null)"), *ObjectPath, Referencers.Num()), Details);
+						return nullptr;
+					}
+					Context.AddDiagnostic(TEXT("warning"), TEXT("REFERENCES_BROKEN"), FString::Printf(TEXT("Force-deleting '%s' referenced by: %s"), *ObjectPath, *FString::Join(Referencers, TEXT(", "))));
+				}
+
+				if (!AnimMcpAssetOps::DeleteAssetAtPath(ObjectPath, Context, OutError)) { return nullptr; }
+				if (AnimMcpAssetResolver::AssetExists(ObjectPath))
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, FString::Printf(TEXT("'%s' is still in the asset registry after DeleteAsset"), *ObjectPath));
+					return nullptr;
+				}
+
+				TSharedRef<FJsonObject> Result = AnimMcpJson::MakeObject();
+				Result->SetStringField(TEXT("asset_path"), ObjectPath);
+				Result->SetBoolField(TEXT("deleted"), true);
+				Result->SetBoolField(TEXT("forced"), bForce);
+				Result->SetArrayField(TEXT("referencers"), ReferencerValues);
 				return Result;
 			});
 	}

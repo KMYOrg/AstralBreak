@@ -1,5 +1,7 @@
 #include "AnimMcpBlueprintFactory.h"
 
+#include "AnimMcpAssetOps.h"
+#include "AnimMcpAssetProtection.h"
 #include "AnimMcpAssetResolver.h"
 #include "AnimMcpLog.h"
 #include "Animation/AnimBlueprint.h"
@@ -14,8 +16,6 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/PackageName.h"
-#include "Subsystems/AssetEditorSubsystem.h"
-#include "Subsystems/EditorAssetSubsystem.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
 
@@ -100,7 +100,7 @@ namespace AnimMcpBlueprintFactory
 			}
 		}
 
-		// 기존 애셋 처리
+		// 기존 애셋 처리 — 보호 목록(Phase 6-2) → 삭제 + 메모리 잔존 객체 정리 (AnimMcpAssetOps 공용)
 		if (AnimMcpAssetResolver::AssetExists(ObjectPath))
 		{
 			if (!Params.bOverwrite)
@@ -108,18 +108,12 @@ namespace AnimMcpBlueprintFactory
 				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::AssetExists, FString::Printf(TEXT("'%s' already exists (pass overwrite=true to replace)"), *ObjectPath));
 				return nullptr;
 			}
-
-			if (UObject* Existing = LoadObject<UObject>(nullptr, *ObjectPath))
+			if (!AnimMcpAssetProtection::EnsureNotProtected(ObjectPath, TEXT("overwrite"), OutError))
 			{
-				if (UAssetEditorSubsystem* AssetEditors = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
-				{
-					AssetEditors->CloseAllEditorsForAsset(Existing);
-				}
+				return nullptr;
 			}
-			UEditorAssetSubsystem* AssetSubsystem = GEditor->GetEditorSubsystem<UEditorAssetSubsystem>();
-			if (!AssetSubsystem || !AssetSubsystem->DeleteAsset(ObjectPath))
+			if (!AnimMcpAssetOps::DeleteAssetAtPath(ObjectPath, Context, OutError))
 			{
-				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, FString::Printf(TEXT("Failed to delete existing asset '%s' for overwrite"), *ObjectPath));
 				return nullptr;
 			}
 			Context.AddDiagnostic(TEXT("info"), TEXT("ASSET_REPLACED"), FString::Printf(TEXT("Deleted existing '%s' before creating"), *ObjectPath));
@@ -133,8 +127,8 @@ namespace AnimMcpBlueprintFactory
 		}
 		Package->FullyLoad();
 
-		// CreateBlueprint 는 같은 이름의 BP 가 Outer 에 있으면 check 로 죽는다. DeleteAsset 이 디스크 파일은 지우고도
-		// 메모리 객체를 (참조 때문에) 남길 수 있으므로, 남아 있으면 이름을 비우기 위해 임시 패키지로 옮기고 가비지로 표시한다
+		// CreateBlueprint 는 같은 이름의 BP 가 Outer 에 있으면 check 로 죽는다. DeleteAssetAtPath 가 잔존 객체·파일을 치우지만,
+		// 그래도 남아 있으면(실측: 참조 중인 패키지는 ForceDelete 가 건너뛴다) 임시 패키지로 옮기고 가비지로 표시한다
 		if (UObject* Stale = FindObject<UObject>(Package, *AssetName))
 		{
 			const FName StaleName = MakeUniqueObjectName(GetTransientPackage(), Stale->GetClass(), FName(*(AssetName + TEXT("_MCP_STALE"))));
@@ -145,7 +139,7 @@ namespace AnimMcpBlueprintFactory
 				return nullptr;
 			}
 			Stale->MarkAsGarbage();
-			Context.AddDiagnostic(TEXT("info"), TEXT("STALE_OBJECT_MOVED"), FString::Printf(TEXT("In-memory object '%s' survived DeleteAsset; moved to transient package"), *AssetName));
+			Context.AddDiagnostic(TEXT("info"), TEXT("STALE_OBJECT_MOVED"), FString::Printf(TEXT("In-memory object '%s' survived deletion; moved to transient package before creating"), *AssetName));
 		}
 
 		// 팩토리 경로 재현 (AnimBlueprintFactory.cpp:466) — 내부에서 GN_AnimGraph 그래프와 Root 노드가 생긴다 (Kismet2.cpp:500)

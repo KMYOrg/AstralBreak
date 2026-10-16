@@ -204,5 +204,55 @@ def save_animation_blueprint(asset_path: str) -> dict:
     return bridge.call("save_animation_blueprint", {"asset_path": asset_path})
 
 
+@mcp.tool()
+def duplicate_animation_blueprint(source_path: str, dest_path: str, overwrite: bool = False,
+                                  preserve_node_guids: bool = True, save: bool = False) -> dict:
+    """Duplicate an Animation Blueprint to a new content path (e.g. to edit a copy of a production asset).
+
+    Args:
+        source_path: Existing Animation Blueprint.
+        dest_path: New path, e.g. "/Game/Animation/Test/ABP_Copy". Must differ from source_path.
+        overwrite: If true, an existing asset at dest_path is DELETED first. Refused (ASSET_PROTECTED) for assets listed in
+            the project's [AnimGraphMcp] ProtectedAssets / ProtectedPaths. Ask the user before using this.
+        preserve_node_guids: Keep every node_guid identical to the source (default). With false the engine assigns new guids.
+        save: Save the duplicate to disk right away.
+
+    Returns the same summary as get_anim_blueprint_info plus duplicated=true, source_path, source_revision, node_guids_preserved, saved.
+    """
+    return bridge.call("duplicate_animation_blueprint", {
+        "source_path": source_path, "dest_path": dest_path, "overwrite": overwrite,
+        "preserve_node_guids": preserve_node_guids, "save": save,
+    }, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def delete_animation_blueprint(asset_path: str, confirm: bool = False, force: bool = False) -> dict:
+    """Delete an Animation Blueprint asset. Destructive — always ask the user first and pass confirm=true.
+
+    Args:
+        asset_path: Animation Blueprint to delete (other asset classes are refused).
+        confirm: Must be true; the call is refused otherwise.
+        force: Required when other assets reference this one (error ASSET_REFERENCED lists them); their references become null.
+
+    Protected assets ([AnimGraphMcp] ProtectedAssets / ProtectedPaths in DefaultEngine.ini) are refused with ASSET_PROTECTED.
+    """
+    return bridge.call("delete_animation_blueprint", {"asset_path": asset_path, "confirm": confirm, "force": force})
+
+
+@mcp.tool()
+def quit_editor(save_dirty: bool = False, discard_dirty: bool = False) -> dict:
+    """Ask the running editor to exit (PIE is ended first). The tool returns before the process ends; poll get_editor_status
+    until it reports EDITOR_GONE (Tools/mcp/wait_for_exit.py does this).
+
+    Args:
+        save_dirty: Save dirty CONTENT packages before quitting (maps are never saved by this tool).
+        discard_dirty: Quit even if unsaved packages remain (their changes are lost).
+
+    With neither flag, unsaved packages make the call fail with DIRTY_PACKAGES (listing them) and the editor keeps running.
+    Only use this on an editor you started for automation, never on the user's working editor without asking.
+    """
+    return bridge.call("quit_editor", {"save_dirty": save_dirty, "discard_dirty": discard_dirty}, timeout=bridge.COMPILE_TIMEOUT)
+
+
 if __name__ == "__main__":
     mcp.run()

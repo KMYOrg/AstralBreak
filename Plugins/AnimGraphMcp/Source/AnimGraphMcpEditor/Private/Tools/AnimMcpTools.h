@@ -14,8 +14,11 @@ namespace AnimMcpTools
 	/** 읽기 전용 조회 (get_anim_blueprint_info, get_anim_graph_structure) */
 	void RegisterInspectTools(FAnimMcpDispatcher& Dispatcher);
 
-	/** 애셋 (list_animation_assets, create_animation_blueprint, save_animation_blueprint) */
+	/** 애셋 (list_animation_assets, create_animation_blueprint, save_animation_blueprint, duplicate_animation_blueprint, delete_animation_blueprint) */
 	void RegisterAssetTools(FAnimMcpDispatcher& Dispatcher);
+
+	/** 에디터 프로세스 (quit_editor) */
+	void RegisterEditorTools(FAnimMcpDispatcher& Dispatcher);
 
 	/** 그래프 변경 (preview_graph_operations, apply_graph_operations) */
 	void RegisterGraphTools(FAnimMcpDispatcher& Dispatcher);

@@ -3,6 +3,7 @@
 
 > 작성 2026-10-16 · 브랜치 `feat/ai_auto_ABP` · 기준 엔진 UE 5.7.4 소스 빌드 (`D:/UnrealSource/UnrealEngine-5.7.4-release`)
 > Phase 5 까지 구현·커밋된 상태에서 **Phase 6(고급·안정화)** 을 6-1 ~ 6-6 으로 나눠 착수하기 위한 문서다.
+> **2026-10-16 추기: 6-1 완료 뒤 통합본 [animbp-automation-handoff-phase6-2.md](animbp-automation-handoff-phase6-2.md)(개정 4판) 가 이 문서와 phase5 핸드오프를 대체한다. 새 세션은 그 문서 + phase1 문서만 읽으면 된다.**
 > 설계 근거·API 검증표·각 Phase 결과는 [animbp-automation-phase1.md](animbp-automation-phase1.md)(§B · §C · §F · "Phase 2/2.5/3/4/5 결과"), 환경·아키텍처·op 사전·작업 규칙은 [animbp-automation-handoff-phase5.md](animbp-automation-handoff-phase5.md)(§2 · §4 · §8 · §9 · §10 · §16) 에 있다. **이 문서는 두 문서를 대체하지 않고 Phase 6 범위만 더한다.** 구조를 재논의하기 전에 phase1 문서를 먼저 읽는다.
 
 ---

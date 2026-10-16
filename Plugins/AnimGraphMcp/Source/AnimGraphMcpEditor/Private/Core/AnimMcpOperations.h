@@ -30,6 +30,12 @@ struct FAnimMcpError;
  *   set_entry_state     { sm:{node|ref} | graph:guid, state:{node|ref} }           Entry → State (이전 Entry 연결은 스키마가 끊음)
  *   set_transition_rule { node|ref (transition), rule }                           AST → 규칙 그래프 전체 재생성 (AnimMcpTransitionRule), 멱등
  *   remove_node 가 상태를 지우면 연결된 전이도 함께 분리·삭제된다 (에디터와 같은 결과)
+ * State Machine 확장 (Phase 6-1):
+ *   add_conduit         { ref?, sm|graph, name?, pos?, rule? }                    UAnimStateConduitNode (규칙 그래프 자동). automatic 규칙 불가
+ *   add_state_alias     { ref?, sm|graph, name?, pos?, states:[{node|ref}] | global:true }   UAnimStateAliasNode. 전이 대상이 되려면 단일 상태·global 아님
+ *   set_alias_states    { node|ref, states | global }
+ *   rename_node         { node|ref, name }                                        상태·conduit·alias·상태머신 노드 (엔진 이름 검증기)
+ *   set_transition_rule 이 conduit 도 받는다 · add_node 의 graph 에 {ref|node}(상태) 허용 — 같은 배치에서 만든 상태 내부를 바로 채운다
  * ref 는 배치 안에서 앞 op 가 만든 노드를 뒤 op 가 가리키는 임시 이름. 응답 refs 에서 guid 로 확정된다.
  */
 namespace AnimMcpOperations

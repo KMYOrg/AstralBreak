@@ -735,9 +735,10 @@ namespace AnimMcpTransitionRule
 		}
 	}
 
-	bool Build(UAnimStateTransitionNode* Transition, const TSharedPtr<FJsonObject>& Rule, const FString& Canonical, bool bAutomatic, TArray<UEdGraphNode*>& OutCreated, FAnimMcpError& OutError)
+	bool Build(UEdGraph* RuleGraph, const TSharedPtr<FJsonObject>& Rule, const FString& Canonical, bool bAutomatic, TArray<UEdGraphNode*>& OutCreated, FAnimMcpError& OutError)
 	{
-		UAnimationTransitionGraph* Graph = Transition ? Cast<UAnimationTransitionGraph>(Transition->BoundGraph) : nullptr;
+		// Phase 6-1: conduit 의 BoundGraph 도 UAnimationTransitionGraph 다 (AnimStateConduitNode.cpp:73-77)
+		UAnimationTransitionGraph* Graph = Cast<UAnimationTransitionGraph>(RuleGraph);
 		UAnimGraphNode_TransitionResult* Result = Graph ? Graph->GetResultNode() : nullptr;
 		if (!Graph || !Result)
 		{

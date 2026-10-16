@@ -136,6 +136,13 @@ _OPERATIONS_DOC = """
       {"op": "add_transition", "ref": "t1", "from": {"ref": "idle"}, "to": {"ref": "run"},
        "properties": {"CrossfadeDuration": 0.2}, "rule": {"compare": {"op": ">", "left": {"var": "Speed"}, "right": {"literal": 10.0}}}}
       {"op": "set_transition_rule", "node": "<transition guid>", "rule": {"and": [{"var": "bIsFalling"}, {"not": {"var": "bIsOnGround"}}]}}
+      {"op": "add_conduit", "ref": "sel", "sm": {"ref": "sm"}, "name": "JumpSelector", "rule": {"literal": true}}   # conduit: rule graph, no automatic
+      {"op": "add_state_alias", "ref": "any", "sm": {"ref": "sm"}, "name": "JumpSources", "states": [{"ref": "idle"}, {"ref": "run"}]}
+          # or "global": true. An alias used as a transition TARGET must alias exactly one state (engine compile rule).
+      {"op": "set_alias_states", "node": "<alias guid>", "states": [{"ref": "idle"}]}
+      {"op": "rename_node", "node": "<state|conduit|alias|state machine guid>", "name": "Locomotions"}
+      {"op": "add_node", "ref": "idle_seq", "graph": {"ref": "idle"}, "class": "AnimGraphNode_SequencePlayer", "asset": "..."}   # graph = a state's pose graph, same batch ok
+      {"op": "connect", "from": {"ref": "idle_seq", "pin": "Pose"}, "to": {"result_of": {"ref": "idle"}, "pin": "Result"}}      # result_of = that state's Output Animation Pose
     Rule trees: {"var": "<BlueprintVisible property>"} | {"not": R} | {"and": [R, R, ...]} | {"or": [R, R, ...]}
       | {"compare": {"op": ">|<|>=|<=|==|!=", "left": R, "right": R}} (one side may be {"literal": v}; real/int/int64 ordered, bool/name ==/!= only)
       | {"literal": true} | {"call": {"function": "GetCurveValue", "args": {"CurveName": {"literal": "Foo"}}}} (BlueprintPure + BlueprintThreadSafe,

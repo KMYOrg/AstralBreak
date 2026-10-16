@@ -7,6 +7,8 @@
 #include "AnimGraphNode_SaveCachedPose.h"
 #include "AnimGraphNode_StateMachineBase.h"
 #include "AnimGraphNode_UseCachedPose.h"
+#include "AnimStateAliasNode.h"
+#include "AnimStateConduitNode.h"
 #include "AnimStateNode.h"
 #include "AnimStateNodeBase.h"
 #include "AnimStateEntryNode.h"
@@ -454,7 +456,7 @@ namespace AnimMcpGraphMutator
 			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("add_transition endpoint has no transition pins"));
 			return false;
 		}
-		return true;
+		return ValidateTransitionTarget(To, OutError);
 	}
 
 	UAnimStateTransitionNode* AddTransition(UEdGraphNode* From, UEdGraphNode* To, FAnimMcpError& OutError)
@@ -1070,5 +1072,180 @@ namespace AnimMcpGraphMutator
 			}
 		}
 		return true;
+	}
+
+	//~ Phase 6-1
+
+	bool ValidateNodeName(UEdGraphNode* Node, const FString& Name, FAnimMcpError& OutError)
+	{
+		// 상태·conduit·alias·상태머신 노드 전부 MakeNameValidator 를 가진다 — ValidateStateName 과 같은 규칙
+		return ValidateStateName(Node, Name, OutError);
+	}
+
+	UAnimStateConduitNode* AddConduit(UAnimationStateMachineGraph* Graph, const FString& Name, const FVector2D& Position, FAnimMcpError& OutError)
+	{
+		Graph->Modify();
+		FGraphNodeCreator<UAnimStateConduitNode> Creator(*Graph);
+		UAnimStateConduitNode* Node = Creator.CreateNode(/*bSelectNewNode*/ false);
+		Node->NodePosX = static_cast<int32>(Position.X);
+		Node->NodePosY = static_cast<int32>(Position.Y);
+		Creator.Finalize();
+		if (!Node->BoundGraph)
+		{
+			DestroyNodeQuietly(Node);
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("conduit node has no rule graph after placement"));
+			return nullptr;
+		}
+		if (!Name.IsEmpty())
+		{
+			if (!ValidateNodeName(Node, Name, OutError))
+			{
+				DestroyNodeQuietly(Node);
+				return nullptr;
+			}
+			Node->OnRenameNode(Name); // UAnimStateNodeBase::OnRenameNode = RenameGraph(BoundGraph) (AnimStateNodeBase.cpp:129-134)
+		}
+		return Node;
+	}
+
+	UAnimStateAliasNode* AddStateAlias(UAnimationStateMachineGraph* Graph, const FString& Name, const FVector2D& Position, FAnimMcpError& OutError)
+	{
+		Graph->Modify();
+		FGraphNodeCreator<UAnimStateAliasNode> Creator(*Graph);
+		UAnimStateAliasNode* Node = Creator.CreateNode(/*bSelectNewNode*/ false);
+		Node->NodePosX = static_cast<int32>(Position.X);
+		Node->NodePosY = static_cast<int32>(Position.Y);
+		Creator.Finalize(); // PostPlacedNewNode 가 "Alias" 에서 유효한 이름을 찾는다
+		if (!Name.IsEmpty())
+		{
+			if (!ValidateNodeName(Node, Name, OutError))
+			{
+				DestroyNodeQuietly(Node);
+				return nullptr;
+			}
+			Node->OnRenameNode(Name); // StateAliasName = NewName (검증 없음 — 위에서 했다)
+		}
+		return Node;
+	}
+
+	bool ValidateAliasTargets(UAnimStateAliasNode* Alias, const TArray<UEdGraphNode*>& States, bool bGlobal, FAnimMcpError& OutError)
+	{
+		if (!Alias)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("target is not a state alias node"));
+			return false;
+		}
+		if (!bGlobal && States.Num() == 0)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("alias needs 'states' (one or more state nodes) or 'global': true"));
+			return false;
+		}
+		if (bGlobal && States.Num() > 0)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("alias cannot be both 'global' and have explicit 'states'"));
+			return false;
+		}
+		for (UEdGraphNode* S : States)
+		{
+			if (!S || !S->IsA<UAnimStateNode>())
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("alias target %s is not a state node (conduits and aliases cannot be aliased)"), S ? *S->GetClass()->GetName() : TEXT("null")));
+				return false;
+			}
+			if (S->GetGraph() != Alias->GetGraph())
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("alias targets must be in the same state machine as the alias"));
+				return false;
+			}
+		}
+		// 엔진 컴파일 규칙 (AnimStateAliasNode.cpp:52-55): 전이의 대상인 alias 는 정확히 하나의 상태만 가리켜야 한다
+		const UEdGraphPin* In = Alias->GetInputPin();
+		if (In && In->LinkedTo.Num() > 0 && (bGlobal || States.Num() != 1))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("this alias is the target of a transition, so it must alias exactly one state and cannot be global"));
+			return false;
+		}
+		return true;
+	}
+
+	void SetAliasTargets(UAnimStateAliasNode* Alias, const TArray<UEdGraphNode*>& States, bool bGlobal, TArray<UEdGraphNode*>& OutOldStates, bool& bOutOldGlobal)
+	{
+		Alias->Modify();
+		OutOldStates.Reset();
+		for (const TWeakObjectPtr<UAnimStateNodeBase>& Weak : Alias->GetAliasedStates())
+		{
+			if (UAnimStateNodeBase* Old = Weak.Get())
+			{
+				OutOldStates.Add(Old);
+			}
+		}
+		bOutOldGlobal = Alias->bGlobalAlias;
+
+		TSet<TWeakObjectPtr<UAnimStateNodeBase>>& Set = Alias->GetAliasedStates();
+		Set.Empty();
+		for (UEdGraphNode* S : States)
+		{
+			if (UAnimStateNodeBase* StateBase = Cast<UAnimStateNodeBase>(S))
+			{
+				Set.Add(StateBase);
+			}
+		}
+		Alias->bGlobalAlias = bGlobal;
+	}
+
+	bool ValidateTransitionTarget(UEdGraphNode* To, FAnimMcpError& OutError)
+	{
+		if (const UAnimStateAliasNode* Alias = Cast<UAnimStateAliasNode>(To))
+		{
+			if (Alias->bGlobalAlias || Alias->GetAliasedStates().Num() != 1)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("alias '%s' cannot be a transition target: it must alias exactly one state and not be global (engine compile rule)"), *Alias->GetStateName()));
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool RenameNode(UEdGraphNode* Node, const FString& Name, FString& OutOld, FAnimMcpError& OutError)
+	{
+		if (Name.TrimStartAndEnd().IsEmpty())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("rename_node requires a non-empty 'name'"));
+			return false;
+		}
+		if (UAnimGraphNode_StateMachineBase* SM = Cast<UAnimGraphNode_StateMachineBase>(Node))
+		{
+			OutOld = SM->GetStateMachineName();
+			if (OutOld == Name) { return true; }
+			if (!ValidateNodeName(Node, Name, OutError)) { return false; }
+			SM->Modify();
+			SM->OnRenameNode(Name); // RenameGraph(EditorStateMachineGraph) (AnimGraphNode_StateMachineBase.cpp:243-246)
+			return true;
+		}
+		UAnimStateNodeBase* StateBase = Cast<UAnimStateNodeBase>(Node);
+		if (!StateBase || Cast<UAnimStateTransitionNode>(Node))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("rename_node supports state, conduit, alias and state machine nodes, not %s"), Node ? *Node->GetClass()->GetName() : TEXT("null")));
+			return false;
+		}
+		OutOld = StateBase->GetStateName();
+		if (OutOld == Name) { return true; }
+		if (!ValidateNodeName(Node, Name, OutError)) { return false; }
+		StateBase->Modify();
+		StateBase->OnRenameNode(Name);
+		return true;
+	}
+
+	UAnimationTransitionGraph* RuleGraphOf(UEdGraphNode* Node)
+	{
+		if (UAnimStateTransitionNode* T = Cast<UAnimStateTransitionNode>(Node))
+		{
+			return Cast<UAnimationTransitionGraph>(T->BoundGraph);
+		}
+		if (UAnimStateConduitNode* C = Cast<UAnimStateConduitNode>(Node))
+		{
+			return Cast<UAnimationTransitionGraph>(C->BoundGraph);
+		}
+		return nullptr;
 	}
 }

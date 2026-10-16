@@ -1,6 +1,7 @@
 #include "AnimMcpOperations.h"
 
 #include "AnimGraphNode_Base.h"
+#include "AnimGraphNode_StateResult.h"
 #include "AnimGraphNode_TransitionResult.h"
 #include "AnimMcpAssetResolver.h"
 #include "AnimMcpCompiler.h"
@@ -9,6 +10,9 @@
 #include "AnimMcpLog.h"
 #include "AnimMcpPropertyRules.h"
 #include "AnimMcpTransitionRule.h"
+#include "AnimGraphNode_StateMachineBase.h"
+#include "AnimStateAliasNode.h"
+#include "AnimStateConduitNode.h"
 #include "AnimStateEntryNode.h"
 #include "AnimStateNode.h"
 #include "AnimStateNodeBase.h"
@@ -121,7 +125,34 @@ namespace AnimMcpOperations
 			return (Json.IsValid() && Json->TryGetObjectField(Key, Obj) && Obj) ? *Obj : nullptr;
 		}
 
-		/** {node:"guid"} | {ref:"name"} | "guid" → 노드. ref 가 아직 미생성(Preview)이면 bOutPending. 이 배치에서 제거된 노드는 거부 */
+		UEdGraphNode* ResolveNodeRef(FBatchState& State, const TSharedPtr<FJsonValue>& Value, bool& bOutPending, FAnimMcpError& OutError);
+		UEdGraph* StateBoundGraph(UEdGraphNode* StateNode, FAnimMcpError& OutError);
+
+		/** {result_of: {node|ref}} → 그 상태의 포즈 그래프 안 StateResult 노드 (같은 배치에서 만든 상태 내부를 connect 할 때 쓴다, Phase 6-1) */
+		UEdGraphNode* ResolveStateResultRef(FBatchState& State, const TSharedPtr<FJsonValue>& StateValue, bool& bOutPending, FAnimMcpError& OutError)
+		{
+			UEdGraphNode* StateNode = ResolveNodeRef(State, StateValue, bOutPending, OutError);
+			if (bOutPending || !StateNode)
+			{
+				return nullptr;
+			}
+			UEdGraph* Bound = StateBoundGraph(StateNode, OutError);
+			if (!Bound)
+			{
+				return nullptr;
+			}
+			for (UEdGraphNode* N : Bound->Nodes)
+			{
+				if (N && N->IsA<UAnimGraphNode_StateResult>())
+				{
+					return N;
+				}
+			}
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::NodeNotFound, TEXT("state pose graph has no StateResult node"));
+			return nullptr;
+		}
+
+		/** {node:"guid"} | {ref:"name"} | {result_of:{node|ref}} | "guid" → 노드. ref 가 아직 미생성(Preview)이면 bOutPending. 이 배치에서 제거된 노드는 거부 */
 		UEdGraphNode* ResolveNodeRef(FBatchState& State, const TSharedPtr<FJsonValue>& Value, bool& bOutPending, FAnimMcpError& OutError)
 		{
 			bOutPending = false;
@@ -137,6 +168,10 @@ namespace AnimMcpOperations
 			}
 			else if (Value->Type == EJson::Object)
 			{
+				if (const TSharedPtr<FJsonValue> ResultOf = Value->AsObject()->TryGetField(TEXT("result_of")); ResultOf.IsValid())
+				{
+					return ResolveStateResultRef(State, ResultOf, bOutPending, OutError);
+				}
 				Value->AsObject()->TryGetStringField(TEXT("node"), Guid);
 				Value->AsObject()->TryGetStringField(TEXT("ref"), Ref);
 			}
@@ -209,12 +244,77 @@ namespace AnimMcpOperations
 			bool bVariableGet = false;
 			FProperty* Variable = nullptr;
 			UClass* VarClass = nullptr;
+			/** Phase 6-1 — graph:{ref} 가 같은 배치의 미생성 상태를 가리킨다 (Preview 전용, Graph 는 null) */
+			bool bGraphPending = false;
 		};
+
+		/** {node|ref} 배열 → 노드들. 하나라도 미생성 ref 면 bOutPending (Preview) */
+		bool ResolveNodeRefArray(FBatchState& State, const TSharedPtr<FJsonValue>& Value, TArray<UEdGraphNode*>& OutNodes, bool& bOutPending, FAnimMcpError& OutError)
+		{
+			OutNodes.Reset();
+			bOutPending = false;
+			if (!Value.IsValid() || Value->Type != EJson::Array)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("'states' must be an array of {node|ref}"));
+				return false;
+			}
+			for (const TSharedPtr<FJsonValue>& Item : Value->AsArray())
+			{
+				bool bPending = false;
+				UEdGraphNode* Node = ResolveNodeRef(State, Item, bPending, OutError);
+				if (bPending)
+				{
+					bOutPending = true;
+					continue;
+				}
+				if (!Node)
+				{
+					return false;
+				}
+				OutNodes.Add(Node);
+			}
+			return true;
+		}
+
+		/** graph:{ref} → 그 상태의 포즈 그래프. conduit·alias 는 포즈 그래프가 없다 */
+		UEdGraph* StateBoundGraph(UEdGraphNode* StateNode, FAnimMcpError& OutError)
+		{
+			UAnimStateNode* StateOnly = Cast<UAnimStateNode>(StateNode);
+			if (!StateOnly || !StateOnly->GetBoundGraph())
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'graph' ref must be a state node with a pose graph, got %s"), StateNode ? *StateNode->GetClass()->GetName() : TEXT("null")));
+				return nullptr;
+			}
+			return StateOnly->GetBoundGraph();
+		}
 
 		bool ResolveAddNode(FBatchState& State, const FOperation& Op, FAddNodeArgs& Out, FAnimMcpContext& Context, FAnimMcpError& OutError)
 		{
 			FString GraphGuid;
-			if (Op.Json->TryGetStringField(TEXT("graph"), GraphGuid) && !GraphGuid.IsEmpty())
+			const TSharedPtr<FJsonValue> GraphValue = Op.Json->TryGetField(TEXT("graph"));
+			if (GraphValue.IsValid() && GraphValue->Type == EJson::Object)
+			{
+				// Phase 6-1 — graph:{ref|node} = 같은 배치에서 만든(또는 기존) 상태의 포즈 그래프
+				bool bPending = false;
+				UEdGraphNode* StateNode = ResolveNodeRef(State, GraphValue, bPending, OutError);
+				if (bPending)
+				{
+					Out.bGraphPending = true;
+				}
+				else if (!StateNode)
+				{
+					return false;
+				}
+				else
+				{
+					Out.Graph = StateBoundGraph(StateNode, OutError);
+					if (!Out.Graph)
+					{
+						return false;
+					}
+				}
+			}
+			else if (Op.Json->TryGetStringField(TEXT("graph"), GraphGuid) && !GraphGuid.IsEmpty())
 			{
 				Out.Graph = AnimMcpGraphMutator::FindGraph(State.Blueprint, GraphGuid, OutError);
 			}
@@ -226,7 +326,7 @@ namespace AnimMcpOperations
 					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::GraphNotFound, TEXT("Blueprint has no root AnimGraph and no 'graph' was given"));
 				}
 			}
-			if (!Out.Graph)
+			if (!Out.Graph && !Out.bGraphPending)
 			{
 				return false;
 			}
@@ -261,7 +361,7 @@ namespace AnimMcpOperations
 					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("'asset', 'enum' and 'properties' are not accepted for K2Node_VariableGet"));
 					return false;
 				}
-				if (!AnimMcpGraphMutator::ValidateVariableGetGraph(Out.Graph, OutError))
+				if (!Out.bGraphPending && !AnimMcpGraphMutator::ValidateVariableGetGraph(Out.Graph, OutError))
 				{
 					return false;
 				}
@@ -509,6 +609,158 @@ namespace AnimMcpOperations
 					if (bOk)
 					{
 						++Counts.Create;
+						Note = Args.bGraphPending ? DeferredNote : nullptr;
+					}
+				}
+				else if (Op.Op == TEXT("add_conduit"))
+				{
+					bool bPending = false;
+					UAnimationStateMachineGraph* SMGraph = ResolveStateMachine(State, Op, bPending, Error);
+					bOk = (SMGraph != nullptr) || bPending;
+					FString Name;
+					Op.Json->TryGetStringField(TEXT("name"), Name);
+					if (bOk && SMGraph && !Name.IsEmpty())
+					{
+						for (UEdGraphNode* Existing : SMGraph->Nodes)
+						{
+							if (UAnimStateNodeBase* S = Cast<UAnimStateNodeBase>(Existing); S && !Cast<UAnimStateTransitionNode>(S) && S->GetStateName() == Name)
+							{
+								bOk = false;
+								Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Name '%s' already exists in this state machine"), *Name));
+								break;
+							}
+						}
+					}
+					if (bOk && Op.Json->HasField(TEXT("rule")))
+					{
+						FString Canonical;
+						bool bAuto = false;
+						double Trigger = -1.0;
+						bOk = AnimMcpTransitionRule::Validate(State.Blueprint, Op.Json->HasTypedField<EJson::Object>(TEXT("rule")) ? Op.Json->GetObjectField(TEXT("rule")) : nullptr, Canonical, bAuto, Trigger, Error);
+						if (bOk && bAuto)
+						{
+							bOk = false;
+							Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("a conduit rule cannot be 'automatic' (no asset player to time it); use an expression"));
+						}
+					}
+					bOk = bOk && RegisterPendingRef(State, Op, UAnimStateConduitNode::StaticClass(), Error);
+					if (bOk)
+					{
+						++Counts.Create;
+						Note = bPending ? DeferredNote : nullptr;
+					}
+				}
+				else if (Op.Op == TEXT("add_state_alias") || Op.Op == TEXT("set_alias_states"))
+				{
+					const bool bAdd = Op.Op == TEXT("add_state_alias");
+					bool bSMPending = false, bTargetPending = false, bStatesPending = false;
+					UAnimationStateMachineGraph* SMGraph = nullptr;
+					UEdGraphNode* AliasNode = nullptr;
+					if (bAdd)
+					{
+						SMGraph = ResolveStateMachine(State, Op, bSMPending, Error);
+						bOk = (SMGraph != nullptr) || bSMPending;
+						FString Name;
+						Op.Json->TryGetStringField(TEXT("name"), Name);
+						if (bOk && SMGraph && !Name.IsEmpty())
+						{
+							for (UEdGraphNode* Existing : SMGraph->Nodes)
+							{
+								if (UAnimStateNodeBase* S = Cast<UAnimStateNodeBase>(Existing); S && !Cast<UAnimStateTransitionNode>(S) && S->GetStateName() == Name)
+								{
+									bOk = false;
+									Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Name '%s' already exists in this state machine"), *Name));
+									break;
+								}
+							}
+						}
+					}
+					else
+					{
+						UClass* PendingClass = nullptr;
+						AliasNode = ResolveOpTarget(State, Op, bTargetPending, PendingClass, Error);
+						const UClass* NodeClass = AliasNode ? AliasNode->GetClass() : PendingClass;
+						bOk = NodeClass && NodeClass->IsChildOf(UAnimStateAliasNode::StaticClass());
+						if (!bOk && !Error.IsSet())
+						{
+							Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("set_alias_states target must be a state alias node, got %s"), NodeClass ? *NodeClass->GetName() : TEXT("?")));
+						}
+					}
+					bool bGlobal = false;
+					Op.Json->TryGetBoolField(TEXT("global"), bGlobal);
+					TArray<UEdGraphNode*> States;
+					if (bOk && Op.Json->HasField(TEXT("states")))
+					{
+						bOk = ResolveNodeRefArray(State, Op.Json->TryGetField(TEXT("states")), States, bStatesPending, Error);
+					}
+					if (bOk && !bGlobal && !Op.Json->HasField(TEXT("states")))
+					{
+						bOk = false;
+						Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("%s needs 'states': [{node|ref}, ...] or 'global': true"), *Op.Op));
+					}
+					if (bOk && bGlobal && Op.Json->HasField(TEXT("states")))
+					{
+						bOk = false;
+						Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("alias cannot be both 'global' and have explicit 'states'"));
+					}
+					if (bOk && !bStatesPending)
+					{
+						// 미생성 상태가 섞이지 않았을 때만 완전 검증. alias 자체가 미생성이면 들어오는 전이가 없으므로 대상 규칙만 본다
+						if (AliasNode)
+						{
+							bOk = AnimMcpGraphMutator::ValidateAliasTargets(Cast<UAnimStateAliasNode>(AliasNode), States, bGlobal, Error);
+						}
+						else if (!bGlobal)
+						{
+							for (UEdGraphNode* S : States)
+							{
+								if (!S->IsA<UAnimStateNode>() || (SMGraph && S->GetGraph() != SMGraph))
+								{
+									bOk = false;
+									Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("alias targets must be state nodes inside the same state machine"));
+									break;
+								}
+							}
+						}
+					}
+					if (bOk && bAdd)
+					{
+						bOk = RegisterPendingRef(State, Op, UAnimStateAliasNode::StaticClass(), Error);
+					}
+					if (bOk)
+					{
+						bAdd ? ++Counts.Create : ++Counts.Modify;
+						Note = (bSMPending || bTargetPending || bStatesPending) ? DeferredNote : nullptr;
+					}
+				}
+				else if (Op.Op == TEXT("rename_node"))
+				{
+					FString Name;
+					bool bPending = false;
+					UClass* PendingClass = nullptr;
+					UEdGraphNode* Node = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
+					const UClass* NodeClass = Node ? Node->GetClass() : PendingClass;
+					if (!Op.Json->TryGetStringField(TEXT("name"), Name) || Name.TrimStartAndEnd().IsEmpty())
+					{
+						Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("rename_node requires a non-empty 'name'"));
+					}
+					else if (NodeClass)
+					{
+						const bool bRenamable = NodeClass->IsChildOf(UAnimGraphNode_StateMachineBase::StaticClass())
+							|| (NodeClass->IsChildOf(UAnimStateNodeBase::StaticClass()) && !NodeClass->IsChildOf(UAnimStateTransitionNode::StaticClass()));
+						if (!bRenamable)
+						{
+							Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("rename_node supports state, conduit, alias and state machine nodes, not %s"), *NodeClass->GetName()));
+						}
+						else
+						{
+							bOk = !Node || AnimMcpGraphMutator::ValidateNodeName(Node, Name, Error);
+							Note = bPending ? DeferredNote : nullptr;
+						}
+					}
+					if (bOk)
+					{
+						++Counts.Modify;
 					}
 				}
 				else if (Op.Op == TEXT("add_state"))
@@ -614,9 +866,10 @@ namespace AnimMcpOperations
 					const UClass* NodeClass = Node ? Node->GetClass() : PendingClass;
 					if (NodeClass)
 					{
-						if (NodeClass->GetName() != TEXT("AnimStateTransitionNode"))
+						const bool bConduit = NodeClass->IsChildOf(UAnimStateConduitNode::StaticClass());
+						if (!NodeClass->IsChildOf(UAnimStateTransitionNode::StaticClass()) && !bConduit)
 						{
-							Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("set_transition_rule target must be a transition node, got %s"), *NodeClass->GetName()));
+							Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("set_transition_rule target must be a transition or conduit node, got %s"), *NodeClass->GetName()));
 						}
 						else
 						{
@@ -624,9 +877,15 @@ namespace AnimMcpOperations
 							bool bAuto = false;
 							double Trigger = -1.0;
 							bOk = AnimMcpTransitionRule::Validate(State.Blueprint, Op.Json->HasTypedField<EJson::Object>(TEXT("rule")) ? Op.Json->GetObjectField(TEXT("rule")) : nullptr, Canonical, bAuto, Trigger, Error);
+							if (bOk && bAuto && bConduit)
+							{
+								bOk = false;
+								Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("a conduit rule cannot be 'automatic' (no asset player to time it); use an expression"));
+							}
 							if (bOk && Node)
 							{
-								const AnimMcpTransitionRule::FSource Existing = AnimMcpTransitionRule::ReadSource(Cast<UAnimStateTransitionNode>(Node)->BoundGraph);
+								UEdGraph* RuleGraph = AnimMcpGraphMutator::RuleGraphOf(Node);
+								const AnimMcpTransitionRule::FSource Existing = AnimMcpTransitionRule::ReadSource(RuleGraph);
 								if (Existing.bHasSource && Existing.Canonical == Canonical && !Existing.bModified)
 								{
 									Note = TEXT("rule is already applied with the same source; apply will be a no-op");
@@ -634,7 +893,7 @@ namespace AnimMcpOperations
 								else if (!Existing.bHasSource)
 								{
 									TArray<UEdGraphNode*> RuleNodes;
-									AnimMcpTransitionRule::CollectRuleNodes(Cast<UAnimStateTransitionNode>(Node)->BoundGraph, RuleNodes);
+									AnimMcpTransitionRule::CollectRuleNodes(RuleGraph, RuleNodes);
 									if (RuleNodes.Num() > 0)
 									{
 										Note = TEXT("existing rule graph was not generated by this tool; it will be replaced");
@@ -846,7 +1105,7 @@ namespace AnimMcpOperations
 				}
 				else
 				{
-					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s' (supported: add_node, connect, disconnect, remove_node, set_property, set_asset, expose_pin, add_blend_pose, add_state, add_transition, set_entry_state, set_transition_rule)"), *Op.Op));
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s' (supported: add_node, connect, disconnect, remove_node, set_property, set_asset, expose_pin, add_blend_pose, add_state, add_transition, set_entry_state, set_transition_rule, add_conduit, add_state_alias, set_alias_states, rename_node)"), *Op.Op));
 				}
 
 				bAllOk &= bOk;
@@ -861,6 +1120,15 @@ namespace AnimMcpOperations
 		{
 			FAddNodeArgs Args;
 			if (!ResolveAddNode(State, Op, Args, Context, Error))
+			{
+				return false;
+			}
+			if (Args.bGraphPending || !Args.Graph)
+			{
+				Error = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("add_node graph ref unresolved at apply time"));
+				return false;
+			}
+			if (Args.bVariableGet && !AnimMcpGraphMutator::ValidateVariableGetGraph(Args.Graph, Error))
 			{
 				return false;
 			}
@@ -1038,22 +1306,31 @@ namespace AnimMcpOperations
 			return true;
 		}
 
-		/** 전이 규칙 교체 — 기존 규칙 노드 분리 보관 → 생성 → automatic 플래그. 되돌리기는 생성 노드 제거 + 보관 노드 복귀 + 플래그·Result 핀 기본값 복원 */
-		bool ReplaceTransitionRule(FBatchState& State, UAnimStateTransitionNode* Transition, const TSharedPtr<FJsonObject>& Rule, const FString& Canonical, bool bAutomatic, double TriggerTime, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
+		/**
+		 * 규칙 교체 (전이 또는 conduit, Phase 6-1 부터 공용) — 기존 규칙 노드 분리 보관 → 생성 → automatic 플래그(전이만).
+		 * 되돌리기는 생성 노드 제거 + 보관 노드 복귀 + 플래그·Result 핀 기본값 복원
+		 */
+		bool ReplaceTransitionRule(FBatchState& State, UEdGraphNode* Owner, const TSharedPtr<FJsonObject>& Rule, const FString& Canonical, bool bAutomatic, double TriggerTime, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
 		{
-			UAnimationTransitionGraph* Graph = Cast<UAnimationTransitionGraph>(Transition->BoundGraph);
+			UAnimStateTransitionNode* Transition = Cast<UAnimStateTransitionNode>(Owner);
+			UAnimationTransitionGraph* Graph = AnimMcpGraphMutator::RuleGraphOf(Owner);
 			UAnimGraphNode_TransitionResult* Result = Graph ? Graph->GetResultNode() : nullptr;
 			if (!Graph || !Result)
 			{
-				Error = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("transition has no rule graph"));
+				Error = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("transition/conduit has no rule graph"));
+				return false;
+			}
+			if (bAutomatic && !Transition)
+			{
+				Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("a conduit rule cannot be 'automatic'"));
 				return false;
 			}
 
 			// 멱등 — 같은 원문이고 사람이 손대지 않았으면 아무것도 바꾸지 않는다
 			const AnimMcpTransitionRule::FSource Existing = AnimMcpTransitionRule::ReadSource(Graph);
 			if (Existing.bHasSource && Existing.Canonical == Canonical && !Existing.bModified
-				&& Transition->bAutomaticRuleBasedOnSequencePlayerInState == bAutomatic
-				&& (!bAutomatic || FMath::IsNearlyEqual(Transition->AutomaticRuleTriggerTime, static_cast<float>(TriggerTime))))
+				&& (!Transition || (Transition->bAutomaticRuleBasedOnSequencePlayerInState == bAutomatic
+					&& (!bAutomatic || FMath::IsNearlyEqual(Transition->AutomaticRuleTriggerTime, static_cast<float>(TriggerTime))))))
 			{
 				Entry->SetBoolField(TEXT("unchanged"), true);
 				return true;
@@ -1071,8 +1348,8 @@ namespace AnimMcpOperations
 			UEdGraphPin* ResultPin = Result->FindPin(TEXT("bCanEnterTransition"), EGPD_Input);
 			const FPinLinks ResultBefore = ResultPin ? SnapshotPin(ResultPin) : FPinLinks();
 			const FString ResultDefaultBefore = ResultPin ? ResultPin->DefaultValue : FString();
-			const bool bAutoBefore = Transition->bAutomaticRuleBasedOnSequencePlayerInState;
-			const float TriggerBefore = Transition->AutomaticRuleTriggerTime;
+			const bool bAutoBefore = Transition ? Transition->bAutomaticRuleBasedOnSequencePlayerInState : false;
+			const float TriggerBefore = Transition ? Transition->AutomaticRuleTriggerTime : -1.f;
 
 			TArray<TPair<UEdGraphNode*, TArray<FPinLinks>>> OldLinks;
 			for (UEdGraphNode* N : Old)
@@ -1093,13 +1370,16 @@ namespace AnimMcpOperations
 
 			// 2) 생성 + 플래그
 			TArray<UEdGraphNode*> Created;
-			Transition->Modify();
-			Transition->bAutomaticRuleBasedOnSequencePlayerInState = bAutomatic;
-			if (bAutomatic)
+			Owner->Modify();
+			if (Transition)
 			{
-				Transition->AutomaticRuleTriggerTime = static_cast<float>(TriggerTime);
+				Transition->bAutomaticRuleBasedOnSequencePlayerInState = bAutomatic;
+				if (bAutomatic)
+				{
+					Transition->AutomaticRuleTriggerTime = static_cast<float>(TriggerTime);
+				}
 			}
-			const bool bBuilt = AnimMcpTransitionRule::Build(Transition, Rule, Canonical, bAutomatic, Created, Error);
+			const bool bBuilt = AnimMcpTransitionRule::Build(Graph, Rule, Canonical, bAutomatic, Created, Error);
 
 			// 3) 되돌리기 (생성 실패했어도 부분 생성분이 있으므로 항상 등록)
 			State.Undo.Add([Graph, Transition, Created, OldLinks, ResultBefore, ResultDefaultBefore, bAutoBefore, TriggerBefore, ResultPinNode = ResultPin ? ResultPin->GetOwningNode() : nullptr]()
@@ -1127,9 +1407,12 @@ namespace AnimMcpOperations
 						GetDefault<UEdGraphSchema_K2>()->TrySetDefaultValue(*Pin, ResultDefaultBefore);
 					}
 				}
-				Transition->Modify();
-				Transition->bAutomaticRuleBasedOnSequencePlayerInState = bAutoBefore;
-				Transition->AutomaticRuleTriggerTime = TriggerBefore;
+				if (Transition)
+				{
+					Transition->Modify();
+					Transition->bAutomaticRuleBasedOnSequencePlayerInState = bAutoBefore;
+					Transition->AutomaticRuleTriggerTime = TriggerBefore;
+				}
 			});
 			if (!bBuilt)
 			{
@@ -1221,12 +1504,12 @@ namespace AnimMcpOperations
 		{
 			bool bPending = false;
 			UClass* PendingClass = nullptr;
-			UAnimStateTransitionNode* Transition = Cast<UAnimStateTransitionNode>(ResolveOpTarget(State, Op, bPending, PendingClass, Error));
-			if (!Transition)
+			UEdGraphNode* Owner = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
+			if (!Owner || !AnimMcpGraphMutator::RuleGraphOf(Owner))
 			{
 				if (!Error.IsSet())
 				{
-					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_transition_rule target is not a transition node"));
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_transition_rule target is not a transition or conduit node"));
 				}
 				return false;
 			}
@@ -1238,7 +1521,172 @@ namespace AnimMcpOperations
 			{
 				return false;
 			}
-			return ReplaceTransitionRule(State, Transition, Rule, Canonical, bAuto, Trigger, Entry, Error);
+			return ReplaceTransitionRule(State, Owner, Rule, Canonical, bAuto, Trigger, Entry, Error);
+		}
+
+		//~ Phase 6-1
+
+		bool ApplyAddConduit(FBatchState& State, const FOperation& Op, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UAnimationStateMachineGraph* SMGraph = ResolveStateMachine(State, Op, bPending, Error);
+			if (!SMGraph)
+			{
+				return false;
+			}
+			FString Name;
+			Op.Json->TryGetStringField(TEXT("name"), Name);
+			UAnimStateConduitNode* Node = AnimMcpGraphMutator::AddConduit(SMGraph, Name, ReadPos(Op, FVector2D(0, 0)), Error);
+			if (!Node)
+			{
+				return false;
+			}
+			// UAnimStateConduitNode::DestroyNode 가 BoundGraph 도 제거한다 (AnimStateConduitNode.cpp:97-109)
+			State.Undo.Add([Node]() { AnimMcpGraphMutator::DestroyNodeQuietly(Node); });
+			if (!Op.Ref.IsEmpty())
+			{
+				State.Refs.Add(Op.Ref, Node);
+			}
+			Entry->SetStringField(TEXT("node_guid"), Node->NodeGuid.ToString());
+			Entry->SetStringField(TEXT("name"), Node->GetStateName());
+			Entry->SetStringField(TEXT("rule_graph_guid"), Node->BoundGraph ? Node->BoundGraph->GraphGuid.ToString() : FString());
+
+			if (Op.Json->HasTypedField<EJson::Object>(TEXT("rule")))
+			{
+				FString Canonical;
+				bool bAuto = false;
+				double Trigger = -1.0;
+				const TSharedPtr<FJsonObject> Rule = Op.Json->GetObjectField(TEXT("rule"));
+				if (!AnimMcpTransitionRule::Validate(State.Blueprint, Rule, Canonical, bAuto, Trigger, Error))
+				{
+					return false;
+				}
+				if (!ReplaceTransitionRule(State, Node, Rule, Canonical, bAuto, Trigger, Entry, Error))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+
+		bool ResolveAliasArgs(FBatchState& State, const FOperation& Op, TArray<UEdGraphNode*>& OutStates, bool& bOutGlobal, FAnimMcpError& Error)
+		{
+			bOutGlobal = false;
+			Op.Json->TryGetBoolField(TEXT("global"), bOutGlobal);
+			OutStates.Reset();
+			if (Op.Json->HasField(TEXT("states")))
+			{
+				bool bPending = false;
+				if (!ResolveNodeRefArray(State, Op.Json->TryGetField(TEXT("states")), OutStates, bPending, Error))
+				{
+					return false;
+				}
+				if (bPending)
+				{
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("alias 'states' ref unresolved at apply time"));
+					return false;
+				}
+			}
+			return true;
+		}
+
+		bool ApplyAddStateAlias(FBatchState& State, const FOperation& Op, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UAnimationStateMachineGraph* SMGraph = ResolveStateMachine(State, Op, bPending, Error);
+			if (!SMGraph)
+			{
+				return false;
+			}
+			TArray<UEdGraphNode*> States;
+			bool bGlobal = false;
+			if (!ResolveAliasArgs(State, Op, States, bGlobal, Error))
+			{
+				return false;
+			}
+			FString Name;
+			Op.Json->TryGetStringField(TEXT("name"), Name);
+			UAnimStateAliasNode* Node = AnimMcpGraphMutator::AddStateAlias(SMGraph, Name, ReadPos(Op, FVector2D(0, 0)), Error);
+			if (!Node)
+			{
+				return false;
+			}
+			State.Undo.Add([Node]() { AnimMcpGraphMutator::DestroyNodeQuietly(Node); });
+			if (!Op.Ref.IsEmpty())
+			{
+				State.Refs.Add(Op.Ref, Node);
+			}
+			if (!AnimMcpGraphMutator::ValidateAliasTargets(Node, States, bGlobal, Error))
+			{
+				return false;
+			}
+			TArray<UEdGraphNode*> OldStates;
+			bool bOldGlobal = false;
+			AnimMcpGraphMutator::SetAliasTargets(Node, States, bGlobal, OldStates, bOldGlobal); // 새 노드라 되돌리기는 DestroyNode 로 충분
+			Entry->SetStringField(TEXT("node_guid"), Node->NodeGuid.ToString());
+			Entry->SetStringField(TEXT("name"), Node->GetStateName());
+			Entry->SetBoolField(TEXT("global"), bGlobal);
+			TArray<TSharedPtr<FJsonValue>> Guids;
+			for (UEdGraphNode* S : States) { Guids.Add(MakeShared<FJsonValueString>(S->NodeGuid.ToString())); }
+			Entry->SetArrayField(TEXT("aliased_states"), Guids);
+			return true;
+		}
+
+		bool ApplySetAliasStates(FBatchState& State, const FOperation& Op, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UClass* PendingClass = nullptr;
+			UAnimStateAliasNode* Alias = Cast<UAnimStateAliasNode>(ResolveOpTarget(State, Op, bPending, PendingClass, Error));
+			if (!Alias)
+			{
+				if (!Error.IsSet())
+				{
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_alias_states target is not a state alias node"));
+				}
+				return false;
+			}
+			TArray<UEdGraphNode*> States;
+			bool bGlobal = false;
+			if (!ResolveAliasArgs(State, Op, States, bGlobal, Error) || !AnimMcpGraphMutator::ValidateAliasTargets(Alias, States, bGlobal, Error))
+			{
+				return false;
+			}
+			TArray<UEdGraphNode*> OldStates;
+			bool bOldGlobal = false;
+			AnimMcpGraphMutator::SetAliasTargets(Alias, States, bGlobal, OldStates, bOldGlobal);
+			State.Undo.Add([Alias, OldStates, bOldGlobal]()
+			{
+				TArray<UEdGraphNode*> Ignored;
+				bool bIgnored = false;
+				AnimMcpGraphMutator::SetAliasTargets(Alias, OldStates, bOldGlobal, Ignored, bIgnored);
+			});
+			return true;
+		}
+
+		bool ApplyRenameNode(FBatchState& State, const FOperation& Op, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UClass* PendingClass = nullptr;
+			UEdGraphNode* Node = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
+			if (!Node)
+			{
+				return false;
+			}
+			const FString Name = Op.Json->GetStringField(TEXT("name"));
+			FString Old;
+			if (!AnimMcpGraphMutator::RenameNode(Node, Name, Old, Error))
+			{
+				return false;
+			}
+			State.Undo.Add([Node, Old]()
+			{
+				FString Ignored;
+				FAnimMcpError IgnoredError;
+				AnimMcpGraphMutator::RenameNode(Node, Old, Ignored, IgnoredError);
+			});
+			Entry->SetStringField(TEXT("old_name"), Old);
+			Entry->SetStringField(TEXT("name"), Name);
+			return true;
 		}
 
 		bool ApplySetProperty(FBatchState& State, const FOperation& Op, FAnimMcpError& Error)
@@ -1390,7 +1838,7 @@ namespace AnimMcpOperations
 				return false;
 			}
 			// 노드를 만드는 op 의 ref 만 "정의" 다. 다른 op 의 ref 는 "참조" 이므로 Op.Ref 에 두지 않는다 (중복 정의 검사와 섞이지 않게)
-			if (Op.Op == TEXT("add_node") || Op.Op == TEXT("add_state") || Op.Op == TEXT("add_transition"))
+			if (Op.Op == TEXT("add_node") || Op.Op == TEXT("add_state") || Op.Op == TEXT("add_transition") || Op.Op == TEXT("add_conduit") || Op.Op == TEXT("add_state_alias"))
 			{
 				Op.Json->TryGetStringField(TEXT("ref"), Op.Ref);
 			}
@@ -1486,6 +1934,10 @@ namespace AnimMcpOperations
 				else if (Op.Op == TEXT("add_transition")) { bOk = ApplyAddTransition(State, Op, Entry, Error); }
 				else if (Op.Op == TEXT("set_entry_state")) { bOk = ApplySetEntryState(State, Op, Error); }
 				else if (Op.Op == TEXT("set_transition_rule")) { bOk = ApplySetTransitionRule(State, Op, Entry, Error); }
+				else if (Op.Op == TEXT("add_conduit"))     { bOk = ApplyAddConduit(State, Op, Entry, Error); }
+				else if (Op.Op == TEXT("add_state_alias")) { bOk = ApplyAddStateAlias(State, Op, Entry, Error); }
+				else if (Op.Op == TEXT("set_alias_states")) { bOk = ApplySetAliasStates(State, Op, Error); }
+				else if (Op.Op == TEXT("rename_node"))     { bOk = ApplyRenameNode(State, Op, Entry, Error); }
 				else
 				{
 					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s'"), *Op.Op));

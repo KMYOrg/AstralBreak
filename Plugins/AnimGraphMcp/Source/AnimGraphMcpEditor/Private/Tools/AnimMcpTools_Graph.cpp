@@ -25,8 +25,13 @@ namespace AnimMcpTools
 			     "add_state {ref?, sm:{node|ref}|graph, name?, pos?} | "
 			     "add_transition {ref?, from:{node|ref}, to:{node|ref}, properties?, rule?} | "
 			     "set_entry_state {sm:{node|ref}|graph, state:{node|ref}} | "
-			     "set_transition_rule {node|ref, rule} where rule is a JSON tree of {var}|{not}|{and:[..]}|{or:[..]}|{compare:{op,left,right}}|{literal}|{call:{function,args}}|{automatic:true,trigger_time?}. "
-			     "'ref' names a node created by an earlier add_node/add_state/add_transition in the same batch.");
+			     "set_transition_rule {node|ref, rule} (transition or conduit) where rule is a JSON tree of {var}|{not}|{and:[..]}|{or:[..]}|{compare:{op,left,right}}|{literal}|{call:{function,args}}|{automatic:true,trigger_time?} (automatic: transitions only) | "
+			     "add_conduit {ref?, sm:{node|ref}|graph, name?, pos?, rule?} | "
+			     "add_state_alias {ref?, sm|graph, name?, pos?, states:[{node|ref}] | global:true} (an alias that is a transition TARGET must alias exactly one state) | "
+			     "set_alias_states {node|ref, states | global} | "
+			     "rename_node {node|ref, name} (state, conduit, alias or state machine node). "
+			     "'ref' names a node created by an earlier add_* in the same batch. add_node 'graph' also accepts {ref|node} of a state (its pose graph), "
+			     "and node references accept {result_of: {ref|node}} = that state's Output Animation Pose node (pin 'Result').");
 	}
 
 	void RegisterGraphTools(FAnimMcpDispatcher& Dispatcher)

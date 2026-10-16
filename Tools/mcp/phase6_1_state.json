@@ -1,0 +1,452 @@
+{
+ "revision": "sha1:f5ed1ba81750f47ae7127e634e4a58be0a579899",
+ "nodes": [
+  "014E0AE8460B73CF76C56ABBC6653333",
+  "040BCB2540E0A29ADFDD9685954D0DBE",
+  "08B06DAB4D996CEAC18CA7A723F13260",
+  "0A2CCB254F679FD23282E193934ED301",
+  "0B266DC84A1AFD5BCD179488D4ACEE3E",
+  "125ED5314C2597CC9961CD8E320992B4",
+  "15D28CC3421F5CD9F3FBCABF0EAC85E0",
+  "1F51765C45C4DE4B816C8D96D3F78BE6",
+  "22416A904783D57560AAD4B162AA452B",
+  "2CC4B22D41BFD4AFE3E4C4B8F008B9EB",
+  "333F26B84A66401F006061946098937C",
+  "388A495E49C2B6265847C09BB10C9065",
+  "3B5B110048F333747E9C118D50D9A34F",
+  "4021C19D478B324CA70D9A9A16021932",
+  "410CB4EC4681AB8E9A06178DA79F7E5E",
+  "441C2FFB4BF833A55F2338AED62549E3",
+  "487A2E704A8A048324D72D85985645CD",
+  "4DE2695B4D495A5E8C68178C65828994",
+  "52A9D82040AB807E5B7EA7850FAC4582",
+  "549B924945719618DAA498999EA457A8",
+  "565A7EF84783BEA0ED2B368F401EE3F6",
+  "5D3D9F564A41DBB823AD3E8D8CBA11A1",
+  "64E7AF364D58A1458A10908C88569B8E",
+  "65D403B9414C39EE0113B697A00FA30A",
+  "6809CE2D449F058671D16DBDE53A1F2A",
+  "692E841745EAC0CD46C483BC6022FAE8",
+  "6EBEA24142B5B2550327D3A9E1496518",
+  "6F149AC74B3BB9987018149B88E6F8FE",
+  "6F15253D46022239165C1DAE95962300",
+  "71DE2F664C179866C94784B4D1561121",
+  "75FF9865437E2A70F17626A8F2977E0A",
+  "7FD2F16F4C6DB121C5DFDA9301273FF6",
+  "81023DA340D2D9139B027E894765AA48",
+  "8A082A2D4429BACDE1FB278B00DB0A18",
+  "9835EA344AFA58F0C7B7399A648BC952",
+  "9949DC784FB182E2D8E7149D02897D2D",
+  "A0CB77B64E5D029A0DA7ADAB3F905EF8",
+  "A26570FA49D0F36F009840A3A52B3ED6",
+  "A4E52C5348B4468C2D2EE4A3329CD5B6",
+  "A599F0EA4DE436781A3AC384C41E9F19",
+  "A6ABA56748DA22052F41529251A71AE6",
+  "B039C4874AC789E9FD92D9A58F489653",
+  "B3DAC6CB45E599DEF8AD0DA4A4395B5B",
+  "B56913A0446B8A07C082FEA02AE527FF",
+  "B98027B144ED3CCCB031CC850D4888F6",
+  "BDB1BA8645EC53E6CE85B5AC59576598",
+  "C27909CD46323FC591F50993BB47BDF1",
+  "CADA9563433CD68A2244C3AD4B0D3E9C",
+  "D0C258E24DE10460B972B9A219720AC7",
+  "D12484584A0526248037E3B58A9DC8D9",
+  "D73EF94C41DD686B083F93BF12EF7526",
+  "DA723030459D12CA8988E59E0EA72D52",
+  "DB1139CB4F63A9647AE352A865235336",
+  "DB6FBCC5499B5674651F699209ECD7A0",
+  "E080AC1E45AAE02485307380A2A11A41",
+  "E29694F445953293B213BCA82DBBAA19",
+  "E489403A4C42DD1C18BDCD877A88660D",
+  "E5045B4542B2B7717DD0D18D018E14A8",
+  "E72D51B74EE34600D15405A2B6335A54",
+  "EF6D601A4FB0A53182AB51A557239BB4",
+  "F81AFEFF4DCD1EA8DAD4C9A6FC668F54",
+  "FC5C67B3415E39FD31BEE4951E9E69F7"
+ ],
+ "state_machines": [
+  {
+   "graph_guid": "AC7489AA45EDC89884E2499CE5CE5415",
+   "name": "Locomotions",
+   "node_guid": "08B06DAB4D996CEAC18CA7A723F13260",
+   "entry_node_guid": "4DE2695B4D495A5E8C68178C65828994",
+   "entry_state": "A6ABA56748DA22052F41529251A71AE6",
+   "states": [
+    {
+     "node_guid": "A6ABA56748DA22052F41529251A71AE6",
+     "name": "Idle",
+     "class": "AnimStateNode",
+     "kind": "state",
+     "bound_graph_guid": "782596A4472B7F3A20C91E847BDFC117",
+     "always_reset_on_entry": false,
+     "outgoing_transitions": [
+      "BDB1BA8645EC53E6CE85B5AC59576598"
+     ],
+     "incoming_transitions": [
+      "6F149AC74B3BB9987018149B88E6F8FE"
+     ]
+    },
+    {
+     "node_guid": "388A495E49C2B6265847C09BB10C9065",
+     "name": "Move",
+     "class": "AnimStateNode",
+     "kind": "state",
+     "bound_graph_guid": "BC2B03E8428A26D27DD872BC324ECFC7",
+     "always_reset_on_entry": false,
+     "outgoing_transitions": [
+      "6F149AC74B3BB9987018149B88E6F8FE"
+     ],
+     "incoming_transitions": [
+      "BDB1BA8645EC53E6CE85B5AC59576598"
+     ]
+    },
+    {
+     "node_guid": "64E7AF364D58A1458A10908C88569B8E",
+     "name": "JumpStart",
+     "class": "AnimStateNode",
+     "kind": "state",
+     "bound_graph_guid": "FAC6DE9847ECE1A4975BA0AB81326D76",
+     "always_reset_on_entry": false,
+     "outgoing_transitions": [
+      "DB1139CB4F63A9647AE352A865235336"
+     ],
+     "incoming_transitions": []
+    },
+    {
+     "node_guid": "E29694F445953293B213BCA82DBBAA19",
+     "name": "FallLoop",
+     "class": "AnimStateNode",
+     "kind": "state",
+     "bound_graph_guid": "D8DE9B00490DE407489664BD864A6AFE",
+     "always_reset_on_entry": false,
+     "outgoing_transitions": [
+      "3B5B110048F333747E9C118D50D9A34F"
+     ],
+     "incoming_transitions": [
+      "DB1139CB4F63A9647AE352A865235336"
+     ]
+    },
+    {
+     "node_guid": "6EBEA24142B5B2550327D3A9E1496518",
+     "name": "EndInAir",
+     "class": "AnimStateConduitNode",
+     "kind": "conduit",
+     "bound_graph_guid": "EFBDD6884303AD18D21F8BA91A9BF9FA",
+     "rule_graph_guid": "EFBDD6884303AD18D21F8BA91A9BF9FA",
+     "rule_generated": true,
+     "rule_source": {
+      "literal": true
+     },
+     "rule_modified": false,
+     "rule_node_count": 0,
+     "outgoing_transitions": [
+      "E5045B4542B2B7717DD0D18D018E14A8",
+      "549B924945719618DAA498999EA457A8"
+     ],
+     "incoming_transitions": [
+      "4021C19D478B324CA70D9A9A16021932",
+      "441C2FFB4BF833A55F2338AED62549E3"
+     ]
+    },
+    {
+     "node_guid": "DB6FBCC5499B5674651F699209ECD7A0",
+     "name": "JumpSources",
+     "class": "AnimStateAliasNode",
+     "kind": "alias",
+     "bound_graph_guid": null,
+     "global": false,
+     "aliased_states": [
+      "A6ABA56748DA22052F41529251A71AE6",
+      "388A495E49C2B6265847C09BB10C9065"
+     ],
+     "aliased_state_names": [
+      "Idle",
+      "Move"
+     ],
+     "outgoing_transitions": [],
+     "incoming_transitions": []
+    },
+    {
+     "node_guid": "8A082A2D4429BACDE1FB278B00DB0A18",
+     "name": "IdleAlias",
+     "class": "AnimStateAliasNode",
+     "kind": "alias",
+     "bound_graph_guid": null,
+     "global": false,
+     "aliased_states": [
+      "A6ABA56748DA22052F41529251A71AE6"
+     ],
+     "aliased_state_names": [
+      "Idle"
+     ],
+     "outgoing_transitions": [],
+     "incoming_transitions": [
+      "E5045B4542B2B7717DD0D18D018E14A8"
+     ]
+    },
+    {
+     "node_guid": "9835EA344AFA58F0C7B7399A648BC952",
+     "name": "MoveAlias",
+     "class": "AnimStateAliasNode",
+     "kind": "alias",
+     "bound_graph_guid": null,
+     "global": false,
+     "aliased_states": [
+      "388A495E49C2B6265847C09BB10C9065"
+     ],
+     "aliased_state_names": [
+      "Move"
+     ],
+     "outgoing_transitions": [],
+     "incoming_transitions": [
+      "549B924945719618DAA498999EA457A8"
+     ]
+    },
+    {
+     "node_guid": "D73EF94C41DD686B083F93BF12EF7526",
+     "name": "FallLand",
+     "class": "AnimStateNode",
+     "kind": "state",
+     "bound_graph_guid": "FF0974DB4553AAF3551B56B2461488B4",
+     "always_reset_on_entry": false,
+     "outgoing_transitions": [
+      "4021C19D478B324CA70D9A9A16021932",
+      "441C2FFB4BF833A55F2338AED62549E3"
+     ],
+     "incoming_transitions": [
+      "3B5B110048F333747E9C118D50D9A34F"
+     ]
+    }
+   ],
+   "transitions": [
+    {
+     "node_guid": "BDB1BA8645EC53E6CE85B5AC59576598",
+     "name": "Transition",
+     "from": "A6ABA56748DA22052F41529251A71AE6",
+     "to": "388A495E49C2B6265847C09BB10C9065",
+     "from_name": "Idle",
+     "to_name": "Move",
+     "priority_order": 1,
+     "crossfade_duration": 0.25,
+     "blend_mode": "HermiteCubic",
+     "bidirectional": false,
+     "disabled": false,
+     "automatic": false,
+     "automatic_trigger_time": -1,
+     "shared_rules": false,
+     "rule_graph_guid": "F66914E043464FE0FF8ECE80FF013919",
+     "rule_generated": true,
+     "rule_source": {
+      "var": "bHasMovementInput"
+     },
+     "rule_modified": false,
+     "rule_node_count": 1
+    },
+    {
+     "node_guid": "6F149AC74B3BB9987018149B88E6F8FE",
+     "name": "Transition",
+     "from": "388A495E49C2B6265847C09BB10C9065",
+     "to": "A6ABA56748DA22052F41529251A71AE6",
+     "from_name": "Move",
+     "to_name": "Idle",
+     "priority_order": 1,
+     "crossfade_duration": 0.30000001192092896,
+     "blend_mode": "HermiteCubic",
+     "bidirectional": false,
+     "disabled": false,
+     "automatic": false,
+     "automatic_trigger_time": -1,
+     "shared_rules": false,
+     "rule_graph_guid": "86CC91724B5782703A73879AD8E068C8",
+     "rule_generated": true,
+     "rule_source": {
+      "and": [
+       {
+        "not": {
+         "var": "bHasMovementInput"
+        }
+       },
+       {
+        "compare": {
+         "op": "<",
+         "left": {
+          "var": "Speed"
+         },
+         "right": {
+          "literal": 10
+         }
+        }
+       }
+      ]
+     },
+     "rule_modified": false,
+     "rule_node_count": 5
+    },
+    {
+     "node_guid": "DB1139CB4F63A9647AE352A865235336",
+     "name": "Transition",
+     "from": "64E7AF364D58A1458A10908C88569B8E",
+     "to": "E29694F445953293B213BCA82DBBAA19",
+     "from_name": "JumpStart",
+     "to_name": "FallLoop",
+     "priority_order": 1,
+     "crossfade_duration": 0.20000000298023224,
+     "blend_mode": "HermiteCubic",
+     "bidirectional": false,
+     "disabled": false,
+     "automatic": true,
+     "automatic_trigger_time": -1,
+     "shared_rules": false,
+     "rule_graph_guid": "1FCB1F9840DE2DA857AD4482061BE006",
+     "rule_generated": true,
+     "rule_source": {
+      "automatic": true,
+      "trigger_time": -1
+     },
+     "rule_modified": false,
+     "rule_node_count": 0
+    },
+    {
+     "node_guid": "E5045B4542B2B7717DD0D18D018E14A8",
+     "name": "Transition",
+     "from": "6EBEA24142B5B2550327D3A9E1496518",
+     "to": "8A082A2D4429BACDE1FB278B00DB0A18",
+     "from_name": "EndInAir",
+     "to_name": "IdleAlias",
+     "priority_order": 1,
+     "crossfade_duration": 0.20000000298023224,
+     "blend_mode": "HermiteCubic",
+     "bidirectional": false,
+     "disabled": false,
+     "automatic": false,
+     "automatic_trigger_time": -1,
+     "shared_rules": false,
+     "rule_graph_guid": "2370F64040713DE76FEAE298F2AC437C",
+     "rule_generated": true,
+     "rule_source": {
+      "compare": {
+       "op": ">=",
+       "left": {
+        "var": "Speed"
+       },
+       "right": {
+        "literal": 20
+       }
+      }
+     },
+     "rule_modified": false,
+     "rule_node_count": 2
+    },
+    {
+     "node_guid": "549B924945719618DAA498999EA457A8",
+     "name": "Transition",
+     "from": "6EBEA24142B5B2550327D3A9E1496518",
+     "to": "9835EA344AFA58F0C7B7399A648BC952",
+     "from_name": "EndInAir",
+     "to_name": "MoveAlias",
+     "priority_order": 1,
+     "crossfade_duration": 0.20000000298023224,
+     "blend_mode": "HermiteCubic",
+     "bidirectional": false,
+     "disabled": false,
+     "automatic": false,
+     "automatic_trigger_time": -1,
+     "shared_rules": false,
+     "rule_graph_guid": "384463EE41D552D650F656BF7E2D78CD",
+     "rule_generated": true,
+     "rule_source": {
+      "compare": {
+       "op": "<",
+       "left": {
+        "var": "Speed"
+       },
+       "right": {
+        "literal": 20
+       }
+      }
+     },
+     "rule_modified": false,
+     "rule_node_count": 2
+    },
+    {
+     "node_guid": "4021C19D478B324CA70D9A9A16021932",
+     "name": "Transition",
+     "from": "D73EF94C41DD686B083F93BF12EF7526",
+     "to": "6EBEA24142B5B2550327D3A9E1496518",
+     "from_name": "FallLand",
+     "to_name": "EndInAir",
+     "priority_order": 1,
+     "crossfade_duration": 0.20000000298023224,
+     "blend_mode": "HermiteCubic",
+     "bidirectional": false,
+     "disabled": false,
+     "automatic": false,
+     "automatic_trigger_time": -1,
+     "shared_rules": false,
+     "rule_graph_guid": "920F0E7C48F30EC4F2ACD8A4A1723A25",
+     "rule_generated": true,
+     "rule_source": {
+      "var": "bIsOnGround"
+     },
+     "rule_modified": false,
+     "rule_node_count": 1
+    },
+    {
+     "node_guid": "441C2FFB4BF833A55F2338AED62549E3",
+     "name": "Transition",
+     "from": "D73EF94C41DD686B083F93BF12EF7526",
+     "to": "6EBEA24142B5B2550327D3A9E1496518",
+     "from_name": "FallLand",
+     "to_name": "EndInAir",
+     "priority_order": 1,
+     "crossfade_duration": 0.20000000298023224,
+     "blend_mode": "HermiteCubic",
+     "bidirectional": false,
+     "disabled": false,
+     "automatic": true,
+     "automatic_trigger_time": -1,
+     "shared_rules": false,
+     "rule_graph_guid": "0604CC4C4A2E5C8F7394ABA881FE10CE",
+     "rule_generated": true,
+     "rule_source": {
+      "automatic": true,
+      "trigger_time": -1
+     },
+     "rule_modified": false,
+     "rule_node_count": 0
+    },
+    {
+     "node_guid": "3B5B110048F333747E9C118D50D9A34F",
+     "name": "Transition",
+     "from": "E29694F445953293B213BCA82DBBAA19",
+     "to": "D73EF94C41DD686B083F93BF12EF7526",
+     "from_name": "FallLoop",
+     "to_name": "FallLand",
+     "priority_order": 1,
+     "crossfade_duration": 0.20000000298023224,
+     "blend_mode": "HermiteCubic",
+     "bidirectional": false,
+     "disabled": false,
+     "automatic": false,
+     "automatic_trigger_time": -1,
+     "shared_rules": false,
+     "rule_graph_guid": "590E223546A7C696C65109AE08217E09",
+     "rule_generated": true,
+     "rule_source": {
+      "compare": {
+       "op": "<",
+       "left": {
+        "var": "GroundDistance"
+       },
+       "right": {
+        "literal": 25
+       }
+      }
+     },
+     "rule_modified": false,
+     "rule_node_count": 2
+    }
+   ]
+  }
+ ]
+}

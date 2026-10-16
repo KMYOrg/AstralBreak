@@ -718,6 +718,31 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 
 ---
 
+## Phase 6-1 결과 (2026-10-16, 브랜치 `feat/ai_auto_ABP`) — 상태머신 완성
+
+핸드오프 phase6 §3 전부 구현. `phase6_1_test.py` 8개 절 **PASS** + `phase3/4/5_test.py` 회귀 PASS + 재시작 `--recheck` PASS(6-1 · 5 · 히어로 빌드). Development · DebugGame 빌드 성공, 경고 0. **`phase5_build_hero.py` 가 운영 애셋과 상태머신 1:1**(상태 5 · conduit 2 · alias 4 · 전이 12 · 이름 `Locomotions` · 상태 내부) 인 `ABP_Hero_McpBuild` 를 만든다 — 비교 문서 §1 이 그래프 21/21 · 연결 54/54 · 상태 11/11 · 전이 12/12.
+
+**§9-1(alias 방향) 은 소스로 해소 — 사용자 질문 불필요.** `UAnimStateAliasNode::ValidateNodeDuringCompilation`(AnimStateAliasNode.cpp:48-56): 들어오는 전이가 있는 alias 는 **정확히 하나의 상태를 가리키고 global 이 아니어야** 한다(컴파일 오류). 나가는 전이는 다중·global 모두 허용. 운영 애셋의 `IdleAlias`/`MoveAlias`(전이 대상) 는 단일 상태라 규칙에 맞는다. 도구는 이 규칙을 `ValidateAliasTargets`·`ValidateTransitionTarget` 로 적용 전에 거부한다.
+
+| 산출물 | 위치 |
+| :--- | :--- |
+| op 4종 | `add_conduit {ref?, sm\|graph, name?, pos?, rule?}` · `add_state_alias {ref?, sm\|graph, name?, pos?, states:[{node\|ref}] \| global}` · `set_alias_states {node\|ref, states\|global}` · `rename_node {node\|ref, name}` — `Core/AnimMcpOperations.cpp` Validate/Apply 분기, `Core/AnimMcpGraphMutator` `AddConduit`(`FGraphNodeCreator<UAnimStateConduitNode>`, PostPlacedNewNode 가 BoundGraph 생성 AnimStateConduitNode.cpp:69-95) · `AddStateAlias` · `ValidateAliasTargets`/`SetAliasTargets`(`GetAliasedStates()` 비const 접근자 ANIMGRAPH_API, `bGlobalAlias`) · `ValidateTransitionTarget` · `RenameNode`(상태·conduit·alias = `UAnimStateNodeBase::OnRenameNode` → RenameGraph/StateAliasName, 상태머신 = `UAnimGraphNode_StateMachineBase::OnRenameNode` AnimGraphNode_StateMachineBase.cpp:243-246; 검증은 노드의 `MakeNameValidator`) · `RuleGraphOf` |
+| conduit 규칙 | `set_transition_rule` 이 conduit 도 받는다. `AnimMcpTransitionRule::Build` 가 `UEdGraph*`(규칙 그래프) 를 받도록 바꿈 — conduit BoundGraph 도 `UAnimationTransitionGraph`(conduit 스키마). `ReplaceTransitionRule` 이 소유 노드(전이\|conduit) 공용, automatic 은 전이만 |
+| 같은 배치 상태 내부 | `add_node.graph` 에 `{ref\|node}`(상태 → 포즈 그래프; conduit·alias 거부) · 노드 참조에 `{result_of: {ref\|node}}`(그 상태의 StateResult). 상태 생성·내부·conduit·alias·전이·이름 변경이 **배치 하나**(테스트 A: op 39) |
+| Inspector | `states[]` 에 conduit 의 `rule_graph_guid/rule_generated/rule_source/rule_modified/rule_node_count`(전이와 같은 `WriteRuleFields`), alias 의 `global`·`aliased_states[]`·`aliased_state_names[]` |
+| 테스트 | `Tools/mcp/phase6_1_test.py` — A 운영 구조 1:1 배치 하나 · B 뷰 · C rename(4종·되돌리기·거부 3) · D set_alias_states(대상 alias 거부 2·소스 교체·global·되돌리기) · E 거부 9종 · F 10-op 중간 실패 롤백(conduit·alias·rename·alias 대상·conduit 규칙·상태 삭제 연쇄 복원) · G conduit/alias 삭제 연쇄(상태 9·전이 8) · H 저장/recheck |
+| 빌드 스크립트 | `phase5_build_hero.py` 상태머신 절을 운영 1:1 로(배치 하나) · `--diff-only` · 비교 문서 §4 "의도한 차이" 에서 alias/conduit·이름 항목 제거 |
+
+**실측으로 확인한 것**
+- alias 의 In/Out 핀 이름은 `In`/`Out`(AnimStateAliasNode.cpp:42-46), conduit 도 같다. `GetInputPin()/GetOutputPin()` 이 `Pins[0]/[1]`.
+- conduit 규칙 그래프의 Result 는 `UAnimGraphNode_TransitionResult`, 핀 `bCanEnterTransition` — 전이와 동일해 규칙 생성기·주석(rule_source)·멱등이 그대로 동작. 비교 문서에서 conduit 내부에 `EdGraphNode_Comment` 가 하나 더 보이는 것은 도구 주석(원문 저장)이다.
+- `UAnimStateAliasNode::OnRenameNode` 는 검증 없이 `StateAliasName` 만 바꾼다 — 도구가 `FNameValidatorFactory::MakeValidator(node)` 로 먼저 검증한다. 상태머신 이름 검증기(`FAnimStateMachineNodeNameValidator`) 는 다른 상태머신·애니 레이어 함수 이름과의 충돌도 본다.
+- 운영 애셋의 `JumpSources → JumpSelector` 전이와 conduit 2개는 규칙 노드가 없고 **Result 기본값 `true`** 다(이전 비교 문서의 "규칙 없음 → false" 표기는 오류였고 `--diff-only` 로 정정).
+
+**Phase 6-2 착수 조건**: 본 결과 검토. 범위는 핸드오프 phase6 §4(duplicate · delete · quit_editor Tool, 새 Tool 은 재시작 전 HTTP 테스트). §9-4(삭제 보호) 를 코드 전에 확정.
+
+---
+
 ## 부록 — 확인에 사용한 파일
 
 **프로젝트**: `AstralBreak.uproject`, `Source/AstralBreak.Build.cs`, `Source/AstralBreakEditor.Target.cs`, `Config/DefaultEngine.ini`, `Config/DefaultGame.ini`, `Source/AstralBreak/Animation/AstralAnimInstance.{h,cpp}`, `Tools/ue_exec.py`, `Tools/lib/ab_blueprint.py`, `.claude/settings.json`, `Content/Animation/**`, `Content/Characters/**`

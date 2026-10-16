@@ -519,6 +519,24 @@ namespace AnimMcpGraphInspector
 		return Result;
 	}
 
+	namespace
+	{
+		/** 규칙 그래프 요약 — 전이와 conduit 가 같은 필드를 낸다 (Phase 6-1) */
+		void WriteRuleFields(TSharedRef<FJsonObject>& Obj, UEdGraph* RuleGraph)
+		{
+			Obj->SetField(TEXT("rule_graph_guid"), RuleGraph ? AnimMcpJson::StringOrNull(RuleGraph->GraphGuid.ToString()) : MakeShared<FJsonValueNull>());
+			// 도구가 만든 규칙이면 원문 복원 + 사람 편집 감지. 없으면 규칙 노드 수만
+			const AnimMcpTransitionRule::FSource Source = AnimMcpTransitionRule::ReadSource(RuleGraph);
+			Obj->SetBoolField(TEXT("rule_generated"), Source.bHasSource);
+			TSharedPtr<FJsonValue> SourceValue = Source.Source.IsValid() ? TSharedPtr<FJsonValue>(MakeShared<FJsonValueObject>(Source.Source)) : TSharedPtr<FJsonValue>(MakeShared<FJsonValueNull>());
+			Obj->SetField(TEXT("rule_source"), SourceValue);
+			Obj->SetBoolField(TEXT("rule_modified"), Source.bHasSource && Source.bModified);
+			TArray<UEdGraphNode*> RuleNodes;
+			AnimMcpTransitionRule::CollectRuleNodes(RuleGraph, RuleNodes);
+			Obj->SetNumberField(TEXT("rule_node_count"), RuleNodes.Num());
+		}
+	}
+
 	TSharedRef<FJsonObject> DescribeStateMachine(UAnimationStateMachineGraph* Graph)
 	{
 		TSharedRef<FJsonObject> Obj = AnimMcpJson::MakeObject();
@@ -558,17 +576,7 @@ namespace AnimMcpGraphInspector
 				T->SetBoolField(TEXT("automatic"), Transition->bAutomaticRuleBasedOnSequencePlayerInState);
 				T->SetNumberField(TEXT("automatic_trigger_time"), Transition->AutomaticRuleTriggerTime);
 				T->SetBoolField(TEXT("shared_rules"), Transition->bSharedRules);
-				T->SetField(TEXT("rule_graph_guid"), Transition->BoundGraph ? AnimMcpJson::StringOrNull(Transition->BoundGraph->GraphGuid.ToString()) : MakeShared<FJsonValueNull>());
-
-				// 도구가 만든 규칙이면 원문 복원 + 사람 편집 감지. 없으면 규칙 노드 수만
-				const AnimMcpTransitionRule::FSource Source = AnimMcpTransitionRule::ReadSource(Transition->BoundGraph);
-				T->SetBoolField(TEXT("rule_generated"), Source.bHasSource);
-				TSharedPtr<FJsonValue> SourceValue = Source.Source.IsValid() ? TSharedPtr<FJsonValue>(MakeShared<FJsonValueObject>(Source.Source)) : TSharedPtr<FJsonValue>(MakeShared<FJsonValueNull>());
-				T->SetField(TEXT("rule_source"), SourceValue);
-				T->SetBoolField(TEXT("rule_modified"), Source.bHasSource && Source.bModified);
-				TArray<UEdGraphNode*> RuleNodes;
-				AnimMcpTransitionRule::CollectRuleNodes(Transition->BoundGraph, RuleNodes);
-				T->SetNumberField(TEXT("rule_node_count"), RuleNodes.Num());
+				WriteRuleFields(T, Transition->BoundGraph);
 				Transitions.Add(MakeShared<FJsonValueObject>(T));
 			}
 			else
@@ -586,6 +594,26 @@ namespace AnimMcpGraphInspector
 				if (UAnimStateNode* StateNode = Cast<UAnimStateNode>(StateBase))
 				{
 					S->SetBoolField(TEXT("always_reset_on_entry"), StateNode->bAlwaysResetOnEntry);
+				}
+				// Phase 6-1 — conduit 는 규칙, alias 는 대상
+				if (UAnimStateConduitNode* Conduit = Cast<UAnimStateConduitNode>(StateBase))
+				{
+					WriteRuleFields(S, Conduit->BoundGraph);
+				}
+				else if (UAnimStateAliasNode* Alias = Cast<UAnimStateAliasNode>(StateBase))
+				{
+					S->SetBoolField(TEXT("global"), Alias->bGlobalAlias);
+					TArray<TSharedPtr<FJsonValue>> Targets, TargetNames;
+					for (const TWeakObjectPtr<UAnimStateNodeBase>& Weak : Alias->GetAliasedStates())
+					{
+						if (UAnimStateNodeBase* Target = Weak.Get())
+						{
+							Targets.Add(MakeShared<FJsonValueString>(Target->NodeGuid.ToString()));
+							TargetNames.Add(MakeShared<FJsonValueString>(Target->GetStateName()));
+						}
+					}
+					S->SetArrayField(TEXT("aliased_states"), Targets);
+					S->SetArrayField(TEXT("aliased_state_names"), TargetNames);
 				}
 				TArray<FString> Out, In;
 				for (UEdGraphPin* Pin : StateBase->Pins)

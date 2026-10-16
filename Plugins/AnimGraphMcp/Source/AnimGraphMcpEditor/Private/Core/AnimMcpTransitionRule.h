@@ -39,10 +39,10 @@ namespace AnimMcpTransitionRule
 	bool Validate(UAnimBlueprint* Blueprint, const TSharedPtr<FJsonObject>& Rule, FString& OutCanonical, bool& bOutAutomatic, double& OutTriggerTime, FAnimMcpError& OutError);
 
 	/**
-	 * BoundGraph 에 AST 를 그린다 (Result 노드와 주석 노드 외에 다른 노드가 없다고 가정). 만든 노드를 OutCreated 에 (주석 포함).
+	 * 규칙 그래프(전이 또는 conduit 의 BoundGraph, UAnimationTransitionGraph) 에 AST 를 그린다 (Result 노드와 주석 노드 외에 다른 노드가 없다고 가정). 만든 노드를 OutCreated 에 (주석 포함).
 	 * 호출자가 FScopedTransaction 안에서 부른다. automatic 이면 Result 핀 기본값은 건드리지 않고 주석만 남긴다
 	 */
-	bool Build(UAnimStateTransitionNode* Transition, const TSharedPtr<FJsonObject>& Rule, const FString& Canonical, bool bAutomatic, TArray<UEdGraphNode*>& OutCreated, FAnimMcpError& OutError);
+	bool Build(UEdGraph* RuleGraph, const TSharedPtr<FJsonObject>& Rule, const FString& Canonical, bool bAutomatic, TArray<UEdGraphNode*>& OutCreated, FAnimMcpError& OutError);
 
 	struct FSource
 	{

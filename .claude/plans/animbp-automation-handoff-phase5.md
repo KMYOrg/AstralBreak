@@ -5,7 +5,7 @@
 > 최초 지침서(Phase 1 착수 시 전달)를 **Phase 4 까지 구현된 상태**에 맞춰 다시 쓴 것이다. 완료된 Phase 는 결과만 남기고, 미확정이던 항목은 전부 확정값으로 바꾸었다.
 > 설계 근거·엔진 소스 경로·API 검증표·각 Phase 의 상세 결과는 [animbp-automation-phase1.md](animbp-automation-phase1.md) 에 있다 (§B API 검증표 · §C 아키텍처 결정 · §F 단계 계획 · §G 위험 · "Phase 2/2.5/3/4 결과"). 구조를 재논의하기 전에 그 문서를 먼저 읽는다.
 > 이 문서는 [animbp-automation-handoff-phase3.md](animbp-automation-handoff-phase3.md) 를 대체한다.
-> **2026-10-16 추기: Phase 5 완료.** 실측 결과 운영 애셋에 이동·점프가 이미 완성돼 있어 범위를 "새 ABP 처음부터 재구성" 으로 바꿨다(§14.0 사용자 확정). 결과·추가 도구·함정은 phase1 문서 "Phase 5 결과", 빌드 vs 운영 비교는 [animbp-phase5-hero-diff.md](animbp-phase5-hero-diff.md). §13·§17 만 갱신했고 나머지 절은 착수 시점 그대로다.
+> **2026-10-16 추기: Phase 5 완료·커밋. Phase 6 착수용 문서는 [animbp-automation-handoff-phase6.md](animbp-automation-handoff-phase6.md)(6-1 ~ 6-6 분할).** 실측 결과 운영 애셋에 이동·점프가 이미 완성돼 있어 범위를 "새 ABP 처음부터 재구성" 으로 바꿨다(§14.0 사용자 확정). 결과·추가 도구·함정은 phase1 문서 "Phase 5 결과", 빌드 vs 운영 비교는 [animbp-phase5-hero-diff.md](animbp-phase5-hero-diff.md). §13·§17 만 갱신했고 나머지 절은 착수 시점 그대로다.
 
 ---
 

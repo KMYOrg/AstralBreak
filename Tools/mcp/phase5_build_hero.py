@@ -1,6 +1,6 @@
 """Phase 5 — 히어로 AnimBP 를 도구만으로 처음부터 구성한다 (2026-10-16 사용자 확정: 새 ABP 재구성 · BlendSpace 재사용 · UpperBody 슬롯 신설).
 
-    PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/phase5_build_hero.py [--overwrite] [--recheck]
+    PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/phase5_build_hero.py [--overwrite] [--recheck] [--diff-only]
 
 산출: /Game/Animation/Hero/ABP_Hero_McpBuild (저장) · Tools/mcp/phase5_build_state.json · .claude/plans/animbp-phase5-hero-diff.md (운영 애셋과 비교)
 운영 애셋 /Game/Animation/Hero/ABP_Hero_Base 는 읽기(비교)만 한다.
@@ -9,8 +9,10 @@
   루트   SM → Slot DefaultSlot(전신) → SaveCachedPose "FullBody" → UseCachedPose ×2
          → (BasePose) / (→ Slot UpperBody → BlendPoses_0) → LayeredBoneBlend(spine_01) → Inertialization → Output
          ※ 상체 슬롯은 반드시 전신 슬롯 **뒤**에. 나란히 두면 UpperBody 슬롯이 비어 있을 때 로코모션 상체가 전신 몽타주 상체를 덮는다 (2026-10-16 PIE 에서 실측된 실수)
-  SM     Idle · Move · JumpStart · FallLoop · FallLand, Entry=Idle  (운영 애셋의 alias 4·conduit 2 는 도구 미지원(Phase 6) → 직접 전이로 단순화)
+  SM     `Locomotions` — 상태 5(Idle · Move · JumpStart · FallLoop · FallLand) · conduit 2(JumpSelector · EndInAir) · alias 4(JumpSources · JumpFallInterruptSources · IdleAlias · MoveAlias)
+         · 전이 12, Entry=Idle — 운영 애셋과 1:1 (Phase 6-1 부터; 그 전엔 alias/conduit 없이 직접 전이로 단순화했었다)
   상태   Idle=AS_Idle · Move=BS_Hero_Locomotion1D(X←Speed) · JumpStart=AS_Hero_Jump · FallLoop=AS_Hero_FallLoop · FallLand=AS_Hero_Land
+         상태 생성·내부 채우기·conduit·alias·전이·이름 변경이 **배치 하나** (graph:{ref} · result_of · rename_node)
 """
 from __future__ import annotations
 
@@ -94,34 +96,26 @@ def cmp(op: str, left: dict, lit: float) -> dict:
     return {"compare": {"op": op, "left": left, "right": {"literal": lit}}}
 
 
-RULES = {
-    "t_idle_move": var("bHasMovementInput"),
-    "t_move_idle": {"and": [{"not": var("bHasMovementInput")}, cmp("<", var("Speed"), SPEED_STOP)]},
-    "t_idle_jump": var("bIsJumping"),
-    "t_move_jump": var("bIsJumping"),
-    "t_idle_fall": {"and": [var("bIsFalling"), {"not": var("bIsJumping")}]},
-    "t_move_fall": {"and": [var("bIsFalling"), {"not": var("bIsJumping")}]},
-    "t_jump_fall": {"automatic": True, "trigger_time": -1.0},
-    "t_jump_land": var("bIsOnGround"),
-    "t_fall_land": cmp("<", var("GroundDistance"), GROUND_LAND),
-    "t_land_move": {"and": [var("bIsOnGround"), cmp(">=", var("Speed"), SPEED_MOVE)]},
-    "t_land_idle": {"automatic": True, "trigger_time": -1.0},
-}
+AUTO = {"automatic": True, "trigger_time": -1.0}
+# 운영 애셋 전이 12 (덤프 2026-10-16): ref, from, to, crossfade, priority, rule
 TRANSITIONS = [
-    # ref, from, to, crossfade, priority
-    ("t_idle_move", "idle", "move", 0.25, 1),
-    ("t_move_idle", "move", "idle", 0.30, 1),
-    ("t_idle_jump", "idle", "jumpstart", 0.20, 1),
-    ("t_move_jump", "move", "jumpstart", 0.20, 1),
-    ("t_idle_fall", "idle", "fallloop", 0.20, 2),
-    ("t_move_fall", "move", "fallloop", 0.20, 2),
-    ("t_jump_fall", "jumpstart", "fallloop", 0.20, 1),
-    ("t_jump_land", "jumpstart", "fallland", 0.20, 2),
-    ("t_fall_land", "fallloop", "fallland", 0.20, 1),
-    ("t_land_move", "fallland", "move", 0.20, 1),
-    ("t_land_idle", "fallland", "idle", 0.20, 2),
+    ("t_idle_move", "idle", "move", 0.25, 1, var("bHasMovementInput")),
+    ("t_move_idle", "move", "idle", 0.30, 1, {"and": [{"not": var("bHasMovementInput")}, cmp("<", var("Speed"), SPEED_STOP)]}),
+    ("t_src_sel", "jumpsrc", "jumpsel", 0.20, 1, {"literal": True}),
+    ("t_sel_jump", "jumpsel", "jumpstart", 0.20, 1, var("bIsJumping")),
+    ("t_sel_fall", "jumpsel", "fallloop", 0.20, 2, var("bIsFalling")),
+    ("t_jump_fall", "jumpstart", "fallloop", 0.20, 1, AUTO),
+    ("t_fall_land", "fallloop", "fallland", 0.20, 1, cmp("<", var("GroundDistance"), GROUND_LAND)),
+    ("t_land_end_auto", "fallland", "endinair", 0.20, 1, AUTO),
+    ("t_land_end_ground", "fallland", "endinair", 0.20, 1, var("bIsOnGround")),
+    ("t_interrupt_end", "interrupt", "endinair", 0.20, 1, var("bIsOnGround")),
+    ("t_end_idle", "endinair", "idlealias", 0.20, 1, cmp(">=", var("Speed"), SPEED_MOVE)),   # 운영 그대로 (방향이 반대로 보임 — 비교 문서 §5 관찰)
+    ("t_end_move", "endinair", "movealias", 0.20, 1, cmp("<", var("Speed"), SPEED_MOVE)),
 ]
-STATES = [("idle", "Idle", [0, 0]), ("move", "Move", [500, 0]), ("jumpstart", "JumpStart", [0, 400]), ("fallloop", "FallLoop", [500, 400]), ("fallland", "FallLand", [1000, 400])]
+STATES = [("idle", "Idle", [0, 0]), ("move", "Move", [500, 0]), ("jumpstart", "JumpStart", [0, 500]), ("fallloop", "FallLoop", [500, 500]), ("fallland", "FallLand", [1000, 500])]
+CONDUITS = [("jumpsel", "JumpSelector", [250, 250]), ("endinair", "EndInAir", [1250, 250])]
+ALIASES = [("jumpsrc", "JumpSources", [-300, 250], ["idle", "move"]), ("interrupt", "JumpFallInterruptSources", [800, 800], ["jumpstart", "fallloop"]),
+           ("idlealias", "IdleAlias", [1600, 150], ["idle"]), ("movealias", "MoveAlias", [1600, 350], ["move"])]
 
 
 def build() -> None:
@@ -166,32 +160,28 @@ def build() -> None:
     r_root = apply(ops_root, s0["revision"], "루트")
     refs = dict(r_root["refs"])
 
-    print("\n=== 3. 상태머신 — 상태 5 · Entry · 전이 11 ===")
-    ops_sm = [{"op": "add_state", "ref": ref, "sm": {"node": refs["sm"]}, "name": name, "pos": pos} for ref, name, pos in STATES]
+    print("\n=== 3. 상태머신 `Locomotions` — 상태 5(내부 포함) · conduit 2 · alias 4 · Entry · 전이 12 — 배치 하나 ===")
+    ops_sm: list[dict] = [{"op": "rename_node", "node": refs["sm"], "name": "Locomotions"}]
+    ops_sm += [{"op": "add_state", "ref": ref, "sm": {"node": refs["sm"]}, "name": name, "pos": pos} for ref, name, pos in STATES]
     ops_sm.append({"op": "set_entry_state", "sm": {"node": refs["sm"]}, "state": {"ref": "idle"}})
-    for ref, src, dst, xfade, prio in TRANSITIONS:
-        ops_sm.append({"op": "add_transition", "ref": ref, "from": {"ref": src}, "to": {"ref": dst},
-                       "properties": {"CrossfadeDuration": xfade, "PriorityOrder": prio}, "rule": RULES[ref]})
-    r_sm = apply(ops_sm, r_root["revision_after"], "상태머신")
-    refs.update(r_sm["refs"])
-    bound = {o["ref"]: o["bound_graph_guid"] for o in r_sm["operations"] if o["op"] == "add_state"}
-
-    print("\n=== 4. 상태 내부 — 애셋 플레이어 · Speed → BlendSpace.X ===")
-    s_sm = structure(BUILD, -1)
-    results = {ref: next(n["node_guid"] for n in s_sm["nodes"] if n["graph_guid"] == g and n["class"] == "AnimGraphNode_StateResult") for ref, g in bound.items()}
-    ops_in: list[dict] = []
+    # 상태 내부 — 같은 배치에서 graph:{ref} · result_of (Phase 6-1)
     for ref, asset, loop in (("idle", ASSETS["idle"], True), ("jumpstart", ASSETS["jump"], False), ("fallloop", ASSETS["fall"], True), ("fallland", ASSETS["land"], False)):
-        ops_in += [
-            {"op": "add_node", "ref": f"{ref}_seq", "graph": bound[ref], "class": "AnimGraphNode_SequencePlayer", "pos": [-400, 0], "asset": asset, "properties": {"bLoopAnimation": loop}},
-            {"op": "connect", "from": {"ref": f"{ref}_seq", "pin": "Pose"}, "to": {"node": results[ref], "pin": "Result"}},
+        ops_sm += [
+            {"op": "add_node", "ref": f"{ref}_seq", "graph": {"ref": ref}, "class": "AnimGraphNode_SequencePlayer", "pos": [-400, 0], "asset": asset, "properties": {"bLoopAnimation": loop}},
+            {"op": "connect", "from": {"ref": f"{ref}_seq", "pin": "Pose"}, "to": {"result_of": {"ref": ref}, "pin": "Result"}},
         ]
-    ops_in += [
-        {"op": "add_node", "ref": "move_speed", "graph": bound["move"], "class": "K2Node_VariableGet", "variable": "Speed", "pos": [-800, 120]},
-        {"op": "add_node", "ref": "move_bs", "graph": bound["move"], "class": "AnimGraphNode_BlendSpacePlayer", "pos": [-400, 0], "asset": ASSETS["bs"], "properties": {"bLoop": True}},
+    ops_sm += [
+        {"op": "add_node", "ref": "move_speed", "graph": {"ref": "move"}, "class": "K2Node_VariableGet", "variable": "Speed", "pos": [-800, 120]},
+        {"op": "add_node", "ref": "move_bs", "graph": {"ref": "move"}, "class": "AnimGraphNode_BlendSpacePlayer", "pos": [-400, 0], "asset": ASSETS["bs"], "properties": {"bLoop": True}},
         {"op": "connect", "from": {"ref": "move_speed", "pin": "Speed"}, "to": {"ref": "move_bs", "pin": "X"}},
-        {"op": "connect", "from": {"ref": "move_bs", "pin": "Pose"}, "to": {"node": results["move"], "pin": "Result"}},
+        {"op": "connect", "from": {"ref": "move_bs", "pin": "Pose"}, "to": {"result_of": {"ref": "move"}, "pin": "Result"}},
     ]
-    r_in = apply(ops_in, r_sm["revision_after"], "상태 내부", compile=True)
+    ops_sm += [{"op": "add_conduit", "ref": ref, "sm": {"node": refs["sm"]}, "name": name, "pos": pos, "rule": {"literal": True}} for ref, name, pos in CONDUITS]
+    ops_sm += [{"op": "add_state_alias", "ref": ref, "sm": {"node": refs["sm"]}, "name": name, "pos": pos, "states": [{"ref": s} for s in states]} for ref, name, pos, states in ALIASES]
+    for ref, src, dst, xfade, prio, rule in TRANSITIONS:
+        ops_sm.append({"op": "add_transition", "ref": ref, "from": {"ref": src}, "to": {"ref": dst},
+                       "properties": {"CrossfadeDuration": xfade, "PriorityOrder": prio}, "rule": rule})
+    r_in = apply(ops_sm, r_root["revision_after"], "상태머신+내부", compile=True)
     refs.update(r_in["refs"])
 
     print("\n=== 5. 저장 · 재조회 ===")
@@ -214,12 +204,19 @@ def describe_rule(struct: dict, t: dict) -> str:
     if t.get("rule_source") is not None:
         return json.dumps(t["rule_source"], ensure_ascii=False)
     parts = []
+    result_default = None
     for n in struct["nodes"]:
-        if n["graph_guid"] != t["rule_graph_guid"] or n["class"] in ("AnimGraphNode_TransitionResult", "EdGraphNode_Comment"):
+        if n["graph_guid"] != t["rule_graph_guid"]:
+            continue
+        if n["class"] == "AnimGraphNode_TransitionResult":
+            pin = next((p for p in n["pins"] if p["name"] == "bCanEnterTransition"), None)
+            result_default = pin["default"] if pin else None
+            continue
+        if n["class"] == "EdGraphNode_Comment":
             continue
         lits = [f"{p['name']}={p['default']}" for p in n["pins"] if p["dir"] == "in" and not p["linked"] and p["name"] not in ("self", "ErrorTolerance") and p["default"] not in (None, "")]
         parts.append(n["title"] + (f"({', '.join(lits)})" if lits else ""))
-    return " · ".join(parts) if parts else "(규칙 없음 → false)"
+    return " · ".join(parts) if parts else f"(노드 없음 → Result 기본값 {result_default})"
 
 
 def root_chain(struct: dict) -> list[str]:
@@ -299,13 +296,10 @@ def write_diff(prod: dict, build: dict, refs: dict) -> None:
         "",
         "## 4. 의도한 차이",
         "",
-        "1. **Alias·Conduit 없음** — 운영의 `JumpSources`/`JumpFallInterruptSources`(alias) 와 `JumpSelector`/`EndInAir`(conduit) 는 도구가 만들지 못한다(Phase 6). 빌드는 같은 의미를 직접 전이로 푼다: "
-        "Idle/Move → JumpStart(`bIsJumping`) · Idle/Move → FallLoop(`bIsFalling && !bIsJumping`, prio 2) · JumpStart → FallLand(`bIsOnGround`, prio 2 — 점프 중 착지 인터럽트) · "
-        f"FallLand → Move(`bIsOnGround && Speed >= {SPEED_MOVE:g}`, prio 1) / Idle(automatic, prio 2).",
-        "2. **상태머신 이름** — 도구에 이름 변경 op 가 없어 엔진 기본 이름이다. 운영은 `Locomotions`.",
-        f"3. **UpperBody 레이어 추가** — §2. 이것이 운영 애셋에 적용할 후보다 (Slot `{UPPER_BODY_SLOT}` + LayeredBoneBlend LayerSetup `{UPPER_BODY_BONE}`).",
-        "4. **Move 상태의 Speed 바인딩** — 운영과 같이 K2 VariableGet → BlendSpacePlayer.X 핀 연결 (Property Binding 아님).",
-        "5. **Inertialization** — 운영과 같이 루트 끝에 둔다. 허용 목록 프로퍼티는 없고 기본값 그대로.",
+        "1. **상태머신은 운영과 1:1** (Phase 6-1) — 상태 5 · conduit 2 · alias 4 · 전이 12 · 이름 `Locomotions` · 상태 내부까지 배치 하나로. 운영의 전이 규칙은 사람이 만든 K2 노드, 빌드는 도구 AST(rule_source) 라는 차이만 있다.",
+        f"2. **UpperBody 레이어** — §2. 운영 애셋에도 적용돼 있다(§5) (Slot `{UPPER_BODY_SLOT}` + LayeredBoneBlend LayerSetup `{UPPER_BODY_BONE}`).",
+        "3. **Move 상태의 Speed 바인딩** — 운영과 같이 K2 VariableGet → BlendSpacePlayer.X 핀 연결 (Property Binding 아님).",
+        "4. **Inertialization** — 운영과 같이 루트 끝에 둔다. 허용 목록 프로퍼티는 없고 기본값 그대로.",
         "",
         "## 5. 운영 애셋 적용 상태",
         "",
@@ -332,6 +326,10 @@ def main() -> int:
     print(f"editor {status.get('engine_version')} tools {len(status['tools'])}")
     if "--recheck" in sys.argv:
         recheck()
+    elif "--diff-only" in sys.argv:
+        # 애셋은 그대로 두고 비교 문서만 다시 쓴다
+        saved = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        write_diff(structure(PROD, -1), structure(BUILD, -1), saved.get("refs", {}))
     else:
         build()
     print("\n" + ("PASS" if not FAILS else f"FAIL ({len(FAILS)}):\n  - " + "\n  - ".join(FAILS)))

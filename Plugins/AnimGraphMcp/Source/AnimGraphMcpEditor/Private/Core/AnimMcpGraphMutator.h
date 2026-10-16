@@ -8,6 +8,9 @@ class UAnimBlueprint;
 class UAnimGraphNode_Base;
 class UAnimGraphNode_AssetPlayerBase;
 class UAnimationStateMachineGraph;
+class UAnimationTransitionGraph;
+class UAnimStateAliasNode;
+class UAnimStateConduitNode;
 class UAnimStateNode;
 class UAnimStateTransitionNode;
 class UClass;
@@ -162,4 +165,31 @@ namespace AnimMcpGraphMutator
 	 * 값 형태는 JsonToImportText 가 따로 본다
 	 */
 	bool ValidateLayerSetup(UEdGraphNode* Node, const TSharedPtr<FJsonValue>& Value, FAnimMcpError& OutError, int32 ExtraPoses = 0);
+
+	//~ Phase 6-1 (Alias · Conduit · 이름 변경)
+
+	/** 이름 검증 — 노드의 MakeNameValidator 로 (상태·conduit·alias: FAnimStateNodeNameValidator, 상태머신 노드: FAnimStateMachineNodeNameValidator). 빈 이름은 통과 */
+	bool ValidateNodeName(UEdGraphNode* Node, const FString& Name, FAnimMcpError& OutError);
+
+	/** conduit 추가 — Finalize(PostPlacedNewNode) 가 BoundGraph(UAnimationTransitionGraph + TransitionResult, conduit 스키마) 를 만든다 (AnimStateConduitNode.cpp:69-95). 이름 = BoundGraph 이름 */
+	UAnimStateConduitNode* AddConduit(UAnimationStateMachineGraph* Graph, const FString& Name, const FVector2D& Position, FAnimMcpError& OutError);
+
+	/** alias 추가 — 서브그래프 없음, 이름은 StateAliasName (AnimStateAliasNode.cpp:97-105). 대상은 SetAliasTargets 로 */
+	UAnimStateAliasNode* AddStateAlias(UAnimationStateMachineGraph* Graph, const FString& Name, const FVector2D& Position, FAnimMcpError& OutError);
+
+	/**
+	 * alias 대상 검증 — 전부 같은 상태머신의 실제 상태(UAnimStateNode; conduit·alias 불가, 엔진이 GetNodesOfClassEx<UAnimStateNode> 로만 해석) ·
+	 * global 이 아니면 1개 이상 · 들어오는 전이가 있으면 정확히 1개이고 global 아님 (AnimStateAliasNode.cpp:52-55 의 컴파일 오류를 선반영)
+	 */
+	bool ValidateAliasTargets(UAnimStateAliasNode* Alias, const TArray<UEdGraphNode*>& States, bool bGlobal, FAnimMcpError& OutError);
+	void SetAliasTargets(UAnimStateAliasNode* Alias, const TArray<UEdGraphNode*>& States, bool bGlobal, TArray<UEdGraphNode*>& OutOldStates, bool& bOutOldGlobal);
+
+	/** 전이의 대상이 될 수 있는 노드인가 — alias 는 단일 대상 & global 아님 (같은 컴파일 규칙) */
+	bool ValidateTransitionTarget(UEdGraphNode* To, FAnimMcpError& OutError);
+
+	/** 이름 변경 — 상태·conduit·alias(OnRenameNode) 와 상태머신 노드(UAnimGraphNode_StateMachineBase::OnRenameNode = RenameGraph). OutOld 는 롤백용 */
+	bool RenameNode(UEdGraphNode* Node, const FString& Name, FString& OutOld, FAnimMcpError& OutError);
+
+	/** 전이 또는 conduit 의 규칙 그래프. 그 외 null */
+	UAnimationTransitionGraph* RuleGraphOf(UEdGraphNode* Node);
 }

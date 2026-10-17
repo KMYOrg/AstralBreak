@@ -184,7 +184,11 @@ _OPERATIONS_DOC = """
     Rule trees: {"var": "<BlueprintVisible property>"} | {"not": R} | {"and": [R, R, ...]} | {"or": [R, R, ...]}
       | {"compare": {"op": ">|<|>=|<=|==|!=", "left": R, "right": R}} (one side may be {"literal": v}; real/int/int64 ordered, bool/name ==/!= only)
       | {"literal": true} | {"call": {"function": "GetCurveValue", "args": {"CurveName": {"literal": "Foo"}}}} (BlueprintPure + BlueprintThreadSafe,
-      AnimInstance class chain or KismetMathLibrary) | {"automatic": true, "trigger_time": -1.0} (no graph; uses the asset player's remaining time).
+      AnimInstance class chain or KismetMathLibrary) | {"automatic": true, "trigger_time": -1.0} (no graph; uses the asset player's remaining time)
+      | {"access": "GetOwningComponent.ComponentVelocity"} (Property Access node: a property/pure-function path starting at the AnimInstance,
+      resolved by the engine, thread-safety checked at compile; vectors/structs may flow into "call" args, e.g.
+      {"call": {"function": "VSize", "args": {"A": {"access": "..."}}}}). {"param": "DeltaTime"} is only valid inside set_update_function.
+    Variables: C++ BlueprintVisible properties and Blueprint variables added with add_blueprint_variable are both usable in rules, VariableGet, bind_pin.
     The rule graph is regenerated from the tree and the tree is stored in a comment node; re-applying the same tree is a no-op.
     Removing a state also removes its transitions, like the editor does.
     Supported node classes include SequencePlayer, BlendSpacePlayer, Slot, LayeredBoneBlend, BlendListByBool, BlendListByEnum,
@@ -312,6 +316,69 @@ def implement_anim_layer_interface(asset_path: str, interface: str, compile: boo
     """
     return bridge.call("implement_anim_layer_interface", {"asset_path": asset_path, "interface": interface, "compile": compile, "save": save},
                        timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def add_blueprint_variable(asset_path: str, name: str, type: str, default: str | None = None, category: str | None = None,
+                           instance_editable: bool = False, compile: bool = False, save: bool = False) -> dict:
+    """Add a member variable to an Animation Blueprint, so rules ({"var"}), K2Node_VariableGet, bind_pin and set_update_function can use it
+    without touching C++ (e.g. per-enemy flags such as bIsAttacking driven by set_update_function or by gameplay code).
+
+    Args:
+        asset_path: The Animation Blueprint.
+        name: Variable name (must be unique in the class chain; validated like the editor).
+        type: bool | float | int | int64 | name | string | text | byte | vector | vector2d | rotator | transform | linearcolor
+              | object:<class path> | class:<class path> | struct:<struct path> | enum:<enum path>.
+        default: Default value text ("true", "0.5", "(X=0,Y=0,Z=0)" ...). Omit for the type default.
+        category: Editor category for the variable.
+        instance_editable: Expose on instances (default false).
+        compile: Compile afterwards (the skeleton class is regenerated either way, so the variable is usable immediately).
+        save: Save the asset after a successful compile.
+
+    Returns the blueprint info (variables[] now contains it with source="blueprint" and a "declaration") plus added and declaration.
+    """
+    params = {"asset_path": asset_path, "name": name, "type": type, "instance_editable": instance_editable, "compile": compile, "save": save}
+    if default is not None:
+        params["default"] = default
+    if category:
+        params["category"] = category
+    return bridge.call("add_blueprint_variable", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def remove_blueprint_variable(asset_path: str, name: str, force: bool = False, compile: bool = False, save: bool = False) -> dict:
+    """Remove a variable declared by this Animation Blueprint (C++ properties cannot be removed). If graph nodes reference it the call fails
+    with VARIABLE_IN_USE unless force=true, which also deletes those nodes (a generated update function then reports modified=true —
+    re-run set_update_function). Returns the blueprint info plus removed and was_used."""
+    return bridge.call("remove_blueprint_variable", {"asset_path": asset_path, "name": name, "force": force, "compile": compile, "save": save}, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def set_update_function(asset_path: str, assignments: list[dict] | None = None, remove: bool = False, compile: bool = True, save: bool = False) -> dict:
+    """Generate the Animation Blueprint's BlueprintThreadSafeUpdateAnimation override from a spec: a chain of variable assignments evaluated
+    on the animation worker thread every update, before the graph. The whole function graph is regenerated from the spec (stored in a comment
+    node like transition rules), re-applying the same spec is a no-op, and hand edits are detected (update_function.modified).
+
+    Args:
+        asset_path: The Animation Blueprint.
+        assignments: [{"variable": "<name>", "value": <expression>}] in execution order. Expressions use the rule-tree grammar:
+            {"access": "GetOwningComponent.ComponentVelocity"} (Property Access path), {"param": "DeltaTime"} (the function's input),
+            {"var": "Speed"}, {"call": {"function": "VSize", "args": {"A": {...}}}}, {"compare": ...}, {"and"/"or"/"not": ...}, {"literal": v}.
+            Variables must be BlueprintVisible and not BlueprintReadOnly: Blueprint variables from add_blueprint_variable, or C++ BlueprintReadWrite
+            properties. Use [] to leave the function empty.
+        remove: Delete the override graph instead.
+        compile: Compile afterwards (default true) — a thread-unsafe call shows up as a compiler warning and disables multi-threaded update.
+        save: Save after a successful compile.
+
+    Returns the blueprint info (update_function {graph_guid, generated, source, modified, node_count, assignments}) plus applied
+    {graph_guid, created_graph, unchanged, node_count, assignment_count} and compile/saved.
+    """
+    params = {"asset_path": asset_path, "compile": compile, "save": save}
+    if remove:
+        params["remove"] = True
+    else:
+        params["assignments"] = assignments or []
+    return bridge.call("set_update_function", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()

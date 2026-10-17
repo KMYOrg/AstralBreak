@@ -38,9 +38,9 @@ bAutoStart=True
 
 에디터 콘솔: `AnimGraphMcp.Start` / `AnimGraphMcp.Stop` / `AnimGraphMcp.Status`. 커맨드라인 `-AnimGraphMcpPort=18766` 으로 인스턴스별 포트 오버라이드. 토큰은 에디터가 기동할 때 `Saved/AnimGraphMcp/token` 에 쓴다. `get_editor_status` 만 토큰 면제.
 
-## Tool (17개)
+## Tool (20개)
 
-조회 `get_editor_status` · `get_anim_blueprint_info` · `get_anim_graph_structure` · `list_animation_assets` — 생성/저장 `create_animation_blueprint` · `create_blendspace` · `create_anim_layer_interface` · `implement_anim_layer_interface` · `save_animation_blueprint` · `duplicate_animation_blueprint` · `delete_animation_blueprint` — 편집 `preview_graph_operations` · `apply_graph_operations`(op 19종) · `compile_animation_blueprint` — 검증 `run_automation_tests` · `poll_automation_tests` — 프로세스 `quit_editor`.
+조회 `get_editor_status` · `get_anim_blueprint_info` · `get_anim_graph_structure` · `list_animation_assets` — 생성/저장 `create_animation_blueprint` · `create_blendspace` · `create_anim_layer_interface` · `implement_anim_layer_interface` · `save_animation_blueprint` · `duplicate_animation_blueprint` · `delete_animation_blueprint` — 편집 `preview_graph_operations` · `apply_graph_operations`(op 19종) · `compile_animation_blueprint` — 변수·업데이트 함수 `add_blueprint_variable` · `remove_blueprint_variable` · `set_update_function`(ThreadSafeUpdateAnimation 을 스펙에서 생성) — 검증 `run_automation_tests` · `poll_automation_tests` — 프로세스 `quit_editor`.
 
 각 Tool 의 입력과 op 사전은 `server.py` 의 docstring(= Claude 가 보는 설명)과 플러그인 README 에 있다. 새 Tool 은 Claude Code 세션을 다시 시작해야 MCP 목록에 보인다.
 
@@ -52,7 +52,7 @@ bAutoStart=True
 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/smoke_test.py /Game/Animation/Hero/ABP_Hero_Base
 ```
 
-전체 회귀는 `run_all.py` 하나로 — 에디터 기동 → 단계 테스트(`phase3/4/5/6_1/6_3/6_4/6_4b/6_5/6_2_test.py`) → 종료 → 재기동 → 각 `--recheck` → 종료, 결과 `Tools/mcp/results/<date>.json`:
+전체 회귀는 `run_all.py` 하나로 — 에디터 기동 → 단계 테스트(`phase3/4/5/6_1/6_3/6_4/6_4b/7_1/6_5/6_2_test.py`) → 종료 → 재기동 → 각 `--recheck` → 종료, 결과 `Tools/mcp/results/<date>.json`:
 
 ```
 PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/run_all.py [--attach] [--only phase6_5_test] [--skip-recheck]

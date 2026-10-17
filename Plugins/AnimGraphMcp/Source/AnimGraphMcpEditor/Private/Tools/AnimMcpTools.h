@@ -26,6 +26,9 @@ namespace AnimMcpTools
 	/** Automation 테스트 (run_automation_tests, poll_automation_tests) — Phase 6-5 */
 	void RegisterAutomationTools(FAnimMcpDispatcher& Dispatcher);
 
+	/** BP 변수 · 업데이트 함수 (add_blueprint_variable, remove_blueprint_variable, set_update_function) — Phase 7-1 */
+	void RegisterVariableTools(FAnimMcpDispatcher& Dispatcher);
+
 	/** 그래프 변경 (preview_graph_operations, apply_graph_operations) */
 	void RegisterGraphTools(FAnimMcpDispatcher& Dispatcher);
 

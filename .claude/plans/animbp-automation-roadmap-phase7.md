@@ -15,7 +15,7 @@
 | 로코모션 BlendSpace 생성 | ✅ | `create_blendspace` 1D/2D (AimOffset 은 ❌ → §3) |
 | 루트 그래프(캐시·슬롯·레이어드 블렌드·블렌드 리스트) | ✅ | op 사전 |
 | 상태머신(상태·전이·규칙·conduit·alias) | ✅ | 운영 애셋 1:1 재현 실증 |
-| 전이 규칙의 조건 변수 | 🔶 | **C++ AnimInstance 변수만**(`var`·`bind_pin`). BP 변수 추가 ❌ → §1 |
+| 전이 규칙의 조건 변수 | ✅ | §1 완료(7-1, 2026-10-17) — `add_blueprint_variable` 로 BP 변수, 규칙 `access` 로 폰·컴포넌트 값 직접, `set_update_function` 으로 매 프레임 계산·저장 |
 | Lyra 식 레이어(인터페이스·구현·레이어 노드) | ✅ | 포즈 입력만. 값 파라미터 ❌ → §4 |
 | 공격·피격 몽타주와 슬롯 | 🔶 | 슬롯 노드는 ✅, **몽타주·노티파이·스켈레톤 슬롯 생성 ❌** → §3 |
 | IK·본 수정·Additive·Mirror 노드 설정 | 🔶 | 생성·연결 ✅, **세부 설정 ❌**(허용 목록 밖) → §2 |
@@ -27,7 +27,9 @@
 
 ---
 
-## 1. ABP 변수 · EventGraph 최소 지원 ← 가장 큰 구멍
+## 1. ABP 변수 · EventGraph 최소 지원 ← ✅ 7-1 완료 (2026-10-17)
+
+> 실제 구현은 아래 계획과 조금 다르다: op `set_variable_from_property_access` 대신 **Tool `set_update_function {assignments:[{variable, value:<식>}]}`** 이 함수 그래프를 통째로 재생성하고(규칙 그래프와 같은 멱등·편집 감지), 식에는 **`{"access": "경로"}`·`{"param": "DeltaTime"}`** 잎이 생겨 규칙에서도 Property Access 를 쓴다. `K2Node_VariableGet` 의 해석 경로 추가는 불필요했다(스켈레톤 클래스가 즉시 재생성됨). 결과는 phase1 "Phase 7-1 결과".
 
 **왜** — 적 AI 는 `bIsAttacking`·`bIsStunned`·`TargetDistance` 같은 변수를 AnimBP 에 넘겨야 하고, 지금은 그 변수를 **적 종류마다 C++ AnimInstance 서브클래스에 추가**해야 규칙 `var` 와 `bind_pin` 이 쓸 수 있다. BP 변수를 도구가 만들 수 있으면 C++ 변경 없이 적 ABP 하나가 닫힌다. 프로젝트 정책("복잡 조건은 C++ 에서 bool 로")은 유지하되, 단순 변수·단순 계산까지는 BP 에서 허용하는 것이 목표.
 
@@ -117,8 +119,8 @@
 ① list_animation_assets {skeleton}                 애셋 파악
 ② create_blendspace / create_aim_offset (§3)       로코모션·조준
 ③ create_animation_blueprint                        ABP
-④ add_blueprint_variable ×N (§1)                    bIsAttacking · TargetDistance …  (적 AI 가 쓰는 값)
-⑤ set_variable_from_property_access (§1)            Speed ← Pawn 속도 (매 프레임)
+④ add_blueprint_variable ×N (§1 ✅)                 bIsAttacking · TargetDistance …  (적 AI 가 쓰는 값)
+⑤ set_update_function (§1 ✅)                       Speed ← VSize(access GetOwningComponent.ComponentVelocity) (매 프레임, 스레드 안전)
 ⑥ implement_anim_layer_interface                    Lyra 식 레이어(공용 인터페이스 재사용)
 ⑦ apply_graph_operations                            루트 그래프 + 상태머신 + 규칙(var) + IK·Additive 설정(§2)   ← 배치 1~2개
 ⑧ create_anim_montage ×N (§3)                       공격·피격·사망 + 슬롯·노티파이

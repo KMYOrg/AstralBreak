@@ -1,0 +1,53 @@
+{
+ "revision": "sha1:be58558263f37c2d6c1f0b770b77cf9165ecc4fb",
+ "variables": [
+  "McpCount",
+  "McpSpeed",
+  "McpVelocity",
+  "bMcpFalling"
+ ],
+ "update_source": {
+  "assignments": [
+   {
+    "variable": "McpVelocity",
+    "value": {
+     "access": [
+      "GetOwningComponent",
+      "ComponentVelocity"
+     ]
+    }
+   },
+   {
+    "variable": "McpSpeed",
+    "value": {
+     "call": {
+      "function": "VSize",
+      "args": {
+       "A": {
+        "access": [
+         "GetOwningComponent",
+         "ComponentVelocity"
+        ]
+       }
+      }
+     }
+    }
+   },
+   {
+    "variable": "bMcpFalling",
+    "value": {
+     "compare": {
+      "op": ">",
+      "left": {
+       "var": "McpSpeed"
+      },
+      "right": {
+       "literal": 1
+      }
+     }
+    }
+   }
+  ]
+ },
+ "vector_path": "GetOwningComponent.ComponentVelocity"
+}

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Dom/JsonObject.h"
+#include "EdGraph/EdGraphPin.h"
 
 class UAnimBlueprint;
 class UAnimStateTransitionNode;
@@ -14,6 +15,9 @@ struct FAnimMcpError;
  *
  * AST (각 노드는 키 하나짜리 객체):
  *   {"var": "bIsFalling"}                                   AnimInstance 의 BlueprintVisible 프로퍼티 → UK2Node_VariableGet(self)
+ *   {"access": "Pawn.Velocity" | ["Pawn","Velocity"]}       (7-1) Property Access 노드 — AnimInstance 에서 시작하는 프로퍼티/BlueprintPure 함수 경로.
+ *                                                           스레드 안전 여부는 엔진이 경로 해석에서 판정(컴파일 경고). 타입은 잎 프로퍼티에서
+ *   {"param": "DeltaTime"}                                  (7-1) 둘러싼 함수의 입력 파라미터 — set_update_function 안에서만
  *   {"not": E}                                              UKismetMathLibrary::Not_PreBool
  *   {"and": [E, E, ...]} · {"or": [E, E, ...]}              BooleanAND / BooleanOR 를 왼쪽부터 사슬로 (2개 이상)
  *   {"compare": {"op": ">", "left": E, "right": E}}         (op, 피연산자 타입) → UKismetMathLibrary 함수 표. op ∈ > < >= <= == !=
@@ -22,10 +26,13 @@ struct FAnimMcpError;
  *                                                           BlueprintPure ∧ BlueprintThreadSafe(함수 또는 클래스 메타) ∧ 소유 클래스 ∈ {이 AnimBP 의 AnimInstance 사슬, UKismetMathLibrary}
  *   {"automatic": true, "trigger_time"?: -1.0}              그래프 없이 bAutomaticRuleBasedOnSequencePlayerInState 만 (최상위 전용)
  * 최상위 식은 bool 이어야 한다. 비교 피연산자 타입은 Real(float/double) · Int · Int64 · Bool(==,!=) · Name(==,!=). 한쪽은 literal 이 아니어야 한다.
+ * (7-1) 그 밖의 타입(벡터·구조체·오브젝트 …)은 access/call/param 의 값으로 흘러 call 인자나 변수 대입에 쓸 수 있다 — 핀 타입 호환은 UEdGraphSchema_K2::ArePinTypesCompatible.
  *
  * 생성 규칙: BoundGraph 를 Result 노드만 남기고(Operations 가 분리 보관) AST 에서 전체 재생성. 원문(정규화 JSON)과 생성 직후 그래프 해시를
  * UEdGraphNode_Comment 에 기록해 Inspector 가 rule_source 를 복원하고 사람 편집(rule_modified)을 감지한다. 같은 AST 재적용은 no-op (멱등).
  * float 변수 핀 → double 함수 핀: UEdGraphSchema_K2::ArePinTypesCompatible 이 PC_Real 은 서브타입 무관하게 호환 (EdGraphSchema_K2.cpp:4533)
+ *
+ * (7-1) 식 엔진은 규칙 그래프 밖에서도 쓴다 — ValidateExpression / BuildExpressionInto (AnimMcpUpdateFunction 이 변수 대입 값에 사용).
  */
 namespace AnimMcpTransitionRule
 {
@@ -44,6 +51,41 @@ namespace AnimMcpTransitionRule
 	 */
 	bool Build(UEdGraph* RuleGraph, const TSharedPtr<FJsonObject>& Rule, const FString& Canonical, bool bAutomatic, TArray<UEdGraphNode*>& OutCreated, FAnimMcpError& OutError);
 
+	//~ (7-1) 범용 식 — 규칙 그래프 밖(함수 그래프)에서 값 식을 쓸 때
+
+	/** 식이 참조할 수 있는 함수 파라미터 — {"param": name} 의 허용 목록과 타입 */
+	struct FExpressionParams
+	{
+		TMap<FString, FEdGraphPinType> Types;
+	};
+
+	/**
+	 * 값 식 검증 (그래프 불변). 최상위 타입 제한 없음(bool 이 아니어도 됨). 리터럴이면 bOutIsLiteral — 타입은 대입 대상에서 정한다.
+	 * OutCanonical 은 Validate 와 같은 정규화 JSON
+	 */
+	bool ValidateExpression(UAnimBlueprint* Blueprint, const TSharedPtr<FJsonValue>& Expr, const FExpressionParams* Params, FString& OutCanonical, FEdGraphPinType& OutType, bool& bOutIsLiteral, TSharedPtr<FJsonValue>& OutLiteral, FAnimMcpError& OutError);
+
+	/** 리터럴을 핀 기본값 텍스트로 (대상 핀 타입 기준). 벡터·구조체 등 지원하지 않는 타입이면 false */
+	bool LiteralForPin(const TSharedPtr<FJsonValue>& Literal, const FEdGraphPinType& PinType, FString& OutText, FAnimMcpError& OutError);
+
+	struct FExpressionBuild
+	{
+		UEdGraph* Graph = nullptr;
+		/** 식 노드는 (OriginX - 360*(depth+1), OriginY + 140*row) 에 놓인다 */
+		int32 OriginX = 0;
+		int32 OriginY = 0;
+		/** {"param": name} → 핀 (함수 Entry 노드의 출력 핀) */
+		const TMap<FString, UEdGraphPin*>* ParamPins = nullptr;
+		/** 만든 노드 (호출자의 롤백용) */
+		TArray<UEdGraphNode*>* Created = nullptr;
+		/** 출력 — 사용한 행 수, 최대 깊이 (배치용) */
+		int32 RowsUsed = 0;
+		int32 MaxDepth = 0;
+	};
+
+	/** 값 식을 그래프에 그리고 InputPin 에 잇는다(리터럴이면 기본값). 호출자가 트랜잭션 안에서 부른다 */
+	bool BuildExpressionInto(UAnimBlueprint* Blueprint, FExpressionBuild& Target, const TSharedPtr<FJsonValue>& Expr, UEdGraphPin* InputPin, FAnimMcpError& OutError);
+
 	struct FSource
 	{
 		bool bHasSource = false;
@@ -55,11 +97,11 @@ namespace AnimMcpTransitionRule
 		bool bModified = false;
 	};
 
-	/** BoundGraph 의 도구 주석을 읽는다. 주석이 없으면 bHasSource=false (사람이 만든 규칙 또는 빈 규칙) */
-	FSource ReadSource(UEdGraph* BoundGraph);
+	/** 그래프의 도구 주석(Marker 로 시작)을 읽는다. 주석이 없으면 bHasSource=false (사람이 만든 규칙 또는 빈 규칙) */
+	FSource ReadSource(UEdGraph* Graph, const TCHAR* Marker = nullptr);
 
-	/** 규칙 그래프 해시 — 주석 노드 제외, (위치·클래스) 정렬, Guid 미포함 (재생성해도 같은 그래프면 같은 값) */
-	FString HashRuleGraph(UEdGraph* BoundGraph);
+	/** 그래프 해시 — 주석 노드 제외, (위치·클래스) 정렬, Guid 미포함 (재생성해도 같은 그래프면 같은 값). 규칙 그래프와 (7-1) 함수 그래프 공용 */
+	FString HashRuleGraph(UEdGraph* Graph);
 
 	/** Result 노드와 주석 노드를 뺀 규칙 노드들 */
 	void CollectRuleNodes(UEdGraph* BoundGraph, TArray<UEdGraphNode*>& OutNodes);

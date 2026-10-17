@@ -3,6 +3,7 @@
 #include "AnimGraphNode_TransitionResult.h"
 #include "AnimMcpGraphMutator.h"
 #include "AnimMcpLog.h"
+#include "AnimMcpPropertyAccessNode.h"
 #include "AnimStateTransitionNode.h"
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimInstance.h"
@@ -15,7 +16,9 @@
 #include "EdGraphNode_Comment.h"
 #include "EdGraphSchema_K2.h"
 #include "K2Node_CallFunction.h"
+#include "K2Node_FunctionEntry.h"
 #include "K2Node_VariableGet.h"
+#include "K2Node_VariableSet.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Misc/SecureHash.h"
@@ -29,8 +32,8 @@ namespace AnimMcpTransitionRule
 
 	namespace
 	{
-		/** 피연산자 타입 — 비교 함수 표의 열 */
-		enum class ECat : uint8 { Bool, Real, Int, Int64, Name, Literal, Unsupported };
+		/** 피연산자 타입 — 비교 함수 표의 열. Other = 비교엔 못 쓰지만 call 인자·변수 대입엔 흐를 수 있는 그 밖의 핀 타입 (7-1) */
+		enum class ECat : uint8 { Bool, Real, Int, Int64, Name, Other, Literal, Unsupported };
 
 		const TCHAR* CatName(ECat Cat)
 		{
@@ -41,6 +44,7 @@ namespace AnimMcpTransitionRule
 			case ECat::Int: return TEXT("int");
 			case ECat::Int64: return TEXT("int64");
 			case ECat::Name: return TEXT("name");
+			case ECat::Other: return TEXT("other");
 			case ECat::Literal: return TEXT("literal");
 			default: return TEXT("unsupported");
 			}
@@ -54,13 +58,28 @@ namespace AnimMcpTransitionRule
 			if (Type.PinCategory == UEdGraphSchema_K2::PC_Int) { return ECat::Int; }
 			if (Type.PinCategory == UEdGraphSchema_K2::PC_Int64) { return ECat::Int64; }
 			if (Type.PinCategory == UEdGraphSchema_K2::PC_Name) { return ECat::Name; }
-			return ECat::Unsupported;
+			if (Type.PinCategory == UEdGraphSchema_K2::PC_Exec || Type.PinCategory == UEdGraphSchema_K2::PC_Wildcard || Type.PinCategory.IsNone()) { return ECat::Unsupported; }
+			return ECat::Other;
+		}
+
+		bool PinTypeFromProperty(const FProperty* Property, FEdGraphPinType& Out)
+		{
+			return Property && GetDefault<UEdGraphSchema_K2>()->ConvertPropertyToPinType(Property, Out);
 		}
 
 		ECat CatFromProperty(const FProperty* Property)
 		{
 			FEdGraphPinType Type;
-			return (Property && GetDefault<UEdGraphSchema_K2>()->ConvertPropertyToPinType(Property, Type)) ? CatFromPinType(Type) : ECat::Unsupported;
+			return PinTypeFromProperty(Property, Type) ? CatFromPinType(Type) : ECat::Unsupported;
+		}
+
+		FString TypeText(const FEdGraphPinType& Type)
+		{
+			FString Text = Type.PinCategory.ToString();
+			if (Type.PinSubCategoryObject.IsValid()) { Text += TEXT(":") + Type.PinSubCategoryObject->GetName(); }
+			else if (!Type.PinSubCategory.IsNone()) { Text += TEXT(":") + Type.PinSubCategory.ToString(); }
+			if (Type.IsArray()) { Text += TEXT("[]"); }
+			return Text;
 		}
 
 		/**
@@ -122,6 +141,9 @@ namespace AnimMcpTransitionRule
 				if (Lit->Type != EJson::String) { OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("literal must be a string here")); return false; }
 				Out = Lit->AsString();
 				return true;
+			case ECat::Other:
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("literal is only supported for bool, number, int and name pins (use access/call for vectors and structs)"));
+				return false;
 			default:
 				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("literal type cannot be inferred (compare with a non-literal operand)"));
 				return false;
@@ -139,11 +161,24 @@ namespace AnimMcpTransitionRule
 			}
 		}
 
+		FString PathCanonical(const TArray<FString>& Path)
+		{
+			TArray<FString> Quoted;
+			for (const FString& Segment : Path)
+			{
+				Quoted.Add(TEXT("\"") + Segment.ReplaceCharWithEscapedChar() + TEXT("\""));
+			}
+			return TEXT("[") + FString::Join(Quoted, TEXT(",")) + TEXT("]");
+		}
+
 		/** 공유 문맥 — 검증과 생성이 같은 해석을 쓴다 */
 		struct FRuleContext
 		{
 			UAnimBlueprint* Blueprint = nullptr;
 			UClass* VarClass = nullptr;
+			/** (7-1) {"param": name} 허용 목록 — 검증용 타입 / 생성용 핀. 둘 다 null 이면 param 금지 */
+			const TMap<FString, FEdGraphPinType>* ParamTypes = nullptr;
+			const TMap<FString, UEdGraphPin*>* ParamPins = nullptr;
 			/** Build 전용 */
 			UEdGraph* Graph = nullptr;
 			int32 OriginX = 0;
@@ -157,10 +192,18 @@ namespace AnimMcpTransitionRule
 		struct FExpr
 		{
 			ECat Cat = ECat::Unsupported;
+			FEdGraphPinType Type;
 			UEdGraphPin* Pin = nullptr;
 			TSharedPtr<FJsonValue> Literal;
 			bool IsLiteral() const { return Literal.IsValid(); }
 		};
+
+		FEdGraphPinType BoolPinType()
+		{
+			FEdGraphPinType Type;
+			Type.PinCategory = UEdGraphSchema_K2::PC_Boolean;
+			return Type;
+		}
 
 		bool GetSingleKey(const TSharedPtr<FJsonObject>& Obj, FString& OutKey, FAnimMcpError& OutError, bool bAllowTriggerTime = false)
 		{
@@ -177,14 +220,14 @@ namespace AnimMcpTransitionRule
 			}
 			if (Keys.Num() != 1)
 			{
-				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("rule expression must have exactly one key (var|not|and|or|compare|literal|call|automatic), got %d"), Keys.Num()));
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("rule expression must have exactly one key (var|access|param|not|and|or|compare|literal|call|automatic), got %d"), Keys.Num()));
 				return false;
 			}
 			OutKey = Keys[0];
 			return true;
 		}
 
-		bool ResolveVariable(const FRuleContext& Ctx, const FString& Name, FProperty*& OutProperty, ECat& OutCat, FAnimMcpError& OutError)
+		bool ResolveVariable(const FRuleContext& Ctx, const FString& Name, FProperty*& OutProperty, FExpr& Out, FAnimMcpError& OutError)
 		{
 			OutProperty = Ctx.VarClass ? Ctx.VarClass->FindPropertyByName(FName(*Name)) : nullptr;
 			if (!OutProperty || !OutProperty->HasAnyPropertyFlags(CPF_BlueprintVisible))
@@ -192,10 +235,98 @@ namespace AnimMcpTransitionRule
 				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("var '%s' is not a BlueprintVisible property of %s (see get_anim_blueprint_info.variables)"), *Name, Ctx.VarClass ? *Ctx.VarClass->GetName() : TEXT("?")));
 				return false;
 			}
-			OutCat = CatFromProperty(OutProperty);
-			if (OutCat == ECat::Unsupported)
+			if (!PinTypeFromProperty(OutProperty, Out.Type))
 			{
-				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("var '%s' has type %s which rules do not support (bool, float/double, int, int64, name)"), *Name, *OutProperty->GetCPPType()));
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("var '%s' has type %s which cannot be a pin"), *Name, *OutProperty->GetCPPType()));
+				return false;
+			}
+			Out.Cat = CatFromPinType(Out.Type);
+			if (Out.Cat == ECat::Unsupported)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("var '%s' has type %s which expressions do not support (containers)"), *Name, *OutProperty->GetCPPType()));
+				return false;
+			}
+			return true;
+		}
+
+		/** (7-1) access 경로 해석 — 잎 프로퍼티 타입 */
+		bool ResolveAccess(const FRuleContext& Ctx, const TSharedPtr<FJsonValue>& Inner, TArray<FString>& OutPath, FExpr& Out, FAnimMcpError& OutError)
+		{
+			if (!AnimMcpPropertyAccessNode::ParsePath(Inner, OutPath, OutError))
+			{
+				return false;
+			}
+			if (!AnimMcpPropertyAccessNode::NodeClass())
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("access: Property Access node class is not loaded (engine plugin 'PropertyAccessNode')"));
+				return false;
+			}
+			FProperty* Leaf = nullptr;
+			bool bThreadSafe = false, bLeafIsFunction = false;
+			if (!AnimMcpPropertyAccessNode::ResolvePath(Ctx.Blueprint, OutPath, Leaf, bThreadSafe, bLeafIsFunction, OutError))
+			{
+				return false;
+			}
+			FProperty* Typed = Leaf;
+			if (FArrayProperty* Array = CastField<FArrayProperty>(Leaf))
+			{
+				// 경로에 인덱스가 있으면 엔진이 요소 타입으로 핀을 만든다 — 여기서는 보수적으로 전체 배열 타입(컨테이너 → 거부)
+				Typed = Array;
+			}
+			if (!PinTypeFromProperty(Typed, Out.Type))
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("access '%s' resolves to %s which cannot be a pin"), *AnimMcpPropertyAccessNode::JoinPath(OutPath), *Leaf->GetCPPType()));
+				return false;
+			}
+			Out.Cat = CatFromPinType(Out.Type);
+			if (Out.Cat == ECat::Unsupported)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("access '%s' resolves to a container type %s which expressions do not support"), *AnimMcpPropertyAccessNode::JoinPath(OutPath), *Leaf->GetCPPType()));
+				return false;
+			}
+			return true;
+		}
+
+		bool ResolveParam(const FRuleContext& Ctx, const TSharedPtr<FJsonValue>& Inner, FString& OutName, FExpr& Out, FAnimMcpError& OutError)
+		{
+			if (!Inner.IsValid() || Inner->Type != EJson::String)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("param expects a parameter name string"));
+				return false;
+			}
+			OutName = Inner->AsString();
+			if (!Ctx.ParamTypes && !Ctx.ParamPins)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("param '%s' is only valid inside a function expression (set_update_function); transition rules have no parameters"), *OutName));
+				return false;
+			}
+			if (Ctx.ParamTypes)
+			{
+				const FEdGraphPinType* Type = Ctx.ParamTypes->Find(OutName);
+				if (!Type)
+				{
+					TArray<FString> Names;
+					Ctx.ParamTypes->GetKeys(Names);
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("param '%s' is not a parameter of this function (available: %s)"), *OutName, *FString::Join(Names, TEXT(", "))));
+					return false;
+				}
+				Out.Type = *Type;
+			}
+			else
+			{
+				UEdGraphPin* const* Pin = Ctx.ParamPins->Find(OutName);
+				if (!Pin || !*Pin)
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, FString::Printf(TEXT("param '%s' has no pin at build time"), *OutName));
+					return false;
+				}
+				Out.Type = (*Pin)->PinType;
+				Out.Pin = *Pin;
+			}
+			Out.Cat = CatFromPinType(Out.Type);
+			if (Out.Cat == ECat::Unsupported)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("param '%s' has an unsupported pin type %s"), *OutName, *TypeText(Out.Type)));
 				return false;
 			}
 			return true;
@@ -261,6 +392,17 @@ namespace AnimMcpTransitionRule
 			return P->HasAnyPropertyFlags(CPF_Parm) && !P->HasAnyPropertyFlags(CPF_ReturnParm) && !(P->HasAnyPropertyFlags(CPF_OutParm) && !P->HasAnyPropertyFlags(CPF_ReferenceParm));
 		}
 
+		/** 비리터럴 값이 대상 핀 타입으로 흐를 수 있는가 — 같은 범주(Other 제외)거나 스키마 호환 */
+		bool ValueFitsPin(const FExpr& Value, const FEdGraphPinType& Target)
+		{
+			const ECat TargetCat = CatFromPinType(Target);
+			if (Value.Cat != ECat::Other && TargetCat != ECat::Other && Value.Cat == TargetCat)
+			{
+				return true;
+			}
+			return GetDefault<UEdGraphSchema_K2>()->ArePinTypesCompatible(Value.Type, Target);
+		}
+
 		//~ 검증 + 정규화 (재귀). Canonical 은 키 순서 고정
 
 		bool ValidateExpr(const FRuleContext& Ctx, const TSharedPtr<FJsonValue>& Value, int32 Depth, FExpr& Out, FString& Canonical, FAnimMcpError& OutError)
@@ -291,11 +433,31 @@ namespace AnimMcpTransitionRule
 					return false;
 				}
 				FProperty* Property = nullptr;
-				if (!ResolveVariable(Ctx, Inner->AsString(), Property, Out.Cat, OutError))
+				if (!ResolveVariable(Ctx, Inner->AsString(), Property, Out, OutError))
 				{
 					return false;
 				}
 				Canonical += TEXT("{\"var\":\"") + Inner->AsString() + TEXT("\"}");
+				return true;
+			}
+			if (Key == TEXT("access"))
+			{
+				TArray<FString> Path;
+				if (!ResolveAccess(Ctx, Inner, Path, Out, OutError))
+				{
+					return false;
+				}
+				Canonical += TEXT("{\"access\":") + PathCanonical(Path) + TEXT("}");
+				return true;
+			}
+			if (Key == TEXT("param"))
+			{
+				FString Name;
+				if (!ResolveParam(Ctx, Inner, Name, Out, OutError))
+				{
+					return false;
+				}
+				Canonical += TEXT("{\"param\":\"") + Name + TEXT("\"}");
 				return true;
 			}
 			if (Key == TEXT("literal"))
@@ -325,6 +487,7 @@ namespace AnimMcpTransitionRule
 				}
 				Canonical += TEXT("}");
 				Out.Cat = ECat::Bool;
+				Out.Type = BoolPinType();
 				return true;
 			}
 			if (Key == TEXT("and") || Key == TEXT("or"))
@@ -353,6 +516,7 @@ namespace AnimMcpTransitionRule
 				}
 				Canonical += TEXT("]}");
 				Out.Cat = ECat::Bool;
+				Out.Type = BoolPinType();
 				return true;
 			}
 			if (Key == TEXT("compare"))
@@ -391,6 +555,7 @@ namespace AnimMcpTransitionRule
 				if (Left.IsLiteral() && !LiteralToPinText(Left.Literal, Cat, Unused, OutError)) { return false; }
 				if (Right.IsLiteral() && !LiteralToPinText(Right.Literal, Cat, Unused, OutError)) { return false; }
 				Out.Cat = ECat::Bool;
+				Out.Type = BoolPinType();
 				return true;
 			}
 			if (Key == TEXT("call"))
@@ -409,10 +574,9 @@ namespace AnimMcpTransitionRule
 					return false;
 				}
 				FProperty* Return = ReturnProperty(Function);
-				Out.Cat = CatFromProperty(Return);
-				if (Out.Cat == ECat::Unsupported)
+				if (!PinTypeFromProperty(Return, Out.Type) || (Out.Cat = CatFromPinType(Out.Type)) == ECat::Unsupported)
 				{
-					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("call: '%s' returns %s which rules do not support"), *FunctionName, Return ? *Return->GetCPPType() : TEXT("void")));
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("call: '%s' returns %s which expressions do not support"), *FunctionName, Return ? *Return->GetCPPType() : TEXT("void")));
 					return false;
 				}
 				Canonical += TEXT("{\"call\":{\"function\":\"") + FunctionName + TEXT("\"");
@@ -440,7 +604,12 @@ namespace AnimMcpTransitionRule
 						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("call: '%s' requires arg '%s' (%s)"), *FunctionName, *ParamName, *It->GetCPPType()));
 						return false;
 					}
-					const ECat ParamCat = CatFromProperty(*It);
+					FEdGraphPinType ParamType;
+					if (!PinTypeFromProperty(*It, ParamType))
+					{
+						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("call: '%s' arg '%s' has a type expressions cannot feed (%s)"), *FunctionName, *ParamName, *It->GetCPPType()));
+						return false;
+					}
 					FExpr Arg;
 					FString ArgCanon;
 					if (!ValidateExpr(Ctx, Args->TryGetField(ParamName), Depth + 1, Arg, ArgCanon, OutError))
@@ -450,11 +619,11 @@ namespace AnimMcpTransitionRule
 					if (Arg.IsLiteral())
 					{
 						FString Unused;
-						if (!LiteralToPinText(Arg.Literal, ParamCat, Unused, OutError)) { return false; }
+						if (!LiteralToPinText(Arg.Literal, CatFromPinType(ParamType), Unused, OutError)) { return false; }
 					}
-					else if (Arg.Cat != ParamCat)
+					else if (!ValueFitsPin(Arg, ParamType))
 					{
-						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("call: arg '%s' expects %s, got %s"), *ParamName, CatName(ParamCat), CatName(Arg.Cat)));
+						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("call: arg '%s' expects %s, got %s"), *ParamName, *TypeText(ParamType), *TypeText(Arg.Type)));
 						return false;
 					}
 				}
@@ -488,7 +657,7 @@ namespace AnimMcpTransitionRule
 				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("automatic is only allowed as the whole rule, not nested"));
 				return false;
 			}
-			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("unknown rule key '%s' (var|not|and|or|compare|literal|call|automatic)"), *Key));
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("unknown rule key '%s' (var|access|param|not|and|or|compare|literal|call|automatic)"), *Key));
 			return false;
 		}
 	}
@@ -552,19 +721,58 @@ namespace AnimMcpTransitionRule
 		return true;
 	}
 
+	bool ValidateExpression(UAnimBlueprint* Blueprint, const TSharedPtr<FJsonValue>& Expr, const FExpressionParams* Params, FString& OutCanonical, FEdGraphPinType& OutType, bool& bOutIsLiteral, TSharedPtr<FJsonValue>& OutLiteral, FAnimMcpError& OutError)
+	{
+		OutCanonical.Reset();
+		bOutIsLiteral = false;
+		OutLiteral.Reset();
+		if (!Blueprint)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("ValidateExpression without blueprint"));
+			return false;
+		}
+		FRuleContext Ctx;
+		Ctx.Blueprint = Blueprint;
+		Ctx.VarClass = VariableClassOf(Blueprint);
+		Ctx.ParamTypes = Params ? &Params->Types : nullptr;
+		FExpr Top;
+		if (!ValidateExpr(Ctx, Expr, 0, Top, OutCanonical, OutError))
+		{
+			return false;
+		}
+		if (Top.IsLiteral())
+		{
+			bOutIsLiteral = true;
+			OutLiteral = Top.Literal;
+			return true;
+		}
+		OutType = Top.Type;
+		return true;
+	}
+
+	bool LiteralForPin(const TSharedPtr<FJsonValue>& Literal, const FEdGraphPinType& PinType, FString& OutText, FAnimMcpError& OutError)
+	{
+		return LiteralToPinText(Literal, CatFromPinType(PinType), OutText, OutError);
+	}
+
 	//~ 생성
 
 	namespace
 	{
+		void Place(FRuleContext& Ctx, UEdGraphNode* Node, int32 Depth)
+		{
+			Node->NodePosX = Ctx.OriginX - 360 * (Depth + 1);
+			Node->NodePosY = Ctx.OriginY + 140 * Ctx.NextRow++;
+			Ctx.MaxDepth = FMath::Max(Ctx.MaxDepth, Depth);
+		}
+
 		template <typename T>
 		T* PlaceNode(FRuleContext& Ctx, int32 Depth, TFunctionRef<void(T*)> Configure)
 		{
 			FGraphNodeCreator<T> Creator(*Ctx.Graph);
 			T* Node = Creator.CreateNode(/*bSelectNewNode*/ false);
 			Configure(Node);
-			Node->NodePosX = Ctx.OriginX - 360 * (Depth + 1);
-			Node->NodePosY = Ctx.OriginY + 140 * Ctx.NextRow++;
-			Ctx.MaxDepth = FMath::Max(Ctx.MaxDepth, Depth);
+			Place(Ctx, Node, Depth);
 			Creator.Finalize();
 			Ctx.Created->Add(Node);
 			return Node;
@@ -627,7 +835,7 @@ namespace AnimMcpTransitionRule
 			if (Key == TEXT("var"))
 			{
 				FProperty* Property = nullptr;
-				if (!ResolveVariable(Ctx, Inner->AsString(), Property, Out.Cat, OutError)) { return false; }
+				if (!ResolveVariable(Ctx, Inner->AsString(), Property, Out, OutError)) { return false; }
 				UK2Node_VariableGet* Getter = PlaceNode<UK2Node_VariableGet>(Ctx, Depth, [&](UK2Node_VariableGet* Node)
 				{
 					Node->SetFromProperty(Property, /*bSelfContext*/ true, Ctx.VarClass);
@@ -640,6 +848,27 @@ namespace AnimMcpTransitionRule
 				}
 				return true;
 			}
+			if (Key == TEXT("access"))
+			{
+				TArray<FString> Path;
+				if (!ResolveAccess(Ctx, Inner, Path, Out, OutError)) { return false; }
+				const int32 PosX = Ctx.OriginX - 360 * (Depth + 1);
+				const int32 PosY = Ctx.OriginY + 140 * Ctx.NextRow;
+				UK2Node* Node = AnimMcpPropertyAccessNode::Spawn(Ctx.Graph, Path, PosX, PosY, OutError);
+				if (!Node) { return false; }
+				Ctx.NextRow++;
+				Ctx.MaxDepth = FMath::Max(Ctx.MaxDepth, Depth);
+				Ctx.Created->Add(Node);
+				Out.Pin = Node->FindPin(TEXT("Value"), EGPD_Output);
+				Out.Type = Out.Pin->PinType;
+				Out.Cat = CatFromPinType(Out.Type);
+				return true;
+			}
+			if (Key == TEXT("param"))
+			{
+				FString Name;
+				return ResolveParam(Ctx, Inner, Name, Out, OutError);
+			}
 			if (Key == TEXT("not"))
 			{
 				FExpr Child;
@@ -647,6 +876,7 @@ namespace AnimMcpTransitionRule
 				UK2Node_CallFunction* Call = PlaceCall(Ctx, UKismetMathLibrary::StaticClass()->FindFunctionByName(TEXT("Not_PreBool")), Depth);
 				if (!Feed(Ctx, Call->FindPin(TEXT("A"), EGPD_Input), Child, ECat::Bool, OutError)) { return false; }
 				Out.Cat = ECat::Bool;
+				Out.Type = BoolPinType();
 				Out.Pin = Call->GetReturnValuePin();
 				return true;
 			}
@@ -665,6 +895,7 @@ namespace AnimMcpTransitionRule
 					if (!Feed(Ctx, Call->FindPin(TEXT("B"), EGPD_Input), Next, ECat::Bool, OutError)) { return false; }
 					Acc = FExpr();
 					Acc.Cat = ECat::Bool;
+					Acc.Type = BoolPinType();
 					Acc.Pin = Call->GetReturnValuePin();
 				}
 				Out = Acc;
@@ -683,6 +914,7 @@ namespace AnimMcpTransitionRule
 				if (!Feed(Ctx, Call->FindPin(TEXT("A"), EGPD_Input), Left, Cat, OutError)) { return false; }
 				if (!Feed(Ctx, Call->FindPin(TEXT("B"), EGPD_Input), Right, Cat, OutError)) { return false; }
 				Out.Cat = ECat::Bool;
+				Out.Type = BoolPinType();
 				Out.Pin = Call->GetReturnValuePin();
 				return true;
 			}
@@ -709,8 +941,9 @@ namespace AnimMcpTransitionRule
 				{
 					if (!Feed(Ctx, Call->FindPin(Pair.Key->GetFName(), EGPD_Input), Pair.Value, CatFromProperty(Pair.Key), OutError)) { return false; }
 				}
-				Out.Cat = CatFromProperty(ReturnProperty(Function));
 				Out.Pin = Call->GetReturnValuePin();
+				Out.Type = Out.Pin ? Out.Pin->PinType : FEdGraphPinType();
+				Out.Cat = CatFromPinType(Out.Type);
 				return true;
 			}
 			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, FString::Printf(TEXT("rule: unexpected key '%s' at build time"), *Key));
@@ -788,6 +1021,30 @@ namespace AnimMcpTransitionRule
 		return true;
 	}
 
+	bool BuildExpressionInto(UAnimBlueprint* Blueprint, FExpressionBuild& Target, const TSharedPtr<FJsonValue>& Expr, UEdGraphPin* InputPin, FAnimMcpError& OutError)
+	{
+		if (!Blueprint || !Target.Graph || !Target.Created || !InputPin)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("BuildExpressionInto: missing blueprint, graph, created list or input pin"));
+			return false;
+		}
+		FRuleContext Ctx;
+		Ctx.Blueprint = Blueprint;
+		Ctx.VarClass = VariableClassOf(Blueprint);
+		Ctx.ParamPins = Target.ParamPins;
+		Ctx.Graph = Target.Graph;
+		Ctx.OriginX = Target.OriginX;
+		Ctx.OriginY = Target.OriginY;
+		Ctx.Created = Target.Created;
+		Target.Graph->Modify();
+
+		FExpr Top;
+		const bool bOk = BuildExpr(Ctx, Expr, 0, Top, OutError) && Feed(Ctx, InputPin, Top, CatFromPinType(InputPin->PinType), OutError);
+		Target.RowsUsed = Ctx.NextRow;
+		Target.MaxDepth = Ctx.MaxDepth;
+		return bOk;
+	}
+
 	//~ 조회
 
 	void CollectRuleNodes(UEdGraph* BoundGraph, TArray<UEdGraphNode*>& OutNodes)
@@ -806,12 +1063,12 @@ namespace AnimMcpTransitionRule
 		}
 	}
 
-	FString HashRuleGraph(UEdGraph* BoundGraph)
+	FString HashRuleGraph(UEdGraph* Graph)
 	{
 		TArray<UEdGraphNode*> Nodes;
-		if (BoundGraph)
+		if (Graph)
 		{
-			for (UEdGraphNode* Node : BoundGraph->Nodes)
+			for (UEdGraphNode* Node : Graph->Nodes)
 			{
 				if (Node && !Node->IsA<UEdGraphNode_Comment>())
 				{
@@ -836,8 +1093,12 @@ namespace AnimMcpTransitionRule
 		{
 			const UEdGraphNode* Node = Nodes[i];
 			FString Title;
+			TArray<FString> AccessPath;
 			if (const UK2Node_CallFunction* Call = Cast<UK2Node_CallFunction>(Node)) { Title = Call->GetFunctionName().ToString(); }
 			else if (const UK2Node_VariableGet* Var = Cast<UK2Node_VariableGet>(Node)) { Title = Var->GetVarNameString(); }
+			else if (const UK2Node_VariableSet* Set = Cast<UK2Node_VariableSet>(Node)) { Title = TEXT("set:") + Set->GetVarNameString(); }
+			else if (const UK2Node_FunctionEntry* Entry = Cast<UK2Node_FunctionEntry>(Node)) { Title = TEXT("entry:") + Entry->FunctionReference.GetMemberName().ToString(); }
+			else if (AnimMcpPropertyAccessNode::GetPath(Node, AccessPath)) { Title = TEXT("access:") + AnimMcpPropertyAccessNode::JoinPath(AccessPath); }
 			Buffer += FString::Printf(TEXT("N|%d|%s|%s|%d|%d\n"), i, *Node->GetClass()->GetName(), *Title, Node->NodePosX, Node->NodePosY);
 
 			TArray<UEdGraphPin*> Pins = Node->Pins;
@@ -862,17 +1123,18 @@ namespace AnimMcpTransitionRule
 		return TEXT("sha1:") + FSHA1::HashBuffer(Utf8.Get(), Utf8.Length()).ToString().ToLower();
 	}
 
-	FSource ReadSource(UEdGraph* BoundGraph)
+	FSource ReadSource(UEdGraph* Graph, const TCHAR* Marker)
 	{
 		FSource Out;
-		if (!BoundGraph)
+		if (!Graph)
 		{
 			return Out;
 		}
-		for (UEdGraphNode* Node : BoundGraph->Nodes)
+		const TCHAR* UseMarker = Marker ? Marker : SourceMarker;
+		for (UEdGraphNode* Node : Graph->Nodes)
 		{
 			const UEdGraphNode_Comment* Comment = Cast<UEdGraphNode_Comment>(Node);
-			if (!Comment || !Comment->NodeComment.StartsWith(SourceMarker))
+			if (!Comment || !Comment->NodeComment.StartsWith(UseMarker))
 			{
 				continue;
 			}
@@ -892,7 +1154,7 @@ namespace AnimMcpTransitionRule
 			{
 				Out.Source = Parsed;
 			}
-			Out.bModified = (HashRuleGraph(BoundGraph) != Out.StoredHash);
+			Out.bModified = (HashRuleGraph(Graph) != Out.StoredHash);
 			return Out;
 		}
 		return Out;

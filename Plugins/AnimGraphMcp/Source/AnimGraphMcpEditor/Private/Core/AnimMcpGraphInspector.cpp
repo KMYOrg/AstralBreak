@@ -5,6 +5,8 @@
 #include "AnimGraphNode_SaveCachedPose.h"
 #include "AnimGraphNode_UseCachedPose.h"
 #include "AnimMcpAnimLayer.h"
+#include "AnimMcpUpdateFunction.h"
+#include "AnimMcpVariables.h"
 #include "AnimMcpPropertyBinding.h"
 #include "AnimMcpPropertyRules.h"
 #include "AnimMcpTransitionRule.h"
@@ -264,6 +266,9 @@ namespace AnimMcpGraphInspector
 				}
 			}
 		}
+
+		// (7-1) BP 변수 선언 — NewVariables 가 없으면 줄이 없어 기존 revision 과 호환
+		AnimMcpVariables::AppendRevisionLines(Blueprint, Buffer);
 
 		const FTCHARToUTF8 Utf8(*Buffer);
 		const FSHAHash Hash = FSHA1::HashBuffer(Utf8.Get(), Utf8.Length());
@@ -759,6 +764,10 @@ namespace AnimMcpGraphInspector
 				Var->SetStringField(TEXT("source"), bNative ? TEXT("native") : TEXT("blueprint"));
 				Var->SetField(TEXT("owner_class"), AnimMcpJson::ObjectPathOrNull(OwnerClass));
 				Var->SetBoolField(TEXT("read_only"), Property->HasAnyPropertyFlags(CPF_BlueprintReadOnly));
+				// (7-1) 이 BP 가 선언한 변수면 선언 정보 {type, default_value, category, instance_editable}
+				const TSharedPtr<FJsonObject> Declaration = bNative ? nullptr : AnimMcpVariables::DescribeDeclaration(Blueprint, Property->GetFName());
+				TSharedPtr<FJsonValue> DeclarationValue = Declaration.IsValid() ? TSharedPtr<FJsonValue>(MakeShared<FJsonValueObject>(Declaration)) : TSharedPtr<FJsonValue>(MakeShared<FJsonValueNull>());
+				Var->SetField(TEXT("declaration"), DeclarationValue);
 				Variables.Add(MakeShared<FJsonValueObject>(Var));
 			}
 		}
@@ -769,6 +778,8 @@ namespace AnimMcpGraphInspector
 		// Phase 6-4b — 구현한 인터페이스와 레이어 그래프(인터페이스 BP 자신의 레이어 포함)
 		Info->SetArrayField(TEXT("implemented_interfaces"), AnimMcpAnimLayer::DescribeImplementedInterfaces(Blueprint));
 		Info->SetArrayField(TEXT("layers"), AnimMcpAnimLayer::DescribeLayers(Blueprint));
+		// Phase 7-1 — BlueprintThreadSafeUpdateAnimation 오버라이드 (없으면 null)
+		Info->SetField(TEXT("update_function"), AnimMcpUpdateFunction::Describe(Blueprint));
 
 		if (!Blueprint->bIsTemplate && !Blueprint->TargetSkeleton)
 		{

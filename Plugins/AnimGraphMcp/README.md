@@ -50,14 +50,14 @@ bAutoStart=True            ; 에디터 기동 시 리스너 시작. 콘솔 AnimG
 - `diagnostics[]` 는 성공 응답에도 붙는 경고(`{level, code, message}`).
 - 긴 작업은 동기입니다(에디터 프레임을 잡습니다). 클라이언트 타임아웃은 기본 60초, 컴파일을 포함하면 180초를 권장합니다.
 
-## Tool (17개)
+## Tool (20개)
 
 Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 | Tool | 입력 | 하는 일 |
 | :--- | :--- | :--- |
 | `get_editor_status` | — | 토큰 면제. 엔진·프로젝트·PIE·포트·Tool 목록·`process_id`·보호 목록·`dirty_package_count` |
-| `get_anim_blueprint_info` | `asset_path` | `revision`, `parent_class`, `target_skeleton`, `graphs[]`, `variables[]`(규칙 `var`·`bind_pin` 대상), `linked_anim_layers[]`, `implemented_interfaces[]`, `layers[]` |
+| `get_anim_blueprint_info` | `asset_path` | `revision`, `parent_class`, `target_skeleton`, `graphs[]`, `variables[]`(규칙 `var`·`bind_pin` 대상; BP 변수는 `declaration`), `linked_anim_layers[]`, `implemented_interfaces[]`, `layers[]`, `update_function` |
 | `get_anim_graph_structure` | `asset_path, graph_guid?, depth=1` | 그래프 트리·노드·핀·연결·허용 목록 프로퍼티·바인딩·`state_machines[]` 뷰. `depth 0` = 그 그래프만, `-1` = 전부 |
 | `list_animation_assets` | `skeleton?, asset_class=all, path_prefix=/Game, limit=200, details=false` | AnimSequence·BlendSpace·AnimMontage·AnimComposite 목록. `details` 면 BlendSpace 축·샘플 요약 |
 | `create_animation_blueprint` | `asset_path, skeleton, parent_class, preview_mesh?, overwrite=false` | 루트 AnimGraph 만 있는 ABP 생성. `overwrite` 는 기존 애셋 삭제 |
@@ -72,6 +72,9 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | `save_animation_blueprint` | `asset_path` | 강제 저장 |
 | `run_automation_tests` | `filter(필수), timeout=120, dry_run=false` | 에디터 안에서 Automation 테스트 실행(`FAutomationTestFramework` 직접 구동). 지연 명령이 없으면 동기 완료(`done=true`), 아니면 `job_id` 로 poll |
 | `poll_automation_tests` | `job_id` | 진행·결과 `{total, completed, passed, failed, done, ok, running?, tests[{name, state, duration, errors[], warnings[]}]}` |
+| `add_blueprint_variable` | `asset_path, name, type, default?, category?, instance_editable, compile, save` | BP 멤버 변수 추가. `type` = bool·float·int·int64·name·string·text·byte·vector·vector2d·rotator·transform·linearcolor·`object:<클래스>`·`class:<클래스>`·`struct:<구조체>`·`enum:<열거형>`. 추가 즉시 규칙 `var`·VariableGet·`bind_pin`·`set_update_function` 이 쓴다 |
+| `remove_blueprint_variable` | `asset_path, name, force, compile, save` | 이 BP 가 선언한 변수만. 참조 중이면 `VARIABLE_IN_USE`, `force` 면 참조 노드도 삭제 |
+| `set_update_function` | `asset_path, assignments[{variable, value}] \| remove, compile=true, save` | `BlueprintThreadSafeUpdateAnimation` 오버라이드를 스펙에서 **전체 재생성**(Entry → VariableSet 사슬, 값은 규칙 AST). 멱등(`applied.unchanged`), 사람 편집 감지(`update_function.modified`). 변수는 BlueprintVisible ∧ 읽기 전용 아님 |
 | `quit_editor` | `save_dirty=false, discard_dirty=false` | 더티 패키지가 있으면 둘 중 하나 없이는 `DIRTY_PACKAGES` 로 거부. `save_dirty` 는 콘텐츠만 저장(맵 제외). 응답 `process_id` |
 
 새 Tool 은 Claude Code **세션을 다시 시작해야** MCP 목록에 보입니다(HTTP 로는 바로 호출 가능).
@@ -115,9 +118,13 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 {"call": {"function": "FMax", "class"?: "/Script/…", "args": {"A": R, "B": R}}} // BlueprintPure ∧ ThreadSafe ∧ 소유 ∈ {AnimInstance 사슬, UKismetMathLibrary}
 {"literal": true}                                                            // 최상위면 Result 핀 기본값(노드 없음)
 {"automatic": true, "trigger_time"?: -1.0}                                   // 전이만: 시퀀스 길이 기반 자동 규칙
+{"access": "GetOwningComponent.ComponentVelocity"}                           // Property Access 노드 — AnimInstance 에서 시작하는 프로퍼티/pure 함수 경로(엔진이 해석·스레드 안전 판정)
+{"param": "DeltaTime"}                                                       // set_update_function 안에서만: 함수 입력 파라미터
 ```
 
-정규화한 원문과 그래프 해시를 규칙 그래프의 주석 노드에 기록합니다. 조회 응답의 `rule_source` 가 그것이고, 해시가 다르면 사람이 손으로 바꾼 것(`rule_modified`)입니다.
+벡터·구조체처럼 비교할 수 없는 값도 `access`/`call` 로 흘러 `call` 인자나 `set_update_function` 의 대입 값이 됩니다(예: `{"call": {"function": "VSize", "args": {"A": {"access": "GetOwningComponent.ComponentVelocity"}}}}`). 정규화한 원문과 그래프 해시를 규칙 그래프의 주석 노드에 기록합니다. 조회 응답의 `rule_source` 가 그것이고, 해시가 다르면 사람이 손으로 바꾼 것(`rule_modified`)입니다.
+
+**업데이트 함수** (`set_update_function`): `{"assignments": [{"variable": "Speed", "value": {"call": {"function": "VSize", "args": {"A": {"access": "GetOwningComponent.ComponentVelocity"}}}}}, {"variable": "bIsMoving", "value": {"compare": {"op": ">", "left": {"var": "Speed"}, "right": {"literal": 1.0}}}}]}` — 실행 순서대로 변수에 대입하는 `BlueprintThreadSafeUpdateAnimation` 함수 그래프가 만들어집니다. 스레드 안전하지 않은 호출은 컴파일 경고로 드러나고 멀티스레드 업데이트가 꺼집니다.
 
 ## 안전 장치
 
@@ -146,7 +153,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 ## 제약 (설계상 범위 밖)
 
-- **EventGraph 로직은 다루지 않습니다.** 변수·조건은 C++ AnimInstance 에서 계산한다는 전제이며, ABP 변수 추가·BlueprintUpdateAnimation 편집 Tool 이 없습니다.
+- **임의의 EventGraph 편집은 다루지 않습니다.** BP 변수 추가와 `BlueprintThreadSafeUpdateAnimation` 의 "변수 ← 식" 대입 사슬까지가 범위이고, 분기·루프·이벤트·임의 K2 노드는 만들지 않습니다. 복잡한 상태 판정은 C++ AnimInstance 에 두는 것을 권합니다.
 - 전이 규칙의 `call` 은 화이트리스트 함수만, `set_property` 는 허용 목록 프로퍼티만입니다. 그 밖의 노드(IK·Control Rig·Modify Bone 등)는 생성·연결은 되지만 세부 설정은 못 합니다.
 - Linked Anim Layer 는 포즈 입력만(값 파라미터·`InstanceClass` 지정·기존 인터페이스에 레이어 추가/삭제 없음).
 - 생성하는 콘텐츠 애셋은 BlendSpace 뿐입니다. 몽타주·노티파이·싱크 그룹·블렌드 프로파일·스켈레톤 슬롯은 범위 밖입니다.
@@ -174,6 +181,9 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpBlueprintFactory ABP 생성   AnimMcpCompiler  컴파일·저장
             AnimMcpAssetProtection  보호 목록   AnimMcpAssetOps  삭제·복제·참조자
             AnimMcpAutomationRunner FAutomationTestFramework 구동 · 잡
+            AnimMcpPropertyAccessNode  UK2Node_PropertyAccess 리플렉션(엔진 플러그인의 비공개 노드)
+            AnimMcpVariables        BP 멤버 변수 추가·삭제 · 타입 문자열
+            AnimMcpUpdateFunction   BlueprintThreadSafeUpdateAnimation 함수 그래프 생성·재생성
   Tests/    AnimMcpSmokeTests.cpp    AnimGraphMcp.Smoke.AnimBlueprint
   Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음)
 ```

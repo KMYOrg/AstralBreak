@@ -8,6 +8,7 @@
 #include "Bridge/AnimMcpTypes.h"
 #include "Editor.h"
 #include "HAL/FileManager.h"
+#include "HAL/PlatformProcess.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Misc/PackageName.h"
 #include "PackageTools.h"
@@ -83,14 +84,25 @@ namespace AnimMcpAssetOps
 			{
 				ResetLoaders(Package);
 			}
-			IFileManager::Get().Delete(*Filename, /*RequireExists*/ false, /*EvenReadOnly*/ true, /*Quiet*/ true);
+			// 방금 저장한 파일은 잠깐 잠겨 있을 수 있다 (실측: 회귀에서 간헐적으로 "could not be removed" — 바이러스 검사·레지스트리 스캔 등
+			// 외부 핸들). 짧게 재시도한다 — 최대 ~3초, 게임 스레드 블로킹은 이 도구에서 허용
+			int32 Attempts = 0;
+			for (; Attempts < 10; ++Attempts)
+			{
+				IFileManager::Get().Delete(*Filename, /*RequireExists*/ false, /*EvenReadOnly*/ true, /*Quiet*/ true);
+				if (!IFileManager::Get().FileExists(*Filename))
+				{
+					break;
+				}
+				FPlatformProcess::Sleep(0.3f);
+			}
 			if (IFileManager::Get().FileExists(*Filename))
 			{
-				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, FString::Printf(TEXT("DeleteAsset left '%s' on disk and it could not be removed (locked?)"), *Filename));
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, FString::Printf(TEXT("DeleteAsset left '%s' on disk and it could not be removed after %d attempts (locked by another process?)"), *Filename, Attempts));
 				return false;
 			}
 			FAssetRegistryModule::GetRegistry().ScanModifiedAssetFiles({ Filename });
-			Context.AddDiagnostic(TEXT("info"), TEXT("PACKAGE_FILE_REMOVED"), FString::Printf(TEXT("Removed leftover file %s"), *Filename));
+			Context.AddDiagnostic(TEXT("info"), TEXT("PACKAGE_FILE_REMOVED"), FString::Printf(TEXT("Removed leftover file %s (%d attempt%s)"), *Filename, Attempts + 1, Attempts == 0 ? TEXT("") : TEXT("s")));
 		}
 
 		UE_LOG(LogAnimGraphMcp, Log, TEXT("Deleted asset %s"), *ObjectPath);

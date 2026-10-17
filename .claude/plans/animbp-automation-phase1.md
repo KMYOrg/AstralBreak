@@ -773,9 +773,35 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 
 ---
 
+## Phase 6-3 결과 (2026-10-16, 브랜치 `feat/ai_auto_ABP`) — BlendSpace 생성
+
+핸드오프 phase6-2 §12 "6-3" 구현. `phase6_3_test.py` 5개 절 **PASS** + `phase3/4/5/6_1/6_2_test.py` 회귀 PASS + 재시작 `--recheck` PASS(5 · 6-1 · 6-3 · 6-2). Development · DebugGame 빌드 성공, 경고 0. Tool 12 → **13개** (`create_blendspace`; 세션 재시작 전에는 HTTP 로만 검증됨).
+
+**§12-B 는 소스로 해소 — 사용자 질문 불필요.** `UBlendSpace::BlendParameters[3]` 은 protected 이고 공개 setter 가 없다 (BlendSpace.h:905-907). Persona 의 디테일 패널도 `DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(UBlendSpace, BlendParameters))->GetChildHandle(AxisIndex)` — 즉 **프로퍼티 시스템(리플렉션)** 으로 편집한다 (BlendSpaceDetails.cpp:208-217). 따라서 "리플렉션을 허용할지" 는 선택지가 아니라 엔진의 유일한 경로다. 도구는 `FProperty::ContainerPtrToValuePtr<FBlendParameter>(BlendSpace, AxisIndex)` 로 주소만 얻고 `FBlendParameter` 의 고정 필드 6개(DisplayName · Min · Max · GridNum · bSnapToGrid · bWrapInput)만 쓴 뒤 `PostEditChange()` — 임의 프로퍼티 ImportText 범용 명령이 아니므로 허용 목록 원칙과 충돌하지 않는다.
+
+| 산출물 | 위치 |
+| :--- | :--- |
+| 생성 기계 | `Core/AnimMcpBlendSpaceFactory.{h,cpp}` (신규) — `ParseCreateParams`(JSON → 축·샘플, 형식 오류 BAD_REQUEST details.field) · `CreateBlendSpace`(팩토리 재현 EditorFactories.cpp:7353-7369/:7427-7443: `NewObject<UBlendSpace[1D]>` → `SetSkeleton` → 프리뷰 메시 → 축 → `AddSample` → `ResampleData` → `ValidateSampleData` → `PostEditChange` → `AssetCreated`) · `DescribeBlendSpace`(축·샘플·sample/grid/segment/triangle 수·anim_length·loop·interpolate_using_grid) |
+| Tool | `create_blendspace {asset_path, skeleton, dimensions:1\|2, axes[{name,min,max,grid?,snap?,wrap?}], samples?[{animation, value:[x]\|[x,y]}], preview_mesh?, overwrite?, save?}` → 요약 + `created`·`saved`. `list_animation_assets` 에 `details?` — BlendSpace 항목에 `blendspace{...}` 요약(로드 필요, 요청 시에만) |
+| 사전 검증 (애셋 생성 전, 실패 시 아무것도 남기지 않음) | 차원 1\|2 · 축 수 = 차원 · min<max · grid 1..1000 정수 · 샘플 애니는 `UAnimSequence` 만(몽타주 BAD_REQUEST) · 스켈레톤 `IsCompatibleForEditor`(`SKELETON_MISMATCH`) · **범위 밖 거부**(`OUT_OF_RANGE`) · 중복 위치(`DUPLICATE_POSITION`, `IsSameSamplePoint` 와 같은 허용 오차) · additive 타입 혼합(`ADDITIVE_MISMATCH`) · 엔진 `AddSample` 거부(`ENGINE_REJECTED`, 생성 중이던 객체는 가비지) · 기존 애셋은 보호 목록 → overwrite 삭제(6-2 기계) |
+| 테스트 | `Tools/mcp/phase6_3_test.py` — A 원본 요약 · B 1D 재현(축·샘플·grid·선분 수 원본과 동일, anim_length 동일) · C 새 ABP 에 BlendSpacePlayer(set_asset)+Speed→X 컴파일 0 에러·저장 · D 2D(삼각형 1·그리드 0·wrap) · E 거부 12종 + 거부 후 미생성 확인 · `--recheck`. 테스트 애셋 `/Game/Animation/Test/BS_McpTest`·`BS_McpTest2D`·`ABP_McpBsTest`(덮어쓰기 대상) |
+
+**실측으로 확인한 것**
+- **`AddSample` 은 범위 밖 값을 거부하지 않고 축을 늘린다** — `ExpandRangeForSample`(BlendSpace.cpp:1610-1626) 이 Min/Max/GridNum 을 키운다. 요청한 축을 지키려면 도구가 먼저 거부해야 한다(구현함).
+- **2D 는 기본적으로 그리드가 비어 있다** — `bInterpolateUsingGrid=false`(기본) 면 `ResampleData2D` 가 삼각분할(`BlendSpaceData.Triangles`) 만 만들고 `EmptyGridElements()` 한다 (BlendSpace.cpp:2784-2804). 1D 는 선분(`Segments`) + 그리드. 첫 테스트가 그리드 20 을 기대해 실패했고, 요약에 `segment_count`/`triangle_count`/`interpolate_using_grid` 를 추가해 바로잡았다. 샘플 3 → 삼각형 1.
+- `ResampleData()` 는 내부에서 `ValidateSampleData()` 를 먼저 부른다(:2654) — Persona 순서(Resample → Validate) 를 그대로 따라도 무해.
+- **방금 저장한 파일은 잠깐 잠길 수 있다** — 회귀 중 간헐적으로 `DeleteAsset` 뒤 파일 삭제가 실패했다(`IFileManager::Delete` 뒤에도 `FileExists`). 외부 핸들(바이러스 검사·레지스트리 스캔)로 보이며, `AnimMcpAssetOps::DeleteAssetAtPath` 가 0.3초 간격 최대 10회 재시도하도록 고쳤다(실측 "2 attempts" 로 통과). 6-2 기계의 보완.
+- 원본 `BS_Hero_Locomotion1D`: 축 Speed 0..500 grid 5 · 샘플 3 · anim_length 6.0 — 도구로 1:1 재현되고 재시작 뒤 요약 동일.
+
+**Phase 6-4 착수 조건**: 본 결과 검토. 범위는 핸드오프 §12 "6-4 바인딩·레이어" — (a) Property Binding `bind_pin`/`unbind_pin`(`FAnimGraphNodePropertyBinding`, 에디터 UI 가 바인딩을 채우는 경로 ❓ `Editor/AnimGraph/Private/AnimGraphNodeBinding*.cpp` · `AnimBlueprintExtension_PropertyAccess`), (b) Linked Anim Layer 는 **§12-C 로 진행 여부 확정**(운영 애셋은 Linked Layer 0).
+
+---
+
 ## 부록 — 확인에 사용한 파일
 
 **프로젝트**: `AstralBreak.uproject`, `Source/AstralBreak.Build.cs`, `Source/AstralBreakEditor.Target.cs`, `Config/DefaultEngine.ini`, `Config/DefaultGame.ini`, `Source/AstralBreak/Animation/AstralAnimInstance.{h,cpp}`, `Tools/ue_exec.py`, `Tools/lib/ab_blueprint.py`, `.claude/settings.json`, `Content/Animation/**`, `Content/Characters/**`
+
+**엔진 (Phase 6-3 추가)**: `Runtime/Engine/Classes/Animation/{BlendSpace,BlendSpace1D}.h`(FBlendParameter :113-159 · FBlendSample :164 · AddSample :617-618 · BlendParameters :907), `Runtime/Engine/Private/Animation/BlendSpace.cpp`(PostEditChangeProperty :155 · ValidateSampleData :1461 · ExpandRangeForSample :1610 · AddSample :1647 · ValidateAnimationSequence :1812 · IsSameSamplePoint :2270 · ResampleData :2650 · ResampleData2D :2742), `Runtime/Engine/Private/Animation/BlendSpace1D.cpp`(:11-15), `Editor/UnrealEd/Private/Factories/EditorFactories.cpp`(BlendSpace 팩토리 :7353-7369, :7427-7443), `Editor/Persona/Private/Customization/BlendSpaceDetails.cpp`(:208-217), `Editor/Persona/Private/SAnimationBlendSpace.cpp`(:181-199, :345-351)
 
 **엔진 (Phase 6-2 추가)**: `Editor/UnrealEd/Private/Subsystems/EditorAssetSubsystem.cpp`(DeleteAsset :795 · DuplicateAsset :945), `Editor/UnrealEd/Private/ObjectTools.cpp`(DuplicateSingleObject :799 · CleanupAfterSuccessfulDelete :2498), `Editor/UnrealEd/Private/Kismet2/BlueprintEditorUtils.cpp`(PostDuplicateBlueprint :1513-1688), `Editor/UnrealEd/Public/Kismet2/BlueprintEditorUtils.h`(FBlueprintDuplicationScopeFlags :1996), `Editor/UnrealEd/Public/{FileHelpers,PackageTools}.h`, `Editor/UnrealEd/Private/{UnrealEdEngine,EditorServer}.cpp`(CloseEditor · QUIT_EDITOR), `Editor/MainFrame/Private/Frame/MainFrameHandler.h`(CanCloseEditor), `Developer/AssetTools/Private/AssetTools.cpp`(PerformDuplicateAsset :2138), `Runtime/Core/Private/Misc/MessageDialog.cpp`(:128,:172 unattended), `Runtime/Online/HTTPServer/Private/HttpConnection.cpp`(:170-246), `Runtime/Launch/Private/LaunchEngineLoop.cpp`(:6072-6078), `Runtime/Engine/Private/EdGraph/EdGraph.cpp`(PostInitProperties :141)
 

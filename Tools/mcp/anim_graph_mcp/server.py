@@ -76,7 +76,8 @@ def get_anim_graph_structure(asset_path: str, graph_guid: str | None = None, dep
 
 
 @mcp.tool()
-def list_animation_assets(skeleton: str | None = None, asset_class: str = "all", path_prefix: str = "/Game", limit: int = 200) -> dict:
+def list_animation_assets(skeleton: str | None = None, asset_class: str = "all", path_prefix: str = "/Game", limit: int = 200,
+                          details: bool = False) -> dict:
     """List animation assets (AnimSequence, BlendSpace, AnimMontage, AnimComposite) from the asset registry.
 
     Args:
@@ -84,11 +85,39 @@ def list_animation_assets(skeleton: str | None = None, asset_class: str = "all",
         asset_class: AnimSequence | BlendSpace | AnimMontage | AnimComposite | all.
         path_prefix: Content folder to search recursively.
         limit: Maximum number of entries to return.
+        details: Load each returned BlendSpace and add its axes and samples under "blendspace" (slower; use with
+            asset_class="BlendSpace" and a narrow path_prefix).
     """
-    params = {"class": asset_class, "path_prefix": path_prefix, "limit": limit}
+    params = {"class": asset_class, "path_prefix": path_prefix, "limit": limit, "details": details}
     if skeleton:
         params["skeleton"] = skeleton
-    return bridge.call("list_animation_assets", params)
+    return bridge.call("list_animation_assets", params, timeout=bridge.COMPILE_TIMEOUT if details else bridge.DEFAULT_TIMEOUT)
+
+
+@mcp.tool()
+def create_blendspace(asset_path: str, skeleton: str, dimensions: int, axes: list[dict], samples: list[dict] | None = None,
+                      preview_mesh: str | None = None, overwrite: bool = False, save: bool = False) -> dict:
+    """Create a BlendSpace (dimensions=2) or BlendSpace1D (dimensions=1) asset with axes and samples.
+
+    Args:
+        asset_path: Where to create it, e.g. "/Game/Animation/Test/BS_McpTest". Never target a production asset.
+        skeleton: Target skeleton asset path; every sample animation must be compatible with it.
+        dimensions: 1 or 2.
+        axes: One per dimension: {"name": "Speed", "min": 0, "max": 600, "grid": 4, "snap": false, "wrap": false}.
+        samples: [{"animation": "/Game/.../AS_Walk", "value": [300]}] (1D) or "value": [x, y] (2D). Values must lie inside the
+            axis range (the engine would otherwise silently expand the axis), positions must be unique, additive types must match.
+        preview_mesh: Optional skeletal mesh for the preview viewport.
+        overwrite: If true, an existing asset at asset_path is DELETED first (refused for protected assets). Ask the user first.
+        save: Save the new asset to disk right away.
+
+    Returns the asset summary (axes, samples, sample_count, grid_sample_count) plus created=true and saved. Use set_asset on an
+    AnimGraphNode_BlendSpacePlayer to plug it into a graph.
+    """
+    params = {"asset_path": asset_path, "skeleton": skeleton, "dimensions": dimensions, "axes": axes,
+              "samples": samples or [], "overwrite": overwrite, "save": save}
+    if preview_mesh:
+        params["preview_mesh"] = preview_mesh
+    return bridge.call("create_blendspace", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()

@@ -14,10 +14,13 @@
 #include "Core/AnimMcpAssetOps.h"
 #include "Core/AnimMcpAssetProtection.h"
 #include "Core/AnimMcpAssetResolver.h"
+#include "Core/AnimMcpBlendSpaceFactory.h"
 #include "Core/AnimMcpBlueprintFactory.h"
 #include "Core/AnimMcpCompiler.h"
 #include "Core/AnimMcpGraphInspector.h"
+#include "Editor.h"
 #include "Misc/PackageName.h"
+#include "Subsystems/EditorAssetSubsystem.h"
 
 namespace AnimMcpTools
 {
@@ -52,13 +55,14 @@ namespace AnimMcpTools
 	void RegisterAssetTools(FAnimMcpDispatcher& Dispatcher)
 	{
 		Dispatcher.RegisterTool(TEXT("list_animation_assets"),
-			TEXT("List animation assets from the asset registry. Params: skeleton? (path; only assets for this skeleton), class? (AnimSequence|BlendSpace|AnimMontage|AnimComposite|all), path_prefix? (default /Game), limit? (default 200)."),
+			TEXT("List animation assets from the asset registry. Params: skeleton? (path; only assets for this skeleton), class? (AnimSequence|BlendSpace|AnimMontage|AnimComposite|all), path_prefix? (default /Game), limit? (default 200), details? (default false; loads each returned BlendSpace and adds axes/samples under 'blendspace')."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				const FString SkeletonPath = Context.Request.GetOptionalString(TEXT("skeleton"));
 				const FString ClassName = Context.Request.GetOptionalString(TEXT("class"), TEXT("all"));
 				const FString PathPrefix = Context.Request.GetOptionalString(TEXT("path_prefix"), TEXT("/Game"));
 				const int32 Limit = FMath::Clamp(static_cast<int32>(Context.Request.GetOptionalNumber(TEXT("limit"), 200.0)), 1, 5000);
+				const bool bDetails = Context.Request.GetOptionalBool(TEXT("details"), false);
 
 				FString WantedSkeleton;
 				if (!SkeletonPath.IsEmpty())
@@ -106,6 +110,14 @@ namespace AnimMcpTools
 					Item->SetStringField(TEXT("name"), Data.AssetName.ToString());
 					Item->SetStringField(TEXT("class"), Data.AssetClassPath.GetAssetName().ToString());
 					Item->SetField(TEXT("skeleton"), AnimMcpJson::StringOrNull(AssetSkeleton));
+					// Phase 6-3: BlendSpace 축·샘플 요약 — 레지스트리 태그에 없어 로드가 필요하므로 details 요청 시에만
+					if (bDetails && Data.IsInstanceOf(UBlendSpace::StaticClass()))
+					{
+						if (UBlendSpace* BlendSpace = Cast<UBlendSpace>(Data.GetAsset()))
+						{
+							Item->SetObjectField(TEXT("blendspace"), AnimMcpBlendSpaceFactory::DescribeBlendSpace(BlendSpace));
+						}
+					}
 					Items.Add(MakeShared<FJsonValueObject>(Item));
 				}
 
@@ -152,6 +164,36 @@ namespace AnimMcpTools
 				Result->SetStringField(TEXT("asset_path"), Blueprint->GetPathName());
 				Result->SetBoolField(TEXT("saved"), true);
 				Result->SetStringField(TEXT("revision"), AnimMcpGraphInspector::ComputeRevision(Blueprint));
+				return Result;
+			});
+
+		// ---- Phase 6-3 BlendSpace ----------------------------------------------------------------------------------
+
+		Dispatcher.RegisterTool(TEXT("create_blendspace"),
+			TEXT("Create a BlendSpace (dimensions=2) or BlendSpace1D (dimensions=1) asset. Params: asset_path, skeleton, dimensions (1|2), axes [{name, min, max, grid?=4, snap?=false, wrap?=false}] (one per dimension), samples? [{animation (AnimSequence path), value [x] | [x, y]}], preview_mesh?, overwrite? (default false; refused for protected assets), save? (default false). Samples outside the axis range, at duplicate positions, on an incompatible skeleton or with mixed additive types are refused before anything is created."),
+			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
+			{
+				AnimMcpBlendSpaceFactory::FCreateParams Params;
+				if (!AnimMcpBlendSpaceFactory::ParseCreateParams(Context.Request.Params, Params, OutError)) { return nullptr; }
+				const bool bSave = Context.Request.GetOptionalBool(TEXT("save"), false);
+
+				UBlendSpace* BlendSpace = AnimMcpBlendSpaceFactory::CreateBlendSpace(Params, Context, OutError);
+				if (!BlendSpace) { return nullptr; }
+
+				bool bSaved = false;
+				if (bSave)
+				{
+					UEditorAssetSubsystem* AssetSubsystem = GEditor ? GEditor->GetEditorSubsystem<UEditorAssetSubsystem>() : nullptr;
+					bSaved = AssetSubsystem && AssetSubsystem->SaveLoadedAsset(BlendSpace, /*bOnlyIfIsDirty*/ false);
+					if (!bSaved)
+					{
+						Context.AddDiagnostic(TEXT("error"), AnimMcpErrorCodes::SaveFailed, FString::Printf(TEXT("SaveLoadedAsset failed for %s"), *BlendSpace->GetPathName()));
+					}
+				}
+
+				TSharedRef<FJsonObject> Result = AnimMcpBlendSpaceFactory::DescribeBlendSpace(BlendSpace);
+				Result->SetBoolField(TEXT("created"), true);
+				Result->SetBoolField(TEXT("saved"), bSaved);
 				return Result;
 			});
 

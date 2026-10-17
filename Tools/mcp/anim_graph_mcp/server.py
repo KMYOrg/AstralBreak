@@ -49,7 +49,8 @@ def get_anim_blueprint_info(asset_path: str) -> dict:
         asset_path: Content path such as "/Game/Animation/Hero/ABP_Hero_Base" (with or without the ".Name" suffix).
 
     Returns target skeleton, parent class, graph tree with graph_guid values (use them with graph tools),
-    BlueprintVisible variables usable in transition rules, linked anim layers, and a revision hash for change detection.
+    BlueprintVisible variables usable in transition rules, implemented_interfaces and layers (layer graphs with input_poses —
+    interface layers and own layer graphs), linked anim layer nodes, and a revision hash for change detection.
     """
     return bridge.call("get_anim_blueprint_info", {"asset_path": asset_path})
 
@@ -65,7 +66,7 @@ def get_anim_graph_structure(asset_path: str, graph_guid: str | None = None, dep
 
     Node identity is node_guid; pins are addressed by name. Use the returned revision as expected_revision when applying changes.
     Each node also carries "properties" (allow-listed values set_property can change), "optional_pins" (pins expose_pin can
-    toggle, with "bound" for property bindings that must be preserved) and "has_binding".
+    toggle; "bound" pins carry "binding" {path, path_text, type, context, promotion} — bind_pin/unbind_pin edit them) and "has_binding".
     "state_machines" lists every state machine graph in range: entry_state, states (name, bound_graph_guid, transitions in/out) and
     transitions (from/to, crossfade, priority, automatic, rule_source = the rule tree this tool generated, rule_modified = edited by hand since).
     """
@@ -170,6 +171,14 @@ _OPERATIONS_DOC = """
           # or "global": true. An alias used as a transition TARGET must alias exactly one state (engine compile rule).
       {"op": "set_alias_states", "node": "<alias guid>", "states": [{"ref": "idle"}]}
       {"op": "rename_node", "node": "<state|conduit|alias|state machine guid>", "name": "Locomotions"}
+      {"op": "bind_pin", "node": "<blendspace player guid>", "property": "X", "path": ["Speed"]}     # property binding: the pin reads the
+          # AnimInstance property (or BlueprintPure function, e.g. ["GetDeltaSeconds"]) directly, no VariableGet node. "path" may also be
+          # "A.B". The pin is exposed if hidden; it must not be linked. Type promotion (float->double etc.) is allowed.
+      {"op": "unbind_pin", "node": "<guid>", "property": "X"}                           # remove the binding (the pin stays exposed)
+      {"op": "add_node", "ref": "layer", "class": "AnimGraphNode_LinkedAnimLayer", "layer": "FullBody_Idle", "pos": [-400, 0]}
+          # Linked Anim Layer node (Lyra-style): "layer" must be a layer of an implemented layer interface (see
+          # implement_anim_layer_interface / get_anim_blueprint_info.layers) or an own layer graph. Input pose pins follow the layer signature.
+      {"op": "set_linked_layer", "node": "<layer node guid>", "layer": "UpperBody_Additive"}   # retarget an existing layer node
       {"op": "add_node", "ref": "idle_seq", "graph": {"ref": "idle"}, "class": "AnimGraphNode_SequencePlayer", "asset": "..."}   # graph = a state's pose graph, same batch ok
       {"op": "connect", "from": {"ref": "idle_seq", "pin": "Pose"}, "to": {"result_of": {"ref": "idle"}, "pin": "Result"}}      # result_of = that state's Output Animation Pose
     Rule trees: {"var": "<BlueprintVisible property>"} | {"not": R} | {"and": [R, R, ...]} | {"or": [R, R, ...]}
@@ -266,6 +275,43 @@ def delete_animation_blueprint(asset_path: str, confirm: bool = False, force: bo
     Protected assets ([AnimGraphMcp] ProtectedAssets / ProtectedPaths in DefaultEngine.ini) are refused with ASSET_PROTECTED.
     """
     return bridge.call("delete_animation_blueprint", {"asset_path": asset_path, "confirm": confirm, "force": force})
+
+
+@mcp.tool()
+def create_anim_layer_interface(asset_path: str, layers: list[dict], overwrite: bool = False, save: bool = False) -> dict:
+    """Create an Animation Layer Interface asset (Lyra-style layer separation) with one layer graph per entry and compile it.
+
+    Args:
+        asset_path: Where to create it, e.g. "/Game/Animation/Test/ALI_McpTest". Never target a production asset.
+        layers: [{"name": "FullBody_Idle"}, {"name": "UpperBody_Additive", "group": "Body", "input_poses": ["InPose"]}].
+            Names must be unique valid identifiers (not "AnimGraph"). "group" sets the layer group (grouped layers share one
+            instance). "input_poses" adds Input Pose nodes to the layer signature (pose inputs only, no value parameters).
+        overwrite: If true, an existing asset at asset_path is DELETED first (refused for protected assets). Ask the user first.
+        save: Save the new asset to disk right away.
+
+    Returns the blueprint summary plus "layers" (name, graph_guid, group, input_poses), "compile" and created=true.
+    Next: implement_anim_layer_interface on each Animation Blueprint that should implement it.
+    """
+    return bridge.call("create_anim_layer_interface", {"asset_path": asset_path, "layers": layers, "overwrite": overwrite, "save": save},
+                       timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def implement_anim_layer_interface(asset_path: str, interface: str, compile: bool = True, save: bool = False) -> dict:
+    """Make an Animation Blueprint implement an Animation Layer Interface. One layer graph per interface layer is added with its
+    root and input pose nodes; edit them with apply_graph_operations via "layers"[].graph_guid, and place
+    {"op": "add_node", "class": "AnimGraphNode_LinkedAnimLayer", "layer": "<name>"} in the AnimGraph to use a layer.
+
+    Args:
+        asset_path: The Animation Blueprint (not an interface).
+        interface: The Animation Layer Interface asset path (must be compiled and expose at least one layer).
+        compile: Compile after implementing (default true).
+        save: Save after a successful compile.
+
+    Refused when already implemented, when a graph of the same name exists, or when the interface has no layers.
+    """
+    return bridge.call("implement_anim_layer_interface", {"asset_path": asset_path, "interface": interface, "compile": compile, "save": save},
+                       timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()

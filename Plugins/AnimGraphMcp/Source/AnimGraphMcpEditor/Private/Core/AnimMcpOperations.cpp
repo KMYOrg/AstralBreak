@@ -1,13 +1,16 @@
 #include "AnimMcpOperations.h"
 
 #include "AnimGraphNode_Base.h"
+#include "AnimGraphNode_LinkedAnimLayer.h"
 #include "AnimGraphNode_StateResult.h"
+#include "AnimMcpAnimLayer.h"
 #include "AnimGraphNode_TransitionResult.h"
 #include "AnimMcpAssetResolver.h"
 #include "AnimMcpCompiler.h"
 #include "AnimMcpGraphInspector.h"
 #include "AnimMcpGraphMutator.h"
 #include "AnimMcpLog.h"
+#include "AnimMcpPropertyBinding.h"
 #include "AnimMcpPropertyRules.h"
 #include "AnimMcpTransitionRule.h"
 #include "AnimGraphNode_StateMachineBase.h"
@@ -36,6 +39,37 @@ namespace AnimMcpOperations
 {
 	namespace
 	{
+		/** Phase 6-4a — bind_pin 의 'path': ["A", "B"] 또는 "A.B". 빈 세그먼트 거부 */
+		bool ParseBindingPath(const TSharedPtr<FJsonObject>& Json, TArray<FString>& OutPath, FAnimMcpError& OutError)
+		{
+			OutPath.Reset();
+			const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
+			FString Dotted;
+			if (Json->TryGetArrayField(TEXT("path"), Arr) && Arr)
+			{
+				for (const TSharedPtr<FJsonValue>& V : *Arr)
+				{
+					FString Seg;
+					if (!V.IsValid() || !V->TryGetString(Seg) || Seg.TrimStartAndEnd().IsEmpty())
+					{
+						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("bind_pin 'path' entries must be non-empty strings"));
+						return false;
+					}
+					OutPath.Add(Seg.TrimStartAndEnd());
+				}
+			}
+			else if (Json->TryGetStringField(TEXT("path"), Dotted))
+			{
+				Dotted.ParseIntoArray(OutPath, TEXT("."), /*bCullEmpty*/ true);
+			}
+			if (OutPath.Num() == 0)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("bind_pin requires 'path' (array of names or \"A.B\")"));
+				return false;
+			}
+			return true;
+		}
+
 		/** 핀 하나의 링크 상태 — 포인터가 아니라 (노드, 핀 이름). ReconstructNode 뒤에도 유효 */
 		struct FPinLinks
 		{
@@ -246,6 +280,8 @@ namespace AnimMcpOperations
 			UClass* VarClass = nullptr;
 			/** Phase 6-1 — graph:{ref} 가 같은 배치의 미생성 상태를 가리킨다 (Preview 전용, Graph 는 null) */
 			bool bGraphPending = false;
+			/** Phase 6-4b — class:"AnimGraphNode_LinkedAnimLayer" + layer */
+			FString Layer;
 		};
 
 		/** {node|ref} 배열 → 노드들. 하나라도 미생성 ref 면 bOutPending (Preview) */
@@ -402,6 +438,21 @@ namespace AnimMcpOperations
 				if (!Out.Enum)
 				{
 					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::AssetNotFound, FString::Printf(TEXT("Enum '%s' not found (use a full path like /Script/Engine.EAlphaBlendOption or /Game/.../E_MyEnum.E_MyEnum)"), *EnumPath));
+					return false;
+				}
+			}
+
+			// Phase 6-4b — Linked Anim Layer 노드의 레이어. 노드 생성 뒤 SetLinkedLayer 로 설정
+			if (Op.Json->HasField(TEXT("layer")))
+			{
+				if (!Out.NodeClass->IsChildOf(UAnimGraphNode_LinkedAnimLayer::StaticClass()))
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'layer' is only accepted for AnimGraphNode_LinkedAnimLayer (got %s)"), *Out.NodeClass->GetName()));
+					return false;
+				}
+				Op.Json->TryGetStringField(TEXT("layer"), Out.Layer);
+				if (!AnimMcpAnimLayer::ValidateLayerAssignable(State.Blueprint, Out.Layer, nullptr, OutError))
+				{
 					return false;
 				}
 			}
@@ -1103,9 +1154,108 @@ namespace AnimMcpOperations
 						++Counts.Modify;
 					}
 				}
+				else if (Op.Op == TEXT("bind_pin") || Op.Op == TEXT("unbind_pin"))
+				{
+					// Phase 6-4a — Property Binding
+					FString PropertyName;
+					TArray<FString> Path;
+					if (!Op.Json->TryGetStringField(TEXT("property"), PropertyName) || PropertyName.IsEmpty())
+					{
+						Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("%s requires 'property'"), *Op.Op));
+					}
+					else if (Op.Op == TEXT("bind_pin") && !ParseBindingPath(Op.Json, Path, Error))
+					{
+					}
+					else
+					{
+						bool bPending = false;
+						UClass* PendingClass = nullptr;
+						UEdGraphNode* Node = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
+						UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node);
+						if (Node && !AnimNode)
+						{
+							Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("%s needs an AnimGraph node (got %s)"), *Op.Op, *Node->GetClass()->GetName()));
+						}
+						else if (AnimNode)
+						{
+							if (Op.Op == TEXT("bind_pin"))
+							{
+								FString Type;
+								bOk = AnimMcpPropertyBinding::ValidateBind(AnimNode, FName(*PropertyName), Path, Type, Error);
+							}
+							else
+							{
+								FAnimGraphNodePropertyBinding Existing;
+								bOk = AnimMcpPropertyBinding::FindRaw(AnimNode, FName(*PropertyName), Existing);
+								if (!bOk)
+								{
+									Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Pin '%s' has no property binding"), *PropertyName));
+								}
+							}
+						}
+						else if (bPending)
+						{
+							// 미생성 ref — 클래스만 본다 (핀·경로 검증은 apply 에서)
+							bOk = PendingClass && PendingClass->IsChildOf(UAnimGraphNode_Base::StaticClass());
+							if (!bOk)
+							{
+								Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("%s needs an AnimGraph node class (got %s)"), *Op.Op, PendingClass ? *PendingClass->GetName() : TEXT("?")));
+							}
+							Note = DeferredNote;
+						}
+					}
+					if (bOk)
+					{
+						++Counts.Modify;
+					}
+				}
+				else if (Op.Op == TEXT("set_linked_layer"))
+				{
+					// Phase 6-4b
+					FString Layer;
+					if (!Op.Json->TryGetStringField(TEXT("layer"), Layer) || Layer.IsEmpty())
+					{
+						Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_linked_layer requires 'layer'"));
+					}
+					else
+					{
+						bool bPending = false;
+						UClass* PendingClass = nullptr;
+						UEdGraphNode* Node = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
+						if (Node)
+						{
+							UAnimGraphNode_LinkedAnimLayer* LayerNode = Cast<UAnimGraphNode_LinkedAnimLayer>(Node);
+							if (!LayerNode)
+							{
+								Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("set_linked_layer needs an AnimGraphNode_LinkedAnimLayer (got %s)"), *Node->GetClass()->GetName()));
+							}
+							else
+							{
+								bOk = AnimMcpAnimLayer::ValidateLayerAssignable(State.Blueprint, Layer, LayerNode, Error);
+							}
+						}
+						else if (bPending && !AnimMcpAnimLayer::ValidateLayerAssignable(State.Blueprint, Layer, nullptr, Error))
+						{
+							bOk = false;
+						}
+						else if (bPending)
+						{
+							bOk = PendingClass && PendingClass->IsChildOf(UAnimGraphNode_LinkedAnimLayer::StaticClass());
+							if (!bOk)
+							{
+								Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("set_linked_layer needs an AnimGraphNode_LinkedAnimLayer class (got %s)"), PendingClass ? *PendingClass->GetName() : TEXT("?")));
+							}
+							Note = DeferredNote;
+						}
+					}
+					if (bOk)
+					{
+						++Counts.Modify;
+					}
+				}
 				else
 				{
-					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s' (supported: add_node, connect, disconnect, remove_node, set_property, set_asset, expose_pin, add_blend_pose, add_state, add_transition, set_entry_state, set_transition_rule, add_conduit, add_state_alias, set_alias_states, rename_node)"), *Op.Op));
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s' (supported: add_node, connect, disconnect, remove_node, set_property, set_asset, expose_pin, add_blend_pose, add_state, add_transition, set_entry_state, set_transition_rule, add_conduit, add_state_alias, set_alias_states, rename_node, bind_pin, unbind_pin, set_linked_layer)"), *Op.Op));
 				}
 
 				bAllOk &= bOk;
@@ -1177,6 +1327,44 @@ namespace AnimMcpOperations
 					}
 				}
 			}
+			if (!Args.Layer.IsEmpty())
+			{
+				// 노드는 되돌릴 때 통째로 지워지므로 레이어 설정의 별도 되돌리기는 없다
+				AnimMcpAnimLayer::FLayerRef OldLayer;
+				if (!AnimMcpAnimLayer::SetLinkedLayer(Cast<UAnimGraphNode_LinkedAnimLayer>(Node), FName(*Args.Layer), OldLayer, Error))
+				{
+					return false;
+				}
+				Entry->SetObjectField(TEXT("linked_layer"), AnimMcpAnimLayer::DescribeLinkedLayerNode(Cast<UAnimGraphNode_LinkedAnimLayer>(Node)));
+			}
+			return true;
+		}
+
+		/** Phase 6-4b — set_linked_layer {node|ref, layer}. 되돌리기 = 이전 레이어 참조 복원 */
+		bool ApplySetLinkedLayer(FBatchState& State, const FOperation& Op, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UClass* PendingClass = nullptr;
+			UEdGraphNode* Node = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
+			UAnimGraphNode_LinkedAnimLayer* LayerNode = Cast<UAnimGraphNode_LinkedAnimLayer>(Node);
+			if (!LayerNode)
+			{
+				if (!Error.IsSet())
+				{
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("set_linked_layer needs an AnimGraphNode_LinkedAnimLayer (got %s)"), Node ? *Node->GetClass()->GetName() : TEXT("null")));
+				}
+				return false;
+			}
+			FString Layer;
+			Op.Json->TryGetStringField(TEXT("layer"), Layer);
+			AnimMcpAnimLayer::FLayerRef Old;
+			if (!AnimMcpAnimLayer::SetLinkedLayer(LayerNode, FName(*Layer), Old, Error))
+			{
+				return false;
+			}
+			State.Undo.Add([LayerNode, Old]() { AnimMcpAnimLayer::RestoreLinkedLayer(LayerNode, Old); });
+			Entry->SetField(TEXT("old_layer"), Old.Layer.IsNone() ? MakeShared<FJsonValueNull>() : AnimMcpJson::StringOrNull(Old.Layer.ToString()));
+			Entry->SetObjectField(TEXT("linked_layer"), AnimMcpAnimLayer::DescribeLinkedLayerNode(LayerNode));
 			return true;
 		}
 
@@ -1788,6 +1976,90 @@ namespace AnimMcpOperations
 			return true;
 		}
 
+		/** Phase 6-4a — bind_pin {node|ref, property, path:[...]|"A.B"}. 되돌리기 = 이전 항목 복원(또는 제거) + 핀 가시성 복원 */
+		bool ApplyBindPin(FBatchState& State, const FOperation& Op, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UClass* PendingClass = nullptr;
+			UEdGraphNode* Node = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
+			UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node);
+			if (!AnimNode)
+			{
+				if (!Error.IsSet())
+				{
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("bind_pin needs an AnimGraph node"));
+				}
+				return false;
+			}
+			const FName Property(*Op.Json->GetStringField(TEXT("property")));
+			TArray<FString> Path;
+			if (!ParseBindingPath(Op.Json, Path, Error))
+			{
+				return false;
+			}
+			bool bHadOld = false, bPinWasHidden = false;
+			FAnimGraphNodePropertyBinding Old;
+			if (!AnimMcpPropertyBinding::Bind(AnimNode, Property, Path, bHadOld, Old, bPinWasHidden, Error))
+			{
+				return false;
+			}
+			const int32 OptionalIndex = AnimMcpGraphMutator::FindOptionalPinIndex(AnimNode, Property, Error);
+			State.Undo.Add([AnimNode, Property, bHadOld, Old, bPinWasHidden, OptionalIndex]()
+			{
+				if (bHadOld)
+				{
+					AnimMcpPropertyBinding::WriteRaw(AnimNode, Old);
+				}
+				else
+				{
+					AnimMcpPropertyBinding::RemoveRaw(AnimNode, Property);
+				}
+				if (bPinWasHidden && OptionalIndex != INDEX_NONE)
+				{
+					AnimNode->SetPinVisibility(false, OptionalIndex);
+				}
+			});
+			TArray<AnimMcpPropertyBinding::FBindingInfo> Bindings;
+			AnimMcpPropertyBinding::ReadBindings(AnimNode, Bindings);
+			if (const AnimMcpPropertyBinding::FBindingInfo* Info = Bindings.FindByPredicate([Property](const AnimMcpPropertyBinding::FBindingInfo& B) { return B.Name == Property; }))
+			{
+				Entry->SetStringField(TEXT("type"), Info->Type);
+				Entry->SetStringField(TEXT("path_text"), Info->PathText);
+				Entry->SetBoolField(TEXT("promotion"), Info->bPromotion);
+			}
+			Entry->SetBoolField(TEXT("replaced"), bHadOld);
+			Entry->SetBoolField(TEXT("pin_exposed"), bPinWasHidden);
+			return true;
+		}
+
+		/** Phase 6-4a — unbind_pin {node|ref, property}. 되돌리기 = 항목 복원 */
+		bool ApplyUnbindPin(FBatchState& State, const FOperation& Op, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UClass* PendingClass = nullptr;
+			UEdGraphNode* Node = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
+			UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node);
+			if (!AnimNode)
+			{
+				if (!Error.IsSet())
+				{
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("unbind_pin needs an AnimGraph node"));
+				}
+				return false;
+			}
+			const FName Property(*Op.Json->GetStringField(TEXT("property")));
+			FAnimGraphNodePropertyBinding Old;
+			if (!AnimMcpPropertyBinding::Unbind(AnimNode, Property, Old, Error))
+			{
+				return false;
+			}
+			State.Undo.Add([AnimNode, Old]()
+			{
+				AnimMcpPropertyBinding::WriteRaw(AnimNode, Old);
+			});
+			return true;
+		}
+
 		bool ApplyAddBlendPose(FBatchState& State, const FOperation& Op, FAnimMcpError& Error)
 		{
 			bool bPending = false;
@@ -1938,6 +2210,9 @@ namespace AnimMcpOperations
 				else if (Op.Op == TEXT("add_state_alias")) { bOk = ApplyAddStateAlias(State, Op, Entry, Error); }
 				else if (Op.Op == TEXT("set_alias_states")) { bOk = ApplySetAliasStates(State, Op, Error); }
 				else if (Op.Op == TEXT("rename_node"))     { bOk = ApplyRenameNode(State, Op, Entry, Error); }
+				else if (Op.Op == TEXT("bind_pin"))        { bOk = ApplyBindPin(State, Op, Entry, Error); }
+				else if (Op.Op == TEXT("unbind_pin"))      { bOk = ApplyUnbindPin(State, Op, Error); }
+				else if (Op.Op == TEXT("set_linked_layer")) { bOk = ApplySetLinkedLayer(State, Op, Entry, Error); }
 				else
 				{
 					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s'"), *Op.Op));

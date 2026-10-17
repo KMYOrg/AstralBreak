@@ -4,6 +4,8 @@
 #include "AnimGraphNode_LinkedAnimLayer.h"
 #include "AnimGraphNode_SaveCachedPose.h"
 #include "AnimGraphNode_UseCachedPose.h"
+#include "AnimMcpAnimLayer.h"
+#include "AnimMcpPropertyBinding.h"
 #include "AnimMcpPropertyRules.h"
 #include "AnimMcpTransitionRule.h"
 #include "AnimStateAliasNode.h"
@@ -156,6 +158,14 @@ namespace AnimMcpGraphInspector
 		{
 			AppendGraphRecursive(Graph, nullptr, OutGraphs, Visited);
 		}
+		// Phase 6-4b — 구현한 인터페이스의 레이어 그래프는 FunctionGraphs 가 아니라 ImplementedInterfaces[].Graphs 에 있다
+		for (const FBPInterfaceDescription& Desc : Blueprint->ImplementedInterfaces)
+		{
+			for (UEdGraph* Graph : Desc.Graphs)
+			{
+				AppendGraphRecursive(Graph, nullptr, OutGraphs, Visited);
+			}
+		}
 		for (UEdGraph* Graph : Blueprint->UbergraphPages)
 		{
 			AppendGraphRecursive(Graph, nullptr, OutGraphs, Visited);
@@ -178,6 +188,11 @@ namespace AnimMcpGraphInspector
 			{
 				return Graph;
 			}
+		}
+		// 인터페이스 BP 의 UAnimationGraph 는 전부 레이어 — 루트가 없다 (폴백이 레이어를 루트로 오인하면 안 된다)
+		if (Blueprint->BlueprintType == BPTYPE_Interface)
+		{
+			return nullptr;
 		}
 		// 이름이 바뀐 경우의 폴백 — 최상위 UAnimationGraph 중 첫 번째
 		for (UEdGraph* Graph : Blueprint->FunctionGraphs)
@@ -216,6 +231,11 @@ namespace AnimMcpGraphInspector
 			{
 				Buffer += FString::Printf(TEXT("N|%s|%s|%d|%d\n"), *Node->NodeGuid.ToString(), *Node->GetClass()->GetName(), Node->NodePosX, Node->NodePosY);
 				AppendEditableProperties(Node, Buffer);
+				// Phase 6-4: 핀 바인딩 (Binding 객체는 Instanced 참조라 ExportText 로는 내용이 안 들어간다). 없으면 줄이 없어 기존 해시와 호환
+				if (const UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node))
+				{
+					AnimMcpPropertyBinding::AppendRevision(AnimNode, Buffer);
+				}
 
 				TArray<UEdGraphPin*> Pins = Node->Pins;
 				Pins.RemoveAll([](UEdGraphPin* P) { return P == nullptr; });
@@ -260,6 +280,8 @@ namespace AnimMcpGraphInspector
 		Obj->SetField(TEXT("parent_graph_guid"), Record.ParentGraph ? AnimMcpJson::StringOrNull(Record.ParentGraph->GraphGuid.ToString()) : MakeShared<FJsonValueNull>());
 		UEdGraphNode* Owner = FindOwnerNode(Graph);
 		Obj->SetField(TEXT("owner_node_guid"), Owner ? AnimMcpJson::StringOrNull(Owner->NodeGuid.ToString()) : MakeShared<FJsonValueNull>());
+		// Phase 6-4b — 인터페이스 레이어 그래프는 InterfaceGuid 를 갖는다 (ImplementNewInterface 가 FindInterfaceFunctionGuid 로 채움)
+		Obj->SetField(TEXT("interface_guid"), Graph->InterfaceGuid.IsValid() ? AnimMcpJson::StringOrNull(Graph->InterfaceGuid.ToString()) : MakeShared<FJsonValueNull>());
 		Obj->SetField(TEXT("owner_node_class"), Owner ? AnimMcpJson::StringOrNull(Owner->GetClass()->GetName()) : MakeShared<FJsonValueNull>());
 		Obj->SetNumberField(TEXT("node_count"), Graph->Nodes.Num());
 		return Obj;
@@ -357,7 +379,9 @@ namespace AnimMcpGraphInspector
 			Obj->SetField(TEXT("asset"), AnimMcpJson::ObjectPathOrNull(AnimNode->GetAnimationAsset()));
 			Obj->SetBoolField(TEXT("is_sink"), AnimNode->IsSinkNode());
 
-			// 노출 가능 핀과 바인딩 보유 — 바인딩은 편집하지 않고 보존 대상으로만 표기
+			// 노출 가능 핀과 바인딩 — Phase 6-4: bind_pin/unbind_pin 이 쓰고, 묶인 핀은 binding{path, path_text, type, context, promotion}
+			TArray<AnimMcpPropertyBinding::FBindingInfo> Bindings;
+			AnimMcpPropertyBinding::ReadBindings(AnimNode, Bindings);
 			TArray<TSharedPtr<FJsonValue>> OptionalPins;
 			bool bAnyBinding = false;
 			for (const FOptionalPinFromProperty& Optional : AnimNode->ShowPinForProperties)
@@ -369,10 +393,31 @@ namespace AnimMcpGraphInspector
 				O->SetBoolField(TEXT("shown"), Optional.bShowPin);
 				O->SetBoolField(TEXT("can_toggle"), Optional.bCanToggleVisibility);
 				O->SetBoolField(TEXT("bound"), bBound);
+				if (bBound)
+				{
+					const FName PinName = Optional.PropertyName;
+					if (const AnimMcpPropertyBinding::FBindingInfo* Info = Bindings.FindByPredicate([PinName](const AnimMcpPropertyBinding::FBindingInfo& B) { return FName(B.Name, 0) == PinName; }))
+					{
+						TSharedRef<FJsonObject> BO = AnimMcpJson::MakeObject();
+						TArray<TSharedPtr<FJsonValue>> PathArr;
+						for (const FString& Seg : Info->Path) { PathArr.Add(MakeShared<FJsonValueString>(Seg)); }
+						BO->SetArrayField(TEXT("path"), PathArr);
+						BO->SetStringField(TEXT("path_text"), Info->PathText);
+						BO->SetStringField(TEXT("type"), Info->Type);
+						BO->SetField(TEXT("context"), AnimMcpJson::StringOrNull(Info->Context.IsNone() ? FString() : Info->Context.ToString()));
+						BO->SetBoolField(TEXT("promotion"), Info->bPromotion);
+						O->SetObjectField(TEXT("binding"), BO);
+					}
+				}
 				OptionalPins.Add(MakeShared<FJsonValueObject>(O));
 			}
 			Obj->SetArrayField(TEXT("optional_pins"), OptionalPins);
 			Obj->SetBoolField(TEXT("has_binding"), bAnyBinding);
+			// Phase 6-4b — Linked Anim Layer 노드
+			if (const UAnimGraphNode_LinkedAnimLayer* LayerNode = Cast<UAnimGraphNode_LinkedAnimLayer>(AnimNode))
+			{
+				Obj->SetObjectField(TEXT("linked_layer"), AnimMcpAnimLayer::DescribeLinkedLayerNode(LayerNode));
+			}
 		}
 		else
 		{
@@ -721,6 +766,9 @@ namespace AnimMcpGraphInspector
 
 		Info->SetNumberField(TEXT("linked_anim_layer_count"), LinkedAnimLayerCount);
 		Info->SetArrayField(TEXT("linked_anim_layers"), LinkedLayerPaths);
+		// Phase 6-4b — 구현한 인터페이스와 레이어 그래프(인터페이스 BP 자신의 레이어 포함)
+		Info->SetArrayField(TEXT("implemented_interfaces"), AnimMcpAnimLayer::DescribeImplementedInterfaces(Blueprint));
+		Info->SetArrayField(TEXT("layers"), AnimMcpAnimLayer::DescribeLayers(Blueprint));
 
 		if (!Blueprint->bIsTemplate && !Blueprint->TargetSkeleton)
 		{

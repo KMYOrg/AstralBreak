@@ -1,0 +1,13 @@
+{
+ "revision": "sha1:82de07a859aa1a060ef94554f736abfe6daa7af9",
+ "bs": "0A836D344E869EEEBA72A98AB99AE270",
+ "binding": {
+  "path": [
+   "Speed"
+  ],
+  "path_text": "Speed",
+  "type": "Property",
+  "context": null,
+  "promotion": false
+ }
+}

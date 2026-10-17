@@ -39,9 +39,9 @@ bAutoStart=True
 
 `delete_animation_blueprint` 와 `create/duplicate_animation_blueprint` 의 `overwrite` 가 이 목록을 보고 `ASSET_PROTECTED`(403) 로 거부한다. 읽기·편집·저장은 막지 않는다. 삭제는 `confirm=true` 가 필수이고, 다른 애셋이 참조하면 `force=true` 없이는 `ASSET_REFERENCED`(409).
 
-## Tool (13개)
+## Tool (15개)
 
-조회 `get_editor_status` · `get_anim_blueprint_info` · `get_anim_graph_structure` · `list_animation_assets`(`details` 로 BlendSpace 축·샘플) — 생성/저장 `create_animation_blueprint` · `create_blendspace`(1D/2D, 축·샘플 사전 검증) · `save_animation_blueprint` · `duplicate_animation_blueprint` · `delete_animation_blueprint` — 편집 `preview_graph_operations` · `apply_graph_operations` · `compile_animation_blueprint` — 프로세스 `quit_editor`.
+조회 `get_editor_status` · `get_anim_blueprint_info`(`layers`·`implemented_interfaces` 포함) · `get_anim_graph_structure` · `list_animation_assets`(`details` 로 BlendSpace 축·샘플) — 생성/저장 `create_animation_blueprint` · `create_blendspace`(1D/2D, 축·샘플 사전 검증) · `create_anim_layer_interface` · `implement_anim_layer_interface`(Lyra 식 Linked Anim Layer) · `save_animation_blueprint` · `duplicate_animation_blueprint` · `delete_animation_blueprint` — 편집 `preview_graph_operations` · `apply_graph_operations`(op 19종: 노드·연결·속성·상태머신·규칙·`bind_pin`·`set_linked_layer` …) · `compile_animation_blueprint` — 프로세스 `quit_editor`.
 
 `quit_editor` 는 저장 안 된 패키지가 있으면 `save_dirty=true`(콘텐츠만 저장, 맵 제외) 또는 `discard_dirty=true` 없이는 `DIRTY_PACKAGES`(409) 로 거부하고 에디터를 유지한다. 응답의 `process_id` 로 `Tools/mcp/wait_for_exit.py <pid>` 가 프로세스 소멸을 기다린다. 자동화용으로 직접 띄운 에디터에만 쓴다.
 
@@ -51,7 +51,7 @@ bAutoStart=True
 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/smoke_test.py /Game/Animation/Hero/ABP_Hero_Base
 ```
 
-단계 테스트(`phase3/4/5/6_1/6_2/6_3_test.py`, 각 `--recheck`)와 기동·종료 폴링(`wait_for_bridge.py` · `wait_for_exit.py`)은 `.claude/plans/animbp-automation-handoff-phase6-2.md` §8 참조.
+단계 테스트(`phase3/4/5/6_1/6_2/6_3/6_4/6_4b_test.py`, 각 `--recheck`)와 기동·종료 폴링(`wait_for_bridge.py` · `wait_for_exit.py`)은 `.claude/plans/animbp-automation-handoff-phase6-2.md` §8 참조.
 
 ## 응답 봉투
 

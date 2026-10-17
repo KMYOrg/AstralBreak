@@ -1,0 +1,34 @@
+{
+ "ali_layers": [
+  {
+   "name": "FullBody_Idle",
+   "graph_guid": "27F3F0DE490FD5F8AE5797A0271BCE91",
+   "interface": null,
+   "interface_guid": null,
+   "group": "DefaultSharedGroup",
+   "input_poses": []
+  },
+  {
+   "name": "UpperBody_Additive",
+   "graph_guid": "AFA2B4834D3CB7737B79E38CF7D6692E",
+   "interface": null,
+   "interface_guid": null,
+   "group": "Body",
+   "input_poses": [
+    "InPose"
+   ]
+  },
+  {
+   "name": "Extra_Layer",
+   "graph_guid": "0FBD3D244FBECA5111B907AD26F1A980",
+   "interface": null,
+   "interface_guid": null,
+   "group": "DefaultSharedGroup",
+   "input_poses": []
+  }
+ ],
+ "ali_revision": "sha1:07ab17c775bd0451e881ffe2a9a62422d4b351be",
+ "base_revision": "sha1:ee7f6df1b0ecc3f469dc77bd0b7081f29c84d0d8",
+ "provider_revision": "sha1:540ce57c617f3d70010b426569014c480fd44dc2",
+ "upper": "85B538404D95B82EB00F74915E316525"
+}

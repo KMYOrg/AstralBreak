@@ -19,13 +19,14 @@ Unreal Engine 5.7.4 Source Build 환경에서 Claude Code 가 Animation Blueprin
 | State Machine · State · Transition 자동 구성 | ✅ | op 4종(Phase 4) + conduit · alias · rename · 같은 배치 상태 내부(Phase 6-1) — **운영 애셋 상태머신을 1:1 재현** |
 | Transition Rule 및 블렌딩 조건 | ✅ | JSON AST → 규칙 그래프, 멱등, 사람 편집 감지. conduit 도 같은 경로 |
 | AnimSequence · BlendSpace · Montage 연결 | ✅ | 할당·교체 + **BlendSpace 1D/2D 생성**(6-3, 축·샘플·사전 검증) |
-| 기존 C++ AnimInstance 와 연동 | ✅ | 변수 조회 · 규칙 `var`/`call` · `K2Node_VariableGet` 노드 |
+| 기존 C++ AnimInstance 와 연동 | ✅ | 변수 조회 · 규칙 `var`/`call` · `K2Node_VariableGet` 노드 · **핀 Property Binding**(6-4a, `bind_pin`/`unbind_pin`) |
+| Linked Anim Layer (Lyra 식 레이어 분리) | ✅ | 6-4b — 인터페이스 생성 · 구현 · 레이어 노드(`add_node layer` · `set_linked_layer`) · 조회. **포즈 입력만** |
 | 컴파일 및 오류 분석 | ✅ | 노드 Guid 매핑. 런타임 검증은 없음 (6-5) |
 | 저장 · 변경 검증 · 실패 복구 | ✅ | revision 해시 · 되돌리기 저널 · 롤백 검증 · 재시작 재조회 테스트 |
 | 애셋 수명 (복제 · 삭제 · 에디터 종료) | ✅ | Phase 6-2 — ini 보호 목록 · 참조 검사 · 더티 패키지 거부. **MCP 에는 세션 재시작 뒤 보임** |
 | 다른 UE5 프로젝트에서 재사용 | 🔶 | 플러그인은 프로젝트 비의존. **타 프로젝트 재현 미검증** (6-6) |
 
-**Phase 이력**: 1 조사(10-10) · 2 통신 골격(`a669c33`) · 2.5 수직 통합(`d87608f`) · 3 범용 편집(`2a85228`) · 4 State Machine(`3737c67`) · 5 실제 캐릭터(`cdc20fc`) · 6-1 상태머신 완성(`51cb0a8`) · 6-2 애셋 수명(커밋됨, 10-16) · **6-3 BlendSpace(10-16, 미커밋 — §13)**. 남은 것은 6-4 ~ 6-6 (§12).
+**Phase 이력**: 1 조사(10-10) · 2 통신 골격(`a669c33`) · 2.5 수직 통합(`d87608f`) · 3 범용 편집(`2a85228`) · 4 State Machine(`3737c67`) · 5 실제 캐릭터(`cdc20fc`) · 6-1 상태머신 완성(`51cb0a8`) · 6-2 애셋 수명(커밋됨, 10-16) · 6-3 BlendSpace(커밋됨, 10-16) · **6-4a Property Binding · 6-4b Linked Anim Layer(10-17, 미커밋 — §13)**. 남은 것은 6-5 · 6-6 (§12).
 
 **실제 적용 결과**: 운영 애셋 `/Game/Animation/Hero/ABP_Hero_Base` 에 UpperBody 레이어(Slot `UpperBody` + LayeredBoneBlend `spine_01`) 가 사용자 승인 배치로 적용·PIE 확인·커밋됐다(revision `3c146b5f…`). 도구만으로 만든 `/Game/Animation/Hero/ABP_Hero_McpBuild` 는 운영 애셋과 구조 1:1(그래프 21 · 연결 54 · 상태 11 · 전이 12) — 비교 문서 [animbp-phase5-hero-diff.md](animbp-phase5-hero-diff.md).
 
@@ -39,7 +40,7 @@ Unreal Engine 5.7.4 Source Build 환경에서 Claude Code 가 Animation Blueprin
 | Project | `D:/UE5Projects/AstralBreak` — 런타임 모듈 1개 `AstralBreak`, 에디터 모듈 없음(플러그인이 대신) |
 | 플러그인 | `Plugins/AnimGraphMcp/` — 에디터 전용 모듈 `AnimGraphMcpEditor`(Build.cs 의존: UnrealEd · AnimGraph · AnimGraphRuntime · BlueprintGraph · HTTPServer · Sockets · Json · AssetRegistry · Projects). uproject 에 등록 |
 | MCP 서버 | Python 3.13, `Tools/mcp/anim_graph_mcp/{server.py, bridge.py}`, venv `Tools/mcp/.venv`(gitignore), 패키지 `mcp 2.3.0`(`MCPServer` API — 1.x `FastMCP` 아님) · `httpx` |
-| Claude Code 등록 | 프로젝트 루트 `.mcp.json` → 서버명 `anim-graph-mcp`. 세션 시작 시 Tool 13개가 `mcp__anim-graph-mcp__*` 로 보인다(6-2 이전 세션은 9개, 6-3 이전은 12개). **Tool 목록은 세션 시작 시 고정** — 새 Tool 은 재시작 전까지 HTTP 테스트로만 검증 |
+| Claude Code 등록 | 프로젝트 루트 `.mcp.json` → 서버명 `anim-graph-mcp`. 세션 시작 시 Tool 15개가 `mcp__anim-graph-mcp__*` 로 보인다(6-2 이전 세션은 9개, 6-3 이전 12개, 6-4b 이전 13개). **Tool 목록은 세션 시작 시 고정** — 새 Tool 은 재시작 전까지 HTTP 테스트로만 검증 |
 | 통신 | Claude Code ↔ server.py: stdio MCP · server.py ↔ 플러그인: `POST http://127.0.0.1:18765/v1/<tool>` JSON, 헤더 `X-AnimMcp-Token` |
 | 설정 | `Config/DefaultEngine.ini [AnimGraphMcp] Port=18765 / bRequireToken=True / bAutoStart=True`(전부 기본값, ini 미기재) + **보호 목록(6-2, ini 기재됨)** `+ProtectedAssets=/Game/Animation/Hero/ABP_Hero_Base` · `+ProtectedPaths=/Game/Assets/` — 삭제·덮어쓰기만 막는다. 커맨드라인 `-AnimGraphMcpPort=`. 콘솔 `AnimGraphMcp.Start/Stop/Status` |
 | 토큰 | 에디터 기동마다 `Saved/AnimGraphMcp/token`, 종료 시 삭제. `get_editor_status` 만 면제 |
@@ -48,7 +49,7 @@ Unreal Engine 5.7.4 Source Build 환경에서 Claude Code 가 Animation Blueprin
 | 에디터 기동/종료 | 기동 `UnrealEditor.exe <uproject>`(백그라운드) → `Tools/mcp/.venv/Scripts/python.exe Tools/mcp/wait_for_bridge.py 540 10` 폴링 → 응답 뒤 **25초 대기**(애셋 로딩). **종료는 `quit_editor` Tool**(HTTP: `bridge.call("quit_editor", {"save_dirty": True})` 또는 `{"discard_dirty": True}`; 더티가 있으면 둘 중 하나 없이는 거부) → `Tools/mcp/wait_for_exit.py [pid] 180 5` 로 프로세스 소멸 폴링(pid 는 응답 `process_id`). `taskkill` 은 브리지가 죽었을 때만 — `tasklist //FI` 는 `MSYS_NO_PATHCONV=1` 셸에서 깨진다. 테스트 전에 내 에디터가 아닌 사용자 에디터가 떠 있지 않은지 `tasklist` 로 본다(같은 포트면 먼저 뜬 쪽만 브리지를 연다) |
 | 운영 애셋 | `/Game/Animation/Hero/ABP_Hero_Base`(스켈레톤 `/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F`, 부모 `UAstralAnimInstance`) — **읽기만. 변경은 사용자 승인 배치만** |
 | 빌드 애셋 | `/Game/Animation/Hero/ABP_Hero_McpBuild` — `phase5_build_hero.py` 가 생성/덮어쓰기 |
-| 테스트 애셋 | `/Game/Animation/Test/ABP_McpTest`(phase3·4·6-1 이 덮어씀) · `/Game/Animation/Test/ABP_McpLayerTest`(phase5) · `ABP_McpDup`·`ABP_McpChild`(phase6-2 가 만들고 지움 — recheck 뒤 남지 않는다) · `BS_McpTest`·`BS_McpTest2D`·`ABP_McpBsTest`(phase6-3, 덮어쓰기 대상) |
+| 테스트 애셋 | `/Game/Animation/Test/ABP_McpTest`(phase3·4·6-1 이 덮어씀) · `/Game/Animation/Test/ABP_McpLayerTest`(phase5) · `ABP_McpDup`·`ABP_McpChild`(phase6-2 가 만들고 지움 — recheck 뒤 남지 않는다) · `BS_McpTest`·`BS_McpTest2D`·`ABP_McpBsTest`(phase6-3) · `ABP_McpBindTest`(phase6-4) · `ALI_McpTest`·`ABP_McpLayerBase`·`ABP_McpLayerProvider`(phase6-4b) — 전부 덮어쓰기 대상 |
 | 테스트 실행 | `PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/<script>.py [--recheck]` |
 
 `UAstralAnimInstance` 노출 변수(전부 BlueprintReadOnly, 스레드 안전 스냅샷): `Speed`, `Acceleration`, `MovementDirection`(float) · `bIsOnGround`, `bIsInAir`, `bIsJumping`, `bIsFalling`, `bHasMovementInput`(bool) · `GroundDistance`(float). 규칙 `var` 와 `K2Node_VariableGet` 의 `variable` 가 이들을 가리킨다. 프로젝트 정책: 복잡 조건은 C++ AnimInstance 에서 bool 로 계산하고 규칙은 `var` 기본.
@@ -78,12 +79,14 @@ Python MCP 서버   Tools/mcp/anim_graph_mcp/server.py  — Tool 9개 선언·�
   ├─ Core/AnimMcpAssetProtection   (6-2) ini 보호 목록 — 삭제·덮어쓰기 전 검사, ASSET_PROTECTED
   ├─ Core/AnimMcpAssetOps          (6-2) 삭제 기계(ForceDelete 뒤 잔존 패키지·파일 정리, 파일 잠금 재시도) · 참조자 조회 · 복제(Guid 보존 스코프)
   ├─ Core/AnimMcpBlendSpaceFactory (6-3) BlendSpace 1D/2D 생성(팩토리 재현 · 축은 프로퍼티 시스템 · 샘플 사전 검증) · 요약
+  ├─ Core/AnimMcpPropertyBinding   (6-4a) 핀 Property Binding — 노드 Binding 객체·PropertyBindings 맵을 리플렉션으로, 경로 해석은 IPropertyAccessEditor
+  ├─ Core/AnimMcpAnimLayer         (6-4b) 레이어 인터페이스 생성(CreateBlueprint 재현 + UAnimationGraph 함수 그래프 + 입력 포즈) · ImplementNewInterface · 레이어 노드 설정(SetupFromLayerId 재현) · 조회
   ├─ Core/AnimMcpPropertyRules     set_property 허용 목록 · JSON↔ImportText(구조체·배열 재귀) · 값→JSON(enum 이름)
   ├─ Core/AnimMcpGraphMutator      (쓰기 기계) 노드 생성·분리·복귀 · 핀 연결/해제 · 속성 · 애셋 · 핀 노출 · 블렌드 포즈 · 상태/전이/Entry · VariableGet · LayerSetup 검증 · conduit/alias/rename
   ├─ Core/AnimMcpTransitionRule    규칙 AST 검증·정규화 · K2 노드 생성(전이·conduit 규칙 그래프 공용) · 주석 원문/해시
   ├─ Core/AnimMcpOperations        (정책) operations 배치: 참조 해석(ref·result_of·graph:{ref}) · 사전 검증 · 트랜잭션 · 되돌리기 저널 · revision 대조
   ├─ Core/AnimMcpCompiler          컴파일(FCompilerResultsLog → node_guid) · 강제 저장
-  └─ Tools/AnimMcpTools_{Status,Inspect,Assets,Graph,Compile,Editor}.cpp  Tool 핸들러 (얇음; Editor = quit_editor)
+  └─ Tools/AnimMcpTools_{Status,Inspect,Assets,Graph,Compile,Editor,Layers}.cpp  Tool 핸들러 (얇음; Editor = quit_editor · Layers = 레이어 인터페이스 2종)
         ▼
 Unreal Editor API (게임 스레드)  →  Animation Blueprint
 ```
@@ -92,14 +95,14 @@ Unreal Editor API (게임 스레드)  →  Animation Blueprint
 
 ---
 
-### 4. MCP Tool 인터페이스 (13개 · 6-2 에서 3개, 6-3 에서 1개 추가)
+### 4. MCP Tool 인터페이스 (15개 · 6-2 에서 3개, 6-3 에서 1개, 6-4b 에서 2개 추가)
 
 Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_id, result, error:{code,message,details?}, diagnostics[]}` + `http_status`. 같은 `(tool, request_id)` 재전송은 캐시 봉투.
 
 | Tool | 입력 | 비고 |
 | :--- | :--- | :--- |
 | `get_editor_status` | — | 토큰 면제. 엔진·프로젝트·PIE·플러그인·열린 에디터·포트·Tool 목록 · (6-2) `process_id` · `protection{assets,paths}` · `dirty_package_count` |
-| `get_anim_blueprint_info` | `asset_path` | revision · parent_class · target_skeleton · graphs[] · **variables[]**(규칙 `var`/VariableGet 대상) · linked_anim_layers[] |
+| `get_anim_blueprint_info` | `asset_path` | revision · parent_class · target_skeleton · graphs[](+`interface_guid`) · **variables[]**(규칙 `var`/VariableGet 대상) · linked_anim_layers[] · (6-4b) `implemented_interfaces[{interface, blueprint, graphs[]}]` · `layers[{name, graph_guid, interface\|null, interface_guid, group, input_poses[]}]` — 인터페이스 BP 자신의 레이어도 여기 |
 | `get_anim_graph_structure` | `asset_path, graph_guid?, depth=1` | depth 0 = 그 그래프만, -1 = 전부. §5 |
 | `list_animation_assets` | `skeleton?, asset_class=all, path_prefix=/Game, limit=200, details=false` | AnimSequence·BlendSpace·AnimMontage·AnimComposite. (6-3) `details` 면 BlendSpace 항목에 `blendspace{class, dimensions, axes[], samples[], sample_count, grid_sample_count, segment_count, triangle_count, interpolate_using_grid, anim_length, loop}` (로드 필요 — 좁은 경로에서만) |
 | `create_blendspace` (6-3) | `asset_path, skeleton, dimensions:1\|2, axes:[{name,min,max,grid=4,snap=false,wrap=false}], samples?:[{animation, value:[x]\|[x,y]}], preview_mesh?, overwrite=false, save=false` | 1 → `UBlendSpace1D`, 2 → `UBlendSpace`. 생성 전 전부 검증(BAD_REQUEST details.field/reason: `OUT_OF_RANGE`·`DUPLICATE_POSITION`·`SKELETON_MISMATCH`·`ADDITIVE_MISMATCH`·`ENGINE_REJECTED`), 실패 시 애셋 없음. 응답 = 요약 + `created, saved`. 2D 기본은 삼각분할(그리드 0) |
@@ -110,6 +113,8 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 | `save_animation_blueprint` | `asset_path` | 강제 저장 |
 | `duplicate_animation_blueprint` (6-2) | `source_path, dest_path, overwrite=false, preserve_node_guids=true, save=false` | info + `duplicated, source_path, source_revision, node_guids_preserved, saved`. overwrite 는 보호 검사 뒤 삭제. **revision 은 원본과 다르다**(오브젝트 참조 프로퍼티에 패키지 이름) — 구조 비교는 Guid·연결로 |
 | `delete_animation_blueprint` (6-2) | `asset_path, confirm(필수 true), force=false` | AnimBP 만. 보호 → `ASSET_PROTECTED`, 참조 중 → `ASSET_REFERENCED`(details.referencers; `force` 면 삭제 + `REFERENCES_BROKEN` 진단). 응답 `deleted, forced, referencers[]` |
+| `create_anim_layer_interface` (6-4b) | `asset_path, layers:[{name, group?, input_poses?:[...]}], overwrite=false, save=false` | ALI 애셋(BPTYPE_Interface, 부모 UAnimLayerInterface) + 레이어 그래프 + 그룹 + 입력 포즈 → **항상 컴파일**(구현 전제). 이름: 유효 식별자·중복 불가·`AnimGraph` 예약. 응답 = info + `layers` + `compile` + `created` |
+| `implement_anim_layer_interface` (6-4b) | `asset_path, interface, compile=true, save=false` | ABP 가 ALI 구현 → 레이어마다 그래프(Root + 입력 포즈 자동). 거부: `ALREADY_IMPLEMENTED` · `GRAPH_NAME_CONFLICT` · `NOT_LAYER_INTERFACE` · `NOT_COMPILED`/`NO_LAYERS` · 대상이 인터페이스. 응답 = info + `implemented_interfaces` + `layers` + `compile` |
 | `quit_editor` (6-2) | `save_dirty=false, discard_dirty=false` | 더티 패키지 있고 둘 다 false → `DIRTY_PACKAGES`(에디터 유지). `save_dirty` 는 **콘텐츠만** 저장(맵은 안 함, 더티 맵은 `discard_dirty` 로만). 응답 `quit_requested, process_id, saved_packages[], discarded_packages[], was_pie` → `wait_for_exit.py` |
 
 **오류 코드**: `BAD_REQUEST`(400) · `UNAUTHORIZED`(401) · `ASSET_PROTECTED`(403) · `TOOL_NOT_FOUND`/`ASSET_NOT_FOUND`/`GRAPH_NOT_FOUND`/`NODE_NOT_FOUND`/`PIN_NOT_FOUND`(404) · `ASSET_EXISTS`/`REVISION_MISMATCH`/`ASSET_REFERENCED`/`DIRTY_PACKAGES`(409) · `CONNECTION_REJECTED`/`PROPERTY_NOT_ALLOWED`/`COMPILE_FAILED`/`SAVE_FAILED`(400) · `INTERNAL`(500). Python 측: `EDITOR_GONE`, `TIMEOUT`, `TRANSPORT`, `BAD_RESPONSE`.
@@ -123,11 +128,12 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 - **노드 식별**은 항상 `node_guid`(+ 배치 내 임시 `ref`). 표시 이름은 응답에만.
 - **revision**: 그래프·노드·핀·연결·EditAnywhere 프로퍼티·FAnimNode 멤버 값을 결정적 순서로 SHA1. 속성만 바꿔도 바뀌고 조회·컴파일로는 안 바뀐다. 규칙 그래프는 재생성하면 Guid 가 바뀌므로 멱등은 주석 비교로 구현(§7).
 - `properties{}` 는 허용 목록 값만. 구조체 배열(LayerSetup) 은 객체 배열, enum 은 이름(`"BranchFilter"`).
+- (6-4a) `optional_pins[]` 의 `bound` 핀은 `binding{path[], path_text, type, context, promotion}` 를 갖는다. revision 은 바인딩을 포함한다(`B|이름|경로|타입|컨텍스트`; 없으면 줄 없음 → 기존 값 호환).
 - 상태 내부 포즈 그래프의 sink 는 `AnimGraphNode_StateResult`, 입력 핀 `Result`. conduit 의 `bound_graph_guid` 는 규칙 그래프(포즈 그래프 아님).
 
 ---
 
-### 6. op 사전 (16종 · `preview_graph_operations` / `apply_graph_operations` 의 `operations[]`)
+### 6. op 사전 (19종 · `preview_graph_operations` / `apply_graph_operations` 의 `operations[]`)
 
 **참조 형태** — 노드: `{"node": "<guid>"}` · `{"ref": "<같은 배치 앞 add_* 의 ref>"}` · `"<guid>"` · `{"result_of": {node|ref}}`(그 상태의 StateResult 노드). 핀은 이름. `add_node.graph`: 생략=루트 AnimGraph · `"<graph_guid>"` · `{node|ref}`(상태 → 그 포즈 그래프; conduit·alias 거부).
 
@@ -150,6 +156,10 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 | `add_state_alias` | `ref?, sm \| graph, name?, pos?, states:[{node\|ref}] \| global:true` | 대상은 같은 상태머신의 실제 상태만(conduit·alias 불가). global+states 동시 불가 |
 | `set_alias_states` | `node\|ref, states \| global` | 전이 대상 alias 는 단일 상태 유지해야 함 |
 | `rename_node` | `node\|ref, name` | 상태·conduit·alias·상태머신 노드. 엔진 이름 검증기(중복·금지 문자·레이어 함수명 충돌). 응답 `old_name` |
+| `bind_pin` (6-4a) | `node\|ref, property, path:[...]\|"A.B"` | 노출 가능 핀을 AnimInstance 프로퍼티/BlueprintPure 함수 경로에 묶는다(VariableGet 불필요). 핀은 노출되고(`pin_exposed`) **링크가 없어야** 한다(`PIN_LINKED` — 같은 배치의 앞선 disconnect 도 사전 검증은 모른다 → 두 배치). 경로는 `SkeletonGeneratedClass` 에서 해석(`PATH_UNRESOLVED`), 타입은 승격 허용(`TYPE_INCOMPATIBLE`). 응답 `type(Property\|Function), path_text, promotion, replaced`. 롤백 = 이전 항목 복원 + 핀 가시성 |
+| `unbind_pin` (6-4a) | `node\|ref, property` | 바인딩 제거(핀은 노출 유지). 없으면 BAD_REQUEST. 롤백 = 항목 복원 |
+| `add_node` + `layer` (6-4b) | `class:"AnimGraphNode_LinkedAnimLayer", layer` | 구현한 인터페이스 레이어 또는 자체 레이어 그래프 이름. 같은 ABP 에서 **한 레이어는 노드 하나만**(`LAYER_IN_USE`, 컴파일 규칙). 입력 포즈 핀은 레이어 시그니처대로. 응답 `linked_layer{}` |
+| `set_linked_layer` (6-4b) | `node\|ref, layer` | 레이어 재지정. 입력 포즈 핀에 링크가 있으면 `PINS_LINKED`(먼저 `disconnect` — 사라지는 핀이 고아로 남아 컴파일 오류). 응답 `old_layer`. 롤백 = 이전 레이어 참조 복원 |
 
 **6-1. set_property 허용 목록** (`Core/AnimMcpPropertyRules.cpp`): SequencePlayer `bLoopAnimation, PlayRate, StartPosition, PlayRateBasis` · BlendSpacePlayer `bLoop, PlayRate, StartPosition, X, Y, bResetPlayTimeWhenBlendSpaceChanges` · Slot `SlotName, bAlwaysUpdateSourcePose` · SaveCachedPose `CacheName` · UseCachedPose `SaveCachedPoseNode`(NodeRef) · LayeredBoneBlend `bMeshSpaceRotationBlend, bMeshSpaceScaleBlend, bBlendRootMotionBasedOnRootBone, LODThreshold, BlendMode, LayerSetup` · BlendListBase(ByBool·ByEnum) `BlendTime[]` · BlendListByEnum `BoundEnum, VisibleEnumEntries`(읽기 전용) · Transition `CrossfadeDuration, PriorityOrder, BlendMode, Bidirectional, bDisabled, bAutomaticRuleBasedOnSequencePlayerInState, AutomaticRuleTriggerTime` · State `bAlwaysResetOnEntry`. 구조체 값은 USTRUCT 멤버 이름 그대로의 JSON 객체(`LayerSetup = [{"BranchFilters": [{"BoneName": "spine_01", "BlendDepth": 0}]}, …]`, 포즈당 1개, 본은 TargetSkeleton 에 존재해야 함).
 
@@ -189,6 +199,8 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 | `Tools/mcp/phase5_test.py` | LayerSetup 1·2 포즈 · 조회 왕복 · 거부 6종 · 롤백 (`ABP_McpLayerTest`) |
 | `Tools/mcp/phase6_1_test.py` | 운영 구조 1:1 배치 하나(op 39) · 뷰 · rename · set_alias_states · 거부 9종 · 10-op 롤백 · conduit/alias 삭제 연쇄 |
 | `Tools/mcp/phase6_2_test.py` | 애셋 수명 5절 — A 상태(Tool 12·process_id·protection) · B 복제(Guid 보존/재생성 · 거부 4종 · 보호 2종) · C 복제본 편집·저장·create overwrite 보호 · D 삭제(거부 5종 · 참조 중 → force · 자식 삭제 · 디스크 확인) · E quit(DIRTY_PACKAGES → save_dirty → 프로세스 소멸). `--recheck` 는 저장 확인 + 정리 삭제 + 더티 없는 quit. `--no-quit` 으로 종료 생략 |
+| `Tools/mcp/phase6_4b_test.py` | Linked Anim Layer 8절 — A 인터페이스 생성 · B 구현 · C 레이어 노드 · D 구현 그래프 채우기 · E 공급자 ABP · F set_linked_layer(PINS_LINKED·롤백) · G 거부 14종 · H 저장. `--recheck` |
+| `Tools/mcp/phase6_4_test.py` | Property Binding 6절 — A bind X←Speed · B 재바인딩(점 경로·함수 경로) · C unbind · D 롤백 2종 · E 거부 9종 + 같은 배치 ref · F 저장. `--recheck` |
 | `Tools/mcp/phase6_3_test.py` | BlendSpace 5절 — A 원본 요약(list details) · B 1D 재현(원본과 축·샘플·grid·선분 동일) · C 새 ABP 에 BlendSpacePlayer+Speed→X 컴파일·저장 · D 2D(삼각형 1) · E 거부 12종 + 미생성 확인. `--recheck` |
 | `Tools/mcp/phase5_build_hero.py` | `ABP_Hero_McpBuild` 를 도구만으로 생성(루트 레이어 + 상태머신 1:1), 비교 문서 생성. `--overwrite` · `--recheck` · `--diff-only` |
 | `Tools/mcp/smoke_test.py` · `wait_for_bridge.py` · `wait_for_exit.py` · `mcp_client_test.py` · `debug_dump_rules.py` | 스모크 · 기동 폴링 · 종료 폴링(6-2) · MCP 클라 · 규칙 덤프 |
@@ -196,7 +208,7 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 | `.claude/plans/animbp-automation-phase1.md` | 근거 문서 — §A 환경 · §B API 검증표 · §C 결정 · §F 계획 · "Phase 2 ~ 6-1 결과" |
 | `.claude/plans/animbp-phase5-hero-diff.md` | 빌드 vs 운영 비교(자동 생성) |
 
-모든 `--recheck` 는 에디터 재시작 뒤 revision·노드 Guid 집합·state_machines 뷰 일치를 본다. 테스트 순서 주의: phase3·4·6-1 이 같은 `ABP_McpTest` 를 덮어쓰므로 **recheck 할 스크립트를 마지막에 실행**한다. 6-3 이후의 표준 순서: 기동 → phase3 → 4 → 5 → 6-1 → 6-3 → 6-2(끝에 quit) → 재기동 → phase5/6-1/6-3/6-2 `--recheck`(6-2 가 끝에 quit).
+모든 `--recheck` 는 에디터 재시작 뒤 revision·노드 Guid 집합·state_machines 뷰 일치를 본다. 테스트 순서 주의: phase3·4·6-1 이 같은 `ABP_McpTest` 를 덮어쓰므로 **recheck 할 스크립트를 마지막에 실행**한다. 6-4b 이후의 표준 순서: 기동 → phase3 → 4 → 5 → 6-1 → 6-3 → 6-4 → 6-4b → 6-2(끝에 quit) → 재기동 → phase5/6-1/6-3/6-4/6-4b/6-2 `--recheck`(6-2 가 끝에 quit).
 
 ---
 
@@ -223,6 +235,8 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
     - 전이 **대상** alias 는 정확히 하나의 상태를 가리키고 global 이 아니어야 컴파일된다(AnimStateAliasNode.cpp:52-55). `UAnimStateAliasNode::OnRenameNode` 는 검증 없이 이름만 바꾼다 → 도구가 먼저 검증. conduit BoundGraph 는 `UAnimationTransitionGraph`(conduit 스키마), Result 는 `TransitionResult`/`bCanEnterTransition`.
     - **애니 그래프 설계**: 상체 레이어 슬롯은 전신 슬롯 **출력**(캐시) 뒤에 둔다. 나란히 두면 비어 있는 상체 슬롯이 로코모션 상체로 전신 몽타주를 덮는다(PIE 실측).
     - **(6-2) 참조 중인 패키지는 ForceDelete 가 파일을 남긴다**(ObjectTools.cpp:2535-2550) → `ResetLoaders` → `UnloadPackages` → 잔존 객체 임시 패키지 이동 → `PackageDeleted` → 파일 직접 삭제 → `ScanModifiedAssetFiles`. 링커를 안 끊으면 Windows 에서 파일 삭제가 실패한다. `FEditorFileUtils::SaveDirtyPackages(bFastSave)` 는 더티 ABP 를 저장하지 않는다 → 애셋마다 `SaveLoadedAsset`. 복제본 revision 은 원본과 다르다(패키지 이름이 프로퍼티 ExportText 에 섞임) — 구조 비교는 Guid·연결로. 방금 저장한 파일은 잠깐 잠길 수 있다 → 파일 삭제는 0.3초×10회 재시도.
+    - **(6-4a) Property Binding**: 바인딩 객체(`UAnimGraphNodeBinding_Base`)는 Private 헤더·private 맵 → 노드 `Binding` 과 `PropertyBindings` 를 리플렉션(FObjectPropertyBase·FMapProperty·FScriptMapHelper)으로. `GetMutableBinding()` 은 불완전 타입이라 `GetClass()` 도 못 부른다. 타입(PinType·promotion)은 `ReconstructNode` 가 계산. **사전 검증은 같은 배치의 앞선 op 를 모른다** — 링크 해제 뒤 bind 는 두 배치. 사전 검증 실패의 `reason` 은 `details.planned[i].error.details` 에 있다.
+    - **(6-4b) Linked Layer**: 인터페이스는 먼저 컴파일(구현은 `MD_AnimBlueprintFunction` 메타를 본다) · 구현 그래프는 `ImplementedInterfaces[].Graphs`(FunctionGraphs 아님) · 구현 그래프의 Root+입력 포즈는 엔진이 자동 생성 · `SetupFromLayerId`/`SetLayerName` 은 호출 불가(MinimalAPI·protected) → `Node.Layer/Interface/InstanceClass`·`InterfaceGuid` + 리플렉션 `FunctionReference.SetSelfMember` 로 재현 · 한 레이어는 ABP 당 노드 하나 · 링크된 입력 포즈 핀은 레이어 변경 전 끊는다 · 그룹 기본값 "DefaultSharedGroup". 적용 중 실패의 `reason` 은 `details.cause`.
     - **(6-3) BlendSpace**: `BlendParameters` 는 protected·setter 없음 → Persona 처럼 프로퍼티 시스템으로(고정 필드 6개). `AddSample` 은 범위 밖을 거부하지 않고 **축을 늘린다**(ExpandRangeForSample) → 도구가 먼저 거부. 2D 기본은 삼각분할(그리드 0, `bInterpolateUsingGrid=false`), 1D 는 선분+그리드. 추가 뒤 `ResampleData → ValidateSampleData → PostEditChange`.
 
 ---
@@ -234,6 +248,7 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 | 2026-10-10 | strafe 는 락온이 아니라 추후 "사격 후 일정 시간 strafe 모드" — Phase 5 범위 밖(선행 작업은 phase1 §F Phase 5 보류 표) |
 | 2026-10-15 | `remove_node` 롤백 = 분리 보관 · `set_property` 허용 목록 = 확장 목록 · 규칙 입력 = JSON 트리 AST · `call` 화이트리스트 · 상태머신 조회 = structure 응답 확장 |
 | 2026-10-16 | Phase 5 범위 = **새 ABP 처음부터 재구성**(복제본 아님) · 도구 추가 = VariableGet 노드·LayerSetup · BlendSpace 재사용 · Attack 슬롯 = `UpperBody` 신설 · 운영 애셋 UpperBody 레이어 적용 승인(재배선 포함) · Phase 6 전부 진행, 6-1~6-6 분할 |
+| 2026-10-17 (6-4b) | §12-C = **Lyra 식 레이어 분리를 쓸 계획 → 저작까지 구현**. 범위 = Tool 2개(create/implement) + op(add_node layer · set_linked_layer) + 조회 확장, 포즈 입력만 |
 | 2026-10-16 (6-3) | §12-B 는 질문 없이 해소 — Persona 가 리플렉션(프로퍼티 핸들)으로 축을 편집하므로 같은 경로를 고정 필드에만 사용. 사용자 결정 없음 |
 | 2026-10-16 (6-2) | 삭제 보호 = **A안** ini `[AnimGraphMcp] ProtectedAssets/ProtectedPaths` + `confirm` 필수 + 참조 중이면 `force` 없이는 거부 · `quit_editor` 는 더티 패키지가 있으면 `save_dirty`/`discard_dirty` 없이는 거부 · 복제는 노드 Guid 보존 기본 |
 
@@ -245,60 +260,65 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 - **Phase 6-1**: op 4종(conduit·alias·set_alias_states·rename) · conduit 규칙 · 같은 배치 `graph:{ref}`·`result_of` · Inspector alias/conduit 필드. `phase6_1_test.py` PASS, 회귀·recheck PASS, 히어로 빌드가 운영 상태머신 1:1. 운영 애셋 관찰: `EndInAir → IdleAlias` 가 `Speed >= 20`, `→ MoveAlias` 가 `Speed < 20`(반대로 보임, 사람이 확인할 항목 — 도구는 그대로 재현).
 - **Phase 6-2**: Tool 3개(duplicate·delete·quit_editor) · 보호 목록(`Core/AnimMcpAssetProtection`) · 삭제/복제 기계(`Core/AnimMcpAssetOps`) · `wait_for_exit.py`. `phase6_2_test.py` PASS, 회귀·recheck PASS. 실측 3건(참조 중 패키지의 파일 잔존 · SaveDirtyPackages 실패 · 자식 ABP 의 NO_ANIM_GRAPH)은 phase1 "Phase 6-2 결과".
 - **Phase 6-3**: `create_blendspace`(1D/2D, 축·샘플, 사전 검증) · `list_animation_assets details` · `Core/AnimMcpBlendSpaceFactory`. `phase6_3_test.py` PASS, 회귀·recheck PASS. 원본 `BS_Hero_Locomotion1D` 1:1 재현. 실측(AddSample 의 축 확장 · 2D 삼각분할 · 파일 잠금 재시도)은 phase1 "Phase 6-3 결과".
+- **Phase 6-4a**: op `bind_pin`/`unbind_pin` · `Core/AnimMcpPropertyBinding` · Inspector `binding{}` · revision 포함. `phase6_4_test.py` PASS(VariableGet 없이 X←Speed 컴파일 0 에러, 함수 경로, 롤백, 거부 9종), 회귀·recheck PASS.
+- **Phase 6-4b**: Tool `create_anim_layer_interface`·`implement_anim_layer_interface` · op `add_node layer`·`set_linked_layer` · `Core/AnimMcpAnimLayer` · Inspector `implemented_interfaces`·`layers`·`linked_layer`. `phase6_4b_test.py` PASS(인터페이스 3 레이어 → 구현 → 레이어 노드 2 연결 컴파일 0 에러 → 공급자 ABP), 회귀·recheck PASS. 실측 규칙 2건(레이어는 ABP 당 노드 하나 · 링크된 입력 포즈 핀은 변경 전 끊기)은 phase1 "Phase 6-4b 결과".
 
 ---
 
-### 12. 남은 단계 (6-4 ~ 6-6) 와 확정할 것
+### 12. 남은 단계 (6-5 ~ 6-6) 와 확정할 것
 
 ```text
-6-2 애셋 수명 ✅ ─┐
-6-3 BlendSpace ✅ ┼──▶ 6-5 검증 자동화 ──▶ 6-6 범용화 검증
-6-4 바인딩·레이어 ┘
+6-2 애셋 수명 ✅ ─────┐
+6-3 BlendSpace ✅ ────┼──▶ 6-5 검증 자동화 ──▶ 6-6 범용화 검증
+6-4a 바인딩 ✅ · 6-4b 레이어 ✅ ┘
 ```
 
-공통 완료 기준: 두 구성 빌드(경고 0) · 단계 테스트 PASS · phase3/4/5/6-1/6-2/6-3 회귀 PASS · 재시작 `--recheck` 일치 · phase1 "Phase 6-N 결과" · 이 문서 갱신 · 사용자 커밋.
+공통 완료 기준: 두 구성 빌드(경고 0) · 단계 테스트 PASS · phase3/4/5/6-1/6-2/6-3/6-4/6-4b 회귀 PASS · 재시작 `--recheck` 일치 · phase1 "Phase 6-N 결과" · 이 문서 갱신 · 사용자 커밋.
+
+**6-4a Property Binding — 완료 (2026-10-17)**: op 2종 · `Core/AnimMcpPropertyBinding` · `phase6_4_test.py`. ❓(에디터가 바인딩을 채우는 경로)는 소스로 해소. 상세는 phase1 "Phase 6-4a 결과".
+
+**6-4b Linked Anim Layer — 완료 (2026-10-17, §12-C 사용자 확정)**: Tool 2개 · op 2종 · `Core/AnimMcpAnimLayer` · `phase6_4b_test.py`. 포즈 입력만(값 파라미터·`InstanceClass` 지정·인터페이스에 레이어 추가/삭제는 범위 밖 — 필요 시 후속). 상세는 phase1 "Phase 6-4b 결과".
 
 **6-2 애셋 수명 — 완료 (2026-10-16)**: §4 Tool 3개 · 보호 목록 · `wait_for_exit.py` · `phase6_2_test.py`. 두 ❓ 는 소스로 해소(복제본 Guid 는 `TheSameNodeGuid` 스코프로 보존 · 응답은 동기 소켓 쓰기 + FTSTicker 1프레임 지연). 상세는 phase1 "Phase 6-2 결과".
 
 **6-3 BlendSpace 생성 — 완료 (2026-10-16)**: `create_blendspace` · `list_animation_assets details` · `Core/AnimMcpBlendSpaceFactory` · `phase6_3_test.py`. §12-B 는 소스로 해소(Persona 가 프로퍼티 시스템으로 축 편집 — 공개 setter 없음). 상세는 phase1 "Phase 6-3 결과".
 
-**6-4 바인딩·레이어** — (a) Property Binding 쓰기 `bind_pin {node|ref, property, path:[...]}` / `unbind_pin`: 구조 `FAnimGraphNodePropertyBinding`(AnimGraphNode_Base.h:138-185: `PinType, PropertyName, PropertyPath[], ContextId, Type, bIsBound`). **에디터 UI 가 바인딩을 채우는 경로 확인 필요 ❓**(`Editor/AnimGraph/Private/AnimGraphNodeBinding*.cpp`, `AnimBlueprintExtension_PropertyAccess`). 완료 기준: `Speed→X` 를 VariableGet 없이 바인딩으로 걸어 컴파일 0 에러 + `optional_pins[].bound=true` + revision 에 바인딩 포함. (b) Linked Anim Layer: `UAnimGraphNode_LinkedAnimLayer::SetLayerName/GetLayerName`(AnimGraphNode_LinkedAnimLayer.h:57-60) + 레이어 인터페이스 함수 그래프·인터페이스 구현 ❓ — **§12-C 로 진행 여부 확정** (운영 애셋은 Linked Layer 0).
-
 **6-5 검증 자동화** — `run_automation_tests {filter, timeout}` Tool(기존 `Tools/scripts/run_automation_tests.py` 의 콘솔 `Automation RunTests` + 로그 폴링을 플러그인 안으로: `FAutomationTestFramework` 큐잉·완료 델리게이트 ❓, 길면 start/poll 2단계) · AnimBP 런타임 스모크(C++ Automation 테스트 1개 — 빈 상태·끊긴 캐시 검출) · 통합 러너 `Tools/mcp/run_all.py`(기동 → phase3/4/5/6-N → 저장 → quit → 재기동 → 전부 `--recheck` → quit, 결과 `Tools/mcp/results/<date>.json`).
 
 **6-6 범용화 검증** — 플러그인 소스에서 `AstralBreak`·`/Game/Animation/Hero`·`AstralAnimInstance` grep 0건(테스트 제외) · **§12-D 두 번째 프로젝트**에 `Plugins/AnimGraphMcp` + `Tools/mcp` + `.mcp.json` 복사 → 빌드 → `smoke_test.py` → Phase 2.5 시나리오 재현(엔진 마네킹 스켈레톤) · `Tools/mcp/README.md`·`Plugins/AnimGraphMcp/README.md` 를 설치·설정·Tool·op 사전·오류 코드·제약으로 갱신.
 
-**코드 전에 사용자와 확정할 것(남은 2건)** — A(6-2 삭제 보호) 는 2026-10-16 확정·구현됨(§10), B(6-3 축 설정) 는 소스로 해소됨(§10).
-- **C (6-4b)** Linked Layer — 이 프로젝트가 Lyra 식 레이어 분리를 쓸 계획인지. 아니면 조회로 종료.
+**코드 전에 사용자와 확정할 것(남은 1건)** — A(6-2) 사용자 확정, B(6-3) 소스로 해소, C(6-4b) 2026-10-17 사용자 확정·구현됨(§10).
 - **D (6-6)** 두 번째 프로젝트 — 새 빈 프로젝트(권장 `D:/UE5Projects/AnimMcpSandbox`) vs 기존 프로젝트.
 
-(§9-1 alias 방향은 6-1 에서, §12-A 는 6-2 에서 사용자 확정, §12-B 는 6-3 에서 소스로 해소됨.)
+(§9-1 alias 방향은 6-1 에서, §12-A 는 6-2 에서 사용자 확정, §12-B 는 6-3 에서 소스로 해소, §12-C 는 6-4b 에서 사용자 확정.)
 
 ---
 
-### 13. 미커밋 변경 (6-3, 2026-10-16 기준)
+### 13. 미커밋 변경 (6-4a + 6-4b, 2026-10-17 기준)
 
-Phase 6-2 까지 커밋됨. 아래는 사용자가 커밋 여부를 결정한다. `Tools/mcp/phase*_state.json` 은 임시 파일(gitignore 후보). 테스트 애셋은 회귀가 덮어쓴 결과.
+Phase 6-3 까지 커밋됨. 6-4a 와 6-4b 가 함께 미커밋이다(한 커밋 또는 둘로 나눠도 됨). 아래는 사용자가 커밋 여부를 결정한다. `Tools/mcp/phase*_state.json` 은 임시 파일(gitignore 후보). 테스트 애셋은 회귀가 덮어쓴 결과.
 
 ```
- M .claude/plans/animbp-automation-handoff-phase6-2.md  (이 문서 — 6-3 반영)
- M .claude/plans/animbp-automation-phase1.md            ("Phase 6-3 결과" 절 · 부록 엔진 파일)
-?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpBlendSpaceFactory.{h,cpp}  (BlendSpace 생성·요약)
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpAssetOps.cpp              (파일 삭제 재시도)
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools_Assets.cpp         (create_blendspace · list details)
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools.h                  (주석)
- M Tools/mcp/anim_graph_mcp/server.py                   (create_blendspace · list details)
- M Tools/mcp/README.md                                  (Tool 13개)
-?? Tools/mcp/phase6_3_test.py · ?? Tools/mcp/phase6_3_state.json(임시)
- M Tools/mcp/phase3/4/5/6_1/6_2_state.json              (임시)
-?? Content/Animation/Test/BS_McpTest.uasset · BS_McpTest2D.uasset · ABP_McpBsTest.uasset        (6-3 테스트 애셋)
- M Content/Animation/Test/ABP_McpTest.uasset · ABP_McpLayerTest.uasset                          (회귀 재저장)
+ M .claude/plans/animbp-automation-handoff-phase6-2.md  (이 문서 — 6-4a·6-4b 반영)
+ M .claude/plans/animbp-automation-phase1.md            ("Phase 6-4a 결과"·"Phase 6-4b 결과" 절 · 부록 엔진 파일)
+?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpPropertyBinding.{h,cpp}  (6-4a 바인딩 기계)
+?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpAnimLayer.{h,cpp}        (6-4b 레이어 기계)
+?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools_Layers.cpp        (6-4b Tool 2개)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpOperations.cpp           (bind_pin · unbind_pin · add_node layer · set_linked_layer)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpGraphInspector.cpp       (binding · 인터페이스 그래프 수집 · implemented_interfaces/layers · linked_layer · interface_guid)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools.h · AnimGraphMcpEditorModule.cpp   (RegisterLayerTools)
+ M Tools/mcp/anim_graph_mcp/server.py                   (op 문서 · Tool 2개)
+ M Tools/mcp/README.md                                  (Tool 15개)
+?? Tools/mcp/phase6_4_test.py · phase6_4b_test.py · phase6_4_state.json · phase6_4b_state.json(임시)
+ M Tools/mcp/phase3/4/5/6_1/6_2/6_3_state.json          (임시)
+?? Content/Animation/Test/ABP_McpBindTest.uasset · ALI_McpTest.uasset · ABP_McpLayerBase.uasset · ABP_McpLayerProvider.uasset   (6-4 테스트 애셋)
+ M Content/Animation/Test/ABP_McpTest.uasset · ABP_McpLayerTest.uasset · ABP_McpBsTest.uasset · BS_McpTest.uasset · BS_McpTest2D.uasset   (회귀 재저장)
 ```
 
-커밋 메시지 초안: `Feat: AnimGraph MCP Phase 6-3 — create_blendspace(1D/2D, 축·샘플 사전 검증), list_animation_assets details, 파일 삭제 재시도`
+커밋 메시지 초안: `Feat: AnimGraph MCP Phase 6-4 — Property Binding op(bind_pin/unbind_pin) 및 Linked Anim Layer 저작(create/implement_anim_layer_interface, add_node layer, set_linked_layer)`
 
 ---
 
-### 최종 지시 (새 세션용 — Phase 6-4)
+### 최종 지시 (새 세션용 — Phase 6-5)
 
-Phase 6-4(바인딩·레이어) 를 수행한다. 먼저 이 문서 전체와 phase1 문서 "Phase 3 결과"(Inspector 의 `optional_pins[].bound`·`has_binding`) · "Phase 6-2 결과" · "Phase 6-3 결과" 를 읽고, 코드 `Core/AnimMcpGraphInspector.cpp`(바인딩 조회) · `Core/AnimMcpGraphMutator.cpp`(`SetPinVisible`·`SetPropertyFromJson` — 쓰기 기계 형식) · `Core/AnimMcpOperations.cpp`(op 추가 형식: Validate/Apply 분기·되돌리기 저널) 를 훑는다. 그다음 엔진 소스에서 (a) Property Binding: `FAnimGraphNodePropertyBinding`(AnimGraphNode_Base.h:138-185) · `UAnimGraphNodeBinding`/`UAnimGraphNodeBinding_PropertyAccess` · 에디터 UI 가 바인딩을 채우는 경로(`Editor/AnimGraph/Private/AnimGraphNodeBinding*.cpp`, `AnimBlueprintExtension_PropertyAccess`, Persona 의 핀 바인딩 메뉴) 를 확인해 경로를 남긴다. 완료 기준: `bind_pin {node|ref, property, path:[...]}` / `unbind_pin` op 로 `Speed → BlendSpacePlayer.X` 를 VariableGet 없이 바인딩 → 컴파일 0 에러 · `optional_pins[].bound=true` · revision 에 바인딩 포함 · 되돌리기(롤백) 동작. (b) Linked Anim Layer 는 **§12-C 를 코드 전에 사용자와 확정** — 이 프로젝트가 Lyra 식 레이어 분리를 쓸 계획이 없으면 조회(`linked_anim_layers[]`)로 종료. 구현 → 두 구성 빌드 → `phase6_4_test.py`(HTTP 직접 호출; 새 op 는 Tool 추가가 아니라 재시작 불필요) + 회귀(phase3/4/5/6-1/6-3/6-2, 6-2 가 끝에 quit) → 재기동 → `--recheck` → phase1 "Phase 6-4 결과"·이 문서 §1·§6·§12·§13 갱신·메모리 갱신 → 변경 파일 목록과 커밋 메시지 초안 제시. 운영 애셋은 읽기만 한다. 6-4 가 끝나면 6-5 를 같은 틀로.
+Phase 6-5(검증 자동화)를 수행한다. 먼저 이 문서 전체와 phase1 문서 "Phase 6-2 결과"(quit_editor·wait_for_exit) · "Phase 6-4b 결과" 를 읽고, 코드 `Tools/scripts/run_automation_tests.py`·`read_automation_results.py`(기존 콘솔 `Automation RunTests` + 로그 폴링 방식) · `Tools/AnimMcpTools_Editor.cpp`(quit_editor 의 FTSTicker 지연 패턴) · `Source/AstralBreak/Tests/*.cpp`(프로젝트 Automation 테스트 형식) 를 훑는다. 그다음 엔진 소스에서 `FAutomationTestFramework`(Runtime/Core/Public/Misc/AutomationTest.h — `GetValidTestNames`·`StartTestByName`·`OnTestEvent`/완료 델리게이트·`FAutomationTestExecutionInfo`) 와 에디터의 `IAutomationControllerManager`(Developer/AutomationController) 중 플러그인에서 쓸 경로를 확인해 남긴다. 구현: ① Tool `run_automation_tests {filter, timeout}` — 큐잉 뒤 완료 델리게이트로 결과 수집(길면 `start_automation_tests` + `poll_automation_tests` 2단계), 응답 `tests[{name, state, errors[], warnings[], duration}]` · ② AnimBP 런타임 스모크 C++ Automation 테스트 1개(`Source/AstralBreak/Tests/` 또는 플러그인 테스트 모듈 — 지정한 ABP 를 로드·컴파일 상태·빈 상태머신 상태·끊긴 Save/UseCachedPose 검출) · ③ 통합 러너 `Tools/mcp/run_all.py`(기동 → phase3/4/5/6-1/6-3/6-4/6-4b/6-2 → quit → 재기동 → 전부 `--recheck` → quit, 결과 `Tools/mcp/results/<date>.json`; 각 단계 PASS/FAIL·소요·에디터 pid). 설계가 갈리는 곳(델리게이트 vs 폴링, 테스트 위치)은 코드 전에 사용자에게 확정한다. 구현 → 두 구성 빌드 → `phase6_5_test.py`(HTTP 직접 호출; 새 Tool 은 세션 재시작 전 MCP 에 안 보인다) + 회귀 → quit → 재기동 → `--recheck` → phase1 "Phase 6-5 결과"·이 문서 §1·§4·§8·§12·§13 갱신·메모리 갱신 → 변경 파일 목록과 커밋 메시지 초안 제시. 운영 애셋은 읽기만 한다. 6-5 가 끝나면 6-6(§12-D 선확정 — 두 번째 프로젝트)을 같은 틀로.

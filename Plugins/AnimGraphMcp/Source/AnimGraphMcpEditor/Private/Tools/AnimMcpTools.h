@@ -23,6 +23,9 @@ namespace AnimMcpTools
 	/** Linked Anim Layer (create_anim_layer_interface, implement_anim_layer_interface) — Phase 6-4b */
 	void RegisterLayerTools(FAnimMcpDispatcher& Dispatcher);
 
+	/** Automation 테스트 (run_automation_tests, poll_automation_tests) — Phase 6-5 */
+	void RegisterAutomationTools(FAnimMcpDispatcher& Dispatcher);
+
 	/** 그래프 변경 (preview_graph_operations, apply_graph_operations) */
 	void RegisterGraphTools(FAnimMcpDispatcher& Dispatcher);
 

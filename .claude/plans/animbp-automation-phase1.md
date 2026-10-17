@@ -850,7 +850,36 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 
 ---
 
+## Phase 6-5 결과 (2026-10-17, 브랜치 `feat/ai_auto_ABP`) — 검증 자동화
+
+**사용자 확정 설계 (2026-10-17)**: `FAutomationTestFramework` 직접 구동(`run_automation_tests` 가 잡을 시작하고 FTSTicker 로 진행, 동기 완료면 응답에 결과, 아니면 `poll_automation_tests`) · 스모크 테스트는 플러그인 안(`AnimGraphMcp.Smoke.AnimBlueprint`, ini 경로 아래 ABP 전부 — 컴파일·빈 상태·끊긴 캐시·빈 레이어) · `run_all.py` 통합 러너. `phase6_5_test.py` 5개 절 **PASS**, `run_all.py` 로 단계 9개 + 재시작 `--recheck` 7개 **ALL PASS**(결과 `Tools/mcp/results/`). Development · DebugGame 빌드 성공, 경고 0. Tool 15 → **17개** (세션 재시작 전에는 HTTP 로만 검증됨).
+
+**엔진 경로 (소스로 확인, `Runtime/Core/Public/Misc/AutomationTest.h` · `Runtime/Core/Private/Misc/AutomationTest.cpp`)**
+- **목록**: `FAutomationTestFramework::Get()` → `SetRequestedTestFilter(EAutomationTestFlags_FilterMask)`(필터를 안 열면 ProductFilter 테스트가 빠진다) → `LoadTestModules()` → `GetValidTestNames(TArray<FAutomationTestInfo>&)`. `FAutomationTestInfo` 의 `GetDisplayName`(전체 경로 `A.B.C`)·`GetTestName`(명령 = complex 테스트의 파라미터)·`GetSourceFile/GetSourceFileLine`. 도구 필터 = 전체 경로의 접두 또는 부분 문자열(대소문자 무시), 정렬.
+- **실행**: `StartTestByName(Command, RoleIndex=0, FullTestPath)` — 내부에서 `GIsSlowTask`/PIE 면 시작하지 않는다(`GIsAutomationTesting` 이 세워졌는지로 판정 → `not_started`). 이후 프레임마다 `ExecuteNetworkCommands()` 와 `ExecuteLatentCommands()` 를 부르고 둘 다 true(큐 비움)가 되면 `StopTest(FAutomationTestExecutionInfo&)` 로 수집: `bSuccessful` · `Duration` · `GetEntries()` 의 `FAutomationExecutionEntry{Event{Type, Message, Context}, Filename, LineNumber}` (Error/Warning 분리). 테스트별 타임아웃은 `DequeueAllCommands()` 뒤 `StopTest` + state `timeout`. 완료 델리게이트는 쓰지 않는다(❓ 해소 — 지연 명령 큐가 비는 것이 완료 조건).
+- **동기/비동기**: 잡은 `StartJob` 에서 한 번 `Advance` 하고, 지연 명령 없이 전부 끝나면 응답에 결과(`done=true`). 남으면 `FTSTicker` "AnimGraphMcp.AutomationJob" 이 프레임마다 `Advance`. 잡은 한 번에 하나(다른 잡 진행 중·`GIsAutomationTesting` 이면 BAD_REQUEST), 최근 16개 보관 → `poll_automation_tests {job_id}`.
+- **스모크 테스트**: `IMPLEMENT_COMPLEX_AUTOMATION_TEST(..., "AnimGraphMcp.Smoke.AnimBlueprint", EditorContext | ProductFilter)` — `GetTests` 가 AssetRegistry(`FARFilter` UAnimBlueprint 재귀, `[AnimGraphMcp] SmokeTestPaths`, 기본 `/Game/Animation`)로 ABP 를 열거(이름 = 애셋 이름, 명령 = 오브젝트 경로). `RunTest`: `LoadObject` → `FKismetEditorUtilities::CompileBlueprint(BP, SkipGarbageCollection, &FCompilerResultsLog)` 오류 → `AddError` · 인터페이스 BP 는 여기서 끝 · 루트 `UAnimGraphNode_Root` "Result" 미연결 → 오류(**레이어 제공자 — `ImplementedInterfaces` 에 UAnimLayerInterface 파생 + 그래프 — 는 경고**) · 구현 레이어 그래프의 Root 미연결 → 경고 · 모든 그래프의 `UAnimStateNode` BoundGraph 의 `UAnimGraphNode_StateResult` "Result" 미연결 → 오류("빈 상태") · `UAnimGraphNode_UseCachedPose::SaveCachedPoseNode` 무효 → 오류 · `UAnimGraphNode_LinkedAnimLayer` 의 `Node.Layer` 가 `AnimMcpAnimLayer::FindLayerGraph` 로 안 풀리면 → 오류. `AddWarning` 은 실패가 아니다(`bElevateLogWarningsToErrors` 기본 false, AutomationTest.cpp:176).
+
+| 산출물 | 위치 |
+| :--- | :--- |
+| 구동 기계 | `Core/AnimMcpAutomationRunner.{h,cpp}` (신규) — `FindTests(Filter)` · `StartJob(Filter, Timeout, Error)` · `Advance(Job)`(시작 → 명령 큐 실행 → `FinishCurrent` → 다음) · `FindJob` · `DescribeJob`/`DescribeTestInfo`(JSON) |
+| Tool 2개 | `Tools/AnimMcpTools_Automation.cpp` (신규) — `run_automation_tests {filter(필수), timeout=120, dry_run=false}` → `{job_id, filter, total, completed, passed, failed, done, ok, elapsed, running?, tests[{name, state, duration, errors[], warnings[]}]}`(`dry_run` 은 `tests[{name, display_name, command, source_file, source_line}]`, 매칭 0 → 진단 `NO_TESTS`) · `poll_automation_tests {job_id}` |
+| 스모크 | `Tests/AnimMcpSmokeTests.cpp` (신규, `WITH_DEV_AUTOMATION_TESTS`) · ini `[AnimGraphMcp] +SmokeTestPaths=/Game/Animation` |
+| 러너 | `Tools/mcp/run_all.py` — 기동(`UnrealEditor.exe` 분리 프로세스, 브리지 폴링 600초, 25초 대기) → phase3/4/5/6-1/6-3/6-4/6-4b/6-5/6-2(`--no-quit`) → `quit_editor discard_dirty` + `wait_for_exit` → 재기동 → `--recheck` 5/6-1/6-3/6-4/6-4b/6-2/6-5 → quit → `Tools/mcp/results/<date>.json`(단계별 verdict·초·`[FAIL]` 줄·꼬리) · 종료 코드. `--attach` · `--only` · `--skip-recheck` · `--engine` · `--project` |
+| 테스트 | `Tools/mcp/phase6_5_test.py` — A dry_run(ABP 9개: ABP_Hero_Base · ABP_Hero_McpBuild · 테스트 ABP 6 · ALI_McpTest) · B 스모크 전부 passed(동기, 0.3초) + 제공자 경고 · C `AstralBreak.` 18/18 + poll + 부분 필터(`AstralBreak.Targeting` 4) · D 거부 3종 · E 음성(빈 상태 ABP → 그 애셋만 failed, "State 'EmptyState' … is empty" → 삭제 → 다시 전부 passed) · `--recheck` |
+
+**실측으로 바로잡은 것**
+- **레이어 제공자 ABP 는 루트 Output Pose 가 비어 있다** — `ABP_McpLayerProvider`(Lyra `ABP_ItemAnimLayersBase` 역)는 인터페이스 구현만 하고 루트 그래프를 쓰지 않으므로 첫 실행에서 "Output Pose not connected" 로 실패했다. `ImplementedInterfaces` 에 UAnimLayerInterface 파생 인터페이스(그래프 포함)가 있으면 경고로 낮춘다. 구현 레이어 그래프가 빈 것도 경고(베이스 ABP 의 기본 구현은 비어 있을 수 있다).
+- 러너의 recheck 순서: 6-5 스모크는 6-2 recheck(ABP_McpDup 삭제) 뒤 — 아니면 ABP 가 하나 더 잡힌다(테스트는 `total >= 저장값` 으로 본다).
+- **미검증 경로**: 지연(latent) 명령이 있는 테스트의 FTSTicker 진행·타임아웃 — 프로젝트 테스트 18개와 스모크는 전부 동기 완료라 `poll` 은 완료된 잡 재조회만 실측됐다.
+
+**Phase 6-6 착수 조건**: 본 결과 검토 + §12-D(두 번째 프로젝트) 사용자 확정. 범위는 핸드오프 "최종 지시 (Phase 6-6)".
+
+---
+
 ## 부록 — 확인에 사용한 파일
+
+**엔진 (Phase 6-5 추가)**: `Runtime/Core/Public/Misc/AutomationTest.h`(FAutomationTestFramework: SetRequestedTestFilter · LoadTestModules · GetValidTestNames · StartTestByName · ExecuteNetworkCommands/ExecuteLatentCommands · StopTest · DequeueAllCommands; FAutomationTestInfo; FAutomationTestExecutionInfo/FAutomationExecutionEntry; IMPLEMENT_COMPLEX_AUTOMATION_TEST), `Runtime/Core/Private/Misc/AutomationTest.cpp`(:174-176 경고 승격 플래그 · StartTestByName · StopTest :1880-1909), `Runtime/Core/Public/Misc/AutomationEvent.h`, `Runtime/Core/Public/Containers/Ticker.h`(FTSTicker), `Editor/AnimGraph/Public/AnimStateNodeBase.h`(:41 GetStateName), `Runtime/Engine/Classes/Engine/Blueprint.h`(FBPInterfaceDescription :261-271 · ImplementedInterfaces :604), `Source/AstralBreak/Tests/*.cpp`(프로젝트 테스트 형식)
 
 **프로젝트**: `AstralBreak.uproject`, `Source/AstralBreak.Build.cs`, `Source/AstralBreakEditor.Target.cs`, `Config/DefaultEngine.ini`, `Config/DefaultGame.ini`, `Source/AstralBreak/Animation/AstralAnimInstance.{h,cpp}`, `Tools/ue_exec.py`, `Tools/lib/ab_blueprint.py`, `.claude/settings.json`, `Content/Animation/**`, `Content/Characters/**`
 

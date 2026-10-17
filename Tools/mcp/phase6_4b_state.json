@@ -2,7 +2,7 @@
  "ali_layers": [
   {
    "name": "FullBody_Idle",
-   "graph_guid": "27F3F0DE490FD5F8AE5797A0271BCE91",
+   "graph_guid": "3BFBC96F48FE8D6260F02BB68DD685CB",
    "interface": null,
    "interface_guid": null,
    "group": "DefaultSharedGroup",
@@ -10,7 +10,7 @@
   },
   {
    "name": "UpperBody_Additive",
-   "graph_guid": "AFA2B4834D3CB7737B79E38CF7D6692E",
+   "graph_guid": "5A785F774A29C7B6493C80A582B7773F",
    "interface": null,
    "interface_guid": null,
    "group": "Body",
@@ -20,15 +20,15 @@
   },
   {
    "name": "Extra_Layer",
-   "graph_guid": "0FBD3D244FBECA5111B907AD26F1A980",
+   "graph_guid": "864A734B45C85A23E9FF95AB01ED1B67",
    "interface": null,
    "interface_guid": null,
    "group": "DefaultSharedGroup",
    "input_poses": []
   }
  ],
- "ali_revision": "sha1:07ab17c775bd0451e881ffe2a9a62422d4b351be",
- "base_revision": "sha1:ee7f6df1b0ecc3f469dc77bd0b7081f29c84d0d8",
- "provider_revision": "sha1:540ce57c617f3d70010b426569014c480fd44dc2",
- "upper": "85B538404D95B82EB00F74915E316525"
+ "ali_revision": "sha1:1039a7560415c6cdefc423f27ab689d3358aa19f",
+ "base_revision": "sha1:75109296819aab81b582c21ea0a896db886f1f38",
+ "provider_revision": "sha1:bf470ba044062483e19a119a9f703f13a75ceff8",
+ "upper": "6D1E134F48DD4672C44C818BF87B3497"
 }

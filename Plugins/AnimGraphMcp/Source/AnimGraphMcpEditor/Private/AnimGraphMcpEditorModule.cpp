@@ -107,6 +107,7 @@ private:
 		AnimMcpTools::RegisterCompileTools(*Dispatcher);
 		AnimMcpTools::RegisterEditorTools(*Dispatcher);
 		AnimMcpTools::RegisterLayerTools(*Dispatcher);
+		AnimMcpTools::RegisterAutomationTools(*Dispatcher);
 
 		if (!Bridge->Start(Port, bRequireToken, Dispatcher.ToSharedRef()))
 		{

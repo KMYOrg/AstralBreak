@@ -315,6 +315,30 @@ def implement_anim_layer_interface(asset_path: str, interface: str, compile: boo
 
 
 @mcp.tool()
+def run_automation_tests(filter: str, timeout: float = 120.0, dry_run: bool = False) -> dict:
+    """Run Unreal Automation tests inside the running editor (the plugin drives FAutomationTestFramework directly — no
+    Session Frontend). Use it to verify Animation Blueprints after editing: filter "AnimGraphMcp.Smoke" runs the structural
+    smoke test over every AnimBP under [AnimGraphMcp] SmokeTestPaths (compile errors, unconnected Output Pose, empty states,
+    broken Save/UseCachedPose links, invalid linked layers); project tests such as "AstralBreak." work the same way.
+
+    Args:
+        filter: Test path prefix or substring (case-insensitive), e.g. "AnimGraphMcp.Smoke", "AstralBreak.Targeting", "." for all.
+        timeout: Seconds allowed per test (for tests with latent commands).
+        dry_run: Only list the matching tests.
+
+    Returns {job_id, total, completed, passed, failed, done, ok, tests[{name, state, duration, errors, warnings}]}. Tests without
+    latent commands finish synchronously (done=true); otherwise call poll_automation_tests(job_id) until done.
+    """
+    return bridge.call("run_automation_tests", {"filter": filter, "timeout": timeout, "dry_run": dry_run}, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def poll_automation_tests(job_id: str) -> dict:
+    """Progress and results of an automation job started by run_automation_tests (same shape; "running" names the current test)."""
+    return bridge.call("poll_automation_tests", {"job_id": job_id})
+
+
+@mcp.tool()
 def quit_editor(save_dirty: bool = False, discard_dirty: bool = False) -> dict:
     """Ask the running editor to exit (PIE is ended first). The tool returns before the process ends; poll get_editor_status
     until it reports EDITOR_GONE (Tools/mcp/wait_for_exit.py does this).

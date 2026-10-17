@@ -24,9 +24,9 @@ Unreal Engine 5.7.4 Source Build 환경에서 Claude Code 가 Animation Blueprin
 | 컴파일 및 오류 분석 | ✅ | 노드 Guid 매핑 + **(6-5) 에디터 안 Automation 실행**(`run_automation_tests`/`poll_automation_tests`) · 구조 스모크 테스트 `AnimGraphMcp.Smoke.AnimBlueprint`(경로 아래 ABP 전부 — 컴파일·빈 루트·빈 상태·끊긴 캐시·빈 레이어) · 통합 러너 `run_all.py` |
 | 저장 · 변경 검증 · 실패 복구 | ✅ | revision 해시 · 되돌리기 저널 · 롤백 검증 · 재시작 재조회 테스트 |
 | 애셋 수명 (복제 · 삭제 · 에디터 종료) | ✅ | Phase 6-2 — ini 보호 목록 · 참조 검사 · 더티 패키지 거부. **MCP 에는 세션 재시작 뒤 보임** |
-| 다른 UE5 프로젝트에서 재사용 | 🔶 | 플러그인은 프로젝트 비의존. **타 프로젝트 재현 미검증** (6-6) |
+| 다른 UE5 프로젝트에서 재사용 | ✅ | 6-6 — 플러그인 소스에 프로젝트 참조 0건(Grep), 설치·설정·Tool·op·오류·제약을 `Plugins/AnimGraphMcp/README.md` 에 정리. **두 번째 프로젝트 실제 재현은 사용자 결정으로 생략**(2026-10-17) |
 
-**Phase 이력**: 1 조사(10-10) · 2 통신 골격(`a669c33`) · 2.5 수직 통합(`d87608f`) · 3 범용 편집(`2a85228`) · 4 State Machine(`3737c67`) · 5 실제 캐릭터(`cdc20fc`) · 6-1 상태머신 완성(`51cb0a8`) · 6-2 애셋 수명(커밋됨, 10-16) · 6-3 BlendSpace(커밋됨, 10-16) · 6-4a Property Binding · 6-4b Linked Anim Layer(`37a2042`, 10-17) · **6-5 검증 자동화(10-17, 미커밋 — §13)**. 남은 것은 6-6 (§12).
+**Phase 이력**: 1 조사(10-10) · 2 통신 골격(`a669c33`) · 2.5 수직 통합(`d87608f`) · 3 범용 편집(`2a85228`) · 4 State Machine(`3737c67`) · 5 실제 캐릭터(`cdc20fc`) · 6-1 상태머신 완성(`51cb0a8`) · 6-2 애셋 수명(커밋됨, 10-16) · 6-3 BlendSpace(커밋됨, 10-16) · 6-4a Property Binding · 6-4b Linked Anim Layer(`37a2042`, 10-17) · 6-5 검증 자동화(`a2e8285`, 10-17) · **6-6 범용화(10-17, 축소판 — README 2종, 미커밋 — §13)**. Phase 6 종료. 후속 후보는 §12.
 
 **실제 적용 결과**: 운영 애셋 `/Game/Animation/Hero/ABP_Hero_Base` 에 UpperBody 레이어(Slot `UpperBody` + LayeredBoneBlend `spine_01`) 가 사용자 승인 배치로 적용·PIE 확인·커밋됐다(revision `3c146b5f…`). 도구만으로 만든 `/Game/Animation/Hero/ABP_Hero_McpBuild` 는 운영 애셋과 구조 1:1(그래프 21 · 연결 54 · 상태 11 · 전이 12) — 비교 문서 [animbp-phase5-hero-diff.md](animbp-phase5-hero-diff.md).
 
@@ -256,6 +256,7 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 | 2026-10-15 | `remove_node` 롤백 = 분리 보관 · `set_property` 허용 목록 = 확장 목록 · 규칙 입력 = JSON 트리 AST · `call` 화이트리스트 · 상태머신 조회 = structure 응답 확장 |
 | 2026-10-16 | Phase 5 범위 = **새 ABP 처음부터 재구성**(복제본 아님) · 도구 추가 = VariableGet 노드·LayerSetup · BlendSpace 재사용 · Attack 슬롯 = `UpperBody` 신설 · 운영 애셋 UpperBody 레이어 적용 승인(재배선 포함) · Phase 6 전부 진행, 6-1~6-6 분할 |
 | 2026-10-17 (6-4b) | §12-C = **Lyra 식 레이어 분리를 쓸 계획 → 저작까지 구현**. 범위 = Tool 2개(create/implement) + op(add_node layer · set_linked_layer) + 조회 확장, 포즈 입력만 |
+| 2026-10-17 (6-6) | **두 번째 프로젝트 재현 생략**, README 2종만 갱신해서 6-6 종료. 근거: 코드 의존 0건, 재현의 가치는 포트폴리오 문구뿐 |
 | 2026-10-17 (6-5) | 검증 자동화 설계 = **FAutomationTestFramework 직접 구동**(run_automation_tests 가 잡 시작 + FTSTicker 진행, 동기 완료면 응답에 결과, 아니면 poll_automation_tests) · 스모크 테스트는 **플러그인 안**(`AnimGraphMcp.Smoke.AnimBlueprint`, ini 경로 아래 ABP 전부 — 컴파일·빈 상태·끊긴 캐시·빈 레이어) · `run_all.py` 통합 러너 |
 | 2026-10-16 (6-3) | §12-B 는 질문 없이 해소 — Persona 가 리플렉션(프로퍼티 핸들)으로 축을 편집하므로 같은 경로를 고정 필드에만 사용. 사용자 결정 없음 |
 | 2026-10-16 (6-2) | 삭제 보호 = **A안** ini `[AnimGraphMcp] ProtectedAssets/ProtectedPaths` + `confirm` 필수 + 참조 중이면 `force` 없이는 거부 · `quit_editor` 는 더티 패키지가 있으면 `save_dirty`/`discard_dirty` 없이는 거부 · 복제는 노드 Guid 보존 기본 |
@@ -270,6 +271,7 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 - **Phase 6-3**: `create_blendspace`(1D/2D, 축·샘플, 사전 검증) · `list_animation_assets details` · `Core/AnimMcpBlendSpaceFactory`. `phase6_3_test.py` PASS, 회귀·recheck PASS. 원본 `BS_Hero_Locomotion1D` 1:1 재현. 실측(AddSample 의 축 확장 · 2D 삼각분할 · 파일 잠금 재시도)은 phase1 "Phase 6-3 결과".
 - **Phase 6-4a**: op `bind_pin`/`unbind_pin` · `Core/AnimMcpPropertyBinding` · Inspector `binding{}` · revision 포함. `phase6_4_test.py` PASS(VariableGet 없이 X←Speed 컴파일 0 에러, 함수 경로, 롤백, 거부 9종), 회귀·recheck PASS.
 - **Phase 6-4b**: Tool `create_anim_layer_interface`·`implement_anim_layer_interface` · op `add_node layer`·`set_linked_layer` · `Core/AnimMcpAnimLayer` · Inspector `implemented_interfaces`·`layers`·`linked_layer`. `phase6_4b_test.py` PASS(인터페이스 3 레이어 → 구현 → 레이어 노드 2 연결 컴파일 0 에러 → 공급자 ABP), 회귀·recheck PASS. 실측 규칙 2건(레이어는 ABP 당 노드 하나 · 링크된 입력 포즈 핀은 변경 전 끊기)은 phase1 "Phase 6-4b 결과".
+- **Phase 6-6**: 축소판 — 플러그인 소스 프로젝트 참조 0건 · `Plugins/AnimGraphMcp/README.md` 신설 · `Tools/mcp/README.md` 갱신. 두 번째 프로젝트 재현은 생략(사용자 결정). 두 구성 빌드 성공(문자열 변경뿐, 테스트 영향 없음).
 - **Phase 6-5**: Tool `run_automation_tests`·`poll_automation_tests` · `Core/AnimMcpAutomationRunner` · 스모크 `Tests/AnimMcpSmokeTests.cpp`(`AnimGraphMcp.Smoke.AnimBlueprint`, ini `SmokeTestPaths`) · 러너 `run_all.py`. `phase6_5_test.py` PASS(스모크 9 ABP 전부 passed · 프로젝트 테스트 18/18 · 음성 1건 검출), `run_all.py` 로 전 단계·recheck PASS. 실측: 레이어 제공자 ABP 는 루트 미연결이 정상 → 경고. 상세는 phase1 "Phase 6-5 결과".
 
 ---
@@ -294,38 +296,41 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 
 **6-5 검증 자동화 — 완료 (2026-10-17, 사용자 확정 설계)**: `run_automation_tests {filter, timeout, dry_run}` + `poll_automation_tests {job_id}`(FAutomationTestFramework 직접 구동 — 동기 완료면 응답에 결과, 아니면 FTSTicker 진행 + poll; ❓ 완료 델리게이트는 쓰지 않고 `ExecuteLatentCommands` 가 비면 `StopTest` 로 수집) · `Core/AnimMcpAutomationRunner` · 스모크 `AnimGraphMcp.Smoke.AnimBlueprint`(플러그인 `Tests/`, ini `SmokeTestPaths` 아래 ABP 전부: 컴파일 0 에러 · 루트 Output Pose 연결(레이어 제공자는 경고) · 빈 상태 · 끊긴 UseCachedPose · 무효 LinkedAnimLayer · 빈 레이어 구현(경고)) · `run_all.py` · `phase6_5_test.py`. 실측·미검증 경로(latent 테스트 — 프로젝트·스모크 테스트는 전부 동기)는 phase1 "Phase 6-5 결과".
 
-**6-6 범용화 검증** — 플러그인 소스에서 `AstralBreak`·`/Game/Animation/Hero`·`AstralAnimInstance` grep 0건(테스트 제외; 스모크의 기본 경로 `/Game/Animation` 은 ini 로 바꿀 수 있어 허용) · **§12-D 두 번째 프로젝트**에 `Plugins/AnimGraphMcp` + `Tools/mcp` + `.mcp.json` 복사 → 빌드 → `smoke_test.py` → Phase 2.5 시나리오 재현(엔진 마네킹 스켈레톤) · `Tools/mcp/README.md`·`Plugins/AnimGraphMcp/README.md` 를 설치·설정·Tool·op 사전·오류 코드·제약으로 갱신.
+**6-6 범용화 — 완료, 축소판 (2026-10-17, 사용자 결정)**: 플러그인 소스(`Plugins/AnimGraphMcp`)에서 `AstralBreak`·`/Game/Animation/Hero`·`AstralAnimInstance`·`SKEL_UE5_F` Grep **0건**(설명 문자열·uplugin `CreatedBy`·`server.py` 예시만 범용화 — 코드 의존은 원래 없었음) · `Plugins/AnimGraphMcp/README.md` 신설(설치·설정·통신 규약·Tool 17·op 19·허용 목록·규칙 AST·안전 장치·오류 코드·스모크·제약·소스 구조) · `Tools/mcp/README.md` 갱신(이식 절차·`.mcp.json`·전형적 흐름). **§12-D 두 번째 프로젝트 재현은 생략** — 사용자 판단: 코드 관점에선 Grep 0건으로 충분하고, 가치는 포트폴리오 문구뿐. 필요해지면 README 절차대로 새 C++ 프로젝트(`Templates/TemplateResources/High/Characters/Content/Mannequins` 의 `SK_Mannequin`·`ABP_Unarmed`, 약 125MB)에 넣어 보는 것이 가장 정직한 검증.
 
-**코드 전에 사용자와 확정할 것(남은 1건)** — A(6-2) 사용자 확정, B(6-3) 소스로 해소, C(6-4b) 2026-10-17 사용자 확정·구현됨(§10).
-- **D (6-6)** 두 번째 프로젝트 — 새 빈 프로젝트(권장 `D:/UE5Projects/AnimMcpSandbox`) vs 기존 프로젝트.
+**Phase 6 이후 후속 후보 (사용자 요청 시, 우선순위 순)** — "ABP 구현 전체 자동화" 에 아직 빠진 것. **상세(왜·범위·엔진 확인·테스트·규모·캐릭터/적 제작 흐름)는 [animbp-automation-roadmap-phase7.md](animbp-automation-roadmap-phase7.md).**
+1. **ABP 변수·EventGraph 최소 지원** — `add_variable`(BP 변수 추가) + `BlueprintThreadSafeUpdateAnimation` 함수 그래프에 프로퍼티 액세스/간단한 계산 노드 생성. 현재는 C++ AnimInstance 전제라 BP 전용 프로젝트에선 규칙 `var` 를 쓸 변수가 없다.
+2. **`set_property` 허용 목록 확장 + 노드별 테스트** — Inertialization/BlendProfile 인자, RotationOffsetBlendSpace(AimOffset), TwoBoneIK·ModifyBone(본 참조·공간), ApplyAdditive, Mirror, DeadBlending 등 Lyra 로코모션에 쓰이는 노드.
+3. **콘텐츠 애셋 생성** — AimOffset(BlendSpace 변형), AnimMontage(슬롯·섹션·노티파이), 스켈레톤 슬롯/그룹 추가, 싱크 그룹.
+4. **Linked Layer 값 파라미터·InstanceClass·인터페이스 레이어 추가/삭제**, 자식 ABP 그래프 오버라이드.
+5. **런타임 검증** — PIE 에서 지정 AnimBP 를 스폰해 N 프레임 뒤 본 트랜스폼/상태머신 현재 상태를 읽는 Automation 테스트(지연 명령 경로 실측 포함).
+6. 두 번째 프로젝트 재현(§12-D) — 위와 무관, 포트폴리오 문구용.
+
+**코드 전에 사용자와 확정할 것** — 남은 것 없음. A(6-2)·C(6-4b)·6-5 설계·6-6 축소는 사용자 확정, B(6-3)는 소스로 해소, D(6-6)는 생략 결정(§10).
 
 (§9-1 alias 방향은 6-1 에서, §12-A 는 6-2 에서 사용자 확정, §12-B 는 6-3 에서 소스로 해소, §12-C 는 6-4b 에서 사용자 확정, 6-5 설계(직접 구동·start/poll·플러그인 안 스모크·run_all)는 2026-10-17 사용자 확정.)
 
 ---
 
-### 13. 미커밋 변경 (6-5, 2026-10-17 기준)
+### 13. 미커밋 변경 (6-6 축소판, 2026-10-17 기준)
 
-Phase 6-4(a+b) 까지 커밋됨(`37a2042`). 아래가 6-5 미커밋이다. `Tools/mcp/phase*_state.json` · `Tools/mcp/results/*.json` 은 임시 파일(gitignore 후보). 테스트 애셋은 회귀가 덮어쓴 결과.
+Phase 6-5 까지 커밋됨(`a2e8285`). 아래가 6-6 미커밋이다. 코드 동작 변경은 없고(설명 문자열·주석·uplugin 메타·README), 두 구성 빌드는 확인했다.
 
 ```
- M .claude/plans/animbp-automation-handoff-phase6-2.md  (이 문서 — 6-5 반영, 최종 지시 = 6-6)
- M .claude/plans/animbp-automation-phase1.md            ("Phase 6-5 결과" 절 · 부록 엔진 파일)
- M Config/DefaultEngine.ini                             ([AnimGraphMcp] +SmokeTestPaths=/Game/Animation)
-?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpAutomationRunner.{h,cpp}   (Automation 구동 기계)
-?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools_Automation.cpp      (run/poll_automation_tests)
-?? Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tests/AnimMcpSmokeTests.cpp            (AnimGraphMcp.Smoke.AnimBlueprint)
- M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools.h · AnimGraphMcpEditorModule.cpp   (RegisterAutomationTools)
- M Tools/mcp/anim_graph_mcp/server.py                   (Tool 2개 문서)
- M Tools/mcp/README.md                                  (Tool 17개 · run_all)
-?? Tools/mcp/phase6_5_test.py · run_all.py · phase6_5_state.json(임시) · results/(임시)
- M Tools/mcp/phase3/4/5/6_1/6_2/6_3/6_4/6_4b_state.json  (임시)
- M Content/Animation/Test/*.uasset                       (회귀 재저장)
+ M .claude/plans/animbp-automation-handoff-phase6-2.md  (이 문서 — 6-6 반영, §12 후속 후보, 최종 지시)
+ M .claude/plans/animbp-automation-phase1.md            ("Phase 6-6 결과" 절)
+ M Plugins/AnimGraphMcp/AnimGraphMcp.uplugin            (CreatedBy)
+?? Plugins/AnimGraphMcp/README.md                       (신설 — 플러그인 전체 참조)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Core/AnimMcpAssetProtection.h · AnimMcpBlueprintFactory.h   (예시 경로·클래스 범용화)
+ M Plugins/AnimGraphMcp/Source/AnimGraphMcpEditor/Private/Tools/AnimMcpTools_Automation.cpp   (설명 예시)
+ M Tools/mcp/README.md                                  (이식 절차 · .mcp.json · 흐름 · 플러그인 README 링크)
+ M Tools/mcp/anim_graph_mcp/server.py                   (docstring 예시 범용화)
 ```
 
-커밋 메시지 초안: `Feat: AnimGraph MCP Phase 6-5 — 에디터 내 Automation 실행 Tool(run/poll_automation_tests), AnimBP 구조 스모크 테스트, 통합 러너 run_all.py`
+커밋 메시지 초안: `Docs: Phase 6-6 AnimGraphMcp 범용화 — 플러그인 README 신설, 프로젝트 고유 예시 제거, Tools/mcp README 갱신`
 
 ---
 
-### 최종 지시 (새 세션용 — Phase 6-6)
+### 최종 지시 (새 세션용 — Phase 6 종료 이후)
 
-Phase 6-6(범용화 검증)을 수행한다. 먼저 이 문서 전체와 phase1 문서 "Phase 2.5 결과"(최소 수직 통합 시나리오) · "Phase 6-2 결과"(quit_editor·wait_for_exit) · "Phase 6-5 결과"(run_all·스모크) 를 읽는다. **코드 전에 §12-D 를 사용자와 확정한다** — 두 번째 프로젝트를 새 빈 프로젝트(권장 `D:/UE5Projects/AnimMcpSandbox`, 엔진 마네킹 스켈레톤)로 만들지 기존 프로젝트를 쓸지, 그리고 그 프로젝트의 생성·빌드를 내가 해도 되는지. 작업: ① 플러그인 소스(`Plugins/AnimGraphMcp/Source`, 테스트 `Tests/` 제외)에서 `AstralBreak`·`/Game/Animation/Hero`·`AstralAnimInstance`·`SKEL_UE5_F` 를 Grep 해 0건으로 만든다(스모크의 기본 경로 `/Game/Animation` 은 ini 로 바꿀 수 있으므로 허용) · ② 두 번째 프로젝트에 `Plugins/AnimGraphMcp` + `Tools/mcp`(venv 제외) + `.mcp.json` + ini `[AnimGraphMcp]` 를 복사 → 두 구성 빌드 → 에디터 기동 → `smoke_test.py` → Phase 2.5 시나리오(ABP 생성 → SequencePlayer→Root 연결 → 컴파일 → 저장 → 재조회) 를 `run_automation_tests "AnimGraphMcp.Smoke"` 까지 재현 → 발견한 프로젝트 의존(경로·클래스·ini 기본값)을 플러그인 쪽에서 고친다 · ③ `Tools/mcp/README.md`·`Plugins/AnimGraphMcp/README.md`(없으면 신설)를 설치(uproject 등록·ini·venv·.mcp.json)·설정·Tool 17개·op 19종 사전·오류 코드·제약·테스트(run_all)로 갱신. 완료 기준: 두 프로젝트 모두 두 구성 빌드(경고 0) · 이 프로젝트에서 `run_all.py` ALL PASS · 두 번째 프로젝트에서 스모크·Phase 2.5 재현 PASS · phase1 "Phase 6-6 결과" · 이 문서 §1(재사용 ✅)·§12·§13 갱신 · 메모리 갱신 → 변경 파일 목록과 커밋 메시지 초안 제시(두 번째 프로젝트는 이 저장소 밖 — 커밋 대상 아님). 운영 애셋은 읽기만 한다. 에디터는 내가 띄우고 `quit_editor` 로 내린다(사용자 에디터에는 쓰지 않는다).
+Phase 1~6 이 끝났다. 이 문서는 유지보수·후속 작업의 기준 문서다. 새 세션은 이 문서 전체와 `Plugins/AnimGraphMcp/README.md` 를 읽고, 필요한 "Phase N 결과" 절(phase1 문서)을 참조한다. 후속 작업은 §12 "Phase 6 이후 후속 후보" 에서 사용자가 고른 항목을 같은 틀로 진행한다: 범위 정리 → 설계 선택지가 갈리면 코드 전 사용자 확정 → 엔진 소스로 API 확인(경로 기록) → 구현 → 두 구성 빌드(에디터 내리고) → `phaseN_test.py`(새 Tool 은 HTTP 직접 호출) → `run_all.py` ALL PASS(새 스크립트를 PHASES/RECHECKS 에 추가) → phase1 "Phase N 결과" · 이 문서 §1·§4·§6·§8·§9·§12·§13 · README 2종 · 메모리 갱신 → 변경 파일 목록과 커밋 메시지 초안(커밋은 사용자). 운영 애셋 `ABP_Hero_Base` 는 읽기만. 에디터는 내가 띄우고 `quit_editor` 로 내린다(사용자 에디터에는 쓰지 않는다). AnimBP 작업 자체(새 캐릭터·레이어 저작)를 요청받으면 Tool 로 직접 수행하되 `preview` → 사용자 확인 → `apply {expected_revision, compile, save}` → `run_automation_tests "AnimGraphMcp.Smoke"` 순서를 지킨다.

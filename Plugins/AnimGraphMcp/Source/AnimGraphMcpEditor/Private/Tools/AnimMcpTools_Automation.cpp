@@ -9,7 +9,7 @@ namespace AnimMcpTools
 	void RegisterAutomationTools(FAnimMcpDispatcher& Dispatcher)
 	{
 		Dispatcher.RegisterTool(TEXT("run_automation_tests"),
-			TEXT("Run Unreal Automation tests inside this editor (FAutomationTestFramework driven directly, no Session Frontend). Params: filter (test path prefix/substring, e.g. \"AstralBreak.\" or \"AnimGraphMcp.Smoke\"), timeout? (seconds per test, default 120), dry_run? (default false; only list the matching tests). Tests without latent commands finish synchronously (done=true with results); otherwise poll with poll_automation_tests(job_id)."),
+			TEXT("Run Unreal Automation tests inside this editor (FAutomationTestFramework driven directly, no Session Frontend). Params: filter (test path prefix/substring, e.g. \"AnimGraphMcp.Smoke\" or your project's prefix such as \"MyGame.\"), timeout? (seconds per test, default 120), dry_run? (default false; only list the matching tests). Tests without latent commands finish synchronously (done=true with results); otherwise poll with poll_automation_tests(job_id)."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				const FString Filter = Context.Request.GetOptionalString(TEXT("filter"));

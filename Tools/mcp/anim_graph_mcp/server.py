@@ -46,7 +46,7 @@ def get_anim_blueprint_info(asset_path: str) -> dict:
     """Read-only summary of an Animation Blueprint.
 
     Args:
-        asset_path: Content path such as "/Game/Animation/Hero/ABP_Hero_Base" (with or without the ".Name" suffix).
+        asset_path: Content path such as "/Game/Characters/Hero/ABP_Hero" (with or without the ".Name" suffix).
 
     Returns target skeleton, parent class, graph tree with graph_guid values (use them with graph tools),
     BlueprintVisible variables usable in transition rules, implemented_interfaces and layers (layer graphs with input_poses —
@@ -129,7 +129,7 @@ def create_animation_blueprint(asset_path: str, skeleton: str, parent_class: str
     Args:
         asset_path: Where to create it, e.g. "/Game/Animation/Test/ABP_McpTest". Never target a production asset.
         skeleton: Target skeleton asset path.
-        parent_class: AnimInstance subclass, e.g. "/Script/AstralBreak.AstralAnimInstance".
+        parent_class: AnimInstance subclass, e.g. "/Script/Engine.AnimInstance" or "/Script/MyGame.MyAnimInstance".
         preview_mesh: Optional skeletal mesh for the preview viewport.
         overwrite: If true, an existing asset at asset_path is DELETED first. Ask the user before using this.
 
@@ -319,10 +319,10 @@ def run_automation_tests(filter: str, timeout: float = 120.0, dry_run: bool = Fa
     """Run Unreal Automation tests inside the running editor (the plugin drives FAutomationTestFramework directly — no
     Session Frontend). Use it to verify Animation Blueprints after editing: filter "AnimGraphMcp.Smoke" runs the structural
     smoke test over every AnimBP under [AnimGraphMcp] SmokeTestPaths (compile errors, unconnected Output Pose, empty states,
-    broken Save/UseCachedPose links, invalid linked layers); project tests such as "AstralBreak." work the same way.
+    broken Save/UseCachedPose links, invalid linked layers); the project's own tests (filter = its test path prefix) work the same way.
 
     Args:
-        filter: Test path prefix or substring (case-insensitive), e.g. "AnimGraphMcp.Smoke", "AstralBreak.Targeting", "." for all.
+        filter: Test path prefix or substring (case-insensitive), e.g. "AnimGraphMcp.Smoke", "MyGame.Combat", "." for all.
         timeout: Seconds allowed per test (for tests with latent commands).
         dry_run: Only list the matching tests.
 

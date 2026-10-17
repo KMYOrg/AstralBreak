@@ -877,6 +877,19 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 
 ---
 
+## Phase 6-6 결과 (2026-10-17, 브랜치 `feat/ai_auto_ABP`) — 범용화 (축소판)
+
+**사용자 결정 (2026-10-17)**: 두 번째 프로젝트 재현(§12-D)은 생략하고 README 2종만 갱신해 6-6 을 닫는다. 근거: 플러그인 코드에 프로젝트 의존이 없음이 Grep 으로 확인됐고, 재현의 가치는 "다른 프로젝트에서 확인" 이라는 포트폴리오 문구뿐이다.
+
+- **Grep**: `Plugins/AnimGraphMcp` 에서 `AstralBreak`·`/Game/Animation/Hero`·`AstralAnimInstance`·`SKEL_UE5_F`·`IdaFaber` → 코드 0건. 걸린 것은 설명 문자열 4곳(uplugin `CreatedBy`, `run_automation_tests` 설명의 필터 예시, `AnimMcpBlueprintFactory.h`·`AnimMcpAssetProtection.h` 주석 예시)과 `server.py` docstring 예시 4곳 → 전부 범용 예시(`/Game/Characters/Hero/ABP_Hero`, `/Script/MyGame.MyAnimInstance`, `MyGame.`)로 교체. Development · DebugGame 빌드 성공.
+- **`Plugins/AnimGraphMcp/README.md` 신설**: 설치(C++ 프로젝트 전제·uproject 등록·빌드) · ini 설정 6키 · 통신 규약(봉투·request_id 캐시·타임아웃) · Tool 17개 표 · op 19종 표 · `set_property` 허용 목록 · 규칙 AST · 안전 장치 · 오류 코드 표 · 스모크 테스트 · 제약 · 소스 구조.
+- **`Tools/mcp/README.md` 갱신**: 이식 절차(복사 대상·토큰 위치·`ANIMGRAPH_MCP_PROJECT_DIR`) · `.mcp.json` 본문 · 전형적 작업 흐름 · 플러그인 README 링크.
+- **이식 시 알려진 전제**: C++ 프로젝트(에디터 모듈 빌드) · venv 재생성 · ini `[AnimGraphMcp]` 섹션(생략 가능) · `SmokeTestPaths` 기본 `/Game/Animation`. 실제로 다른 프로젝트에 넣을 때 가장 쉬운 재료는 엔진 `Templates/TemplateResources/High/Characters/Content/Mannequins`(`SK_Mannequin`·`ABP_Unarmed` 포함, 약 125MB).
+
+**Phase 6 종료.** 후속 후보는 핸드오프 §12 "Phase 6 이후 후속 후보".
+
+---
+
 ## 부록 — 확인에 사용한 파일
 
 **엔진 (Phase 6-5 추가)**: `Runtime/Core/Public/Misc/AutomationTest.h`(FAutomationTestFramework: SetRequestedTestFilter · LoadTestModules · GetValidTestNames · StartTestByName · ExecuteNetworkCommands/ExecuteLatentCommands · StopTest · DequeueAllCommands; FAutomationTestInfo; FAutomationTestExecutionInfo/FAutomationExecutionEntry; IMPLEMENT_COMPLEX_AUTOMATION_TEST), `Runtime/Core/Private/Misc/AutomationTest.cpp`(:174-176 경고 승격 플래그 · StartTestByName · StopTest :1880-1909), `Runtime/Core/Public/Misc/AutomationEvent.h`, `Runtime/Core/Public/Containers/Ticker.h`(FTSTicker), `Editor/AnimGraph/Public/AnimStateNodeBase.h`(:41 GetStateName), `Runtime/Engine/Classes/Engine/Blueprint.h`(FBPInterfaceDescription :261-271 · ImplementedInterfaces :604), `Source/AstralBreak/Tests/*.cpp`(프로젝트 테스트 형식)

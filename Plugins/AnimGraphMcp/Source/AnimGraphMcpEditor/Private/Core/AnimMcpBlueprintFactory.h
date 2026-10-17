@@ -18,7 +18,7 @@ namespace AnimMcpBlueprintFactory
 	{
 		/** "/Game/A/ABP_X" 또는 "/Game/A/ABP_X.ABP_X" */
 		FString AssetPath;
-		/** "/Script/Engine.AnimInstance", "AstralAnimInstance", 또는 BP 클래스 경로 */
+		/** "/Script/Engine.AnimInstance", "/Script/MyGame.MyAnimInstance"(짧은 이름 "MyAnimInstance" 도 가능), 또는 BP 클래스 경로 */
 		FString ParentClassPath = TEXT("/Script/Engine.AnimInstance");
 		FString SkeletonPath;
 		FString PreviewMeshPath;

@@ -8,7 +8,7 @@ struct FAnimMcpError;
 /**
  * 애셋 보호 목록 (Phase 6-2, 사용자 확정 A안) — 삭제·덮어쓰기(create overwrite · duplicate overwrite · delete) 전에 검사한다.
  * 설정은 프로젝트 DefaultEngine.ini 의 [AnimGraphMcp] 섹션:
- *   +ProtectedAssets=/Game/Animation/Hero/ABP_Hero_Base     (패키지 경로 또는 오브젝트 경로, 정확히 일치)
+ *   +ProtectedAssets=/Game/Characters/Hero/ABP_Hero          (패키지 경로 또는 오브젝트 경로, 정확히 일치)
  *   +ProtectedPaths=/Game/Assets/                            (패키지 경로 접두)
  * 보호는 파괴 연산에만 걸린다 — 읽기·편집(apply_graph_operations)·저장은 기존 규칙(운영 애셋은 사용자 승인 배치) 그대로.
  * 목록은 첫 조회 때 1회 로드한다 (에디터 기동 중 ini 변경은 반영하지 않는다).

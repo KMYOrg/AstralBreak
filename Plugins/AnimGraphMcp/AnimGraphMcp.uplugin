@@ -5,7 +5,7 @@
 	"FriendlyName": "AnimGraph MCP Bridge",
 	"Description": "Local HTTP/JSON bridge (127.0.0.1 only) that lets an external MCP server inspect and edit Animation Blueprints inside the running editor.",
 	"Category": "Scripting",
-	"CreatedBy": "AstralBreak",
+	"CreatedBy": "kmy9317",
 	"CreatedByURL": "",
 	"DocsURL": "",
 	"MarketplaceURL": "",

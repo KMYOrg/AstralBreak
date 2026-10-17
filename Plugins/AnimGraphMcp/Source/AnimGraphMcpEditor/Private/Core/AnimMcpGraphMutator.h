@@ -166,6 +166,14 @@ namespace AnimMcpGraphMutator
 	 */
 	bool ValidateLayerSetup(UEdGraphNode* Node, const TSharedPtr<FJsonValue>& Value, FAnimMcpError& OutError, int32 ExtraPoses = 0);
 
+	/**
+	 * (7-2) set_property 값의 의미 검증 — 노드가 있어야 볼 수 있는 것들 (값 형태는 JsonToImportText 가 본다):
+	 *   LayerSetup(위) · BlendMasks(BlendMode == BlendMask · 포즈 수 · 각 UBlendProfile 이 블렌드 마스크) ·
+	 *   값 트리 안의 모든 FBoneReference.BoneName 이 TargetSkeleton 에 존재 · 오브젝트 참조(UBlendProfile · Skeleton 프로퍼티를 가진 애셋)가 같은 스켈레톤.
+	 * reason: BONE_NOT_FOUND · SKELETON_MISMATCH · OBJECT_NOT_FOUND · OBJECT_CLASS_MISMATCH · BLEND_PROFILE_NOT_MASK · BAD_BLEND_MODE · COUNT_MISMATCH
+	 */
+	bool ValidatePropertyValueOnNode(UEdGraphNode* Node, FName Property, const TSharedPtr<FJsonValue>& Value, FAnimMcpError& OutError, int32 ExtraPoses = 0);
+
 	//~ Phase 6-1 (Alias · Conduit · 이름 변경)
 
 	/** 이름 검증 — 노드의 MakeNameValidator 로 (상태·conduit·alias: FAnimStateNodeNameValidator, 상태머신 노드: FAnimStateMachineNodeNameValidator). 빈 이름은 통과 */

@@ -1,55 +1,72 @@
 {
- "revision": "sha1:dd4d42223fe61c3899d11cdbd5529abc195751fc",
+ "revision": "sha1:2bd20b260af95939dfc080eb58a53f4b12cd907b",
  "nodes": [
-  "5C793D57481BADBC16454CAC46DF7272",
-  "64598FF3425384F9319D818D010C438B",
-  "737C2DF8458693413DD56883191978A9",
-  "858AEA5545A38FCA44847EBD9084E7CE",
-  "88B0C15D4A051E306470A4B5A32A6ED0",
-  "90379517405F03EB4751FE8438B7596C",
-  "9BA0A8D34C6F9BBF339E7C90798CDA45",
-  "A4CF0180456EA7BEFF5883BF4A0F25D0",
-  "C19B40B84F189D7155D6E18507FDA34F",
-  "C3AB408F4FB77B0FE9AC9B9F15BD4C68",
-  "CF4EB60E4E980B3168F55BAA18823E58",
-  "D2AB52E94AB8E2DA28DEA09E3203FB95"
+  "116E29BA4447DA5373B1CAAE8BFAF07F",
+  "3293E6EC40623644804901BE3BDE092E",
+  "3387BA684F48C920FC7E48A4B0697C21",
+  "3CC5F01C46F03088BC3CC5A049C1D281",
+  "47B75B9644BE3969E766449249BD61A3",
+  "722223DC4EB119FA182F99B466293C31",
+  "7678BBC8475B61063BD81CA206BA0A65",
+  "79C79EAA492B7B22888D7BB4696D4F6C",
+  "8E121B8B43669C92D7EA46A95F173C49",
+  "9A520ADD4FA1F04AECA7AE928552B6B4",
+  "AC9F180A4E3769009114159BE72D66BE",
+  "F941458A4C02B3BF9B24EF825AEBA5FF"
  ],
  "connections": [
-  "{\"from\": {\"node\": \"90379517405F03EB4751FE8438B7596C\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"858AEA5545A38FCA44847EBD9084E7CE\", \"pin\": \"Result\"}}",
-  "{\"from\": {\"node\": \"A4CF0180456EA7BEFF5883BF4A0F25D0\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"90379517405F03EB4751FE8438B7596C\", \"pin\": \"Source\"}}",
-  "{\"from\": {\"node\": \"C3AB408F4FB77B0FE9AC9B9F15BD4C68\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"A4CF0180456EA7BEFF5883BF4A0F25D0\", \"pin\": \"BlendPose_1\"}}",
-  "{\"from\": {\"node\": \"D2AB52E94AB8E2DA28DEA09E3203FB95\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"A4CF0180456EA7BEFF5883BF4A0F25D0\", \"pin\": \"BlendPose_0\"}}"
+  "{\"from\": {\"node\": \"3387BA684F48C920FC7E48A4B0697C21\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"722223DC4EB119FA182F99B466293C31\", \"pin\": \"Source\"}}",
+  "{\"from\": {\"node\": \"722223DC4EB119FA182F99B466293C31\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"AC9F180A4E3769009114159BE72D66BE\", \"pin\": \"Result\"}}",
+  "{\"from\": {\"node\": \"8E121B8B43669C92D7EA46A95F173C49\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"3387BA684F48C920FC7E48A4B0697C21\", \"pin\": \"BlendPose_0\"}}",
+  "{\"from\": {\"node\": \"F941458A4C02B3BF9B24EF825AEBA5FF\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"3387BA684F48C920FC7E48A4B0697C21\", \"pin\": \"BlendPose_1\"}}"
  ],
  "properties": {
-  "858AEA5545A38FCA44847EBD9084E7CE": {},
-  "D2AB52E94AB8E2DA28DEA09E3203FB95": {
+  "AC9F180A4E3769009114159BE72D66BE": {},
+  "8E121B8B43669C92D7EA46A95F173C49": {
    "bLoopAnimation": true,
    "PlayRate": 2,
    "StartPosition": 0.10000000149011612,
-   "PlayRateBasis": 1
+   "PlayRateBasis": 1,
+   "GroupName": "None",
+   "GroupRole": "CanBeLeader",
+   "Method": "DoNotSync",
+   "bStartFromMatchingPose": false
   },
-  "C3AB408F4FB77B0FE9AC9B9F15BD4C68": {
+  "F941458A4C02B3BF9B24EF825AEBA5FF": {
    "bLoopAnimation": true,
    "PlayRate": 1,
    "StartPosition": 0,
-   "PlayRateBasis": 1
+   "PlayRateBasis": 1,
+   "GroupName": "None",
+   "GroupRole": "CanBeLeader",
+   "Method": "DoNotSync",
+   "bStartFromMatchingPose": false
   },
-  "9BA0A8D34C6F9BBF339E7C90798CDA45": {
+  "79C79EAA492B7B22888D7BB4696D4F6C": {
    "bLoopAnimation": true,
    "PlayRate": 1,
    "StartPosition": 0,
-   "PlayRateBasis": 1
+   "PlayRateBasis": 1,
+   "GroupName": "None",
+   "GroupRole": "CanBeLeader",
+   "Method": "DoNotSync",
+   "bStartFromMatchingPose": false
   },
-  "A4CF0180456EA7BEFF5883BF4A0F25D0": {
+  "3387BA684F48C920FC7E48A4B0697C21": {
    "BlendTime": [
     0.10000000149011612,
     0.10000000149011612
-   ]
+   ],
+   "TransitionType": "StandardBlend",
+   "BlendType": "HermiteCubic",
+   "ChildUpateMode": "Default",
+   "CustomBlendCurve": null,
+   "BlendProfile": null
   },
-  "64598FF3425384F9319D818D010C438B": {
+  "7678BBC8475B61063BD81CA206BA0A65": {
    "CacheName": "McpCache"
   },
-  "C19B40B84F189D7155D6E18507FDA34F": {
+  "3CC5F01C46F03088BC3CC5A049C1D281": {
    "bMeshSpaceRotationBlend": false,
    "bMeshSpaceScaleBlend": false,
    "bBlendRootMotionBasedOnRootBone": true,
@@ -62,31 +79,42 @@
     {
      "BranchFilters": []
     }
-   ]
+   ],
+   "BlendMasks": [],
+   "CurveBlendOption": "Override",
+   "bRootSpaceRotationBlend": false
   },
-  "737C2DF8458693413DD56883191978A9": {
-   "BoundEnum": "/Script/CoreUObject.Enum'/Script/Engine.EAlphaBlendOption'",
+  "116E29BA4447DA5373B1CAAE8BFAF07F": {
+   "BoundEnum": "/Script/Engine.EAlphaBlendOption",
    "VisibleEnumEntries": [
     "EAlphaBlendOption::Linear"
    ],
    "BlendTime": [
     0.10000000149011612,
     0.10000000149011612
-   ]
+   ],
+   "TransitionType": "StandardBlend",
+   "BlendType": "HermiteCubic",
+   "ChildUpateMode": "Default",
+   "CustomBlendCurve": null,
+   "BlendProfile": null
   },
-  "CF4EB60E4E980B3168F55BAA18823E58": {},
-  "5C793D57481BADBC16454CAC46DF7272": {
+  "9A520ADD4FA1F04AECA7AE928552B6B4": {},
+  "3293E6EC40623644804901BE3BDE092E": {
    "bLoop": true,
    "PlayRate": 0.5,
    "StartPosition": 0,
    "X": 0,
    "Y": 0,
-   "bResetPlayTimeWhenBlendSpaceChanges": true
+   "bResetPlayTimeWhenBlendSpaceChanges": true,
+   "GroupName": "None",
+   "GroupRole": "CanBeLeader",
+   "Method": "DoNotSync"
   },
-  "90379517405F03EB4751FE8438B7596C": {
+  "722223DC4EB119FA182F99B466293C31": {
    "SlotName": "UpperBody",
    "bAlwaysUpdateSourcePose": false
   },
-  "88B0C15D4A051E306470A4B5A32A6ED0": {}
+  "47B75B9644BE3969E766449249BD61A3": {}
  }
 }

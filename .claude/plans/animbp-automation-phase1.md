@@ -921,7 +921,35 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 
 ---
 
+## Phase 7-2 결과 (2026-10-17, 브랜치 `feat/ai_auto_ABP`) — set_property 허용 목록 확장
+
+**사용자 확정 (2026-10-17)**: 로드맵 §2 를 제안 범위 그대로 — 노드 10종 허용 목록 + 오브젝트 참조 값 + 본 이름/스켈레톤 검증. `phase7_2_test.py` 5개 절 **PASS**, `run_all.py` 단계 11 + recheck 9 **ALL PASS**. Development · DebugGame 빌드 성공, 경고 0. Tool 추가 없음(Tool 20개 유지, MCP 재시작 불필요).
+
+**엔진 경로 (소스로 확인)** — 프로퍼티 이름·타입은 전부 헤더에서: `AnimNodes/AnimNode_RotationOffsetBlendSpace.h`(:27-52), `AnimNode_BlendSpacePlayer.h`(FAnimNode_BlendSpacePlayerBase :137-180 — X/Y/PlayRate/bLoop/StartPosition/싱크 그룹이 베이스에 있어 AimOffset 이 상속), `AnimNode_SequenceEvaluator.h`(:113-160), `Animation/AnimNode_SequencePlayer.h`(:94-107, :145), `AnimNodes/AnimNode_ApplyAdditive.h`(:22-52), `BoneControllers/AnimNode_SkeletalControlBase.h`(:35-61 — Alpha 묶음은 베이스), `AnimNode_TwoBoneIK.h`(:25-100), `AnimNode_ModifyBone.h`(:36-73), `AnimNodes/AnimNode_Mirror.h`(:125-145), `Animation/AnimNode_Inertialization.h`(:318-348), `AnimNodes/AnimNode_BlendListBase.h`(:50-69), `AnimNodes/AnimNode_LayeredBoneBlend.h`(:42-43, :97-110). 구조체: `Animation/InputScaleBias.h`(FInputScaleBias :14-22 · FInputScaleBiasClamp :73-110 · FInputAlphaBoolBlend :285-307 — `CustomCurve` 오브젝트 포함), `Public/Animation/BoneSocketReference.h`(FBoneSocketTarget :93-104 {bUseSocket, BoneReference, SocketReference}), `Public/BoneContainer.h`(FBoneReference). 블렌드 프로파일: `Animation/BlendProfile.h`(`GetSkeleton` :174 · `IsBlendMask` :266 · `GetMode` :268), 스켈레톤 소유 목록 `Animation/Skeleton.h:527`(`BlendProfiles`). `UMirrorDataTable::Skeleton`(MirrorDataTable.h:213-214)은 리플렉션으로 읽는다.
+
+| 산출물 | 위치 |
+| :--- | :--- |
+| 허용 표 | `Core/AnimMcpPropertyRules.cpp` — 공통 조상에 규칙을 두는 상속 활용(`AnimGraphNode_BlendSpaceBase`, `AnimGraphNode_SkeletalControlBase`) · 노드 10종 추가 |
+| 오브젝트 참조 | `AnimMcpPropertyRules::ResolveObjectValue`(경로 → FindObject/LoadObject, "/Game/A/B" 는 ".B" 를 붙여 먼저 — 아니면 UPackage 가 잡힌다 · PropertyClass 검사 → `Class'Path'`) · `JsonToImportText` 가 object 에 `null` → `None` 허용 · `PropertyToJson` 은 오브젝트 경로 문자열/null |
+| 값 트리 검증 | `AnimMcpGraphMutator::ValidatePropertyValueOnNode` — LayerSetup(기존) · BlendMasks(모드·포즈 수·마스크 여부) · 재귀 `ValidateValueTree`(FBoneReference.BoneName ∈ TargetSkeleton · 오브젝트의 소유 스켈레톤 일치). `SetPropertyFromJson` 과 Operations 사전 검증(노드가 있을 때) 양쪽에서 호출 |
+| Inspector | `get_anim_blueprint_info.skeleton_blend_profiles[{name, path, mode, is_blend_mask}]` |
+| 테스트 | `Tools/mcp/phase7_2_test.py` — A 노드 13종 생성 + 컴포넌트 공간 체인 컴파일 0 에러 · B 43개 설정 → 컴파일 0 에러 0 경고 → 재조회 일치(본·enum·벡터·로테이터·중첩 구조체·배열·오브젝트·null) · 노출 핀 Alpha 동기화 · C 거부 13종(BONE_NOT_FOUND ×3 · OBJECT_NOT_FOUND · OBJECT_CLASS_MISMATCH ×2 · COUNT_MISMATCH · BAD_BLEND_MODE · enum · PROPERTY_NOT_ALLOWED · null · 구조체에 문자열) · D 혼합 배치 사전 검증 롤백 · E 저장 · `--recheck`. 테스트 애셋 `ABP_McpPropTest` |
+
+**실측으로 바로잡은 것 · 확인한 것**
+- **Mirror 노드는 MirrorDataTable 없이 루트에 연결되면 컴파일 오류**("does not have a mirror data table selected"). 비연결 노드는 컴파일에서 잘리므로 테스트는 Mirror 를 비연결로 두고 설정만 검증했다. 프로젝트에 MirrorDataTable 애셋이 없다.
+- **"/Game/A/B" 경로는 `FindObject` 에서 UPackage 로 풀린다** → `.B` 를 붙인 오브젝트 경로를 먼저 보고, 결과가 UPackage 면 실패로 본다. 조회는 항상 오브젝트 경로(`/Game/A/B.B`)를 돌려준다.
+- `ComponentToLocalSpace` 의 출력 핀 이름은 `Pose`(입력 `ComponentPose`), `LocalToComponentSpace` 는 `LocalPose` → `ComponentPose`. 컴포넌트 공간 노드(TwoBoneIK·ModifyBone)는 이 둘로 감싸면 Root 까지 컴파일된다.
+- 사전 검증은 같은 배치의 앞선 op 를 모른다(6-4a 와 같은 성질) → `BlendMode = BlendMask` 와 `BlendMasks` 는 두 배치. 반대로 "BranchFilter 로 바꾼 뒤 BlendMasks" 는 사전 검증을 통과하고 적용 중 `BAD_BLEND_MODE` 로 롤백된다.
+- 배치 사전 검증 실패의 op 별 오류 **코드**(`PROPERTY_NOT_ALLOWED`)는 `details.planned[i].error.code` 에 있다 — 테스트 헬퍼 `code()` 가 planned/applied 를 먼저 본다.
+- `SKEL_UE5_F` 에는 블렌드 프로파일이 없어(`skeleton_blend_profiles: []`) BlendProfile/BlendMasks 의 양성 경로와 다른 스켈레톤 애셋의 `SKELETON_MISMATCH` 는 **미검증**(거부 경로와 `[null]` 마스크만 실측). 프로파일이 있는 프로젝트에서 같은 테스트가 자동으로 양성 경로를 돈다.
+
+**다음**: 로드맵 §3(몽타주 슬롯/섹션 · 스켈레톤 슬롯 · AimOffset 생성) 또는 §4/§5. 핸드오프 "최종 지시 (Phase 7 후속)".
+
+---
+
 ## 부록 — 확인에 사용한 파일
+
+**엔진 (Phase 7-2 추가)**: `Runtime/AnimGraphRuntime/Public/AnimNodes/{AnimNode_RotationOffsetBlendSpace, AnimNode_BlendSpacePlayer, AnimNode_SequenceEvaluator, AnimNode_ApplyAdditive, AnimNode_Mirror, AnimNode_BlendListBase, AnimNode_LayeredBoneBlend}.h`, `Runtime/AnimGraphRuntime/Public/BoneControllers/{AnimNode_SkeletalControlBase, AnimNode_TwoBoneIK, AnimNode_ModifyBone}.h`, `Runtime/Engine/Classes/Animation/{AnimNode_SequencePlayer, AnimNode_Inertialization, InputScaleBias, BlendProfile, MirrorDataTable, Skeleton}.h`, `Runtime/Engine/Public/Animation/BoneSocketReference.h`, `Runtime/Engine/Public/BoneContainer.h`, `Editor/AnimGraph/Public/AnimGraphNode_{RotationOffsetBlendSpace, SequenceEvaluator, ApplyAdditive, TwoBoneIK, ModifyBone, Mirror, Inertialization, BlendSpaceBase, SkeletalControlBase}.h`
 
 **엔진 (Phase 7-1 추가)**: `Editor/UnrealEd/Public/Kismet2/BlueprintEditorUtils.h`(AddMemberVariable :848 · RemoveMemberVariable :887 · IsVariableUsed :1336 · FindNewVariableIndex :1256 · GetClassVariableList :821 · CreateNewGraph :328 · CreateFunctionGraph/AddFunctionGraph :343-399 · GetOverrideFunctionClass :417 · RemoveGraph :448 · SetBlueprintVariableCategory :1189), `Editor/UnrealEd/Private/Kismet2/BlueprintEditorUtils.cpp`(AddMemberVariable :4645-4703 · RemoveMemberVariable :4706-4719 · IsVariableUsed :5926 · IsFunctionConvertableToEvent :2242 · HasFunctionBlueprintThreadSafeMetaData :10589-10603), `Editor/UnrealEd/Public/Kismet2/Kismet2NameValidators.h`(:24-40, :83-94), `Editor/Kismet/Private/SMyBlueprint.cpp`(ImplementFunction :2808-2883), `Runtime/Engine/Classes/Animation/AnimInstance.h`(BlueprintThreadSafeUpdateAnimation :566-567 · TryGetPawnOwner :451 · GetOwningActor :532), `Editor/AnimGraph/Private/AnimBlueprintCompiler.cpp`(:1084-1151 스레드 안전 검사), `Editor/BlueprintGraph/Classes/EdGraphSchema_K2.h`(PC_* :391-410 · PN_Execute/PN_Then :421-422 · ConfigureVarNode :654 · CreateFunctionGraphTerminators :1014/:1022 · ArePinTypesCompatible :1128), `Editor/BlueprintGraph/Classes/K2Node_Variable.h`(SetFromProperty :120), `Editor/BlueprintGraph/Classes/K2Node_FunctionTerminator.h`(FunctionReference :31-32), `Editor/BlueprintGraph/Private/K2Node_VariableSet.cpp`(:101-102, :400-402), `Runtime/Engine/Classes/EdGraph/EdGraph.h`(FGraphNodeCreator :274-313), `Runtime/Engine/Private/EdGraph/EdGraph.cpp`(CreateNode :216), `Engine/Plugins/Developer/PropertyAccessNode/{PropertyAccessNode.uplugin, Source/PropertyAccessNode/PropertyAccessNode.Build.cs, Source/PropertyAccessNode/Private/K2Node_PropertyAccess.h(:14-131), K2Node_PropertyAccess.cpp(:116-158, :170-236, :278-296)}`, `Editor/AnimGraph/Private/PropertyAccessAnimBlueprintBinding.cpp`(:22-30), `Editor/UnrealEd/Public/IPropertyAccessEditor.h`(:332-338, :422-473)
 

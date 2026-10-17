@@ -1,10 +1,10 @@
 {
- "revision": "sha1:56a752aea2747cc19ebee08ba9292a58972499a5",
+ "revision": "sha1:6177d322cc83f25d74317cecbc5e8fe2fbcafec0",
  "nodes": [
-  "4D762F244050B5430918408025EE95AD",
-  "5200FB3A462510D3A82096ADBAF384F8",
-  "54618B8D48C7F82E656CBB92D8FC1F20",
-  "661D4FEB46D7FDCC7A84BF82E7269A4B"
+  "6B0C496D43EA631E23F0D49219DCE3F7",
+  "C33D0CA84B6C8E2AB21B63950B3F3DCB",
+  "EF0AFA054BBFD0765D0E0EAA716B3685",
+  "F494E9934B27B4C7FA69AAB0B79AE770"
  ],
  "layer": {
   "bMeshSpaceRotationBlend": false,
@@ -24,7 +24,10 @@
    {
     "BranchFilters": []
    }
-  ]
+  ],
+  "BlendMasks": [],
+  "CurveBlendOption": "Override",
+  "bRootSpaceRotationBlend": false
  },
- "layer_guid": "661D4FEB46D7FDCC7A84BF82E7269A4B"
+ "layer_guid": "EF0AFA054BBFD0765D0E0EAA716B3685"
 }

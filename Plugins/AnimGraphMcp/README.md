@@ -57,7 +57,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | Tool | 입력 | 하는 일 |
 | :--- | :--- | :--- |
 | `get_editor_status` | — | 토큰 면제. 엔진·프로젝트·PIE·포트·Tool 목록·`process_id`·보호 목록·`dirty_package_count` |
-| `get_anim_blueprint_info` | `asset_path` | `revision`, `parent_class`, `target_skeleton`, `graphs[]`, `variables[]`(규칙 `var`·`bind_pin` 대상; BP 변수는 `declaration`), `linked_anim_layers[]`, `implemented_interfaces[]`, `layers[]`, `update_function` |
+| `get_anim_blueprint_info` | `asset_path` | `revision`, `parent_class`, `target_skeleton`, `graphs[]`, `variables[]`(규칙 `var`·`bind_pin` 대상; BP 변수는 `declaration`), `linked_anim_layers[]`, `implemented_interfaces[]`, `layers[]`, `update_function`, `skeleton_blend_profiles[]` |
 | `get_anim_graph_structure` | `asset_path, graph_guid?, depth=1` | 그래프 트리·노드·핀·연결·허용 목록 프로퍼티·바인딩·`state_machines[]` 뷰. `depth 0` = 그 그래프만, `-1` = 전부 |
 | `list_animation_assets` | `skeleton?, asset_class=all, path_prefix=/Game, limit=200, details=false` | AnimSequence·BlendSpace·AnimMontage·AnimComposite 목록. `details` 면 BlendSpace 축·샘플 요약 |
 | `create_animation_blueprint` | `asset_path, skeleton, parent_class, preview_mesh?, overwrite=false` | 루트 AnimGraph 만 있는 ABP 생성. `overwrite` 는 기존 애셋 삭제 |
@@ -107,7 +107,9 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | `rename_node` | `node\|ref, name` | 상태·conduit·alias·상태머신. 엔진 이름 검증기 통과 필요 |
 | `set_linked_layer` | `node\|ref, layer` | 레이어 재지정. 입력 포즈 핀에 링크가 있으면 `PINS_LINKED`(먼저 `disconnect`) |
 
-**`set_property` 허용 목록**: SequencePlayer `bLoopAnimation, PlayRate, StartPosition, PlayRateBasis` · BlendSpacePlayer `bLoop, PlayRate, StartPosition, X, Y, bResetPlayTimeWhenBlendSpaceChanges` · Slot `SlotName, bAlwaysUpdateSourcePose` · SaveCachedPose `CacheName` · UseCachedPose `SaveCachedPoseNode`(노드 참조) · LayeredBoneBlend `bMeshSpaceRotationBlend, bMeshSpaceScaleBlend, bBlendRootMotionBasedOnRootBone, LODThreshold, BlendMode, LayerSetup` · BlendList `BlendTime[]` · BlendListByEnum `BoundEnum` · 전이 `CrossfadeDuration, PriorityOrder, BlendMode, Bidirectional, bDisabled, bAutomaticRuleBasedOnSequencePlayerInState, AutomaticRuleTriggerTime` · 상태 `bAlwaysResetOnEntry`. 목록 밖 프로퍼티는 `PROPERTY_NOT_ALLOWED`.
+**`set_property` 허용 목록** (노드의 `properties` 조회가 곧 목록입니다): SequencePlayer `bLoopAnimation, PlayRate, StartPosition, PlayRateBasis, GroupName, GroupRole, Method, bStartFromMatchingPose` · BlendSpacePlayer·AimOffset(RotationOffsetBlendSpace) `bLoop, PlayRate, StartPosition, X, Y, bResetPlayTimeWhenBlendSpaceChanges, GroupName, GroupRole, Method` + AimOffset `Alpha, LODThreshold, AlphaInputType, bAlphaBoolEnabled, AlphaCurveName, AlphaScaleBias, AlphaScaleBiasClamp, AlphaBoolBlend` · SequenceEvaluator `ExplicitTime, bUseExplicitFrame, ExplicitFrame, bShouldLoop, bTeleportToExplicitTime, ReinitializationBehavior, StartPosition, GroupName, GroupRole, Method` · ApplyAdditive · TwoBoneIK · ModifyBone(공통 `Alpha, LODThreshold, AlphaInputType, bAlphaBoolEnabled, AlphaCurveName, AlphaScaleBias, AlphaScaleBiasClamp, AlphaBoolBlend`) · TwoBoneIK `IKBone, EffectorLocation, EffectorLocationSpace, EffectorTarget, JointTargetLocation, JointTargetLocationSpace, JointTarget, bAllowStretching, StartStretchRatio, MaxStretchScale, bTakeRotationFromEffectorSpace, bMaintainEffectorRelRot, bAllowTwist, TwistAxis` · ModifyBone `BoneToModify, Translation, Rotation, Scale, TranslationMode, RotationMode, ScaleMode, TranslationSpace, RotationSpace, ScaleSpace` · Mirror `bMirror, MirrorDataTable, BlendTime, bResetChild, bBoneMirroring, bCurveMirroring, bAttributeMirroring` · Inertialization `DefaultBlendProfile, FilteredCurves, FilteredBones, bResetOnBecomingRelevant, bForwardRequestsThroughSkippedCachedPoseNodes` · Slot `SlotName, bAlwaysUpdateSourcePose` · SaveCachedPose `CacheName` · UseCachedPose `SaveCachedPoseNode`(노드 참조) · LayeredBoneBlend `bMeshSpaceRotationBlend, bMeshSpaceScaleBlend, bBlendRootMotionBasedOnRootBone, LODThreshold, BlendMode, LayerSetup, BlendMasks, CurveBlendOption, bRootSpaceRotationBlend` · BlendList `BlendTime[], TransitionType, BlendType, ChildUpateMode, CustomBlendCurve, BlendProfile` · BlendListByEnum `BoundEnum` · 전이 `CrossfadeDuration, PriorityOrder, BlendMode, Bidirectional, bDisabled, bAutomaticRuleBasedOnSequencePlayerInState, AutomaticRuleTriggerTime` · 상태 `bAlwaysResetOnEntry`. 목록 밖 프로퍼티는 `PROPERTY_NOT_ALLOWED`.
+
+값 표현: 본 `{"BoneName": "hand_r"}`(TargetSkeleton 에 있어야 함, `BONE_NOT_FOUND`) · 벡터 `{"X","Y","Z"}` · 로테이터 `{"Pitch","Yaw","Roll"}` · 중첩 구조체 `{"bUseSocket": false, "BoneReference": {"BoneName": "hand_l"}}` · enum 이름 `"BCS_ComponentSpace"` · 오브젝트 참조는 애셋 경로 문자열(`null` 로 비움; BlendProfile·MirrorDataTable 은 같은 스켈레톤이어야 함, `SKELETON_MISMATCH`; 스켈레톤의 프로파일은 `get_anim_blueprint_info.skeleton_blend_profiles[]`) · `BlendMasks` 는 `BlendMode` 가 `BlendMask` 일 때 포즈마다 마스크 프로파일 경로 또는 `null`.
 
 **규칙 AST** (`set_transition_rule` · `add_transition.rule` · `add_conduit.rule`):
 
@@ -154,7 +156,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 ## 제약 (설계상 범위 밖)
 
 - **임의의 EventGraph 편집은 다루지 않습니다.** BP 변수 추가와 `BlueprintThreadSafeUpdateAnimation` 의 "변수 ← 식" 대입 사슬까지가 범위이고, 분기·루프·이벤트·임의 K2 노드는 만들지 않습니다. 복잡한 상태 판정은 C++ AnimInstance 에 두는 것을 권합니다.
-- 전이 규칙의 `call` 은 화이트리스트 함수만, `set_property` 는 허용 목록 프로퍼티만입니다. 그 밖의 노드(IK·Control Rig·Modify Bone 등)는 생성·연결은 되지만 세부 설정은 못 합니다.
+- 전이 규칙의 `call` 은 화이트리스트 함수만, `set_property` 는 허용 목록 프로퍼티만입니다. 허용 목록 밖 노드(Control Rig·PoseDriver·RigidBody·AnimDynamics·Motion Matching 등)는 생성·연결은 되지만 세부 설정은 못 합니다. 필요하면 `Core/AnimMcpPropertyRules.cpp` 의 표에 한 줄씩 더합니다.
 - Linked Anim Layer 는 포즈 입력만(값 파라미터·`InstanceClass` 지정·기존 인터페이스에 레이어 추가/삭제 없음).
 - 생성하는 콘텐츠 애셋은 BlendSpace 뿐입니다. 몽타주·노티파이·싱크 그룹·블렌드 프로파일·스켈레톤 슬롯은 범위 밖입니다.
 - 검증은 구조 검사까지입니다. 실제 포즈는 PIE 에서 사람이 봅니다.

@@ -18,7 +18,7 @@
 | 전이 규칙의 조건 변수 | ✅ | §1 완료(7-1, 2026-10-17) — `add_blueprint_variable` 로 BP 변수, 규칙 `access` 로 폰·컴포넌트 값 직접, `set_update_function` 으로 매 프레임 계산·저장 |
 | Lyra 식 레이어(인터페이스·구현·레이어 노드) | ✅ | 포즈 입력만. 값 파라미터 ❌ → §4 |
 | 공격·피격 몽타주와 슬롯 | 🔶 | 슬롯 노드는 ✅, **몽타주·노티파이·스켈레톤 슬롯 생성 ❌** → §3 |
-| IK·본 수정·Additive·Mirror 노드 설정 | 🔶 | 생성·연결 ✅, **세부 설정 ❌**(허용 목록 밖) → §2 |
+| IK·본 수정·Additive·Mirror 노드 설정 | ✅ | §2 완료(7-2, 2026-10-17) — AimOffset·SequenceEvaluator·ApplyAdditive·TwoBoneIK·ModifyBone·Mirror·Inertialization·BlendList·BlendMasks·싱크 그룹, 본 이름·스켈레톤 검증 |
 | 컴파일·구조 검증 | ✅ | `compile` + `run_automation_tests "AnimGraphMcp.Smoke"` |
 | 실제 포즈가 맞는지 | ❌ | 사람이 PIE 로 → §5 |
 | 적마다 다른 스켈레톤 | 🔶 | 도구는 스켈레톤 무관. **리타게팅은 범위 밖**(IK Retargeter 는 별도 에디터 기능) |
@@ -46,7 +46,9 @@
 
 ---
 
-## 2. `set_property` 허용 목록 확장 + 노드별 실측
+## 2. `set_property` 허용 목록 확장 + 노드별 실측 ← ✅ 7-2 완료 (2026-10-17)
+
+> 구현 결과: 노드 10종의 허용 목록 + 오브젝트 참조 값(경로 → 로드·클래스 검사, `null` 로 비움) + 값 트리 검증(본 이름·스켈레톤 소유 애셋·BlendMasks). 테스트 `phase7_2_test.py`(43개 설정 컴파일 0 에러 0 경고). 미검증: 다른 스켈레톤 애셋의 `SKELETON_MISMATCH`(프로젝트에 재료 없음), 블렌드 프로파일 양성 경로(SKEL_UE5_F 에 프로파일 없음). 결과는 phase1 "Phase 7-2 결과".
 
 **왜** — 적·캐릭터 ABP 에 실제로 들어가는 노드 중 설정이 막힌 것: **AimOffset 플레이어**(조준), **TwoBoneIK·ModifyBone**(무기 손 위치·시선), **ApplyAdditive**(피격 반응), **Mirror**, **Inertialization 의 BlendProfile**, **BlendListByBool/Enum 의 BlendProfile**, **SequenceEvaluator**(공격 타이밍 제어). 생성은 되지만 본 이름·공간·알파 같은 값을 못 넣는다.
 

@@ -1043,10 +1043,10 @@ namespace AnimMcpOperations
 						if (NodeClass)
 						{
 							bOk = AnimMcpGraphMutator::ValidatePropertyOnClass(NodeClass, FName(*PropertyName), Op.Json->TryGetField(TEXT("value")), Error);
-							// LayerSetup 은 노드가 있어야 포즈 수·스켈레톤 본을 볼 수 있다 (미생성 ref 면 apply 가 본다)
-							if (bOk && Node && PropertyName == TEXT("LayerSetup"))
+							// LayerSetup · BlendMasks · 본 이름 · 스켈레톤 소유 애셋은 노드가 있어야 볼 수 있다 (미생성 ref 면 apply 가 본다)
+							if (bOk && Node)
 							{
-								bOk = AnimMcpGraphMutator::ValidateLayerSetup(Node, Op.Json->TryGetField(TEXT("value")), Error, State.PendingBlendPoses.FindRef(Node));
+								bOk = AnimMcpGraphMutator::ValidatePropertyValueOnNode(Node, FName(*PropertyName), Op.Json->TryGetField(TEXT("value")), Error, State.PendingBlendPoses.FindRef(Node));
 							}
 							if (bOk)
 							{

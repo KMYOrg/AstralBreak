@@ -25,7 +25,9 @@
 #include "AnimMcpPropertyRules.h"
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimationAsset.h"
+#include "Animation/BlendProfile.h"
 #include "Animation/Skeleton.h"
+#include "BoneContainer.h"
 #include "Bridge/AnimMcpTypes.h"
 #include "Dom/JsonValue.h"
 #include "EdGraph/EdGraph.h"
@@ -581,7 +583,7 @@ namespace AnimMcpGraphMutator
 		{
 			return false;
 		}
-		if (Property == TEXT("LayerSetup") && !ValidateLayerSetup(Node, Value, OutError))
+		if (!ValidatePropertyValueOnNode(Node, Property, Value, OutError, /*ExtraPoses*/ 0))
 		{
 			return false;
 		}
@@ -1072,6 +1074,162 @@ namespace AnimMcpGraphMutator
 			}
 		}
 		return true;
+	}
+
+	//~ Phase 7-2 — 값 트리 검증 (본 이름 · 스켈레톤 소유 애셋 · BlendMasks)
+
+	namespace
+	{
+		FAnimMcpError ValueReason(const FString& Message, const TCHAR* ReasonCode, const USkeleton* Skeleton = nullptr)
+		{
+			TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+			Details->SetStringField(TEXT("reason"), ReasonCode);
+			if (Skeleton) { Details->SetStringField(TEXT("skeleton"), Skeleton->GetPathName()); }
+			return FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, Message, Details);
+		}
+
+		/** 애셋이 속한 스켈레톤 — UBlendProfile 은 소유 스켈레톤, 그 밖엔 USkeleton 타입의 'Skeleton' 프로퍼티(UMirrorDataTable 등) */
+		const USkeleton* SkeletonOfAsset(const UObject* Object)
+		{
+			if (const UBlendProfile* Profile = Cast<UBlendProfile>(Object))
+			{
+				return Profile->GetSkeleton();
+			}
+			if (Object)
+			{
+				if (const FObjectPropertyBase* Prop = CastField<FObjectPropertyBase>(Object->GetClass()->FindPropertyByName(TEXT("Skeleton"))); Prop && Prop->PropertyClass && Prop->PropertyClass->IsChildOf(USkeleton::StaticClass()))
+				{
+					return Cast<USkeleton>(Prop->GetObjectPropertyValue_InContainer(Object));
+				}
+			}
+			return nullptr;
+		}
+
+		bool ValidateValueTree(const FProperty* Property, const TSharedPtr<FJsonValue>& Value, const USkeleton* Skeleton, const FString& Path, FAnimMcpError& OutError)
+		{
+			if (!Property || !Value.IsValid() || Value->Type == EJson::Null)
+			{
+				return true;
+			}
+			if (const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
+			{
+				if (Value->Type != EJson::Array) { return true; } // 형태 오류는 JsonToImportText 가 보고한다
+				const TArray<TSharedPtr<FJsonValue>>& Items = Value->AsArray();
+				for (int32 i = 0; i < Items.Num(); ++i)
+				{
+					if (!ValidateValueTree(ArrayProp->Inner, Items[i], Skeleton, FString::Printf(TEXT("%s[%d]"), *Path, i), OutError)) { return false; }
+				}
+				return true;
+			}
+			if (const FStructProperty* StructProp = CastField<FStructProperty>(Property))
+			{
+				if (Value->Type != EJson::Object) { return true; }
+				const TSharedPtr<FJsonObject> Obj = Value->AsObject();
+				if (StructProp->Struct == FBoneReference::StaticStruct())
+				{
+					FString Bone;
+					if (Obj->TryGetStringField(TEXT("BoneName"), Bone) && !Bone.IsEmpty() && Bone != TEXT("None") && Skeleton && Skeleton->GetReferenceSkeleton().FindBoneIndex(FName(*Bone)) == INDEX_NONE)
+					{
+						OutError = ValueReason(FString::Printf(TEXT("%s: bone '%s' does not exist in the target skeleton"), *Path, *Bone), TEXT("BONE_NOT_FOUND"), Skeleton);
+						return false;
+					}
+				}
+				for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Obj->Values)
+				{
+					if (const FProperty* Member = StructProp->Struct->FindPropertyByName(FName(*Pair.Key)))
+					{
+						if (!ValidateValueTree(Member, Pair.Value, Skeleton, Path + TEXT(".") + Pair.Key, OutError)) { return false; }
+					}
+				}
+				return true;
+			}
+			if (const FObjectPropertyBase* ObjProp = CastField<FObjectPropertyBase>(Property))
+			{
+				if (Value->Type != EJson::String) { return true; }
+				UObject* Object = AnimMcpPropertyRules::ResolveObjectValue(ObjProp, Value->AsString(), OutError);
+				if (!Object)
+				{
+					OutError.Message = Path + TEXT(": ") + OutError.Message;
+					return false;
+				}
+				const USkeleton* Owner = SkeletonOfAsset(Object);
+				if (Owner && Skeleton && Owner != Skeleton)
+				{
+					OutError = ValueReason(FString::Printf(TEXT("%s: '%s' belongs to skeleton %s, not the target skeleton"), *Path, *Object->GetPathName(), *Owner->GetName()), TEXT("SKELETON_MISMATCH"), Skeleton);
+					return false;
+				}
+			}
+			return true;
+		}
+
+		bool ValidateBlendMasks(UEdGraphNode* Node, const TSharedPtr<FJsonValue>& Value, int32 ExtraPoses, FAnimMcpError& OutError)
+		{
+			UAnimGraphNode_LayeredBoneBlend* Blend = Cast<UAnimGraphNode_LayeredBoneBlend>(Node);
+			if (!Blend)
+			{
+				OutError = ValueReason(TEXT("BlendMasks is only valid on AnimGraphNode_LayeredBoneBlend"), TEXT("BAD_BLEND_MODE"));
+				return false;
+			}
+			if (Blend->Node.BlendMode != ELayeredBoneBlendMode::BlendMask)
+			{
+				OutError = ValueReason(TEXT("BlendMasks is used only when BlendMode is BlendMask; set_property BlendMode first"), TEXT("BAD_BLEND_MODE"));
+				return false;
+			}
+			if (!Value.IsValid() || Value->Type != EJson::Array)
+			{
+				OutError = ValueReason(TEXT("BlendMasks expects an array with one blend-mask UBlendProfile path (or null) per blend pose"), TEXT("COUNT_MISMATCH"));
+				return false;
+			}
+			const int32 NumPoses = Blend->Node.BlendPoses.Num() + ExtraPoses;
+			const TArray<TSharedPtr<FJsonValue>>& Entries = Value->AsArray();
+			if (Entries.Num() != NumPoses)
+			{
+				OutError = ValueReason(FString::Printf(TEXT("BlendMasks needs exactly %d entries (one per blend pose%s), got %d"), NumPoses, ExtraPoses > 0 ? TEXT(" including add_blend_pose earlier in this batch") : TEXT(""), Entries.Num()), TEXT("COUNT_MISMATCH"));
+				return false;
+			}
+			for (int32 i = 0; i < Entries.Num(); ++i)
+			{
+				if (!Entries[i].IsValid() || Entries[i]->Type == EJson::Null) { continue; }
+				if (Entries[i]->Type != EJson::String)
+				{
+					OutError = ValueReason(FString::Printf(TEXT("BlendMasks[%d] must be a UBlendProfile path or null"), i), TEXT("OBJECT_CLASS_MISMATCH"));
+					return false;
+				}
+				FAnimMcpError Ignored;
+				UObject* Object = AnimMcpPropertyRules::ResolveObjectValue(nullptr, Entries[i]->AsString(), Ignored);
+				if (const UBlendProfile* Profile = Cast<UBlendProfile>(Object); Profile && !Profile->IsBlendMask())
+				{
+					OutError = ValueReason(FString::Printf(TEXT("BlendMasks[%d]: '%s' is a %s blend profile, not a blend mask"), i, *Profile->GetPathName(), *StaticEnum<EBlendProfileMode>()->GetNameStringByValue(static_cast<int64>(Profile->GetMode()))), TEXT("BLEND_PROFILE_NOT_MASK"));
+					return false;
+				}
+			}
+			return true;
+		}
+	}
+
+	bool ValidatePropertyValueOnNode(UEdGraphNode* Node, FName Property, const TSharedPtr<FJsonValue>& Value, FAnimMcpError& OutError, int32 ExtraPoses)
+	{
+		if (Property == TEXT("LayerSetup") && !ValidateLayerSetup(Node, Value, OutError, ExtraPoses))
+		{
+			return false;
+		}
+		if (Property == TEXT("BlendMasks") && !ValidateBlendMasks(Node, Value, ExtraPoses, OutError))
+		{
+			return false;
+		}
+		AnimMcpPropertyRules::FResolved Resolved;
+		if (!AnimMcpPropertyRules::ResolveOnNode(Node, Property, Resolved, OutError))
+		{
+			return false;
+		}
+		if (!Resolved.Property)
+		{
+			return true; // NodeRef — Operations 가 해석
+		}
+		const UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node);
+		const UAnimBlueprint* Blueprint = AnimNode ? AnimNode->GetAnimBlueprint() : Cast<UAnimBlueprint>(FBlueprintEditorUtils::FindBlueprintForNode(Node));
+		const USkeleton* Skeleton = Blueprint ? Blueprint->TargetSkeleton : nullptr;
+		return ValidateValueTree(Resolved.Property, Value, Skeleton, Property.ToString(), OutError);
 	}
 
 	//~ Phase 6-1

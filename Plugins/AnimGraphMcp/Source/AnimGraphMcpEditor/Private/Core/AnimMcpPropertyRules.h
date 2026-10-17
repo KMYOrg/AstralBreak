@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 class FJsonValue;
+class FObjectPropertyBase;
 class FProperty;
 class FStructProperty;
 class UClass;
@@ -65,9 +66,12 @@ namespace AnimMcpPropertyRules
 	 * JSON 값 → FProperty::ImportText 가 받는 텍스트 (재귀).
 	 * bool → True/False · 숫자 → 정수/실수 문자열 · 문자열 → 그대로(enum 이름·FName·FString) · 배열 → "(a,b,c)" (요소는 Inner 타입 규칙)
 	 * · 구조체(JSON 객체) → "(Field=Value,...)" — 필드 이름은 USTRUCT 멤버 이름 그대로, 없는 필드는 거부, 생략한 필드는 기본값 (Phase 5: LayerSetup).
-	 * 오브젝트 참조 값은 거부 (BAD_REQUEST)
+	 * (7-2) 오브젝트 참조 → 애셋 경로 문자열(로드·클래스 검사 뒤 Class'Path') 또는 null("None"). 스켈레톤 일치 등 의미 검증은 Mutator 의 ValidatePropertyValueOnNode
 	 */
 	bool JsonToImportText(const FProperty* Property, const TSharedPtr<FJsonValue>& Value, FString& OutText, FAnimMcpError& OutError);
+
+	/** (7-2) 오브젝트 참조 값 해석 — 경로로 찾거나 로드하고 PropertyClass 를 검사. 실패 reason: OBJECT_NOT_FOUND · OBJECT_CLASS_MISMATCH */
+	UObject* ResolveObjectValue(const FObjectPropertyBase* Property, const FString& Path, FAnimMcpError& OutError);
 
 	/** 프로퍼티 현재 값 → JSON (bool/number 는 네이티브 타입, 배열·구조체는 재귀, 그 외는 ExportText 문자열). ValuePtr 는 ContainerPtrToValuePtr 결과 */
 	TSharedPtr<FJsonValue> PropertyToJson(const FProperty* Property, const void* ValuePtr, UObject* Owner);

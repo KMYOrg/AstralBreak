@@ -4,6 +4,8 @@
 #include "Bridge/AnimMcpTypes.h"
 #include "Dom/JsonValue.h"
 #include "EdGraph/EdGraphNode.h"
+#include "Misc/PackageName.h"
+#include "UObject/Package.h"
 #include "UObject/UnrealType.h"
 
 namespace AnimMcpPropertyRules
@@ -35,9 +37,54 @@ namespace AnimMcpPropertyRules
 				{ TEXT("AnimGraphNode_SequencePlayer"), {
 					{ TEXT("bLoopAnimation"), EScope::FNode }, { TEXT("PlayRate"), EScope::FNode },
 					{ TEXT("StartPosition"), EScope::FNode }, { TEXT("PlayRateBasis"), EScope::FNode } } },
-				{ TEXT("AnimGraphNode_BlendSpacePlayer"), {
+				// (7-2) BlendSpacePlayer · RotationOffsetBlendSpace(AimOffset) 공통 — FAnimNode_BlendSpacePlayerBase 멤버 (AnimNode_BlendSpacePlayer.h:137-180)
+				{ TEXT("AnimGraphNode_BlendSpaceBase"), {
 					{ TEXT("bLoop"), EScope::FNode }, { TEXT("PlayRate"), EScope::FNode }, { TEXT("StartPosition"), EScope::FNode },
-					{ TEXT("X"), EScope::FNode }, { TEXT("Y"), EScope::FNode }, { TEXT("bResetPlayTimeWhenBlendSpaceChanges"), EScope::FNode } } },
+					{ TEXT("X"), EScope::FNode }, { TEXT("Y"), EScope::FNode }, { TEXT("bResetPlayTimeWhenBlendSpaceChanges"), EScope::FNode },
+					{ TEXT("GroupName"), EScope::FNode }, { TEXT("GroupRole"), EScope::FNode }, { TEXT("Method"), EScope::FNode } } },
+				// (7-2) AimOffset 전용 — FAnimNode_RotationOffsetBlendSpace (AnimNode_RotationOffsetBlendSpace.h:27-52)
+				{ TEXT("AnimGraphNode_RotationOffsetBlendSpace"), {
+					{ TEXT("Alpha"), EScope::FNode }, { TEXT("LODThreshold"), EScope::FNode }, { TEXT("AlphaInputType"), EScope::FNode },
+					{ TEXT("bAlphaBoolEnabled"), EScope::FNode }, { TEXT("AlphaCurveName"), EScope::FNode }, { TEXT("AlphaScaleBias"), EScope::FNode },
+					{ TEXT("AlphaScaleBiasClamp"), EScope::FNode }, { TEXT("AlphaBoolBlend"), EScope::FNode } } },
+				// (7-2) SequencePlayer 싱크 그룹 (AnimNode_SequencePlayer.h:94-107, :145)
+				{ TEXT("AnimGraphNode_SequencePlayer"), {
+					{ TEXT("GroupName"), EScope::FNode }, { TEXT("GroupRole"), EScope::FNode }, { TEXT("Method"), EScope::FNode }, { TEXT("bStartFromMatchingPose"), EScope::FNode } } },
+				// (7-2) SequenceEvaluator (AnimNode_SequenceEvaluator.h:113-160)
+				{ TEXT("AnimGraphNode_SequenceEvaluator"), {
+					{ TEXT("ExplicitTime"), EScope::FNode }, { TEXT("bUseExplicitFrame"), EScope::FNode }, { TEXT("ExplicitFrame"), EScope::FNode },
+					{ TEXT("bShouldLoop"), EScope::FNode }, { TEXT("bTeleportToExplicitTime"), EScope::FNode }, { TEXT("ReinitializationBehavior"), EScope::FNode },
+					{ TEXT("StartPosition"), EScope::FNode }, { TEXT("GroupName"), EScope::FNode }, { TEXT("GroupRole"), EScope::FNode }, { TEXT("Method"), EScope::FNode } } },
+				// (7-2) ApplyAdditive (AnimNode_ApplyAdditive.h:22-52)
+				{ TEXT("AnimGraphNode_ApplyAdditive"), {
+					{ TEXT("Alpha"), EScope::FNode }, { TEXT("LODThreshold"), EScope::FNode }, { TEXT("AlphaInputType"), EScope::FNode },
+					{ TEXT("bAlphaBoolEnabled"), EScope::FNode }, { TEXT("AlphaCurveName"), EScope::FNode }, { TEXT("AlphaScaleBias"), EScope::FNode },
+					{ TEXT("AlphaScaleBiasClamp"), EScope::FNode }, { TEXT("AlphaBoolBlend"), EScope::FNode } } },
+				// (7-2) 스켈레탈 컨트롤 공통 — FAnimNode_SkeletalControlBase (AnimNode_SkeletalControlBase.h:35-61); TwoBoneIK · ModifyBone 이 상속
+				{ TEXT("AnimGraphNode_SkeletalControlBase"), {
+					{ TEXT("Alpha"), EScope::FNode }, { TEXT("LODThreshold"), EScope::FNode }, { TEXT("AlphaInputType"), EScope::FNode },
+					{ TEXT("bAlphaBoolEnabled"), EScope::FNode }, { TEXT("AlphaCurveName"), EScope::FNode }, { TEXT("AlphaScaleBias"), EScope::FNode },
+					{ TEXT("AlphaScaleBiasClamp"), EScope::FNode }, { TEXT("AlphaBoolBlend"), EScope::FNode } } },
+				// (7-2) TwoBoneIK (AnimNode_TwoBoneIK.h:25-100). 본 이름·BlendProfile 등은 Mutator 의 값 트리 검증이 본다
+				{ TEXT("AnimGraphNode_TwoBoneIK"), {
+					{ TEXT("IKBone"), EScope::FNode }, { TEXT("EffectorLocation"), EScope::FNode }, { TEXT("EffectorLocationSpace"), EScope::FNode },
+					{ TEXT("EffectorTarget"), EScope::FNode }, { TEXT("JointTargetLocation"), EScope::FNode }, { TEXT("JointTargetLocationSpace"), EScope::FNode },
+					{ TEXT("JointTarget"), EScope::FNode }, { TEXT("bAllowStretching"), EScope::FNode }, { TEXT("StartStretchRatio"), EScope::FNode },
+					{ TEXT("MaxStretchScale"), EScope::FNode }, { TEXT("bTakeRotationFromEffectorSpace"), EScope::FNode }, { TEXT("bMaintainEffectorRelRot"), EScope::FNode },
+					{ TEXT("bAllowTwist"), EScope::FNode }, { TEXT("TwistAxis"), EScope::FNode } } },
+				// (7-2) ModifyBone (AnimNode_ModifyBone.h:36-73)
+				{ TEXT("AnimGraphNode_ModifyBone"), {
+					{ TEXT("BoneToModify"), EScope::FNode }, { TEXT("Translation"), EScope::FNode }, { TEXT("Rotation"), EScope::FNode }, { TEXT("Scale"), EScope::FNode },
+					{ TEXT("TranslationMode"), EScope::FNode }, { TEXT("RotationMode"), EScope::FNode }, { TEXT("ScaleMode"), EScope::FNode },
+					{ TEXT("TranslationSpace"), EScope::FNode }, { TEXT("RotationSpace"), EScope::FNode }, { TEXT("ScaleSpace"), EScope::FNode } } },
+				// (7-2) Mirror (AnimNode_Mirror.h:125-145)
+				{ TEXT("AnimGraphNode_Mirror"), {
+					{ TEXT("bMirror"), EScope::FNode }, { TEXT("MirrorDataTable"), EScope::FNode }, { TEXT("BlendTime"), EScope::FNode }, { TEXT("bResetChild"), EScope::FNode },
+					{ TEXT("bBoneMirroring"), EScope::FNode }, { TEXT("bCurveMirroring"), EScope::FNode }, { TEXT("bAttributeMirroring"), EScope::FNode } } },
+				// (7-2) Inertialization (AnimNode_Inertialization.h:318-348)
+				{ TEXT("AnimGraphNode_Inertialization"), {
+					{ TEXT("DefaultBlendProfile"), EScope::FNode }, { TEXT("FilteredCurves"), EScope::FNode }, { TEXT("FilteredBones"), EScope::FNode },
+					{ TEXT("bResetOnBecomingRelevant"), EScope::FNode }, { TEXT("bForwardRequestsThroughSkippedCachedPoseNodes"), EScope::FNode } } },
 				{ TEXT("AnimGraphNode_Slot"), {
 					{ TEXT("SlotName"), EScope::FNode }, { TEXT("bAlwaysUpdateSourcePose"), EScope::FNode } } },
 				{ TEXT("AnimGraphNode_SaveCachedPose"), {
@@ -48,9 +95,14 @@ namespace AnimMcpPropertyRules
 					{ TEXT("bMeshSpaceRotationBlend"), EScope::FNode }, { TEXT("bMeshSpaceScaleBlend"), EScope::FNode },
 					{ TEXT("bBlendRootMotionBasedOnRootBone"), EScope::FNode }, { TEXT("LODThreshold"), EScope::FNode },
 					// Phase 5 (2026-10-16 사용자 확정): 본 필터. LayerSetup = [{BranchFilters:[{BoneName, BlendDepth}]}] 포즈당 1개 (BoneMaskFilter.h:16-37)
-					{ TEXT("BlendMode"), EScope::FNode }, { TEXT("LayerSetup"), EScope::FNode } } },
+					{ TEXT("BlendMode"), EScope::FNode }, { TEXT("LayerSetup"), EScope::FNode },
+					// (7-2) BlendMasks = BlendMode BlendMask 일 때 포즈당 UBlendProfile(블렌드 마스크) 경로 (AnimNode_LayeredBoneBlend.h:42-43, :97-106)
+					{ TEXT("BlendMasks"), EScope::FNode }, { TEXT("CurveBlendOption"), EScope::FNode }, { TEXT("bRootSpaceRotationBlend"), EScope::FNode } } },
 				{ TEXT("AnimGraphNode_BlendListBase"), {
-					{ TEXT("BlendTime"), EScope::FNode } } },
+					{ TEXT("BlendTime"), EScope::FNode },
+					// (7-2) AnimNode_BlendListBase.h:50-69
+					{ TEXT("TransitionType"), EScope::FNode }, { TEXT("BlendType"), EScope::FNode }, { TEXT("ChildUpateMode"), EScope::FNode },
+					{ TEXT("CustomBlendCurve"), EScope::FNode }, { TEXT("BlendProfile"), EScope::FNode } } },
 				{ TEXT("AnimGraphNode_BlendListByEnum"), {
 					{ TEXT("BoundEnum"), EScope::Node, /*bReadOnly*/ true }, { TEXT("VisibleEnumEntries"), EScope::Node, /*bReadOnly*/ true } } },
 				{ TEXT("AnimStateTransitionNode"), {
@@ -66,6 +118,13 @@ namespace AnimMcpPropertyRules
 		FString Quote(const FString& In)
 		{
 			return TEXT("\"") + In.ReplaceQuotesWithEscapedQuotes() + TEXT("\"");
+		}
+
+		FAnimMcpError ReasonError(const FString& Message, const TCHAR* ReasonCode)
+		{
+			TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+			Details->SetStringField(TEXT("reason"), ReasonCode);
+			return FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, Message, Details);
 		}
 
 		bool ScalarToImportText(const FProperty* Property, const TSharedPtr<FJsonValue>& Value, bool bInsideArray, FString& OutText, FAnimMcpError& OutError)
@@ -138,6 +197,22 @@ namespace AnimMcpPropertyRules
 				OutText = bInsideArray ? Quote(Value->AsString()) : Value->AsString();
 				return true;
 			}
+			// (7-2) 오브젝트 참조 — 애셋 경로 문자열. 로드해 클래스를 확인한 뒤 ImportText 가 확실히 받는 Class'Path' 형식으로
+			if (const FObjectPropertyBase* ObjProp = CastField<FObjectPropertyBase>(Property))
+			{
+				if (Value->Type != EJson::String || Value->AsString().TrimStartAndEnd().IsEmpty())
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' expects an asset path string (a %s) or null"), *PropName, ObjProp->PropertyClass ? *ObjProp->PropertyClass->GetName() : TEXT("object")));
+					return false;
+				}
+				UObject* Object = ResolveObjectValue(ObjProp, Value->AsString(), OutError);
+				if (!Object)
+				{
+					return false;
+				}
+				OutText = FString::Printf(TEXT("%s'%s'"), *Object->GetClass()->GetName(), *Object->GetPathName());
+				return true;
+			}
 			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' has type %s which set_property does not support"), *PropName, *Property->GetCPPType()));
 			return false;
 		}
@@ -160,6 +235,12 @@ namespace AnimMcpPropertyRules
 		{
 			if (!Value.IsValid() || Value->Type == EJson::Null)
 			{
+				// (7-2) 오브젝트 참조는 null 로 비울 수 있다
+				if (CastField<FObjectPropertyBase>(Property))
+				{
+					OutText = TEXT("None");
+					return true;
+				}
 				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' requires a non-null value"), *Property->GetName()));
 				return false;
 			}
@@ -333,12 +414,49 @@ namespace AnimMcpPropertyRules
 
 	bool JsonToImportText(const FProperty* Property, const TSharedPtr<FJsonValue>& Value, FString& OutText, FAnimMcpError& OutError)
 	{
-		if (!Property || !Value.IsValid() || Value->Type == EJson::Null)
+		if (!Property || ((!Value.IsValid() || Value->Type == EJson::Null) && !CastField<FObjectPropertyBase>(Property)))
 		{
-			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_property requires a non-null 'value'"));
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_property requires a non-null 'value' (null is allowed only for object references)"));
 			return false;
 		}
 		return ValueToImportText(Property, Value, /*bInsideContainer*/ false, OutText, OutError);
+	}
+
+	UObject* ResolveObjectValue(const FObjectPropertyBase* Property, const FString& InPath, FAnimMcpError& OutError)
+	{
+		const FString Path = InPath.TrimStartAndEnd();
+		const FString PropName = Property ? Property->GetName() : TEXT("?");
+		// "/Game/Folder/Asset" 은 패키지로 해석되므로 ".Asset" 을 붙인 오브젝트 경로를 먼저 본다 (서브오브젝트 "A.B:C" 는 그대로)
+		FString ObjectPath = Path;
+		if (!Path.Contains(TEXT(".")) && !Path.Contains(TEXT(":")))
+		{
+			ObjectPath = Path + TEXT(".") + FPackageName::GetShortName(Path);
+		}
+		UObject* Object = FindObject<UObject>(nullptr, *ObjectPath);
+		if (!Object)
+		{
+			Object = LoadObject<UObject>(nullptr, *ObjectPath);
+		}
+		if (!Object && ObjectPath != Path)
+		{
+			Object = FindObject<UObject>(nullptr, *Path);
+			if (!Object) { Object = LoadObject<UObject>(nullptr, *Path); }
+		}
+		if (Object && Object->IsA<UPackage>())
+		{
+			Object = nullptr;
+		}
+		if (!Object)
+		{
+			OutError = ReasonError(FString::Printf(TEXT("'%s': asset '%s' not found (use an object path like /Game/Folder/Asset or Skeleton.Skeleton:Profile)"), *PropName, *Path), TEXT("OBJECT_NOT_FOUND"));
+			return nullptr;
+		}
+		if (Property && Property->PropertyClass && !Object->IsA(Property->PropertyClass))
+		{
+			OutError = ReasonError(FString::Printf(TEXT("'%s' expects a %s, but '%s' is a %s"), *PropName, *Property->PropertyClass->GetName(), *Path, *Object->GetClass()->GetName()), TEXT("OBJECT_CLASS_MISMATCH"));
+			return nullptr;
+		}
+		return Object;
 	}
 
 	TSharedPtr<FJsonValue> PropertyToJson(const FProperty* Property, const void* ValuePtr, UObject* Owner)
@@ -372,6 +490,12 @@ namespace AnimMcpPropertyRules
 				Items.Add(PropertyToJson(ArrayProp->Inner, Helper.GetRawPtr(i), Owner));
 			}
 			return MakeShared<FJsonValueArray>(Items);
+		}
+		// (7-2) 오브젝트 참조 → 경로 문자열 또는 null
+		if (const FObjectPropertyBase* ObjProp = CastField<FObjectPropertyBase>(Property))
+		{
+			const UObject* Object = ObjProp->GetObjectPropertyValue(ValuePtr);
+			return Object ? TSharedPtr<FJsonValue>(MakeShared<FJsonValueString>(Object->GetPathName())) : TSharedPtr<FJsonValue>(MakeShared<FJsonValueNull>());
 		}
 		// 구조체 → 객체 (필드 이름 = set_property 가 받는 이름). LayerSetup 의 FInputBlendPose/FBranchFilter 가 여기로 온다
 		if (const FStructProperty* StructProp = CastField<FStructProperty>(Property))

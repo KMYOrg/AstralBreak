@@ -18,6 +18,7 @@
 #include "AnimStateTransitionNode.h"
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimBlueprintGeneratedClass.h"
+#include "Animation/BlendProfile.h"
 #include "Animation/Skeleton.h"
 #include "AnimationGraph.h"
 #include "AnimationStateMachineGraph.h"
@@ -703,6 +704,24 @@ namespace AnimMcpGraphInspector
 		Info->SetField(TEXT("parent_anim_blueprint"), AnimMcpJson::ObjectPathOrNull(UAnimBlueprint::GetParentAnimBlueprint(Blueprint)));
 		Info->SetBoolField(TEXT("is_template"), Blueprint->bIsTemplate);
 		Info->SetField(TEXT("target_skeleton"), AnimMcpJson::ObjectPathOrNull(Blueprint->TargetSkeleton));
+		// (7-2) 스켈레톤의 블렌드 프로파일/마스크 — set_property BlendProfile · DefaultBlendProfile · BlendMasks 의 값(경로)
+		{
+			TArray<TSharedPtr<FJsonValue>> Profiles;
+			if (const USkeleton* Skeleton = Blueprint->TargetSkeleton)
+			{
+				for (const TObjectPtr<UBlendProfile>& Profile : Skeleton->BlendProfiles)
+				{
+					if (!Profile) { continue; }
+					TSharedRef<FJsonObject> P = AnimMcpJson::MakeObject();
+					P->SetStringField(TEXT("name"), Profile->GetName());
+					P->SetStringField(TEXT("path"), Profile->GetPathName());
+					P->SetStringField(TEXT("mode"), StaticEnum<EBlendProfileMode>()->GetNameStringByValue(static_cast<int64>(Profile->GetMode())));
+					P->SetBoolField(TEXT("is_blend_mask"), Profile->IsBlendMask());
+					Profiles.Add(MakeShared<FJsonValueObject>(P));
+				}
+			}
+			Info->SetArrayField(TEXT("skeleton_blend_profiles"), Profiles);
+		}
 		Info->SetField(TEXT("preview_mesh"), AnimMcpJson::ObjectPathOrNull(Blueprint->GetPreviewMesh()));
 		Info->SetStringField(TEXT("blueprint_type"), StaticEnum<EBlueprintType>()->GetNameStringByValue(static_cast<int64>(Blueprint->BlueprintType)));
 		Info->SetStringField(TEXT("status"), StaticEnum<EBlueprintStatus>()->GetNameStringByValue(static_cast<int64>(Blueprint->Status)));

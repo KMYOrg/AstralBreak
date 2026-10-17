@@ -192,7 +192,13 @@ _OPERATIONS_DOC = """
     The rule graph is regenerated from the tree and the tree is stored in a comment node; re-applying the same tree is a no-op.
     Removing a state also removes its transitions, like the editor does.
     Supported node classes include SequencePlayer, BlendSpacePlayer, Slot, LayeredBoneBlend, BlendListByBool, BlendListByEnum,
-    SaveCachedPose/UseCachedPose, StateMachine and K2Node_VariableGet (with "variable"). State internals (the state's bound graph,
+    SaveCachedPose/UseCachedPose, StateMachine and K2Node_VariableGet (with "variable"). set_property also covers (allow-listed, see the
+    node's "properties" in get_anim_graph_structure): RotationOffsetBlendSpace (AimOffset: X/Y/Alpha/sync group), SequenceEvaluator,
+    SequencePlayer sync group (GroupName/GroupRole/Method), ApplyAdditive, TwoBoneIK, ModifyBone, Mirror, Inertialization, BlendList
+    (BlendType/TransitionType/BlendProfile/CustomBlendCurve) and LayeredBoneBlend BlendMasks/CurveBlendOption. Values: bones as
+    {"BoneName": "hand_r"} (validated against the skeleton), enums by name ("BCS_ComponentSpace", "BMM_Additive"), vectors/rotators as
+    {"X","Y","Z"}/{"Pitch","Yaw","Roll"}, nested structs as objects ({"bUseSocket": false, "BoneReference": {"BoneName": "hand_l"}}),
+    asset references as object paths (BlendProfile/BlendMask: get_anim_blueprint_info.skeleton_blend_profiles[].path; null clears). State internals (the state's bound graph,
     see state "bound_graph_guid") are edited with the ordinary ops via "graph"; its sink node is AnimGraphNode_StateResult with input pin "Result".
 """
 

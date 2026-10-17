@@ -117,7 +117,19 @@ namespace AnimMcpGraphMutator
 	/** ShowPinForProperties 에서 이름으로 인덱스. bCanToggleVisibility 가 아니면 거부 */
 	int32 FindOptionalPinIndex(UAnimGraphNode_Base* Node, FName Property, FAnimMcpError& OutError);
 
-	/** SetPinVisibility(ReconstructNode 포함). 이미 같은 상태면 false (no-op) */
+	/**
+	 * (7-4) UAnimGraphNode_CustomProperty::CustomPinProperties(protected UPROPERTY → 리플렉션) — LinkedAnimLayer/LinkedAnimGraph 노드가 대상 클래스의
+	 * 함수 값 파라미터를 옵션 핀으로 노출하는 목록 (AnimGraphNode_LinkedAnimLayer.cpp:676-726). 없는 노드면 null
+	 */
+	TArray<FOptionalPinFromProperty>* CustomPinsOf(UAnimGraphNode_Base* Node);
+
+	/** CustomPinProperties 에서 이름으로 인덱스 (없으면 INDEX_NONE, 오류 없음) */
+	int32 FindCustomPinIndex(UAnimGraphNode_Base* Node, FName Property);
+
+	/** expose_pin 사전 검증 — ShowPinForProperties 또는 CustomPinProperties 에 있으면 true */
+	bool HasOptionalPin(UAnimGraphNode_Base* Node, FName Property, FAnimMcpError& OutError);
+
+	/** SetPinVisibility(ReconstructNode 포함). (7-4) CustomPinProperties 핀도 — SetCustomPinVisibility 와 같은 동작(bShowPin + ReconstructNode). 이미 같은 상태면 false (no-op) */
 	bool SetPinVisible(UAnimGraphNode_Base* Node, FName Property, bool bVisible, FAnimMcpError& OutError, bool* bOutChanged = nullptr);
 
 	/** UseCachedPose → SaveCachedPose 연결 (NodeRef 규칙의 특수 처리). OutOld 롤백용 */

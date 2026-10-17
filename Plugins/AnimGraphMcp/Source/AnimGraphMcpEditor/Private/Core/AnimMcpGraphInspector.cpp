@@ -5,6 +5,8 @@
 #include "AnimGraphNode_SaveCachedPose.h"
 #include "AnimGraphNode_UseCachedPose.h"
 #include "AnimMcpAnimLayer.h"
+#include "AnimMcpGraphMutator.h"
+#include "AnimMcpMontage.h"
 #include "AnimMcpUpdateFunction.h"
 #include "AnimMcpVariables.h"
 #include "AnimMcpPropertyBinding.h"
@@ -119,6 +121,14 @@ namespace AnimMcpGraphInspector
 	void AppendEditableProperties(UEdGraphNode* Node, FString& Out)
 	{
 		UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node);
+		// (7-4) 커스텀 핀 노출 상태 — CustomPinProperties 는 EditAnywhere 가 아니라 아래 루프에 안 걸린다 (없으면 줄 없음 → 기존 revision 호환)
+		if (TArray<FOptionalPinFromProperty>* Custom = AnimMcpGraphMutator::CustomPinsOf(AnimNode))
+		{
+			for (const FOptionalPinFromProperty& Optional : *Custom)
+			{
+				Out += FString::Printf(TEXT("C|%s|%d\n"), *Optional.PropertyName.ToString(), Optional.bShowPin ? 1 : 0);
+			}
+		}
 		for (TFieldIterator<FProperty> It(Node->GetClass()); It; ++It)
 		{
 			FProperty* Property = *It;
@@ -416,6 +426,20 @@ namespace AnimMcpGraphInspector
 					}
 				}
 				OptionalPins.Add(MakeShared<FJsonValueObject>(O));
+			}
+			// (7-4) LinkedAnimLayer/LinkedAnimGraph 의 값 파라미터 핀 (CustomPinProperties) — expose_pin 으로 켜고 connect 로 값을 넣는다
+			if (TArray<FOptionalPinFromProperty>* Custom = AnimMcpGraphMutator::CustomPinsOf(AnimNode))
+			{
+				for (const FOptionalPinFromProperty& Optional : *Custom)
+				{
+					TSharedRef<FJsonObject> O = AnimMcpJson::MakeObject();
+					O->SetStringField(TEXT("property"), Optional.PropertyName.ToString());
+					O->SetBoolField(TEXT("shown"), Optional.bShowPin);
+					O->SetBoolField(TEXT("can_toggle"), Optional.bCanToggleVisibility);
+					O->SetBoolField(TEXT("bound"), false);
+					O->SetBoolField(TEXT("custom"), true);
+					OptionalPins.Add(MakeShared<FJsonValueObject>(O));
+				}
 			}
 			Obj->SetArrayField(TEXT("optional_pins"), OptionalPins);
 			Obj->SetBoolField(TEXT("has_binding"), bAnyBinding);
@@ -722,6 +746,8 @@ namespace AnimMcpGraphInspector
 			}
 			Info->SetArrayField(TEXT("skeleton_blend_profiles"), Profiles);
 		}
+		// (7-3) 스켈레톤의 슬롯 그룹 — Slot 노드 SlotName · set_montage_slots · add_skeleton_slot 의 대상
+		Info->SetArrayField(TEXT("skeleton_slot_groups"), AnimMcpMontage::SlotGroupsArray(Blueprint->TargetSkeleton));
 		Info->SetField(TEXT("preview_mesh"), AnimMcpJson::ObjectPathOrNull(Blueprint->GetPreviewMesh()));
 		Info->SetStringField(TEXT("blueprint_type"), StaticEnum<EBlueprintType>()->GetNameStringByValue(static_cast<int64>(Blueprint->BlueprintType)));
 		Info->SetStringField(TEXT("status"), StaticEnum<EBlueprintStatus>()->GetNameStringByValue(static_cast<int64>(Blueprint->Status)));

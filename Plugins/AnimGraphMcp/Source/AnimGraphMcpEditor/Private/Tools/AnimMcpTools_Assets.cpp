@@ -18,6 +18,7 @@
 #include "Core/AnimMcpBlueprintFactory.h"
 #include "Core/AnimMcpCompiler.h"
 #include "Core/AnimMcpGraphInspector.h"
+#include "Core/AnimMcpMontage.h"
 #include "Editor.h"
 #include "Misc/PackageName.h"
 #include "Subsystems/EditorAssetSubsystem.h"
@@ -55,7 +56,7 @@ namespace AnimMcpTools
 	void RegisterAssetTools(FAnimMcpDispatcher& Dispatcher)
 	{
 		Dispatcher.RegisterTool(TEXT("list_animation_assets"),
-			TEXT("List animation assets from the asset registry. Params: skeleton? (path; only assets for this skeleton), class? (AnimSequence|BlendSpace|AnimMontage|AnimComposite|all), path_prefix? (default /Game), limit? (default 200), details? (default false; loads each returned BlendSpace and adds axes/samples under 'blendspace')."),
+			TEXT("List animation assets from the asset registry. Params: skeleton? (path; only assets for this skeleton), class? (AnimSequence|BlendSpace|AnimMontage|AnimComposite|all), path_prefix? (default /Game), limit? (default 200), details? (default false; loads each returned asset: BlendSpace → axes/samples under 'blendspace', AnimMontage → slots/sections under 'montage', AnimSequence → 'additive_type')."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				const FString SkeletonPath = Context.Request.GetOptionalString(TEXT("skeleton"));
@@ -118,6 +119,26 @@ namespace AnimMcpTools
 							Item->SetObjectField(TEXT("blendspace"), AnimMcpBlendSpaceFactory::DescribeBlendSpace(BlendSpace));
 						}
 					}
+					// Phase 7-3: 몽타주 슬롯·섹션 요약 · 시퀀스 additive 타입(AimOffset 샘플 선별용 — 레지스트리 태그에 없다)
+					else if (bDetails && Data.IsInstanceOf(UAnimMontage::StaticClass()))
+					{
+						if (UAnimMontage* Montage = Cast<UAnimMontage>(Data.GetAsset()))
+						{
+							Item->SetObjectField(TEXT("montage"), AnimMcpMontage::DescribeMontage(Montage));
+						}
+					}
+					else if (bDetails && Data.IsInstanceOf(UAnimSequence::StaticClass()))
+					{
+						if (UAnimSequence* Sequence = Cast<UAnimSequence>(Data.GetAsset()))
+						{
+							Item->SetStringField(TEXT("additive_type"), StaticEnum<EAdditiveAnimationType>()->GetNameStringByValue(static_cast<int64>(Sequence->AdditiveAnimType)));
+							// additive 로 표시돼도 기준 포즈가 없으면 BlendSpace/AimOffset 샘플로 못 쓴다 (ADDITIVE_INVALID)
+							Item->SetBoolField(TEXT("additive_valid"), Sequence->AdditiveAnimType == AAT_None || Sequence->IsValidAdditive());
+							Item->SetStringField(TEXT("ref_pose_type"), StaticEnum<EAdditiveBasePoseType>()->GetNameStringByValue(static_cast<int64>(Sequence->RefPoseType)));
+							Item->SetField(TEXT("ref_pose_sequence"), AnimMcpJson::ObjectPathOrNull(Sequence->RefPoseSeq));
+							Item->SetNumberField(TEXT("length"), Sequence->GetPlayLength());
+						}
+					}
 					Items.Add(MakeShared<FJsonValueObject>(Item));
 				}
 
@@ -170,7 +191,7 @@ namespace AnimMcpTools
 		// ---- Phase 6-3 BlendSpace ----------------------------------------------------------------------------------
 
 		Dispatcher.RegisterTool(TEXT("create_blendspace"),
-			TEXT("Create a BlendSpace (dimensions=2) or BlendSpace1D (dimensions=1) asset. Params: asset_path, skeleton, dimensions (1|2), axes [{name, min, max, grid?=4, snap?=false, wrap?=false}] (one per dimension), samples? [{animation (AnimSequence path), value [x] | [x, y]}], preview_mesh?, overwrite? (default false; refused for protected assets), save? (default false). Samples outside the axis range, at duplicate positions, on an incompatible skeleton or with mixed additive types are refused before anything is created."),
+			TEXT("Create a BlendSpace (dimensions=2) or BlendSpace1D (dimensions=1) asset — or an AimOffset (aim_offset=true → AimOffsetBlendSpace/1D; samples must be Mesh Space additive, ADDITIVE_TYPE otherwise). Params: asset_path, skeleton, dimensions (1|2), axes [{name, min, max, grid?=4, snap?=false, wrap?=false}] (one per dimension), samples? [{animation (AnimSequence path), value [x] | [x, y]}], aim_offset? (default false), preview_mesh?, overwrite? (default false; refused for protected assets), save? (default false). Samples outside the axis range, at duplicate positions, on an incompatible skeleton or with mixed additive types are refused before anything is created."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				AnimMcpBlendSpaceFactory::FCreateParams Params;

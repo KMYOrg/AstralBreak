@@ -50,22 +50,29 @@ bAutoStart=True            ; 에디터 기동 시 리스너 시작. 콘솔 AnimG
 - `diagnostics[]` 는 성공 응답에도 붙는 경고(`{level, code, message}`).
 - 긴 작업은 동기입니다(에디터 프레임을 잡습니다). 클라이언트 타임아웃은 기본 60초, 컴파일을 포함하면 180초를 권장합니다.
 
-## Tool (20개)
+## Tool (27개)
 
 Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 | Tool | 입력 | 하는 일 |
 | :--- | :--- | :--- |
 | `get_editor_status` | — | 토큰 면제. 엔진·프로젝트·PIE·포트·Tool 목록·`process_id`·보호 목록·`dirty_package_count` |
-| `get_anim_blueprint_info` | `asset_path` | `revision`, `parent_class`, `target_skeleton`, `graphs[]`, `variables[]`(규칙 `var`·`bind_pin` 대상; BP 변수는 `declaration`), `linked_anim_layers[]`, `implemented_interfaces[]`, `layers[]`, `update_function`, `skeleton_blend_profiles[]` |
+| `get_anim_blueprint_info` | `asset_path` | `revision`, `parent_class`, `target_skeleton`, `graphs[]`, `variables[]`(규칙 `var`·`bind_pin` 대상; BP 변수는 `declaration`), `linked_anim_layers[]`, `implemented_interfaces[]`, `layers[]`, `update_function`, `skeleton_blend_profiles[]`, `skeleton_slot_groups[{group, slots[]}]` |
 | `get_anim_graph_structure` | `asset_path, graph_guid?, depth=1` | 그래프 트리·노드·핀·연결·허용 목록 프로퍼티·바인딩·`state_machines[]` 뷰. `depth 0` = 그 그래프만, `-1` = 전부 |
-| `list_animation_assets` | `skeleton?, asset_class=all, path_prefix=/Game, limit=200, details=false` | AnimSequence·BlendSpace·AnimMontage·AnimComposite 목록. `details` 면 BlendSpace 축·샘플 요약 |
+| `list_animation_assets` | `skeleton?, asset_class=all, path_prefix=/Game, limit=200, details=false` | AnimSequence·BlendSpace·AnimMontage·AnimComposite 목록. `details` 면 로드해서 BlendSpace → `blendspace{}`(축·샘플·`aim_offset`), AnimMontage → `montage{}`(슬롯·섹션·`skeleton_slot_groups`), AnimSequence → `additive_type`·`additive_valid`·`ref_pose_type`·`ref_pose_sequence`·`length` |
 | `create_animation_blueprint` | `asset_path, skeleton, parent_class, preview_mesh?, overwrite=false` | 루트 AnimGraph 만 있는 ABP 생성. `overwrite` 는 기존 애셋 삭제 |
 | `duplicate_animation_blueprint` | `source_path, dest_path, overwrite=false, preserve_node_guids=true, save=false` | 노드 Guid 를 보존한 복제 |
 | `delete_animation_blueprint` | `asset_path, confirm(true 필수), force=false` | AnimBP 만. 다른 애셋이 참조하면 `force` 없이는 `ASSET_REFERENCED` |
-| `create_blendspace` | `asset_path, skeleton, dimensions 1\|2, axes[{name,min,max,grid=4,snap,wrap}], samples?[{animation, value}], preview_mesh?, overwrite, save` | BlendSpace1D / BlendSpace 생성. 샘플은 생성 전 전부 검증(범위·중복·스켈레톤·additive) |
-| `create_anim_layer_interface` | `asset_path, layers[{name, group?, input_poses?[]}], overwrite, save` | Anim Layer Interface 애셋 + 레이어 그래프. 항상 컴파일 |
-| `implement_anim_layer_interface` | `asset_path, interface, compile=true, save` | ABP 가 인터페이스 구현 → 레이어 그래프(Root + 입력 포즈) 자동 생성 |
+| `create_blendspace` | `asset_path, skeleton, dimensions 1\|2, axes[{name,min,max,grid=4,snap,wrap}], samples?[{animation, value}], aim_offset=false, preview_mesh?, overwrite, save` | BlendSpace1D / BlendSpace 생성, `aim_offset` 면 AimOffsetBlendSpace1D / AimOffsetBlendSpace(샘플은 Mesh Space additive 만 — `ADDITIVE_TYPE`). 샘플은 생성 전 전부 검증(범위·중복·스켈레톤·additive 일치·기준 포즈 유무 `ADDITIVE_INVALID`) |
+| `create_anim_montage` | `asset_path, animation, slot?=DefaultSlot, blend_in?, blend_out?, preview_mesh?, overwrite, save` | AnimSequence 하나로 몽타주 생성(트랙 1·세그먼트 1·섹션 `Default`@0). 스켈레톤·길이는 시퀀스를 따름. 슬롯은 스켈레톤에 등록돼 있어야 함(`SLOT_NOT_IN_SKELETON`). 노티파이는 범위 밖 |
+| `set_montage_slots` | `asset_path, slots[{index?, slot} \| "name"], save` | 슬롯 트랙 이름 변경(전부 검증 뒤 적용). 스켈레톤에 없는 이름 거부(`SLOT_NOT_IN_SKELETON`, details 에 `slot_groups`), 트랙 이름 중복 거부(`DUPLICATE_SLOT`). 노티파이·섹션은 트랙 인덱스로 링크돼 유지. 같은 이름 = `unchanged` |
+| `set_montage_sections` | `asset_path, sections[{name, start, next?}], save` | 섹션 목록 **전체 교체**(시작 시간 순 정렬). `next` 생략/null = 섹션 끝에서 정지, 자기 이름 = 루프. 이름 중복·길이 밖·없는 next·빈 목록 거부. 같은 목록 재적용 = `unchanged`. 첫 섹션이 0 이 아니면 경고 `NO_SECTION_AT_ZERO` |
+| `add_skeleton_slot` | `skeleton, slot, group?=DefaultGroup, confirm(true 필수), save` | 스켈레톤에 슬롯 등록(그룹 없으면 생성, 다른 그룹에 있으면 이동). 슬롯·그룹은 같은 이름 공간(`SLOT_IS_GROUP`·`GROUP_IS_SLOT`). 응답 `added, moved_from, group_created, unchanged, slot_groups[]`. `save` 없으면 에디터 종료 시 사라짐 |
+| `create_anim_layer_interface` | `asset_path, layers[{name, group?, input_poses?["Name" \| {name, inputs?[{name, type}]}]}], overwrite, save` | Anim Layer Interface 애셋 + 레이어 그래프(+ 값 파라미터 `inputs`). 항상 컴파일 |
+| `implement_anim_layer_interface` | `asset_path, interface, compile=true, save` | ABP 가 인터페이스 구현 → 레이어 그래프(Root + 입력 포즈 + 값 핀) 자동 생성 |
+| `set_layer_inputs` | `asset_path, layer, input_pose?, inputs[{name, type}], compile=true, save, conform_implementers=true` | 레이어의 Input Pose 노드 값 파라미터 **전체 교체**(인터페이스 레이어·ABP 자체 레이어만; 구현 그래프는 `NOT_EDITABLE`). 입력 포즈 없는 레이어는 `NO_INPUT_POSE`. 같은 목록 = `unchanged`. 인터페이스면 참조 ABP 를 conform·컴파일 → `implementers[]` |
+| `add_anim_layers` | `asset_path, layers[…], compile=true, save, conform_implementers=true` | 인터페이스 레이어 또는 ABP 자체 레이어 그래프 추가(이름 충돌 전부 선검증) |
+| `remove_anim_layers` | `asset_path, layers[names], force=false, compile=true, save, conform_implementers=true` | 레이어 그래프 삭제. 인터페이스면 참조 ABP 의 채워진 구현 그래프·LinkedAnimLayer 노드 사용을 `usage[]` 로 보고하고 `force` 없이는 `LAYER_IN_USE_BY` |
 | `preview_graph_operations` | `asset_path, operations[]` | 그래프 불변. `valid`, `planned[{index, op, ok, error?, note?}]` |
 | `apply_graph_operations` | `asset_path, operations[], expected_revision?, compile=false, save=false` | 전체 사전 검증 → 트랜잭션 → 실패 시 롤백(`rollback_verified`). 응답 `refs`, `revision_before/after`, `operations[]`, `compile`, `saved` |
 | `compile_animation_blueprint` | `asset_path, save_on_success=false` | `num_errors`, `num_warnings`, `messages[{level, text, node_guid, graph_guid}]` |
@@ -79,7 +86,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 새 Tool 은 Claude Code **세션을 다시 시작해야** MCP 목록에 보입니다(HTTP 로는 바로 호출 가능).
 
-## op 사전 (19종) — `preview_graph_operations` / `apply_graph_operations` 의 `operations[]`
+## op 사전 (20종) — `preview_graph_operations` / `apply_graph_operations` 의 `operations[]`
 
 노드 참조: `{"node": "<guid>"}` · `{"ref": "<같은 배치 앞 add_* 의 ref>"}` · `"<guid>"` · `{"result_of": {node|ref}}`(상태의 StateResult 노드). 핀은 이름. `add_node.graph`: 생략 = 루트 AnimGraph · `"<graph_guid>"` · `{node|ref}`(상태 → 그 포즈 그래프).
 
@@ -106,6 +113,9 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | `set_alias_states` | `node\|ref, states\|global` | |
 | `rename_node` | `node\|ref, name` | 상태·conduit·alias·상태머신. 엔진 이름 검증기 통과 필요 |
 | `set_linked_layer` | `node\|ref, layer` | 레이어 재지정. 입력 포즈 핀에 링크가 있으면 `PINS_LINKED`(먼저 `disconnect`) |
+| `set_layer_instance_class` | `node\|ref, instance_class: 경로 \| null` | 인터페이스 레이어 노드를 다른 구현 ABP 인스턴스로(Lyra 무기별 공급자). AnimBP 애셋 경로 또는 `_C` 클래스. `SELF_LAYER`·`NOT_IMPLEMENTING`·`SELF_CLASS`·`INCOMPATIBLE`·`PINS_LINKED`(링크된 값 핀). null = 자기 구현으로 복귀 |
+
+`expose_pin` 은 LinkedAnimLayer/LinkedAnimGraph 노드의 **값 파라미터 핀**(조회 `optional_pins[].custom=true`)도 켜고 끕니다. 켠 핀에 `connect` 로 값을 넣습니다(`bind_pin` 은 범위 밖).
 
 **`set_property` 허용 목록** (노드의 `properties` 조회가 곧 목록입니다): SequencePlayer `bLoopAnimation, PlayRate, StartPosition, PlayRateBasis, GroupName, GroupRole, Method, bStartFromMatchingPose` · BlendSpacePlayer·AimOffset(RotationOffsetBlendSpace) `bLoop, PlayRate, StartPosition, X, Y, bResetPlayTimeWhenBlendSpaceChanges, GroupName, GroupRole, Method` + AimOffset `Alpha, LODThreshold, AlphaInputType, bAlphaBoolEnabled, AlphaCurveName, AlphaScaleBias, AlphaScaleBiasClamp, AlphaBoolBlend` · SequenceEvaluator `ExplicitTime, bUseExplicitFrame, ExplicitFrame, bShouldLoop, bTeleportToExplicitTime, ReinitializationBehavior, StartPosition, GroupName, GroupRole, Method` · ApplyAdditive · TwoBoneIK · ModifyBone(공통 `Alpha, LODThreshold, AlphaInputType, bAlphaBoolEnabled, AlphaCurveName, AlphaScaleBias, AlphaScaleBiasClamp, AlphaBoolBlend`) · TwoBoneIK `IKBone, EffectorLocation, EffectorLocationSpace, EffectorTarget, JointTargetLocation, JointTargetLocationSpace, JointTarget, bAllowStretching, StartStretchRatio, MaxStretchScale, bTakeRotationFromEffectorSpace, bMaintainEffectorRelRot, bAllowTwist, TwistAxis` · ModifyBone `BoneToModify, Translation, Rotation, Scale, TranslationMode, RotationMode, ScaleMode, TranslationSpace, RotationSpace, ScaleSpace` · Mirror `bMirror, MirrorDataTable, BlendTime, bResetChild, bBoneMirroring, bCurveMirroring, bAttributeMirroring` · Inertialization `DefaultBlendProfile, FilteredCurves, FilteredBones, bResetOnBecomingRelevant, bForwardRequestsThroughSkippedCachedPoseNodes` · Slot `SlotName, bAlwaysUpdateSourcePose` · SaveCachedPose `CacheName` · UseCachedPose `SaveCachedPoseNode`(노드 참조) · LayeredBoneBlend `bMeshSpaceRotationBlend, bMeshSpaceScaleBlend, bBlendRootMotionBasedOnRootBone, LODThreshold, BlendMode, LayerSetup, BlendMasks, CurveBlendOption, bRootSpaceRotationBlend` · BlendList `BlendTime[], TransitionType, BlendType, ChildUpateMode, CustomBlendCurve, BlendProfile` · BlendListByEnum `BoundEnum` · 전이 `CrossfadeDuration, PriorityOrder, BlendMode, Bidirectional, bDisabled, bAutomaticRuleBasedOnSequencePlayerInState, AutomaticRuleTriggerTime` · 상태 `bAlwaysResetOnEntry`. 목록 밖 프로퍼티는 `PROPERTY_NOT_ALLOWED`.
 
@@ -151,14 +161,16 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 ## 검증 — 스모크 테스트
 
-`run_automation_tests {"filter": "AnimGraphMcp.Smoke"}` 는 `SmokeTestPaths` 아래 **모든 AnimBP 를 애셋마다 테스트 하나**로 엽니다(`AnimGraphMcp.Smoke.AnimBlueprint.<이름>`): 컴파일 0 에러 · 루트 Output Pose 연결 · 빈 상태(StateResult 미연결) · 끊긴 UseCachedPose · 무효 Linked Anim Layer. 레이어 제공자 ABP(인터페이스 구현만 하고 루트를 쓰지 않는 Lyra 식)의 빈 루트와 빈 레이어 구현은 **경고**입니다. 프로젝트 자체 Automation 테스트도 같은 Tool 로 돌릴 수 있습니다.
+`run_automation_tests {"filter": "AnimGraphMcp.Smoke"}` 는 `SmokeTestPaths` 아래 **모든 AnimBP 를 애셋마다 테스트 하나**로 엽니다(`AnimGraphMcp.Smoke.AnimBlueprint.<이름>`): 컴파일 0 에러 · 루트 Output Pose 연결 · 빈 상태(StateResult 미연결) · 끊긴 UseCachedPose · 무효 Linked Anim Layer. 레이어 제공자 ABP(인터페이스 구현만 하고 루트를 쓰지 않는 Lyra 식)의 빈 루트와 빈 레이어 구현은 **경고**입니다.
+
+같은 경로의 **모든 AnimMontage** 도 애셋마다 하나(`AnimGraphMcp.Smoke.AnimMontage.<이름>`): 슬롯이 스켈레톤에 등록됨(오류) · 섹션 존재·시작 시간 범위·Next 존재(오류) · 첫 섹션 0 시작(경고) · 호환 스켈레톤의 AnimBP 에 그 이름의 Slot 노드가 있음(경고 — 없으면 어느 그래프에서도 재생되지 않을 수 있음). 프로젝트 자체 Automation 테스트도 같은 Tool 로 돌릴 수 있습니다.
 
 ## 제약 (설계상 범위 밖)
 
 - **임의의 EventGraph 편집은 다루지 않습니다.** BP 변수 추가와 `BlueprintThreadSafeUpdateAnimation` 의 "변수 ← 식" 대입 사슬까지가 범위이고, 분기·루프·이벤트·임의 K2 노드는 만들지 않습니다. 복잡한 상태 판정은 C++ AnimInstance 에 두는 것을 권합니다.
 - 전이 규칙의 `call` 은 화이트리스트 함수만, `set_property` 는 허용 목록 프로퍼티만입니다. 허용 목록 밖 노드(Control Rig·PoseDriver·RigidBody·AnimDynamics·Motion Matching 등)는 생성·연결은 되지만 세부 설정은 못 합니다. 필요하면 `Core/AnimMcpPropertyRules.cpp` 의 표에 한 줄씩 더합니다.
-- Linked Anim Layer 는 포즈 입력만(값 파라미터·`InstanceClass` 지정·기존 인터페이스에 레이어 추가/삭제 없음).
-- 생성하는 콘텐츠 애셋은 BlendSpace 뿐입니다. 몽타주·노티파이·싱크 그룹·블렌드 프로파일·스켈레톤 슬롯은 범위 밖입니다.
+- Linked Anim Layer 의 값 파라미터는 **Input Pose 노드에 붙습니다**(엔진 구조) — 입력 포즈 없는 레이어는 값 파라미터를 가질 수 없습니다. 자식 Animation Blueprint 가 부모의 레이어를 오버라이드하는 그래프 생성은 범위 밖입니다. 인터페이스 변경 뒤 구현 ABP 동기화는 AssetRegistry 참조자(디스크에 저장된 ABP) 기준입니다.
+- 생성하는 콘텐츠 애셋은 BlendSpace·AimOffset·몽타주(시퀀스 1개, 슬롯·섹션)입니다. **노티파이**(프로젝트별 클래스)·몽타주 다중 세그먼트·블렌드 프로파일·싱크 마커는 범위 밖입니다. 스켈레톤 편집은 슬롯 등록(`add_skeleton_slot`, `confirm` 필수)뿐입니다.
 - 검증은 구조 검사까지입니다. 실제 포즈는 PIE 에서 사람이 봅니다.
 - 한 포트에 에디터 하나. PIE 중이거나 모달 작업(`GIsSlowTask`) 중에는 Automation 테스트가 시작되지 않습니다.
 - `/Game/...` 인자를 Git Bash 에서 넘길 때는 `MSYS_NO_PATHCONV=1`.
@@ -178,7 +190,7 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpTransitionRule   규칙 AST → K2 그래프 · 주석 원문/해시
             AnimMcpPropertyRules    set_property 허용 목록 · JSON ↔ ImportText
             AnimMcpPropertyBinding  핀 Property Binding(리플렉션 · IPropertyAccessEditor)
-            AnimMcpAnimLayer        레이어 인터페이스 생성 · 구현 · 레이어 노드
+            AnimMcpAnimLayer        레이어 인터페이스 생성 · 구현 · 레이어 노드 · 값 파라미터 · InstanceClass · 레이어 추가/삭제 · 구현 ABP 동기화
             AnimMcpBlendSpaceFactory  BlendSpace 1D/2D 생성
             AnimMcpBlueprintFactory ABP 생성   AnimMcpCompiler  컴파일·저장
             AnimMcpAssetProtection  보호 목록   AnimMcpAssetOps  삭제·복제·참조자
@@ -186,8 +198,9 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpPropertyAccessNode  UK2Node_PropertyAccess 리플렉션(엔진 플러그인의 비공개 노드)
             AnimMcpVariables        BP 멤버 변수 추가·삭제 · 타입 문자열
             AnimMcpUpdateFunction   BlueprintThreadSafeUpdateAnimation 함수 그래프 생성·재생성
-  Tests/    AnimMcpSmokeTests.cpp    AnimGraphMcp.Smoke.AnimBlueprint
-  Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음)
+            AnimMcpMontage          몽타주 생성(시퀀스 1개) · 슬롯 이름 · 섹션 전체 교체 · 스켈레톤 슬롯 등록 · 조회
+  Tests/    AnimMcpSmokeTests.cpp    AnimGraphMcp.Smoke.AnimBlueprint · AnimGraphMcp.Smoke.AnimMontage
+  Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음; Montage = 몽타주·스켈레톤 슬롯 4종)
 ```
 
 규칙: Inspector 는 쓰지 않고, Mutator 는 트랜잭션 밖에서 호출되지 않습니다. 같은 `FJsonObject` 를 두 컨테이너에 넣지 않습니다(순환 → 직렬화 무한 재귀).

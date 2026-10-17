@@ -20,7 +20,7 @@ namespace AnimMcpTools
 	/** 에디터 프로세스 (quit_editor) */
 	void RegisterEditorTools(FAnimMcpDispatcher& Dispatcher);
 
-	/** Linked Anim Layer (create_anim_layer_interface, implement_anim_layer_interface) — Phase 6-4b */
+	/** Linked Anim Layer (create_anim_layer_interface, implement_anim_layer_interface) — Phase 6-4b · (set_layer_inputs, add_anim_layers, remove_anim_layers) — Phase 7-4 */
 	void RegisterLayerTools(FAnimMcpDispatcher& Dispatcher);
 
 	/** Automation 테스트 (run_automation_tests, poll_automation_tests) — Phase 6-5 */
@@ -28,6 +28,9 @@ namespace AnimMcpTools
 
 	/** BP 변수 · 업데이트 함수 (add_blueprint_variable, remove_blueprint_variable, set_update_function) — Phase 7-1 */
 	void RegisterVariableTools(FAnimMcpDispatcher& Dispatcher);
+
+	/** 몽타주 콘텐츠 (create_anim_montage, set_montage_slots, set_montage_sections, add_skeleton_slot) — Phase 7-3 */
+	void RegisterMontageTools(FAnimMcpDispatcher& Dispatcher);
 
 	/** 그래프 변경 (preview_graph_operations, apply_graph_operations) */
 	void RegisterGraphTools(FAnimMcpDispatcher& Dispatcher);

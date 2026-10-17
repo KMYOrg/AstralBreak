@@ -1,28 +1,28 @@
 {
- "revision": "sha1:2bd20b260af95939dfc080eb58a53f4b12cd907b",
+ "revision": "sha1:feea02d52a993aa717f0d223002ae09452ad6d36",
  "nodes": [
-  "116E29BA4447DA5373B1CAAE8BFAF07F",
-  "3293E6EC40623644804901BE3BDE092E",
-  "3387BA684F48C920FC7E48A4B0697C21",
-  "3CC5F01C46F03088BC3CC5A049C1D281",
-  "47B75B9644BE3969E766449249BD61A3",
-  "722223DC4EB119FA182F99B466293C31",
-  "7678BBC8475B61063BD81CA206BA0A65",
-  "79C79EAA492B7B22888D7BB4696D4F6C",
-  "8E121B8B43669C92D7EA46A95F173C49",
-  "9A520ADD4FA1F04AECA7AE928552B6B4",
-  "AC9F180A4E3769009114159BE72D66BE",
-  "F941458A4C02B3BF9B24EF825AEBA5FF"
+  "3AC0E11E4991CF708270D1B0295C4C9A",
+  "3C96181042DBA127AF573480E92330AD",
+  "3F7FC4D045A137369D4ABA9B806DAE6C",
+  "45F6FF294E05A02C9E15DAA28E1C5780",
+  "66F67F7646368AB686FFDD9625B88C1F",
+  "69A5568F423FD5F7E4896EA6F36C4867",
+  "775679404582E9B98FB9949E33BDA510",
+  "A1F474FD4A495EBC86FAE78EEC4D1BA1",
+  "AFE0976642E16FE0D7BECDAD34DE0215",
+  "CB36395C4BF7BEC31368038C75656CF5",
+  "D7EA589B472CD339E0B7E9BB00333E24",
+  "E5AA0F2D4F019EF087275A9CE937D2E9"
  ],
  "connections": [
-  "{\"from\": {\"node\": \"3387BA684F48C920FC7E48A4B0697C21\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"722223DC4EB119FA182F99B466293C31\", \"pin\": \"Source\"}}",
-  "{\"from\": {\"node\": \"722223DC4EB119FA182F99B466293C31\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"AC9F180A4E3769009114159BE72D66BE\", \"pin\": \"Result\"}}",
-  "{\"from\": {\"node\": \"8E121B8B43669C92D7EA46A95F173C49\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"3387BA684F48C920FC7E48A4B0697C21\", \"pin\": \"BlendPose_0\"}}",
-  "{\"from\": {\"node\": \"F941458A4C02B3BF9B24EF825AEBA5FF\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"3387BA684F48C920FC7E48A4B0697C21\", \"pin\": \"BlendPose_1\"}}"
+  "{\"from\": {\"node\": \"3C96181042DBA127AF573480E92330AD\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"66F67F7646368AB686FFDD9625B88C1F\", \"pin\": \"BlendPose_1\"}}",
+  "{\"from\": {\"node\": \"45F6FF294E05A02C9E15DAA28E1C5780\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"66F67F7646368AB686FFDD9625B88C1F\", \"pin\": \"BlendPose_0\"}}",
+  "{\"from\": {\"node\": \"66F67F7646368AB686FFDD9625B88C1F\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"775679404582E9B98FB9949E33BDA510\", \"pin\": \"Source\"}}",
+  "{\"from\": {\"node\": \"775679404582E9B98FB9949E33BDA510\", \"pin\": \"Pose\"}, \"to\": {\"node\": \"A1F474FD4A495EBC86FAE78EEC4D1BA1\", \"pin\": \"Result\"}}"
  ],
  "properties": {
-  "AC9F180A4E3769009114159BE72D66BE": {},
-  "8E121B8B43669C92D7EA46A95F173C49": {
+  "A1F474FD4A495EBC86FAE78EEC4D1BA1": {},
+  "45F6FF294E05A02C9E15DAA28E1C5780": {
    "bLoopAnimation": true,
    "PlayRate": 2,
    "StartPosition": 0.10000000149011612,
@@ -32,7 +32,7 @@
    "Method": "DoNotSync",
    "bStartFromMatchingPose": false
   },
-  "F941458A4C02B3BF9B24EF825AEBA5FF": {
+  "3C96181042DBA127AF573480E92330AD": {
    "bLoopAnimation": true,
    "PlayRate": 1,
    "StartPosition": 0,
@@ -42,7 +42,7 @@
    "Method": "DoNotSync",
    "bStartFromMatchingPose": false
   },
-  "79C79EAA492B7B22888D7BB4696D4F6C": {
+  "AFE0976642E16FE0D7BECDAD34DE0215": {
    "bLoopAnimation": true,
    "PlayRate": 1,
    "StartPosition": 0,
@@ -52,7 +52,7 @@
    "Method": "DoNotSync",
    "bStartFromMatchingPose": false
   },
-  "3387BA684F48C920FC7E48A4B0697C21": {
+  "66F67F7646368AB686FFDD9625B88C1F": {
    "BlendTime": [
     0.10000000149011612,
     0.10000000149011612
@@ -63,10 +63,10 @@
    "CustomBlendCurve": null,
    "BlendProfile": null
   },
-  "7678BBC8475B61063BD81CA206BA0A65": {
+  "3F7FC4D045A137369D4ABA9B806DAE6C": {
    "CacheName": "McpCache"
   },
-  "3CC5F01C46F03088BC3CC5A049C1D281": {
+  "69A5568F423FD5F7E4896EA6F36C4867": {
    "bMeshSpaceRotationBlend": false,
    "bMeshSpaceScaleBlend": false,
    "bBlendRootMotionBasedOnRootBone": true,
@@ -84,7 +84,7 @@
    "CurveBlendOption": "Override",
    "bRootSpaceRotationBlend": false
   },
-  "116E29BA4447DA5373B1CAAE8BFAF07F": {
+  "CB36395C4BF7BEC31368038C75656CF5": {
    "BoundEnum": "/Script/Engine.EAlphaBlendOption",
    "VisibleEnumEntries": [
     "EAlphaBlendOption::Linear"
@@ -99,8 +99,8 @@
    "CustomBlendCurve": null,
    "BlendProfile": null
   },
-  "9A520ADD4FA1F04AECA7AE928552B6B4": {},
-  "3293E6EC40623644804901BE3BDE092E": {
+  "E5AA0F2D4F019EF087275A9CE937D2E9": {},
+  "3AC0E11E4991CF708270D1B0295C4C9A": {
    "bLoop": true,
    "PlayRate": 0.5,
    "StartPosition": 0,
@@ -111,10 +111,10 @@
    "GroupRole": "CanBeLeader",
    "Method": "DoNotSync"
   },
-  "722223DC4EB119FA182F99B466293C31": {
+  "775679404582E9B98FB9949E33BDA510": {
    "SlotName": "UpperBody",
    "bAlwaysUpdateSourcePose": false
   },
-  "47B75B9644BE3969E766449249BD61A3": {}
+  "D7EA589B472CD339E0B7E9BB00333E24": {}
  }
 }

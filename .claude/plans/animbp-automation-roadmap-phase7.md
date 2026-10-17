@@ -12,18 +12,18 @@
 | :--- | :---: | :--- |
 | 스켈레톤·애니 애셋 목록 파악 | ✅ | `list_animation_assets {skeleton, details}` |
 | ABP 생성(부모 클래스·스켈레톤·프리뷰 메시) | ✅ | `create_animation_blueprint` |
-| 로코모션 BlendSpace 생성 | ✅ | `create_blendspace` 1D/2D (AimOffset 은 ❌ → §3) |
+| 로코모션 BlendSpace 생성 | ✅ | `create_blendspace` 1D/2D · AimOffset 은 `aim_offset:true`(§3 완료, 7-3) |
 | 루트 그래프(캐시·슬롯·레이어드 블렌드·블렌드 리스트) | ✅ | op 사전 |
 | 상태머신(상태·전이·규칙·conduit·alias) | ✅ | 운영 애셋 1:1 재현 실증 |
 | 전이 규칙의 조건 변수 | ✅ | §1 완료(7-1, 2026-10-17) — `add_blueprint_variable` 로 BP 변수, 규칙 `access` 로 폰·컴포넌트 값 직접, `set_update_function` 으로 매 프레임 계산·저장 |
-| Lyra 식 레이어(인터페이스·구현·레이어 노드) | ✅ | 포즈 입력만. 값 파라미터 ❌ → §4 |
-| 공격·피격 몽타주와 슬롯 | 🔶 | 슬롯 노드는 ✅, **몽타주·노티파이·스켈레톤 슬롯 생성 ❌** → §3 |
+| Lyra 식 레이어(인터페이스·구현·레이어 노드) | ✅ | §4 완료(7-4, 2026-10-17) — 값 파라미터(`set_layer_inputs`) · `InstanceClass`(op `set_layer_instance_class`) · 레이어 추가/삭제(`add/remove_anim_layers`, 구현 ABP 자동 동기화). 자식 ABP 오버라이드만 ❓ |
+| 공격·피격 몽타주와 슬롯 | ✅ | §3 완료(7-3, 2026-10-17) — `create_anim_montage`(시퀀스 1개 → 몽타주) · `set_montage_slots` · `set_montage_sections` · `add_skeleton_slot`. **노티파이만** 프로젝트 Python 파이프라인(`ab_montage.py`) |
 | IK·본 수정·Additive·Mirror 노드 설정 | ✅ | §2 완료(7-2, 2026-10-17) — AimOffset·SequenceEvaluator·ApplyAdditive·TwoBoneIK·ModifyBone·Mirror·Inertialization·BlendList·BlendMasks·싱크 그룹, 본 이름·스켈레톤 검증 |
 | 컴파일·구조 검증 | ✅ | `compile` + `run_automation_tests "AnimGraphMcp.Smoke"` |
 | 실제 포즈가 맞는지 | ❌ | 사람이 PIE 로 → §5 |
 | 적마다 다른 스켈레톤 | 🔶 | 도구는 스켈레톤 무관. **리타게팅은 범위 밖**(IK Retargeter 는 별도 에디터 기능) |
 
-결론: **구조는 도구만으로 세울 수 있고, "조건 변수 · 공격 콘텐츠 · 세부 노드 설정 · 런타임 확인" 네 곳에서 사람이 남는다.** 아래 §1~§5 가 그 네 곳을 메우는 순서다.
+결론: **구조는 도구만으로 세울 수 있고, "조건 변수 · 공격 콘텐츠 · 세부 노드 설정 · 런타임 확인" 네 곳에서 사람이 남는다.** 아래 §1~§5 가 그 네 곳을 메우는 순서다. (2026-10-17: §1·§2·§3·§4 완료 — 남은 것은 §5 런타임 확인, 자식 ABP 오버라이드 ❓, 그리고 노티파이·애니 자체·수치 튜닝.)
 
 ---
 
@@ -62,7 +62,9 @@
 
 ---
 
-## 3. 콘텐츠 애셋 — AimOffset · 몽타주 슬롯/섹션 · 스켈레톤 슬롯 (기존 Python 몽타주 파이프라인은 유지)
+## 3. 콘텐츠 애셋 — AimOffset · 몽타주 슬롯/섹션 · 스켈레톤 슬롯 (기존 Python 몽타주 파이프라인은 유지) ← ✅ 7-3 완료 (2026-10-17)
+
+> 구현 결과(사용자 확정 4건): 계획과 다른 점 — **`create_anim_montage` 를 최소형으로 추가**(시퀀스 1개 → 몽타주; 프로젝트 의존 0, 노티파이는 계속 Python) · AimOffset 은 새 Tool 이 아니라 **`create_blendspace {aim_offset:true}`** · `set_montage_slots` 는 스켈레톤에 없는 슬롯을 **거부**(자동 등록 안 함) · `add_skeleton_slot` 은 `confirm:true` 필수 · 스모크 `AnimGraphMcp.Smoke.AnimMontage` 추가. 실측(스켈레톤 2개 · `AS_Hero_AO_RifleCC` 기준 포즈 없음 · 6-3 실패 경로 결함)은 phase1 "Phase 7-3 결과".
 
 **이미 있는 것 (2026-10-17 확인)** — 몽타주·노티파이는 이 프로젝트에 **별도의 검증된 파이프라인**이 있다: `Tools/lib/ab_montage.py`(에디터 안 Python, `unreal.AnimationLibrary`) + JSON 스펙(`Tools/data/montages.json`·`facing_warp.json`·`input_facing.json`·`pawn_collision.json`) + `Tools/scripts/build_montages.py`·`lockon_apply_*.py` 를 `Tools/ue_exec.py`(Python 원격 실행)로 돌린다. 몽타주 생성·블렌드·노티파이/노티파이 스테이트·트랙·프로젝트 전용 클래스(GameplayEvent 창·MotionWarping·PawnCollisionPolicy·InputFacing 의 modifier 서브오브젝트 설정)·멱등 재적용·덤프 검증까지 된다. **이것을 MCP 로 다시 만들지 않는다** — 노티파이 클래스와 modifier 설정은 프로젝트 고유라 범용 플러그인에 넣으면 6-6 의 범용화와 충돌하고, Python 쪽이 이미 실측 검증돼 있다.
 
@@ -85,7 +87,9 @@
 
 ---
 
-## 4. Linked Layer 값 파라미터 · InstanceClass · 인터페이스 레이어 추가/삭제
+## 4. Linked Layer 값 파라미터 · InstanceClass · 인터페이스 레이어 추가/삭제 ← ✅ 7-4 완료 (2026-10-17, 자식 오버라이드 제외)
+
+> 구현 결과(사용자 확정 4건): 값 파라미터는 **Input Pose 노드의 Inputs 전체 교체** `set_layer_inputs`(엔진 구조상 입력 포즈 없는 레이어는 값 파라미터 불가) · 인터페이스 레이어 삭제는 구현 ABP 가 쓰면 거부·`force` · 인터페이스 변경 뒤 참조 ABP 자동 conform·재컴파일(`implementers[]`) · InstanceClass 는 op `set_layer_instance_class` · 구현 ABP 의 값 핀은 `optional_pins[custom:true]` + `expose_pin` + `connect`. **자식 ABP 오버라이드는 제외** — 에디터 "Override" 가 K2 UEdGraph 를 만드는 경로(SMyBlueprint.cpp:2877)만 확인됐고 애니 레이어용 생성 경로는 ❓. 상세는 phase1 "Phase 7-4 결과".
 
 **왜** — Lyra 식으로 무기/적 타입마다 레이어 ABP 를 바꿔 끼우려면 **InstanceClass 지정**(기본 구현 ABP)과 **값 파라미터**(예: 레이어에 `AimYaw` 전달)가 필요하다. 지금은 포즈 입력만 되고 레이어 ABP 는 런타임 `LinkAnimClassLayers` 로만 바꾼다(C++).
 
@@ -118,14 +122,14 @@
 ## 7. 캐릭터·적 하나를 도구만으로 만드는 흐름 (§1~§3 뒤)
 
 ```text
-① list_animation_assets {skeleton}                 애셋 파악
-② create_blendspace / create_aim_offset (§3)       로코모션·조준
+① list_animation_assets {skeleton, details}        애셋 파악 (additive_type·additive_valid 로 AimOffset 샘플 선별)
+② create_blendspace / {aim_offset:true} (§3 ✅)     로코모션·조준
 ③ create_animation_blueprint                        ABP
 ④ add_blueprint_variable ×N (§1 ✅)                 bIsAttacking · TargetDistance …  (적 AI 가 쓰는 값)
 ⑤ set_update_function (§1 ✅)                       Speed ← VSize(access GetOwningComponent.ComponentVelocity) (매 프레임, 스레드 안전)
-⑥ implement_anim_layer_interface                    Lyra 식 레이어(공용 인터페이스 재사용)
+⑥ implement_anim_layer_interface · set_layer_inputs · set_layer_instance_class (§4 ✅)   Lyra 식 레이어(공용 인터페이스 재사용 · 값 파라미터 · 무기별 공급자 ABP)
 ⑦ apply_graph_operations                            루트 그래프 + 상태머신 + 규칙(var) + IK·Additive 설정(§2)   ← 배치 1~2개
-⑧ create_anim_montage ×N (§3)                       공격·피격·사망 + 슬롯·노티파이
+⑧ add_skeleton_slot · create_anim_montage ×N · set_montage_slots/sections (§3 ✅)   공격·피격·사망 + 슬롯·섹션 (노티파이는 Python)
 ⑨ compile + save + run_automation_tests Smoke       구조 검증
 ⑩ run_automation_tests Runtime (§5)                 "Speed 300 → Run", "공격 중 상체 슬롯 활성"
 ```

@@ -4,6 +4,8 @@
 #include "AnimMcpAssetProtection.h"
 #include "AnimMcpAssetResolver.h"
 #include "AnimMcpLog.h"
+#include "Animation/AimOffsetBlendSpace.h"
+#include "Animation/AimOffsetBlendSpace1D.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/BlendSpace.h"
 #include "Animation/BlendSpace1D.h"
@@ -69,6 +71,7 @@ namespace AnimMcpBlendSpaceFactory
 		}
 		Params->TryGetStringField(TEXT("preview_mesh"), Out.PreviewMeshPath);
 		Params->TryGetBoolField(TEXT("overwrite"), Out.bOverwrite);
+		Params->TryGetBoolField(TEXT("aim_offset"), Out.bAimOffset);
 
 		double Dim = 1.0;
 		Params->TryGetNumberField(TEXT("dimensions"), Dim);
@@ -235,6 +238,19 @@ namespace AnimMcpBlendSpaceFactory
 					return nullptr;
 				}
 			}
+			// (7-3) additive 로 표시됐지만 기준 포즈가 없는 시퀀스(IsValidAdditive false) 는 엔진이 **그 다음** 샘플부터 거부한다
+			// (ContainsMatchingSamples, BlendSpace.cpp:2253-2268 — 기존 샘플의 IsValidAdditive 를 본다) → 먼저 거부해 원인을 돌려준다
+			if (Sequence->AdditiveAnimType != AAT_None && !Sequence->IsValidAdditive())
+			{
+				OutError = SampleError(i, FString::Printf(TEXT("Sample %d '%s' is marked %s but is not a valid additive (RefPoseType %s, base pose sequence %s) — fix the sequence's Additive Settings first"), i, *Sequence->GetPathName(), *StaticEnum<EAdditiveAnimationType>()->GetNameStringByValue(static_cast<int64>(Sequence->AdditiveAnimType)), *StaticEnum<EAdditiveBasePoseType>()->GetNameStringByValue(static_cast<int64>(Sequence->RefPoseType)), *GetPathNameSafe(Sequence->RefPoseSeq)), TEXT("ADDITIVE_INVALID"));
+				return nullptr;
+			}
+			// (7-3) AimOffset 은 Mesh-space 회전 additive 만 받는다 — 엔진은 AddSample 에서 INDEX_NONE 으로 거부하므로 먼저 이유를 돌려준다
+			if (Params.bAimOffset && Sequence->AdditiveAnimType != AAT_RotationOffsetMeshSpace)
+			{
+				OutError = SampleError(i, FString::Printf(TEXT("Sample %d '%s' additive type is %s; an AimOffset needs AAT_RotationOffsetMeshSpace (Mesh Space additive)"), i, *Sequence->GetPathName(), *StaticEnum<EAdditiveAnimationType>()->GetNameStringByValue(static_cast<int64>(Sequence->AdditiveAnimType))), TEXT("ADDITIVE_TYPE"));
+				return nullptr;
+			}
 			if (Resolved.Num() > 0 && Resolved[0].Sequence->AdditiveAnimType != Sequence->AdditiveAnimType)
 			{
 				OutError = SampleError(i, FString::Printf(TEXT("Sample %d additive type differs from sample 0 (all samples must share the additive type)"), i), TEXT("ADDITIVE_MISMATCH"));
@@ -276,8 +292,10 @@ namespace AnimMcpBlendSpaceFactory
 			Context.AddDiagnostic(TEXT("info"), TEXT("STALE_OBJECT_MOVED"), FString::Printf(TEXT("In-memory object '%s' survived deletion; moved to transient package before creating"), *AssetName));
 		}
 
-		// 팩토리 재현 (EditorFactories.cpp:7357-7363 / :7431-7437)
-		UClass* Class = Params.Dimensions == 1 ? UBlendSpace1D::StaticClass() : UBlendSpace::StaticClass();
+		// 팩토리 재현 (EditorFactories.cpp:7357-7363 / :7431-7437; AimOffset 은 :7461-7477 / :7489-7505 — 클래스만 다르다)
+		UClass* Class = Params.Dimensions == 1
+			? (Params.bAimOffset ? UAimOffsetBlendSpace1D::StaticClass() : UBlendSpace1D::StaticClass())
+			: (Params.bAimOffset ? UAimOffsetBlendSpace::StaticClass() : UBlendSpace::StaticClass());
 		UBlendSpace* BlendSpace = NewObject<UBlendSpace>(Package, Class, FName(*AssetName), RF_Public | RF_Standalone | RF_Transactional);
 		if (!BlendSpace)
 		{
@@ -315,8 +333,11 @@ namespace AnimMcpBlendSpaceFactory
 			if (Index == INDEX_NONE)
 			{
 				OutError = SampleError(i, FString::Printf(TEXT("UBlendSpace::AddSample rejected sample %d ('%s' at %s)"), i, *Resolved[i].Sequence->GetName(), *Resolved[i].Value.ToString()), TEXT("ENGINE_REJECTED"));
-				// 생성 중 실패 — 빈 애셋을 남기지 않는다
+				// 생성 중 실패 — 빈 애셋을 남기지 않는다. (7-3 실측) MarkAsGarbage 만으로는 GC 전까지 AssetExists 가 참이라 다음 create/overwrite 의
+				// DeleteAsset 이 실패한다 → 먼저 임시 패키지로 옮겨 경로를 비운다 (위 Stale 처리와 같은 방식)
 				BlendSpace->ClearFlags(RF_Public | RF_Standalone);
+				const FName GarbageName = MakeUniqueObjectName(GetTransientPackage(), BlendSpace->GetClass(), FName(*(AssetName + TEXT("_MCP_REJECTED"))));
+				BlendSpace->Rename(*GarbageName.ToString(), GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional | REN_DoNotDirty);
 				BlendSpace->MarkAsGarbage();
 				return nullptr;
 			}
@@ -341,6 +362,7 @@ namespace AnimMcpBlendSpaceFactory
 		Obj->SetField(TEXT("skeleton"), AnimMcpJson::ObjectPathOrNull(BlendSpace->GetSkeleton()));
 		const int32 Dimensions = BlendSpace->IsA<UBlendSpace1D>() ? 1 : 2;
 		Obj->SetNumberField(TEXT("dimensions"), Dimensions);
+		Obj->SetBoolField(TEXT("aim_offset"), BlendSpace->IsA<UAimOffsetBlendSpace>() || BlendSpace->IsA<UAimOffsetBlendSpace1D>());
 
 		TArray<TSharedPtr<FJsonValue>> Axes;
 		for (int32 Axis = 0; Axis < Dimensions; ++Axis)

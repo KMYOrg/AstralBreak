@@ -86,8 +86,8 @@ def list_animation_assets(skeleton: str | None = None, asset_class: str = "all",
         asset_class: AnimSequence | BlendSpace | AnimMontage | AnimComposite | all.
         path_prefix: Content folder to search recursively.
         limit: Maximum number of entries to return.
-        details: Load each returned BlendSpace and add its axes and samples under "blendspace" (slower; use with
-            asset_class="BlendSpace" and a narrow path_prefix).
+        details: Load each returned asset and add a summary (slower; use a narrow path_prefix): BlendSpace → "blendspace"
+            (axes, samples, aim_offset), AnimMontage → "montage" (slots, sections, skeleton_slot_groups), AnimSequence → "additive_type".
     """
     params = {"class": asset_class, "path_prefix": path_prefix, "limit": limit, "details": details}
     if skeleton:
@@ -97,8 +97,8 @@ def list_animation_assets(skeleton: str | None = None, asset_class: str = "all",
 
 @mcp.tool()
 def create_blendspace(asset_path: str, skeleton: str, dimensions: int, axes: list[dict], samples: list[dict] | None = None,
-                      preview_mesh: str | None = None, overwrite: bool = False, save: bool = False) -> dict:
-    """Create a BlendSpace (dimensions=2) or BlendSpace1D (dimensions=1) asset with axes and samples.
+                      aim_offset: bool = False, preview_mesh: str | None = None, overwrite: bool = False, save: bool = False) -> dict:
+    """Create a BlendSpace (dimensions=2) or BlendSpace1D (dimensions=1) asset with axes and samples — or an AimOffset.
 
     Args:
         asset_path: Where to create it, e.g. "/Game/Animation/Test/BS_McpTest". Never target a production asset.
@@ -107,15 +107,17 @@ def create_blendspace(asset_path: str, skeleton: str, dimensions: int, axes: lis
         axes: One per dimension: {"name": "Speed", "min": 0, "max": 600, "grid": 4, "snap": false, "wrap": false}.
         samples: [{"animation": "/Game/.../AS_Walk", "value": [300]}] (1D) or "value": [x, y] (2D). Values must lie inside the
             axis range (the engine would otherwise silently expand the axis), positions must be unique, additive types must match.
+        aim_offset: Create an AimOffsetBlendSpace (2D) / AimOffsetBlendSpace1D instead. Every sample must be a Mesh Space additive
+            sequence (AAT_RotationOffsetMeshSpace; see list_animation_assets details=true → additive_type), ADDITIVE_TYPE otherwise.
         preview_mesh: Optional skeletal mesh for the preview viewport.
         overwrite: If true, an existing asset at asset_path is DELETED first (refused for protected assets). Ask the user first.
         save: Save the new asset to disk right away.
 
-    Returns the asset summary (axes, samples, sample_count, grid_sample_count) plus created=true and saved. Use set_asset on an
-    AnimGraphNode_BlendSpacePlayer to plug it into a graph.
+    Returns the asset summary (axes, samples, sample_count, grid_sample_count, aim_offset) plus created=true and saved. Use set_asset on an
+    AnimGraphNode_BlendSpacePlayer (or AnimGraphNode_RotationOffsetBlendSpace for an AimOffset) to plug it into a graph.
     """
     params = {"asset_path": asset_path, "skeleton": skeleton, "dimensions": dimensions, "axes": axes,
-              "samples": samples or [], "overwrite": overwrite, "save": save}
+              "samples": samples or [], "aim_offset": aim_offset, "overwrite": overwrite, "save": save}
     if preview_mesh:
         params["preview_mesh"] = preview_mesh
     return bridge.call("create_blendspace", params, timeout=bridge.COMPILE_TIMEOUT)
@@ -179,6 +181,10 @@ _OPERATIONS_DOC = """
           # Linked Anim Layer node (Lyra-style): "layer" must be a layer of an implemented layer interface (see
           # implement_anim_layer_interface / get_anim_blueprint_info.layers) or an own layer graph. Input pose pins follow the layer signature.
       {"op": "set_linked_layer", "node": "<layer node guid>", "layer": "UpperBody_Additive"}   # retarget an existing layer node
+      {"op": "set_layer_instance_class", "node": "<layer node guid>", "instance_class": "/Game/.../ABP_Provider"}   # (7-4) run an INTERFACE layer on another
+          # Animation Blueprint's instance (Lyra: weapon layer providers); null = back to this blueprint's implementation. The class must
+          # implement the node's interface, be skeleton-compatible and not be this blueprint (SELF_LAYER / NOT_IMPLEMENTING / SELF_CLASS /
+          # INCOMPATIBLE / PINS_LINKED). Value parameter pins of layer nodes appear in optional_pins with custom=true: expose_pin + connect.
       {"op": "add_node", "ref": "idle_seq", "graph": {"ref": "idle"}, "class": "AnimGraphNode_SequencePlayer", "asset": "..."}   # graph = a state's pose graph, same batch ok
       {"op": "connect", "from": {"ref": "idle_seq", "pin": "Pose"}, "to": {"result_of": {"ref": "idle"}, "pin": "Result"}}      # result_of = that state's Output Animation Pose
     Rule trees: {"var": "<BlueprintVisible property>"} | {"not": R} | {"and": [R, R, ...]} | {"or": [R, R, ...]}
@@ -293,9 +299,12 @@ def create_anim_layer_interface(asset_path: str, layers: list[dict], overwrite: 
 
     Args:
         asset_path: Where to create it, e.g. "/Game/Animation/Test/ALI_McpTest". Never target a production asset.
-        layers: [{"name": "FullBody_Idle"}, {"name": "UpperBody_Additive", "group": "Body", "input_poses": ["InPose"]}].
+        layers: [{"name": "FullBody_Idle"}, {"name": "UpperBody_Additive", "group": "Body", "input_poses": ["InPose"]},
+            {"name": "Aim", "input_poses": [{"name": "InPose", "inputs": [{"name": "AimYaw", "type": "float"}]}]}].
             Names must be unique valid identifiers (not "AnimGraph"). "group" sets the layer group (grouped layers share one
-            instance). "input_poses" adds Input Pose nodes to the layer signature (pose inputs only, no value parameters).
+            instance). "input_poses" adds Input Pose nodes to the layer signature; an entry may carry "inputs" (value parameters,
+            types as in add_blueprint_variable) — they become value pins on LinkedAnimLayer nodes of implementers (expose_pin) and
+            output pins of the input pose node inside the layer graph. Change them later with set_layer_inputs.
         overwrite: If true, an existing asset at asset_path is DELETED first (refused for protected assets). Ask the user first.
         save: Save the new asset to disk right away.
 
@@ -322,6 +331,76 @@ def implement_anim_layer_interface(asset_path: str, interface: str, compile: boo
     """
     return bridge.call("implement_anim_layer_interface", {"asset_path": asset_path, "interface": interface, "compile": compile, "save": save},
                        timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def set_layer_inputs(asset_path: str, layer: str, inputs: list[dict], input_pose: str | None = None, compile: bool = True, save: bool = False,
+                     conform_implementers: bool = True) -> dict:
+    """Replace the value parameters of an animation layer (the Inputs of its input pose node).
+
+    Args:
+        asset_path: A layer interface asset, or an Animation Blueprint for one of its OWN layers. Interface implementation graphs
+            inside an implementer are refused (NOT_EDITABLE) — edit the interface instead.
+        layer: Layer (graph) name.
+        inputs: The whole list, [{"name": "AimYaw", "type": "float"}, ...]; [] clears. Types as in add_blueprint_variable. Names are
+            unique per blueprint and must not equal the input pose name.
+        input_pose: Which input pose carries the parameters; required only when the layer has several (NO_INPUT_POSE when it has none —
+            value parameters need an input pose node).
+        compile: Compile afterwards (default true).
+        save: Save after a successful compile.
+        conform_implementers: For an interface (default true): load the Animation Blueprints that reference it, conform them to the
+            new signature and compile → "implementers" [{asset_path, compile}]. They are left dirty (not saved).
+
+    Same list = unchanged. Afterwards implementers see the parameters as optional value pins on their LinkedAnimLayer nodes
+    (get_anim_graph_structure optional_pins with custom=true; show them with expose_pin, feed them with connect) and as output pins
+    of the input pose node inside the layer graph.
+    """
+    params = {"asset_path": asset_path, "layer": layer, "inputs": inputs, "compile": compile, "save": save, "conform_implementers": conform_implementers}
+    if input_pose:
+        params["input_pose"] = input_pose
+    return bridge.call("set_layer_inputs", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def add_anim_layers(asset_path: str, layers: list[dict], compile: bool = True, save: bool = False, conform_implementers: bool = True) -> dict:
+    """Add layer graphs to an existing Animation Layer Interface (interface layers) or to an Animation Blueprint (its own layers).
+
+    Args:
+        asset_path: The layer interface or Animation Blueprint.
+        layers: Same shape as create_anim_layer_interface: [{"name", "group"?, "input_poses"? ["Name" | {"name", "inputs"? [{"name", "type"}]}]}].
+        compile: Compile afterwards (default true).
+        save: Save after a successful compile.
+        conform_implementers: Interface only (default true): referencing Animation Blueprints are loaded, conformed (they gain the new
+            layer graphs with root + input poses) and compiled → "implementers".
+
+    Names must not collide with existing graphs or implemented interface layers; nothing is added when any entry is invalid.
+    Returns the blueprint info (layers[] now includes them) plus added[] and implementers[].
+    """
+    return bridge.call("add_anim_layers", {"asset_path": asset_path, "layers": layers, "compile": compile, "save": save, "conform_implementers": conform_implementers},
+                       timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def remove_anim_layers(asset_path: str, layers: list[str], force: bool = False, compile: bool = True, save: bool = False,
+                       conform_implementers: bool = True) -> dict:
+    """Remove layer graphs from an Animation Layer Interface or an Animation Blueprint's own layers.
+
+    Args:
+        asset_path: The layer interface or Animation Blueprint (implementation graphs of an interface cannot be removed from the
+            implementer — NOT_EDITABLE).
+        layers: Layer names to remove.
+        force: For an interface, referencing Animation Blueprints are inspected first: an implementation graph with nodes beyond
+            root/input poses, or a LinkedAnimLayer node using the layer, is refused with LAYER_IN_USE_BY (details.usage[] names the
+            asset and node) unless force=true — then those implementation contents are lost and such nodes fail to compile. Ask the user first.
+        compile: Compile afterwards (default true).
+        save: Save after a successful compile.
+        conform_implementers: Interface only (default true): referencing Animation Blueprints are conformed (their graphs for the
+            removed layers are dropped) and compiled → "implementers".
+
+    Returns the blueprint info plus removed[], usage[] (what force overrode) and implementers[].
+    """
+    return bridge.call("remove_anim_layers", {"asset_path": asset_path, "layers": layers, "force": force, "compile": compile, "save": save,
+                                              "conform_implementers": conform_implementers}, timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()
@@ -388,11 +467,95 @@ def set_update_function(asset_path: str, assignments: list[dict] | None = None, 
 
 
 @mcp.tool()
+def create_anim_montage(asset_path: str, animation: str, slot: str | None = None, blend_in: float | None = None, blend_out: float | None = None,
+                        preview_mesh: str | None = None, overwrite: bool = False, save: bool = False) -> dict:
+    """Create an AnimMontage from one AnimSequence: one slot track with one segment and a "Default" section at 0.
+
+    Args:
+        asset_path: Where to create it, e.g. "/Game/Animation/Test/AM_McpTest". Never target a production asset.
+        animation: Source AnimSequence path; its skeleton becomes the montage skeleton and its length the montage length.
+        slot: Slot track name (default DefaultSlot). Must already be registered in the skeleton (add_skeleton_slot), SLOT_NOT_IN_SKELETON otherwise.
+        blend_in: Blend-in time in seconds (engine default when omitted).
+        blend_out: Blend-out time in seconds (engine default when omitted).
+        preview_mesh: Optional skeletal mesh for the preview viewport.
+        overwrite: If true, an existing asset at asset_path is DELETED first (refused for protected assets). Ask the user first.
+        save: Save the new asset to disk right away.
+
+    Notifies are not created here (they are project specific — use the project's own notify pipeline). Returns the montage summary
+    (slots, sections, length, skeleton_slot_groups) plus created=true and saved. Next: set_montage_sections for combo/loop sections.
+    """
+    params = {"asset_path": asset_path, "animation": animation, "overwrite": overwrite, "save": save}
+    if slot:
+        params["slot"] = slot
+    if blend_in is not None:
+        params["blend_in"] = blend_in
+    if blend_out is not None:
+        params["blend_out"] = blend_out
+    if preview_mesh:
+        params["preview_mesh"] = preview_mesh
+    return bridge.call("create_anim_montage", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def set_montage_slots(asset_path: str, slots: list[dict | str], save: bool = False) -> dict:
+    """Rename the slot tracks of an AnimMontage (e.g. move an attack montage from DefaultSlot to an UpperBody slot).
+
+    Args:
+        asset_path: The AnimMontage.
+        slots: [{"index": 0, "slot": "UpperBody"}] — index defaults to the array position; a plain string entry is allowed.
+        save: Save the montage afterwards.
+
+    Every name must already be registered in the montage's skeleton (SLOT_NOT_IN_SKELETON — call add_skeleton_slot first; the error
+    lists the skeleton's slot_groups). Duplicate track names are refused. Notifies and sections link by track index, so they survive the
+    rename. Returns the montage summary plus changed (track count) / unchanged and saved.
+    """
+    return bridge.call("set_montage_slots", {"asset_path": asset_path, "slots": slots, "save": save}, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def set_montage_sections(asset_path: str, sections: list[dict], save: bool = False) -> dict:
+    """Replace the section list of an AnimMontage (combo sections, loops, section chains).
+
+    Args:
+        asset_path: The AnimMontage.
+        sections: [{"name": "Start", "start": 0.0, "next": "Loop"}, {"name": "Loop", "start": 0.4, "next": "Loop"}, {"name": "End", "start": 0.9}]
+            — start in seconds inside [0, length]; next = the section played after this one (omit/null = stop at its end, its own
+            name = loop). Names must be unique and next must name a section in this list.
+        save: Save the montage afterwards.
+
+    The whole list is replaced and sorted by start; notifies are untouched. Re-applying the same list is a no-op (unchanged=true).
+    A first section that does not start at 0 is applied with a NO_SECTION_AT_ZERO warning. Returns the montage summary plus unchanged and saved.
+    """
+    return bridge.call("set_montage_sections", {"asset_path": asset_path, "sections": sections, "save": save}, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def add_skeleton_slot(skeleton: str, slot: str, group: str | None = None, confirm: bool = False, save: bool = False) -> dict:
+    """Register a montage slot name on a Skeleton (what Slot nodes, set_montage_slots and create_anim_montage may use).
+
+    Args:
+        skeleton: The Skeleton asset path.
+        slot: Slot name to register, e.g. "UpperBody".
+        group: Slot group (default DefaultGroup; created when missing). A slot already in another group is moved.
+        confirm: Must be true — this edits a shared asset that every animation for the skeleton depends on. Ask the user first.
+        save: Save the skeleton afterwards (otherwise the registration is lost when the editor closes).
+
+    Slot and group names share one namespace (SLOT_IS_GROUP / GROUP_IS_SLOT). Returns {slot, group, added, moved_from, group_created,
+    unchanged, slot_groups[], saved}. get_anim_blueprint_info.skeleton_slot_groups shows the same list.
+    """
+    params = {"skeleton": skeleton, "slot": slot, "confirm": confirm, "save": save}
+    if group:
+        params["group"] = group
+    return bridge.call("add_skeleton_slot", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
 def run_automation_tests(filter: str, timeout: float = 120.0, dry_run: bool = False) -> dict:
     """Run Unreal Automation tests inside the running editor (the plugin drives FAutomationTestFramework directly — no
     Session Frontend). Use it to verify Animation Blueprints after editing: filter "AnimGraphMcp.Smoke" runs the structural
-    smoke test over every AnimBP under [AnimGraphMcp] SmokeTestPaths (compile errors, unconnected Output Pose, empty states,
-    broken Save/UseCachedPose links, invalid linked layers); the project's own tests (filter = its test path prefix) work the same way.
+    smoke tests over every AnimBP under [AnimGraphMcp] SmokeTestPaths (compile errors, unconnected Output Pose, empty states,
+    broken Save/UseCachedPose links, invalid linked layers) and every AnimMontage there (slots registered in the skeleton, a Slot
+    node of that name in some AnimBP, valid section chain); the project's own tests (filter = its test path prefix) work the same way.
 
     Args:
         filter: Test path prefix or substring (case-insensitive), e.g. "AnimGraphMcp.Smoke", "MyGame.Combat", "." for all.

@@ -3,6 +3,7 @@
 #include "AnimGraphNode_AssetPlayerBase.h"
 #include "AnimGraphNode_Base.h"
 #include "AnimGraphNode_BlendListByEnum.h"
+#include "AnimGraphNode_CustomProperty.h"
 #include "AnimGraphNode_LayeredBoneBlend.h"
 #include "AnimGraphNode_SaveCachedPose.h"
 #include "AnimGraphNode_StateMachineBase.h"
@@ -738,8 +739,65 @@ namespace AnimMcpGraphMutator
 		return INDEX_NONE;
 	}
 
+	TArray<FOptionalPinFromProperty>* CustomPinsOf(UAnimGraphNode_Base* Node)
+	{
+		if (!Node || !Node->IsA<UAnimGraphNode_CustomProperty>())
+		{
+			return nullptr;
+		}
+		static const FName PropName(TEXT("CustomPinProperties"));
+		FArrayProperty* Prop = CastField<FArrayProperty>(UAnimGraphNode_CustomProperty::StaticClass()->FindPropertyByName(PropName));
+		return Prop ? Prop->ContainerPtrToValuePtr<TArray<FOptionalPinFromProperty>>(Node) : nullptr;
+	}
+
+	int32 FindCustomPinIndex(UAnimGraphNode_Base* Node, FName Property)
+	{
+		if (TArray<FOptionalPinFromProperty>* Custom = CustomPinsOf(Node))
+		{
+			for (int32 i = 0; i < Custom->Num(); ++i)
+			{
+				if ((*Custom)[i].PropertyName == Property) { return i; }
+			}
+		}
+		return INDEX_NONE;
+	}
+
+	bool HasOptionalPin(UAnimGraphNode_Base* Node, FName Property, FAnimMcpError& OutError)
+	{
+		if (FindCustomPinIndex(Node, Property) != INDEX_NONE)
+		{
+			return true;
+		}
+		if (FindOptionalPinIndex(Node, Property, OutError) != INDEX_NONE)
+		{
+			return true;
+		}
+		// 메시지에 커스텀 핀 이름도 싣는다
+		if (TArray<FOptionalPinFromProperty>* Custom = CustomPinsOf(Node); Custom && Custom->Num() > 0 && OutError.Details.IsValid())
+		{
+			TArray<FString> Names;
+			for (const FOptionalPinFromProperty& P : *Custom) { Names.Add(P.PropertyName.ToString()); }
+			OutError.Details->SetStringField(TEXT("custom"), FString::Join(Names, TEXT(", ")));
+		}
+		return false;
+	}
+
 	bool SetPinVisible(UAnimGraphNode_Base* Node, FName Property, bool bVisible, FAnimMcpError& OutError, bool* bOutChanged)
 	{
+		// (7-4) 커스텀 핀 — UAnimGraphNode_CustomProperty::SetCustomPinVisibility(AnimGraphNode_CustomProperty.cpp:373-384) 재현 (protected)
+		if (const int32 CustomIndex = FindCustomPinIndex(Node, Property); CustomIndex != INDEX_NONE)
+		{
+			TArray<FOptionalPinFromProperty>& Custom = *CustomPinsOf(Node);
+			const bool bChanged = Custom[CustomIndex].bShowPin != bVisible;
+			if (bOutChanged) { *bOutChanged = bChanged; }
+			if (bChanged)
+			{
+				Node->Modify();
+				Custom[CustomIndex].bShowPin = bVisible;
+				Node->ReconstructNode();
+			}
+			return true;
+		}
 		const int32 Index = FindOptionalPinIndex(Node, Property, OutError);
 		if (Index == INDEX_NONE)
 		{

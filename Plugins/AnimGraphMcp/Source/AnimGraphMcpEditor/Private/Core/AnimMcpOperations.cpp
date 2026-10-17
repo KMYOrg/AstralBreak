@@ -1111,7 +1111,7 @@ namespace AnimMcpOperations
 						UEdGraphNode* Node = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
 						if (Node)
 						{
-							bOk = AnimMcpGraphMutator::FindOptionalPinIndex(Cast<UAnimGraphNode_Base>(Node), FName(*PropertyName), Error) != INDEX_NONE;
+							bOk = AnimMcpGraphMutator::HasOptionalPin(Cast<UAnimGraphNode_Base>(Node), FName(*PropertyName), Error);
 						}
 						else if (bPending)
 						{
@@ -1253,9 +1253,59 @@ namespace AnimMcpOperations
 						++Counts.Modify;
 					}
 				}
+				else if (Op.Op == TEXT("set_layer_instance_class"))
+				{
+					// Phase 7-4 — {node|ref, instance_class: 경로 | null}
+					const TSharedPtr<FJsonValue> ClassValue = Op.Json->TryGetField(TEXT("instance_class"));
+					if (!ClassValue.IsValid() || (ClassValue->Type != EJson::String && ClassValue->Type != EJson::Null))
+					{
+						Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_layer_instance_class requires 'instance_class' (Animation Blueprint/class path, or null to clear)"));
+					}
+					else
+					{
+						UClass* Class = nullptr;
+						bool bClassOk = true;
+						if (ClassValue->Type == EJson::String)
+						{
+							Class = AnimMcpAnimLayer::ResolveAnimInstanceClass(ClassValue->AsString(), Error);
+							bClassOk = Class != nullptr;
+						}
+						if (bClassOk)
+						{
+							bool bPending = false;
+							UClass* PendingClass = nullptr;
+							UEdGraphNode* Node = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
+							if (Node)
+							{
+								UAnimGraphNode_LinkedAnimLayer* LayerNode = Cast<UAnimGraphNode_LinkedAnimLayer>(Node);
+								if (!LayerNode)
+								{
+									Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("set_layer_instance_class needs an AnimGraphNode_LinkedAnimLayer (got %s)"), *Node->GetClass()->GetName()));
+								}
+								else
+								{
+									bOk = AnimMcpAnimLayer::ValidateInstanceClass(LayerNode, Class, Error);
+								}
+							}
+							else if (bPending)
+							{
+								bOk = PendingClass && PendingClass->IsChildOf(UAnimGraphNode_LinkedAnimLayer::StaticClass());
+								if (!bOk)
+								{
+									Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("set_layer_instance_class needs an AnimGraphNode_LinkedAnimLayer class (got %s)"), PendingClass ? *PendingClass->GetName() : TEXT("?")));
+								}
+								Note = DeferredNote;
+							}
+						}
+					}
+					if (bOk)
+					{
+						++Counts.Modify;
+					}
+				}
 				else
 				{
-					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s' (supported: add_node, connect, disconnect, remove_node, set_property, set_asset, expose_pin, add_blend_pose, add_state, add_transition, set_entry_state, set_transition_rule, add_conduit, add_state_alias, set_alias_states, rename_node, bind_pin, unbind_pin, set_linked_layer)"), *Op.Op));
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s' (supported: add_node, connect, disconnect, remove_node, set_property, set_asset, expose_pin, add_blend_pose, add_state, add_transition, set_entry_state, set_transition_rule, add_conduit, add_state_alias, set_alias_states, rename_node, bind_pin, unbind_pin, set_linked_layer, set_layer_instance_class)"), *Op.Op));
 				}
 
 				bAllOk &= bOk;
@@ -1364,6 +1414,39 @@ namespace AnimMcpOperations
 			}
 			State.Undo.Add([LayerNode, Old]() { AnimMcpAnimLayer::RestoreLinkedLayer(LayerNode, Old); });
 			Entry->SetField(TEXT("old_layer"), Old.Layer.IsNone() ? MakeShared<FJsonValueNull>() : AnimMcpJson::StringOrNull(Old.Layer.ToString()));
+			Entry->SetObjectField(TEXT("linked_layer"), AnimMcpAnimLayer::DescribeLinkedLayerNode(LayerNode));
+			return true;
+		}
+
+		/** Phase 7-4 — set_layer_instance_class {node|ref, instance_class|null}. 되돌리기 = 이전 InstanceClass + FunctionReference 복원 */
+		bool ApplySetLayerInstanceClass(FBatchState& State, const FOperation& Op, TSharedRef<FJsonObject>& Entry, FAnimMcpError& Error)
+		{
+			bool bPending = false;
+			UClass* PendingClass = nullptr;
+			UEdGraphNode* Node = ResolveOpTarget(State, Op, bPending, PendingClass, Error);
+			UAnimGraphNode_LinkedAnimLayer* LayerNode = Cast<UAnimGraphNode_LinkedAnimLayer>(Node);
+			if (!LayerNode)
+			{
+				if (!Error.IsSet())
+				{
+					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("set_layer_instance_class needs an AnimGraphNode_LinkedAnimLayer (got %s)"), Node ? *Node->GetClass()->GetName() : TEXT("null")));
+				}
+				return false;
+			}
+			UClass* Class = nullptr;
+			const TSharedPtr<FJsonValue> ClassValue = Op.Json->TryGetField(TEXT("instance_class"));
+			if (ClassValue.IsValid() && ClassValue->Type == EJson::String)
+			{
+				Class = AnimMcpAnimLayer::ResolveAnimInstanceClass(ClassValue->AsString(), Error);
+				if (!Class) { return false; }
+			}
+			AnimMcpAnimLayer::FInstanceRef Old;
+			if (!AnimMcpAnimLayer::SetInstanceClass(LayerNode, Class, Old, Error))
+			{
+				return false;
+			}
+			State.Undo.Add([LayerNode, Old]() { AnimMcpAnimLayer::RestoreInstanceClass(LayerNode, Old); });
+			Entry->SetField(TEXT("old_instance_class"), Old.InstanceClass.Get() ? AnimMcpJson::StringOrNull(Old.InstanceClass->GetPathName()) : MakeShared<FJsonValueNull>());
 			Entry->SetObjectField(TEXT("linked_layer"), AnimMcpAnimLayer::DescribeLinkedLayerNode(LayerNode));
 			return true;
 		}
@@ -2213,6 +2296,7 @@ namespace AnimMcpOperations
 				else if (Op.Op == TEXT("bind_pin"))        { bOk = ApplyBindPin(State, Op, Entry, Error); }
 				else if (Op.Op == TEXT("unbind_pin"))      { bOk = ApplyUnbindPin(State, Op, Error); }
 				else if (Op.Op == TEXT("set_linked_layer")) { bOk = ApplySetLinkedLayer(State, Op, Entry, Error); }
+				else if (Op.Op == TEXT("set_layer_instance_class")) { bOk = ApplySetLayerInstanceClass(State, Op, Entry, Error); }
 				else
 				{
 					Error = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Unknown op '%s'"), *Op.Op));

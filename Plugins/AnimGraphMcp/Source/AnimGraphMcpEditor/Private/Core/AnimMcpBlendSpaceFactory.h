@@ -51,6 +51,9 @@ namespace AnimMcpBlendSpaceFactory
 		TArray<FAxisParams> Axes;
 		TArray<FSampleParams> Samples;
 		bool bOverwrite = false;
+		/** (7-3) true → UAimOffsetBlendSpace / UAimOffsetBlendSpace1D. 팩토리는 클래스만 다르다 (EditorFactories.cpp:7461-7477, :7489-7505);
+		 *  샘플은 AAT_RotationOffsetMeshSpace 여야 한다 (AimOffsetBlendSpace.cpp:16 IsValidAdditiveType) — 생성 전 ADDITIVE_TYPE 로 거부 */
+		bool bAimOffset = false;
 	};
 
 	/** 요청 JSON → 파라미터. 형식 오류는 BAD_REQUEST (details.field) */

@@ -1,0 +1,1467 @@
+#include "AnimMcpGraphMutator.h"
+
+#include "AnimGraphNode_AssetPlayerBase.h"
+#include "AnimGraphNode_Base.h"
+#include "AnimGraphNode_BlendListByEnum.h"
+#include "AnimGraphNode_CustomProperty.h"
+#include "AnimGraphNode_LayeredBoneBlend.h"
+#include "AnimGraphNode_SaveCachedPose.h"
+#include "AnimGraphNode_StateMachineBase.h"
+#include "AnimGraphNode_UseCachedPose.h"
+#include "AnimStateAliasNode.h"
+#include "AnimStateConduitNode.h"
+#include "AnimStateNode.h"
+#include "AnimStateNodeBase.h"
+#include "AnimStateEntryNode.h"
+#include "AnimStateTransitionNode.h"
+#include "AnimationGraph.h"
+#include "AnimationStateMachineGraph.h"
+#include "AnimationTransitionGraph.h"
+#include "AnimNodes/AnimNode_LayeredBoneBlend.h"
+#include "K2Node_VariableGet.h"
+#include "Kismet2/Kismet2NameValidators.h"
+#include "ReferenceSkeleton.h"
+#include "AnimMcpGraphInspector.h"
+#include "AnimMcpLog.h"
+#include "AnimMcpPropertyRules.h"
+#include "Animation/AnimBlueprint.h"
+#include "Animation/AnimationAsset.h"
+#include "Animation/BlendProfile.h"
+#include "Animation/Skeleton.h"
+#include "BoneContainer.h"
+#include "Bridge/AnimMcpTypes.h"
+#include "Dom/JsonValue.h"
+#include "EdGraph/EdGraph.h"
+#include "EdGraph/EdGraphNode.h"
+#include "EdGraph/EdGraphPin.h"
+#include "EdGraph/EdGraphSchema.h"
+#include "EdGraphSchema_K2.h"
+#include "Kismet2/BlueprintEditorUtils.h"
+#include "UObject/UObjectGlobals.h"
+#include "UObject/UnrealType.h"
+
+namespace AnimMcpGraphMutator
+{
+	bool ParseGuid(const FString& Text, FGuid& OutGuid, FAnimMcpError& OutError, const TCHAR* What)
+	{
+		if (Text.IsEmpty() || !FGuid::Parse(Text, OutGuid))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("%s '%s' is not a valid GUID"), What, *Text));
+			return false;
+		}
+		return true;
+	}
+
+	UEdGraph* FindGraph(UAnimBlueprint* Blueprint, const FString& GraphGuid, FAnimMcpError& OutError)
+	{
+		FGuid Guid;
+		if (!ParseGuid(GraphGuid, Guid, OutError, TEXT("graph")))
+		{
+			return nullptr;
+		}
+		UEdGraph* Graph = AnimMcpGraphInspector::FindGraphByGuid(Blueprint, Guid);
+		if (!Graph)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::GraphNotFound, FString::Printf(TEXT("No graph with guid %s in %s"), *GraphGuid, *Blueprint->GetPathName()));
+		}
+		return Graph;
+	}
+
+	UEdGraphNode* FindNode(UAnimBlueprint* Blueprint, const FString& NodeGuid, FAnimMcpError& OutError)
+	{
+		FGuid Guid;
+		if (!ParseGuid(NodeGuid, Guid, OutError, TEXT("node")))
+		{
+			return nullptr;
+		}
+		UEdGraphNode* Node = AnimMcpGraphInspector::FindNodeByGuid(Blueprint, Guid);
+		if (!Node)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::NodeNotFound, FString::Printf(TEXT("No node with guid %s in %s"), *NodeGuid, *Blueprint->GetPathName()));
+		}
+		return Node;
+	}
+
+	UEdGraphPin* FindPin(UEdGraphNode* Node, const FString& PinName, FAnimMcpError& OutError)
+	{
+		UEdGraphPin* Pin = Node ? Node->FindPin(PinName) : nullptr;
+		if (!Pin)
+		{
+			TArray<FString> Available;
+			if (Node)
+			{
+				for (UEdGraphPin* P : Node->Pins)
+				{
+					if (P)
+					{
+						Available.Add(FString::Printf(TEXT("%s(%s)"), *P->PinName.ToString(), P->Direction == EGPD_Input ? TEXT("in") : TEXT("out")));
+					}
+				}
+			}
+			TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+			Details->SetStringField(TEXT("available_pins"), FString::Join(Available, TEXT(", ")));
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::PinNotFound, FString::Printf(TEXT("Node %s has no pin '%s'"), Node ? *Node->NodeGuid.ToString() : TEXT("?"), *PinName), Details);
+		}
+		return Pin;
+	}
+
+	UClass* ResolveNodeClass(const FString& InClassName, FAnimMcpError& OutError)
+	{
+		const FString ClassName = InClassName.TrimStartAndEnd();
+		UClass* Found = nullptr;
+		if (ClassName.StartsWith(TEXT("/Script/")))
+		{
+			Found = FindObject<UClass>(nullptr, *ClassName);
+		}
+		else if (!ClassName.IsEmpty())
+		{
+			Found = FindFirstObject<UClass>(*ClassName, EFindFirstObjectOptions::None, ELogVerbosity::Warning, TEXT("AnimGraphMcp ResolveNodeClass"));
+			if (!Found && !ClassName.StartsWith(TEXT("AnimGraphNode_")))
+			{
+				Found = FindFirstObject<UClass>(*(TEXT("AnimGraphNode_") + ClassName), EFindFirstObjectOptions::None, ELogVerbosity::Warning, TEXT("AnimGraphMcp ResolveNodeClass"));
+			}
+		}
+
+		if (!Found)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Node class '%s' not found"), *ClassName));
+			return nullptr;
+		}
+		if (!Found->IsChildOf(UAnimGraphNode_Base::StaticClass()) || Found->HasAnyClassFlags(CLASS_Abstract))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' is not a concrete UAnimGraphNode_Base subclass"), *Found->GetPathName()));
+			return nullptr;
+		}
+		return Found;
+	}
+
+	bool ValidateNodeAsset(UClass* NodeClass, UAnimationAsset* Asset, UAnimBlueprint* Blueprint, FAnimMcpContext& Context, FAnimMcpError& OutError)
+	{
+		if (!Asset)
+		{
+			return true;
+		}
+		const UAnimGraphNode_Base* NodeCDO = NodeClass ? NodeClass->GetDefaultObject<UAnimGraphNode_Base>() : nullptr;
+		if (!NodeCDO || !NodeClass->IsChildOf(UAnimGraphNode_AssetPlayerBase::StaticClass()))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Node class %s is not an asset player; 'asset' is not accepted"), NodeClass ? *NodeClass->GetName() : TEXT("?")));
+			return false;
+		}
+		if (NodeCDO->SupportsAssetClass(Asset->GetClass()) == EAnimAssetHandlerType::NotSupported)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Node class %s does not accept assets of class %s"), *NodeClass->GetName(), *Asset->GetClass()->GetName()));
+			return false;
+		}
+		if (Blueprint && Blueprint->TargetSkeleton && Asset->GetSkeleton() && Asset->GetSkeleton() != Blueprint->TargetSkeleton)
+		{
+			TSharedRef<FJsonObject> Extra = AnimMcpJson::MakeObject();
+			Extra->SetStringField(TEXT("asset"), Asset->GetPathName());
+			Extra->SetStringField(TEXT("asset_skeleton"), Asset->GetSkeleton()->GetPathName());
+			Extra->SetStringField(TEXT("blueprint_skeleton"), Blueprint->TargetSkeleton->GetPathName());
+			Context.AddDiagnostic(TEXT("warning"), TEXT("SKELETON_MISMATCH"), TEXT("Animation asset skeleton differs from the Blueprint's TargetSkeleton; compile may fail"), Extra);
+		}
+		return true;
+	}
+
+	bool ValidateConnection(UEdGraphPin* A, UEdGraphPin* B, FAnimMcpError& OutError)
+	{
+		if (!A || !B)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::PinNotFound, TEXT("Connection endpoint pin is null"));
+			return false;
+		}
+		UEdGraphNode* NodeA = A->GetOwningNodeUnchecked();
+		UEdGraphNode* NodeB = B->GetOwningNodeUnchecked();
+		if (!NodeA || !NodeB || !NodeA->GetGraph() || NodeA->GetGraph() != NodeB->GetGraph())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::ConnectionRejected, TEXT("Pins must belong to nodes in the same graph"));
+			return false;
+		}
+		const UEdGraphSchema* Schema = NodeA->GetGraph()->GetSchema();
+		const FPinConnectionResponse Response = Schema->CanCreateConnection(A, B);
+		switch (Response.Response)
+		{
+		case CONNECT_RESPONSE_MAKE:
+		case CONNECT_RESPONSE_MAKE_WITH_PROMOTION:
+		case CONNECT_RESPONSE_BREAK_OTHERS_A:
+		case CONNECT_RESPONSE_BREAK_OTHERS_B:
+		case CONNECT_RESPONSE_BREAK_OTHERS_AB:
+			return true;
+		case CONNECT_RESPONSE_MAKE_WITH_CONVERSION_NODE:
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::ConnectionRejected, FString::Printf(TEXT("Connection %s.%s -> %s.%s needs a conversion node; add it explicitly"), *NodeA->NodeGuid.ToString(), *A->PinName.ToString(), *NodeB->NodeGuid.ToString(), *B->PinName.ToString()));
+			return false;
+		default:
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::ConnectionRejected, FString::Printf(TEXT("Connection %s.%s -> %s.%s rejected: %s"), *NodeA->NodeGuid.ToString(), *A->PinName.ToString(), *NodeB->NodeGuid.ToString(), *B->PinName.ToString(), *Response.Message.ToString()));
+			return false;
+		}
+	}
+
+	UAnimGraphNode_Base* AddNode(UEdGraph* Graph, UClass* NodeClass, const FVector2D& Position, UAnimationAsset* Asset, FAnimMcpError& OutError)
+	{
+		if (!Graph || !NodeClass)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("AddNode called without graph or class"));
+			return nullptr;
+		}
+
+		Graph->Modify();
+
+		FGraphNodeCreator<UAnimGraphNode_Base> Creator(*Graph);
+		UAnimGraphNode_Base* Node = Creator.CreateNode(/*bSelectNewNode*/ false, NodeClass);
+		if (!Node)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, FString::Printf(TEXT("Failed to create node of class %s"), *NodeClass->GetName()));
+			return nullptr;
+		}
+		Node->NodePosX = static_cast<int32>(Position.X);
+		Node->NodePosY = static_cast<int32>(Position.Y);
+		Creator.Finalize();
+
+		if (Asset)
+		{
+			if (UAnimGraphNode_AssetPlayerBase* Player = Cast<UAnimGraphNode_AssetPlayerBase>(Node))
+			{
+				Player->Modify();
+				Player->SetAnimationAsset(Asset);
+			}
+		}
+
+		UE_LOG(LogAnimGraphMcp, Verbose, TEXT("Added %s %s to graph %s"), *NodeClass->GetName(), *Node->NodeGuid.ToString(), *Graph->GetName());
+		return Node;
+	}
+
+	bool Connect(UEdGraphPin* A, UEdGraphPin* B, FAnimMcpError& OutError)
+	{
+		if (!ValidateConnection(A, B, OutError))
+		{
+			return false;
+		}
+		UEdGraphNode* NodeA = A->GetOwningNode();
+		UEdGraphNode* NodeB = B->GetOwningNode();
+		NodeA->Modify();
+		NodeB->Modify();
+		const UEdGraphSchema* Schema = NodeA->GetGraph()->GetSchema();
+		if (!Schema->TryCreateConnection(A, B))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::ConnectionRejected, FString::Printf(TEXT("TryCreateConnection failed for %s.%s -> %s.%s"), *NodeA->NodeGuid.ToString(), *A->PinName.ToString(), *NodeB->NodeGuid.ToString(), *B->PinName.ToString()));
+			return false;
+		}
+		return true;
+	}
+
+	//~ Phase 3
+
+	bool ValidateLinked(UEdGraphPin* A, UEdGraphPin* B, FAnimMcpError& OutError)
+	{
+		if (!A || !B)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::PinNotFound, TEXT("disconnect endpoint pin is null"));
+			return false;
+		}
+		if (!A->LinkedTo.Contains(B))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Pins %s.%s and %s.%s are not linked"),
+				*A->GetOwningNode()->NodeGuid.ToString(), *A->PinName.ToString(), *B->GetOwningNode()->NodeGuid.ToString(), *B->PinName.ToString()));
+			return false;
+		}
+		return true;
+	}
+
+	bool Disconnect(UEdGraphPin* A, UEdGraphPin* B, FAnimMcpError& OutError)
+	{
+		if (!ValidateLinked(A, B, OutError))
+		{
+			return false;
+		}
+		UEdGraphNode* NodeA = A->GetOwningNode();
+		NodeA->Modify();
+		B->GetOwningNode()->Modify();
+		NodeA->GetGraph()->GetSchema()->BreakSinglePinLink(A, B);
+		return true;
+	}
+
+	void DisconnectAll(UEdGraphPin* Pin)
+	{
+		if (!Pin || Pin->LinkedTo.Num() == 0)
+		{
+			return;
+		}
+		UEdGraphNode* Node = Pin->GetOwningNode();
+		Node->Modify();
+		for (UEdGraphPin* Other : Pin->LinkedTo)
+		{
+			if (Other && Other->GetOwningNodeUnchecked())
+			{
+				Other->GetOwningNodeUnchecked()->Modify();
+			}
+		}
+		Node->GetGraph()->GetSchema()->BreakPinLinks(*Pin, /*bSendsNodeNotifcation*/ true);
+	}
+
+	bool ValidateRemovable(UEdGraphNode* Node, FAnimMcpError& OutError)
+	{
+		if (!Node)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::NodeNotFound, TEXT("remove_node target is null"));
+			return false;
+		}
+		if (!Node->CanUserDeleteNode())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Node %s (%s) cannot be deleted (result/root/entry nodes are fixed)"), *Node->NodeGuid.ToString(), *Node->GetClass()->GetName()));
+			return false;
+		}
+		return true;
+	}
+
+	void BreakAllLinksQuietly(UEdGraphNode* Node)
+	{
+		Node->Modify();
+		for (UEdGraphPin* Pin : Node->Pins)
+		{
+			if (!Pin)
+			{
+				continue;
+			}
+			const TArray<UEdGraphPin*> Linked = Pin->LinkedTo;
+			for (UEdGraphPin* Other : Linked)
+			{
+				if (Other && Other->GetOwningNodeUnchecked())
+				{
+					Other->GetOwningNodeUnchecked()->Modify();
+				}
+				// BreakLinkTo 는 상대 노드에 PinConnectionListChanged 를 보내지 않는다 — 전이 노드는 링크가 0 이 되면 그 통지에서 스스로 DestroyNode 한다
+				// (AnimStateTransitionNode.cpp:323-337). 분리 보관·롤백 중에는 그 연쇄를 막아야 한다
+				Pin->BreakLinkTo(Other);
+			}
+		}
+	}
+
+	void DetachNode(UEdGraphNode* Node)
+	{
+		UEdGraph* Graph = Node->GetGraph();
+		Graph->Modify();
+		BreakAllLinksQuietly(Node);
+		// Nodes 배열에서만 제거. 객체·서브그래프는 그대로 — 롤백이 ReattachNode 로 되돌릴 수 있다
+		Graph->RemoveNode(Node, /*bBreakAllLinks*/ false);
+	}
+
+	void ReattachNode(UEdGraph* Graph, UEdGraphNode* Node)
+	{
+		Graph->Modify();
+		Graph->AddNode(Node, /*bUserAction*/ false, /*bSelectNewNode*/ false);
+	}
+
+	void FinalizeRemoval(UEdGraphNode* Node)
+	{
+		// 이미 Nodes 에서 빠져 있다 — DestroyNode 는 RemoveNode 를 다시 부르지만(0건 제거) 서브그래프 제거·포즈 워치 정리 등 파생 클래스 후처리를 수행한다
+		Node->Modify();
+		Node->DestroyNode();
+	}
+
+	void DestroyNodeQuietly(UEdGraphNode* Node)
+	{
+		if (UEdGraph* Graph = Node->GetGraph())
+		{
+			Graph->Modify();
+		}
+		BreakAllLinksQuietly(Node);
+		Node->DestroyNode();
+	}
+
+	//~ State Machine (Phase 4)
+
+	UAnimationStateMachineGraph* ResolveStateMachineGraph(UEdGraphNode* StateMachineNode, FAnimMcpError& OutError)
+	{
+		UAnimGraphNode_StateMachineBase* SM = Cast<UAnimGraphNode_StateMachineBase>(StateMachineNode);
+		if (!SM || !SM->EditorStateMachineGraph)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Node %s is not a state machine with an editor graph"), StateMachineNode ? *StateMachineNode->GetClass()->GetName() : TEXT("null")));
+			return nullptr;
+		}
+		return SM->EditorStateMachineGraph;
+	}
+
+	UAnimationStateMachineGraph* AsStateMachineGraph(UEdGraph* Graph, FAnimMcpError& OutError)
+	{
+		UAnimationStateMachineGraph* SMGraph = Cast<UAnimationStateMachineGraph>(Graph);
+		if (!SMGraph)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Graph %s is not a state machine graph"), Graph ? *Graph->GetName() : TEXT("null")));
+		}
+		return SMGraph;
+	}
+
+	bool ValidateStateName(UEdGraphNode* StateNode, const FString& Name, FAnimMcpError& OutError)
+	{
+		if (Name.IsEmpty())
+		{
+			return true;
+		}
+		TSharedPtr<INameValidatorInterface> Validator = FNameValidatorFactory::MakeValidator(StateNode);
+		const EValidatorResult Result = Validator.IsValid() ? Validator->IsValid(Name) : EValidatorResult::Ok;
+		if (Result != EValidatorResult::Ok && Result != EValidatorResult::ExistingName)
+		{
+			const TCHAR* Reason = TEXT("invalid");
+			switch (Result)
+			{
+			case EValidatorResult::AlreadyInUse: Reason = TEXT("already in use"); break;
+			case EValidatorResult::EmptyName: Reason = TEXT("empty"); break;
+			case EValidatorResult::TooLong: Reason = TEXT("too long"); break;
+			case EValidatorResult::ContainsInvalidCharacters: Reason = TEXT("contains invalid characters"); break;
+			default: break;
+			}
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("State name '%s' rejected: %s"), *Name, Reason));
+			return false;
+		}
+		return true;
+	}
+
+	UAnimStateNode* AddState(UAnimationStateMachineGraph* Graph, const FString& Name, const FVector2D& Position, FAnimMcpError& OutError)
+	{
+		Graph->Modify();
+		// Finalize → PostPlacedNewNode 가 BoundGraph(UAnimationStateGraph + StateResult) 를 만들고 SubGraphs 에 넣는다 (AnimStateNode.cpp:130-156)
+		FGraphNodeCreator<UAnimStateNode> Creator(*Graph);
+		UAnimStateNode* Node = Creator.CreateNode(/*bSelectNewNode*/ false);
+		Node->NodePosX = static_cast<int32>(Position.X);
+		Node->NodePosY = static_cast<int32>(Position.Y);
+		Creator.Finalize();
+
+		if (!Name.IsEmpty())
+		{
+			if (!ValidateStateName(Node, Name, OutError))
+			{
+				// 이름이 거부되면 노드도 남기지 않는다 (호출자는 실패로 처리)
+				DestroyNodeQuietly(Node);
+				return nullptr;
+			}
+			// OnRenameNode = FBlueprintEditorUtils::RenameGraph(BoundGraph, Name) — 상태 이름은 BoundGraph 이름이다
+			Node->OnRenameNode(Name);
+		}
+		return Node;
+	}
+
+	bool ValidateTransitionEndpoints(UEdGraphNode* From, UEdGraphNode* To, FAnimMcpError& OutError)
+	{
+		UAnimStateNodeBase* A = Cast<UAnimStateNodeBase>(From);
+		UAnimStateNodeBase* B = Cast<UAnimStateNodeBase>(To);
+		if (!A || !B || Cast<UAnimStateTransitionNode>(A) || Cast<UAnimStateTransitionNode>(B))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("add_transition endpoints must be state (or conduit/alias) nodes, not transitions or the entry node"));
+			return false;
+		}
+		if (A->GetGraph() != B->GetGraph())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("add_transition endpoints must be in the same state machine graph"));
+			return false;
+		}
+		if (!A->GetOutputPin() || !B->GetInputPin())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("add_transition endpoint has no transition pins"));
+			return false;
+		}
+		return ValidateTransitionTarget(To, OutError);
+	}
+
+	UAnimStateTransitionNode* AddTransition(UEdGraphNode* From, UEdGraphNode* To, FAnimMcpError& OutError)
+	{
+		if (!ValidateTransitionEndpoints(From, To, OutError))
+		{
+			return nullptr;
+		}
+		UAnimStateNodeBase* A = CastChecked<UAnimStateNodeBase>(From);
+		UAnimStateNodeBase* B = CastChecked<UAnimStateNodeBase>(To);
+		UEdGraph* Graph = A->GetGraph();
+		Graph->Modify();
+		A->Modify();
+		B->Modify();
+
+		// 에디터의 드래그 연결과 같은 경로 — CreateAutomaticConversionNodeAndConnections (AnimationStateMachineSchema.cpp:244-272):
+		// 템플릿 스폰(=Guid·PostPlacedNewNode(BoundGraph)·기본 핀) 뒤 CreateConnections(Prev, Next)
+		FGraphNodeCreator<UAnimStateTransitionNode> Creator(*Graph);
+		UAnimStateTransitionNode* Transition = Creator.CreateNode(/*bSelectNewNode*/ false);
+		Transition->NodePosX = (A->NodePosX + B->NodePosX) / 2;
+		Transition->NodePosY = (A->NodePosY + B->NodePosY) / 2;
+		Creator.Finalize();
+		Transition->CreateConnections(A, B);
+		return Transition;
+	}
+
+	bool SetEntryState(UAnimationStateMachineGraph* Graph, UEdGraphNode* StateNode, FAnimMcpError& OutError)
+	{
+		UAnimStateNodeBase* State = Cast<UAnimStateNodeBase>(StateNode);
+		if (!Graph || !Graph->EntryNode || !State || Cast<UAnimStateTransitionNode>(State) || State->GetGraph() != Graph)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_entry_state needs a state node inside the given state machine graph"));
+			return false;
+		}
+		UEdGraphPin* EntryOut = Graph->EntryNode->GetOutputPin();
+		UEdGraphPin* StateIn = State->GetInputPin();
+		if (!EntryOut || !StateIn)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("Entry or state pin missing"));
+			return false;
+		}
+		Graph->Modify();
+		Graph->EntryNode->Modify();
+		State->Modify();
+		// 스키마가 BREAK_OTHERS_A 로 이전 Entry 연결을 끊는다 (AnimationStateMachineSchema.cpp:160-168). 이전 상태 노드가 받는 통지는 무해하다
+		if (!Graph->GetSchema()->TryCreateConnection(EntryOut, StateIn))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::ConnectionRejected, TEXT("Schema rejected the entry connection"));
+			return false;
+		}
+		return true;
+	}
+
+	void CollectLinkedTransitions(UEdGraphNode* StateNode, TArray<UEdGraphNode*>& OutTransitions)
+	{
+		for (UEdGraphPin* Pin : StateNode->Pins)
+		{
+			if (!Pin)
+			{
+				continue;
+			}
+			for (UEdGraphPin* Other : Pin->LinkedTo)
+			{
+				UEdGraphNode* OtherNode = Other ? Other->GetOwningNodeUnchecked() : nullptr;
+				if (OtherNode && OtherNode->IsA<UAnimStateTransitionNode>())
+				{
+					OutTransitions.AddUnique(OtherNode);
+				}
+			}
+		}
+	}
+
+	namespace
+	{
+		bool ImportPropertyText(UEdGraphNode* Node, const AnimMcpPropertyRules::FResolved& Resolved, const FString& ImportText, FAnimMcpError& OutError)
+		{
+			void* ValuePtr = Resolved.Property->ContainerPtrToValuePtr<void>(Resolved.Container);
+			FProperty* EditProperty = Resolved.MemberProperty ? static_cast<FProperty*>(Resolved.MemberProperty) : Resolved.Property;
+
+			Node->Modify();
+			Node->PreEditChange(EditProperty);
+
+			// ExportTextItem_Direct: 값이 기본값(0)이어도 무조건 쓴다 — ExportText_Direct 는 Delta=null 일 때 0 값을 건너뛰어 빈 문자열이 된다 (Property.cpp:1005)
+			FString OldText;
+			Resolved.Property->ExportTextItem_Direct(OldText, ValuePtr, nullptr, Node, PPF_None);
+
+			const TCHAR* Result = Resolved.Property->ImportText_Direct(*ImportText, ValuePtr, Node, PPF_None, GLog);
+			if (!Result)
+			{
+				// 실패하면 부분 수정이 없도록 되돌린다
+				Resolved.Property->ImportText_Direct(*OldText, ValuePtr, Node, PPF_None, GLog);
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' rejected value '%s' (type %s)"), *Resolved.Property->GetName(), *ImportText, *Resolved.Property->GetCPPType()));
+				return false;
+			}
+
+			FPropertyChangedEvent Event(Resolved.Property, EPropertyChangeType::ValueSet);
+			if (Resolved.MemberProperty)
+			{
+				Event.SetActiveMemberProperty(Resolved.MemberProperty);
+			}
+			Node->PostEditChangeProperty(Event);
+
+			// 핀이 노출돼 있으면 핀 기본값이 진실이다 — 컴파일이 핀 → 구조체로 복사하고, 핀을 숨길 때도 핀 → 구조체로 되돌린다
+			// (AnimBlueprintNodeOptionalPinManager.cpp:108-121). 구조체만 바꾸면 컴파일에서 덮어쓰이므로 연결되지 않은 노출 핀도 같은 값으로 맞춘다
+			if (Resolved.MemberProperty && !CastField<FArrayProperty>(Resolved.Property))
+			{
+				if (UEdGraphPin* Pin = Node->FindPin(Resolved.Property->GetFName(), EGPD_Input); Pin && Pin->LinkedTo.Num() == 0 && !Pin->bOrphanedPin)
+				{
+					FString Literal;
+					FBlueprintEditorUtils::PropertyValueToString_Direct(Resolved.Property, static_cast<const uint8*>(ValuePtr), Literal, Node);
+					GetDefault<UEdGraphSchema_K2>()->TrySetDefaultValue(*Pin, Literal);
+				}
+			}
+			return true;
+		}
+	}
+
+	bool SetPropertyFromJson(UEdGraphNode* Node, FName Property, const TSharedPtr<FJsonValue>& Value, FString& OutOldText, FAnimMcpError& OutError)
+	{
+		AnimMcpPropertyRules::FResolved Resolved;
+		if (!AnimMcpPropertyRules::ResolveOnNode(Node, Property, Resolved, OutError))
+		{
+			return false;
+		}
+		if (!ValidatePropertyValueOnNode(Node, Property, Value, OutError, /*ExtraPoses*/ 0))
+		{
+			return false;
+		}
+		if (Resolved.Rule->bReadOnly)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::PropertyNotAllowed, FString::Printf(TEXT("Property '%s' is read-only"), *Property.ToString()));
+			return false;
+		}
+		if (Resolved.Rule->Scope == AnimMcpPropertyRules::EScope::NodeRef)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, FString::Printf(TEXT("'%s' is a node reference; use SetCachedPoseSource"), *Property.ToString()));
+			return false;
+		}
+		FString ImportText;
+		if (!AnimMcpPropertyRules::JsonToImportText(Resolved.Property, Value, ImportText, OutError))
+		{
+			return false;
+		}
+		// 롤백용 이전 값 — ExportTextItem_Direct (0 값도 기록; ExportText_Direct 는 비운다 → 롤백 ImportText("") 실패)
+		Resolved.Property->ExportTextItem_Direct(OutOldText, Resolved.Property->ContainerPtrToValuePtr<void>(Resolved.Container), nullptr, Node, PPF_None);
+		return ImportPropertyText(Node, Resolved, ImportText, OutError);
+	}
+
+	bool SetPropertyFromText(UEdGraphNode* Node, FName Property, const FString& ImportText, FAnimMcpError& OutError)
+	{
+		AnimMcpPropertyRules::FResolved Resolved;
+		if (!AnimMcpPropertyRules::ResolveOnNode(Node, Property, Resolved, OutError) || !Resolved.Property)
+		{
+			return false;
+		}
+		return ImportPropertyText(Node, Resolved, ImportText, OutError);
+	}
+
+	bool ValidatePropertyOnClass(const UClass* NodeClass, FName Property, const TSharedPtr<FJsonValue>& Value, FAnimMcpError& OutError)
+	{
+		AnimMcpPropertyRules::FResolved Resolved;
+		if (!AnimMcpPropertyRules::ResolveOnClass(NodeClass, Property, Resolved, OutError))
+		{
+			return false;
+		}
+		if (Resolved.Rule->bReadOnly)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::PropertyNotAllowed, FString::Printf(TEXT("Property '%s' is read-only"), *Property.ToString()));
+			return false;
+		}
+		if (Resolved.Rule->Scope == AnimMcpPropertyRules::EScope::NodeRef)
+		{
+			// 값은 노드 참조 — 형태만 확인 (해석은 Operations 가 ref 표로)
+			if (!Value.IsValid() || (Value->Type != EJson::String && Value->Type != EJson::Object))
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' expects a node reference: \"<guid>\" or {\"node\"|\"ref\"}"), *Property.ToString()));
+				return false;
+			}
+			return true;
+		}
+		FString Unused;
+		return AnimMcpPropertyRules::JsonToImportText(Resolved.Property, Value, Unused, OutError);
+	}
+
+	namespace
+	{
+		/** FAnimNode 구조체 안의 애셋 참조 프로퍼티 (Sequence · BlendSpace …) — null 로 되돌릴 때 SetAnimationAsset 이 무시하므로 직접 쓴다 */
+		FObjectProperty* FindAssetProperty(UAnimGraphNode_Base* Node, void*& OutContainer)
+		{
+			OutContainer = nullptr;
+			FStructProperty* NodeProp = Node ? Node->GetFNodeProperty() : nullptr;
+			if (!NodeProp)
+			{
+				return nullptr;
+			}
+			OutContainer = NodeProp->ContainerPtrToValuePtr<void>(Node);
+			for (TFieldIterator<FObjectProperty> It(NodeProp->Struct); It; ++It)
+			{
+				if (It->PropertyClass && It->PropertyClass->IsChildOf(UAnimationAsset::StaticClass()))
+				{
+					return *It;
+				}
+			}
+			return nullptr;
+		}
+	}
+
+	bool SetAsset(UAnimGraphNode_Base* Node, UAnimationAsset* Asset, UAnimationAsset*& OutOld, FAnimMcpError& OutError)
+	{
+		UAnimGraphNode_AssetPlayerBase* Player = Cast<UAnimGraphNode_AssetPlayerBase>(Node);
+		if (!Player || !Asset)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("set_asset needs an asset player node and a non-null asset"));
+			return false;
+		}
+		OutOld = Player->GetAnimationAsset();
+		Player->Modify();
+		Player->SetAnimationAsset(Asset);
+		if (Player->GetAnimationAsset() != Asset)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("%s did not accept asset %s"), *Node->GetClass()->GetName(), *Asset->GetPathName()));
+			return false;
+		}
+		return true;
+	}
+
+	void RestoreAsset(UAnimGraphNode_Base* Node, UAnimationAsset* Old)
+	{
+		if (!Node)
+		{
+			return;
+		}
+		Node->Modify();
+		if (Old)
+		{
+			if (UAnimGraphNode_AssetPlayerBase* Player = Cast<UAnimGraphNode_AssetPlayerBase>(Node))
+			{
+				Player->SetAnimationAsset(Old);
+				return;
+			}
+		}
+		void* Container = nullptr;
+		if (FObjectProperty* AssetProp = FindAssetProperty(Node, Container))
+		{
+			AssetProp->SetObjectPropertyValue(AssetProp->ContainerPtrToValuePtr<void>(Container), Old);
+		}
+	}
+
+	int32 FindOptionalPinIndex(UAnimGraphNode_Base* Node, FName Property, FAnimMcpError& OutError)
+	{
+		if (!Node)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("expose_pin needs an AnimGraph node"));
+			return INDEX_NONE;
+		}
+		TArray<FString> Toggleable;
+		for (int32 i = 0; i < Node->ShowPinForProperties.Num(); ++i)
+		{
+			const FOptionalPinFromProperty& Optional = Node->ShowPinForProperties[i];
+			if (Optional.bCanToggleVisibility)
+			{
+				Toggleable.Add(Optional.PropertyName.ToString());
+			}
+			if (Optional.PropertyName == Property)
+			{
+				if (!Optional.bCanToggleVisibility)
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::PropertyNotAllowed, FString::Printf(TEXT("Pin '%s' on %s cannot toggle visibility"), *Property.ToString(), *Node->GetClass()->GetName()));
+					return INDEX_NONE;
+				}
+				return i;
+			}
+		}
+		TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+		Details->SetStringField(TEXT("toggleable"), FString::Join(Toggleable, TEXT(", ")));
+		OutError = FAnimMcpError::Make(AnimMcpErrorCodes::PinNotFound, FString::Printf(TEXT("%s has no optional pin for property '%s'"), *Node->GetClass()->GetName(), *Property.ToString()), Details);
+		return INDEX_NONE;
+	}
+
+	TArray<FOptionalPinFromProperty>* CustomPinsOf(UAnimGraphNode_Base* Node)
+	{
+		if (!Node || !Node->IsA<UAnimGraphNode_CustomProperty>())
+		{
+			return nullptr;
+		}
+		static const FName PropName(TEXT("CustomPinProperties"));
+		FArrayProperty* Prop = CastField<FArrayProperty>(UAnimGraphNode_CustomProperty::StaticClass()->FindPropertyByName(PropName));
+		return Prop ? Prop->ContainerPtrToValuePtr<TArray<FOptionalPinFromProperty>>(Node) : nullptr;
+	}
+
+	int32 FindCustomPinIndex(UAnimGraphNode_Base* Node, FName Property)
+	{
+		if (TArray<FOptionalPinFromProperty>* Custom = CustomPinsOf(Node))
+		{
+			for (int32 i = 0; i < Custom->Num(); ++i)
+			{
+				if ((*Custom)[i].PropertyName == Property) { return i; }
+			}
+		}
+		return INDEX_NONE;
+	}
+
+	bool HasOptionalPin(UAnimGraphNode_Base* Node, FName Property, FAnimMcpError& OutError)
+	{
+		if (FindCustomPinIndex(Node, Property) != INDEX_NONE)
+		{
+			return true;
+		}
+		if (FindOptionalPinIndex(Node, Property, OutError) != INDEX_NONE)
+		{
+			return true;
+		}
+		// 메시지에 커스텀 핀 이름도 싣는다
+		if (TArray<FOptionalPinFromProperty>* Custom = CustomPinsOf(Node); Custom && Custom->Num() > 0 && OutError.Details.IsValid())
+		{
+			TArray<FString> Names;
+			for (const FOptionalPinFromProperty& P : *Custom) { Names.Add(P.PropertyName.ToString()); }
+			OutError.Details->SetStringField(TEXT("custom"), FString::Join(Names, TEXT(", ")));
+		}
+		return false;
+	}
+
+	bool SetPinVisible(UAnimGraphNode_Base* Node, FName Property, bool bVisible, FAnimMcpError& OutError, bool* bOutChanged)
+	{
+		// (7-4) 커스텀 핀 — UAnimGraphNode_CustomProperty::SetCustomPinVisibility(AnimGraphNode_CustomProperty.cpp:373-384) 재현 (protected)
+		if (const int32 CustomIndex = FindCustomPinIndex(Node, Property); CustomIndex != INDEX_NONE)
+		{
+			TArray<FOptionalPinFromProperty>& Custom = *CustomPinsOf(Node);
+			const bool bChanged = Custom[CustomIndex].bShowPin != bVisible;
+			if (bOutChanged) { *bOutChanged = bChanged; }
+			if (bChanged)
+			{
+				Node->Modify();
+				Custom[CustomIndex].bShowPin = bVisible;
+				Node->ReconstructNode();
+			}
+			return true;
+		}
+		const int32 Index = FindOptionalPinIndex(Node, Property, OutError);
+		if (Index == INDEX_NONE)
+		{
+			return false;
+		}
+		const bool bChanged = (Node->ShowPinForProperties[Index].bShowPin != bVisible);
+		if (bOutChanged)
+		{
+			*bOutChanged = bChanged;
+		}
+		if (bChanged)
+		{
+			Node->Modify();
+			// 내부에서 ReconstructNode — 이 노드의 모든 핀 포인터가 무효가 된다
+			Node->SetPinVisibility(bVisible, Index);
+		}
+		return true;
+	}
+
+	bool SetCachedPoseSource(UEdGraphNode* UseNode, UEdGraphNode* SaveNode, UEdGraphNode*& OutOld, FAnimMcpError& OutError)
+	{
+		UAnimGraphNode_UseCachedPose* Use = Cast<UAnimGraphNode_UseCachedPose>(UseNode);
+		UAnimGraphNode_SaveCachedPose* Save = Cast<UAnimGraphNode_SaveCachedPose>(SaveNode);
+		if (!Use)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("SaveCachedPoseNode can only be set on AnimGraphNode_UseCachedPose"));
+			return false;
+		}
+		if (!Save)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("SaveCachedPoseNode must reference an AnimGraphNode_SaveCachedPose (got %s)"), SaveNode ? *SaveNode->GetClass()->GetName() : TEXT("null")));
+			return false;
+		}
+		if (FBlueprintEditorUtils::FindBlueprintForNode(Use) != FBlueprintEditorUtils::FindBlueprintForNode(Save))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("UseCachedPose and SaveCachedPose must be in the same Animation Blueprint"));
+			return false;
+		}
+		OutOld = Use->SaveCachedPoseNode.Get();
+		Use->Modify();
+		Use->SaveCachedPoseNode = Save;
+		return true;
+	}
+
+	void RestoreCachedPoseSource(UEdGraphNode* UseNode, UEdGraphNode* Old)
+	{
+		if (UAnimGraphNode_UseCachedPose* Use = Cast<UAnimGraphNode_UseCachedPose>(UseNode))
+		{
+			Use->Modify();
+			Use->SaveCachedPoseNode = Cast<UAnimGraphNode_SaveCachedPose>(Old);
+		}
+	}
+
+	namespace
+	{
+		/**
+		 * UAnimGraphNode_BlendListByEnum::VisibleEnumEntries 는 protected UPROPERTY() 라 리플렉션으로 읽고 쓴다
+		 * (AnimGraphNode_BlendListByEnum.h:23-29). BoundEnum 은 공개 가상 GetEnum()/ReloadEnum() 으로
+		 */
+		TArray<FName>* VisibleEnumEntriesOf(UAnimGraphNode_BlendListByEnum* Node)
+		{
+			static FArrayProperty* Property = CastField<FArrayProperty>(UAnimGraphNode_BlendListByEnum::StaticClass()->FindPropertyByName(TEXT("VisibleEnumEntries")));
+			return Property ? Property->ContainerPtrToValuePtr<TArray<FName>>(Node) : nullptr;
+		}
+	}
+
+	bool SetBlendListEnum(UEdGraphNode* Node, UEnum* Enum, FAnimMcpError& OutError)
+	{
+		UAnimGraphNode_BlendListByEnum* BlendNode = Cast<UAnimGraphNode_BlendListByEnum>(Node);
+		if (!BlendNode)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("'enum' is only accepted for AnimGraphNode_BlendListByEnum"));
+			return false;
+		}
+		if (!Enum)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("'enum' did not resolve to a UEnum"));
+			return false;
+		}
+		BlendNode->Modify();
+		// ReloadEnum = BoundEnum 설정 + 제목 캐시 무효화 (AnimGraphNode_BlendListByEnum.cpp:352)
+		BlendNode->ReloadEnum(Enum);
+		BlendNode->ReconstructNode();
+		return true;
+	}
+
+	bool ValidateAddBlendPose(UEdGraphNode* Node, const FString& EnumEntry, FAnimMcpError& OutError)
+	{
+		if (Cast<UAnimGraphNode_LayeredBoneBlend>(Node))
+		{
+			return true;
+		}
+		if (UAnimGraphNode_BlendListByEnum* BlendNode = Cast<UAnimGraphNode_BlendListByEnum>(Node))
+		{
+			UEnum* BoundEnum = BlendNode->GetEnum();
+			if (!BoundEnum)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("BlendListByEnum has no enum bound; create it with 'enum' first"));
+				return false;
+			}
+			if (EnumEntry.IsEmpty())
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("add_blend_pose on BlendListByEnum requires 'entry' (enum element name)"));
+				return false;
+			}
+			const int32 EnumIndex = BoundEnum->GetIndexByNameString(EnumEntry);
+			// 마지막 항목(_MAX)은 에디터 메뉴도 제외한다
+			if (EnumIndex == INDEX_NONE || EnumIndex >= BoundEnum->NumEnums() - 1)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' is not an element of %s"), *EnumEntry, *BoundEnum->GetName()));
+				return false;
+			}
+			const TArray<FName>* Visible = VisibleEnumEntriesOf(BlendNode);
+			if (Visible && Visible->Contains(BoundEnum->GetNameByIndex(EnumIndex)))
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' already has a pose pin"), *EnumEntry));
+				return false;
+			}
+			return true;
+		}
+		OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("add_blend_pose supports LayeredBoneBlend and BlendListByEnum, not %s"), Node ? *Node->GetClass()->GetName() : TEXT("null")));
+		return false;
+	}
+
+	bool AddBlendPose(UEdGraphNode* Node, const FString& EnumEntry, FAnimMcpError& OutError)
+	{
+		if (!ValidateAddBlendPose(Node, EnumEntry, OutError))
+		{
+			return false;
+		}
+		if (UAnimGraphNode_LayeredBoneBlend* Layered = Cast<UAnimGraphNode_LayeredBoneBlend>(Node))
+		{
+			// 자체 FScopedTransaction 을 열지만 바깥 트랜잭션에 합쳐진다. Modify + Node.AddPose + ReconstructNode
+			Layered->AddPinToBlendByFilter();
+			return true;
+		}
+		UAnimGraphNode_BlendListByEnum* BlendNode = CastChecked<UAnimGraphNode_BlendListByEnum>(Node);
+		TArray<FName>* Visible = VisibleEnumEntriesOf(BlendNode);
+		if (!Visible)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("VisibleEnumEntries not found by reflection"));
+			return false;
+		}
+		// ExposeEnumElementAsPin 은 비가상·비내보내기(MinimalAPI) 라 같은 순서를 재현한다 (AnimGraphNode_BlendListByEnum.cpp:143-158)
+		UEnum* BoundEnum = BlendNode->GetEnum();
+		BlendNode->Modify();
+		Visible->Add(BoundEnum->GetNameByIndex(BoundEnum->GetIndexByNameString(EnumEntry)));
+		BlendNode->Node.AddPose();
+		BlendNode->ReconstructNode();
+		return true;
+	}
+
+	namespace
+	{
+		/**
+		 * 제거되는 배열 인덱스의 핀(BlendPoses_N · BlendWeights_N · BlendPose_N · BlendTime_N)은 재구성 때 고아 핀으로 남지 않게 표시한다.
+		 * 엔진의 RemovePinFromBlendList 도 같은 처리를 한다 (AnimGraphNode_BlendListByEnum.cpp:187). 기본값이 비기본(0.1 · 1.0)이라 표시 없이는 남는다
+		 */
+		void DiscardPinsOfArrayIndex(UEdGraphNode* Node, int32 Index)
+		{
+			const FString Suffix = FString::Printf(TEXT("_%d"), Index);
+			for (UEdGraphPin* Pin : Node->Pins)
+			{
+				if (Pin && Pin->PinName.ToString().EndsWith(Suffix))
+				{
+					Pin->SetSavePinIfOrphaned(false);
+				}
+			}
+		}
+	}
+
+	void RemoveLastBlendPose(UEdGraphNode* Node)
+	{
+		if (UAnimGraphNode_LayeredBoneBlend* Layered = Cast<UAnimGraphNode_LayeredBoneBlend>(Node))
+		{
+			const int32 Last = Layered->Node.BlendPoses.Num() - 1;
+			if (Last >= 0)
+			{
+				Layered->Modify();
+				DiscardPinsOfArrayIndex(Layered, Last);
+				Layered->Node.RemovePose(Last);
+				Layered->ReconstructNode();
+			}
+			return;
+		}
+		if (UAnimGraphNode_BlendListByEnum* BlendNode = Cast<UAnimGraphNode_BlendListByEnum>(Node))
+		{
+			// BlendPose 배열은 protected — 공개 GetBlendTimes() 가 같은 길이다
+			const int32 Last = BlendNode->Node.GetBlendTimes().Num() - 1;
+			TArray<FName>* Visible = VisibleEnumEntriesOf(BlendNode);
+			if (Last >= 1 && Visible && Visible->Num() > 0) // 0 번은 Default 포즈
+			{
+				BlendNode->Modify();
+				Visible->Pop();
+				DiscardPinsOfArrayIndex(BlendNode, Last);
+				BlendNode->Node.RemovePose(Last);
+				BlendNode->ReconstructNode();
+			}
+		}
+	}
+
+	//~ Phase 5
+
+	UClass* VariableClassOf(UAnimBlueprint* Blueprint)
+	{
+		if (!Blueprint) { return nullptr; }
+		if (Blueprint->SkeletonGeneratedClass) { return Blueprint->SkeletonGeneratedClass; }
+		if (Blueprint->GeneratedClass) { return Blueprint->GeneratedClass; }
+		return Blueprint->ParentClass;
+	}
+
+	bool IsVariableGetClassName(const FString& InClassName)
+	{
+		const FString ClassName = InClassName.TrimStartAndEnd();
+		return ClassName == TEXT("K2Node_VariableGet") || ClassName == TEXT("VariableGet") || ClassName == TEXT("/Script/BlueprintGraph.K2Node_VariableGet");
+	}
+
+	bool ValidateVariableGetGraph(UEdGraph* Graph, FAnimMcpError& OutError)
+	{
+		if (!Graph)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::GraphNotFound, TEXT("K2Node_VariableGet needs a target graph"));
+			return false;
+		}
+		if (Graph->IsA<UAnimationTransitionGraph>())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("K2Node_VariableGet cannot be placed in a transition rule graph; use set_transition_rule with a rule tree instead"));
+			return false;
+		}
+		if (!Graph->IsA<UAnimationGraph>())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("K2Node_VariableGet can only be placed in the AnimGraph or a state's bound graph, not in a %s"), *Graph->GetClass()->GetName()));
+			return false;
+		}
+		return true;
+	}
+
+	FProperty* ResolveVariable(UAnimBlueprint* Blueprint, const FString& Name, FAnimMcpError& OutError)
+	{
+		UClass* VarClass = VariableClassOf(Blueprint);
+		FProperty* Property = VarClass ? VarClass->FindPropertyByName(FName(*Name)) : nullptr;
+		if (!Property || !Property->HasAnyPropertyFlags(CPF_BlueprintVisible))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("variable '%s' is not a BlueprintVisible property of %s (see get_anim_blueprint_info.variables)"), *Name, VarClass ? *VarClass->GetName() : TEXT("?")));
+			return nullptr;
+		}
+		return Property;
+	}
+
+	UEdGraphNode* AddVariableGetNode(UEdGraph* Graph, FProperty* Property, UClass* VarClass, const FVector2D& Position, FAnimMcpError& OutError)
+	{
+		if (!Graph || !Property || !VarClass)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("AddVariableGetNode called without graph, property or class"));
+			return nullptr;
+		}
+		Graph->Modify();
+
+		FGraphNodeCreator<UK2Node_VariableGet> Creator(*Graph);
+		UK2Node_VariableGet* Node = Creator.CreateNode(/*bSelectNewNode*/ false);
+		Node->SetFromProperty(Property, /*bSelfContext*/ true, VarClass);
+		Node->NodePosX = static_cast<int32>(Position.X);
+		Node->NodePosY = static_cast<int32>(Position.Y);
+		Creator.Finalize();
+
+		if (!Node->FindPin(Property->GetFName(), EGPD_Output))
+		{
+			DestroyNodeQuietly(Node);
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, FString::Printf(TEXT("variable node for '%s' has no output pin of that name"), *Property->GetName()));
+			return nullptr;
+		}
+		UE_LOG(LogAnimGraphMcp, Verbose, TEXT("Added K2Node_VariableGet(%s) %s to graph %s"), *Property->GetName(), *Node->NodeGuid.ToString(), *Graph->GetName());
+		return Node;
+	}
+
+	bool ValidateLayerSetup(UEdGraphNode* Node, const TSharedPtr<FJsonValue>& Value, FAnimMcpError& OutError, int32 ExtraPoses)
+	{
+		UAnimGraphNode_LayeredBoneBlend* Blend = Cast<UAnimGraphNode_LayeredBoneBlend>(Node);
+		if (!Blend)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("LayerSetup is only valid on AnimGraphNode_LayeredBoneBlend"));
+			return false;
+		}
+		if (Blend->Node.BlendMode != ELayeredBoneBlendMode::BranchFilter)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("LayerSetup is used only when BlendMode is BranchFilter; set_property BlendMode first"));
+			return false;
+		}
+		if (!Value.IsValid() || Value->Type != EJson::Array)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("LayerSetup expects an array with one entry {BranchFilters:[{BoneName, BlendDepth}]} per blend pose"));
+			return false;
+		}
+		const int32 NumPoses = Blend->Node.BlendPoses.Num() + ExtraPoses;
+		const TArray<TSharedPtr<FJsonValue>>& Entries = Value->AsArray();
+		if (Entries.Num() != NumPoses)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("LayerSetup needs exactly %d entries (one per blend pose%s; use add_blend_pose to add poses), got %d"), NumPoses, ExtraPoses > 0 ? TEXT(" including add_blend_pose earlier in this batch") : TEXT(""), Entries.Num()));
+			return false;
+		}
+		const UAnimBlueprint* Blueprint = Blend->GetAnimBlueprint();
+		const USkeleton* Skeleton = Blueprint ? Blueprint->TargetSkeleton : nullptr;
+		for (int32 i = 0; i < Entries.Num(); ++i)
+		{
+			const TSharedPtr<FJsonValue>& Entry = Entries[i];
+			if (!Entry.IsValid() || Entry->Type != EJson::Object)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("LayerSetup[%d] must be an object {BranchFilters:[{BoneName, BlendDepth}]}"), i));
+				return false;
+			}
+			const TArray<TSharedPtr<FJsonValue>>* Filters = nullptr;
+			if (!Entry->AsObject()->TryGetArrayField(TEXT("BranchFilters"), Filters) || !Filters)
+			{
+				continue; // 필터 없는 포즈 = 전신 (엔진 기본과 같다)
+			}
+			for (int32 f = 0; f < Filters->Num(); ++f)
+			{
+				const TSharedPtr<FJsonValue>& Filter = (*Filters)[f];
+				FString Bone;
+				if (!Filter.IsValid() || Filter->Type != EJson::Object || !Filter->AsObject()->TryGetStringField(TEXT("BoneName"), Bone) || Bone.IsEmpty())
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("LayerSetup[%d].BranchFilters[%d] needs a BoneName"), i, f));
+					return false;
+				}
+				if (Skeleton && Skeleton->GetReferenceSkeleton().FindBoneIndex(FName(*Bone)) == INDEX_NONE)
+				{
+					TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+					Details->SetStringField(TEXT("skeleton"), Skeleton->GetPathName());
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("LayerSetup[%d].BranchFilters[%d]: bone '%s' does not exist in the target skeleton"), i, f, *Bone), Details);
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	//~ Phase 7-2 — 값 트리 검증 (본 이름 · 스켈레톤 소유 애셋 · BlendMasks)
+
+	namespace
+	{
+		FAnimMcpError ValueReason(const FString& Message, const TCHAR* ReasonCode, const USkeleton* Skeleton = nullptr)
+		{
+			TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+			Details->SetStringField(TEXT("reason"), ReasonCode);
+			if (Skeleton) { Details->SetStringField(TEXT("skeleton"), Skeleton->GetPathName()); }
+			return FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, Message, Details);
+		}
+
+		/** 애셋이 속한 스켈레톤 — UBlendProfile 은 소유 스켈레톤, 그 밖엔 USkeleton 타입의 'Skeleton' 프로퍼티(UMirrorDataTable 등) */
+		const USkeleton* SkeletonOfAsset(const UObject* Object)
+		{
+			if (const UBlendProfile* Profile = Cast<UBlendProfile>(Object))
+			{
+				return Profile->GetSkeleton();
+			}
+			if (Object)
+			{
+				if (const FObjectPropertyBase* Prop = CastField<FObjectPropertyBase>(Object->GetClass()->FindPropertyByName(TEXT("Skeleton"))); Prop && Prop->PropertyClass && Prop->PropertyClass->IsChildOf(USkeleton::StaticClass()))
+				{
+					return Cast<USkeleton>(Prop->GetObjectPropertyValue_InContainer(Object));
+				}
+			}
+			return nullptr;
+		}
+
+		bool ValidateValueTree(const FProperty* Property, const TSharedPtr<FJsonValue>& Value, const USkeleton* Skeleton, const FString& Path, FAnimMcpError& OutError)
+		{
+			if (!Property || !Value.IsValid() || Value->Type == EJson::Null)
+			{
+				return true;
+			}
+			if (const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
+			{
+				if (Value->Type != EJson::Array) { return true; } // 형태 오류는 JsonToImportText 가 보고한다
+				const TArray<TSharedPtr<FJsonValue>>& Items = Value->AsArray();
+				for (int32 i = 0; i < Items.Num(); ++i)
+				{
+					if (!ValidateValueTree(ArrayProp->Inner, Items[i], Skeleton, FString::Printf(TEXT("%s[%d]"), *Path, i), OutError)) { return false; }
+				}
+				return true;
+			}
+			if (const FStructProperty* StructProp = CastField<FStructProperty>(Property))
+			{
+				if (Value->Type != EJson::Object) { return true; }
+				const TSharedPtr<FJsonObject> Obj = Value->AsObject();
+				if (StructProp->Struct == FBoneReference::StaticStruct())
+				{
+					FString Bone;
+					if (Obj->TryGetStringField(TEXT("BoneName"), Bone) && !Bone.IsEmpty() && Bone != TEXT("None") && Skeleton && Skeleton->GetReferenceSkeleton().FindBoneIndex(FName(*Bone)) == INDEX_NONE)
+					{
+						OutError = ValueReason(FString::Printf(TEXT("%s: bone '%s' does not exist in the target skeleton"), *Path, *Bone), TEXT("BONE_NOT_FOUND"), Skeleton);
+						return false;
+					}
+				}
+				for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Obj->Values)
+				{
+					if (const FProperty* Member = StructProp->Struct->FindPropertyByName(FName(*Pair.Key)))
+					{
+						if (!ValidateValueTree(Member, Pair.Value, Skeleton, Path + TEXT(".") + Pair.Key, OutError)) { return false; }
+					}
+				}
+				return true;
+			}
+			if (const FObjectPropertyBase* ObjProp = CastField<FObjectPropertyBase>(Property))
+			{
+				if (Value->Type != EJson::String) { return true; }
+				UObject* Object = AnimMcpPropertyRules::ResolveObjectValue(ObjProp, Value->AsString(), OutError);
+				if (!Object)
+				{
+					OutError.Message = Path + TEXT(": ") + OutError.Message;
+					return false;
+				}
+				const USkeleton* Owner = SkeletonOfAsset(Object);
+				if (Owner && Skeleton && Owner != Skeleton)
+				{
+					OutError = ValueReason(FString::Printf(TEXT("%s: '%s' belongs to skeleton %s, not the target skeleton"), *Path, *Object->GetPathName(), *Owner->GetName()), TEXT("SKELETON_MISMATCH"), Skeleton);
+					return false;
+				}
+			}
+			return true;
+		}
+
+		bool ValidateBlendMasks(UEdGraphNode* Node, const TSharedPtr<FJsonValue>& Value, int32 ExtraPoses, FAnimMcpError& OutError)
+		{
+			UAnimGraphNode_LayeredBoneBlend* Blend = Cast<UAnimGraphNode_LayeredBoneBlend>(Node);
+			if (!Blend)
+			{
+				OutError = ValueReason(TEXT("BlendMasks is only valid on AnimGraphNode_LayeredBoneBlend"), TEXT("BAD_BLEND_MODE"));
+				return false;
+			}
+			if (Blend->Node.BlendMode != ELayeredBoneBlendMode::BlendMask)
+			{
+				OutError = ValueReason(TEXT("BlendMasks is used only when BlendMode is BlendMask; set_property BlendMode first"), TEXT("BAD_BLEND_MODE"));
+				return false;
+			}
+			if (!Value.IsValid() || Value->Type != EJson::Array)
+			{
+				OutError = ValueReason(TEXT("BlendMasks expects an array with one blend-mask UBlendProfile path (or null) per blend pose"), TEXT("COUNT_MISMATCH"));
+				return false;
+			}
+			const int32 NumPoses = Blend->Node.BlendPoses.Num() + ExtraPoses;
+			const TArray<TSharedPtr<FJsonValue>>& Entries = Value->AsArray();
+			if (Entries.Num() != NumPoses)
+			{
+				OutError = ValueReason(FString::Printf(TEXT("BlendMasks needs exactly %d entries (one per blend pose%s), got %d"), NumPoses, ExtraPoses > 0 ? TEXT(" including add_blend_pose earlier in this batch") : TEXT(""), Entries.Num()), TEXT("COUNT_MISMATCH"));
+				return false;
+			}
+			for (int32 i = 0; i < Entries.Num(); ++i)
+			{
+				if (!Entries[i].IsValid() || Entries[i]->Type == EJson::Null) { continue; }
+				if (Entries[i]->Type != EJson::String)
+				{
+					OutError = ValueReason(FString::Printf(TEXT("BlendMasks[%d] must be a UBlendProfile path or null"), i), TEXT("OBJECT_CLASS_MISMATCH"));
+					return false;
+				}
+				FAnimMcpError Ignored;
+				UObject* Object = AnimMcpPropertyRules::ResolveObjectValue(nullptr, Entries[i]->AsString(), Ignored);
+				if (const UBlendProfile* Profile = Cast<UBlendProfile>(Object); Profile && !Profile->IsBlendMask())
+				{
+					OutError = ValueReason(FString::Printf(TEXT("BlendMasks[%d]: '%s' is a %s blend profile, not a blend mask"), i, *Profile->GetPathName(), *StaticEnum<EBlendProfileMode>()->GetNameStringByValue(static_cast<int64>(Profile->GetMode()))), TEXT("BLEND_PROFILE_NOT_MASK"));
+					return false;
+				}
+			}
+			return true;
+		}
+	}
+
+	bool ValidatePropertyValueOnNode(UEdGraphNode* Node, FName Property, const TSharedPtr<FJsonValue>& Value, FAnimMcpError& OutError, int32 ExtraPoses)
+	{
+		if (Property == TEXT("LayerSetup") && !ValidateLayerSetup(Node, Value, OutError, ExtraPoses))
+		{
+			return false;
+		}
+		if (Property == TEXT("BlendMasks") && !ValidateBlendMasks(Node, Value, ExtraPoses, OutError))
+		{
+			return false;
+		}
+		AnimMcpPropertyRules::FResolved Resolved;
+		if (!AnimMcpPropertyRules::ResolveOnNode(Node, Property, Resolved, OutError))
+		{
+			return false;
+		}
+		if (!Resolved.Property)
+		{
+			return true; // NodeRef — Operations 가 해석
+		}
+		const UAnimGraphNode_Base* AnimNode = Cast<UAnimGraphNode_Base>(Node);
+		const UAnimBlueprint* Blueprint = AnimNode ? AnimNode->GetAnimBlueprint() : Cast<UAnimBlueprint>(FBlueprintEditorUtils::FindBlueprintForNode(Node));
+		const USkeleton* Skeleton = Blueprint ? Blueprint->TargetSkeleton : nullptr;
+		return ValidateValueTree(Resolved.Property, Value, Skeleton, Property.ToString(), OutError);
+	}
+
+	//~ Phase 6-1
+
+	bool ValidateNodeName(UEdGraphNode* Node, const FString& Name, FAnimMcpError& OutError)
+	{
+		// 상태·conduit·alias·상태머신 노드 전부 MakeNameValidator 를 가진다 — ValidateStateName 과 같은 규칙
+		return ValidateStateName(Node, Name, OutError);
+	}
+
+	UAnimStateConduitNode* AddConduit(UAnimationStateMachineGraph* Graph, const FString& Name, const FVector2D& Position, FAnimMcpError& OutError)
+	{
+		Graph->Modify();
+		FGraphNodeCreator<UAnimStateConduitNode> Creator(*Graph);
+		UAnimStateConduitNode* Node = Creator.CreateNode(/*bSelectNewNode*/ false);
+		Node->NodePosX = static_cast<int32>(Position.X);
+		Node->NodePosY = static_cast<int32>(Position.Y);
+		Creator.Finalize();
+		if (!Node->BoundGraph)
+		{
+			DestroyNodeQuietly(Node);
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::Internal, TEXT("conduit node has no rule graph after placement"));
+			return nullptr;
+		}
+		if (!Name.IsEmpty())
+		{
+			if (!ValidateNodeName(Node, Name, OutError))
+			{
+				DestroyNodeQuietly(Node);
+				return nullptr;
+			}
+			Node->OnRenameNode(Name); // UAnimStateNodeBase::OnRenameNode = RenameGraph(BoundGraph) (AnimStateNodeBase.cpp:129-134)
+		}
+		return Node;
+	}
+
+	UAnimStateAliasNode* AddStateAlias(UAnimationStateMachineGraph* Graph, const FString& Name, const FVector2D& Position, FAnimMcpError& OutError)
+	{
+		Graph->Modify();
+		FGraphNodeCreator<UAnimStateAliasNode> Creator(*Graph);
+		UAnimStateAliasNode* Node = Creator.CreateNode(/*bSelectNewNode*/ false);
+		Node->NodePosX = static_cast<int32>(Position.X);
+		Node->NodePosY = static_cast<int32>(Position.Y);
+		Creator.Finalize(); // PostPlacedNewNode 가 "Alias" 에서 유효한 이름을 찾는다
+		if (!Name.IsEmpty())
+		{
+			if (!ValidateNodeName(Node, Name, OutError))
+			{
+				DestroyNodeQuietly(Node);
+				return nullptr;
+			}
+			Node->OnRenameNode(Name); // StateAliasName = NewName (검증 없음 — 위에서 했다)
+		}
+		return Node;
+	}
+
+	bool ValidateAliasTargets(UAnimStateAliasNode* Alias, const TArray<UEdGraphNode*>& States, bool bGlobal, FAnimMcpError& OutError)
+	{
+		if (!Alias)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("target is not a state alias node"));
+			return false;
+		}
+		if (!bGlobal && States.Num() == 0)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("alias needs 'states' (one or more state nodes) or 'global': true"));
+			return false;
+		}
+		if (bGlobal && States.Num() > 0)
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("alias cannot be both 'global' and have explicit 'states'"));
+			return false;
+		}
+		for (UEdGraphNode* S : States)
+		{
+			if (!S || !S->IsA<UAnimStateNode>())
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("alias target %s is not a state node (conduits and aliases cannot be aliased)"), S ? *S->GetClass()->GetName() : TEXT("null")));
+				return false;
+			}
+			if (S->GetGraph() != Alias->GetGraph())
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("alias targets must be in the same state machine as the alias"));
+				return false;
+			}
+		}
+		// 엔진 컴파일 규칙 (AnimStateAliasNode.cpp:52-55): 전이의 대상인 alias 는 정확히 하나의 상태만 가리켜야 한다
+		const UEdGraphPin* In = Alias->GetInputPin();
+		if (In && In->LinkedTo.Num() > 0 && (bGlobal || States.Num() != 1))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("this alias is the target of a transition, so it must alias exactly one state and cannot be global"));
+			return false;
+		}
+		return true;
+	}
+
+	void SetAliasTargets(UAnimStateAliasNode* Alias, const TArray<UEdGraphNode*>& States, bool bGlobal, TArray<UEdGraphNode*>& OutOldStates, bool& bOutOldGlobal)
+	{
+		Alias->Modify();
+		OutOldStates.Reset();
+		for (const TWeakObjectPtr<UAnimStateNodeBase>& Weak : Alias->GetAliasedStates())
+		{
+			if (UAnimStateNodeBase* Old = Weak.Get())
+			{
+				OutOldStates.Add(Old);
+			}
+		}
+		bOutOldGlobal = Alias->bGlobalAlias;
+
+		TSet<TWeakObjectPtr<UAnimStateNodeBase>>& Set = Alias->GetAliasedStates();
+		Set.Empty();
+		for (UEdGraphNode* S : States)
+		{
+			if (UAnimStateNodeBase* StateBase = Cast<UAnimStateNodeBase>(S))
+			{
+				Set.Add(StateBase);
+			}
+		}
+		Alias->bGlobalAlias = bGlobal;
+	}
+
+	bool ValidateTransitionTarget(UEdGraphNode* To, FAnimMcpError& OutError)
+	{
+		if (const UAnimStateAliasNode* Alias = Cast<UAnimStateAliasNode>(To))
+		{
+			if (Alias->bGlobalAlias || Alias->GetAliasedStates().Num() != 1)
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("alias '%s' cannot be a transition target: it must alias exactly one state and not be global (engine compile rule)"), *Alias->GetStateName()));
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool RenameNode(UEdGraphNode* Node, const FString& Name, FString& OutOld, FAnimMcpError& OutError)
+	{
+		if (Name.TrimStartAndEnd().IsEmpty())
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("rename_node requires a non-empty 'name'"));
+			return false;
+		}
+		if (UAnimGraphNode_StateMachineBase* SM = Cast<UAnimGraphNode_StateMachineBase>(Node))
+		{
+			OutOld = SM->GetStateMachineName();
+			if (OutOld == Name) { return true; }
+			if (!ValidateNodeName(Node, Name, OutError)) { return false; }
+			SM->Modify();
+			SM->OnRenameNode(Name); // RenameGraph(EditorStateMachineGraph) (AnimGraphNode_StateMachineBase.cpp:243-246)
+			return true;
+		}
+		UAnimStateNodeBase* StateBase = Cast<UAnimStateNodeBase>(Node);
+		if (!StateBase || Cast<UAnimStateTransitionNode>(Node))
+		{
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("rename_node supports state, conduit, alias and state machine nodes, not %s"), Node ? *Node->GetClass()->GetName() : TEXT("null")));
+			return false;
+		}
+		OutOld = StateBase->GetStateName();
+		if (OutOld == Name) { return true; }
+		if (!ValidateNodeName(Node, Name, OutError)) { return false; }
+		StateBase->Modify();
+		StateBase->OnRenameNode(Name);
+		return true;
+	}
+
+	UAnimationTransitionGraph* RuleGraphOf(UEdGraphNode* Node)
+	{
+		if (UAnimStateTransitionNode* T = Cast<UAnimStateTransitionNode>(Node))
+		{
+			return Cast<UAnimationTransitionGraph>(T->BoundGraph);
+		}
+		if (UAnimStateConduitNode* C = Cast<UAnimStateConduitNode>(Node))
+		{
+			return Cast<UAnimationTransitionGraph>(C->BoundGraph);
+		}
+		return nullptr;
+	}
+}

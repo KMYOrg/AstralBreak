@@ -87,6 +87,11 @@ DerivedDataCache/*
 # Python (Tools/ 자동화 스크립트)
 __pycache__/
 *.py[cod]
+Tools/mcp/.venv/
+
+# AnimGraph MCP 회귀 생성물 — 각 phase 테스트의 --recheck 비교 상태와 run_all.py 결과 (매 실행 재생성)
+Tools/mcp/*_state.json
+Tools/mcp/results/
 
 # Claude Code — 개인 설정 (팀 공유 설정은 .claude/settings.json)
 .claude/settings.local.json

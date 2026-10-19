@@ -304,7 +304,8 @@ namespace AnimMcpTools
 
 				if (!AnimMcpAssetProtection::EnsureNotProtected(ObjectPath, TEXT("delete"), OutError)) { return nullptr; }
 
-				const TArray<FString> Referencers = AnimMcpAssetOps::FindReferencers(ObjectPath);
+				// (7-5) 레지스트리 + 메모리 참조자 — 저장 직후 레지스트리가 늦는 타이밍에도 자식 ABP 를 놓치지 않는다
+				const TArray<FString> Referencers = AnimMcpAssetOps::FindReferencersIncludingMemory(ObjectPath);
 				TArray<TSharedPtr<FJsonValue>> ReferencerValues;
 				for (const FString& R : Referencers) { ReferencerValues.Add(MakeShared<FJsonValueString>(R)); }
 				if (Referencers.Num() > 0)

@@ -15,6 +15,7 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Subsystems/EditorAssetSubsystem.h"
 #include "UObject/Package.h"
+#include "UObject/ReferencerFinder.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UObjectHash.h"
 
@@ -124,6 +125,38 @@ namespace AnimMcpAssetOps
 				continue;
 			}
 			Out.AddUnique(S);
+		}
+		Out.Sort();
+		return Out;
+	}
+
+	TArray<FString> FindReferencersIncludingMemory(const FString& ObjectPath)
+	{
+		TArray<FString> Out = FindReferencers(ObjectPath);
+		const FString PackagePath = AnimMcpAssetResolver::ToPackagePath(ObjectPath);
+		UPackage* Package = FindPackage(nullptr, *PackagePath);
+		if (!Package)
+		{
+			return Out;
+		}
+
+		TArray<UObject*> Referencees;
+		GetObjectsWithPackage(Package, Referencees, /*bIncludeNestedObjects*/ true);
+		Referencees.Add(Package);
+		const TSet<UObject*> Ignore(Referencees);
+		for (UObject* Referencer : FReferencerFinder::GetAllReferencers(Referencees, &Ignore))
+		{
+			UPackage* RefPackage = Referencer ? Referencer->GetOutermost() : nullptr;
+			if (!RefPackage || RefPackage == Package || RefPackage == GetTransientPackage() || RefPackage->HasAnyPackageFlags(PKG_CompiledIn))
+			{
+				continue;
+			}
+			const FString Name = RefPackage->GetName();
+			if (Name.StartsWith(TEXT("/Temp/")) || Name.StartsWith(TEXT("/Engine/Transient")) || !FPackageName::IsValidLongPackageName(Name) || FPackageName::IsScriptPackage(Name))
+			{
+				continue;
+			}
+			Out.AddUnique(Name);
 		}
 		Out.Sort();
 		return Out;

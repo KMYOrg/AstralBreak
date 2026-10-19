@@ -570,8 +570,50 @@ def run_automation_tests(filter: str, timeout: float = 120.0, dry_run: bool = Fa
 
 @mcp.tool()
 def poll_automation_tests(job_id: str) -> dict:
-    """Progress and results of an automation job started by run_automation_tests (same shape; "running" names the current test)."""
+    """Progress and results of an automation job started by run_automation_tests or run_anim_scenario (same shape; "running" names
+    the current test; a runtime scenario's test carries "observed")."""
     return bridge.call("poll_automation_tests", {"job_id": job_id})
+
+
+@mcp.tool()
+def run_anim_scenario(asset_path: str, mesh: str | None = None, map: str | None = None, set_variables: dict | None = None,
+                      montage: str | None = None, wait_frames: int = 10, expect: dict | None = None, timeout: float = 120.0) -> dict:
+    """Run an Animation Blueprint inside PIE and check what it actually does — the step after the structural smoke test
+    ("does Speed=300 really take the state machine to Run?", "is the UpperBody slot active while the attack montage plays?").
+
+    The plugin starts PIE (the current editor world, or `map`), spawns a SkeletalMeshActor with the AnimBP, sets variables on the
+    anim instance, optionally plays a montage, waits `wait_frames` frames, reads every state machine's current state and slot
+    activity, compares them with `expect`, then ends PIE. Variables set here only stick if nothing overwrites them each frame —
+    a native AnimInstance that recomputes Speed from its pawn will win; use BP variables (add_blueprint_variable) for driven tests.
+
+    Args:
+        asset_path: The compiled Animation Blueprint.
+        mesh: Skeletal mesh to spawn (default: the AnimBP's preview mesh, else the skeleton's). Must match the AnimBP skeleton.
+        map: Map to run PIE in (default: the world currently open in the editor).
+        set_variables: {name: value} applied to the anim instance right after spawn (BlueprintVisible or BP variables; bool/number/string).
+        montage: AnimMontage to Montage_Play after spawn (needed for slots_active expectations).
+        wait_frames: Frames to wait before observing (default 10).
+        expect: {"state_machines": {"Locomotion": "Run"}, "slots_active": ["UpperBody"]} — machine, state and slot names are validated
+                against the compiled class before PIE starts.
+        timeout: Seconds for the whole scenario; on timeout the test is marked "timeout" and PIE is ended.
+
+    Returns the automation job (never finished synchronously): poll_automation_tests(job_id) until done. The test entry has
+    state passed|failed|timeout, errors[] (each mismatch), and observed{state_machines{name: {state, elapsed}}, slots{name: bool},
+    montage_playing, montage_length, variables_applied, frames_waited}. Rejections (BAD_REQUEST details.reason): PIE_ACTIVE,
+    NOT_COMPILED, NO_PREVIEW_MESH, SKELETON_MISMATCH, VARIABLE_NOT_FOUND, STATE_MACHINE_NOT_FOUND, STATE_NOT_FOUND, BAD_WAIT_FRAMES.
+    """
+    params: dict = {"asset_path": asset_path, "wait_frames": wait_frames, "timeout": timeout}
+    if mesh:
+        params["mesh"] = mesh
+    if map:
+        params["map"] = map
+    if set_variables:
+        params["set_variables"] = set_variables
+    if montage:
+        params["montage"] = montage
+    if expect:
+        params["expect"] = expect
+    return bridge.call("run_anim_scenario", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()

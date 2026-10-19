@@ -16,14 +16,15 @@
 | 루트 그래프(캐시·슬롯·레이어드 블렌드·블렌드 리스트) | ✅ | op 사전 |
 | 상태머신(상태·전이·규칙·conduit·alias) | ✅ | 운영 애셋 1:1 재현 실증 |
 | 전이 규칙의 조건 변수 | ✅ | §1 완료(7-1, 2026-10-17) — `add_blueprint_variable` 로 BP 변수, 규칙 `access` 로 폰·컴포넌트 값 직접, `set_update_function` 으로 매 프레임 계산·저장 |
-| Lyra 식 레이어(인터페이스·구현·레이어 노드) | ✅ | §4 완료(7-4, 2026-10-17) — 값 파라미터(`set_layer_inputs`) · `InstanceClass`(op `set_layer_instance_class`) · 레이어 추가/삭제(`add/remove_anim_layers`, 구현 ABP 자동 동기화). 자식 ABP 오버라이드만 ❓ |
+| Lyra 식 레이어(인터페이스·구현·레이어 노드) | ✅ | §4 완료(7-4, 2026-10-17) — 값 파라미터(`set_layer_inputs`) · `InstanceClass`(op `set_layer_instance_class`) · 레이어 추가/삭제(`add/remove_anim_layers`, 구현 ABP 자동 동기화). 자식 ABP 오버라이드는 **범위 밖**(프로젝트는 인터페이스 + InstanceClass 방식, 7-5 에서 정리) |
 | 공격·피격 몽타주와 슬롯 | ✅ | §3 완료(7-3, 2026-10-17) — `create_anim_montage`(시퀀스 1개 → 몽타주) · `set_montage_slots` · `set_montage_sections` · `add_skeleton_slot`. **노티파이만** 프로젝트 Python 파이프라인(`ab_montage.py`) |
 | IK·본 수정·Additive·Mirror 노드 설정 | ✅ | §2 완료(7-2, 2026-10-17) — AimOffset·SequenceEvaluator·ApplyAdditive·TwoBoneIK·ModifyBone·Mirror·Inertialization·BlendList·BlendMasks·싱크 그룹, 본 이름·스켈레톤 검증 |
 | 컴파일·구조 검증 | ✅ | `compile` + `run_automation_tests "AnimGraphMcp.Smoke"` |
-| 실제 포즈가 맞는지 | ❌ | 사람이 PIE 로 → §5 |
+| 런타임에 그 상태로 가는지 · 슬롯이 활성인지 | ✅ | §5 완료(7-5, 2026-10-17, 축소판) — `run_anim_scenario {set_variables, montage, expect{state_machines, slots_active}}` 가 PIE 에서 관측·비교 |
+| 실제 포즈가 맞는지 | ❌ | 본 트랜스폼·애니 품질은 사람이 PIE 로(사용자 확정 — 축소판 범위 밖) |
 | 적마다 다른 스켈레톤 | 🔶 | 도구는 스켈레톤 무관. **리타게팅은 범위 밖**(IK Retargeter 는 별도 에디터 기능) |
 
-결론: **구조는 도구만으로 세울 수 있고, "조건 변수 · 공격 콘텐츠 · 세부 노드 설정 · 런타임 확인" 네 곳에서 사람이 남는다.** 아래 §1~§5 가 그 네 곳을 메우는 순서다. (2026-10-17: §1·§2·§3·§4 완료 — 남은 것은 §5 런타임 확인, 자식 ABP 오버라이드 ❓, 그리고 노티파이·애니 자체·수치 튜닝.)
+결론: **구조·배선·조건·콘텐츠 뼈대·런타임 상태 확인까지 도구 범위이고, 애니메이션 자체(리타게팅·클립 선택)·수치 튜닝·최종 포즈 확인만 사람이 남는다.** (2026-10-17: §1~§5 전부 완료 — 로드맵 종료. 운영 몽타주 `UpperBody` 적용·스켈레톤 2개 정리는 도구 범위 밖의 콘텐츠 작업으로 남긴다.)
 
 ---
 
@@ -87,9 +88,9 @@
 
 ---
 
-## 4. Linked Layer 값 파라미터 · InstanceClass · 인터페이스 레이어 추가/삭제 ← ✅ 7-4 완료 (2026-10-17, 자식 오버라이드 제외)
+## 4. Linked Layer 값 파라미터 · InstanceClass · 인터페이스 레이어 추가/삭제 ← ✅ 7-4 완료 (2026-10-17, 자식 오버라이드는 범위 밖)
 
-> 구현 결과(사용자 확정 4건): 값 파라미터는 **Input Pose 노드의 Inputs 전체 교체** `set_layer_inputs`(엔진 구조상 입력 포즈 없는 레이어는 값 파라미터 불가) · 인터페이스 레이어 삭제는 구현 ABP 가 쓰면 거부·`force` · 인터페이스 변경 뒤 참조 ABP 자동 conform·재컴파일(`implementers[]`) · InstanceClass 는 op `set_layer_instance_class` · 구현 ABP 의 값 핀은 `optional_pins[custom:true]` + `expose_pin` + `connect`. **자식 ABP 오버라이드는 제외** — 에디터 "Override" 가 K2 UEdGraph 를 만드는 경로(SMyBlueprint.cpp:2877)만 확인됐고 애니 레이어용 생성 경로는 ❓. 상세는 phase1 "Phase 7-4 결과".
+> 구현 결과(사용자 확정 4건): 값 파라미터는 **Input Pose 노드의 Inputs 전체 교체** `set_layer_inputs`(엔진 구조상 입력 포즈 없는 레이어는 값 파라미터 불가) · 인터페이스 레이어 삭제는 구현 ABP 가 쓰면 거부·`force` · 인터페이스 변경 뒤 참조 ABP 자동 conform·재컴파일(`implementers[]`) · InstanceClass 는 op `set_layer_instance_class` · 구현 ABP 의 값 핀은 `optional_pins[custom:true]` + `expose_pin` + `connect`. **자식 ABP 오버라이드는 범위 밖으로 정리(7-5, 2026-10-17)** — 이 프로젝트는 Lyra 식 인터페이스 + `InstanceClass` 로 레이어 구현을 바꿔 끼우므로 부모-자식 ABP 상속 오버라이드가 필요 없다(에디터 "Override" 가 K2 UEdGraph 를 만드는 경로 SMyBlueprint.cpp:2877 만 확인됐고, 애니 레이어용 생성 경로는 조사하지 않는다). 상세는 phase1 "Phase 7-4 결과".
 
 **왜** — Lyra 식으로 무기/적 타입마다 레이어 ABP 를 바꿔 끼우려면 **InstanceClass 지정**(기본 구현 ABP)과 **값 파라미터**(예: 레이어에 `AimYaw` 전달)가 필요하다. 지금은 포즈 입력만 되고 레이어 ABP 는 런타임 `LinkAnimClassLayers` 로만 바꾼다(C++).
 
@@ -101,7 +102,9 @@
 
 ---
 
-## 5. 런타임 검증 — PIE 에서 실제 포즈·상태 확인
+## 5. 런타임 검증 — PIE 에서 실제 포즈·상태 확인 ← ✅ 7-5 완료 (2026-10-17, 축소판)
+
+> 구현 결과(사용자 확정 2건 + 소스 해소 1건): ① 시나리오는 **테스트 명령 문자열 "<클래스> <JSON>"** 으로 전달(전역 상태 없음, 결과 `command` 에 재현 가능) ③ **본 트랜스폼은 제외**(상태머신 현재 상태·슬롯 활성만) ② 검증 대상은 소스로 해소 — `UAstralAnimInstance::NativeThreadSafeUpdateAnimation` 이 `Speed` 를 매 프레임 덮어쓰므로(AstralAnimInstance.cpp:79) 변수 주도 시나리오는 부모 `UAnimInstance` + BP 변수의 전용 테스트 ABP `ABP_McpRuntimeTest`, 운영 `ABP_Hero_Base` 는 변수 없이 "Idle 진입" 만 읽는다. 새 Tool `run_anim_scenario` 1개(시나리오 JSON 언어 없음 — asset_path · mesh · map · set_variables · montage · wait_frames · expect{state_machines, slots_active} · timeout) + Automation 테스트 `AnimGraphMcp.Runtime.AnimBlueprint`(지연 명령 7단계) + 러너의 타임아웃 시 PIE 종료 + 결과 `observed`. 6-5 에서 미검증이던 **지연 명령 FTSTicker 진행·타임아웃 경로가 여기서 실측**됐다. 상세·실측 함정(슬롯 뒤 상태머신 미갱신 · IsCompatibleMesh 본 이름 기준)은 phase1 "Phase 7-5 결과".
 
 **왜** — 지금 검증은 "구조가 말이 되는가"까지다. "Idle 에서 Speed 를 300 으로 올리면 Run 상태로 가는가", "공격 몽타주가 상체만 덮는가" 는 사람이 PIE 로 본다. Phase 5 에서 배선 실수를 사람이 PIE 에서 발견한 것이 그 사례다.
 
@@ -131,10 +134,10 @@
 ⑦ apply_graph_operations                            루트 그래프 + 상태머신 + 규칙(var) + IK·Additive 설정(§2)   ← 배치 1~2개
 ⑧ add_skeleton_slot · create_anim_montage ×N · set_montage_slots/sections (§3 ✅)   공격·피격·사망 + 슬롯·섹션 (노티파이는 Python)
 ⑨ compile + save + run_automation_tests Smoke       구조 검증
-⑩ run_automation_tests Runtime (§5)                 "Speed 300 → Run", "공격 중 상체 슬롯 활성"
+⑩ run_anim_scenario + poll_automation_tests (§5 ✅)  "Speed 300 → Run", "공격 몽타주 중 UpperBody 슬롯 활성" — PIE 에서 관측·비교
 ```
 
-사람이 남는 곳: 애니메이션 자체(리타게팅·클립 선택), 수치 튜닝(블렌드 시간·IK 알파), 최종 PIE 확인. **구조·배선·조건·콘텐츠 뼈대는 전부 도구 범위**가 된다.
+사람이 남는 곳: 애니메이션 자체(리타게팅·클립 선택), 수치 튜닝(블렌드 시간·IK 알파), 최종 포즈 확인(PIE). **구조·배선·조건·콘텐츠 뼈대·런타임 상태 확인은 전부 도구 범위**다.
 
 ---
 

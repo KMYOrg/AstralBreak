@@ -25,9 +25,10 @@ PY = pathlib.Path(sys.executable)
 MCP = ROOT / "Tools" / "mcp"
 
 # 순서 중요 — 같은 ABP_McpTest 를 덮어쓰는 3·4·6-1 은 recheck 대상(6-1)을 마지막에, 6-2 는 끝에 quit 한다 (여기서는 --no-quit 으로 막고 러너가 종료)
-PHASES = ["phase3_test", "phase4_test", "phase5_test", "phase6_1_test", "phase6_3_test", "phase6_4_test", "phase6_4b_test", "phase7_1_test", "phase7_2_test", "phase7_3_test", "phase7_4_test", "phase6_5_test", "phase6_2_test"]
-# recheck 는 6-2(ABP_McpDup 정리) 뒤에 6-5 스모크를 돌려 애셋 수가 1차와 같게 한다. 7-3·7-4 는 스모크가 보는 애셋을 남기므로 6-5 앞
-RECHECKS = ["phase5_test", "phase6_1_test", "phase6_3_test", "phase6_4_test", "phase6_4b_test", "phase7_1_test", "phase7_2_test", "phase7_3_test", "phase7_4_test", "phase6_2_test", "phase6_5_test"]
+PHASES = ["phase3_test", "phase4_test", "phase5_test", "phase6_1_test", "phase6_3_test", "phase6_4_test", "phase6_4b_test", "phase7_1_test", "phase7_2_test", "phase7_3_test", "phase7_4_test", "phase7_5_test", "phase6_5_test", "phase6_2_test"]
+# recheck 는 6-2(ABP_McpDup 정리) 뒤에 6-5 스모크를 돌려 애셋 수가 1차와 같게 한다. 7-3·7-4·7-5 는 스모크가 보는 애셋을 남기므로 6-5 앞
+# 7-5 는 AM_McpTest(7-3) 를 쓰므로 7-3 뒤, PIE 를 여닫으므로 다른 단계와 겹치지 않게 순차
+RECHECKS = ["phase5_test", "phase6_1_test", "phase6_3_test", "phase6_4_test", "phase6_4b_test", "phase7_1_test", "phase7_2_test", "phase7_3_test", "phase7_4_test", "phase7_5_test", "phase6_2_test", "phase6_5_test"]
 
 
 def run_script(name: str, extra: list[str]) -> dict:

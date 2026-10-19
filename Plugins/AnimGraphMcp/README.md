@@ -50,7 +50,7 @@ bAutoStart=True            ; 에디터 기동 시 리스너 시작. 콘솔 AnimG
 - `diagnostics[]` 는 성공 응답에도 붙는 경고(`{level, code, message}`).
 - 긴 작업은 동기입니다(에디터 프레임을 잡습니다). 클라이언트 타임아웃은 기본 60초, 컴파일을 포함하면 180초를 권장합니다.
 
-## Tool (27개)
+## Tool (28개)
 
 Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
@@ -62,7 +62,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | `list_animation_assets` | `skeleton?, asset_class=all, path_prefix=/Game, limit=200, details=false` | AnimSequence·BlendSpace·AnimMontage·AnimComposite 목록. `details` 면 로드해서 BlendSpace → `blendspace{}`(축·샘플·`aim_offset`), AnimMontage → `montage{}`(슬롯·섹션·`skeleton_slot_groups`), AnimSequence → `additive_type`·`additive_valid`·`ref_pose_type`·`ref_pose_sequence`·`length` |
 | `create_animation_blueprint` | `asset_path, skeleton, parent_class, preview_mesh?, overwrite=false` | 루트 AnimGraph 만 있는 ABP 생성. `overwrite` 는 기존 애셋 삭제 |
 | `duplicate_animation_blueprint` | `source_path, dest_path, overwrite=false, preserve_node_guids=true, save=false` | 노드 Guid 를 보존한 복제 |
-| `delete_animation_blueprint` | `asset_path, confirm(true 필수), force=false` | AnimBP 만. 다른 애셋이 참조하면 `force` 없이는 `ASSET_REFERENCED` |
+| `delete_animation_blueprint` | `asset_path, confirm(true 필수), force=false` | AnimBP 만. 다른 애셋이 참조하면(AssetRegistry + 메모리 참조자) `force` 없이는 `ASSET_REFERENCED` |
 | `create_blendspace` | `asset_path, skeleton, dimensions 1\|2, axes[{name,min,max,grid=4,snap,wrap}], samples?[{animation, value}], aim_offset=false, preview_mesh?, overwrite, save` | BlendSpace1D / BlendSpace 생성, `aim_offset` 면 AimOffsetBlendSpace1D / AimOffsetBlendSpace(샘플은 Mesh Space additive 만 — `ADDITIVE_TYPE`). 샘플은 생성 전 전부 검증(범위·중복·스켈레톤·additive 일치·기준 포즈 유무 `ADDITIVE_INVALID`) |
 | `create_anim_montage` | `asset_path, animation, slot?=DefaultSlot, blend_in?, blend_out?, preview_mesh?, overwrite, save` | AnimSequence 하나로 몽타주 생성(트랙 1·세그먼트 1·섹션 `Default`@0). 스켈레톤·길이는 시퀀스를 따름. 슬롯은 스켈레톤에 등록돼 있어야 함(`SLOT_NOT_IN_SKELETON`). 노티파이는 범위 밖 |
 | `set_montage_slots` | `asset_path, slots[{index?, slot} \| "name"], save` | 슬롯 트랙 이름 변경(전부 검증 뒤 적용). 스켈레톤에 없는 이름 거부(`SLOT_NOT_IN_SKELETON`, details 에 `slot_groups`), 트랙 이름 중복 거부(`DUPLICATE_SLOT`). 노티파이·섹션은 트랙 인덱스로 링크돼 유지. 같은 이름 = `unchanged` |
@@ -78,7 +78,8 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | `compile_animation_blueprint` | `asset_path, save_on_success=false` | `num_errors`, `num_warnings`, `messages[{level, text, node_guid, graph_guid}]` |
 | `save_animation_blueprint` | `asset_path` | 강제 저장 |
 | `run_automation_tests` | `filter(필수), timeout=120, dry_run=false` | 에디터 안에서 Automation 테스트 실행(`FAutomationTestFramework` 직접 구동). 지연 명령이 없으면 동기 완료(`done=true`), 아니면 `job_id` 로 poll |
-| `poll_automation_tests` | `job_id` | 진행·결과 `{total, completed, passed, failed, done, ok, running?, tests[{name, state, duration, errors[], warnings[]}]}` |
+| `poll_automation_tests` | `job_id` | 진행·결과 `{total, completed, passed, failed, done, ok, running?, tests[{name, state, duration, errors[], warnings[], observed?}]}` |
+| `run_anim_scenario` | `asset_path, mesh?, map?, set_variables?{name: value}, montage?, wait_frames=10, expect?{state_machines{머신: 상태}, slots_active[]}, timeout=120` | **PIE 런타임 검증** — Automation 테스트 `AnimGraphMcp.Runtime.AnimBlueprint` 를 시나리오 JSON 과 함께 잡으로 시작: PIE 시작 → SkeletalMeshActor 스폰 + ABP 할당 → 변수 세팅(리플렉션) → 몽타주 재생 → N 프레임 → 모든 상태머신의 현재 상태·슬롯 활성 관측 → 기대값 비교 → PIE 종료. 기대값(상태머신·상태 이름)·변수 이름은 컴파일된 클래스로 **PIE 전에 검증**(`STATE_MACHINE_NOT_FOUND`·`STATE_NOT_FOUND`·`VARIABLE_NOT_FOUND`·`NO_PREVIEW_MESH`·`SKELETON_MISMATCH`·`PIE_ACTIVE`). 항상 비동기 → `poll_automation_tests`; 테스트 결과에 `observed{state_machines{이름: {state, elapsed}}, slots{이름: bool}, montage_playing, montage_length, variables_applied, frames_waited}`. 타임아웃이면 러너가 PIE 를 닫는다 |
 | `add_blueprint_variable` | `asset_path, name, type, default?, category?, instance_editable, compile, save` | BP 멤버 변수 추가. `type` = bool·float·int·int64·name·string·text·byte·vector·vector2d·rotator·transform·linearcolor·`object:<클래스>`·`class:<클래스>`·`struct:<구조체>`·`enum:<열거형>`. 추가 즉시 규칙 `var`·VariableGet·`bind_pin`·`set_update_function` 이 쓴다 |
 | `remove_blueprint_variable` | `asset_path, name, force, compile, save` | 이 BP 가 선언한 변수만. 참조 중이면 `VARIABLE_IN_USE`, `force` 면 참조 노드도 삭제 |
 | `set_update_function` | `asset_path, assignments[{variable, value}] \| remove, compile=true, save` | `BlueprintThreadSafeUpdateAnimation` 오버라이드를 스펙에서 **전체 재생성**(Entry → VariableSet 사슬, 값은 규칙 AST). 멱등(`applied.unchanged`), 사람 편집 감지(`update_function.modified`). 변수는 BlueprintVisible ∧ 읽기 전용 아님 |
@@ -165,14 +166,30 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 같은 경로의 **모든 AnimMontage** 도 애셋마다 하나(`AnimGraphMcp.Smoke.AnimMontage.<이름>`): 슬롯이 스켈레톤에 등록됨(오류) · 섹션 존재·시작 시간 범위·Next 존재(오류) · 첫 섹션 0 시작(경고) · 호환 스켈레톤의 AnimBP 에 그 이름의 Slot 노드가 있음(경고 — 없으면 어느 그래프에서도 재생되지 않을 수 있음). 프로젝트 자체 Automation 테스트도 같은 Tool 로 돌릴 수 있습니다.
 
+## 검증 — 런타임 시나리오 (PIE)
+
+`run_anim_scenario` 는 "구조가 말이 되는가" 다음의 "실제로 그 상태로 가는가" 를 봅니다. 예:
+
+```jsonc
+{ "asset_path": "/Game/Characters/Enemy/ABP_Grunt", "mesh": "/Game/Characters/Enemy/SK_Grunt",
+  "set_variables": { "Speed": 300, "bIsAttacking": true }, "montage": "/Game/Characters/Enemy/AM_Grunt_Attack",
+  "wait_frames": 10, "expect": { "state_machines": { "Locomotion": "Run" }, "slots_active": ["UpperBody"] } }
+```
+
+- 테스트(`AnimGraphMcp.Runtime.AnimBlueprint`)가 **PIE 를 직접 엽니다** — 바깥에서 PIE 를 켜 두면 `PIE_ACTIVE` 로 거부됩니다(`StartTestByName` 이 PIE 중에는 시작하지 않음). `map` 을 주면 그 맵으로, 없으면 에디터에 열린 월드로 PIE 를 돌립니다.
+- 변수는 스폰 직후 한 번 리플렉션으로 씁니다. **매 프레임 변수를 다시 계산하는 네이티브 AnimInstance(폰 속도 → Speed 등)는 값을 덮어쓰므로**, 변수로 몰고 가는 시나리오는 BP 변수(`add_blueprint_variable`)나 부모 `UAnimInstance` 로 만든 ABP 에서 씁니다. 운영 ABP 는 변수 없이 "진입 상태" 만 보는 식으로 씁니다.
+- 슬롯 활성은 몽타주가 재생 중일 때만 참이 됩니다(`montage` 없이 `slots_active` 를 기대하면 `NO_MONTAGE` 경고). 몽타주가 슬롯을 가중치 1 로 덮는 동안 슬롯 노드는 **Source(그 뒤의 상태머신)를 갱신하지 않습니다**(`bAlwaysUpdateSourcePose` 가 꺼진 기본값) — 전신 슬롯 뒤의 상태 전이를 몽타주 중에 보려면 그 Slot 노드에 `set_property bAlwaysUpdateSourcePose=true`.
+- 메시 호환 검사는 엔진이 AnimInstance 를 만들지 말지 보는 기준 그대로(`USkeleton::IsCompatibleMesh`, 본 이름 집합)라 본 이름이 같은 다른 스켈레톤(UE5 마네킹 계열)도 통과합니다.
+- 관측은 테스트 결과의 `observed` 에 남고, 기대값과 다르면 `errors[]` 에 "expected 'Run' but it is in 'Idle' after 10 frames" 식으로 적힙니다. 실제 포즈(본 트랜스폼)는 범위 밖입니다.
+
 ## 제약 (설계상 범위 밖)
 
 - **임의의 EventGraph 편집은 다루지 않습니다.** BP 변수 추가와 `BlueprintThreadSafeUpdateAnimation` 의 "변수 ← 식" 대입 사슬까지가 범위이고, 분기·루프·이벤트·임의 K2 노드는 만들지 않습니다. 복잡한 상태 판정은 C++ AnimInstance 에 두는 것을 권합니다.
 - 전이 규칙의 `call` 은 화이트리스트 함수만, `set_property` 는 허용 목록 프로퍼티만입니다. 허용 목록 밖 노드(Control Rig·PoseDriver·RigidBody·AnimDynamics·Motion Matching 등)는 생성·연결은 되지만 세부 설정은 못 합니다. 필요하면 `Core/AnimMcpPropertyRules.cpp` 의 표에 한 줄씩 더합니다.
 - Linked Anim Layer 의 값 파라미터는 **Input Pose 노드에 붙습니다**(엔진 구조) — 입력 포즈 없는 레이어는 값 파라미터를 가질 수 없습니다. 자식 Animation Blueprint 가 부모의 레이어를 오버라이드하는 그래프 생성은 범위 밖입니다. 인터페이스 변경 뒤 구현 ABP 동기화는 AssetRegistry 참조자(디스크에 저장된 ABP) 기준입니다.
 - 생성하는 콘텐츠 애셋은 BlendSpace·AimOffset·몽타주(시퀀스 1개, 슬롯·섹션)입니다. **노티파이**(프로젝트별 클래스)·몽타주 다중 세그먼트·블렌드 프로파일·싱크 마커는 범위 밖입니다. 스켈레톤 편집은 슬롯 등록(`add_skeleton_slot`, `confirm` 필수)뿐입니다.
-- 검증은 구조 검사까지입니다. 실제 포즈는 PIE 에서 사람이 봅니다.
-- 한 포트에 에디터 하나. PIE 중이거나 모달 작업(`GIsSlowTask`) 중에는 Automation 테스트가 시작되지 않습니다.
+- 검증은 구조 검사(스모크)와 상태머신 현재 상태·슬롯 활성(런타임 시나리오)까지입니다. 실제 포즈(본 트랜스폼)·애니메이션 품질은 PIE 에서 사람이 봅니다.
+- 한 포트에 에디터 하나. PIE 중이거나 모달 작업(`GIsSlowTask`) 중에는 Automation 테스트가 시작되지 않습니다(런타임 시나리오는 테스트가 PIE 를 열고 닫습니다).
 - `/Game/...` 인자를 Git Bash 에서 넘길 때는 `MSYS_NO_PATHCONV=1`.
 
 ## 소스 구조
@@ -193,14 +210,16 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpAnimLayer        레이어 인터페이스 생성 · 구현 · 레이어 노드 · 값 파라미터 · InstanceClass · 레이어 추가/삭제 · 구현 ABP 동기화
             AnimMcpBlendSpaceFactory  BlendSpace 1D/2D 생성
             AnimMcpBlueprintFactory ABP 생성   AnimMcpCompiler  컴파일·저장
-            AnimMcpAssetProtection  보호 목록   AnimMcpAssetOps  삭제·복제·참조자
+            AnimMcpAssetProtection  보호 목록   AnimMcpAssetOps  삭제·복제·참조자(레지스트리 · 삭제 거부는 메모리 참조자까지)
             AnimMcpAutomationRunner FAutomationTestFramework 구동 · 잡
             AnimMcpPropertyAccessNode  UK2Node_PropertyAccess 리플렉션(엔진 플러그인의 비공개 노드)
             AnimMcpVariables        BP 멤버 변수 추가·삭제 · 타입 문자열
             AnimMcpUpdateFunction   BlueprintThreadSafeUpdateAnimation 함수 그래프 생성·재생성
             AnimMcpMontage          몽타주 생성(시퀀스 1개) · 슬롯 이름 · 섹션 전체 교체 · 스켈레톤 슬롯 등록 · 조회
+            AnimMcpRuntimeScenario  런타임 시나리오 계약 — 테스트 명령 "<클래스> <JSON>" · 관측 슬롯(테스트 → 러너 → observed)
   Tests/    AnimMcpSmokeTests.cpp    AnimGraphMcp.Smoke.AnimBlueprint · AnimGraphMcp.Smoke.AnimMontage
-  Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음; Montage = 몽타주·스켈레톤 슬롯 4종)
+            AnimMcpRuntimeTests.cpp  AnimGraphMcp.Runtime.AnimBlueprint — PIE 시작·스폰·변수·몽타주·N 프레임·관측·비교·PIE 종료(지연 명령 7단계)
+  Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음; Montage = 몽타주·스켈레톤 슬롯 4종 · Automation = run/poll + run_anim_scenario 사전 검증)
 ```
 
 규칙: Inspector 는 쓰지 않고, Mutator 는 트랜잭션 밖에서 호출되지 않습니다. 같은 `FJsonObject` 를 두 컨테이너에 넣지 않습니다(순환 → 직렬화 무한 재귀).

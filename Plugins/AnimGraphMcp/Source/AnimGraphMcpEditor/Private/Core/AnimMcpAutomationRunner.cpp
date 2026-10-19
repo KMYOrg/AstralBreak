@@ -1,6 +1,7 @@
 #include "AnimMcpAutomationRunner.h"
 
 #include "AnimMcpLog.h"
+#include "AnimMcpRuntimeScenario.h"
 #include "Bridge/AnimMcpTypes.h"
 #include "Editor.h"
 #include "Misc/AutomationEvent.h"
@@ -31,6 +32,8 @@ namespace AnimMcpAutomationRunner
 					else if (Entry.Event.Type == EAutomationEventType::Warning) { R.Warnings.Add(Line); }
 				}
 			}
+			// (7-5) 런타임 시나리오 테스트가 남긴 관측 — 어떤 테스트든 끝날 때 꺼내 비운다(다른 테스트에 묻어가지 않게)
+			R.ObservedJson = AnimMcpRuntimeScenario::TakeObservation();
 			(State == TEXT("passed") ? Job.Passed : Job.Failed)++;
 			Job.Results.Add(R);
 		}
@@ -49,6 +52,12 @@ namespace AnimMcpAutomationRunner
 					Framework.DequeueAllCommands();
 				}
 				bOk = Framework.StopTest(Exec);
+			}
+			// (7-5) 강제 종료(타임아웃)된 테스트가 PIE 를 열어 둔 채면 닫는다 — 지연 명령이 버려져 테스트 스스로는 못 닫는다
+			if (ForcedState && GEditor && GEditor->PlayWorld)
+			{
+				UE_LOG(LogAnimGraphMcp, Warning, TEXT("Automation test %s was stopped (%s) while PIE was active — ending PIE"), *Info.GetFullTestPath(), ForcedState);
+				GEditor->RequestEndPlayMap();
 			}
 			Record(Job, Info, ForcedState ? ForcedState : (bOk ? TEXT("passed") : TEXT("failed")), &Exec);
 			Job.bCurrentStarted = false;
@@ -137,6 +146,11 @@ namespace AnimMcpAutomationRunner
 
 	TSharedPtr<FJob> StartJob(const FString& Filter, double TimeoutSeconds, FAnimMcpError& OutError)
 	{
+		return StartJobWithTests(Filter, FindTests(Filter), TimeoutSeconds, OutError);
+	}
+
+	TSharedPtr<FJob> StartJobWithTests(const FString& Label, TArray<FAutomationTestInfo> Tests, double TimeoutSeconds, FAnimMcpError& OutError)
+	{
 		check(IsInGameThread());
 		if (ActiveJob.IsValid() && !ActiveJob->bDone)
 		{
@@ -153,10 +167,10 @@ namespace AnimMcpAutomationRunner
 
 		TSharedPtr<FJob> Job = MakeShared<FJob>();
 		Job->Id = FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(12);
-		Job->Filter = Filter;
+		Job->Filter = Label;
 		Job->TimeoutSeconds = FMath::Clamp(TimeoutSeconds, 1.0, 3600.0);
 		Job->StartedAt = FPlatformTime::Seconds();
-		Job->Tests = FindTests(Filter);
+		Job->Tests = MoveTemp(Tests);
 
 		if (JobOrder.Num() >= MaxJobs)
 		{
@@ -229,6 +243,16 @@ namespace AnimMcpAutomationRunner
 			for (const FString& W : R.Warnings) { Warnings.Add(MakeShared<FJsonValueString>(W)); }
 			T->SetArrayField(TEXT("errors"), Errors);
 			T->SetArrayField(TEXT("warnings"), Warnings);
+			if (!R.ObservedJson.IsEmpty())
+			{
+				// 응답마다 새로 파싱 — 같은 FJsonObject 를 여러 응답(run · poll)에 넣지 않는다
+				TSharedPtr<FJsonObject> Observed;
+				FString ParseError;
+				if (AnimMcpJson::Parse(R.ObservedJson, Observed, ParseError) && Observed.IsValid())
+				{
+					T->SetObjectField(TEXT("observed"), Observed);
+				}
+			}
 			Tests.Add(MakeShared<FJsonValueObject>(T));
 		}
 		O->SetArrayField(TEXT("tests"), Tests);

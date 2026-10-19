@@ -23,7 +23,7 @@ namespace AnimMcpTools
 	/** Linked Anim Layer (create_anim_layer_interface, implement_anim_layer_interface) — Phase 6-4b · (set_layer_inputs, add_anim_layers, remove_anim_layers) — Phase 7-4 */
 	void RegisterLayerTools(FAnimMcpDispatcher& Dispatcher);
 
-	/** Automation 테스트 (run_automation_tests, poll_automation_tests) — Phase 6-5 */
+	/** Automation 테스트 (run_automation_tests, poll_automation_tests) — Phase 6-5 · (run_anim_scenario) PIE 런타임 시나리오 — Phase 7-5 */
 	void RegisterAutomationTools(FAnimMcpDispatcher& Dispatcher);
 
 	/** BP 변수 · 업데이트 함수 (add_blueprint_variable, remove_blueprint_variable, set_update_function) — Phase 7-1 */

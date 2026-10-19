@@ -20,8 +20,15 @@ namespace AnimMcpAssetOps
 	 */
 	bool DeleteAssetAtPath(const FString& ObjectPath, FAnimMcpContext& Context, FAnimMcpError& OutError);
 
-	/** AssetRegistry 패키지 참조자 — 자기 자신·임시 패키지 제외, 정렬 */
+	/** AssetRegistry 패키지 참조자 — 자기 자신·임시 패키지 제외, 정렬 (디스크 기준 — 레이어 conform 처럼 "저장된 ABP" 가 필요한 곳) */
 	TArray<FString> FindReferencers(const FString& ObjectPath);
+
+	/**
+	 * (7-5) FindReferencers ∪ 메모리 참조자 — 삭제 거부용. AssetRegistry 의 의존성은 저장 뒤 디렉터리 워처·게더러를 거쳐 비동기로 갱신되므로
+	 * "자식 ABP 저장 직후 부모 삭제" 가 간헐적으로 참조자 0 으로 보였다(run_all 실측). 패키지 안 모든 객체(애셋·생성 클래스·CDO·그래프)를
+	 * FReferencerFinder 로 역추적해 콘텐츠 패키지(/Temp·Transient·스크립트 제외)를 합친다
+	 */
+	TArray<FString> FindReferencersIncludingMemory(const FString& ObjectPath);
 
 	/**
 	 * AnimBP 복제 — UEditorAssetSubsystem::DuplicateLoadedAsset (EditorAssetSubsystem.cpp:930 → IAssetTools::DuplicateAsset).

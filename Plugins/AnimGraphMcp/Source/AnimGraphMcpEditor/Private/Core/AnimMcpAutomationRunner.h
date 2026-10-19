@@ -27,6 +27,8 @@ namespace AnimMcpAutomationRunner
 		double Duration = 0.0;
 		TArray<FString> Errors;
 		TArray<FString> Warnings;
+		/** (7-5) 테스트가 AnimMcpRuntimeScenario 슬롯에 남긴 관측(JSON 문자열). 없으면 빈 문자열 */
+		FString ObservedJson;
 	};
 
 	struct FJob
@@ -52,9 +54,15 @@ namespace AnimMcpAutomationRunner
 	/** 잡 시작 — 동기로 끝낼 수 있는 테스트는 즉시 돌린다. 다른 잡이 돌고 있으면 BAD_REQUEST. 테스트 0개면 done 잡 */
 	TSharedPtr<FJob> StartJob(const FString& Filter, double TimeoutSeconds, FAnimMcpError& OutError);
 
+	/**
+	 * (7-5) 호출자가 조립한 테스트 목록으로 잡 시작 — run_anim_scenario 가 "<클래스> <JSON>" 명령 하나짜리 FAutomationTestInfo 를 넘긴다.
+	 * Label 은 응답의 filter 자리에 실린다. 테스트별 타임아웃에 걸린 테스트가 PIE 를 열어 두었으면 러너가 RequestEndPlayMap 으로 닫는다
+	 */
+	TSharedPtr<FJob> StartJobWithTests(const FString& Label, TArray<FAutomationTestInfo> Tests, double TimeoutSeconds, FAnimMcpError& OutError);
+
 	TSharedPtr<FJob> FindJob(const FString& JobId);
 
-	/** {job_id, filter, total, completed, passed, failed, done, elapsed, tests[{name, command, state, duration, errors[], warnings[]}]} */
+	/** {job_id, filter, total, completed, passed, failed, done, elapsed, tests[{name, command, state, duration, errors[], warnings[], observed?{}}]} */
 	TSharedRef<FJsonObject> DescribeJob(const FJob& Job);
 
 	TSharedRef<FJsonObject> DescribeTestInfo(const FAutomationTestInfo& Info);

@@ -108,14 +108,26 @@ void UAstralLoadoutComponent::RefreshAppearanceFromLoadout()
 		return;
 	}
 
-	// 이미 같은 메시면 스킵 (초기화·OnLoadoutChanged 등 여러 지점에서 호출된다)
+	// 메시와 AnimBP 를 따로 비교한다 (초기화·OnLoadoutChanged 등 여러 지점에서 호출된다).
+	bool bChanged = false;
 	USkeletalMesh* TargetMesh = CharacterDef->Mesh.LoadSynchronous();
 	if (TargetMesh && MeshComp->GetSkeletalMeshAsset() != TargetMesh)
 	{
 		MeshComp->SetSkeletalMesh(TargetMesh);
-		if (CharacterDef->AnimInstanceClass)
+		bChanged = true;
+	}
+	if (CharacterDef->AnimInstanceClass && MeshComp->GetAnimClass() != CharacterDef->AnimInstanceClass)
+	{
+		MeshComp->SetAnimInstanceClass(CharacterDef->AnimInstanceClass);
+		bChanged = true;
+	}
+
+	// 메시·AnimBP 가 바뀌면 무기 Linked Anim Layer 링크가 사라진다 — 장비 매니저가 활성 계열 공급자를 다시 건다
+	if (bChanged)
+	{
+		if (UAstralEquipmentManagerComponent* EquipmentManager = OwnerCharacter->FindComponentByClass<UAstralEquipmentManagerComponent>())
 		{
-			MeshComp->SetAnimInstanceClass(CharacterDef->AnimInstanceClass);
+			EquipmentManager->RefreshAnimLayers();
 		}
 	}
 }

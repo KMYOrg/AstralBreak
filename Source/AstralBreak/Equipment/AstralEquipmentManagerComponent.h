@@ -8,6 +8,7 @@
 #include "UObject/PrimaryAssetId.h"
 #include "AstralEquipmentManagerComponent.generated.h"
 
+class UAnimInstance;
 class UAstralAbilitySystemComponent;
 class UAstralEquipmentFamily;
 class UAstralEquipmentInstance;
@@ -57,6 +58,9 @@ struct FAstralEquipmentList : public FFastArraySerializer
 
 	/** 서버 — 엔트리 제거 + 부여분 회수 */
 	void RemoveEntry(UAstralEquipmentInstance* Instance);
+
+	/** 클라 — 복제 수신 뒤(추가·변경·제거 반영 후) 소유 매니저의 Anim Layer 링크 갱신. 서버는 Equip/Unequip 이 직접 갱신한다 */
+	void PostReplicatedReceive(const FFastArraySerializer::FPostReplicatedReceiveParameters& Parameters);
 
 private:
 	friend class UAstralEquipmentManagerComponent;
@@ -127,6 +131,12 @@ public:
 	 */
 	void RefreshEquipmentAttachState();
 
+	/**
+	 * 전 머신 — 활성 계열의 AnimLayerClass 를 캐릭터 메시에 LinkAnimClassLayers (없으면 베이스 ABP 기본 구현으로 복귀).
+	 * 트리거: 스타일 태그 변경(HandleCombatStyleChanged) · 서버 장착/해제 · 클라 장비 복제 수신 · 외형 AnimBP 교체(LoadoutComponent).
+	 */
+	void RefreshAnimLayers();
+
 	/** 해당 스타일과 일치하는 계열 장비 보유 여부 — 스타일 무관(빈 태그) 계열은 제외 (태그 비교만 = 종류-무지 유지) */
 	bool HasEquipmentForStyle(const FGameplayTag& StyleTag) const;
 
@@ -181,6 +191,9 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UAstralAbilitySystemComponent> BoundASC;
+
+	UPROPERTY(Transient)
+	TSubclassOf<UAnimInstance> LinkedAnimLayerClass;
 
 	FDelegateHandle CombatStyleChangedHandle;
 };

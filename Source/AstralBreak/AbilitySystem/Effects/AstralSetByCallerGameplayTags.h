@@ -12,4 +12,5 @@ namespace AstralGameplayTags
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_UltGain);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_MarkGain);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_StaminaDrain);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Duration);
 }

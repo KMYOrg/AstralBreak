@@ -50,7 +50,7 @@ bAutoStart=True            ; 에디터 기동 시 리스너 시작. 콘솔 AnimG
 - `diagnostics[]` 는 성공 응답에도 붙는 경고(`{level, code, message}`).
 - 긴 작업은 동기입니다(에디터 프레임을 잡습니다). 클라이언트 타임아웃은 기본 60초, 컴파일을 포함하면 180초를 권장합니다.
 
-## Tool (28개)
+## Tool (30개)
 
 Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
@@ -67,6 +67,8 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | `create_anim_montage` | `asset_path, animation, slot?=DefaultSlot, blend_in?, blend_out?, preview_mesh?, overwrite, save` | AnimSequence 하나로 몽타주 생성(트랙 1·세그먼트 1·섹션 `Default`@0). 스켈레톤·길이는 시퀀스를 따름. 슬롯은 스켈레톤에 등록돼 있어야 함(`SLOT_NOT_IN_SKELETON`). 노티파이는 범위 밖 |
 | `set_montage_slots` | `asset_path, slots[{index?, slot} \| "name"], save` | 슬롯 트랙 이름 변경(전부 검증 뒤 적용). 스켈레톤에 없는 이름 거부(`SLOT_NOT_IN_SKELETON`, details 에 `slot_groups`), 트랙 이름 중복 거부(`DUPLICATE_SLOT`). 노티파이·섹션은 트랙 인덱스로 링크돼 유지. 같은 이름 = `unchanged` |
 | `set_montage_sections` | `asset_path, sections[{name, start, next?}], save` | 섹션 목록 **전체 교체**(시작 시간 순 정렬). `next` 생략/null = 섹션 끝에서 정지, 자기 이름 = 루프. 이름 중복·길이 밖·없는 next·빈 목록 거부. 같은 목록 재적용 = `unchanged`. 첫 섹션이 0 이 아니면 경고 `NO_SECTION_AT_ZERO` |
+| `reassign_skeleton` | `skeleton(대상), assets?[경로] \| (from_skeleton + path_prefix?=/Game), confirm(true 필수; dry_run 제외), dry_run?, allow_missing_bones?, convert_spaces?, save?=true` | 애니 애셋(시퀀스·몽타주·BlendSpace·AimOffset·컴포짓)을 다른 스켈레톤으로 **제자리** 이동 — 같은 캐릭터를 두 번 임포트해 본 이름이 같은 스켈레톤이 둘이 된 경우(ABP 는 자기 스켈레톤의 애셋만 참조할 수 있다). 엔진의 "retarget to another skeleton" 경로(본 트랙 이름 재매핑·커브 이름 복사). **참조 애셋(몽타주 세그먼트·BlendSpace 샘플·additive 기준 포즈)은 엔진이 항상 같이 옮긴다** → `dry_run` 의 `referred[]` 를 먼저 본다. 시퀀스 본 트랙이 대상 스켈레톤에 없으면 `BONES_MISSING`(details.assets[].missing_bones) 거부. 이미 대상이면 `skipped(already_on_target)`. 커브 이름 복사로 대상 스켈레톤이 더티가 되면 저장하되, 호출 전부터 더티였으면(남의 미저장 편집) 저장하지 않고 `SKELETON_DIRTY_NOT_SAVED` 경고. 응답 `{total, referred[], planned[] \| changed_assets[], referred_changed[], failed[], skipped[], changed, saved, skeleton_saved}` |
+| `set_sequence_additive` | `asset_path(AnimSequence), additive_type?(None\|LocalSpaceBase\|RotationOffsetMeshSpace), ref_pose_type?(None\|RefPose\|AnimScaled\|AnimFrame\|LocalAnimFrame), ref_pose_sequence?(경로 \| null), ref_frame_index?, save` | 디테일 패널의 Additive Settings — AimOffset 샘플(Mesh Space additive + 기준 포즈)을 만들기 전 단계. 생략 = 유지, 같은 값 = `unchanged`. 다른 스켈레톤 기준 포즈는 `SKELETON_MISMATCH`(엔진은 조용히 null 로 만든다). 응답에 `additive_valid` |
 | `add_skeleton_slot` | `skeleton, slot, group?=DefaultGroup, confirm(true 필수), save` | 스켈레톤에 슬롯 등록(그룹 없으면 생성, 다른 그룹에 있으면 이동). 슬롯·그룹은 같은 이름 공간(`SLOT_IS_GROUP`·`GROUP_IS_SLOT`). 응답 `added, moved_from, group_created, unchanged, slot_groups[]`. `save` 없으면 에디터 종료 시 사라짐 |
 | `create_anim_layer_interface` | `asset_path, layers[{name, group?, input_poses?["Name" \| {name, inputs?[{name, type}]}]}], overwrite, save` | Anim Layer Interface 애셋 + 레이어 그래프(+ 값 파라미터 `inputs`). 항상 컴파일 |
 | `implement_anim_layer_interface` | `asset_path, interface, compile=true, save` | ABP 가 인터페이스 구현 → 레이어 그래프(Root + 입력 포즈 + 값 핀) 자동 생성 |
@@ -187,7 +189,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 - **임의의 EventGraph 편집은 다루지 않습니다.** BP 변수 추가와 `BlueprintThreadSafeUpdateAnimation` 의 "변수 ← 식" 대입 사슬까지가 범위이고, 분기·루프·이벤트·임의 K2 노드는 만들지 않습니다. 복잡한 상태 판정은 C++ AnimInstance 에 두는 것을 권합니다.
 - 전이 규칙의 `call` 은 화이트리스트 함수만, `set_property` 는 허용 목록 프로퍼티만입니다. 허용 목록 밖 노드(Control Rig·PoseDriver·RigidBody·AnimDynamics·Motion Matching 등)는 생성·연결은 되지만 세부 설정은 못 합니다. 필요하면 `Core/AnimMcpPropertyRules.cpp` 의 표에 한 줄씩 더합니다.
 - Linked Anim Layer 의 값 파라미터는 **Input Pose 노드에 붙습니다**(엔진 구조) — 입력 포즈 없는 레이어는 값 파라미터를 가질 수 없습니다. 자식 Animation Blueprint 가 부모의 레이어를 오버라이드하는 그래프 생성은 범위 밖입니다. 인터페이스 변경 뒤 구현 ABP 동기화는 AssetRegistry 참조자(디스크에 저장된 ABP) 기준입니다.
-- 생성하는 콘텐츠 애셋은 BlendSpace·AimOffset·몽타주(시퀀스 1개, 슬롯·섹션)입니다. **노티파이**(프로젝트별 클래스)·몽타주 다중 세그먼트·블렌드 프로파일·싱크 마커는 범위 밖입니다. 스켈레톤 편집은 슬롯 등록(`add_skeleton_slot`, `confirm` 필수)뿐입니다.
+- 생성하는 콘텐츠 애셋은 BlendSpace·AimOffset·몽타주(시퀀스 1개, 슬롯·섹션)입니다. **노티파이**(프로젝트별 클래스)·몽타주 다중 세그먼트·블렌드 프로파일·싱크 마커는 범위 밖입니다. 스켈레톤 편집은 슬롯 등록(`add_skeleton_slot`, `confirm` 필수)과 애셋의 스켈레톤 재할당(`reassign_skeleton` — 본 이름이 같은 스켈레톤 사이, 본이 다른 스켈레톤으로의 리타게팅(IK Retargeter)은 범위 밖)뿐입니다. 시퀀스 편집은 additive 설정(`set_sequence_additive`)뿐입니다.
 - 검증은 구조 검사(스모크)와 상태머신 현재 상태·슬롯 활성(런타임 시나리오)까지입니다. 실제 포즈(본 트랜스폼)·애니메이션 품질은 PIE 에서 사람이 봅니다.
 - 한 포트에 에디터 하나. PIE 중이거나 모달 작업(`GIsSlowTask`) 중에는 Automation 테스트가 시작되지 않습니다(런타임 시나리오는 테스트가 PIE 를 열고 닫습니다).
 - `/Game/...` 인자를 Git Bash 에서 넘길 때는 `MSYS_NO_PATHCONV=1`.
@@ -219,7 +221,8 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpRuntimeScenario  런타임 시나리오 계약 — 테스트 명령 "<클래스> <JSON>" · 관측 슬롯(테스트 → 러너 → observed)
   Tests/    AnimMcpSmokeTests.cpp    AnimGraphMcp.Smoke.AnimBlueprint · AnimGraphMcp.Smoke.AnimMontage
             AnimMcpRuntimeTests.cpp  AnimGraphMcp.Runtime.AnimBlueprint — PIE 시작·스폰·변수·몽타주·N 프레임·관측·비교·PIE 종료(지연 명령 7단계)
-  Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음; Montage = 몽타주·스켈레톤 슬롯 4종 · Automation = run/poll + run_anim_scenario 사전 검증)
+  Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음; Montage = 몽타주·스켈레톤 슬롯 4종 · Automation = run/poll + run_anim_scenario 사전 검증 ·
+                                     Skeleton = reassign_skeleton(EditorAnimUtils::RetargetAnimations 제자리) · Sequence = set_sequence_additive)
 ```
 
 규칙: Inspector 는 쓰지 않고, Mutator 는 트랜잭션 밖에서 호출되지 않습니다. 같은 `FJsonObject` 를 두 컨테이너에 넣지 않습니다(순환 → 직렬화 무한 재귀).

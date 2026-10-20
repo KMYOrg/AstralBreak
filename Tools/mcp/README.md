@@ -2,7 +2,7 @@
 
 Claude Code ↔ (stdio MCP) ↔ `Tools/mcp/anim_graph_mcp/server.py` ↔ (HTTP/JSON, 127.0.0.1:18765) ↔ `Plugins/AnimGraphMcp` (에디터 C++)
 
-플러그인 쪽 전체 참조(Tool 28개 · op 20종 · 오류 코드 · 제약 · 소스 구조)는 [`Plugins/AnimGraphMcp/README.md`](../../Plugins/AnimGraphMcp/README.md). 설계·API 근거는 `.claude/plans/animbp-automation-phase1.md`.
+플러그인 쪽 전체 참조(Tool 30개 · op 20종 · 오류 코드 · 제약 · 소스 구조)는 [`Plugins/AnimGraphMcp/README.md`](../../Plugins/AnimGraphMcp/README.md). 설계·API 근거는 `.claude/plans/animbp-automation-phase1.md`.
 
 ## 설치 (1회)
 
@@ -38,9 +38,11 @@ bAutoStart=True
 
 에디터 콘솔: `AnimGraphMcp.Start` / `AnimGraphMcp.Stop` / `AnimGraphMcp.Status`. 커맨드라인 `-AnimGraphMcpPort=18766` 으로 인스턴스별 포트 오버라이드. 토큰은 에디터가 기동할 때 `Saved/AnimGraphMcp/token` 에 쓴다. `get_editor_status` 만 토큰 면제.
 
-## Tool (28개)
+## Tool (30개)
 
-조회 `get_editor_status` · `get_anim_blueprint_info` · `get_anim_graph_structure` · `list_animation_assets` — 생성/저장 `create_animation_blueprint` · `create_blendspace`(`aim_offset` 로 AimOffset) · `create_anim_layer_interface` · `implement_anim_layer_interface` · `save_animation_blueprint` · `duplicate_animation_blueprint` · `delete_animation_blueprint` — 레이어 `set_layer_inputs`(값 파라미터) · `add_anim_layers` · `remove_anim_layers`(구현 ABP 자동 동기화) — 편집 `preview_graph_operations` · `apply_graph_operations`(op 20종, `set_layer_instance_class` 포함) · `compile_animation_blueprint` — 변수·업데이트 함수 `add_blueprint_variable` · `remove_blueprint_variable` · `set_update_function`(ThreadSafeUpdateAnimation 을 스펙에서 생성) — 몽타주 `create_anim_montage` · `set_montage_slots` · `set_montage_sections` · `add_skeleton_slot`(노티파이는 `Tools/lib/ab_montage.py`) — 검증 `run_automation_tests` · `poll_automation_tests` · `run_anim_scenario`(PIE 에서 상태머신 현재 상태·슬롯 활성 확인) — 프로세스 `quit_editor`.
+조회 `get_editor_status` · `get_anim_blueprint_info` · `get_anim_graph_structure` · `list_animation_assets` — 생성/저장 `create_animation_blueprint` · `create_blendspace`(`aim_offset` 로 AimOffset) · `create_anim_layer_interface` · `implement_anim_layer_interface` · `save_animation_blueprint` · `duplicate_animation_blueprint` · `delete_animation_blueprint` — 레이어 `set_layer_inputs`(값 파라미터) · `add_anim_layers` · `remove_anim_layers`(구현 ABP 자동 동기화) — 편집 `preview_graph_operations` · `apply_graph_operations`(op 20종, `set_layer_instance_class` 포함) · `compile_animation_blueprint` — 변수·업데이트 함수 `add_blueprint_variable` · `remove_blueprint_variable` · `set_update_function`(ThreadSafeUpdateAnimation 을 스펙에서 생성) — 몽타주 `create_anim_montage` · `set_montage_slots` · `set_montage_sections` · `add_skeleton_slot`(노티파이는 `Tools/lib/ab_montage.py`) — 콘텐츠 선행 `reassign_skeleton`(같은 본 이름의 중복 스켈레톤 통합, 참조 애셋 동반) · `set_sequence_additive`(AimOffset 샘플 기준 포즈) — 검증 `run_automation_tests` · `poll_automation_tests` · `run_anim_scenario`(PIE 에서 상태머신 현재 상태·슬롯 활성 확인) — 프로세스 `quit_editor`.
+
+실전 적용 스크립트: `reassign_hero_skeleton.py`(히어로 애셋 40개 스켈레톤 통합, 1회성) · `build_hero_combat.py`(히어로 전투 ABP — Lyra 식 레이어 · 근접/원거리 · 조준 strafe, 설계는 `.claude/plans/hero-combat-abp.md`).
 
 각 Tool 의 입력과 op 사전은 `server.py` 의 docstring(= Claude 가 보는 설명)과 플러그인 README 에 있다. 새 Tool 은 Claude Code 세션을 다시 시작해야 MCP 목록에 보인다.
 
@@ -52,7 +54,7 @@ bAutoStart=True
 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/smoke_test.py /Game/Animation/Hero/ABP_Hero_Base
 ```
 
-전체 회귀는 `run_all.py` 하나로 — 에디터 기동 → 단계 테스트(`phase3/4/5/6_1/6_3/6_4/6_4b/7_1/7_2/7_3/7_4/7_5/6_5/6_2_test.py`) → 종료 → 재기동 → 각 `--recheck` → 종료, 결과 `Tools/mcp/results/<date>.json`:
+전체 회귀는 `run_all.py` 하나로 — 에디터 기동 → 단계 테스트(`phase3/4/5/6_1/6_3/6_4/6_4b/7_1/7_2/7_3/7_4/7_5/7_6/6_5/6_2_test.py`) → 종료 → 재기동 → 각 `--recheck` → 종료, 결과 `Tools/mcp/results/<date>.json`:
 
 ```
 PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/run_all.py [--attach] [--only phase6_5_test] [--skip-recheck]

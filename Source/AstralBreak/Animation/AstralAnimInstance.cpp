@@ -1,6 +1,8 @@
 #include "AstralAnimInstance.h"
 
+#include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Character/Components/AstralCharacterMovementComponent.h"
@@ -52,6 +54,7 @@ void UAstralAnimInstance::InitializeWithAbilitySystem(UAbilitySystemComponent* A
 {
 	check(ASC);
 
+	BoundASC = ASC;
 	GameplayTagPropertyMap.Initialize(this, ASC);
 }
 
@@ -70,6 +73,11 @@ void UAstralAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	Snapshot.bIsInAir          = AstralMovementComponent->IsFalling();
 	Snapshot.bIsOnGround       = AstralMovementComponent->IsMovingOnGround();
 	Snapshot.GroundDistance    = AstralMovementComponent->GetGroundInfo().GroundDistance;
+	Snapshot.BaseAimRotation   = OwningPawn->GetBaseAimRotation();
+
+	// 조준 태그 — ASC 는 Mixed 복제라 전 머신이 같은 값을 본다. 결합 전(폰 도착 직후)은 false
+	const UAbilitySystemComponent* ASC = BoundASC.Get();
+	Snapshot.bAiming = ASC && ASC->HasMatchingGameplayTag(AstralGameplayTags::State_Ranged_Aiming);
 }
 
 void UAstralAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
@@ -85,4 +93,10 @@ void UAstralAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 	bIsFalling        = Snapshot.bIsInAir && !bIsJumping;
 	GroundDistance    = Snapshot.GroundDistance;
 	MovementDirection = CalculateDirectionAngle(Snapshot.WorldVelocity, Snapshot.ActorRotation);
+
+	// 조준 각 = 조준 회전 − 몸 회전 (AimOffset 입력). 조준 중엔 몸이 컨트롤러 Yaw 를 따르므로 Yaw 는 0 근처, Pitch 가 주 성분
+	const FRotator AimDelta = (Snapshot.BaseAimRotation - Snapshot.ActorRotation).GetNormalized();
+	AimYaw    = AimDelta.Yaw;
+	AimPitch  = AimDelta.Pitch;
+	bIsAiming = Snapshot.bAiming;
 }

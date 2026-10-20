@@ -83,6 +83,9 @@ protected:
 	/** 초기 페이로드 캡처 — 시작 몸 방향(Facing 제안) + 폴백 조준점. 훅과 로컬 폴백이 공유 */
 	FAstralRangedActivationData CaptureActivationData(const AActor* Avatar, const FGameplayAbilityActorInfo& ActorInfo) const;
 
+	/** 서버 — AimHoldEffect 를 오너에 적용(지속 시간 = AimHoldSeconds). 활성화마다 1회, 재적용은 지속 시간 갱신 */
+	void ApplyAimHold(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const;
+
 	/** 활성화마다 새 Facing 세션 (NumStages = 1). Stage 0은 초기 페이로드의 BodyFacing 어댑터 */
 	void BeginFacingSession(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const TOptional<FAstralFacingProposal>& StageZero);
 
@@ -127,6 +130,18 @@ protected:
 	/** 발사 연출 GameplayCue (선택) — 비우면 훅만 있고 연출 없음. 총구 섬광·발사음은 여기 연결 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged|Presentation", Meta = (Categories = "GameplayCue"))
 	FGameplayTag FireCueTag;
+
+	/**
+	 * 사격 자세 유지 GE — 활성화마다 서버가 오너에 적용해 State.Ranged.Aiming 을 AimHoldSeconds 동안 유지(재적용은 갱신).
+	 * 켜진 동안: 몸이 카메라 Yaw 를 따르고(HeroMovementComponent) AnimInstance 가 조준 로코모션·AimOffset 을 켠다(bIsAiming).
+	 * 기본 UAstralGE_RangedAimHold. 비우면 자세 유지 없음
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged|Aim")
+	TSubclassOf<UGameplayEffect> AimHoldEffect;
+
+	/** 마지막 발사 뒤 조준 자세를 유지하는 시간(초) — "계속 쏘는 중" 창의 길이 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged|Aim", Meta = (ClampMin = "0.0"))
+	float AimHoldSeconds = 2.f;
 
 private:
 	/** 이 공격의 고정 조준 모드·타겟 — 활성화 시작에 결정, EndAbility에서 정리 */

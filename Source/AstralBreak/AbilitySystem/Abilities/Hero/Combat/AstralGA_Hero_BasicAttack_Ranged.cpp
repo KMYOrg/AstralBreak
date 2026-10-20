@@ -7,6 +7,8 @@
 #include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAttackMontageValidation.h"
+#include "AbilitySystem/Effects/AstralGE_RangedAimHold.h"
+#include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "AbilitySystem/Facing/AstralFacingDebug.h"
 #include "AbilitySystem/Facing/AstralFacingSession.h"
 #include "AbilitySystem/Tasks/AstralAbilityTask_AttackTraceWindows.h"
@@ -40,6 +42,25 @@ UAstralGA_Hero_BasicAttack_Ranged::UAstralGA_Hero_BasicAttack_Ranged(const FObje
 	// 상호배타 — 근접 GA와 동일 정책: 공격 중 다른 공격 차단, 공격 발동 시 방어 캔슬 (최신 입력 우선)
 	BlockAbilitiesWithTag.AddTag(AstralGameplayTags::Ability_Attack);
 	CancelAbilitiesWithTag.AddTag(AstralGameplayTags::Ability_Defense);
+
+	// 사격 자세 유지 — 기본 네이티브 GE (지속 시간만 AimHoldSeconds 로 주입)
+	AimHoldEffect = UAstralGE_RangedAimHold::StaticClass();
+}
+
+void UAstralGA_Hero_BasicAttack_Ranged::ApplyAimHold(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
+{
+	// 서버 권위에서만 — 태그는 ASC Mixed 복제로 소유 클라·관찰자에게 간다 (AnimInstance·회전 모드가 같은 태그를 본다)
+	if (!AimHoldEffect || AimHoldSeconds <= 0.f || !ActorInfo || !ActorInfo->IsNetAuthority())
+	{
+		return;
+	}
+
+	const FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(Handle, ActorInfo, ActivationInfo, AimHoldEffect, GetAbilityLevel());
+	if (SpecHandle.IsValid())
+	{
+		SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_Duration, AimHoldSeconds);
+		ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, SpecHandle);
+	}
 }
 
 FAstralRangedActivationData UAstralGA_Hero_BasicAttack_Ranged::CaptureActivationData(const AActor* Avatar, const FGameplayAbilityActorInfo& ActorInfo) const
@@ -111,6 +132,9 @@ void UAstralGA_Hero_BasicAttack_Ranged::ActivateAbility(const FGameplayAbilitySp
 	}
 
 	ResetShotState();
+
+	// 사격 자세 창 시작·갱신 — 발사 노티파이가 아니라 활성화 시점(선딜 동안에도 조준 자세·strafe 가 켜져야 한다)
+	ApplyAimHold(Handle, ActorInfo, ActivationInfo);
 
 #if !UE_BUILD_SHIPPING
 	if (!bMontageValidated && FireMontage)

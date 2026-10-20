@@ -32,6 +32,12 @@ namespace AnimMcpTools
 	/** 몽타주 콘텐츠 (create_anim_montage, set_montage_slots, set_montage_sections, add_skeleton_slot) — Phase 7-3 */
 	void RegisterMontageTools(FAnimMcpDispatcher& Dispatcher);
 
+	/** 스켈레톤 재할당 (reassign_skeleton) — Phase 7-6: 같은 본 이름의 두 스켈레톤으로 갈라진 애니 애셋을 한쪽으로 */
+	void RegisterSkeletonTools(FAnimMcpDispatcher& Dispatcher);
+
+	/** 시퀀스 additive 설정 (set_sequence_additive) — Phase 7-6: AimOffset 샘플 선행 조건(기준 포즈) */
+	void RegisterSequenceTools(FAnimMcpDispatcher& Dispatcher);
+
 	/** 그래프 변경 (preview_graph_operations, apply_graph_operations) */
 	void RegisterGraphTools(FAnimMcpDispatcher& Dispatcher);
 

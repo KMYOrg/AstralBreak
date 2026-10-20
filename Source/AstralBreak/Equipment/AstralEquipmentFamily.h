@@ -3,9 +3,11 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "GameplayTagContainer.h"
+#include "Templates/SubclassOf.h"
 #include "AstralEquipmentFamily.generated.h"
 
 class AActor;
+class UAnimInstance;
 class UAstralAbilitySet;
 class UAstralEquipmentInstance;
 
@@ -70,4 +72,11 @@ public:
 	/** 장착 시 부여할 어빌리티 세트 (계열 종속 GA — 근접 콤보/피니셔 등). 해제 시 자동 회수 */
 	UPROPERTY(EditDefaultsOnly, Category = "Equipment")
 	TArray<TObjectPtr<const UAstralAbilitySet>> AbilitySetsToGrant;
+
+	/**
+	 * 이 계열이 활성일 때 캐릭터 AnimBP 에 링크할 Linked Anim Layer
+	 * 장비 매니저가 스타일 변경·장착 변경 때 LinkAnimClassLayers 로 링크한다 — 전 머신(태그·장비 복제 기준).
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Equipment|Animation")
+	TSubclassOf<UAnimInstance> AnimLayerClass;
 };

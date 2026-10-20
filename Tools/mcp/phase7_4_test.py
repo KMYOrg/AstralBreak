@@ -6,10 +6,10 @@
 HTTP 직접 호출로 검증한다. 대상(생성·덮어쓰기): /Game/Animation/Test/ALI_McpTest74 · ABP_McpLayer74Base(구현+레이어 노드) · ABP_McpLayer74Prov(공급자).
 6-4b 의 ALI_McpTest/ABP_McpLayerBase/Provider 는 건드리지 않는다(6-4b recheck 가 비교).
 검사 항목:
-  A. 인터페이스 생성 — Upper(InPose + AimYaw:float) · Lower(InPose) · Full(입력 포즈 없음) → layers[].inputs · editable
+  A. 인터페이스 생성 — Upper(InPose + LayerYaw:float) · Lower(InPose) · Full(입력 포즈 없음) → layers[].inputs · editable
   B. set_layer_inputs — Lower 에 2개 → 조회 · 재적용 unchanged · 1개로 축소 · [] 비움 · 거부 7종(NO_INPUT_POSE · 모르는 레이어 · 타입 · 중복 · 포즈 이름 · 다른 레이어와 중복 · 포즈 타입)
-  C. 구현 — Base·Prov 구현(값 핀 전파) · Base AnimGraph 에 Upper 노드 + expose_pin AimYaw(custom) + Speed 연결 → 컴파일 0 에러
-     · Prov 의 Upper 그래프에서 InPose.AimYaw → SequencePlayer PlayRate → 컴파일 0 에러 · 구현 그래프 set_layer_inputs → NOT_EDITABLE
+  C. 구현 — Base·Prov 구현(값 핀 전파) · Base AnimGraph 에 Upper 노드 + expose_pin LayerYaw(custom) + Speed 연결 → 컴파일 0 에러
+     · Prov 의 Upper 그래프에서 InPose.LayerYaw → SequencePlayer PlayRate → 컴파일 0 에러 · 구현 그래프 set_layer_inputs → NOT_EDITABLE
   D. set_layer_instance_class — Base 의 Upper 노드 → Prov 클래스(애셋 경로·클래스 경로) → 컴파일 0 에러 · 조회 instance_class · null 로 해제
      · 거부 5종(SELF_CLASS · NOT_IMPLEMENTING · BAD_CLASS · ASSET_NOT_FOUND · SELF_LAYER(자체 레이어 노드)) · 혼합 배치 롤백
   E. add_anim_layers — 인터페이스에 Extra(InPose + Blend:float) → implementers 2 (컴파일 0 에러) · Base/Prov layers 에 Extra · 거부(중복·예약·BlendSpace)
@@ -140,26 +140,26 @@ def main_sections() -> None:
     names = {t["name"] for t in st["tools"]}
     check(NEW_TOOLS <= names, f"Tool 3개 등록 (총 {len(names)})")
     layers = [
-        {"name": "Upper", "group": "Body", "input_poses": [{"name": "InPose", "inputs": [{"name": "AimYaw", "type": "float"}]}]},
+        {"name": "Upper", "group": "Body", "input_poses": [{"name": "InPose", "inputs": [{"name": "LayerYaw", "type": "float"}]}]},
         {"name": "Lower", "input_poses": ["InPose"]},
         {"name": "Full"},
     ]
     a = must(call("create_anim_layer_interface", asset_path=ALI, layers=layers, overwrite=True, save=True), "create interface")
     check(a["compile"]["num_errors"] == 0 and a["saved"], f"ALI_McpTest74 생성·컴파일 0 에러 (warnings {a['compile']['num_warnings']})")
-    check(inputs_of(a, "Upper") == [("AimYaw", "float")] and layer_of(a, "Upper")["inputs"][0]["input_pose"] == "InPose", f"Upper.inputs = AimYaw:float ({layer_of(a, 'Upper')['inputs']})")
+    check(inputs_of(a, "Upper") == [("LayerYaw", "float")] and layer_of(a, "Upper")["inputs"][0]["input_pose"] == "InPose", f"Upper.inputs = LayerYaw:float ({layer_of(a, 'Upper')['inputs']})")
     check(inputs_of(a, "Lower") == [] and inputs_of(a, "Full") == [] and all(l["editable"] for l in a["layers"]), "Lower/Full inputs 없음 · 인터페이스 레이어 editable")
     su = structure(ALI, layer_of(a, "Upper")["graph_guid"])
     ipn = node_of(su, "AnimGraphNode_LinkedInputPose")
-    check(any(p["name"] == "AimYaw" and p["dir"] == "out" for p in ipn["pins"]), "인터페이스 Upper 그래프 Input Pose 노드에 AimYaw 출력 핀")
+    check(any(p["name"] == "LayerYaw" and p["dir"] == "out" for p in ipn["pins"]), "인터페이스 Upper 그래프 Input Pose 노드에 LayerYaw 출력 핀")
 
     print("\n=== B. set_layer_inputs ===")
-    b = must(call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "AimPitch", "type": "float"}, {"name": "bAiming", "type": "bool"}]), "set inputs")
-    check(inputs_of(b, "Lower") == [("AimPitch", "float"), ("bAiming", "bool")] and b["compile"]["num_errors"] == 0 and b["unchanged"] is False, f"Lower.inputs 2개 ({inputs_of(b, 'Lower')})")
+    b = must(call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "LayerPitch", "type": "float"}, {"name": "bAiming", "type": "bool"}]), "set inputs")
+    check(inputs_of(b, "Lower") == [("LayerPitch", "float"), ("bAiming", "bool")] and b["compile"]["num_errors"] == 0 and b["unchanged"] is False, f"Lower.inputs 2개 ({inputs_of(b, 'Lower')})")
     check(b["implementers"] == [], "구현 ABP 아직 없음 → implementers []")
-    b2 = must(call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "AimPitch", "type": "float"}, {"name": "bAiming", "type": "bool"}]), "same")
+    b2 = must(call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "LayerPitch", "type": "float"}, {"name": "bAiming", "type": "bool"}]), "same")
     check(b2["unchanged"] is True and "compile" not in b2, "같은 목록 → unchanged (컴파일 생략)")
-    b3 = must(call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "AimPitch", "type": "float"}]), "shrink")
-    check(inputs_of(b3, "Lower") == [("AimPitch", "float")], "1개로 축소")
+    b3 = must(call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "LayerPitch", "type": "float"}]), "shrink")
+    check(inputs_of(b3, "Lower") == [("LayerPitch", "float")], "1개로 축소")
     b4 = must(call("set_layer_inputs", asset_path=ALI, layer="Lower", input_pose="InPose", inputs=[]), "clear")
     check(inputs_of(b4, "Lower") == [] and b4["compile"]["num_errors"] == 0, "[] → 비움 (input_pose 명시)")
     r = call("set_layer_inputs", asset_path=ALI, layer="Full", inputs=[{"name": "X", "type": "float"}]); check(reason(r) == "NO_INPUT_POSE", f"입력 포즈 없는 레이어 → NO_INPUT_POSE ({reason(r)})")
@@ -167,11 +167,11 @@ def main_sections() -> None:
     r = call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "X", "type": "nope"}]); check(reason(r) == "BAD_TYPE", f"모르는 타입 → BAD_TYPE ({reason(r)})")
     r = call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "X", "type": "float"}, {"name": "X", "type": "bool"}]); check(reason(r) == "DUPLICATE_NAME", f"중복 이름 → DUPLICATE_NAME ({reason(r)})")
     r = call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "InPose", "type": "float"}]); check(reason(r) == "DUPLICATE_NAME", f"포즈 이름과 같은 입력 → DUPLICATE_NAME ({reason(r)})")
-    r = call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "AimYaw", "type": "float"}]); check(reason(r) == "DUPLICATE_NAME", f"다른 레이어(Upper)의 입력 이름 → DUPLICATE_NAME ({reason(r)})")
+    r = call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "LayerYaw", "type": "float"}]); check(reason(r) == "DUPLICATE_NAME", f"다른 레이어(Upper)의 입력 이름 → DUPLICATE_NAME ({reason(r)})")
     r = call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "P", "type": "struct:/Script/Engine.PoseLink"}]); check(code(r) == "BAD_REQUEST", f"포즈 타입 → BAD_REQUEST ({reason(r)})")
     r = call("set_layer_inputs", asset_path=ALI, layer="Lower", input_pose="Nope", inputs=[]); check(reason(r) == "UNKNOWN_INPUT_POSE", f"모르는 input_pose → UNKNOWN_INPUT_POSE ({reason(r)})")
     check(inputs_of(info(ALI), "Lower") == [], "거부 뒤 불변")
-    must(call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "AimPitch", "type": "float"}], save=True), "restore Lower")
+    must(call("set_layer_inputs", asset_path=ALI, layer="Lower", inputs=[{"name": "LayerPitch", "type": "float"}], save=True), "restore Lower")
 
     print("\n=== C. 구현 · 값 핀 ===")
     must(call("create_animation_blueprint", asset_path=BASE, skeleton=SKELETON, parent_class=PARENT, overwrite=True), "create base")
@@ -179,7 +179,7 @@ def main_sections() -> None:
     cb = must(call("implement_anim_layer_interface", asset_path=BASE, interface=ALI), "implement base")
     cp = must(call("implement_anim_layer_interface", asset_path=PROV, interface=ALI), "implement prov")
     check(cb["compile"]["num_errors"] == 0 and cp["compile"]["num_errors"] == 0, "Base·Prov 구현 컴파일 0 에러")
-    check(inputs_of(cb, "Upper") == [("AimYaw", "float")] and inputs_of(cb, "Lower") == [("AimPitch", "float")] and not layer_of(cb, "Upper")["editable"], f"구현 그래프 Input Pose 에 값 핀 전파 · editable=false ({inputs_of(cb, 'Upper')})")
+    check(inputs_of(cb, "Upper") == [("LayerYaw", "float")] and inputs_of(cb, "Lower") == [("LayerPitch", "float")] and not layer_of(cb, "Upper")["editable"], f"구현 그래프 Input Pose 에 값 핀 전파 · editable=false ({inputs_of(cb, 'Upper')})")
     s0 = structure(BASE)
     root = node_of(s0, "AnimGraphNode_Root")["node_guid"]
     c = must(apply(BASE, [
@@ -192,30 +192,30 @@ def main_sections() -> None:
     check(c["compile"]["num_errors"] == 0, "Base: Idle → Upper 노드 → Root 컴파일 0 에러")
     un = node_by_guid(structure(BASE), upper)
     custom = [p for p in un["optional_pins"] if p.get("custom")]
-    check([p["property"] for p in custom] == ["AimYaw"] and custom[0]["shown"] is False, f"Upper 노드 optional_pins 에 custom AimYaw (숨김): {custom}")
+    check([p["property"] for p in custom] == ["LayerYaw"] and custom[0]["shown"] is False, f"Upper 노드 optional_pins 에 custom LayerYaw (숨김): {custom}")
     rev_before = info(BASE)["revision"]
     e = must(apply(BASE, [
-        {"op": "expose_pin", "node": upper, "property": "AimYaw"},
+        {"op": "expose_pin", "node": upper, "property": "LayerYaw"},
         {"op": "add_node", "ref": "speed", "class": "K2Node_VariableGet", "variable": "Speed", "pos": [-900, 300]},
-        {"op": "connect", "from": {"ref": "speed", "pin": "Speed"}, "to": {"node": upper, "pin": "AimYaw"}},
+        {"op": "connect", "from": {"ref": "speed", "pin": "Speed"}, "to": {"node": upper, "pin": "LayerYaw"}},
     ], compile=True), "expose + connect")
-    check(e["compile"]["num_errors"] == 0, f"expose_pin AimYaw + Speed 연결 → 컴파일 0 에러 ({e['compile']['num_errors']}/{e['compile']['num_warnings']})")
+    check(e["compile"]["num_errors"] == 0, f"expose_pin LayerYaw + Speed 연결 → 컴파일 0 에러 ({e['compile']['num_errors']}/{e['compile']['num_warnings']})")
     un = node_by_guid(structure(BASE), upper)
-    check(any(p["name"] == "AimYaw" and p["dir"] == "in" and p["linked"] for p in un["pins"]) and next(p for p in un["optional_pins"] if p["property"] == "AimYaw")["shown"], "AimYaw 입력 핀 노출·링크")
+    check(any(p["name"] == "LayerYaw" and p["dir"] == "in" and p["linked"] for p in un["pins"]) and next(p for p in un["optional_pins"] if p["property"] == "LayerYaw")["shown"], "LayerYaw 입력 핀 노출·링크")
     check(info(BASE)["revision"] != rev_before, "커스텀 핀 노출이 revision 에 반영")
-    r = apply(BASE, [{"op": "expose_pin", "node": upper, "property": "Nope"}]); check(code(r) == "PIN_NOT_FOUND" and "AimYaw" in json.dumps(r["error"]), f"없는 핀 → PIN_NOT_FOUND (custom 목록 동봉) ({code(r)})")
-    # 공급자: Upper 그래프에서 InPose.AimYaw → SequencePlayer.PlayRate
+    r = apply(BASE, [{"op": "expose_pin", "node": upper, "property": "Nope"}]); check(code(r) == "PIN_NOT_FOUND" and "LayerYaw" in json.dumps(r["error"]), f"없는 핀 → PIN_NOT_FOUND (custom 목록 동봉) ({code(r)})")
+    # 공급자: Upper 그래프에서 InPose.LayerYaw → SequencePlayer.PlayRate
     pu = layer_of(cp, "Upper")
     spu = structure(PROV, pu["graph_guid"])
     pin_node = node_of(spu, "AnimGraphNode_LinkedInputPose"); proot = node_of(spu, "AnimGraphNode_Root")
-    check(any(p["name"] == "AimYaw" and p["dir"] == "out" for p in pin_node["pins"]), "Prov Upper 그래프 Input Pose 에 AimYaw 출력 핀")
+    check(any(p["name"] == "LayerYaw" and p["dir"] == "out" for p in pin_node["pins"]), "Prov Upper 그래프 Input Pose 에 LayerYaw 출력 핀")
     p = must(apply(PROV, [
         {"op": "add_node", "ref": "seq", "graph": pu["graph_guid"], "class": "AnimGraphNode_SequencePlayer", "asset": IDLE, "pos": [-400, 0]},
         {"op": "expose_pin", "ref": "seq", "property": "PlayRate"},
-        {"op": "connect", "from": {"node": pin_node["node_guid"], "pin": "AimYaw"}, "to": {"ref": "seq", "pin": "PlayRate"}},
+        {"op": "connect", "from": {"node": pin_node["node_guid"], "pin": "LayerYaw"}, "to": {"ref": "seq", "pin": "PlayRate"}},
         {"op": "connect", "from": {"ref": "seq", "pin": "Pose"}, "to": {"node": proot["node_guid"], "pin": "Result"}},
     ], compile=True), "prov upper")
-    check(p["compile"]["num_errors"] == 0, "Prov: InPose.AimYaw → PlayRate → Root 컴파일 0 에러")
+    check(p["compile"]["num_errors"] == 0, "Prov: InPose.LayerYaw → PlayRate → Root 컴파일 0 에러")
     for path, name in ((PROV, "Lower"), (PROV, "Full"), (BASE, "Lower"), (BASE, "Full")):
         li = layer_of(info(path), name); sl = structure(path, li["graph_guid"])
         ops = [{"op": "add_node", "ref": "s", "graph": li["graph_guid"], "class": "AnimGraphNode_SequencePlayer", "asset": IDLE, "pos": [-400, 0]},
@@ -227,13 +227,13 @@ def main_sections() -> None:
     compile_(BASE, save=True); compile_(PROV, save=True)
 
     print("\n=== D. set_layer_instance_class ===")
-    # 값 핀이 링크된 채 클래스 변경 → PINS_LINKED (AimYaw ← Speed 링크 중) — 먼저 끊는다
+    # 값 핀이 링크된 채 클래스 변경 → PINS_LINKED (LayerYaw ← Speed 링크 중) — 먼저 끊는다
     r = apply(BASE, [{"op": "set_layer_instance_class", "node": upper, "instance_class": PROV}]); check(reason(r) == "PINS_LINKED", f"값 핀 링크 중 클래스 지정 → PINS_LINKED ({reason(r)})")
-    must(apply(BASE, [{"op": "disconnect", "from": {"node": upper, "pin": "AimYaw"}}]), "disconnect AimYaw")
+    must(apply(BASE, [{"op": "disconnect", "from": {"node": upper, "pin": "LayerYaw"}}]), "disconnect LayerYaw")
     d = must(apply(BASE, [{"op": "set_layer_instance_class", "node": upper, "instance_class": PROV}], compile=True), "instance class")
     check(d["compile"]["num_errors"] == 0 and (d["operations"][0]["linked_layer"]["instance_class"] or "").startswith(PROV) and d["operations"][0]["old_instance_class"] is None, f"Upper 노드 → Prov 클래스 (애셋 경로) 컴파일 0 에러: {d['operations'][0]['linked_layer']['instance_class']}")
     un = node_by_guid(structure(BASE), upper)
-    check((un["linked_layer"]["instance_class"] or "").endswith("_C") and any(p["name"] == "AimYaw" for p in un["pins"]), "조회 instance_class · 값 핀 유지(Prov 시그니처)")
+    check((un["linked_layer"]["instance_class"] or "").endswith("_C") and any(p["name"] == "LayerYaw" for p in un["pins"]), "조회 instance_class · 값 핀 유지(Prov 시그니처)")
     d2 = must(apply(BASE, [{"op": "set_layer_instance_class", "node": upper, "instance_class": un["linked_layer"]["instance_class"]}]), "class path")
     check(d2["operations"][0]["old_instance_class"] == un["linked_layer"]["instance_class"], "클래스 경로(_C)로도 지정 · old_instance_class")
     rev1 = info(BASE)["revision"]
@@ -246,8 +246,8 @@ def main_sections() -> None:
     check(code(r) == "BAD_REQUEST" and reason(r) == "SELF_CLASS" and info(BASE)["revision"] == rev1, "혼합 배치 → 사전 검증 거부 · 무변경")
     dn = must(apply(BASE, [{"op": "set_layer_instance_class", "node": upper, "instance_class": None}], compile=True), "clear")
     check(dn["operations"][0]["linked_layer"]["instance_class"] is None and dn["compile"]["num_errors"] == 0 and node_by_guid(structure(BASE), upper)["linked_layer"]["instance_class"] is None, "null → 해제 (self 구현으로 복귀) 컴파일 0 에러")
-    d3 = must(apply(BASE, [{"op": "set_layer_instance_class", "node": upper, "instance_class": PROV}, {"op": "connect", "from": {"node": node_of(structure(BASE), "K2Node_VariableGet")["node_guid"], "pin": "Speed"}, "to": {"node": upper, "pin": "AimYaw"}}], compile=True), "reclass + reconnect")
-    check(d3["compile"]["num_errors"] == 0 and (node_by_guid(structure(BASE), upper)["linked_layer"]["instance_class"] or "").startswith(PROV) and any(p["name"] == "AimYaw" and p["linked"] for p in node_by_guid(structure(BASE), upper)["pins"]), "클래스 지정 + AimYaw 재연결 한 배치 → 컴파일 0 에러")
+    d3 = must(apply(BASE, [{"op": "set_layer_instance_class", "node": upper, "instance_class": PROV}, {"op": "connect", "from": {"node": node_of(structure(BASE), "K2Node_VariableGet")["node_guid"], "pin": "Speed"}, "to": {"node": upper, "pin": "LayerYaw"}}], compile=True), "reclass + reconnect")
+    check(d3["compile"]["num_errors"] == 0 and (node_by_guid(structure(BASE), upper)["linked_layer"]["instance_class"] or "").startswith(PROV) and any(p["name"] == "LayerYaw" and p["linked"] for p in node_by_guid(structure(BASE), upper)["pins"]), "클래스 지정 + LayerYaw 재연결 한 배치 → 컴파일 0 에러")
 
     print("\n=== E. add_anim_layers ===")
     ea = must(call("add_anim_layers", asset_path=ALI, layers=[{"name": "Extra", "input_poses": [{"name": "InPose", "inputs": [{"name": "Blend", "type": "float"}]}]}], save=True), "add Extra")
@@ -326,7 +326,7 @@ def recheck() -> None:
     ib = info(BASE)
     check(ib["revision"] == saved["base_revision"] and jsonic(layers_shape(ib)) == saved["base_layers"], "Base revision·layers 동일")
     un = node_by_guid(structure(BASE), saved["upper"])
-    check(un["linked_layer"]["instance_class"] == saved["instance_class"] and any(p["name"] == "AimYaw" and p["linked"] for p in un["pins"]), f"instance_class 유지 · AimYaw 링크 유지 ({un['linked_layer']['instance_class']})")
+    check(un["linked_layer"]["instance_class"] == saved["instance_class"] and any(p["name"] == "LayerYaw" and p["linked"] for p in un["pins"]), f"instance_class 유지 · LayerYaw 링크 유지 ({un['linked_layer']['instance_class']})")
     for path in (ALI, BASE, PROV):
         c = compile_(path)
         check(c["num_errors"] == 0, f"{path.split('/')[-1]} 컴파일 0 에러")

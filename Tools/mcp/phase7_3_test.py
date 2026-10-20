@@ -23,9 +23,9 @@ import time
 from anim_graph_mcp import bridge
 
 SKELETON = "/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F"
-# 프로젝트에는 같은 이름의 스켈레톤이 둘 있다(2026-10-17 실측): ABP_Hero_Base · AS_Hero_Finisher1 · AS_Hero_Jump 는 /Game/Assets/… 쪽,
-# AS_Hero_Attack1~3 · AO_Rifle* · AM_Hero_Attack1~3 은 /Game/IdaFaber/… 쪽. 몽타주는 소스 시퀀스의 스켈레톤을 따르므로 소스를 Assets 쪽으로 고른다
-SKELETON_AO = "/Game/IdaFaber/Meshes/Girl/SKEL_UE5_F"
+# 프로젝트에는 같은 이름의 스켈레톤이 둘 있었다(2026-10-17 실측): AS_Hero_Attack1~3 · AO_Rifle* · AM_Hero_Attack1~3 이 /Game/IdaFaber/… 쪽.
+# 2026-10-19 (7-6) reassign_skeleton 으로 /Game/Animation/Hero 전부를 /Game/Assets/… 쪽으로 통합했다 — AimOffset 도 같은 스켈레톤
+SKELETON_AO = SKELETON
 PROD_ABP = "/Game/Animation/Hero/ABP_Hero_Base"
 SEQ = "/Game/Animation/Hero/Anims/Combat/AS_Hero_Finisher1"
 IDLE = "/Game/Assets/IdaFaber/Demo/Animations/Girl/AS_Idle"

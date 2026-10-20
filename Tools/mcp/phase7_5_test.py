@@ -26,10 +26,12 @@ from anim_graph_mcp import bridge
 ABP = "/Game/Animation/Test/ABP_McpRuntimeTest"
 SKELETON = "/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F"
 MESH = "/Game/Assets/IdaFaber/Meshes/Girl/SK_StreetDemon_F_01"
-# 같은 이름의 두 SKEL_UE5_F(7-3 실측)는 본 계층이 같아 USkeleton::IsCompatibleMesh(Skeleton.cpp:640-670, 본 이름·부모 사슬 비교)가 참이다 —
-# 메시 거부는 본이 다른 UEFN 마네킹으로, 몽타주 거부는 IsCompatibleForEditor 가 거짓인 /Game/IdaFaber 쪽 몽타주로 본다
+# 메시 호환은 USkeleton::IsCompatibleMesh(Skeleton.cpp:640-670, 본 이름·부모 사슬 비교) — 본 이름이 같은 메시는 통과한다.
+# 몽타주 거부(IsCompatibleForEditor)는 본이 다른 UEFN 마네킹 스켈레톤의 몽타주로 본다 — 7-6 에서 히어로 애셋을 한 스켈레톤으로 통합해
+# /Game/IdaFaber 쪽 몽타주가 더는 없으므로, UEFN 시퀀스로 테스트 몽타주를 만든다(A 절)
 OTHER_MESH = "/Game/Characters/UEFN_Mannequin/Meshes/SKM_UEFN_Mannequin"   # SK_UEFN_Mannequin 은 스켈레톤
-OTHER_MONTAGE = "/Game/Animation/Hero/Montages/AM_Hero_Attack1"
+OTHER_SEQ = "/Game/Characters/UEFN_Mannequin/Animations/Walk/M_Neutral_Walk_Loop_F"
+OTHER_MONTAGE = "/Game/Animation/Test/AM_McpOtherSkel"
 PARENT = "/Script/Engine.AnimInstance"
 IDLE = "/Game/Assets/IdaFaber/Demo/Animations/Girl/AS_Idle"
 RUN = "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_Jump"
@@ -155,6 +157,8 @@ def main_sections() -> None:
     bt = bare["tests"][0] if bare["tests"] else {}
     check(bare["ok"] and bt.get("state") == "passed" and any("No scenario" in w for w in bt.get("warnings", [])), "시나리오 없이 직접 돌리면 passed + 경고")
     build_test_abp()
+    om = must(call("create_anim_montage", asset_path=OTHER_MONTAGE, animation=OTHER_SEQ, overwrite=True, save=True), "create other-skeleton montage")
+    check("UEFN" in om["skeleton"], f"다른 스켈레톤 몽타주 생성 ({om['skeleton'].split('/')[-1]})")
 
     print("\n=== B. 양성 ===")
     env, j, t_idle = scenario("Speed 0 → Idle", asset_path=ABP, mesh=MESH, set_variables={"Speed": 0}, wait_frames=10,

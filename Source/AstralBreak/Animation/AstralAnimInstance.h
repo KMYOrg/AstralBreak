@@ -6,6 +6,7 @@
 #include "AstralAnimInstance.generated.h"
 
 class APawn;
+class UAbilitySystemComponent;
 class UCharacterMovementComponent;
 class UAstralCharacterMovementComponent;
 
@@ -28,6 +29,12 @@ struct FAstralAnimSnapshot
 
 	/** 발밑 지면까지 거리 */
 	float GroundDistance = 0.0f;
+
+	/** 조준 기준 회전 — APawn::GetBaseAimRotation (소유자는 컨트롤 회전, 시뮬 프록시는 RemoteViewPitch + 액터 Yaw) */
+	FRotator BaseAimRotation = FRotator::ZeroRotator;
+
+	/** ASC 태그 State.Ranged.Aiming (게임 스레드에서 읽어 스냅샷). 전투 스타일은 AnimInstance 가 알 필요 없다 — 무기별 그래프는 장비 매니저의 레이어 링크가 고른다 */
+	bool bAiming = false;
 };
 
 
@@ -85,12 +92,29 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Locomotion")
 	bool bHasMovementInput = false;
 
-	// 발밑 지면까지 거리 (착지 예측용) 
+	// 발밑 지면까지 거리 (착지 예측용)
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Locomotion")
 	float GroundDistance = 0.0f;
 
+	// ---- 조준 (ASC 태그 스냅샷) — 무기 종류·스타일은 여기 두지 않는다 (무기별 그래프 = 장비 계열의 AnimLayerClass 링크) ----
+
+	// 사격 자세 유지 중 (State.Ranged.Aiming — 원거리 GA가 발사마다 갱신하는 지속 GE). 조준 로코모션(strafe)·AimOffset 알파
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Combat")
+	bool bIsAiming = false;
+
+	// 조준 방향 − 몸 방향 Yaw (-180~180). AimOffset X
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Combat")
+	float AimYaw = 0.0f;
+
+	// 조준 Pitch (-180~180, 보통 ±90 안). AimOffset Y
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Combat")
+	float AimPitch = 0.0f;
+
 private:
 	FAstralAnimSnapshot Snapshot;
+
+	/** 태그 조회용 — InitializeWithAbilitySystem 에서 결합. 게임 스레드에서만 읽는다 */
+	TWeakObjectPtr<UAbilitySystemComponent> BoundASC;
 
 	UPROPERTY(Transient)
 	TObjectPtr<APawn> OwningPawn;

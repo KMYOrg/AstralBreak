@@ -66,6 +66,11 @@ void UAstralHeroMovementComponent::OnAbilitySystemBound()
 		.AddUObject(this, &ThisClass::HandleSprintTagChanged);
 
 	bSprintAuthorized = BoundASC->HasMatchingGameplayTag(AstralGameplayTags::State_Movement_Sprinting);
+
+	// 사격 자세 창 — 결합 시점에 이미 켜져 있을 수 있다(재빙의·늦은 결합)
+	AimingTagChangedHandle = BoundASC->RegisterGameplayTagEvent(AstralGameplayTags::State_Ranged_Aiming, EGameplayTagEventType::NewOrRemoved)
+		.AddUObject(this, &ThisClass::HandleAimingTagChanged);
+	ApplyAimingRotationMode(BoundASC->HasMatchingGameplayTag(AstralGameplayTags::State_Ranged_Aiming));
 }
 
 void UAstralHeroMovementComponent::OnAbilitySystemUnbound()
@@ -75,9 +80,15 @@ void UAstralHeroMovementComponent::OnAbilitySystemUnbound()
 		BoundASC->RegisterGameplayTagEvent(AstralGameplayTags::State_Movement_Sprinting, EGameplayTagEventType::NewOrRemoved).Remove(SprintTagChangedHandle);
 		SprintTagChangedHandle.Reset();
 	}
+	if (AimingTagChangedHandle.IsValid())
+	{
+		BoundASC->RegisterGameplayTagEvent(AstralGameplayTags::State_Ranged_Aiming, EGameplayTagEventType::NewOrRemoved).Remove(AimingTagChangedHandle);
+		AimingTagChangedHandle.Reset();
+	}
 
-	// 안전한 기본값으로 복귀 — ASC 없는 폰은 질주 불가
+	// 안전한 기본값으로 복귀 — ASC 없는 폰은 질주 불가, 회전은 이동 방향 추종
 	bSprintAuthorized = false;
+	ApplyAimingRotationMode(false);
 
 	Super::OnAbilitySystemUnbound();
 }
@@ -85,6 +96,22 @@ void UAstralHeroMovementComponent::OnAbilitySystemUnbound()
 void UAstralHeroMovementComponent::HandleSprintTagChanged(const FGameplayTag Tag, int32 NewCount)
 {
 	bSprintAuthorized = (NewCount > 0);
+}
+
+void UAstralHeroMovementComponent::HandleAimingTagChanged(const FGameplayTag Tag, int32 NewCount)
+{
+	ApplyAimingRotationMode(NewCount > 0);
+}
+
+void UAstralHeroMovementComponent::ApplyAimingRotationMode(bool bAiming)
+{
+	// 기본값(AstralCharacter 생성자): OrientRotationToMovement=true · UseControllerRotationYaw=false.
+	// 조준 창에서만 뒤집고, 창이 닫히면 원래대로 — 락온은 카메라 Yaw 입력과 입력 회전 억제만 바꾸므로 여기와 겹치지 않는다
+	bOrientRotationToMovement = !bAiming;
+	if (CharacterOwner)
+	{
+		CharacterOwner->bUseControllerRotationYaw = bAiming;
+	}
 }
 
 void UAstralHeroMovementComponent::PerformMovement(float DeltaSeconds)

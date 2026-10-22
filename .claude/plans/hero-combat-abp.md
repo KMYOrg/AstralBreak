@@ -19,6 +19,7 @@
 
 ```text
 ALI_HeroCombat (인터페이스)         Locomotion_Idle · Locomotion_Move (입력 없음) · Aim_UpperBody (입력 포즈 InPose) — 그룹 DefaultSharedGroup(공급자 인스턴스 1개 공유)
+                                   + Locomotion_WeaponOverlay(InPose, 2026-10-22 §9 — 베이스 SM 출력 뒤·DefaultSlot 앞, 라이플 = 조준 상체)
 
 ABP_Hero_Combat (베이스, 부모 UAstralAnimInstance, DA_CD_Vesper.AnimInstanceClass)
   루트:  Locomotions SM → Slot DefaultSlot → SaveCachedPose FullBody → ┬ UseCachedPose → BasePose      ┐
@@ -67,7 +68,7 @@ ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저
 ## 6. 남은 것 / 범위 밖
 
 - 사격 몽타주(`FireMontage`)·`AS_RifleRecoil_01`(additive) 연결 — 현재 원거리 GA 는 몽타주 미지정(즉발)일 수 있음. 반동은 UpperBody 슬롯 몽타주나 ApplyAdditive 로 후속.
-- 조준 중 점프 상태는 무기 무관 시퀀스 그대로(라이플 점프 없음).
+- 조준 중 점프 상태는 무기 무관 시퀀스 그대로(라이플 점프 없음). → 2026-10-22 §9 무기 포즈 오버레이로 조준 상체 유지 · 비조준 공중 왼손 놓음.
 - `/Game/IdaFaber/` 중복 폴더 정리(사용자 판단) · 운영 몽타주 UpperBody 슬롯·콤보 섹션(기존 후보 그대로).
 - Python 원격 실행(`ue_exec`)은 에디터 기동 직후 UDP 멀티캐스트 발견이 간헐적으로 실패했다(5초 → 30초로 늘려도 0건이던 때가 있음, 재기동 뒤 성공). 실패 시 재기동하거나 `Tools/mcp` 도구를 쓴다.
 
@@ -149,4 +150,129 @@ ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저
 - 프로브 함정: 원격 실행 클라이언트는 8KB 미만 조각을 받으면 응답 끝으로 본다(`remote_execution.py:465`) → 큰 덤프가 무작위로 잘려 "Failed to deserialize JSON" — 덤프 타임라인 ~200 줄 상한, 기록은 `unreal` 모듈에 남으니 재덤프 가능. 멀티 PIE 는 단계 하나가 ~0.7초라 사격을 회전 단계 안에서(AimHold 2초 · 진입 피벗 0.3초).
 
 **남은 것**: 원거리 `FireMontage` 를 저작하면 **UpperBody 슬롯**이어야 한다(DefaultSlot 이면 매 발 누적이 꺼져 스프링이 오프셋을 되돌린다) · 조회 응답 `logic_type` · 프로브의 상태 이름 조회 대안 · 조준 보정: 반동·장전 몽타주를 저작할 때 위 ③ 설계 구현(반동 additive 슬롯 · `DisableAimCorrection`/`DisableLHandIK` 커브 → float 알파) · 180 턴 클립을 다시 쓰려면 클램프 ≥ 135 와 함께 AO Yaw 범위 또는 보정 최대각 상향(불변식 클램프 ≤ AO + 보정). 관찰자 시차·빠른 회전 포화는 10-22 오후 해결(위 "후속").
+
+## 8. 원거리 사격 네트워크 (2026-10-22 밤 — ④ 조준 GE 예측 · ② 클라 조준 방향 전송)
+
+### 8.1 지금 구조 (커밋 2ec8923 시점, 즉발 = `FireMontage` 없음)
+
+| 머신 | 흐름 |
+| :-- | :-- |
+| 소유 클라 | 입력 → 예측 활성화(키 K) → `WaitAimAligned`(\|컨트롤 Yaw − 몸 Yaw\| ≤ 10°, 최대 0.3초) → `WaitNetSync(OnlyServerWait)` 신호(신뢰성 `ServerSetReplicatedEvent`) → 연출만 → `EndAbility`(신뢰성 `ServerEndAbility`) |
+| 서버(원격 폰) | 활성화 → `ApplyAimHold`(GE, `State.Ranged.Aiming` 2초) → 신호만 기다림 → `OnFireSynced`: 몸이 10° 밖이면 Yaw 를 컨트롤러에 맞춤(총구 위치용) → `ResolveShot`(자유 조준 = **서버가 아는 카메라** `ServerUpdateCamera` 캐시) → 투사체 |
+| 호스트 | 로컬 권위 — 정렬 뒤 같은 프레임 발사 |
+
+신호 방식의 이유: 서버가 자기 정렬을 따로 기다리면 먼저 끝난 클라의 `EndAbility`(복제, `RemoteEndOrCancelAbility`)가 대기 중인 서버 인스턴스를 끝내 투사체가 안 나갔다. 신호와 `ServerEndAbility` 는 같은 ASC(PlayerState 채널)의 신뢰성 RPC 라 순서대로 도착 → 서버가 반드시 먼저 쏜다.
+
+### 8.2 ④ 조준 GE 예측 (적용 · 미커밋)
+
+- 문제: GE 를 서버만 적용 → 소유 클라의 조준 태그·회전 모드·`bIsAiming` 이 왕복(RTT) 뒤에 켜진다. 그동안 몸이 안 돌아 정렬 대기(0.3초)가 시간 초과 → **등진 채 발사**.
+- 수정: `ApplyAimHold` 의 `IsNetAuthority` 가드 제거 — 권한 판정은 `ApplyGameplayEffectSpecToOwner` 의 `HasAuthorityOrPredictionKey`(GameplayAbility.cpp:2057). 호출 자리(`ActivateAbility` 동기 스택)가 활성화 예측 창이라 클라는 활성화 키로 적용(`GetPredictionKeyForNewAction`), 서버는 같은 키(`InternalServerTryActivateAbility` 의 창)로 적용.
+- 엔진 근거(5.7 — 태그는 GE 가 아니라 **태그 카운트 컨테이너 복제**가 관리):
+  - 소유 클라 예측 GE 는 태그 +1(`InternalOnActiveGameplayEffectAdded`, GameplayEffect.cpp:4577 `!bPostPredictObject`). 같은 키의 복제 GE 는 `bPostPredictObject`(자기 키) 라 태그를 다시 더하지 않는다(:2822, :4577).
+  - 예측본이 키 따라잡기로 지워질 때 태그를 빼지 않는다 — "예측 제거가 아니면 서버 복제가 태그를 맡는다"(:4872 `IsNetAuthority() || bPredictionRejected`). 거부(`ClientActivateAbilityFailed`)면 `OnRejectedActiveGameplayEffect` → 태그 제거 = 롤백.
+  - 서버의 `GameplayTagCountContainer`(GE 부여 태그 = `CountToOwner`) 가 소유자에게 **절대 개수**로 복제된다(GameplayEffectTypes.cpp:537-708, 수신은 `SetTagCount`) → 만료도 서버 복제가 끈다.
+  - 연사 재적용: 기존 GE 위 예측 스택(`AllowPredictiveStackingGEs` 기본 true, :93)은 지속 시간 타이머를 다시 걸지 않는다(:4236) — 2초 창 갱신은 서버 재적용의 복제가 한다.
+- 측정(`Tools/scripts/pie_fire_net_probe_run.py timing 100 3 3` — 리슨 + 클라 2, 모든 월드 `NetEmulation.PktLag 100` = 왕복 ≈ 200ms+프레임, 비조준·등진 175° 첫 발, 클라 활성화 시각 기준):
+
+  | | 클라 조준 태그 | 클라 발사 | 발사 때 몸 | 서버 투사체 |
+  | :-- | --: | --: | :-- | --: |
+  | 수정 전 (3회) | +245 / +248 / +229ms | +265 / +286 / +281ms (0.3초 시간 초과) | **등짐**(정렬은 +466/+381/+374) | +466 / +421 / +417ms |
+  | 수정 후 (3회) | **같은 프레임** | **+130 / +135 / +129ms (정렬 뒤)** | 정렬(≤10°) | +363 / +275 / +268ms |
+
+  연사(0/0.5/1.0/1.5초): 클라 태그 누름 프레임부터 끊김 없이 유지, 서버 해제 = 마지막 수신 + 2.0초(3.684), 클라 해제 +115ms(3.799). 거부(`AbilitySystem.DenyClientActivations 2`): 클라 태그 누름 프레임 켜짐 → +241ms(RTT) 롤백, 서버 태그·투사체 없음. 투사체 방향 오차 0.00~0.03°(정지 카메라).
+  서버 회전 모드는 여전히 활성화 수신 뒤 켜지므로 서버 쪽 몸은 신호 수신 때 6~9° 뒤처져 있다 — `OnFireSynced` 몸 Yaw 보정(10° 밖이면)은 유지.
+- 관찰(수정의 부작용 아님, 엔진 기본): `ReplicateActivationOwnedTags`(GameplayAbilitiesDeveloperSettings, 기본 true) 로 서버 인스턴스의 `Ability.Attack.Basic.Ranged` 개수도 소유자에게 절대값 복제된다. 클라가 이제 서버 활성화보다 먼저 끝나므로 [누름+RTT, 발사+RTT] 동안 클라에 이 태그가 다시 보인다(전엔 클라 자신의 활성 구간에 묻혔다). `Ability.Attack` 을 보는 방어(`CanActivateAbility`)·스타일 전환(`ActivationBlockedTags`)이 그 구간 소유 클라에서 미뤄진다 — 방어는 WhileInputActive 재시도라 그 끝에 들어간다.
+- 남는 경계: 직전 창이 서버에서 만료되는 순간(± 반 RTT)에 누르면 서버의 "태그 제거" 복제가 예측 태그를 지웠다가 새 GE 복제로 다시 켠다(≤ RTT 깜빡임). 예측 전에도 같은 깜빡임이 있었다.
+- 호스트·시뮬 프록시: 변화 없음(호스트 = 로컬 권위, 관찰자 = 서버 태그 복제 +편도).
+
+### 8.3 ② 클라 조준 방향 전송 (2026-10-22 밤 설계 → 사용자 승인 "45° · 몽타주 통일" → 적용 · 미커밋)
+
+**측정으로 본 실체**(`pie_fire_net_probe_run.py flick 100 3 N <손실%>` — 조준·정렬 상태에서 카메라 Yaw ±8/±60·Pitch ±15 를 꺾고 **다음 프레임** 사격):
+- 지연만(왕복 ≈ 200ms, 손실 0%)으로는 오차 0(24발 ≤ 0.02°) — 클라 발사는 직전 프레임 카메라 캐시를 쓰고, 그 카메라는 직전 프레임 이동 패킷과 함께 이미 서버에 있다.
+- 클라 송신 손실 20%: 36발 중 **7발이 플릭 전 방향**(오차 = 플릭 전체 7.7~15.2°). 그 순간 서버 카메라 캐시는 플릭 전, **서버 컨트롤 회전은 이미 새 값**.
+- 원인: 서버의 원격 카메라는 `ServerUpdateCamera`(비신뢰성 PlayerController RPC) 캐시인데 클라는 "직전 프레임 대비 바뀌었을 때만" 보낸다(PlayerCameraManager.cpp:810-828, 무변화 재전송은 `ServerUpdateCameraTimeout` 2초) → 그 패킷이 빠지면 다음 카메라 변화까지 낡는다. 고프레임에서 이동 전송이 묶이면(`ClientNetSendMoveDeltaTime` 1/60초) 같은 일이 손실 없이도 난다. 반면 `ServerMove` 는 이전 이동을 겹쳐 보내고 매 이동마다 컨트롤 회전을 갱신한다(CharacterMovementComponent.cpp:9905-9907). 발사 신호(PlayerState 채널 신뢰성)와 카메라(PlayerController 채널 비신뢰성)는 순서 관계도 없다.
+- 프로브 함정: 플릭과 사격 주입을 같은 콜백에 넣으면 클라 자신도 플릭 전 카메라 캐시로 쏜다(=본 화면 그대로, 오차 아님).
+
+**데이터** — `Combat/AstralRangedAttackTypes` 에 기존 활성화 페이로드와 같은 관례로:
+`FAstralRangedFireData { FVector_NetQuantize10 AimPoint; FVector_NetQuantizeNormal AimDirection; }` + `FGameplayAbilityTargetData_AstralRangedFire`(NetSerialize · `Extract` = 정확히 1개 · 타입 · 유한 · 방향 정규 · `MakeHandle`). AimPoint = 소유 클라가 발사 순간 돌린 `AstralRangedAim::ComputeCameraAimPoint` 의 TargetPoint(발사·보정 애니·관찰자와 같은 함수), AimDirection = 그 카메라 방향. ~14B.
+
+**흐름**(즉발·몽타주 공통 `CommitFire`, `WaitNetSync` 제거):
+- 소유 클라: 발사 순간(즉발 = 정렬 뒤, 몽타주 = 발사 노티파이) 조준 계산 → `FScopedPredictionWindow`(WaitNetSync 와 같은 종속 키) 안에서 `CallServerSetReplicatedTargetData(스펙, 활성화 키, 데이터, 빈 태그, ScopedPredictionKey)` → 연출 → 즉발이면 `EndAbility`.
+- 서버(원격 폰): `ActivateAbility` 에서 `AbilityTargetDataSetDelegate(스펙, 활성화 키)` 바인딩 + `CallReplicatedTargetDataDelegatesIfSet` → 수신 시 추출·검증 → 몸 Yaw 보정(현행 10° 규칙, 기준을 확정된 발사 방향 Yaw 로) → `ProcessFire` → `ConsumeClientReplicatedTargetData` → 즉발이면 종료. 원격 폰의 서버 쪽 발사 노티파이는 쏘지 않는다. `EndAbility` 에서 바인딩 해제.
+- 호스트: RPC 없이 로컬 즉시(지금과 같음). 락온(`PinnedTarget`)·`FallbackAimPoint` 는 서버 해석 그대로 — 보고 조준점은 자유 조준에서만 쓴다(신호 역할은 항상).
+
+**순서 보장 근거**: `ServerTryActivateAbilityWithEventData` · `ServerSetReplicatedTargetData` · `ServerEndAbility` 는 전부 `UFUNCTION(Server, reliable)`(AbilitySystemComponent.h:1725, 1570, 1734)이고 같은 ASC = 같은 PlayerState 액터 채널 → 신뢰성 번치는 채널 안에서 보낸 순서대로 처리된다. RPC 배칭(`ShouldDoServerAbilityRPCBatch`)은 기본 false 이고 Astral ASC 가 재정의하지 않는다(배칭 중이면 `CallServerSetReplicatedTargetData` 가 배치에 싣는다 :4217). 클라는 같은 콜스택에서 데이터 → `EndAbility` 순서로 보낸다 → 서버는 활성화 → 데이터 → 종료 순으로 받는다(지금의 `ServerSetReplicatedEvent` 와 같은 성질). 데이터가 인스턴스보다 먼저 와도 ASC 가 (스펙, 키)로 보관한다(`ServerSetReplicatedTargetData_Implementation` :3944) → 바인딩 직후 `CallReplicatedTargetDataDelegatesIfSet`.
+
+**검증·실패 처리**(원격 폰 · 자유 조준):
+1. 구조 — `Extract` 실패(개수·타입·NaN·비정규 방향) = 거부.
+2. 기준 방향 = **서버 컨트롤 회전**(ServerMove — 위 측정대로 카메라 캐시보다 손실에 강하다. 이 게임은 카메라 회전 = 컨트롤 회전: 스프링 암 `bUsePawnControlRotation`, 회전 지연 없음, 락온도 `SetControlRotation`).
+3. 각(보고 방향, 기준) ≤ `MaxReportedAimDivergence`(제안 45°) → **수락**: 보고 조준점(서버 총구 기준 전방 보장 · 사거리 클램프만). 밖이면 **클램프**: 기준에서 보고 쪽으로 최대각만큼 돌린 방향으로 서버가 트레이스. 거부(1)면 기준 방향 그대로 트레이스.
+- 폴백이 아니라 클램프인 이유: 허용각을 넘는 정상 경우(큰 손실 공백 + 빠른 플릭)에 폴백은 바로 ②의 증상(옛 방향)이고, 클램프는 플레이어가 겨눈 쪽에 가장 가까운 탄. 악용 상한은 둘 다 같다(PvE).
+- 45° 근거: 정상 발산 = 카메라 각속도 × (마지막 처리된 이동 이후 시간). 손실 한 번 + 1프레임(≈ 50ms)에 ~900°/s 플릭까지 수락.
+- 순수 함수 `AstralRangedAttack::CheckReportedAimDirection(Reported, Reference, MaxDeg) → {Accepted | Clamped | Rejected, Direction}` + 단위 테스트(`AstralBreak.Ranged.ReportedAim` · `AstralBreak.Ranged.FirePayload`). 트레이스는 `AstralRangedAim::ComputeCameraAimPoint` 를 "뷰(위치·방향) 지정" 함수 위 래퍼로 나눠 같은 규칙(총구 투영 시작 · Visibility · 전방 보장)을 재사용.
+
+**몽타주 경로**: 같은 데이터로 통일(위 흐름). 대안 "서버 노티파이 + 도착한 데이터가 있으면 사용" 은 출처가 도착 순서에 따라 갈려 기각. 지금 `FireMontage` 를 쓰는 무기는 없다 — 코드 경로 + 단위 테스트까지.
+
+**단일 원천**: 정의는 하나(`ComputeCameraAimPoint`). 발사 = 소유 클라가 발사 순간 돌린 값(이벤트·신뢰성, 서버는 컨트롤 회전으로 상한만 건다). 표현(관찰자 `ObservedAimTarget` · 서버 쪽 조준 보정 애니) = 서버가 원격 카메라로 돌린 값(연속·근사) — 묶지 않는다. 남는 차이: 카메라 갱신이 빠진 동안 관찰자 총열이 옛 방향(표현만). 없애려면 서버의 원격 플레이어 뷰 회전을 컨트롤 회전으로 바꾸는 별도 변경(`AstralRangedAim`, 다른 세션들 공용) — 선택 사항.
+
+**허용각의 의미(사용자 질문에 답한 정리)**: 비교 대상 = 클라가 보낸 카메라 방향 ↔ 서버 컨트롤 회전. ≤ 45° 면 클라 조준점 그대로(정상 플레이 거의 전부), 넘으면 서버 방향에서 클라 쪽으로 45° 까지만(예: 서버 0°·클라 70° → 45°), 데이터 손상이면 서버 방향. 영향 범위 = 원격 클라의 자유 조준 투사체 방향만(호스트·락온·몸 회전·애니 무관).
+
+**구현** (빌드 Development·DebugGame 경고 0, 테스트 31/31 — 새 `Ranged.FirePayload`·`Ranged.ReportedAim`):
+- `Combat/AstralRangedAttackTypes.{h,cpp}` — `FAstralRangedFireData` · `FGameplayAbilityTargetData_AstralRangedFire`(NetSerialize·Extract·MakeHandle) · `EAstralReportedAimResult`/`FAstralReportedAimCheck{Result, Direction, Divergence}` · 순수 `CheckReportedAimDirection`(정반대·수직 기준까지 축 처리, 180 = 검증 없음) · `ClampReportedAimPoint`(서버 총구 기준 전방 보장 · 사거리 1.1배 밖은 사거리로).
+- `Combat/AstralRangedAim.{h,cpp}` — 트레이스 규칙을 `ComputeAimPointAlongView(뷰 위치, 방향, …)` 로 분리, `ComputeCameraAimPoint` 는 `GetPlayerViewPoint` 뒤 그 함수를 부르는 래퍼(동작 동일 — 관찰자 복제·보정 애니 무변경).
+- GA `GetRangedWeaponActor` — 어빌리티 SourceObject(장비 인스턴스 스폰 목록)가 **클라에선 비어** null 이었다(첫 PIE 에서 보고가 전부 `Rejected` = 방향 0). 실패하면 `UAstralEquipmentManagerComponent::GetHeldRangedWeapon()`(부착 기준 — 보정 애니·관찰자 복제와 같은 조회).
+- GA — `WaitNetSync` 제거. 로컬 `CommitFire`(즉발 = 정렬 뒤 · 몽타주 = 발사 노티파이): 소유 클라는 `SendFireTargetData`(종속 예측 창 + `CallServerSetReplicatedTargetData`) 후 연출, 호스트는 바로 발사, 즉발이면 종료. 원격 폰의 서버: 활성화에서 `AbilityTargetDataSetDelegate` 바인딩 + `CallReplicatedTargetDataDelegatesIfSet` → `OnFireTargetDataReceived`: 추출(보관분으로 불렸을 수 있어 소비는 추출 뒤) · 컨트롤 회전 대비 검증 · 몸 Yaw 보정(자유 조준 = 확정 방향, 락온 = 컨트롤러) · 발사 · 즉발이면 종료. 서버 쪽 발사 노티파이는 원격 폰이면 무시. `ResolveShot` 자유 조준: 원격 = `ResolveReportedAimPoint`(수락 = 보고 조준점, 클램프·거부 = 서버 카메라 위치에서 확정 방향으로 같은 규칙 트레이스), 로컬 = 카메라. 로그: 수락 Verbose · 클램프/거부 Log (`Report=… Divergence=…`). 노브 `MaxReportedAimDivergence` 45. `EndAbility` 에서 바인딩 해제·보관분 소비.
+
+**측정**(`pie_fire_net_probe_run.py flick 100 3 3 20` — 왕복 ≈ 200ms + 클라 송신 손실 20%, 조준·정렬 상태에서 카메라 Yaw ±8/±60 · Pitch ±15 를 꺾고 다음 프레임 사격, 클라 2 × 6종 × 3라운드):
+
+| | 플릭 사격 | 1° 넘게 빗나감 | 최대 오차 | 그때 서버 카메라 캐시가 낡은 발 |
+| :-- | --: | --: | --: | --: |
+| 단계 2 전 | 35 | **7** (15.2° ×5 · 7.7° · 1.4°) | 15.23° | 6 (≤15°) |
+| 단계 2 후 | 36 | **0** | 0.53° | 13 (최대 60° — 그래도 정확) |
+
+보고 74건 전부 Accepted. 서버 컨트롤 회전 대비 차이 > 0 은 4건(8, 8, 15, 15° = 플릭 한 번, 이동 패킷까지 빠진 경우) — 45° 상한엔 한 번도 안 걸렸다. 0.5° 안팎 잔차는 서버·클라 총구 위치 차. 신뢰성 재전송으로 0.4~0.9초 늦은 발 8(방향은 정확).
+회귀(`timing 100 3 3`, 손실 0%): 비조준·등진 첫 발 클라 발사 +148/+147/+142ms(정렬 뒤) · 서버 투사체 +280/+276/+275ms · 방향 0.00° · 보고 Accepted 0.00° / 연사 4발 × 클라 2 전부 0.00°, 태그 서버 3.672 · 클라 3.778 해제 / 거부: 클라 태그 +231ms 롤백, 투사체·보고 없음. `host 100 3 2`: 호스트 누름 프레임 태그 · 정렬 뒤 +129/+149ms 같은 프레임 발사(오차 0, 보고 없음 = 로컬 경로), 관찰자 태그 = 서버 +~115ms. 테스트 31/31.
+프로브 함정: 서버 활성화 태그의 소유자 복제 깜빡임(§8.2 관찰)이 active 1→0 으로 잡혀 "shot=none" 가짜 발사가 기록된다 — 집계는 플릭 발만.
+
+## 9. 라이플 점프 — 무기 포즈 오버레이 · 왼손 IK 조건 (2026-10-22, 사용자 PIE 2건 → 추천안 승인 · 미커밋)
+
+**증상**: ① 조준 중 점프하면 상체가 조준 자세를 유지하지 않는다 ② 비조준 점프에서 왼손이 계속 총을 잡아 부자연스럽다("특정 조건일 때만 잡도록").
+
+**원인(MCP 조회 + PIE 실측 `pie_jump_probe_run.py`)**: 베이스 SM 의 JumpStart · FallLoop · FallLand 는 무기 무관 시퀀스(`AS_Hero_Jump/FallLoop/Land`)이고 Idle/Move 만 레이어였다. 조준 상체(`AS_IdleRifleAiming_02` = AO 기준 포즈)는 공급자가 **지상 상태마다** 덮었다(IdleTurn 회전·Recovery LBB · Move strafe LBB) — 공중엔 없어 AO 가산이 점프 클립 팔에 얹혔다. 왼손 TwoBoneIK 알파는 `bHasLeftHandGrip`(무기 듦)만 봤다.
+
+| 수정 전 (제자리 점프, 호스트) | 지상 | 공중 |
+| :-- | :-- | :-- |
+| 조준 | 총열↔카메라 0.7° | 상체 편차(가슴 공간 두 손 위치, 지상 기준과의 거리 합) 평균 83cm · 최대 100 · 총열↔카메라 하강 중 최대 45°(보정 노드 30° 초과) |
+| 비조준 | 왼손↔파지 소켓 0 | 0 그대로(공중 내내 IK, 이륙 때 팔이 모자라 최대 5.3cm) · 총 Pitch 최대 +47°(오른팔 = 점프 클립) |
+
+**대안 비교 → 선택**: ① 조준 상체 — (a) 점프 3상태 레이어화(Lyra 상태별 레이어; 무기 전용 점프 클립이 없어 같은 클립 + 같은 덮기를 3번 반복) · (b) 베이스 루트에서 공중∧조준 덮기(무기 무관 베이스가 라이플 포즈를 알아야 함 — 기각) · **(c) 상태머신 출력 뒤 공용 레이어**(Lyra `LeftHandPose_OverrideState` 처럼 SM 뒤 오버레이) + 지상 중복 덮기 3곳 제거. ② 왼손 — (b) 상태 규칙(공중∧비조준 → 놓기; 콘텐츠 무변경, 나중에 두 손 점프 클립·장전 때 규칙 수정) · **(c) 커브 + 조준 조합**(§7 ③ 장전 설계와 같은 경로).
+
+**구현**:
+- C++ `UAstralAnimInstance`: `AimPoseAlpha`(bIsAiming 을 `AimPoseBlendTime` 0.2초 등속으로 따라감) · `LeftHandIKAlpha` = 파지점 ? 보간(1 − `DisableLHandIK` 커브 × (1 − AimPoseAlpha), `LeftHandIKBlendTime` 0.15) : 0. 메인이 계산(커브 = 메인의 지난 프레임 최종 포즈, 턴 커브와 같은 경로), 링크 인스턴스는 같은 프레임 메인 값을 복사(bIsAiming 과 같은 방식) — 공급자 그래프는 자기 변수를 읽는다. 설정 `LeftHandIKDisableCurve`("DisableLHandIK", Lyra 명명).
+- 인터페이스 `ALI_HeroCombat` + `Locomotion_WeaponOverlay(InPose)` (도구 `add_anim_layers` + conform). 베이스 루트 `Locomotions → LinkedAnimLayer Locomotion_WeaponOverlay → Slot DefaultSlot` — **슬롯 앞**이라 전신·상체 몽타주는 계속 이긴다(Aim_UpperBody 안에 두면 상체 몽타주를 덮는다). 베이스 기본 구현 = 통과(근접·맨손).
+- 라이플 오버레이 = `LayeredBoneBlend(spine_01↑ ← AS_IdleRifleAiming_02, 메시 공간, 커브 UseBasePose)` 가중치 ← `AimPoseAlpha`(VariableGet — 도구 `bind_pin` 은 배열 원소 핀 BlendWeights_0 을 바인딩 못 한다). 커브가 베이스 것이라 턴 클립 `TurnYawWeight` · 점프 클립 `DisableLHandIK` 가 지나간다.
+- 지상 중복 제거: Move strafe LBB · IdleTurn Rotation/Recovery LBB 와 그 보조 AimingIdle 플레이어(공급자 플레이어 14 → 12). 조준 상체 = 오버레이 한 곳(무기마다 이 레이어 하나).
+- 공급자 `Aim_UpperBody`: TwoBoneIK 알파 bool(`GetMainAnimInstance.bHasLeftHandGrip`) → float `LeftHandIKAlpha` · 왼손 손가락(쥔 모양) LBB 가중치도 `LeftHandIKAlpha` — 놓으면 손가락도 클립 그대로.
+- 콘텐츠: `AS_Hero_Jump/FallLoop/Land` 에 `DisableLHandIK` = 1 (`Tools/scripts/setup/hero_jump_lhand_curve.py`, 멱등 · REVERT). 클립은 낫·맨손도 쓰지만 커브를 읽는 쪽은 파지점이 있을 때뿐(운영 `ABP_Hero_Base` 는 안 읽음). 나중에 무기 전용 두 손 점프 클립엔 커브를 안 넣으면 계속 잡는다 — 판단은 콘텐츠.
+- 스크립트: `build_hero_turninplace.py` A5 `patch_weapon_overlay` · A6 `patch_left_hand_alpha` + verify(오버레이 체인 · 기본 구현 통과 · 라이플 오버레이 · 플레이어 12 · IK float), B2·A0-Move 는 오버레이가 있으면 건너뜀, `turn_state_ops` 기본(None) 플레이어 `bIgnoreForRelevancyTest`(새 빌드에서 빠져 있던 것), A1 이행 판정이 A4(보정 노드) 뒤에서도 통과하도록, 베이스 루트 레이어 노드 선택은 레이어 이름으로(`layer_node` — 이제 2개). `build_hero_combat.py` verify 레이어 3 → 4.
+
+**결과**(`pie_jump_probe_run.py [move]` 단일 · `pie_mp_probe_run.py 3 jump` 멀티):
+
+| | 수정 전 | 수정 후 |
+| :-- | :-- | :-- |
+| 조준 점프 상체 편차 | 평균 83 · 최대 100cm | **0.6 · 0.8cm** (달리기 점프 0.5) |
+| 조준 점프 총열↔카메라 | 평균 15 · 최대 45° | **0.9 · 1.7°** (달리기 1.9 · 4.3) |
+| 조준 점프 왼손 IK 알파 | (bool 1) | 1.00 내내 · 왼손↔소켓 0 |
+| 비조준 점프 왼손 | 공중 내내 소켓 0 | 이륙 **0.11초** 뒤 놓음(알파 < 0.5) · 공중 평균 알파 0.13 · 소켓에서 평균 40cm · 착지 **0.13초** 뒤 다시 잡음 |
+| 멀티(리슨 + 클라 2, 호스트·클라 폰 동시) | — | 같은 폰은 서버 · 소유 클라 · 시뮬 프록시가 같은 값 — 조준 aimPose 1 · 알파 1 · 총열↔BaseAim ≤ 1.7° / 비조준 알파 평균 0.14~0.18 · 소켓 38~40cm |
+
+전환 속도(가슴 공간 손 속도): 착지 왼손 최대 664cm/s · 같은 순간 오른손 542 — IK 와 무관한 기존 착지 크로스페이드(FallLand 는 `bIsOnGround` 에서 바로 0.2초 블렌드로 끝남, 총 Pitch +31 → −38)와 같은 크기. 이륙 왼손 491(오른손 220) = 놓는 동작. 회귀: `pie_muzzle_probe_run.py` 전 구간 이전 기록 범위 안(정지·AO ±45 0.00 · 대각 0.6~1.05 · Pitch 0.67~1.48 · 턴 0.35/0.68 · spin ao_sat 0.50 · strafe f/r/l 0.09~0.46; strafe_b 5.75 는 기존 장애물 인공물) · 두 손 23.0 전 구간 · 턴 Right90 정상. verify PASS(스모크 · 단위 11) · 프로젝트 테스트 31/31 · 두 구성 빌드 경고 0.
+
+**후속 — 비조준 공중 휴대 팔 (같은 날, 사용자 "후속안도 구현")**: 왼손을 놓자 총이 오른손 혼자 점프 클립 팔을 따라 최대 +48° 들렸다(스크린샷: 낙하 중 두 손을 얼굴 앞에 든 채 총이 위를 향함).
+- 사용자 질문 "무기별로 확장성 있는 구조인가" → 예: 덮을 자리(오버레이 레이어)는 베이스, 무엇을 덮을지는 무기 공급자, 조건은 상태 규칙이 아니라 클립 표시(같은 `DisableLHandIK`) — 무기 전용 두 손 점프 클립이 생기면 커브만 뺀다. 장전처럼 손이 떠나는 몽타주는 슬롯이 오버레이 뒤라 계속 이긴다.
+- C++ `HandsFreeAlpha` = `DisableLHandIK` × (1 − AimPoseAlpha) 를 0.15초 등속 보간(왼손 IK 를 끄는 것과 같은 신호 — 파지점과 무관해 무기 교체 순간에도 휴대 팔이 튀지 않게 LeftHandIKAlpha 와 따로 보간). 메인 계산, 링크 복사.
+- 라이플 오버레이 = InPose → `LayeredBoneBlend(clavicle_r↓ ← AS_Hero_Rifle_Idle 프레임 0 SequenceEvaluator, 메시 공간 — 몸통이 숙여도 총은 휴대 방향, 커브 베이스)` 가중치 ← HandsFreeAlpha → 조준 상체 블렌드 → Output (`build_hero_turninplace.py` A7 `patch_weapon_carry` + verify). 정지 프레임인 이유: Rifle_Idle 은 8.9초 대기 클립이라 공중 1초 안에 몸짓이 섞이지 않게.
+- 결과(`pie_jump_probe_run.py` 의 PIE_JUMPHANDS 추가 지표, 전 → 후): 비조준 공중 총 Pitch −38..+48 → **−38..−36**(지상 휴대 −37) · 오른손 지상 휴대 대비 평균 29.4/최대 46.6 → **11.8/17.2cm**(남은 건 몸통 움직임) · 총구 위치 편차 98 → 35cm · 착지 오른손 최대 속도 512~542 → **266cm/s**(총 스냅 절반) · 이륙 219 → 150. 왼손은 그대로 놓음(알파 0.13 · 소켓에서 38cm). 조준 점프 무변화(상체 편차 0.6 · 총열↔카메라 ≤ 1.7°). 달리기 점프 같음. 멀티 전 월드 총 Pitch −41..−36 · 같은 값. verify PASS · 31/31 · 두 구성 빌드 경고 0.
+
+**남은 것**: 장전 몽타주를 저작하면 커브 `DisableLHandIK` 만 넣으면 같은 경로로 왼손 IK 가 꺼진다(§7 ③). 무기 전용 점프 클립이 생기면 그때 점프 상태를 레이어화(Lyra (a))해도 오버레이·커브는 그대로 쓴다.
 

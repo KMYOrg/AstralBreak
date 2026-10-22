@@ -6,8 +6,8 @@ class AActor;
 class AController;
 
 /**
- * 원거리 조준점 — 화면 중앙(카메라) 레이가 맞는 지점. 발사(UAstralGA_Hero_BasicAttack_Ranged::ResolveShot)와 최종 조준 보정 애니(UAstralAnimInstance),
- * 관찰자용 복제(AAstralCharacter_Hero::PreReplication)가 같은 함수를 쓴다: 투사체가 날아가는 점 = 총열이 향하는 점 (한쪽만 바뀌어 다시 어긋나는 일이 없게)
+ * 원거리 조준점 — 화면 중앙(카메라) 레이가 맞는 지점. 발사(UAstralGA_Hero_BasicAttack_Ranged — 원격 플레이어는 소유 클라가 발사 순간 계산해 보낸 값)와
+ * 최종 조준 보정 애니(UAstralAnimInstance), 관찰자용 복제(AAstralCharacter_Hero::PreReplication)가 같은 함수를 쓴다: 투사체가 날아가는 점 = 총열이 향하는 점 (한쪽만 바뀌어 다시 어긋나는 일이 없게)
  */
 namespace AstralRangedAim
 {
@@ -32,4 +32,10 @@ namespace AstralRangedAim
 	 * Controller·Avatar·월드가 없으면 false
 	 */
 	ASTRALBREAK_API bool ComputeCameraAimPoint(const AController* Controller, const AActor* Avatar, const AActor* IgnoreActor, const FVector& MuzzleLocation, float TraceRange, FCameraAimPoint& Out);
+
+	/**
+	 * 위와 같은 규칙(총구 투영 시작 · Visibility · 전방 보장)을 지정한 뷰 위치·방향으로 — 서버가 원격 플레이어의 보고 방향을 허용각으로 다듬었을 때 그 방향으로 다시 잰다.
+	 * Avatar·월드가 없거나 방향이 0 이면 false
+	 */
+	ASTRALBREAK_API bool ComputeAimPointAlongView(const FVector& ViewLocation, const FVector& ViewDirection, const AActor* Avatar, const AActor* IgnoreActor, const FVector& MuzzleLocation, float TraceRange, FCameraAimPoint& Out);
 }

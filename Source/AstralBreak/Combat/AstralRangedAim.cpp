@@ -5,8 +5,7 @@
 
 bool AstralRangedAim::ComputeCameraAimPoint(const AController* Controller, const AActor* Avatar, const AActor* IgnoreActor, const FVector& MuzzleLocation, float TraceRange, FCameraAimPoint& Out)
 {
-	const UWorld* World = Avatar ? Avatar->GetWorld() : nullptr;
-	if (!Controller || !World)
+	if (!Controller)
 	{
 		return false;
 	}
@@ -14,11 +13,21 @@ bool AstralRangedAim::ComputeCameraAimPoint(const AController* Controller, const
 	FVector CameraLocation;
 	FRotator CameraRotation;
 	Controller->GetPlayerViewPoint(CameraLocation, CameraRotation);
-	Out.Direction = CameraRotation.Vector();
+	return ComputeAimPointAlongView(CameraLocation, CameraRotation.Vector(), Avatar, IgnoreActor, MuzzleLocation, TraceRange, Out);
+}
+
+bool AstralRangedAim::ComputeAimPointAlongView(const FVector& ViewLocation, const FVector& ViewDirection, const AActor* Avatar, const AActor* IgnoreActor, const FVector& MuzzleLocation, float TraceRange, FCameraAimPoint& Out)
+{
+	const UWorld* World = Avatar ? Avatar->GetWorld() : nullptr;
+	Out.Direction = ViewDirection.GetSafeNormal();
+	if (!World || Out.Direction.IsZero())
+	{
+		return false;
+	}
 
 	// 트레이스 시작 = 카메라 레이 위 총구 투영점 — 카메라~캐릭터 사이(등 뒤) 오브젝트 오폭 방지
-	const float MuzzleProjection = FMath::Max(FVector::DotProduct(MuzzleLocation - CameraLocation, Out.Direction), 0.f);
-	Out.TraceStart = CameraLocation + Out.Direction * MuzzleProjection;
+	const float MuzzleProjection = FMath::Max(FVector::DotProduct(MuzzleLocation - ViewLocation, Out.Direction), 0.f);
+	Out.TraceStart = ViewLocation + Out.Direction * MuzzleProjection;
 	const FVector TraceEnd = Out.TraceStart + Out.Direction * TraceRange;
 	Out.TargetPoint = TraceEnd;
 

@@ -220,6 +220,29 @@ void UAstralAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 	LeftHandGripLocation = Snapshot.LeftHandGrip.GetLocation();
 	LeftHandGripRotation = Snapshot.LeftHandGrip.Rotator();
 
+	// 조준 오버레이 · 왼손 IK 알파 — 메인이 계산하고(커브는 메인의 지난 프레임 최종 포즈 — 턴 커브와 같은 경로), 링크 인스턴스는 같은 프레임 메인 값을 복사
+	if (Main == this)
+	{
+		const auto Approach = [DeltaSeconds](float Current, float Target, float BlendTime)
+		{
+			return BlendTime > 0.f ? FMath::FInterpConstantTo(Current, Target, DeltaSeconds, 1.f / BlendTime) : Target;
+		};
+		AimPoseAlpha = Approach(AimPoseAlpha, bIsAiming ? 1.f : 0.f, AimPoseBlendTime);
+
+		// 클립이 무기에서 손을 뗀 정도 — 조준 오버레이가 상체를 두 손 조준 자세로 덮는 만큼 지운다
+		const float HandsFree = FMath::Clamp(GetCurveValue(LeftHandIKDisableCurve), 0.f, 1.f) * (1.f - AimPoseAlpha);
+		HandsFreeAlpha = Approach(HandsFreeAlpha, HandsFree, LeftHandIKBlendTime);
+
+		// 파지점이 없으면(근접·맨손·무기 교체 중) 목표 트랜스폼도 없다 — 블렌드하지 않고 끈다. 생기면 0 에서 들어온다(HandsFreeAlpha 와 따로 보간)
+		LeftHandIKAlpha = Snapshot.bHasLeftHandGrip ? Approach(LeftHandIKAlpha, 1.f - HandsFree, LeftHandIKBlendTime) : 0.f;
+	}
+	else
+	{
+		AimPoseAlpha    = Main->AimPoseAlpha;
+		HandsFreeAlpha  = Main->HandsFreeAlpha;
+		LeftHandIKAlpha = Main->LeftHandIKAlpha;
+	}
+
 	// 최종 조준 보정 — 총구·조준점은 메인 인스턴스에만 들어온다(링크 인스턴스는 늘 꺼짐 — 노드는 베이스 그래프에 있다)
 	MuzzleLocation       = Snapshot.Muzzle.GetLocation();
 	MuzzleRotation       = Snapshot.Muzzle.Rotator();

@@ -27,6 +27,7 @@ enum class EAstralRangedAimMode : uint8
  * 어느 파생이 부여되는지는 무기 계열의 AbilitySet(데이터)이 결정한다 — 입력은 공통(InputTag.Attack.Basic).
  * 조준: 공격 시작에 타겟 A를 고정하고 선딜로 자세를 잡은 뒤, 발사 순간 A의 최신 조준점으로 비유도 발사.
  * A 무효·각도 이탈이면 새 타겟·카메라로 바꾸지 않고 공격 시작에 조준한 지점(FallbackAimPoint)을 향해 그대로 쏜다.
+ * 네트워크: 원격 플레이어의 발사 시점과 자유 조준점은 소유 클라가 발사 순간 보낸 TargetData 한 번(서버가 컨트롤 회전 대비 허용각 검증), 호스트는 로컬 즉시.
  */
 UCLASS(Abstract)
 class ASTRALBREAK_API UAstralGA_Hero_BasicAttack_Ranged : public UAstralGA_Hero_Base
@@ -49,41 +50,53 @@ protected:
 
 	virtual TOptional<FAstralMuzzleClearance> GetMuzzleClearance() const { return TOptional<FAstralMuzzleClearance>(); }
 
-	/** 장착 중인 원거리 무기 (SourceObject 경유) — 원거리 무기가 아니면 null */
+	/** 장착 중인 원거리 무기 (SourceObject 경유, 클라는 손에 든 무기 — 스폰 목록이 서버에만 있다) — 원거리 무기가 아니면 null */
 	AAstralRangedWeaponActor* GetRangedWeaponActor() const;
 
 	/**
-	 * 자유 조준 — 화면 중앙(카메라) 레이 해석 (서버). OutMuzzle→OutTargetPoint가 발사선.
+	 * 자유 조준 — 이 머신 컨트롤러의 화면 중앙(카메라) 레이 해석 (로컬: 호스트 발사 · 소유 클라의 발사 데이터). OutAim.TargetPoint 가 조준점.
 	 * 조준점이 총구 뒤(극근접 지형 등)면 카메라 레이 방향의 원거리 지점으로 보정해 전방을 보장.
-	 * 컨트롤러 부재 등 해석 불가 시 false
+	 * 무기·컨트롤러 부재 등 해석 불가 시 false
 	 */
-	bool ComputeAimTarget(const AAstralRangedWeaponActor* WeaponActor, FVector& OutMuzzleLocation, FVector& OutTargetPoint) const;
+	bool ComputeAimTarget(const AAstralRangedWeaponActor* WeaponActor, AstralRangedAim::FCameraAimPoint& OutAim) const;
 
-	/** 발사 노티파이 수신 — 활성화·출처 확인 후 ProcessFire */
+	/**
+	 * 원격 폰의 서버 인스턴스 · 자유 조준 — 검증된 보고 조준(ReportedAimCheck)을 조준점으로. 수락이면 보고 조준점(서버 총구 기준 전방·사거리만),
+	 * 클램프·거부면 서버가 아는 카메라 위치에서 확정 방향으로 같은 조준 규칙으로 다시 잰다. 해석 불가 시 false
+	 */
+	bool ResolveReportedAimPoint(const AAstralRangedWeaponActor* WeaponActor, const FVector& MuzzleLocation, FVector& OutTargetPoint) const;
+
+	/** 서버 권위 ∧ 원격 조종 — 발사 시점·조준을 소유 클라 데이터로 받는 인스턴스 */
+	bool IsRemoteServerInstance() const;
+
+	/** 발사 노티파이 수신 — 활성화·출처 확인 후 로컬이면 발사 확정(원격 폰의 서버 인스턴스는 무시) */
 	UFUNCTION()
 	void OnFireEventReceived(FGameplayEventData EventData);
 
 	UFUNCTION()
 	void OnMontageFinished();
 
-	/** 즉발 경로(로컬) — 몸 정렬(또는 대기 시간 초과) 뒤 발사 동기화로 */
+	/** 즉발 경로(로컬) — 몸 정렬(또는 대기 시간 초과) 뒤 발사 확정으로 */
 	UFUNCTION()
 	void OnFireAligned(bool bTimedOut);
 
 	/**
-	 * 즉발 경로 — 발사 시점 동기화(WaitNetSync OnlyServerWait). 발사 시점은 로컬(호스트·소유 클라)이 정하고 원격 폰의 서버 인스턴스는 그 신호를 따른다.
-	 * 서버가 따로 정렬을 기다리면 먼저 끝난 클라의 EndAbility 복제가 서버 인스턴스를 발사 전에 끝낸다
+	 * 로컬(호스트·소유 클라) 발사 확정 — 즉발은 정렬 뒤, 몽타주는 발사 노티파이. 소유 클라는 발사 데이터를 보낸 뒤 연출만, 호스트는 바로 발사. 즉발이면 이어서 종료.
+	 * 원격 폰의 서버 인스턴스는 자기 정렬·노티파이로 쏘지 않고 그 데이터만 기다린다(OnFireTargetDataReceived) — 서버가 따로 기다리면
+	 * 먼저 끝난 클라의 EndAbility 복제가 서버 인스턴스를 발사 전에 끝냈다
 	 */
-	void BeginFireSync();
+	void CommitFire();
 
-	/** 동기화 완료 — (원격 서버면 몸 Yaw 보정 후) 발사하고 종료 */
-	UFUNCTION()
-	void OnFireSynced();
+	/** 소유 클라 — 발사 순간의 조준점·방향을 신뢰성 TargetData 한 번으로 (활성화 키 + 종속 예측 창). 서버 인스턴스에겐 발사 시점 신호이기도 하다 */
+	void SendFireTargetData();
+
+	/** 원격 폰의 서버 인스턴스 — 발사 데이터 수신: 추출 · 서버 컨트롤 회전 대비 허용각 검증 · (밖이면) 몸 Yaw 보정 · 발사 · 즉발이면 종료 */
+	void OnFireTargetDataReceived(const FGameplayAbilityTargetDataHandle& DataHandle, FGameplayTag ApplicationTag);
 
 	/** 발사 처리 — 즉발(몽타주 없음) 경로와 이벤트 경로가 공유 (정책이 갈라지지 않도록). */
 	void ProcessFire();
 
-	/** 서버 — 발사선 확정. 고정 모드별 해석(최신 타겟 / 폴백 / 카메라) + 총구 여유 검사. 실패면 미설정 (발사 소모, 무기 실행 없음) */
+	/** 서버 — 발사선 확정. 고정 모드별 해석(최신 타겟 / 폴백 / 보고 조준 · 카메라) + 총구 여유 검사. 실패면 미설정 (발사 소모, 무기 실행 없음) */
 	TOptional<FAstralRangedShot> ResolveShot() const;
 
 	/**
@@ -98,7 +111,7 @@ protected:
 	/** 초기 페이로드 캡처 — 시작 몸 방향(Facing 제안) + 폴백 조준점. 훅과 로컬 폴백이 공유 */
 	FAstralRangedActivationData CaptureActivationData(const AActor* Avatar, const FGameplayAbilityActorInfo& ActorInfo) const;
 
-	/** 서버 — AimHoldEffect 를 오너에 적용(지속 시간 = AimHoldSeconds). 활성화마다 1회, 재적용은 지속 시간 갱신 */
+	/** AimHoldEffect 를 오너에 적용(지속 시간 = AimHoldSeconds) — 서버 권위 + 소유 클라 예측(활성화 키). 활성화마다 1회, 재적용은 지속 시간 갱신 */
 	void ApplyAimHold(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const;
 
 	/** 활성화마다 새 Facing 세션 (NumStages = 1). Stage 0은 초기 페이로드의 BodyFacing 어댑터 */
@@ -147,7 +160,7 @@ protected:
 	FGameplayTag FireCueTag;
 
 	/**
-	 * 사격 자세 유지 GE — 활성화마다 서버가 오너에 적용해 State.Ranged.Aiming 을 AimHoldSeconds 동안 유지(재적용은 갱신).
+	 * 사격 자세 유지 GE — 활성화마다 오너에 적용해 State.Ranged.Aiming 을 AimHoldSeconds 동안 유지(재적용은 갱신). 소유 클라는 활성화 키로 예측해 누른 프레임에 켜진다.
 	 * 켜진 동안: 몸이 카메라 Yaw 를 따르고(HeroMovementComponent) AnimInstance 가 조준 로코모션·AimOffset 을 켠다(bIsAiming).
 	 * 기본 UAstralGE_RangedAimHold. 비우면 자세 유지 없음
 	 */
@@ -160,15 +173,23 @@ protected:
 
 	/**
 	 * 즉발(FireMontage 없음) 사격 전 몸 정렬 허용각(도) — 로컬(호스트·소유 클라)은 |컨트롤러 Yaw − 몸 Yaw| 가 이 안에 들 때까지 발사를 미룬다.
-	 * 몸은 조준 회전 모드(HeroMovementComponent::AimingRotationRate)가 돌린다. 원격 폰의 서버 인스턴스는 기다리지 않고 클라 신호를 따르되,
-	 * 신호 시점에 서버 쪽 몸이 이 각 밖이면 몸 Yaw 를 맞춘 뒤 쏜다. 0 이면 기다리지도 맞추지도 않는다
+	 * 몸은 조준 회전 모드(HeroMovementComponent::AimingRotationRate)가 돌린다. 원격 폰의 서버 인스턴스는 기다리지 않고 클라 발사 데이터를 따르되,
+	 * 수신 시점에 서버 쪽 몸이 발사 방향과 이 각 밖이면 몸 Yaw 를 맞춘 뒤 쏜다. 0 이면 기다리지도 맞추지도 않는다
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged|Aim", Meta = (ClampMin = "0.0", ClampMax = "180.0"))
 	float FireAlignToleranceYaw = 10.f;
 
-	/** 몸 정렬 대기 상한(초) — 회전이 막혀도(루트 모션·조준 태그 복제 전의 소유 클라) 이 시간 뒤엔 쏜다. 0 이면 기다리지 않는다 */
+	/** 몸 정렬 대기 상한(초) — 회전이 막혀도(루트 모션 등) 이 시간 뒤엔 쏜다. 0 이면 기다리지 않는다 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged|Aim", Meta = (ClampMin = "0.0"))
 	float FireAlignMaxWait = 0.3f;
+
+	/**
+	 * 원격 플레이어가 보낸 발사 방향의 허용각(도) — 서버 컨트롤 회전(이동 패킷이 갱신)과 이 각 안이면 보고 조준점 그대로,
+	 * 밖이면 컨트롤 회전에서 보고 쪽으로 이 각까지만 돌린 방향으로 쏜다(옛 방향으로 되돌리지 않는다). 정상 차이 = 카메라 각속도 × 마지막 이동 패킷 뒤 시간 —
+	 * 패킷 손실 한 번 + 1프레임(≈50ms)이면 ~900°/s 플릭까지. PvE 라 치트 방지보다 이상 데이터 상한. 180 이면 검증 없음
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged|Aim", Meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float MaxReportedAimDivergence = 45.f;
 
 private:
 	/** 이 공격의 고정 조준 모드·타겟 — 활성화 시작에 결정, EndAbility에서 정리 */
@@ -178,6 +199,13 @@ private:
 
 	/** 공격 시작에 조준한 월드 지점 — 타겟 무효·각도 이탈·카메라 해석 실패 시 발사 순간 총구에서 이 점을 향해 쏜다 */
 	TOptional<FVector> FallbackAimPoint;
+
+	/** 원격 폰의 서버 인스턴스 — 소유 클라 발사 데이터 수신 바인딩 (EndAbility 에서 해제) */
+	FDelegateHandle FireTargetDataHandle;
+
+	/** 원격 폰의 서버 인스턴스 — 이번 발사의 보고(추출 통과분)와 그 검증. 보고가 없거나 깨졌으면 Rejected(서버 컨트롤 회전 방향) */
+	TOptional<FAstralRangedFireData> ReportedFire;
+	FAstralReportedAimCheck ReportedAimCheck;
 
 	/** 서버 발사 처리 진입 여부 — 총구가 막혀 소모돼도 되돌리지 않는다 */
 	bool bHasExecutedShot = false;

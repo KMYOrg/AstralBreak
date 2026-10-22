@@ -224,7 +224,7 @@ protected:
 
 	// ---- 왼손 IK (양손 무기 파지점 — 값은 무기 메시 소켓이 정하고 장비 매니저가 넣는다) ----
 
-	// 왼손 IK 목표가 있다(양손 무기를 손에 듦) — 공급자 레이어 TwoBoneIK 알파
+	// 왼손 IK 목표가 있다(양손 무기를 손에 듦) — LeftHandIKAlpha 의 상한
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|LeftHandIK")
 	bool bHasLeftHandGrip = false;
 
@@ -234,6 +234,37 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|LeftHandIK")
 	FRotator LeftHandGripRotation = FRotator::ZeroRotator;
+
+	/** 애니메이션 커브 — 1 이면 그 클립의 왼손은 총을 쥐고 있지 않다(점프·낙하·착지 클립, 장전 몽타주). Lyra 명명. 무기 무관 클립에 넣어도 파지점이 없으면 무해 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|LeftHandIK")
+	FName LeftHandIKDisableCurve = TEXT("DisableLHandIK");
+
+	/** 왼손 IK 알파가 목표를 따라가는 시간(초, 0 → 1 전체) — 커브는 상태머신 크로스페이드로 이미 부드럽고, 이 보간은 조준 진입·해제 같은 계단을 메운다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|LeftHandIK", Meta = (ClampMin = "0.0"))
+	float LeftHandIKBlendTime = 0.15f;
+
+	// 왼손 IK 알파(0~1) = 파지점 있음 × (1 − DisableLHandIK × (1 − AimPoseAlpha)) 를 LeftHandIKBlendTime 에 걸쳐 따라간 값.
+	// 클립이 "왼손이 비었다" 고 표시하면 놓고, 조준 오버레이가 상체를 두 손 조준 자세로 덮는 만큼 그 표시를 지운다(조준 점프는 잡는다).
+	// 공급자 Aim_UpperBody 의 TwoBoneIK 알파 · 왼손 손가락(쥔 모양) 블렌드 가중치. 메인이 계산(커브는 메인의 최종 포즈), 링크 인스턴스는 복사
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|LeftHandIK")
+	float LeftHandIKAlpha = 0.0f;
+
+	// ---- 무기 포즈 오버레이 (공급자 레이어 Locomotion_WeaponOverlay — 베이스 상태머신 출력 뒤·슬롯 앞, 상태와 무관하게 한 곳) ----
+
+	/** 조준 오버레이 가중치가 조준 진입·해제를 따라가는 시간(초) — 공급자 Idle/Move 의 조준 BlendListByBool(0.2초)과 맞춘다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|WeaponOverlay", Meta = (ClampMin = "0.0"))
+	float AimPoseBlendTime = 0.2f;
+
+	// 조준 오버레이 가중치(0~1) — bIsAiming 을 AimPoseBlendTime 에 걸쳐 따라간 값. 공급자 오버레이 레이어가 무기의 조준 상체 포즈를 이 가중치로 덮는다
+	// (점프·낙하처럼 무기와 무관한 클립 위에서도 AimOffset 기준 포즈가 된다). 메인이 계산, 링크 인스턴스는 복사 — 공급자 그래프는 자기 값을 읽는다
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|WeaponOverlay")
+	float AimPoseAlpha = 0.0f;
+
+	// 손이 무기를 떠난 정도(0~1) = DisableLHandIK × (1 − AimPoseAlpha) 를 LeftHandIKBlendTime 에 걸쳐 따라간 값 — 왼손 IK 를 끄는 것과 같은 신호.
+	// 무기 무관 클립(점프·낙하·착지)이 상체를 쥐고 있을 때 공급자 오버레이가 무기 든 팔을 그 무기의 휴대 자세로 덮는 가중치(라이플 = 오른팔 Rifle_Idle).
+	// 파지점과 무관(근접은 오버레이가 통과라 읽지 않는다). 메인이 계산, 링크 인스턴스는 복사
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|WeaponOverlay")
+	float HandsFreeAlpha = 0.0f;
 
 	// ---- 최종 조준 보정 (베이스 루트 RotateRootBone 뒤 AstralAimCorrection 노드 — AO 가 남긴 총열 오차를 척추로 마저 돌린다) ----
 

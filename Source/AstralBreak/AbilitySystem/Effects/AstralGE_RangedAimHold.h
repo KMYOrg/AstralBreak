@@ -5,7 +5,7 @@
 #include "AstralGE_RangedAimHold.generated.h"
 
 /**
- * 사격 자세 유지 GE — 원거리 공격 GA가 활성화(발사 시작)마다 서버에서 오너에 적용한다.
+ * 사격 자세 유지 GE — 원거리 공격 GA가 활성화(발사 시작)마다 오너에 적용한다(서버 권위 + 소유 클라는 활성화 키로 예측).
  *  - Has Duration, 지속 시간은 SetByCaller.Duration (GA의 AimHoldSeconds 노브)
  *  - 스택 1 · 재적용 시 지속 시간 갱신 → "일정 시간 안에 계속 쏘는 동안" 유지되는 창
  *  - 대상에 State.Ranged.Aiming 부여 (Mixed 복제라 전 머신이 본다: AnimInstance bIsAiming · 회전 모드 전환)

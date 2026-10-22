@@ -315,7 +315,9 @@ def verify() -> None:
     check(sorted(s["name"] for s in psm["states"]) == sorted(s["name"] for s in msm["states"]) and p_tr == m_tr, f"상태머신 상태 {len(msm['states'])} · 전이 {len(msm['transitions'])} 운영과 1:1")
 
     info = must(call("get_anim_blueprint_info", asset_path=ABP), "combat info")
-    check(info["linked_anim_layer_count"] == 3 and {l["name"] for l in info["layers"]} == {"Locomotion_Idle", "Locomotion_Move", "Aim_UpperBody"}, "레이어 노드 3 · 구현 레이어 3")
+    # Locomotion_WeaponOverlay 는 build_hero_turninplace A5(2026-10-22, 무기 포즈 오버레이)가 더한다
+    check(info["linked_anim_layer_count"] == 4 and {l["name"] for l in info["layers"]} == {"Locomotion_Idle", "Locomotion_Move", "Aim_UpperBody", "Locomotion_WeaponOverlay"},
+          "레이어 노드 4 · 구현 레이어 4")
     pinfo = must(call("get_anim_blueprint_info", asset_path=PROV_RIFLE), "rifle info")
     check(pinfo["implemented_interfaces"] and pinfo["implemented_interfaces"][0]["blueprint"].startswith(ALI), "공급자가 ALI_HeroCombat 구현")
 

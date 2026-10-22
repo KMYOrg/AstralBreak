@@ -1,7 +1,6 @@
 #include "AstralGA_Hero_BasicAttack_Ranged.h"
 
 #include "AbilitySystemComponent.h"
-#include "Abilities/Tasks/AbilityTask_NetworkSyncPoint.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "AbilitySystem/AstralCombatStatics.h"
@@ -20,6 +19,7 @@
 #include "Combat/AstralTargetHandle.h"
 #include "Combat/AstralTargetingStatics.h"
 #include "Engine/World.h"
+#include "Equipment/AstralEquipmentManagerComponent.h"
 #include "Equipment/AstralRangedWeaponActor.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -51,8 +51,10 @@ UAstralGA_Hero_BasicAttack_Ranged::UAstralGA_Hero_BasicAttack_Ranged(const FObje
 
 void UAstralGA_Hero_BasicAttack_Ranged::ApplyAimHold(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
 {
-	// 서버 권위에서만 — 태그는 ASC Mixed 복제로 소유 클라·관찰자에게 간다 (AnimInstance·회전 모드가 같은 태그를 본다)
-	if (!AimHoldEffect || AimHoldSeconds <= 0.f || !ActorInfo || !ActorInfo->IsNetAuthority())
+	// 서버 권위 + 소유 클라 예측 — 판정은 ApplyGameplayEffectSpecToOwner(HasAuthorityOrPredictionKey)에 맡긴다. 호출 자리가 ActivateAbility 동기 스택(활성화 예측 창)이라
+	// 소유 클라는 활성화 키로 누른 프레임에 적용하고(회전 모드·AnimInstance 가 같은 태그를 본다), 서버가 같은 키로 적용한 GE 가 복제되면 예측본은 키 따라잡기로 지워진다
+	// — 태그는 그때 빼지 않고 서버 태그 개수 복제(CountToOwner)가 이어받아 끊기지 않는다. 서버가 활성화를 거부하면 롤백으로 태그까지 지워진다. 관찰자는 서버 복제 태그를 본다
+	if (!AimHoldEffect || AimHoldSeconds <= 0.f || !ActorInfo)
 	{
 		return;
 	}
@@ -182,17 +184,26 @@ void UAstralGA_Hero_BasicAttack_Ranged::ActivateAbility(const FGameplayAbilitySp
 	BeginFacingSession(Handle, ActorInfo, ActivationInfo, StageZero);
 	ApplyFacingResolution(FacingSession->AdvanceStage(0, TOptional<FAstralFacingProposal>()));
 
+	// 원격 폰의 서버 인스턴스 — 발사 시점과 조준은 소유 클라가 정해 신뢰성 TargetData 한 번으로 보낸다(즉발·몽타주 공통). 자기 정렬·발사 노티파이로는 쏘지 않는다.
+	// 서버가 따로 기다리면 먼저 끝난 클라의 EndAbility(복제)가 서버 인스턴스를 발사 전에 끝냈다 — 데이터와 EndAbility 는 같은 ASC 의 신뢰성 RPC 라 보낸 순서대로 온다.
+	// 데이터가 이 인스턴스보다 먼저 와 있으면 ASC 가 (스펙, 활성화 키)로 보관해 둔 것을 바인딩 직후 받는다 — 즉발이면 이 안에서 발사·종료까지 간다
+	if (bRemoteServer)
+	{
+		UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
+		if (ASC)
+		{
+			FireTargetDataHandle = ASC->AbilityTargetDataSetDelegate(Handle, ActivationInfo.GetActivationPredictionKey()).AddUObject(this, &ThisClass::OnFireTargetDataReceived);
+			ASC->CallReplicatedTargetDataDelegatesIfSet(Handle, ActivationInfo.GetActivationPredictionKey());
+		}
+		if (!FireMontage || !IsActive())
+		{
+			return;
+		}
+	}
+
 	// 몽타주 미지정이면 즉발 — 같은 발사 처리 함수 (조준·중복·장애물 정책이 갈라지지 않도록)
 	if (!FireMontage)
 	{
-		// 원격 폰의 서버 인스턴스 — 발사 시점은 소유 클라가 정한다(클라 화면에서 몸이 정렬된 순간). 자기 정렬은 기다리지 않고 클라 신호만 기다린다.
-		// 서버가 따로 기다리면 먼저 정렬된 클라의 EndAbility(복제)가 아직 대기 중인 서버 인스턴스를 끝내 투사체가 안 나갔다
-		if (bRemoteServer)
-		{
-			BeginFireSync();
-			return;
-		}
-
 		// 로컬(호스트·소유 클라) — 몸이 조준 방향을 향한 뒤 쏜다. 비조준(이동 방향 추종)에서 사격하면 방금 켠 조준 회전 모드가 몸을 카메라 쪽으로
 		// 돌리는 중이라, 바로 쏘면 투사체가 몸 뒤쪽으로 나간다. 이미 정렬돼 있으면(조준 중 연사) 같은 프레임에 쏜다.
 		// 몽타주 경로는 Facing 워프 밴드 뒤 발사 노티파이가 같은 역할을 한다
@@ -206,7 +217,7 @@ void UAstralGA_Hero_BasicAttack_Ranged::ActivateAbility(const FGameplayAbilitySp
 			}
 		}
 
-		BeginFireSync();
+		CommitFire();
 		return;
 	}
 
@@ -281,7 +292,13 @@ void UAstralGA_Hero_BasicAttack_Ranged::OnFireEventReceived(FGameplayEventData E
 		return;
 	}
 
-	ProcessFire();
+	// 원격 폰의 서버 쪽 노티파이로는 쏘지 않는다 — 소유 클라의 노티파이가 보낸 발사 데이터가 시점·조준 (OnFireTargetDataReceived)
+	if (IsRemoteServerInstance())
+	{
+		return;
+	}
+
+	CommitFire();
 }
 
 void UAstralGA_Hero_BasicAttack_Ranged::ProcessFire()
@@ -373,14 +390,40 @@ TOptional<FAstralRangedShot> UAstralGA_Hero_BasicAttack_Ranged::ResolveShot() co
 		UE_LOG(LogAstralAbilitySystem, Log, TEXT("[Ranged] %s: Fire Mode=LockOn Target=%s Assist=%s Source=%s"),
 			*GetName(), *GetNameSafe(Target), AstralRangedAttack::ToString(Assist), Source);
 	}
-	else
+	else if (IsRemoteServerInstance())
 	{
-		// 자유 조준 — 발사 시점 카메라 레이 (기존 전방 보정 포함). 해석 불가면 최초 조준점
-		FVector AimMuzzle;
+		// 자유 조준 · 원격 플레이어 — 소유 클라가 발사 순간 보낸 조준(서버 컨트롤 회전 대비 허용각 검증). 해석 불가면 최초 조준점
 		FVector TargetPoint;
-		if (ComputeAimTarget(WeaponActor, AimMuzzle, TargetPoint))
+		if (ResolveReportedAimPoint(WeaponActor, MuzzleLocation, TargetPoint))
 		{
 			Direction = (TargetPoint - MuzzleLocation).GetSafeNormal();
+			Source = TEXT("Report");
+		}
+		else
+		{
+			Direction = FallbackDirection;
+			Source = TEXT("FallbackAimPoint");
+		}
+
+		// 수락은 Verbose(프로브가 켜서 정상 차이 분포를 본다), 클램프·거부는 드물어야 하므로 Log
+		if (ReportedAimCheck.Result == EAstralReportedAimResult::Accepted)
+		{
+			UE_LOG(LogAstralAbilitySystem, Verbose, TEXT("[Ranged] %s: Fire Mode=FreeAim Source=%s Report=%s Divergence=%.2f"),
+				*GetName(), Source, AstralRangedAttack::ToString(ReportedAimCheck.Result), ReportedAimCheck.Divergence);
+		}
+		else
+		{
+			UE_LOG(LogAstralAbilitySystem, Log, TEXT("[Ranged] %s: Fire Mode=FreeAim Source=%s Report=%s Divergence=%.2f"),
+				*GetName(), Source, AstralRangedAttack::ToString(ReportedAimCheck.Result), ReportedAimCheck.Divergence);
+		}
+	}
+	else
+	{
+		// 자유 조준 · 로컬(호스트) — 발사 시점 카메라 레이 (기존 전방 보정 포함). 해석 불가면 최초 조준점
+		AstralRangedAim::FCameraAimPoint Aim;
+		if (ComputeAimTarget(WeaponActor, Aim))
+		{
+			Direction = (Aim.TargetPoint - MuzzleLocation).GetSafeNormal();
 			Source = TEXT("Camera");
 		}
 		else
@@ -481,10 +524,18 @@ void UAstralGA_Hero_BasicAttack_Ranged::PresentShot()
 
 AAstralRangedWeaponActor* UAstralGA_Hero_BasicAttack_Ranged::GetRangedWeaponActor() const
 {
-	return Cast<AAstralRangedWeaponActor>(UAstralAbilityTask_AttackTraceWindows::FindWeaponActorFromAbility(this));
+	if (AAstralRangedWeaponActor* WeaponActor = Cast<AAstralRangedWeaponActor>(UAstralAbilityTask_AttackTraceWindows::FindWeaponActorFromAbility(this)))
+	{
+		return WeaponActor;
+	}
+
+	// 클라는 장비 인스턴스의 스폰 목록이 비어 있다(스폰·추적은 서버) — 손에 든 무기를 부착 기준으로 (조준 보정 애니·관찰자 복제와 같은 조회).
+	// 소유 클라가 발사 데이터의 조준점을 계산할 때 필요하다
+	const UAstralEquipmentManagerComponent* EquipmentManager = UAstralEquipmentManagerComponent::FindEquipmentManager(GetAvatarActorFromActorInfo());
+	return EquipmentManager ? EquipmentManager->GetHeldRangedWeapon() : nullptr;
 }
 
-bool UAstralGA_Hero_BasicAttack_Ranged::ComputeAimTarget(const AAstralRangedWeaponActor* WeaponActor, FVector& OutMuzzleLocation, FVector& OutTargetPoint) const
+bool UAstralGA_Hero_BasicAttack_Ranged::ComputeAimTarget(const AAstralRangedWeaponActor* WeaponActor, AstralRangedAim::FCameraAimPoint& OutAim) const
 {
 	const APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
 	const AController* Controller = AvatarPawn ? AvatarPawn->GetController() : nullptr;
@@ -494,9 +545,32 @@ bool UAstralGA_Hero_BasicAttack_Ranged::ComputeAimTarget(const AAstralRangedWeap
 	}
 
 	// 조준 기준 = 화면 중앙(카메라) 레이 — 크로스헤어와 탄착 일치. 최종 조준 보정 애니(UAstralAnimInstance)도 같은 함수로 총열을 이 점에 맞춘다
-	OutMuzzleLocation = WeaponActor->GetMuzzleLocation();
+	return AstralRangedAim::ComputeCameraAimPoint(Controller, AvatarPawn, WeaponActor, WeaponActor->GetMuzzleLocation(), AimTraceRange, OutAim);
+}
+
+bool UAstralGA_Hero_BasicAttack_Ranged::ResolveReportedAimPoint(const AAstralRangedWeaponActor* WeaponActor, const FVector& MuzzleLocation, FVector& OutTargetPoint) const
+{
+	if (ReportedFire.IsSet() && ReportedAimCheck.Result == EAstralReportedAimResult::Accepted)
+	{
+		// 수락 — 클라가 본 조준점 그대로. 총구는 서버 무기라 전방·사거리만 다시 본다
+		OutTargetPoint = AstralRangedAttack::ClampReportedAimPoint(ReportedFire->AimPoint, ReportedAimCheck.Direction, MuzzleLocation, AimTraceRange);
+		return true;
+	}
+
+	// 클램프·거부 — 서버가 아는 카메라 위치에서 확정 방향으로, 카메라 조준점과 같은 규칙(총구 투영 시작 · Visibility · 전방 보장)으로 다시 잰다
+	const APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
+	const AController* Controller = AvatarPawn ? AvatarPawn->GetController() : nullptr;
+	if (!Controller)
+	{
+		return false;
+	}
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
+
 	AstralRangedAim::FCameraAimPoint Aim;
-	if (!AstralRangedAim::ComputeCameraAimPoint(Controller, AvatarPawn, WeaponActor, OutMuzzleLocation, AimTraceRange, Aim))
+	if (!AstralRangedAim::ComputeAimPointAlongView(ViewLocation, ReportedAimCheck.Direction, AvatarPawn, WeaponActor, MuzzleLocation, AimTraceRange, Aim))
 	{
 		return false;
 	}
@@ -504,32 +578,24 @@ bool UAstralGA_Hero_BasicAttack_Ranged::ComputeAimTarget(const AAstralRangedWeap
 	return true;
 }
 
+bool UAstralGA_Hero_BasicAttack_Ranged::IsRemoteServerInstance() const
+{
+	const FGameplayAbilityActorInfo* ActorInfo = GetCurrentActorInfo();
+	return ActorInfo && ActorInfo->IsNetAuthority() && !ActorInfo->IsLocallyControlled();
+}
+
 void UAstralGA_Hero_BasicAttack_Ranged::OnFireAligned(bool bTimedOut)
 {
 	if (bTimedOut)
 	{
-		// 회전이 막혔거나(루트 모션) 조준 태그가 아직 복제되지 않은 소유 클라 — 정렬 전이라도 쏜다 (발사선은 카메라 기준이라 판정은 그대로)
+		// 회전이 막혔다(루트 모션 등) — 정렬 전이라도 쏜다 (발사선은 카메라 기준이라 판정은 그대로)
 		UE_LOG(LogAstralAbilitySystem, Verbose, TEXT("[Ranged] %s: 몸 정렬 대기 시간 초과 — 그대로 발사"), *GetName());
 	}
 
-	BeginFireSync();
+	CommitFire();
 }
 
-void UAstralGA_Hero_BasicAttack_Ranged::BeginFireSync()
-{
-	// 서버만 대기(OnlyServerWait): 소유 클라는 서버에 신호(신뢰성 RPC)를 보내고 즉시 진행, 원격 폰의 서버 인스턴스는 그 신호를 기다린다,
-	// 호스트(로컬 권위)는 기다릴 상대가 없어 즉시 진행. 신호와 클라의 EndAbility 는 같은 ASC 의 신뢰성 RPC 라 순서대로 도착 → 서버가 반드시 먼저 쏜다.
-	// 신호가 서버 인스턴스보다 먼저 와도 ASC 가 (스펙, 활성화 예측 키)로 보관했다가 대기 시작 때 바로 넘긴다
-	if (UAbilityTask_NetworkSyncPoint* SyncTask = UAbilityTask_NetworkSyncPoint::WaitNetSync(this, EAbilityTaskNetSyncType::OnlyServerWait))
-	{
-		SyncTask->OnSync.AddDynamic(this, &ThisClass::OnFireSynced);
-		SyncTask->ReadyForActivation();
-		return;
-	}
-	OnFireSynced();
-}
-
-void UAstralGA_Hero_BasicAttack_Ranged::OnFireSynced()
+void UAstralGA_Hero_BasicAttack_Ranged::CommitFire()
 {
 	const FGameplayAbilityActorInfo* ActorInfo = GetCurrentActorInfo();
 	if (!ActorInfo || !IsActive())
@@ -537,22 +603,94 @@ void UAstralGA_Hero_BasicAttack_Ranged::OnFireSynced()
 		return;
 	}
 
-	// 원격 폰의 서버 인스턴스 — 클라가 몸 정렬을 확인하고 보낸 신호다. 서버 쪽 몸은 이동 패킷(정지 중엔 묶여 늦게 온다)만큼 뒤처져 있을 수 있어
-	// 그대로 쏘면 서버 무기의 총구가 몸 옆·뒤라 투사체가 엉뚱한 곳에서 나온다 — 허용각 밖이면 몸 Yaw 를 컨트롤러 Yaw 로 맞춘 뒤 쏜다.
-	// 발사선은 원래대로 서버의 카메라 레이(ResolveShot) — 클라에게서 믿는 것은 발사 시점뿐이다
-	if (ActorInfo->IsNetAuthority() && !ActorInfo->IsLocallyControlled() && FireAlignToleranceYaw > 0.f)
+	// 소유 클라 — 발사 시점·조준을 서버로. 호스트(로컬 권위)는 보낼 상대가 없다
+	if (!ActorInfo->IsNetAuthority())
 	{
-		APawn* Pawn = Cast<APawn>(GetAvatarActorFromActorInfo());
-		if (Pawn && !UAstralAbilityTask_WaitAimAligned::IsAimAligned(Pawn, FireAlignToleranceYaw))
+		SendFireTargetData();
+	}
+
+	ProcessFire();
+
+	// 즉발은 발사로 끝 — 몽타주 경로는 몽타주 종료가 끝
+	if (!FireMontage)
+	{
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, /*bReplicateEndAbility=*/true, /*bWasCancelled=*/false);
+	}
+}
+
+void UAstralGA_Hero_BasicAttack_Ranged::SendFireTargetData()
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	if (!ASC)
+	{
+		return;
+	}
+
+	// 발사 순간의 카메라 조준 — 해석 실패(무기·컨트롤러 없음)여도 보낸다: 서버 인스턴스에겐 발사 시점 신호다(방향 0 → 서버가 거부로 보고 자기 기준으로 쏜다)
+	FAstralRangedFireData Fire;
+	AstralRangedAim::FCameraAimPoint Aim;
+	if (ComputeAimTarget(GetRangedWeaponActor(), Aim))
+	{
+		Fire.AimPoint = Aim.TargetPoint;
+		Fire.AimDirection = Aim.Direction;
+	}
+
+	// 종속 예측 창(옛 WaitNetSync 와 같은 방식) — 서버는 이 키를 범위로 발사하고 확인한다. 수신 델리게이트는 활성화 키로 찾는다.
+	// 활성화·이 데이터·뒤따르는 EndAbility 는 모두 같은 ASC(PlayerState 채널)의 신뢰성 RPC 라 서버에 보낸 순서대로 처리된다
+	FScopedPredictionWindow ScopedPrediction(ASC, /*bCanGenerateNewKey=*/true);
+	ASC->CallServerSetReplicatedTargetData(CurrentSpecHandle, CurrentActivationInfo.GetActivationPredictionKey(),
+		FGameplayAbilityTargetData_AstralRangedFire::MakeHandle(Fire), FGameplayTag(), ASC->ScopedPredictionKey);
+}
+
+void UAstralGA_Hero_BasicAttack_Ranged::OnFireTargetDataReceived(const FGameplayAbilityTargetDataHandle& DataHandle, FGameplayTag ApplicationTag)
+{
+	const FGameplayAbilityActorInfo* ActorInfo = GetCurrentActorInfo();
+	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (!ASC || !IsActive())
+	{
+		return;
+	}
+
+	FAstralRangedFireData Fire;
+	if (FGameplayAbilityTargetData_AstralRangedFire::Extract(DataHandle, Fire))
+	{
+		ReportedFire = Fire;
+	}
+	else
+	{
+		ReportedFire.Reset();
+		UE_LOG(LogAstralAbilitySystem, Warning, TEXT("[Ranged] %s: 발사 데이터 손상 — 서버 컨트롤 회전 방향으로 발사"), *GetName());
+	}
+
+	// 처리한 데이터는 ASC 보관에서 비운다 — 같은 활성화 키로 다시 불리지 않게. 보관분으로 불렸으면 DataHandle 이 그 보관분이라 추출 뒤에 비운다
+	ASC->ConsumeClientReplicatedTargetData(CurrentSpecHandle, CurrentActivationInfo.GetActivationPredictionKey());
+
+	// 검증 기준 = 서버 컨트롤 회전 — 이동 패킷(ServerMove)이 매번 갱신하고 이전 이동을 겹쳐 보내 손실에도 복구된다. 원격 카메라(ServerUpdateCamera)는 비신뢰성이고
+	// "직전 프레임 대비 바뀌었을 때만" 와서 빠지면 다음 카메라 변화까지 낡는다(손실 20% PIE 에서 플릭 사격 7/36 이 플릭 전 방향). 이 게임은 카메라 회전 = 컨트롤 회전
+	APawn* Pawn = Cast<APawn>(GetAvatarActorFromActorInfo());
+	const FVector Reference = Pawn ? Pawn->GetControlRotation().Vector() : FVector::ZeroVector;
+	ReportedAimCheck = AstralRangedAttack::CheckReportedAimDirection(ReportedFire ? FVector(ReportedFire->AimDirection) : FVector::ZeroVector, Reference, MaxReportedAimDivergence);
+
+	// 서버 쪽 몸은 회전 모드가 활성화 수신 뒤에야 켜져 이동 패킷만큼 뒤처져 있을 수 있다 — 그대로 쏘면 서버 무기의 총구가 몸 옆·뒤라 투사체가 엉뚱한 곳에서 나온다.
+	// 허용각 밖이면 몸 Yaw 를 발사 방향(자유 조준 = 확정된 보고 방향, 락온 = 컨트롤러)으로 맞춘 뒤 쏜다
+	if (Pawn && FireAlignToleranceYaw > 0.f)
+	{
+		const float FireYaw = (PinnedAimMode == EAstralRangedAimMode::FreeAim) ? ReportedAimCheck.Direction.Rotation().Yaw : Pawn->GetControlRotation().Yaw;
+		FRotator BodyRotation = Pawn->GetActorRotation();
+		if (FMath::Abs(FRotator::NormalizeAxis(FireYaw - BodyRotation.Yaw)) > FireAlignToleranceYaw)
 		{
-			FRotator BodyRotation = Pawn->GetActorRotation();
-			BodyRotation.Yaw = Pawn->GetControlRotation().Yaw;
+			BodyRotation.Yaw = FireYaw;
 			Pawn->SetActorRotation(BodyRotation);
 		}
 	}
 
 	ProcessFire();
-	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, /*bReplicateEndAbility=*/true, /*bWasCancelled=*/false);
+
+	// 즉발은 발사로 끝 — 몽타주 경로는 몽타주 종료가 끝
+	if (!FireMontage)
+	{
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, /*bReplicateEndAbility=*/true, /*bWasCancelled=*/false);
+	}
 }
 
 void UAstralGA_Hero_BasicAttack_Ranged::OnMontageFinished()
@@ -566,6 +704,8 @@ void UAstralGA_Hero_BasicAttack_Ranged::ResetShotState()
 	PinnedTarget = nullptr;
 	PinnedTargetPointId = NAME_None;
 	FallbackAimPoint.Reset();
+	ReportedFire.Reset();
+	ReportedAimCheck = FAstralReportedAimCheck();
 	bHasExecutedShot = false;
 	bHasPresentedShot = false;
 }
@@ -588,6 +728,17 @@ void UAstralGA_Hero_BasicAttack_Ranged::EndAbility(const FGameplayAbilitySpecHan
 	}
 
 	ClearFacingWarp(FacingWarpTargetName);
+
+	// 원격 폰의 서버 인스턴스 — 발사 데이터 수신 해제 + 보관분 소비 (이 활성화 키의 데이터가 남지 않게. 엔진도 종료 때 캐시를 지운다)
+	if (FireTargetDataHandle.IsValid())
+	{
+		if (UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr)
+		{
+			ASC->AbilityTargetDataSetDelegate(Handle, ActivationInfo.GetActivationPredictionKey()).Remove(FireTargetDataHandle);
+			ASC->ConsumeClientReplicatedTargetData(Handle, ActivationInfo.GetActivationPredictionKey());
+		}
+		FireTargetDataHandle.Reset();
+	}
 
 	// 발사 이벤트 대기·몽타주 태스크는 어빌리티와 함께 끝난다 — 발사 전 취소면 투사체 없음. 공격별 상태는 다음 활성화에 남기지 않는다
 	ResetShotState();

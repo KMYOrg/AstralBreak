@@ -2,6 +2,7 @@ import sys
 # 멀티플레이 PIE 진단 — 한 프로세스에 리슨 서버 + 클라 N 을 띄우고, 머신(월드)마다 각 히어로의 애니 상태를 읽는다:
 # 넷 역할 · 전투 스타일 태그 · 링크된 Rifle 공급자 레이어 유무 · 메인/공급자 인스턴스 bIsAiming.
 # 모드는 소스 첫 줄 뒤 STEP 상수로 고른다: begin · sample · switch(서버에서 전 히어로 스타일 전환 GA) · fire(서버에서 사격 GA) · end
+# (그 밖의 단계: client_* 입력 주입 · pose_* 조준 자세 · shots_* 투사체 · jump_record/jump_all/jump_dump 라이플 점프 — 각 분기 주석)
 # 실행은 ue_exec 브릿지 경유 (주석에 확장자를 쓰지 말 것 — ExecuteFile 경로 오인)
 sys.path.insert(0, r"D:/UE5Projects/AstralBreak/Tools/lib")
 import math
@@ -16,6 +17,8 @@ POSE_PITCH = 0.0  # pose_turn: 호스트 컨트롤러 Pitch
 GRIP = "current"  # grip_all(진단 전용): current · socket_only · bone — pie_aim_probe GRIP 과 같다
 IA_SWITCH = "/Game/Input/Actions/IA_SwitchCombatStyle"
 IA_FIRE = "/Game/Input/Actions/IA_Attack_Basic"
+IA_JUMP = "/Game/Input/Actions/IA_Jump"
+JUMP_FIRE = 0     # jump_all: 1 이면 같은 단계에서 사격도 (호스트 = 사격 GA, 클라 = 사격 입력 주입) — 조준 점프
 
 log = unreal.log
 LES = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
@@ -334,6 +337,101 @@ elif STEP == "pose_sample":
             if mv:
                 log(f"PIE_MP_MUZZLE[{LABEL}] {w.get_name()}({machine}) {a.get_name()} role={str(a.get_local_role()).split('.')[-1]} "
                     f"muzzle={mv[0]:.2f} (y{mv[1]:.2f} p{mv[2]:.2f}) vsBase={mv[3]:.2f} baseAim={a.get_base_aim_rotation().pitch:.1f}/{a.get_base_aim_rotation().yaw:.1f}")
+
+elif STEP == "jump_record":
+    # 라이플 점프 자세(2026-10-22) — 모든 월드의 모든 히어로를 매 틱 기록: 공중 · 조준 · 왼손 IK 알파 · 조준 오버레이 가중치 · 왼손↔파지 소켓 · 총 Pitch ·
+    # 총열 ↔ 그 월드 BaseAimRotation. 같은 폰은 월드마다 이름이 달라 시작 때 서버 폰과 위치로 짝짓는다(제자리 점프라 그대로)
+    sw = server_world()
+    server_pawns = [(a.get_name(), a.get_actor_location()) for a in heroes(sw)]
+    rows = []
+    clock = [0.0]
+    pawns = []
+    for w in pie_worlds():
+        machine = "SERVER" if unreal.SystemLibrary.is_server(w) else "CLIENT"
+        for a in heroes(w):
+            key = min(server_pawns, key=lambda sp: (sp[1] - a.get_actor_location()).length())[0]
+            pawns.append((w.get_name(), machine, key, a, str(a.get_local_role()).split(".")[-1]))
+    unreal._mpj_mark = None
+    unreal._mpj_marks = []
+    unreal._mpj_stop = []   # (해제 시각, 폰) — 호스트 점프 입력 뗌
+
+    def on_tick(dt):
+        clock[0] += dt
+        if unreal._mpj_mark:
+            unreal._mpj_marks.append((clock[0], unreal._mpj_mark))
+            unreal._mpj_mark = None
+        for t_stop, pawn in list(unreal._mpj_stop):
+            if clock[0] >= t_stop:
+                pawn.stop_jumping()
+                unreal._mpj_stop.remove((t_stop, pawn))
+        for wname, machine, key, a, role in pawns:
+            anim = a.get_editor_property("mesh").get_anim_instance()
+            if not anim:
+                continue
+            mesh = a.get_editor_property("mesh")
+            _, wm = weapon_mesh(a)
+            grip_err, gun_pitch, vs_base = float("nan"), float("nan"), float("nan")
+            if wm:
+                if wm.does_socket_exist("LeftHandIK"):
+                    grip_err = (wm.get_socket_location("LeftHandIK") - mesh.get_socket_location("hand_l")).length()
+                f = wm.get_socket_transform("Muzzle", unreal.RelativeTransformSpace.RTS_WORLD).rotation.get_axis_x()
+                gun_pitch = yaw_pitch(f)[1]
+                b = a.get_base_aim_rotation().get_forward_vector()
+                vs_base = math.degrees(math.acos(max(-1.0, min(1.0, f.dot(b)))))
+            rows.append((clock[0], wname, machine, key, role, anim.get_editor_property("bIsInAir"), anim.get_editor_property("bIsAiming"),
+                         anim.get_editor_property("LeftHandIKAlpha"), anim.get_editor_property("AimPoseAlpha"), grip_err, gun_pitch, vs_base))
+
+    unreal._mpj_rows = rows
+    unreal._mpj_clock = clock
+    unreal._mpj_handle = unreal.register_slate_pre_tick_callback(on_tick)
+    log(f"PIE_MP_JUMP_RECORD pawns={[(p[0], p[1], p[2], p[4]) for p in pawns]}")
+
+elif STEP == "jump_all":
+    # 호스트 폰 = ACharacter::Jump(서버 월드, 0.25초 뒤 뗌) · 클라 로컬 폰 = IA_Jump 입력 주입(GA_Hero_Jump 실경로). JUMP_FIRE 면 같은 단계에서 사격도
+    unreal._mpj_mark = LABEL
+    fire_cls = unreal.load_class(None, FIRE_GA)
+    for a in heroes(server_world()):
+        if a.is_locally_controlled():
+            if JUMP_FIRE:
+                a.get_astral_ability_system_component().try_activate_ability_by_class(fire_cls, True)
+            a.jump()
+            unreal._mpj_stop.append((unreal._mpj_clock[0] + 0.25, a))
+    subs = list(unreal.ObjectIterator(unreal.EnhancedInputLocalPlayerSubsystem))
+    jump_ia, fire_ia = unreal.load_asset(IA_JUMP), unreal.load_asset(IA_FIRE)
+    for w in pie_worlds():
+        if unreal.SystemLibrary.is_server(w):
+            continue
+        sub = next((s for s in subs if s.get_world() == w), None)
+        if sub:
+            if JUMP_FIRE:
+                sub.inject_input_vector_for_action(fire_ia, unreal.Vector(1.0, 0.0, 0.0), [], [])
+            sub.inject_input_vector_for_action(jump_ia, unreal.Vector(1.0, 0.0, 0.0), [], [])
+    log(f"PIE_MP_JUMP_ALL {LABEL} fire={JUMP_FIRE}")
+
+elif STEP == "jump_dump":
+    # 폰(서버 기준 이름) × 월드별 공중 구간 요약 — 같은 폰은 모든 월드에서 같아야 한다(복제된 이동 모드 · 조준 태그 · 클립 커브로만 정해진다)
+    unreal.unregister_slate_pre_tick_callback(unreal._mpj_handle)
+    rows, marks = unreal._mpj_rows, unreal._mpj_marks
+    log(f"PIE_MP_JUMP_DUMP rows={len(rows)} marks={[(round(t, 2), m) for t, m in marks]}")
+
+    def avg(xs):
+        xs = [x for x in xs if x == x]
+        return sum(xs) / len(xs) if xs else float("nan")
+
+    for i, (t0, label) in enumerate(marks):
+        t1 = marks[i + 1][0] if i + 1 < len(marks) else rows[-1][0] + 1e-3
+        groups = {}
+        for r in rows:
+            if t0 <= r[0] < t1:
+                groups.setdefault((r[3], r[1], r[2], r[4]), []).append(r)
+        for (key, wname, machine, role), rs in sorted(groups.items()):
+            air = [r for r in rs if r[5]]
+            if not air:
+                log(f"PIE_MP_JUMP[{label}] {key} @ {wname}({machine}) role={role} — no air samples")
+                continue
+            log(f"PIE_MP_JUMP[{label}] {key} @ {wname}({machine}) role={role} air={air[-1][0] - air[0][0]:.2f}s aim={avg([r[6] for r in air]):.2f} "
+                f"aimPose={avg([r[8] for r in air]):.2f} lhAlpha={avg([r[7] for r in air]):.2f}[{min(r[7] for r in air):.2f},{max(r[7] for r in air):.2f}] "
+                f"grip_err={avg([r[9] for r in air]):.1f} gunPitch[{min(r[10] for r in air):.0f},{max(r[10] for r in air):.0f}] vsBase={avg([r[11] for r in air]):.1f} max={max(r[11] for r in air):.1f}")
 
 elif STEP == "sample":
     rifle_cls = unreal.load_asset(RIFLE_LAYERS).generated_class()

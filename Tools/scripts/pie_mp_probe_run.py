@@ -1,6 +1,6 @@
 """멀티플레이 애니 레이어 PIE 프로브 드라이버 — 에디터 밖(일반 python)에서 pie_mp_probe 의 단계를 차례로 보낸다.
 
-    python Tools/scripts/pie_mp_probe_run.py [players=3] [client_fire | client_fire_snap | pose [grip=current|socket_only|bone] | client_pose]
+    python Tools/scripts/pie_mp_probe_run.py [players=3] [client_fire | client_fire_snap | pose [grip=current|socket_only|bone] | client_pose | jump]
 
 client_fire 모드는 run_client_fire 참조(클라 월드 입력 주입으로 등진 사격), pose 모드는 run_pose 참조(조준 회전 자세를 월드별로). 기본 모드:
 
@@ -23,8 +23,9 @@ PROBE = ROOT / "scripts" / "pie_mp_probe.py"
 SRC = PROBE.read_text(encoding="utf-8")
 
 
-def step(name: str, label: str = "", players: int = 3, yaw: float = 0.0, pitch: float = 0.0, grip: str = "current") -> None:
+def step(name: str, label: str = "", players: int = 3, yaw: float = 0.0, pitch: float = 0.0, grip: str = "current", jump_fire: int = 0) -> None:
     src = re.sub(r'^STEP = ".*"$', f'STEP = "{name}"', SRC, count=1, flags=re.M)
+    src = re.sub(r"^JUMP_FIRE = \d+", f"JUMP_FIRE = {jump_fire}", src, count=1, flags=re.M)
     src = re.sub(r'^GRIP = ".*?"', f'GRIP = "{grip}"', src, count=1, flags=re.M)
     src = re.sub(r'^LABEL = ".*"$', f'LABEL = "{label}"', src, count=1, flags=re.M)
     src = re.sub(r"^NUM_PLAYERS = \d+", f"NUM_PLAYERS = {players}", src, count=1, flags=re.M)
@@ -97,8 +98,35 @@ def run_client_pose(players: int) -> None:
         step("end")
 
 
+def run_jump(players: int) -> None:
+    """라이플 점프 자세(2026-10-22) — 호스트(서버 월드 Jump)·클라(IA_Jump 주입) 폰이 함께 조준 점프 → 조준 만료 → 비조준 점프.
+    모든 월드에서 모든 폰을 매 틱 기록해 공중 구간을 요약(PIE_MP_JUMP). 기대: 같은 폰은 서버·소유 클라·시뮬 프록시가 같은 값 —
+    조준 점프 = aimPose 1 · lhAlpha 1 · 총열 ↔ BaseAimRotation 작음 / 비조준 점프 = lhAlpha 0 근처 · 왼손이 파지 소켓에서 떨어짐."""
+    step("begin", players=players)
+    time.sleep(20.0)
+    try:
+        step("switch")                 # 호스트 낫 → 총
+        step("client_switch")          # 클라 낫 → 총
+        time.sleep(1.5)
+        step("jump_record")
+        step("fire")
+        step("client_fire")
+        time.sleep(0.4)
+        step("jump_all", "jump_aim", jump_fire=1)
+        time.sleep(2.0)
+        time.sleep(2.5)                # AimHold 2초 만료
+        step("jump_all", "jump_noaim", jump_fire=0)
+        time.sleep(2.0)
+        step("jump_dump")
+    finally:
+        step("end")
+
+
 def main() -> int:
     players = int(sys.argv[1]) if len(sys.argv) > 1 else 3
+    if len(sys.argv) > 2 and sys.argv[2] == "jump":
+        run_jump(players)
+        return 0
     if len(sys.argv) > 2 and sys.argv[2] == "client_pose":
         run_client_pose(players)
         return 0

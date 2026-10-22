@@ -21,6 +21,10 @@
                                                    기본(None)=Rifle_Idle, Left90/Left180/Right90/Right180 = 턴 클립(루프 없음), bAlwaysResetOnEntry
        ─ GetMainAnimInstance.bTurnInPlaceRotationFinished ─▶ TurnInPlaceRecovery: 같은 구성 + 각 클립 StartPosition ← GetMainAnimInstance.TurnInPlaceAnimTime
                                                    (회전이 끝난 지점부터 이어 재생) ─ 자동(클립 끝) ─▶ Idle,  Recovery ─ bWantsTurnInPlace ─▶ Rotation
+  무기 포즈 오버레이(2026-10-22, patch_weapon_overlay): 베이스 루트 Locomotions → LinkedAnimLayer Locomotion_WeaponOverlay → Slot DefaultSlot —
+     라이플은 조준 상체(AS_IdleRifleAiming_02)를 AimPoseAlpha 로 덮는다. 상태와 무관한 한 곳이라 점프·낙하에도 조준 자세(지상 상태별 덮기는 지웠다).
+     그 앞에 휴대 팔(오른팔 ← Rifle_Idle, HandsFreeAlpha — 무기 무관 클립이 손을 뗀 동안 총을 휴대 자세로, patch_weapon_carry).
+     왼손 IK 알파 = LeftHandIKAlpha(C++ — 클립 커브 DisableLHandIK 와 조준 오버레이로, patch_left_hand_alpha)
   전이는 전부 LogicType = Inertialization (Lyra 와 같다). 표준 크로스페이드면 클립↔클립 블렌드 중 두 클립의 커브가 가중 합산되어
   "남은 각이 커지는" 가짜 델타가 RootYawOffset 을 반대로 민다. 관성 블렌드는 새 상태 가중치가 즉시 1 이라 첫 프레임 건너뛰기만으로 충분.
   관성 요청은 베이스 루트의 Inertialization 노드가 받는다(링크된 레이어 → 메인 그래프로 전파).
@@ -70,6 +74,15 @@ def bound_path(node: dict, prop: str) -> list[str] | None:
     return e["binding"]["path"] if e and e.get("bound") else None
 
 
+def layer_node(s: dict, layer: str) -> dict:
+    """그래프의 LinkedAnimLayer 노드 중 그 레이어 것 — 베이스 루트에는 Locomotion_WeaponOverlay · Aim_UpperBody 두 개가 있다."""
+    found = [n for n in s["nodes"] if n["class"] == "AnimGraphNode_LinkedAnimLayer" and (n.get("linked_layer") or {}).get("layer") == layer]
+    if len(found) != 1:
+        print(f"[FAIL] LinkedAnimLayer({layer}) 노드가 {len(found)}개 (1개 기대)")
+        sys.exit(1)
+    return found[0]
+
+
 # ----------------------------------------------------------------------------------------------------------------------
 def patch_base() -> bool:
     print("\n=== A. 베이스 ABP_Hero_Combat — Aim_UpperBody → RotateRootBone(Yaw ← RootYawOffset) → Inertialization ===")
@@ -82,7 +95,7 @@ def patch_base() -> bool:
     if any(n["class"] == "AnimGraphNode_RotateRootBone" for n in s["nodes"]):
         print("   이미 있음 — 건너뜀")
         return False
-    aim = one(s["nodes"], "AnimGraphNode_LinkedAnimLayer", "베이스 루트")
+    aim = layer_node(s, "Aim_UpperBody")
     inert = one(s["nodes"], "AnimGraphNode_Inertialization", "베이스 루트")
     link = next((c for c in s["connections"] if c["from"]["node"] == aim["node_guid"] and c["to"]["node"] == inert["node_guid"]), None)
     check(link is not None and link["to"]["pin"] == "Source", "Aim_UpperBody.Pose → Inertialization.Source 연결 확인")
@@ -107,10 +120,11 @@ def patch_aim_before_root() -> bool:
     s = structure(ABP)
     layer = one(s["nodes"], "AnimGraphNode_LayeredBoneBlend", "베이스 루트")
     rrb = one(s["nodes"], "AnimGraphNode_RotateRootBone", "베이스 루트")
-    aim = one(s["nodes"], "AnimGraphNode_LinkedAnimLayer", "베이스 루트")
+    aim = layer_node(s, "Aim_UpperBody")
     inert = one(s["nodes"], "AnimGraphNode_Inertialization", "베이스 루트")
     order = {c["from"]["node"]: c["to"]["node"] for c in s["connections"] if c["from"]["pin"] == "Pose"}
-    if order.get(layer["node_guid"]) == aim["node_guid"] and order.get(aim["node_guid"]) == rrb["node_guid"] and order.get(rrb["node_guid"]) == inert["node_guid"]:
+    # RotateRootBone 뒤는 Inertialization 이거나 최종 조준 보정(A4: L2C → 보정 → C2L)
+    if order.get(layer["node_guid"]) == aim["node_guid"] and order.get(aim["node_guid"]) == rrb["node_guid"]:
         print("   이미 Aim_UpperBody → RotateRootBone — 건너뜀")
         return False
     old = order.get(layer["node_guid"]) == rrb["node_guid"] and order.get(rrb["node_guid"]) == aim["node_guid"] and order.get(aim["node_guid"]) == inert["node_guid"]
@@ -137,7 +151,9 @@ def turn_state_ops(ref: str, recovery: bool) -> list[dict]:
     ops += [{"op": "add_blend_pose", "ref": p + "sel", "entry": k} for k in CLIPS]
     ops.append({"op": "bind_pin", "ref": p + "sel", "property": "ActiveEnumValue", "path": f"{MAIN}.TurnInPlaceKind"})
     ops += [
-        {"op": "add_node", "ref": p + "none", "graph": {"ref": ref}, "class": "AnimGraphNode_SequencePlayer", "pos": [-800, -300], "asset": AIM_IDLE, "properties": {"bLoopAnimation": True}},
+        # 기본(None) 포즈는 관련 플레이어에서 제외 — 자동 전이(Recovery → Idle)가 턴 클립의 남은 시간을 봐야 한다
+        {"op": "add_node", "ref": p + "none", "graph": {"ref": ref}, "class": "AnimGraphNode_SequencePlayer", "pos": [-800, -300], "asset": AIM_IDLE,
+         "properties": {"bLoopAnimation": True, "bIgnoreForRelevancyTest": True}},
         {"op": "connect", "from": {"ref": p + "none", "pin": "Pose"}, "to": {"ref": p + "sel", "pin": "BlendPose_0"}},
     ]
     for i, (kind, clip) in enumerate(CLIPS.items(), 1):
@@ -208,8 +224,42 @@ def verify() -> None:
     fix_bind = {prop: bound_path(fix, prop) for prop in AIM_FIX_BINDINGS}
     check(all(fix_bind[p] == [v] for p, v in AIM_FIX_BINDINGS.items()) and str(fix["properties"].get("AlphaInputType")).endswith("Bool"),
           f"Aim Correction 바인딩 {fix_bind} · 알파 bool ({fix['properties'].get('AlphaInputType')})")
+    # 무기 포즈 오버레이 — Locomotions → 오버레이 레이어 → Slot DefaultSlot (슬롯 앞)
+    sm_node = one(s["nodes"], "AnimGraphNode_StateMachine", "베이스 루트")
+    head = pose_chain(s, sm_node["node_guid"], limit=2)
+    ov = layer_node(s, OVERLAY_LAYER)
+    nxt = {c["from"]["node"]: c["to"]["node"] for c in s["connections"] if c["from"]["pin"] == "Pose"}
+    check(nxt.get(sm_node["node_guid"]) == ov["node_guid"] and head == ["LinkedAnimLayer", "Slot"], f"베이스 루트 Locomotions → {OVERLAY_LAYER} → DefaultSlot ({head})")
+    bs_ov = structure(ABP, layer_graphs(ABP)[OVERLAY_LAYER])
+    check([n["class"] for n in bs_ov["nodes"] if n["class"] not in ("AnimGraphNode_Root", "AnimGraphNode_LinkedInputPose")] == [] and len(bs_ov["connections"]) == 1,
+          "베이스 오버레이 기본 구현 = 통과 (입력 포즈 → Output)")
 
     g = layer_graphs(PROV_RIFLE)
+    # 라이플 오버레이 = InPose → 휴대 팔(clavicle_r↓ ← Rifle_Idle 정지, HandsFreeAlpha) → 조준 상체(spine_01↑ ← AimingIdle, AimPoseAlpha) → Output
+    ov_s = structure(PROV_RIFLE, g[OVERLAY_LAYER])
+    cls = {n["node_guid"]: n for n in ov_s["nodes"]}
+    feeds_of = lambda node: {c["to"]["pin"]: c["from"] for c in ov_s["connections"] if c["to"]["node"] == node["node_guid"]}
+
+    def lbb_ok(node: dict | None, bone: str, asset_suffix: str, weight: str, base_cls: str) -> bool:
+        if not node or node["class"] != "AnimGraphNode_LayeredBoneBlend":
+            return False
+        lp, feeds = node["properties"], feeds_of(node)
+        pose_src = cls.get(feeds.get("BlendPoses_0", {}).get("node"), {})
+        return (lp.get("bMeshSpaceRotationBlend") is True and str(lp.get("CurveBlendOption")).endswith("UseBasePose")
+                and lp.get("LayerSetup") == [{"BranchFilters": [{"BoneName": bone, "BlendDepth": 0}]}]
+                and (pose_src.get("asset") or "").endswith(asset_suffix) and feeds.get("BlendWeights_0", {}).get("pin") == weight
+                and cls.get(feeds.get("BasePose", {}).get("node"), {}).get("class") == base_cls)
+
+    ov_root = one(ov_s["nodes"], "AnimGraphNode_Root", "라이플 오버레이 레이어")
+    aim_lbb = cls.get(feeds_of(ov_root).get("Result", {}).get("node"))
+    carry_lbb = cls.get(feeds_of(aim_lbb).get("BasePose", {}).get("node")) if aim_lbb else None
+    aim_pose = cls.get(feeds_of(aim_lbb).get("BlendPoses_0", {}).get("node"), {}) if aim_lbb else {}
+    check(lbb_ok(aim_lbb, UPPER_BODY_BONE, "AS_IdleRifleAiming_02", "AimPoseAlpha", "AnimGraphNode_LayeredBoneBlend")
+          and aim_pose.get("properties", {}).get("bIgnoreForRelevancyTest") is True,
+          "라이플 오버레이 조준 상체 = spine_01↑ ← AS_IdleRifleAiming_02 (메시 공간 · 커브 베이스 · 관련 플레이어 제외) · 가중치 ← AimPoseAlpha · 아래는 휴대 팔")
+    check(lbb_ok(carry_lbb, CARRY_BONE, "AS_Hero_Rifle_Idle", "HandsFreeAlpha", "AnimGraphNode_LinkedInputPose")
+          and cls.get(feeds_of(carry_lbb).get("BlendPoses_0", {}).get("node"), {}).get("class") == "AnimGraphNode_SequenceEvaluator",
+          f"라이플 오버레이 휴대 팔 = InPose 위 {CARRY_BONE}↓ ← AS_Hero_Rifle_Idle 정지 프레임 (메시 공간 · 커브 베이스) · 가중치 ← HandsFreeAlpha")
     ps = structure(PROV_RIFLE, g["Locomotion_Idle"], depth=-1)
     sm = next((m for m in ps["state_machines"] if m.get("name") == SM_NAME), None)
     check(sm is not None, f"공급자 Idle 상태머신 {SM_NAME} 존재")
@@ -225,10 +275,11 @@ def verify() -> None:
     players = [n for n in ps["nodes"] if n["class"] == "AnimGraphNode_SequencePlayer"]
     aim_graphs = {st["bound_graph_guid"] for st in (sm["states"] if sm else [])}
     aim_players = [n for n in players if n["graph_guid"] in aim_graphs and not (n.get("asset") or "").startswith(TURN_DIR)]
-    check(len(aim_players) == 5 and all((n.get("asset") or "").endswith("AS_IdleRifleAiming_02") for n in aim_players), f"조준 가지 Idle 플레이어 5개 = AS_IdleRifleAiming_02 ({len(aim_players)})")
+    # 조준 가지 Idle 플레이어 3 = IdleTurn Idle + Rotation/Recovery 기본(None) 포즈 — 상태별 상체 블렌드는 오버레이로 옮겨 없다(2026-10-22)
+    check(len(aim_players) == 3 and all((n.get("asset") or "").endswith("AS_IdleRifleAiming_02") for n in aim_players), f"조준 가지 Idle 플레이어 3개 = AS_IdleRifleAiming_02 ({len(aim_players)})")
     mv = structure(PROV_RIFLE, g["Locomotion_Move"])
     mv_lbb = [n for n in mv["nodes"] if n["class"] == "AnimGraphNode_LayeredBoneBlend"]
-    check(len(mv_lbb) == 1 and str(mv_lbb[0]["properties"].get("CurveBlendOption")).endswith("UseBasePose"), "Move 조준 가지 상체 LayeredBoneBlend 1개")
+    check(not mv_lbb, f"Move 조준 가지 상체 블렌드 없음 — 오버레이가 덮는다 ({len(mv_lbb)})")
     # 왼손 IK — Aim_UpperBody: AimOffset → L2C → CopyBone(hand_r → ik_hand_gun) → ModifyBone(ik_hand_l ← 무기 파지점) → TwoBoneIK(hand_l → ik_hand_l, 회전 포함) → C2L
     aim_s = structure(PROV_RIFLE, g["Aim_UpperBody"])
     by_cls = {}
@@ -246,7 +297,8 @@ def verify() -> None:
                  and mb["TranslationSpace"] == "BCS_ParentBoneSpace" and mb["RotationSpace"] == "BCS_ParentBoneSpace"
                  and bound_path(mb_n, "Translation") == [MAIN, "LeftHandGripLocation"] and bound_path(mb_n, "Rotation") == [MAIN, "LeftHandGripRotation"]
                  and p["IKBone"]["BoneName"] == "hand_l" and p["EffectorTarget"]["BoneReference"]["BoneName"] == IK_LEFT_BONE and p["EffectorLocationSpace"] == "BCS_BoneSpace"
-                 and p["bTakeRotationFromEffectorSpace"] is True and bound_path(ik_n, "bAlphaBoolEnabled") == [MAIN, "bHasLeftHandGrip"]
+                 and p["bTakeRotationFromEffectorSpace"] is True and str(p.get("AlphaInputType")).endswith("Float") and bound_path(ik_n, "Alpha") == ["LeftHandIKAlpha"]
+                 and not bound_path(ik_n, "bAlphaBoolEnabled")
                  and all((abs(p.get(k, 0) - v) < 1e-4) if isinstance(v, float) else p.get(k) == v for k, v in IK_STRETCH.items()))
         chain = {c["from"]["node"]: c["to"]["node"] for c in aim_s["connections"] if c["from"]["pin"] in ("Pose", "ComponentPose")}
         cls = {n["node_guid"]: n["class"] for n in aim_s["nodes"]}
@@ -259,15 +311,18 @@ def verify() -> None:
         fl = by_cls.get("AnimGraphNode_LayeredBoneBlend", [])
         fp = fl[0]["properties"] if len(fl) == 1 else {}
         ik_ok = ik_ok and fp.get("bMeshSpaceRotationBlend") is False and str(fp.get("CurveBlendOption")).endswith("UseBasePose")             and fp.get("LayerSetup") == [{"BranchFilters": [{"BoneName": "hand_l", "BlendDepth": 0}]}]
-    check(ik_ok, f"공급자 왼손 손가락 LBB(hand_l 이하 ← AimingIdle, 로컬, 커브 베이스) · 왼손 IK — CopyBone({GRIP_REF_BONE}→{IK_GUN_BONE}) · ModifyBone({IK_LEFT_BONE} ← {MAIN}.LeftHandGripLocation/Rotation) · TwoBoneIK(hand_l → {IK_LEFT_BONE}, 회전 포함, Alpha ← bHasLeftHandGrip) · AimOffset 뒤")
+        # 손가락 가중치 = 왼손 IK 알파 — 놓으면 손가락도 클립 그대로
+        w = next((c["from"] for c in aim_s["connections"] if fl and c["to"]["node"] == fl[0]["node_guid"] and c["to"]["pin"] == "BlendWeights_0"), {})
+        ik_ok = ik_ok and w.get("pin") == "LeftHandIKAlpha"
+    check(ik_ok, f"공급자 왼손 손가락 LBB(hand_l 이하 ← AimingIdle, 로컬, 커브 베이스, 가중치 ← LeftHandIKAlpha) · 왼손 IK — CopyBone({GRIP_REF_BONE}→{IK_GUN_BONE}) · ModifyBone({IK_LEFT_BONE} ← {MAIN}.LeftHandGripLocation/Rotation) · TwoBoneIK(hand_l → {IK_LEFT_BONE}, 회전 포함, Alpha(float) ← LeftHandIKAlpha) · AimOffset 뒤")
     lbb = [n for n in ps["nodes"] if n["class"] == "AnimGraphNode_LayeredBoneBlend"]
-    check(len(lbb) == 2 and all(str(n["properties"].get("CurveBlendOption")).endswith("UseBasePose") for n in lbb), f"Rotation/Recovery 상체 LayeredBoneBlend 2개 · 커브는 베이스(턴 클립) ({[n['properties'].get('CurveBlendOption') for n in lbb]})")
+    check(not lbb, f"Rotation/Recovery 상체 블렌드 없음 — 오버레이가 덮는다 ({len(lbb)})")
     turn_graphs = {st["bound_graph_guid"] for st in (sm["states"] if sm else []) if st["name"] != "Idle"}
     idle_in_turn = [n for n in players if (n.get("asset") or "").endswith("AS_IdleRifleAiming_02") and n["graph_guid"] in turn_graphs]
-    check(len(idle_in_turn) == 4 and all(n["properties"].get("bIgnoreForRelevancyTest") is True for n in idle_in_turn), f"Rotation/Recovery 안 Idle 플레이어 4개(기본 포즈·상체) 전부 bIgnoreForRelevancyTest ({len(idle_in_turn)})")
+    check(len(idle_in_turn) == 2 and all(n["properties"].get("bIgnoreForRelevancyTest") is True for n in idle_in_turn), f"Rotation/Recovery 기본(None) Idle 플레이어 2개 전부 bIgnoreForRelevancyTest ({len(idle_in_turn)})")
     starts = [n for n in players if bound_path(n, "StartPosition") == [MAIN, "TurnInPlaceAnimTime"]]
-    # 플레이어 14 = 비조준 가지 Rifle_Idle 1 + 상태머신 Idle 1 + Rotation/Recovery 각 (기본 1 + 클립 4 + 상체 Idle 1)
-    check(len(starts) == 4 and len(players) == 14, f"Recovery 클립 4개 StartPosition ← TurnInPlaceAnimTime ({len(starts)} / 플레이어 {len(players)})")
+    # 플레이어 12 = 비조준 가지 Rifle_Idle 1 + 상태머신 Idle 1 + Rotation/Recovery 각 (기본 1 + 클립 4)
+    check(len(starts) == 4 and len(players) == 12, f"Recovery 클립 4개 StartPosition ← TurnInPlaceAnimTime ({len(starts)} / 플레이어 {len(players)})")
 
     j = must(call("run_automation_tests", filter="AnimGraphMcp.Smoke.AnimBlueprint"), "smoke")
     mine = {t["name"].split(".")[-1]: t for t in j["tests"] if t["name"].split(".")[-1] in ("ABP_Hero_Combat", "ABP_HeroLayers_Rifle")}
@@ -347,8 +402,11 @@ def patch_aim_base() -> bool:
         else:
             print("   조준 가지 Idle 클립 이미 AimingIdle — 건너뜀")
     # Move 조준 가지(strafe): 상체를 AimingIdle 로 — Jog 클립은 총 내린 자세라 AO 를 그대로 얹으면 총이 안 올라간다
+    # (2026-10-22 부터는 무기 포즈 오버레이(A5)가 같은 일을 상태와 무관하게 한다 — 있으면 건너뛴다)
     ms = structure(PROV_RIFLE, g["Locomotion_Move"])
-    if any(n["class"] == "AnimGraphNode_LayeredBoneBlend" for n in ms["nodes"]):
+    if has_weapon_overlay():
+        print("   Move 조준 상체 — 무기 포즈 오버레이가 덮는다, 건너뜀")
+    elif any(n["class"] == "AnimGraphNode_LayeredBoneBlend" for n in ms["nodes"]):
         print("   Move 조준 가지 상체 LayeredBoneBlend 이미 있음 — 건너뜀")
     else:
         bl = one(ms["nodes"], "AnimGraphNode_BlendListByBool", "공급자 Move")
@@ -456,8 +514,12 @@ def patch_left_hand_fingers() -> bool:
 def patch_turn_upperbody() -> bool:
     """회전·Recovery 상태의 상체(spine_01↑)를 Rifle_Idle 로 — 턴 클립(Lyra 라이플 자세)은 AimOffset 기준 포즈(Rifle_Idle)와 상체가 40° 쯤 달라
     그 위에 AimOffset ±90 을 얹으면 상체가 접힌다(2026-10-20 사용자 스크린샷). 하체·골반은 턴 클립(발 디딤), 상체는 기준 포즈 → AO 가 평소 조준과 같다.
-    커브는 베이스(턴 클립) 것을 써야 TurnYawWeight 가 살아남는다(CurveBlendOption=UseBasePose). 보조 Idle 플레이어는 자동 전이의 관련 플레이어 선정에서 뺀다."""
+    커브는 베이스(턴 클립) 것을 써야 TurnYawWeight 가 살아남는다(CurveBlendOption=UseBasePose). 보조 Idle 플레이어는 자동 전이의 관련 플레이어 선정에서 뺀다.
+    2026-10-22 부터는 무기 포즈 오버레이(A5)가 조준 상체를 상태와 무관하게 한 곳에서 덮는다 — 오버레이가 있으면 건너뛴다(A5 가 이 블렌드를 지운다)."""
     print("\n=== B2. 공급자 Rotation/Recovery — 상체 Rifle_Idle (LayeredBoneBlend spine_01, 메시 공간) ===")
+    if has_weapon_overlay():
+        print("   무기 포즈 오버레이가 조준 상체를 덮는다 — 건너뜀")
+        return False
     info = must(call("get_anim_blueprint_info", asset_path=PROV_RIFLE), "rifle info")
     changed = False
     for st in ("TurnInPlaceRotation", "TurnInPlaceRecovery"):
@@ -538,6 +600,172 @@ def patch_aim_correction() -> bool:
     return True
 
 
+OVERLAY_LAYER = "Locomotion_WeaponOverlay"
+OVERLAY_OUTPUTS = {"AimPoseAlpha", "LeftHandIKAlpha"}   # UAstralAnimInstance (C++ 2026-10-22) — 메인이 계산, 링크 인스턴스는 복사
+
+
+def has_weapon_overlay() -> bool:
+    """베이스 루트에 무기 포즈 오버레이 레이어 노드가 있는가 (A5 적용 여부)."""
+    s = structure(ABP)
+    return any(n["class"] == "AnimGraphNode_LinkedAnimLayer" and (n.get("linked_layer") or {}).get("layer") == OVERLAY_LAYER for n in s["nodes"])
+
+
+def patch_weapon_overlay() -> bool:
+    """무기 포즈 오버레이 (2026-10-22 사용자 PIE "조준 중 점프하면 상체가 조준 자세를 유지하지 않는다" → 추천안 승인).
+    조준 상체(AS_IdleRifleAiming_02 = AimOffset 기준 포즈)를 지상 상태마다(IdleTurn 회전·Recovery · Move strafe) 따로 덮던 것을 한 곳으로 —
+    점프 3상태는 무기 무관 클립 상체 그대로라 AO 가산이 엉뚱한 팔에 얹혔다(PIE: 상체 편차 평균 83cm, 총열↔카메라 하강 중 45° — 보정 노드 30° 초과).
+    인터페이스에 레이어 Locomotion_WeaponOverlay(InPose) 를 더하고 베이스 루트 Locomotions → [오버레이] → Slot DefaultSlot 에 둔다(슬롯 앞 — 몽타주가 계속 이긴다).
+    베이스 기본 구현 = 통과(근접·맨손). 라이플 = LayeredBoneBlend(spine_01↑ ← AimingIdle, 메시 공간, 커브는 베이스 — 턴 클립 TurnYawWeight · 점프 클립
+    DisableLHandIK 가 지나간다) · 가중치 ← AimPoseAlpha(bIsAiming 을 0.2초에 걸쳐 따라감, C++). 무기마다 이 레이어 하나에 자기 포즈를 둔다.
+    기존 상태별 덮기(Move strafe LBB · Rotation/Recovery LBB 와 그 보조 플레이어)는 같은 결과의 중복이라 지운다(단일 원천)."""
+    print(f"\n=== A5. 무기 포즈 오버레이 — 인터페이스 {OVERLAY_LAYER}(InPose) · 베이스 Locomotions → 오버레이 → DefaultSlot · 라이플 = 조준 상체 ===")
+    info = must(call("get_anim_blueprint_info", asset_path=ABP), "combat info")
+    missing = OVERLAY_OUTPUTS - {v["name"] for v in info["variables"]}
+    check(not missing, f"C++ 오버레이·왼손 알파 변수 — 누락 {sorted(missing) or '없음'} (있으면 빌드가 안 됐거나 에디터가 옛 바이너리)")
+    if missing:
+        sys.exit(1)
+    changed = False
+
+    # 1) 인터페이스 레이어 — 구현 ABP(베이스·공급자)는 도구가 conform 해 빈 레이어 그래프(Root + 입력 포즈)를 얻는다
+    ali = must(call("get_anim_blueprint_info", asset_path=hc.ALI), "ALI info")
+    if OVERLAY_LAYER not in {l["name"] for l in ali["layers"]}:
+        r = must(call("add_anim_layers", asset_path=hc.ALI, layers=[{"name": OVERLAY_LAYER, "input_poses": ["InPose"]}], compile=True, save=True, conform_implementers=True), "ALI add layer")
+        print(f"   implementers={[i.get('asset_path') or i for i in r.get('implementers', [])]}")
+        changed = True
+
+    # 2) 베이스 기본 구현 = 통과
+    g = layer_graphs(ABP)[OVERLAY_LAYER]
+    s = structure(ABP, g)
+    root = one(s["nodes"], "AnimGraphNode_Root", "베이스 오버레이 레이어")
+    if not s["connections"]:
+        inp = one(s["nodes"], "AnimGraphNode_LinkedInputPose", "베이스 오버레이 레이어")
+        apply(ABP, [{"op": "connect", "from": {"node": inp["node_guid"], "pin": "Pose"}, "to": {"node": root["node_guid"], "pin": "Result"}}], "베이스 오버레이 기본 구현(통과)",
+              compile=True, save=True)
+        changed = True
+
+    # 3) 베이스 루트 — Locomotions 와 DefaultSlot 사이
+    s = structure(ABP)
+    if not has_weapon_overlay():
+        sm = one(s["nodes"], "AnimGraphNode_StateMachine", "베이스 루트")
+        slot = next(n for n in s["nodes"] if n["class"] == "AnimGraphNode_Slot" and n["properties"].get("SlotName") == hc.FULL_BODY_SLOT)
+        ops = [
+            {"op": "disconnect", "from": {"node": sm["node_guid"], "pin": "Pose"}, "to": {"node": slot["node_guid"], "pin": "Source"}},
+            {"op": "add_node", "ref": "ov", "class": "AnimGraphNode_LinkedAnimLayer", "layer": OVERLAY_LAYER, "pos": [-1620, 150]},
+            {"op": "connect", "from": {"node": sm["node_guid"], "pin": "Pose"}, "to": {"ref": "ov", "pin": "InPose"}},
+            {"op": "connect", "from": {"ref": "ov", "pin": "Pose"}, "to": {"node": slot["node_guid"], "pin": "Source"}},
+        ]
+        apply(ABP, ops, "베이스 루트 Locomotions → 오버레이 → DefaultSlot", compile=True, save=True)
+        changed = True
+
+    # 4) 라이플 — 조준 상체
+    g = layer_graphs(PROV_RIFLE)[OVERLAY_LAYER]
+    s = structure(PROV_RIFLE, g)
+    if not any(n["class"] == "AnimGraphNode_LayeredBoneBlend" for n in s["nodes"]):
+        root = one(s["nodes"], "AnimGraphNode_Root", "라이플 오버레이 레이어")
+        inp = one(s["nodes"], "AnimGraphNode_LinkedInputPose", "라이플 오버레이 레이어")
+        ops = [
+            {"op": "add_node", "ref": "aim_pose", "graph": g, "class": "AnimGraphNode_SequencePlayer", "pos": [-500, 250], "asset": AIM_IDLE,
+             "properties": {"bLoopAnimation": True, "bIgnoreForRelevancyTest": True}},
+            {"op": "add_node", "ref": "ov_lbb", "graph": g, "class": "AnimGraphNode_LayeredBoneBlend", "pos": [-200, 0],
+             "properties": {"bMeshSpaceRotationBlend": True, "CurveBlendOption": "UseBasePose"}},
+            {"op": "set_property", "ref": "ov_lbb", "property": "LayerSetup", "value": [{"BranchFilters": [{"BoneName": UPPER_BODY_BONE, "BlendDepth": 0}]}]},
+            {"op": "add_node", "ref": "ov_w", "graph": g, "class": "K2Node_VariableGet", "variable": "AimPoseAlpha", "pos": [-500, 450]},
+            {"op": "connect", "from": {"node": inp["node_guid"], "pin": "Pose"}, "to": {"ref": "ov_lbb", "pin": "BasePose"}},
+            {"op": "connect", "from": {"ref": "aim_pose", "pin": "Pose"}, "to": {"ref": "ov_lbb", "pin": "BlendPoses_0"}},
+            {"op": "connect", "from": {"ref": "ov_w", "pin": "AimPoseAlpha"}, "to": {"ref": "ov_lbb", "pin": "BlendWeights_0"}},
+            {"op": "connect", "from": {"ref": "ov_lbb", "pin": "Pose"}, "to": {"node": root["node_guid"], "pin": "Result"}},
+        ]
+        apply(PROV_RIFLE, ops, "라이플 오버레이 = 조준 상체 (AimPoseAlpha)", compile=True, save=True)
+        changed = True
+
+    # 5) 중복 정리 — 상태별 조준 상체 블렌드와 그 보조 AimingIdle 플레이어 (오버레이가 같은 일을 한다). 사전 검증은 같은 배치의 앞선 제거를 모르므로
+    #    (단일 연결 포즈 핀) 제거와 재연결은 두 배치
+    pinfo = must(call("get_anim_blueprint_info", asset_path=PROV_RIFLE), "rifle info")
+    targets = [("Locomotion_Move", layer_graphs(PROV_RIFLE)["Locomotion_Move"], "AnimGraphNode_BlendListByBool", "BlendPose_0")]
+    targets += [(st, next(x["graph_guid"] for x in pinfo["graphs"] if x["name"] == st), "AnimGraphNode_StateResult", "Result") for st in ("TurnInPlaceRotation", "TurnInPlaceRecovery")]
+    for name, gg, dst_cls, dst_pin in targets:
+        s = structure(PROV_RIFLE, gg)
+        lbbs = [n for n in s["nodes"] if n["class"] == "AnimGraphNode_LayeredBoneBlend"]
+        if not lbbs:
+            continue
+        lbb = one(s["nodes"], "AnimGraphNode_LayeredBoneBlend", name)
+        dst = one(s["nodes"], dst_cls, name)
+        base_src = next(c["from"] for c in s["connections"] if c["to"]["node"] == lbb["node_guid"] and c["to"]["pin"] == "BasePose")
+        helper = [c["from"]["node"] for c in s["connections"] if c["to"]["node"] == lbb["node_guid"] and c["to"]["pin"] == "BlendPoses_0"]
+        apply(PROV_RIFLE, [{"op": "remove_node", "node": n} for n in [lbb["node_guid"], *helper]], f"{name} 상체 블렌드 제거 (중복)")
+        apply(PROV_RIFLE, [{"op": "connect", "from": base_src, "to": {"node": dst["node_guid"], "pin": dst_pin}}], f"{name} 직결", compile=True, save=True)
+        changed = True
+    return changed
+
+
+def patch_left_hand_alpha() -> bool:
+    """왼손 IK 조건 (2026-10-22 사용자 PIE "비조준 점프에서 왼손이 계속 총을 잡아 부자연스럽다" → 추천안 승인).
+    TwoBoneIK 알파 bool(bHasLeftHandGrip) → float LeftHandIKAlpha(C++): 파지점 × (1 − DisableLHandIK 커브 × (1 − AimPoseAlpha)), 0.15초 등속 보간.
+    커브는 클립이 "왼손이 비었다" 고 표시(점프 3클립 — setup/hero_jump_lhand_curve, 이후 장전 몽타주) · 조준 오버레이가 상체를 두 손 조준 자세로 덮는 만큼 지운다.
+    왼손 손가락(쥔 모양) LayeredBoneBlend 가중치도 같은 값 — 놓으면 손가락도 클립 그대로 펴진다."""
+    print("\n=== A6. 공급자 Aim_UpperBody — 왼손 IK 알파 · 손가락 가중치 ← LeftHandIKAlpha ===")
+    g = layer_graphs(PROV_RIFLE)["Aim_UpperBody"]
+    s = structure(PROV_RIFLE, g)
+    ik = one(s["nodes"], "AnimGraphNode_TwoBoneIK", "공급자 Aim_UpperBody")
+    fing = one(s["nodes"], "AnimGraphNode_LayeredBoneBlend", "공급자 Aim_UpperBody")
+    changed = False
+    if bound_path(ik, "Alpha") != ["LeftHandIKAlpha"]:
+        ops: list[dict] = []
+        if bound_path(ik, "bAlphaBoolEnabled"):
+            ops.append({"op": "unbind_pin", "node": ik["node_guid"], "property": "bAlphaBoolEnabled"})
+        ops += [{"op": "set_property", "node": ik["node_guid"], "property": "AlphaInputType", "value": "Float"}]
+        apply(PROV_RIFLE, ops, "왼손 IK 알파 입력 bool → float")
+        apply(PROV_RIFLE, [{"op": "bind_pin", "node": ik["node_guid"], "property": "Alpha", "path": "LeftHandIKAlpha"}], "왼손 IK Alpha ← LeftHandIKAlpha", compile=True, save=True)
+        changed = True
+    if not any(c["to"]["node"] == fing["node_guid"] and c["to"]["pin"] == "BlendWeights_0" for c in s["connections"]):
+        ops = [
+            {"op": "add_node", "ref": "lh_w", "graph": g, "class": "K2Node_VariableGet", "variable": "LeftHandIKAlpha", "pos": [-450, 550]},
+            {"op": "connect", "from": {"ref": "lh_w", "pin": "LeftHandIKAlpha"}, "to": {"node": fing["node_guid"], "pin": "BlendWeights_0"}},
+        ]
+        apply(PROV_RIFLE, ops, "왼손 손가락 가중치 ← LeftHandIKAlpha", compile=True, save=True)
+        changed = True
+    if not changed:
+        print("   이미 있음 — 건너뜀")
+    return changed
+
+
+CARRY_BONE = "clavicle_r"   # 무기 든 팔 — 무기는 hand_r 에 붙는다(WeaponReferenceBone)
+
+
+def patch_weapon_carry() -> bool:
+    """비조준 공중의 무기 든 팔 = 휴대 자세 (2026-10-22 사용자 "후속안도 구현" — A5·A6 뒤 PIE: 왼손을 놓자 총이 오른손 혼자 점프 클립 팔을 따라
+    최대 +48° 들렸다). 라이플 오버레이에서 조준 상체 블렌드 앞에 LayeredBoneBlend(clavicle_r↓ ← AS_Hero_Rifle_Idle 프레임 0, 메시 공간 — 몸통이 숙여도
+    총은 휴대 방향 그대로, 커브는 베이스) · 가중치 ← HandsFreeAlpha(클립이 무기에서 손을 뗀 정도 = DisableLHandIK × (1 − AimPoseAlpha) — 왼손 IK 를 끄는 것과
+    같은 신호). 조준 중엔 0 이고 조준 블렌드가 상체를 통째로 덮는다. 상태 규칙이 아니라 클립 표시라 무기 전용 두 손 점프 클립이 생기면 커브만 빼면 된다.
+    휴대 포즈는 정지 프레임(SequenceEvaluator) — Rifle_Idle 은 8.9초 대기 클립이라 공중 1초 안에 몸짓이 섞이지 않게."""
+    print(f"\n=== A7. 라이플 오버레이 — 비조준 공중 오른팔 휴대 자세 ({CARRY_BONE}↓ ← Rifle_Idle, 가중치 ← HandsFreeAlpha) ===")
+    info = must(call("get_anim_blueprint_info", asset_path=ABP), "combat info")
+    check("HandsFreeAlpha" in {v["name"] for v in info["variables"]}, "C++ HandsFreeAlpha 변수 (없으면 빌드가 안 됐거나 에디터가 옛 바이너리)")
+    g = layer_graphs(PROV_RIFLE)[OVERLAY_LAYER]
+    s = structure(PROV_RIFLE, g)
+    lbbs = [n for n in s["nodes"] if n["class"] == "AnimGraphNode_LayeredBoneBlend"]
+    if len(lbbs) >= 2:
+        print("   이미 있음 — 건너뜀")
+        return False
+    aim_lbb = one(s["nodes"], "AnimGraphNode_LayeredBoneBlend", "라이플 오버레이 레이어")
+    inp = one(s["nodes"], "AnimGraphNode_LinkedInputPose", "라이플 오버레이 레이어")
+    ops = [
+        {"op": "disconnect", "from": {"node": inp["node_guid"], "pin": "Pose"}, "to": {"node": aim_lbb["node_guid"], "pin": "BasePose"}},
+        {"op": "add_node", "ref": "carry_pose", "graph": g, "class": "AnimGraphNode_SequenceEvaluator", "pos": [-800, 250], "asset": RIFLE_IDLE,
+         "properties": {"ExplicitTime": 0.0}},
+        {"op": "add_node", "ref": "carry_lbb", "graph": g, "class": "AnimGraphNode_LayeredBoneBlend", "pos": [-500, 0],
+         "properties": {"bMeshSpaceRotationBlend": True, "CurveBlendOption": "UseBasePose"}},
+        {"op": "set_property", "ref": "carry_lbb", "property": "LayerSetup", "value": [{"BranchFilters": [{"BoneName": CARRY_BONE, "BlendDepth": 0}]}]},
+        {"op": "add_node", "ref": "carry_w", "graph": g, "class": "K2Node_VariableGet", "variable": "HandsFreeAlpha", "pos": [-800, 450]},
+        {"op": "connect", "from": {"node": inp["node_guid"], "pin": "Pose"}, "to": {"ref": "carry_lbb", "pin": "BasePose"}},
+        {"op": "connect", "from": {"ref": "carry_pose", "pin": "Pose"}, "to": {"ref": "carry_lbb", "pin": "BlendPoses_0"}},
+        {"op": "connect", "from": {"ref": "carry_w", "pin": "HandsFreeAlpha"}, "to": {"ref": "carry_lbb", "pin": "BlendWeights_0"}},
+        {"op": "connect", "from": {"ref": "carry_lbb", "pin": "Pose"}, "to": {"node": aim_lbb["node_guid"], "pin": "BasePose"}},
+    ]
+    apply(PROV_RIFLE, ops, "라이플 오버레이 휴대 팔 (HandsFreeAlpha)", compile=True, save=True)
+    return True
+
+
 def patch() -> None:
     if not patch_base():
         patch_aim_before_root()
@@ -547,6 +775,9 @@ def patch() -> None:
     patch_left_hand_ik()
     patch_left_hand_fingers()
     patch_aim_correction()
+    patch_weapon_overlay()
+    patch_left_hand_alpha()
+    patch_weapon_carry()
 
 
 def main() -> int:

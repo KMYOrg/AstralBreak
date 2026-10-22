@@ -108,7 +108,7 @@ def section_b_to_f() -> dict:
         sys.exit(1)
     idle = next((s for s in seqs if "Idle" in s), seqs[0])
     other = next((s for s in seqs if s != idle), seqs[1])
-    # AimOffset 도 UBlendSpace 파생이라 같은 필터에 잡힌다 — BlendSpacePlayer 에는 넣을 수 없으므로 일반 BlendSpace 만 (7-6 뒤 AO_Hero_Rifle 이 알파벳순 첫째)
+    # AimOffset 도 UBlendSpace 파생이라 같은 필터에 잡힌다 — BlendSpacePlayer 에는 넣을 수 없으므로 일반 BlendSpace 만 (7-6 뒤 AO_Vesper_Rifle 이 알파벳순 첫째)
     blendspaces = [a for a in must(bridge.call("list_animation_assets", {"skeleton": SKELETON, "class": "BlendSpace", "limit": 20}), "list bs")["assets"]
                    if a["class"] in ("BlendSpace", "BlendSpace1D")]
     bs = blendspaces[0]["asset_path"] if blendspaces else None

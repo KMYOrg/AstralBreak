@@ -2,7 +2,7 @@
 
     PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/phase5_build_hero.py [--overwrite] [--recheck] [--diff-only]
 
-산출: /Game/Animation/Hero/ABP_Hero_McpBuild (저장) · Tools/mcp/phase5_build_state.json · .claude/plans/animbp-phase5-hero-diff.md (운영 애셋과 비교)
+산출: /Game/Animation/Test/ABP_Hero_McpBuild (저장) · Tools/mcp/phase5_build_state.json · .claude/plans/animbp-phase5-hero-diff.md (운영 애셋과 비교)
 운영 애셋 /Game/Animation/Hero/ABP_Hero_Base 는 읽기(비교)만 한다.
 
 구성 (운영 애셋 덤프 2026-10-16 기준, 수치는 거기서 가져옴):
@@ -11,7 +11,7 @@
          ※ 상체 슬롯은 반드시 전신 슬롯 **뒤**에. 나란히 두면 UpperBody 슬롯이 비어 있을 때 로코모션 상체가 전신 몽타주 상체를 덮는다 (2026-10-16 PIE 에서 실측된 실수)
   SM     `Locomotions` — 상태 5(Idle · Move · JumpStart · FallLoop · FallLand) · conduit 2(JumpSelector · EndInAir) · alias 4(JumpSources · JumpFallInterruptSources · IdleAlias · MoveAlias)
          · 전이 12, Entry=Idle — 운영 애셋과 1:1 (Phase 6-1 부터; 그 전엔 alias/conduit 없이 직접 전이로 단순화했었다)
-  상태   Idle=AS_Idle · Move=BS_Hero_Locomotion1D(X←Speed) · JumpStart=AS_Hero_Jump · FallLoop=AS_Hero_FallLoop · FallLand=AS_Hero_Land
+  상태   Idle=AS_Idle · Move=BS_Vesper_Locomotion1D(X←Speed) · JumpStart=AS_Vesper_Jump_Start · FallLoop=AS_Vesper_Jump_FallLoop · FallLand=AS_Vesper_Jump_Land
          상태 생성·내부 채우기·conduit·alias·전이·이름 변경이 **배치 하나** (graph:{ref} · result_of · rename_node)
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ import sys
 
 from anim_graph_mcp import bridge
 
-BUILD = "/Game/Animation/Hero/ABP_Hero_McpBuild"
+BUILD = "/Game/Animation/Test/ABP_Hero_McpBuild"
 PROD = "/Game/Animation/Hero/ABP_Hero_Base"
 SKELETON = "/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F"
 PARENT = "/Script/AstralBreak.AstralAnimInstance"
@@ -31,10 +31,10 @@ DIFF_FILE = pathlib.Path(".claude/plans/animbp-phase5-hero-diff.md")
 
 ASSETS = {
     "idle": "/Game/Assets/IdaFaber/Demo/Animations/Girl/AS_Idle",
-    "bs": "/Game/Animation/Hero/Anims/Locomotions/BS_Hero_Locomotion1D",
-    "jump": "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_Jump",
-    "fall": "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_FallLoop",
-    "land": "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_Land",
+    "bs": "/Game/Animation/Hero/Vesper/Common/Locomotion/BS_Vesper_Locomotion1D",
+    "jump": "/Game/Animation/Hero/Vesper/Common/Locomotion/AS_Vesper_Jump_Start",
+    "fall": "/Game/Animation/Hero/Vesper/Common/Locomotion/AS_Vesper_Jump_FallLoop",
+    "land": "/Game/Animation/Hero/Vesper/Common/Locomotion/AS_Vesper_Jump_Land",
 }
 # 운영 애셋 전이 규칙의 리터럴 (덤프에서 읽음)
 SPEED_STOP = 10.0      # Move → Idle: !bHasMovementInput && Speed < 10

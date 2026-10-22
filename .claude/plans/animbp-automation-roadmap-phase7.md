@@ -66,7 +66,7 @@
 
 ## 3. 콘텐츠 애셋 — AimOffset · 몽타주 슬롯/섹션 · 스켈레톤 슬롯 (기존 Python 몽타주 파이프라인은 유지) ← ✅ 7-3 완료 (2026-10-17)
 
-> 구현 결과(사용자 확정 4건): 계획과 다른 점 — **`create_anim_montage` 를 최소형으로 추가**(시퀀스 1개 → 몽타주; 프로젝트 의존 0, 노티파이는 계속 Python) · AimOffset 은 새 Tool 이 아니라 **`create_blendspace {aim_offset:true}`** · `set_montage_slots` 는 스켈레톤에 없는 슬롯을 **거부**(자동 등록 안 함) · `add_skeleton_slot` 은 `confirm:true` 필수 · 스모크 `AnimGraphMcp.Smoke.AnimMontage` 추가. 실측(스켈레톤 2개 · `AS_Hero_AO_RifleCC` 기준 포즈 없음 · 6-3 실패 경로 결함)은 phase1 "Phase 7-3 결과".
+> 구현 결과(사용자 확정 4건): 계획과 다른 점 — **`create_anim_montage` 를 최소형으로 추가**(시퀀스 1개 → 몽타주; 프로젝트 의존 0, 노티파이는 계속 Python) · AimOffset 은 새 Tool 이 아니라 **`create_blendspace {aim_offset:true}`** · `set_montage_slots` 는 스켈레톤에 없는 슬롯을 **거부**(자동 등록 안 함) · `add_skeleton_slot` 은 `confirm:true` 필수 · 스모크 `AnimGraphMcp.Smoke.AnimMontage` 추가. 실측(스켈레톤 2개 · `AS_Vesper_Rifle_AO_CC` 기준 포즈 없음 · 6-3 실패 경로 결함)은 phase1 "Phase 7-3 결과".
 
 **이미 있는 것 (2026-10-17 확인)** — 몽타주·노티파이는 이 프로젝트에 **별도의 검증된 파이프라인**이 있다: `Tools/lib/ab_montage.py`(에디터 안 Python, `unreal.AnimationLibrary`) + JSON 스펙(`Tools/data/montages.json`·`facing_warp.json`·`input_facing.json`·`pawn_collision.json`) + `Tools/scripts/build_montages.py`·`lockon_apply_*.py` 를 `Tools/ue_exec.py`(Python 원격 실행)로 돌린다. 몽타주 생성·블렌드·노티파이/노티파이 스테이트·트랙·프로젝트 전용 클래스(GameplayEvent 창·MotionWarping·PawnCollisionPolicy·InputFacing 의 modifier 서브오브젝트 설정)·멱등 재적용·덤프 검증까지 된다. **이것을 MCP 로 다시 만들지 않는다** — 노티파이 클래스와 modifier 설정은 프로젝트 고유라 범용 플러그인에 넣으면 6-6 의 범용화와 충돌하고, Python 쪽이 이미 실측 검증돼 있다.
 

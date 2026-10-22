@@ -4,7 +4,7 @@ sys.path.insert(0, r"D:/UE5Projects/AstralBreak/Tools/lib")
 import unreal
 
 abl = unreal.AnimationLibrary
-mon = unreal.load_asset("/Game/Animation/Hero/Montages/AM_Hero_Attack1")
+mon = unreal.load_asset("/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack1")
 events = abl.get_animation_notify_events(mon)
 ev = events[0]
 print("dir(ev):", [p for p in dir(ev) if not p.startswith("_")])

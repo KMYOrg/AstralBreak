@@ -17,9 +17,9 @@
 ## 1. 지금까지 한 것 (요약, 시간순)
 
 1. **히어로 전투 ABP** (10-19): Lyra 식 Linked Anim Layer — `ALI_HeroCombat`(Locomotion_Idle · Locomotion_Move · Aim_UpperBody) · 베이스 `ABP_Hero_Combat`(부모 `UAstralAnimInstance`, 운영 `ABP_Hero_Base` 의 상태머신 1:1, 기본 구현 = 근접) · 공급자 `ABP_HeroLayers_Rifle`. 런타임: `UAstralGE_RangedAimHold`(State.Ranged.Aiming, 발사마다 2초) · `bIsAiming/AimYaw/AimPitch` · 회전 모드 전환 · 장비 계열 `AnimLayerClass` 링크. 사용자 PIE 확인 완료.
-2. **제자리 회전** (10-20 낮): 순수 계산 `FAstralTurnInPlaceState` + `UAstralAnimInstance` 출력 + `GetMainAnimInstance()`; 베이스 `RotateRootBone(Yaw←RootYawOffset)`; 공급자 조준 Idle 가지에 상태머신 **IdleTurn**(Idle → Rotation(BlendListByEnum ← TurnInPlaceKind, 클립 4) → Recovery(StartPosition ← TurnInPlaceAnimTime) → 자동 Idle; Recovery → Rotation 재진입), 전이 4개 **Inertialization**; 턴 클립 `MF_Rifle_Turn{Left,Right}_{90,180}` 스켈레톤 A 재할당 + `/Game/Animation/Hero/Anims/TurnInPlace/`.
+2. **제자리 회전** (10-20 낮): 순수 계산 `FAstralTurnInPlaceState` + `UAstralAnimInstance` 출력 + `GetMainAnimInstance()`; 베이스 `RotateRootBone(Yaw←RootYawOffset)`; 공급자 조준 Idle 가지에 상태머신 **IdleTurn**(Idle → Rotation(BlendListByEnum ← TurnInPlaceKind, 클립 4) → Recovery(StartPosition ← TurnInPlaceAnimTime) → 자동 Idle; Recovery → Rotation 재진입), 전이 4개 **Inertialization**; 턴 클립 `AS_Vesper_Rifle_Turn{Left,Right}_{90,180}` 스켈레톤 A 재할당 + `/Game/Animation/Hero/Vesper/Rifle/TurnInPlace/`.
 3. **사용자 1차 보고 수정**(상체 접힘·휙·180° 뒤집힘): 커브 재진입 가짜 델타(`NewClipTolerance`) · 누적 합 정규화 뒤집힘 제거 · 클램프 120→150(180 클립 선택 가능) · Rotation/Recovery 상체 LayeredBoneBlend(spine_01, 메시 공간, 커브 UseBasePose) · 플러그인 허용 목록 `LogicType`·`bIgnoreForRelevancyTest`.
-4. **사용자 2차 보고 수정**(팔 자세): 진짜 원인 = **AimOffset 기준 포즈**. AO 9샘플은 `AS_IdleRifleAiming_02` 프레임 0 기준 저작(CC 와 0.0°)인데 기준이 총 내린 `AS_Hero_Rifle_Idle` → 델타 거대 → Yaw 30~85 에서 두 손이 붙음(23→6cm). 수정: 9샘플 재기준 + 조준 중 상체 전부 AimingIdle(IdleTurn Idle · Rotation/Recovery 기본·상체 · **Move strafe 가지에도 LBB**). 비조준 가지(Rifle_Idle·Jog)는 그대로. 프로브: 손 거리 23 유지.
+4. **사용자 2차 보고 수정**(팔 자세): 진짜 원인 = **AimOffset 기준 포즈**. AO 9샘플은 `AS_Vesper_Rifle_AimIdle` 프레임 0 기준 저작(CC 와 0.0°)인데 기준이 총 내린 `AS_Vesper_Rifle_Idle` → 델타 거대 → Yaw 30~85 에서 두 손이 붙음(23→6cm). 수정: 9샘플 재기준 + 조준 중 상체 전부 AimingIdle(IdleTurn Idle · Rotation/Recovery 기본·상체 · **Move strafe 가지에도 LBB**). 비조준 가지(Rifle_Idle·Jog)는 그대로. 프로브: 손 거리 23 유지.
 5. 별도 세션: `get_anim_graph_structure` 전이에 `logic_type` 추가(미커밋, 같은 체크아웃).
 
 ## 2. 현재 구조 (그래프 · 코드)
@@ -29,13 +29,13 @@ ABP_Hero_Combat (베이스) 루트: SM Locomotions(Idle/Move 상태 = LinkedAnim
                                → LinkedAnimLayer Aim_UpperBody → RotateRootBone(Yaw ← RootYawOffset) → Inertialization → Output
                                (2026-10-21 순서 교정: AO 가산은 루트 회전 전 — hero-combat-abp.md §7 "AO 순서")
 ABP_HeroLayers_Rifle (공급자)
-  Locomotion_Idle: BlendListByBool(bIsAiming)  true(BlendPose_0!) = SM IdleTurn  /  false = AS_Hero_Rifle_Idle
-     IdleTurn: Idle(AS_IdleRifleAiming_02) ─GetMainAnimInstance.bWantsTurnInPlace→ TurnInPlaceRotation ─bTurnInPlaceRotationFinished→ TurnInPlaceRecovery ─자동→ Idle, Recovery ─bWants→ Rotation
+  Locomotion_Idle: BlendListByBool(bIsAiming)  true(BlendPose_0!) = SM IdleTurn  /  false = AS_Vesper_Rifle_Idle
+     IdleTurn: Idle(AS_Vesper_Rifle_AimIdle) ─GetMainAnimInstance.bWantsTurnInPlace→ TurnInPlaceRotation ─bTurnInPlaceRotationFinished→ TurnInPlaceRecovery ─자동→ Idle, Recovery ─bWants→ Rotation
        Rotation/Recovery 포즈: BlendListByEnum(EAstralTurnInPlaceKind ← GetMainAnimInstance.TurnInPlaceKind; 기본 AimingIdle, Left90/Left180/Right90/Right180 = MF 클립, Recovery 는 StartPosition ← TurnInPlaceAnimTime)
                               → LayeredBoneBlend(BasePose=턴 클립, BlendPoses_0=AimingIdle, spine_01 depth 0, 메시 공간, CurveBlendOption=UseBasePose) → StateResult
        전이 4개 LogicType=Inertialization, Crossfade 0.2, Rotation 은 bAlwaysResetOnEntry
-  Locomotion_Move: BlendListByBool(bIsAiming) true = BS_Hero_Rifle_Strafe(Direction,Speed) → LayeredBoneBlend(상체 AimingIdle) / false = BS_Hero_Rifle_Jog(Speed)
-  Aim_UpperBody: InPose → AimOffset AO_Hero_Rifle(X←AimYaw, Y←AimPitch, Alpha bool←bIsAiming)
+  Locomotion_Move: BlendListByBool(bIsAiming) true = BS_Vesper_Rifle_Strafe(Direction,Speed) → LayeredBoneBlend(상체 AimingIdle) / false = BS_Vesper_Rifle_Jog(Speed)
+  Aim_UpperBody: InPose → AimOffset AO_Vesper_Rifle(X←AimYaw, Y←AimPitch, Alpha bool←bIsAiming)
                  → LayeredBoneBlend(hand_l 이하 ← AimingIdle 손가락) → L2C → CopyBone(hand_r→ik_hand_gun) → ModifyBone(ik_hand_l ← 무기 파지점) → TwoBoneIK(hand_l → ik_hand_l) → C2L   (2026-10-21 왼손 IK 2판, 파지점 = 총 소켓 LeftHandIK · 장비 매니저가 이벤트로 넣음)
 ```
 - C++: `Source/AstralBreak/Animation/AstralTurnInPlace.{h,cpp}`(Settings: Clamp 150 · TurnThreshold 50 · Turn180Threshold 135 · 스프링 80/1 · AnimActiveWeightThreshold 0.001 · RotationFinishedTolerance 1 · NewClipTolerance 2; Update 순서: 커브 처리(가중 해제 rem/w, 새 클립 감지 시 델타 버림) → 누적(델타만 정규화, 합은 클램프) 또는 스프링 복귀 → 클램프 → wants·Kind 래치(상승 에지)) · `AstralAnimInstance.{h,cpp}`(스냅샷 YawDelta·전신 몽타주 슬롯 가중치 · 누적 조건 = 조준∧지상∧Speed<10∧입력 없음∧전신 몽타주 없음 · 출력 RootYawOffset/bWantsTurnInPlace/bTurnInPlaceRotationFinished/TurnInPlaceKind/TurnInPlaceAnimTime + 디버그 TurnYawCurveValue/TurnInPlaceDebugWeight/Remaining/bTurnInPlaceAccumulating · `AimYaw = NormalizeAxis(AimDelta.Yaw − RootYawOffset)` · `GetMainAnimInstance()` BlueprintThreadSafe) · 테스트 `Tests/AstralTurnInPlaceTests.cpp` 4개.

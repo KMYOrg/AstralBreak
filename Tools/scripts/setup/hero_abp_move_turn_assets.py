@@ -1,5 +1,5 @@
 import sys
-# 히어로 제자리 회전 클립 4개 — Content 루트(/Game/MF_Rifle_Turn*) → /Game/Animation/Hero/Anims/TurnInPlace/ 로 이동 (멱등).
+# 히어로 제자리 회전 클립 4개 — Content 루트(/Game/MF_Rifle_Turn*, Lyra 원본 이름) → /Game/Animation/Hero/Vesper/Rifle/TurnInPlace/AS_Vesper_Rifle_Turn* 로 이동 (멱등).
 # 스켈레톤 재할당은 MCP Tool reassign_skeleton 이 먼저(또는 뒤에) 한다. 실행은 ue_exec 브릿지 경유 (주석에 확장자 금지 — ExecuteFile 경로 오인)
 sys.path.insert(0, r"D:/UE5Projects/AstralBreak/Tools/lib")
 import unreal
@@ -7,11 +7,13 @@ import unreal
 EAL = unreal.EditorAssetLibrary
 log = unreal.log
 
-NAMES = ["MF_Rifle_TurnLeft_90", "MF_Rifle_TurnLeft_180", "MF_Rifle_TurnRight_90", "MF_Rifle_TurnRight_180"]
-DST_DIR = "/Game/Animation/Hero/Anims/TurnInPlace"
+SRC_NAMES = {"AS_Vesper_Rifle_TurnLeft_90": "MF_Rifle_TurnLeft_90", "AS_Vesper_Rifle_TurnLeft_180": "MF_Rifle_TurnLeft_180",
+             "AS_Vesper_Rifle_TurnRight_90": "MF_Rifle_TurnRight_90", "AS_Vesper_Rifle_TurnRight_180": "MF_Rifle_TurnRight_180"}
+NAMES = list(SRC_NAMES)
+DST_DIR = "/Game/Animation/Hero/Vesper/Rifle/TurnInPlace"
 
 for name in NAMES:
-    src = f"/Game/{name}"
+    src = f"/Game/{SRC_NAMES[name]}"
     dst = f"{DST_DIR}/{name}"
     if EAL.does_asset_exist(dst):
         log(f"MOVE_EXISTS: {dst}")

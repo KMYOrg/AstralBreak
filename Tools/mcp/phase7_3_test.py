@@ -7,7 +7,7 @@ HTTP 직접 호출로 검증한다. 대상(생성·덮어쓰기): /Game/Animatio
 스켈레톤 SKEL_UE5_F 에는 UpperBody 슬롯을 (없으면) 등록·저장하고, McpTestSlot/McpTestGroup 은 저장하지 않는다(재시작 뒤 사라져야 함).
 검사 항목:
   A. 스켈레톤 슬롯 — UpperBody 등록(멱등) · 임시 슬롯/그룹 생성·이동 · 거부 6종 · info.skeleton_slot_groups
-  B. 몽타주 생성 — AS_Hero_Attack1 → AM_McpTest(slot UpperBody, blend) · 거부 6종(ASSET_EXISTS · 없는 애니 · BlendSpace · 미등록 슬롯 · 음수 blend · 보호 애셋)
+  B. 몽타주 생성 — AS_Vesper_Sickle_Attack1 → AM_McpTest(slot UpperBody, blend) · 거부 6종(ASSET_EXISTS · 없는 애니 · BlendSpace · 미등록 슬롯 · 음수 blend · 보호 애셋)
   C. 슬롯 — 이름 변경 양방향 · 문자열 축약형 · 멱등 · 거부 5종 · 거부 뒤 불변
   D. 섹션 — 3섹션 체인+루프 · 멱등 · 정렬 · 거부 6종 · 0 미시작 경고 · 거부 뒤 불변
   E. 저장 · list details(montage · additive_type) · 몽타주 스모크(passed, 미사용 슬롯 경고)
@@ -23,15 +23,15 @@ import time
 from anim_graph_mcp import bridge
 
 SKELETON = "/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F"
-# 프로젝트에는 같은 이름의 스켈레톤이 둘 있었다(2026-10-17 실측): AS_Hero_Attack1~3 · AO_Rifle* · AM_Hero_Attack1~3 이 /Game/IdaFaber/… 쪽.
+# 프로젝트에는 같은 이름의 스켈레톤이 둘 있었다(2026-10-17 실측): AS_Vesper_Sickle_Attack1~3 · AO_Rifle* · AM_Vesper_Sickle_Attack1~3 이 /Game/IdaFaber/… 쪽.
 # 2026-10-19 (7-6) reassign_skeleton 으로 /Game/Animation/Hero 전부를 /Game/Assets/… 쪽으로 통합했다 — AimOffset 도 같은 스켈레톤
 SKELETON_AO = SKELETON
 PROD_ABP = "/Game/Animation/Hero/ABP_Hero_Base"
-SEQ = "/Game/Animation/Hero/Anims/Combat/AS_Hero_Finisher1"
+SEQ = "/Game/Animation/Hero/Vesper/Sickle/Actions/AS_Vesper_Sickle_Finisher1"
 IDLE = "/Game/Assets/IdaFaber/Demo/Animations/Girl/AS_Idle"
-BS_PROD = "/Game/Animation/Hero/Anims/Locomotions/BS_Hero_Locomotion1D"
+BS_PROD = "/Game/Animation/Hero/Vesper/Common/Locomotion/BS_Vesper_Locomotion1D"
 PROTECTED = "/Game/Assets/IdaFaber/Demo/Animations/Girl/AS_Idle"
-AO_DIR = "/Game/Animation/Hero/Anims/Locomotions"
+AO_DIR = "/Game/Animation/Hero/Vesper/Rifle/Aim"
 AM = "/Game/Animation/Test/AM_McpTest"
 AO = "/Game/Animation/Test/AO_McpTest"
 AO1D = "/Game/Animation/Test/AO_McpTest1D"
@@ -43,7 +43,7 @@ NEW_TOOLS = {"create_anim_montage", "set_montage_slots", "set_montage_sections",
 FAILS: list[str] = []
 
 # AimOffset 샘플 — 이름 꼬리 [L|C|R][U|C|D] → (yaw, pitch)
-AO_SAMPLES = {f"{AO_DIR}/AS_Hero_AO_Rifle{h}{v}": [yaw, pitch]
+AO_SAMPLES = {f"{AO_DIR}/AS_Vesper_Rifle_AO_{h}{v}": [yaw, pitch]
               for h, yaw in (("L", -90), ("C", 0), ("R", 90)) for v, pitch in (("U", 90), ("C", 0), ("D", -90))}
 
 

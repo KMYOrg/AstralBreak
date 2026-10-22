@@ -8,7 +8,7 @@
   - C++ 빌드 — Animation/AstralTurnInPlace(순수 계산) · UAstralAnimInstance 출력(RootYawOffset · bWantsTurnInPlace · bTurnInPlaceRotationFinished ·
     TurnInPlaceKind · TurnInPlaceAnimTime) · GetMainAnimInstance()(BlueprintThreadSafe) · 플러그인 허용 목록 LogicType
   - 턴 클립 4개: reassign_skeleton 으로 스켈레톤 A(/Game/Assets/IdaFaber/...) 재할당 → Tools/scripts/setup/hero_abp_move_turn_assets(ue_exec) 로
-    /Game/Animation/Hero/Anims/TurnInPlace/ 이동 (커브 TurnYawWeight · RemainingTurnYaw 확인 로그)
+    /Game/Animation/Hero/Vesper/Rifle/TurnInPlace/ 이동 (커브 TurnYawWeight · RemainingTurnYaw 확인 로그)
 그래프:
   베이스 루트: LayeredBoneBlend → Aim_UpperBody 레이어 → RotateRootBone(Yaw ← RootYawOffset) → [L2C → Astral Aim Correction → C2L] → Inertialization → Output
      (최종 조준 보정 — RotateRootBone 뒤 최종 컴포넌트 공간에서 총열이 조준점을 향하도록 척추 spine_03~05 를 마저 돌린다: patch_aim_correction)
@@ -22,7 +22,7 @@
        ─ GetMainAnimInstance.bTurnInPlaceRotationFinished ─▶ TurnInPlaceRecovery: 같은 구성 + 각 클립 StartPosition ← GetMainAnimInstance.TurnInPlaceAnimTime
                                                    (회전이 끝난 지점부터 이어 재생) ─ 자동(클립 끝) ─▶ Idle,  Recovery ─ bWantsTurnInPlace ─▶ Rotation
   무기 포즈 오버레이(2026-10-22, patch_weapon_overlay): 베이스 루트 Locomotions → LinkedAnimLayer Locomotion_WeaponOverlay → Slot DefaultSlot —
-     라이플은 조준 상체(AS_IdleRifleAiming_02)를 AimPoseAlpha 로 덮는다. 상태와 무관한 한 곳이라 점프·낙하에도 조준 자세(지상 상태별 덮기는 지웠다).
+     라이플은 조준 상체(AS_Vesper_Rifle_AimIdle)를 AimPoseAlpha 로 덮는다. 상태와 무관한 한 곳이라 점프·낙하에도 조준 자세(지상 상태별 덮기는 지웠다).
      그 앞에 휴대 팔(오른팔 ← Rifle_Idle, HandsFreeAlpha — 무기 무관 클립이 손을 뗀 동안 총을 휴대 자세로, patch_weapon_carry).
      왼손 IK 알파 = LeftHandIKAlpha(C++ — 클립 커브 DisableLHandIK 와 조준 오버레이로, patch_left_hand_alpha)
   전이는 전부 LogicType = Inertialization (Lyra 와 같다). 표준 크로스페이드면 클립↔클립 블렌드 중 두 클립의 커브가 가중 합산되어
@@ -41,9 +41,9 @@ from anim_graph_mcp import bridge
 import build_hero_combat as hc
 from build_hero_combat import ABP, HERO, MESH, PROV_RIFLE, RIFLE_IDLE, apply, call, check, layer_graphs, must
 
-TURN_DIR = f"{HERO}/Anims/TurnInPlace"
+TURN_DIR = f"{HERO}/Vesper/Rifle/TurnInPlace"
 # 순서 = BlendListByEnum 노출 순서 = BlendPose_1..4
-CLIPS = {"Left90": "MF_Rifle_TurnLeft_90", "Left180": "MF_Rifle_TurnLeft_180", "Right90": "MF_Rifle_TurnRight_90", "Right180": "MF_Rifle_TurnRight_180"}
+CLIPS = {"Left90": "AS_Vesper_Rifle_TurnLeft_90", "Left180": "AS_Vesper_Rifle_TurnLeft_180", "Right90": "AS_Vesper_Rifle_TurnRight_90", "Right180": "AS_Vesper_Rifle_TurnRight_180"}
 ENUM = "/Script/AstralBreak.EAstralTurnInPlaceKind"
 MAIN = "GetMainAnimInstance"
 SM_NAME = "IdleTurn"
@@ -254,12 +254,12 @@ def verify() -> None:
     aim_lbb = cls.get(feeds_of(ov_root).get("Result", {}).get("node"))
     carry_lbb = cls.get(feeds_of(aim_lbb).get("BasePose", {}).get("node")) if aim_lbb else None
     aim_pose = cls.get(feeds_of(aim_lbb).get("BlendPoses_0", {}).get("node"), {}) if aim_lbb else {}
-    check(lbb_ok(aim_lbb, UPPER_BODY_BONE, "AS_IdleRifleAiming_02", "AimPoseAlpha", "AnimGraphNode_LayeredBoneBlend")
+    check(lbb_ok(aim_lbb, UPPER_BODY_BONE, "AS_Vesper_Rifle_AimIdle", "AimPoseAlpha", "AnimGraphNode_LayeredBoneBlend")
           and aim_pose.get("properties", {}).get("bIgnoreForRelevancyTest") is True,
-          "라이플 오버레이 조준 상체 = spine_01↑ ← AS_IdleRifleAiming_02 (메시 공간 · 커브 베이스 · 관련 플레이어 제외) · 가중치 ← AimPoseAlpha · 아래는 휴대 팔")
-    check(lbb_ok(carry_lbb, CARRY_BONE, "AS_Hero_Rifle_Idle", "HandsFreeAlpha", "AnimGraphNode_LinkedInputPose")
+          "라이플 오버레이 조준 상체 = spine_01↑ ← AS_Vesper_Rifle_AimIdle (메시 공간 · 커브 베이스 · 관련 플레이어 제외) · 가중치 ← AimPoseAlpha · 아래는 휴대 팔")
+    check(lbb_ok(carry_lbb, CARRY_BONE, "AS_Vesper_Rifle_Idle", "HandsFreeAlpha", "AnimGraphNode_LinkedInputPose")
           and cls.get(feeds_of(carry_lbb).get("BlendPoses_0", {}).get("node"), {}).get("class") == "AnimGraphNode_SequenceEvaluator",
-          f"라이플 오버레이 휴대 팔 = InPose 위 {CARRY_BONE}↓ ← AS_Hero_Rifle_Idle 정지 프레임 (메시 공간 · 커브 베이스) · 가중치 ← HandsFreeAlpha")
+          f"라이플 오버레이 휴대 팔 = InPose 위 {CARRY_BONE}↓ ← AS_Vesper_Rifle_Idle 정지 프레임 (메시 공간 · 커브 베이스) · 가중치 ← HandsFreeAlpha")
     ps = structure(PROV_RIFLE, g["Locomotion_Idle"], depth=-1)
     sm = next((m for m in ps["state_machines"] if m.get("name") == SM_NAME), None)
     check(sm is not None, f"공급자 Idle 상태머신 {SM_NAME} 존재")
@@ -276,7 +276,7 @@ def verify() -> None:
     aim_graphs = {st["bound_graph_guid"] for st in (sm["states"] if sm else [])}
     aim_players = [n for n in players if n["graph_guid"] in aim_graphs and not (n.get("asset") or "").startswith(TURN_DIR)]
     # 조준 가지 Idle 플레이어 3 = IdleTurn Idle + Rotation/Recovery 기본(None) 포즈 — 상태별 상체 블렌드는 오버레이로 옮겨 없다(2026-10-22)
-    check(len(aim_players) == 3 and all((n.get("asset") or "").endswith("AS_IdleRifleAiming_02") for n in aim_players), f"조준 가지 Idle 플레이어 3개 = AS_IdleRifleAiming_02 ({len(aim_players)})")
+    check(len(aim_players) == 3 and all((n.get("asset") or "").endswith("AS_Vesper_Rifle_AimIdle") for n in aim_players), f"조준 가지 Idle 플레이어 3개 = AS_Vesper_Rifle_AimIdle ({len(aim_players)})")
     mv = structure(PROV_RIFLE, g["Locomotion_Move"])
     mv_lbb = [n for n in mv["nodes"] if n["class"] == "AnimGraphNode_LayeredBoneBlend"]
     check(not mv_lbb, f"Move 조준 가지 상체 블렌드 없음 — 오버레이가 덮는다 ({len(mv_lbb)})")
@@ -318,7 +318,7 @@ def verify() -> None:
     lbb = [n for n in ps["nodes"] if n["class"] == "AnimGraphNode_LayeredBoneBlend"]
     check(not lbb, f"Rotation/Recovery 상체 블렌드 없음 — 오버레이가 덮는다 ({len(lbb)})")
     turn_graphs = {st["bound_graph_guid"] for st in (sm["states"] if sm else []) if st["name"] != "Idle"}
-    idle_in_turn = [n for n in players if (n.get("asset") or "").endswith("AS_IdleRifleAiming_02") and n["graph_guid"] in turn_graphs]
+    idle_in_turn = [n for n in players if (n.get("asset") or "").endswith("AS_Vesper_Rifle_AimIdle") and n["graph_guid"] in turn_graphs]
     check(len(idle_in_turn) == 2 and all(n["properties"].get("bIgnoreForRelevancyTest") is True for n in idle_in_turn), f"Rotation/Recovery 기본(None) Idle 플레이어 2개 전부 bIgnoreForRelevancyTest ({len(idle_in_turn)})")
     starts = [n for n in players if bound_path(n, "StartPosition") == [MAIN, "TurnInPlaceAnimTime"]]
     # 플레이어 12 = 비조준 가지 Rifle_Idle 1 + 상태머신 Idle 1 + Rotation/Recovery 각 (기본 1 + 클립 4)
@@ -359,12 +359,12 @@ IK_LEFT_BONE = "ik_hand_l"
 # 팔 늘이기 — 상체가 오른쪽으로 비틀리고(AO Yaw +45) 숙이면 왼어깨에서 핸드가드 파지점까지가 팔 길이를 넘어 손이 최대 3.7cm(AO 범위 밖 빠른 회전 5.6cm) 덜 닿았다
 # (2026-10-21 프로브: 목표 29.2 → 28.2/26.2/25.5). 팔이 다 펴진 뒤에만 최대 10% 늘인다
 IK_STRETCH = {"bAllowStretching": True, "StartStretchRatio": 1.0, "MaxStretchScale": 1.1}
-AIM_IDLE = f"{HERO}/Anims/Combat/AS_IdleRifleAiming_02"
-AO_SAMPLES = [f"{HERO}/Anims/Locomotions/AS_Hero_AO_Rifle{y}{p}" for y in "LCR" for p in "UCD"]
+AIM_IDLE = hc.AIM_IDLE
+AO_SAMPLES = list(hc.AO_SAMPLES)
 
 
 def upper_body_ops(graph: str, src_node: str, src_pin: str, dst_node: str, dst_pin: str, prefix: str) -> list[dict]:
-    """src 포즈의 상체(spine_01↑)를 AS_IdleRifleAiming_02 로 덮어 dst 에 꽂는다 — LayeredBoneBlend(메시 공간, 커브는 베이스)."""
+    """src 포즈의 상체(spine_01↑)를 AS_Vesper_Rifle_AimIdle 로 덮어 dst 에 꽂는다 — LayeredBoneBlend(메시 공간, 커브는 베이스)."""
     return [
         {"op": "disconnect", "from": {"node": src_node, "pin": src_pin}, "to": {"node": dst_node, "pin": dst_pin}},
         {"op": "add_node", "ref": prefix + "ub_idle", "graph": graph, "class": "AnimGraphNode_SequencePlayer", "pos": [-300, 300], "asset": AIM_IDLE,
@@ -379,23 +379,23 @@ def upper_body_ops(graph: str, src_node: str, src_pin: str, dst_node: str, dst_p
 
 
 def patch_aim_base() -> bool:
-    """AimOffset 기준 포즈 · 조준 중 상체 = AS_IdleRifleAiming_02 (2026-10-20 2차 PIE: 팔 무너짐의 진짜 원인).
-    AO 9샘플은 AS_IdleRifleAiming_02 기준으로 저작된 포즈(CC = 그 클립 프레임 0 과 0.0도)인데 기준이 총 내린 AS_Hero_Rifle_Idle 이라
+    """AimOffset 기준 포즈 · 조준 중 상체 = AS_Vesper_Rifle_AimIdle (2026-10-20 2차 PIE: 팔 무너짐의 진짜 원인).
+    AO 9샘플은 AS_Vesper_Rifle_AimIdle 기준으로 저작된 포즈(CC = 그 클립 프레임 0 과 0.0도)인데 기준이 총 내린 AS_Vesper_Rifle_Idle 이라
     델타가 "총 들기 + 회전" 으로 거대해지고 그 중간(Yaw 30~85)에서 두 손이 5cm 까지 붙었다(정상 23). 평소엔 몸이 카메라를 따라 Yaw 가 작아 안 보였고
     턴 중엔 Yaw 가 ±80 까지 가서 드러났다. 기준을 저작 기준으로 되돌리고, 조준 중엔 어디서나(IdleTurn 상태머신 Idle · Rotation/Recovery 기본·상체 · strafe 이동)
     상체가 그 클립이도록: 상태머신 Idle 클립 교체 + Move 조준 가지에 LayeredBoneBlend. 비조준 가지(Rifle_Idle · Jog, 총 내린 자세)는 그대로."""
-    print("\n=== A0. AimOffset 기준 포즈 · 조준 상체 = AS_IdleRifleAiming_02 ===")
+    print("\n=== A0. AimOffset 기준 포즈 · 조준 상체 = AS_Vesper_Rifle_AimIdle ===")
     changed = False
     for path in AO_SAMPLES:
         r = must(call("set_sequence_additive", asset_path=path, additive_type="RotationOffsetMeshSpace", ref_pose_type="AnimFrame", ref_pose_sequence=AIM_IDLE, ref_frame_index=0, save=True), "additive " + path.split("/")[-1])
-        check(r["additive_valid"], path.split("/")[-1] + f" 기준 = AS_IdleRifleAiming_02 프레임 0 (changed={r['changed']})")
+        check(r["additive_valid"], path.split("/")[-1] + f" 기준 = AS_Vesper_Rifle_AimIdle 프레임 0 (changed={r['changed']})")
         changed |= bool(r["changed"])
     g = layer_graphs(PROV_RIFLE)
     ps = structure(PROV_RIFLE, g["Locomotion_Idle"], depth=-1)
     sm = next((m for m in ps["state_machines"] if m.get("name") == SM_NAME), None)
     if sm is not None:
         aim_graphs = {st["bound_graph_guid"] for st in sm["states"]}   # Idle · Rotation · Recovery (조준 가지 전체)
-        targets = [n for n in ps["nodes"] if n["class"] == "AnimGraphNode_SequencePlayer" and n["graph_guid"] in aim_graphs and (n.get("asset") or "").endswith("AS_Hero_Rifle_Idle")]
+        targets = [n for n in ps["nodes"] if n["class"] == "AnimGraphNode_SequencePlayer" and n["graph_guid"] in aim_graphs and (n.get("asset") or "").endswith("AS_Vesper_Rifle_Idle")]
         if targets:
             apply(PROV_RIFLE, [{"op": "set_asset", "node": n["node_guid"], "asset": AIM_IDLE} for n in targets], f"조준 가지 Rifle_Idle → AimingIdle ({len(targets)}개)", compile=True, save=True)
             changed = True
@@ -425,8 +425,8 @@ def patch_left_hand_ik() -> bool:
     → TwoBoneIK(hand_l, 목표 = ik_hand_l 본, 회전도 목표에서) → 왼손 = hand_r × 파지점. UE5 스켈레톤의 ik_hand_gun/ik_hand_l 관례를 그대로 쓴다.
     TwoBoneIK 단독으로는 회전 오프셋을 못 준다(목표 공간 회전 = 기준 본 회전뿐, AnimNode_TwoBoneIK.cpp:181) — 비조준 애니(Rifle_Idle·Jog)는 hand_r 기준
     왼손 회전이 조준과 ~70° 달라 위치만으로는 손목이 꺾인다. 팔꿈치 평면 = 현재 팔꿈치(lowerarm_l 본 공간 원점). Alpha bool ← GetMainAnimInstance.bHasLeftHandGrip 0.15초.
-    이전 판(조준 중에만 · AS_IdleRifleAiming_02 파지점 상수 · 위치만)이 있으면 지우고 새로 만든다.
-    남은 것: 장전 몽타주(AS_ReloadRifle_01 — 손이 총을 떠난다)를 연결하면 IK 를 끄는 커브가 필요하다."""
+    이전 판(조준 중에만 · AS_Vesper_Rifle_AimIdle 파지점 상수 · 위치만)이 있으면 지우고 새로 만든다.
+    남은 것: 장전 몽타주(AS_Vesper_Rifle_Reload — 손이 총을 떠난다)를 연결하면 IK 를 끄는 커브가 필요하다."""
     print("\n=== A2. 공급자 Aim_UpperBody — 왼손 IK (CopyBone → ModifyBone(ik_hand_l ← 무기 파지점) → TwoBoneIK) ===")
     g = layer_graphs(PROV_RIFLE)["Aim_UpperBody"]
     s = structure(PROV_RIFLE, g)
@@ -482,7 +482,7 @@ def patch_left_hand_ik() -> bool:
 
 
 def patch_left_hand_fingers() -> bool:
-    """왼손 손가락 = 쥔 모양(AS_IdleRifleAiming_02) — 라이플을 든 모든 상태 (2026-10-21, 왼손 IK 조정 중 스크린샷). IK 는 손목(hand_l)의 위치·회전만 총에 붙이고
+    """왼손 손가락 = 쥔 모양(AS_Vesper_Rifle_AimIdle) — 라이플을 든 모든 상태 (2026-10-21, 왼손 IK 조정 중 스크린샷). IK 는 손목(hand_l)의 위치·회전만 총에 붙이고
     손가락은 입력 포즈 그대로라, 비조준 애니(Rifle_Idle · Jog — 왼손이 총에서 떨어져 있다)에선 펴진 손가락이 핸드가드 위에 놓였다.
     AimOffset 뒤·IK 앞에 LayeredBoneBlend(hand_l 이하, 로컬 공간): 손가락 로컬 회전은 AO 샘플이 바꾸지 않으므로(쥔 손 그대로) 조준 상태는 무변화.
     hand_l 자체의 회전도 덮이지만 뒤의 TwoBoneIK(목표 회전 사용)가 다시 정한다. 커브는 베이스(UseBasePose) — 턴 클립 커브(TurnYawWeight)가 이 레이어를 지나 메인으로 간다."""
@@ -530,7 +530,7 @@ def patch_turn_upperbody() -> bool:
             continue
         sel = one(s["nodes"], "AnimGraphNode_BlendListByEnum", st)
         root = one(s["nodes"], "AnimGraphNode_StateResult", st)   # 상태 그래프의 출력은 StateResult (루트 AnimGraph 의 Root 가 아니다)
-        idle_players = [n["node_guid"] for n in s["nodes"] if n["class"] == "AnimGraphNode_SequencePlayer" and (n.get("asset") or "").endswith("AS_Hero_Rifle_Idle")]
+        idle_players = [n["node_guid"] for n in s["nodes"] if n["class"] == "AnimGraphNode_SequencePlayer" and (n.get("asset") or "").endswith("AS_Vesper_Rifle_Idle")]
         ops = [
             {"op": "disconnect", "from": {"node": sel["node_guid"], "pin": "Pose"}, "to": {"node": root["node_guid"], "pin": "Result"}},
             {"op": "add_node", "ref": "ub_idle", "graph": g, "class": "AnimGraphNode_SequencePlayer", "pos": [-300, 300], "asset": AIM_IDLE,
@@ -612,7 +612,7 @@ def has_weapon_overlay() -> bool:
 
 def patch_weapon_overlay() -> bool:
     """무기 포즈 오버레이 (2026-10-22 사용자 PIE "조준 중 점프하면 상체가 조준 자세를 유지하지 않는다" → 추천안 승인).
-    조준 상체(AS_IdleRifleAiming_02 = AimOffset 기준 포즈)를 지상 상태마다(IdleTurn 회전·Recovery · Move strafe) 따로 덮던 것을 한 곳으로 —
+    조준 상체(AS_Vesper_Rifle_AimIdle = AimOffset 기준 포즈)를 지상 상태마다(IdleTurn 회전·Recovery · Move strafe) 따로 덮던 것을 한 곳으로 —
     점프 3상태는 무기 무관 클립 상체 그대로라 AO 가산이 엉뚱한 팔에 얹혔다(PIE: 상체 편차 평균 83cm, 총열↔카메라 하강 중 45° — 보정 노드 30° 초과).
     인터페이스에 레이어 Locomotion_WeaponOverlay(InPose) 를 더하고 베이스 루트 Locomotions → [오버레이] → Slot DefaultSlot 에 둔다(슬롯 앞 — 몽타주가 계속 이긴다).
     베이스 기본 구현 = 통과(근접·맨손). 라이플 = LayeredBoneBlend(spine_01↑ ← AimingIdle, 메시 공간, 커브는 베이스 — 턴 클립 TurnYawWeight · 점프 클립
@@ -734,7 +734,7 @@ CARRY_BONE = "clavicle_r"   # 무기 든 팔 — 무기는 hand_r 에 붙는다(
 
 def patch_weapon_carry() -> bool:
     """비조준 공중의 무기 든 팔 = 휴대 자세 (2026-10-22 사용자 "후속안도 구현" — A5·A6 뒤 PIE: 왼손을 놓자 총이 오른손 혼자 점프 클립 팔을 따라
-    최대 +48° 들렸다). 라이플 오버레이에서 조준 상체 블렌드 앞에 LayeredBoneBlend(clavicle_r↓ ← AS_Hero_Rifle_Idle 프레임 0, 메시 공간 — 몸통이 숙여도
+    최대 +48° 들렸다). 라이플 오버레이에서 조준 상체 블렌드 앞에 LayeredBoneBlend(clavicle_r↓ ← AS_Vesper_Rifle_Idle 프레임 0, 메시 공간 — 몸통이 숙여도
     총은 휴대 방향 그대로, 커브는 베이스) · 가중치 ← HandsFreeAlpha(클립이 무기에서 손을 뗀 정도 = DisableLHandIK × (1 − AimPoseAlpha) — 왼손 IK 를 끄는 것과
     같은 신호). 조준 중엔 0 이고 조준 블렌드가 상체를 통째로 덮는다. 상태 규칙이 아니라 클립 표시라 무기 전용 두 손 점프 클립이 생기면 커브만 빼면 된다.
     휴대 포즈는 정지 프레임(SequenceEvaluator) — Rifle_Idle 은 8.9초 대기 클립이라 공중 1초 안에 몸짓이 섞이지 않게."""

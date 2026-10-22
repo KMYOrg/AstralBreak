@@ -2,7 +2,7 @@
 
     PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/reassign_hero_skeleton.py [--apply]
 
-  A = /Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F  (히어로 메시 · ABP_Hero_Base · BS_Hero_Locomotion1D)
+  A = /Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F  (히어로 메시 · ABP_Hero_Base · BS_Vesper_Locomotion1D)
   B = /Game/IdaFaber/Meshes/Girl/SKEL_UE5_F         (같은 메시를 두 번 임포트해 생긴 두 번째 스켈레톤 — AO_Rifle*·Rifle_Jog*·M_Neutral_*·Jump_*·Attack1~3·몽타주)
 --apply 없이는 dry_run 계획만 출력한다. 적용 뒤 레지스트리로 B 애셋이 0 인지 확인하고, ABP_Hero_Base 가 그대로 컴파일되는지 본다.
 """

@@ -1,7 +1,7 @@
 ﻿{
   "montages": [
     {
-      "source": "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_Jump",
+      "source": "/Game/Animation/Hero/Vesper/Common/Locomotion/AS_Vesper_Jump_Start",
       "dst_dir": "/Game/AstralBreak/_ScriptTest",
       "name": "AM_JsonTest_01",
       "blend_in": 0.08,

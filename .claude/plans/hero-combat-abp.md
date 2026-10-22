@@ -2,6 +2,7 @@
 
 > 브랜치 `feat/character_ABP` · 사용자 확정 4건(2026-10-19): **Lyra 식 Linked Anim Layer** · **새 애셋 `ABP_Hero_Combat`**(운영 `ABP_Hero_Base` 는 보존) · **런타임 C++ 포함**(AnimInstance 변수 · 조준 유지 GE · 회전 모드) · **스켈레톤 통합은 새 Tool `reassign_skeleton`**.
 > 생성은 전부 도구(`Tools/mcp/build_hero_combat.py`, Tool 30개), 런타임 배선은 `Tools/scripts/setup/hero_abp_wire_data.py`. 관련: [animbp-automation-handoff-phase6-2.md](animbp-automation-handoff-phase6-2.md) · [animbp-automation-phase1.md](animbp-automation-phase1.md) "Phase 7-6 결과".
+> 2026-10-22 애님 애셋 정리: 애니 콘텐츠는 `/Game/Animation/Hero/Vesper/<계열>/<용도>/`, 이름 `AS_Vesper_<계열>_<동작>` (로직 ABP·ALI 는 `Hero/` 루트 그대로) — 규칙·근거·옛→새 매핑 [anim-asset-naming.md](anim-asset-naming.md). 이 문서의 애셋 이름은 새 이름으로 치환됨.
 
 ## 1. 요구
 
@@ -12,7 +13,7 @@
 | 제약 (실측) | 해결 |
 | :--- | :--- |
 | 히어로 애니 애셋이 같은 본 이름의 **두 스켈레톤**(`/Game/Assets/IdaFaber/…/SKEL_UE5_F` = 메시·ABP, `/Game/IdaFaber/…/SKEL_UE5_F` = AO_Rifle·Rifle_Jog·M_Neutral·Jump_*·Attack1~3·몽타주 40개)으로 갈라져 ABP 가 B 애셋을 참조할 수 없었다 | Tool `reassign_skeleton`(엔진 `EditorAnimUtils::RetargetAnimations` 제자리) — `Tools/mcp/reassign_hero_skeleton.py --apply` 로 40개 → A. `/Game` 전체에 B 애셋 0. `/Game/IdaFaber/` 폴더(머티리얼·텍스처·메시 중복 79파일)는 남아 있다 — 삭제는 사용자 판단 |
-| `AS_Hero_AO_RifleCC` 만 additive 기준 포즈가 없어 AimOffset 샘플 거부(`ADDITIVE_INVALID`) | Tool `set_sequence_additive` — `AS_Hero_Rifle_Idle` 프레임 0 기준 |
+| `AS_Vesper_Rifle_AO_CC` 만 additive 기준 포즈가 없어 AimOffset 샘플 거부(`ADDITIVE_INVALID`) | Tool `set_sequence_additive` — `AS_Vesper_Rifle_Idle` 프레임 0 기준 |
 | 런타임에 "사격 중" 신호·조준 각·회전 모드가 없었다(`bOrientRotationToMovement=true` 고정 → strafe 자세 불가, 2026-10-10 보류 S-A/B/C) | C++ 4건 (§4) |
 
 ## 3. ABP 구조
@@ -26,12 +27,12 @@ ABP_Hero_Combat (베이스, 부모 UAstralAnimInstance, DA_CD_Vesper.AnimInstanc
                                                                        └ UseCachedPose → Slot UpperBody → BlendPoses_0 ┘ LayeredBoneBlend(spine_01, 메시 공간 회전)
          → LinkedAnimLayer Aim_UpperBody(InPose) → Inertialization → Output        (운영 ABP_Hero_Base 와 같은 뼈대 + 조준 레이어 한 단)
   SM:    운영과 1:1 — 상태 5 · conduit 2 · alias 4 · 전이 12 · Entry Idle. Idle/Move 상태 내부 = LinkedAnimLayer(Locomotion_Idle / Locomotion_Move). 점프 3상태는 시퀀스 그대로
-  기본 구현(= 근접 낫 세트): Idle AS_Idle · Move BS_Hero_Locomotion1D(X←Speed) · Aim 통과
+  기본 구현(= 근접 낫 세트): Idle AS_Idle · Move BS_Vesper_Locomotion1D(X←Speed) · Aim 통과
 
 ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저가 Ranged 스타일 활성 시 LinkAnimClassLayers)
-  Locomotion_Idle:  BlendListByBool(bActiveValue←bIsAiming)  false: AS_Hero_Rifle_Idle · true: 상태머신 IdleTurn(Idle = AS_IdleRifleAiming_02 = AO 기준 포즈 — §7 10-20 교정; 10-19 의 Rifle_Idle 교체는 AO 기준이 잘못 잡힌 탓)
-  Locomotion_Move:  BlendListByBool(bIsAiming)  false: BS_Hero_Rifle_Jog(1D Speed: Idle→JogFwd) · true: BS_Hero_Rifle_Strafe(2D Direction×Speed: Idle 5 + Jog 8방향 9)
-  Aim_UpperBody:    InPose → AimOffset AO_Hero_Rifle(2D Yaw×Pitch 9샘플; X←AimYaw · Y←AimPitch · Alpha(bool)←bIsAiming, 0.15초 블렌드) → Output
+  Locomotion_Idle:  BlendListByBool(bActiveValue←bIsAiming)  false: AS_Vesper_Rifle_Idle · true: 상태머신 IdleTurn(Idle = AS_Vesper_Rifle_AimIdle = AO 기준 포즈 — §7 10-20 교정; 10-19 의 Rifle_Idle 교체는 AO 기준이 잘못 잡힌 탓)
+  Locomotion_Move:  BlendListByBool(bIsAiming)  false: BS_Vesper_Rifle_Jog(1D Speed: Idle→JogFwd) · true: BS_Vesper_Rifle_Strafe(2D Direction×Speed: Idle 5 + Jog 8방향 9)
+  Aim_UpperBody:    InPose → AimOffset AO_Vesper_Rifle(2D Yaw×Pitch 9샘플; X←AimYaw · Y←AimPitch · Alpha(bool)←bIsAiming, 0.15초 블렌드) → Output
 ```
 
 - 변수는 전부 `UAstralAnimInstance` 네이티브(스레드 안전 스냅샷) → 핀 **Property Binding**(`bind_pin`)으로 읽는다. EventGraph 없음.
@@ -60,14 +61,14 @@ ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저
 - 첫 PIE(2026-10-19): 총 전환 뒤에도 기본 이동 → 위 LoadoutComponent 수정으로도 그대로. 두 번째 원인: `RefreshAppearanceFromLoadout` 은 PlayerState 로드아웃의 `CharacterId` 가 있을 때만(로비 경유) CD 를 적용하므로, 로비 없는 `CombatTestMap` 에서는 **`BP_Hero_Vesper` 메시 컴포넌트의 기본 AnimClass** 가 실제로 쓰인다 — 그 값이 `ABP_Hero_Base` 였다. `hero_abp_wire_data.py` 가 이제 BP 메시 AnimClass 도 `ABP_Hero_Combat_C` 로 바꾼다(적용·저장 완료, REVERT 로 복귀). 진단 스크립트 `Tools/scripts/probe_hero_animclass.py`(BP 메시 AnimClass vs CD). 교훈: 외형의 단일 원본은 CD 가 아니라 "CD(로비) ∨ BP 기본값(단독 맵)" 둘이다 — 둘 다 바꿔야 한다.
 - 두 번째 PIE(2026-10-19): 라이플 모션은 나오나 "전투 상태에서 strafe 없음" 보고 → `Tools/scripts/pie_aim_probe.py`(ue_exec, STEP = begin/arm/sample/end — 전환 GA·원거리 공격 GA 를 클래스로 활성화해 실제 경로를 탄다)로 PIE 실측: 발사 직후 `State.Ranged.Aiming` 부여 · 회전 모드 전환(orient=false, ctrl_yaw=true) · +1.5초에 베이스와 링크된 `ABP_HeroLayers_Rifle` 인스턴스 둘 다 `bIsAiming=true` · +3초에 태그 만료·복귀. **파이프라인은 정상** — 조준 창이 `AimHoldSeconds=2` 초라 "한 발 쏘고 이동" 하면 이미 닫혀 전진 Jog 가 나온다. strafe 는 발사 후 2초 안(연사 중)에 이동할 때만. 조정은 GA BP(`GA_Hero_BasicAttack_Projectile`)의 `AimHoldSeconds`. 확인은 콘솔 `showdebug abilitysystem` 의 Owned Tags.
 - 세 번째(2026-10-19, 사용자가 그래프 스크린샷으로 지적): 공급자의 `Blend Poses by bool` 이 **거꾸로** 꽂혀 있었다 — 엔진은 `BlendPose_0` 이 **True** Pose(`AnimGraphNode_BlendListByBool.cpp:37` "intentionally flipped, true as the topmost"). 그래서 조준 중엔 전진 Jog, 평소엔 strafe(몸이 이동 방향을 향하니 Direction≈0 → 전진 샘플) = 언제나 전진. Idle·Move 두 레이어의 연결을 뒤집어 적용·컴파일·저장(revision `ae905ec4…`), `build_hero_combat.py` 도 수정. 도구가 핀 의미를 알려 주지 않아 생긴 실수 — 조회 응답에 BlendListByBool 핀 표시 이름(True/False Pose)을 싣는 것이 후속 후보.
-- 네 번째(2026-10-19): strafe 정상. 조준 Idle 이 비틀림 — `AS_IdleRifleAiming_02` 위에 AimOffset(기준 포즈 = `AS_Hero_Rifle_Idle` 프레임 0)을 얹은 조합 때문(수정 전엔 Blend 가 거꾸로라 이 조합이 안 나왔다). 사용자 확정: **조준 Idle 도 `AS_Hero_Rifle_Idle` + AimOffset**(True Pose 애셋 교체, revision `1409aabf…`, 컴파일 0 에러·저장). 교훈: AimOffset 은 기준 포즈 클립 위에서만 쓴다.
+- 네 번째(2026-10-19): strafe 정상. 조준 Idle 이 비틀림 — `AS_Vesper_Rifle_AimIdle` 위에 AimOffset(기준 포즈 = `AS_Vesper_Rifle_Idle` 프레임 0)을 얹은 조합 때문(수정 전엔 Blend 가 거꾸로라 이 조합이 안 나왔다). 사용자 확정: **조준 Idle 도 `AS_Vesper_Rifle_Idle` + AimOffset**(True Pose 애셋 교체, revision `1409aabf…`, 컴파일 0 에러·저장). 교훈: AimOffset 은 기준 포즈 클립 위에서만 쓴다.
 - **사용자 PIE 확인 완료(2026-10-19)**: 낫 로코모션 · 총 전환 · 발사 중 strafe · 조준 Idle(Rifle_Idle + AimOffset) 정상. 미확인: 멀티플레이(리슨 2클라) 관찰자 자세 · 창(2초)이 닫힌 뒤 복귀 연출의 느낌.
 - (확인 항목 원안) 낫 로코모션이 운영과 같은가 · 총 전환 시 라이플 Idle/Jog · 발사 뒤 2초 동안 조준 Idle/strafe + AimOffset(Pitch 반응) · 창이 닫히면 복귀 · 멀티플레이(리슨 2클라)에서 관찰자도 같은 자세. 수치 튜닝(AimHoldSeconds · 블렌드 0.15/0.2 · strafe Speed 축 500)은 데이터.
 - 되돌리기: `hero_abp_wire_data.py` 의 `REVERT = True` 로 실행하면 `ABP_Hero_Base` 로 복귀(`AnimLayerClass` 비움).
 
 ## 6. 남은 것 / 범위 밖
 
-- 사격 몽타주(`FireMontage`)·`AS_RifleRecoil_01`(additive) 연결 — 현재 원거리 GA 는 몽타주 미지정(즉발)일 수 있음. 반동은 UpperBody 슬롯 몽타주나 ApplyAdditive 로 후속.
+- 사격 몽타주(`FireMontage`)·`AS_Vesper_Rifle_Recoil`(additive) 연결 — 현재 원거리 GA 는 몽타주 미지정(즉발)일 수 있음. 반동은 UpperBody 슬롯 몽타주나 ApplyAdditive 로 후속.
 - 조준 중 점프 상태는 무기 무관 시퀀스 그대로(라이플 점프 없음). → 2026-10-22 §9 무기 포즈 오버레이로 조준 상체 유지 · 비조준 공중 왼손 놓음.
 - `/Game/IdaFaber/` 중복 폴더 정리(사용자 판단) · 운영 몽타주 UpperBody 슬롯·콤보 섹션(기존 후보 그대로).
 - Python 원격 실행(`ue_exec`)은 에디터 기동 직후 UDP 멀티캐스트 발견이 간헐적으로 실패했다(5초 → 30초로 늘려도 0건이던 때가 있음, 재기동 뒤 성공). 실패 시 재기동하거나 `Tools/mcp` 도구를 쓴다.
@@ -83,7 +84,7 @@ ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저
 | C++ 계산 | `Animation/AstralTurnInPlace.{h,cpp}` — `EAstralTurnInPlaceKind{None, Left90, Left180, Right90, Right180}` · `FAstralTurnInPlaceSettings`(클램프 120 · 턴 임계 50 · 180 임계 135 · 스프링 80/1.0 · 활성 임계 0.001 · 종료 허용 1°) · `FAstralTurnInPlaceInput` · `FAstralTurnInPlaceState`(순서: ① 커브 처리 — `RemainingTurnYaw / TurnYawWeight` 가중 해제, 첫 활성 프레임 델타 건너뜀, `RootYawOffset -= Δ`, `bRotationFinished = \|남은 각\| ≤ 1` ② 누적이면 `RootYawOffset -= 액터 Yaw 델타`, 아니면 `FloatSpringInterp` 로 0 ③ 클램프 ④ `bWantsTurn = 누적 ∧ \|오프셋\| > 50`, 클립 종류는 상승 에지에서 래치) |
 | C++ 정책 | `UAstralAnimInstance` — 스냅샷에 `YawDeltaSinceLastUpdate`·`bFullBodyMontagePlaying`(`GetSlotMontageGlobalWeight(FullBodyMontageSlot="DefaultSlot")`; 상체 슬롯 사격 몽타주는 누적을 막지 않는다) · 누적 조건 = `bAiming ∧ 지상 ∧ Speed < 10 ∧ 이동 입력 없음 ∧ 전신 몽타주 없음` · 출력 `RootYawOffset · bWantsTurnInPlace · bTurnInPlaceRotationFinished · TurnInPlaceKind · TurnInPlaceAnimTime`(+디버그 `TurnYawCurveValue · TurnInPlaceDebugWeight/Remaining · bTurnInPlaceAccumulating`) · `AimYaw = (조준 − 몸).Yaw − RootYawOffset`(루트를 돌려 둔 만큼 상체가 되돌아 조준) · `GetMainAnimInstance()` |
 | 테스트 | `Tests/AstralTurnInPlaceTests.cpp` — `AstralBreak.TurnInPlace.{Accumulate, BlendOut, Curve, Kind}` 4/4 (run_automation_tests 로 에디터 안에서) |
-| 애셋 | `Content/MF_Rifle_Turn{Left,Right}_{90,180}`(루트, 스켈레톤 B) → `reassign_skeleton` 으로 A → `Tools/scripts/setup/hero_abp_move_turn_assets.py`(ue_exec) 로 `/Game/Animation/Hero/Anims/TurnInPlace/`. 커브 이름은 소문자 `turnyawweight`·`remainingturnyaw`(FName 비교는 대소문자 무시 — C++ `GetCurveValue("TurnYawWeight")` 그대로 읽힌다) |
+| 애셋 | `Content/AS_Vesper_Rifle_Turn{Left,Right}_{90,180}`(루트, 스켈레톤 B) → `reassign_skeleton` 으로 A → `Tools/scripts/setup/hero_abp_move_turn_assets.py`(ue_exec) 로 `/Game/Animation/Hero/Vesper/Rifle/TurnInPlace/`. 커브 이름은 소문자 `turnyawweight`·`remainingturnyaw`(FName 비교는 대소문자 무시 — C++ `GetCurveValue("TurnYawWeight")` 그대로 읽힌다) |
 | 그래프 | `Tools/mcp/build_hero_turninplace.py`(제자리 패치·멱등·`--verify-only`; `build_hero_combat.main` 이 끝에 호출) — 베이스 루트 `LayeredBoneBlend → Aim_UpperBody → RotateRootBone(Yaw ← RootYawOffset) → Inertialization`(2026-10-21 순서 교정 — 아래 "AO 순서") · 공급자 `Locomotion_Idle` 조준(true=BlendPose_0) 가지에 상태머신 **IdleTurn**: `Idle(Rifle_Idle)` ─bWantsTurnInPlace→ `TurnInPlaceRotation`(BlendListByEnum(EAstralTurnInPlaceKind ← GetMainAnimInstance.TurnInPlaceKind) · 기본 Rifle_Idle + 턴 클립 4, 루프 없음, bAlwaysResetOnEntry) ─bTurnInPlaceRotationFinished→ `TurnInPlaceRecovery`(같은 구성 + 클립 StartPosition ← GetMainAnimInstance.TurnInPlaceAnimTime) ─자동(클립 끝)→ Idle, Recovery ─bWantsTurnInPlace→ Rotation. **전이 4개 전부 LogicType = Inertialization** |
 | 플러그인 | `Core/AnimMcpPropertyRules.cpp` 전이 허용 목록에 `LogicType`(TEnumAsByte 는 기존 setter 가 이름으로 받는다). 조회 응답에는 아직 logic_type 이 없다(후속) |
 
@@ -104,8 +105,8 @@ ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저
 - 남은 잔여 오프셋 +0.5~0.8°(관성 블렌드된 커브 꼬리의 음수값) — 무시 가능.
 **사용자 2차 PIE 보고(2026-10-20 밤) → 진짜 원인 = AimOffset 기준 포즈**: "턴 중 가끔 부자연스러운 팔 + 연속 회전이 매끄럽지 않음"(스크린샷: 총을 왼손에 낮게 들고 오른손이 떨어짐).
 - 실측(프로브에 두 손 거리 지표 `hands` 추가, 마우스식 점진 회전 `spin`): 두 손 거리가 **턴 클립이 시작되기 전부터 AimYaw 에 비례해** 줄었다(0→23cm · 42→15 · 75→6; 왼쪽 회전은 33 으로 벌어짐). 즉 턴이 아니라 AimOffset 이 Yaw 가 커질수록 팔을 무너뜨리는데, 평소엔 몸이 카메라를 따라 Yaw 가 작아 안 보였고 턴 중엔 AimYaw = −RootYawOffset 이 ±80 까지 가서 드러난 것.
-- 원인: AO 9샘플은 `AS_IdleRifleAiming_02` 프레임 0 을 기준으로 저작된 포즈다(CC 샘플과 그 클립의 상체 본 회전차 0.0°, 위치 동일) — 그런데 additive 기준이 총 내린 `AS_Hero_Rifle_Idle` 로 잡혀 있어 델타가 "총 들기 + 회전" 으로 거대해지고 샘플 사이(Yaw 30~85)의 보간이 무너진다(양 끝 샘플 자체는 손 거리 19~33 으로 멀쩡). 10-19 의 "AimingIdle + AO 비틀림 → Rifle_Idle 로 교체" 는 잘못된 기준 위에서 내린 결정이었다 — **교훈: AO 의 기준 포즈는 샘플이 저작된 클립이어야 하고, 조준 중 상체도 그 클립이어야 CC 가 항등이 된다.**
-- 수정(`build_hero_turninplace.py` A0, 멱등): ① 9샘플 `set_sequence_additive ref_pose_sequence = AS_IdleRifleAiming_02 프레임 0`(저장) ② 조준 가지의 Idle 클립 5개(IdleTurn Idle · Rotation/Recovery 기본·상체) → AimingIdle ③ Move 조준 가지(strafe)에도 상체 LayeredBoneBlend(spine_01·메시 공간·UseBasePose, AimingIdle) — Jog 클립은 총 내린 자세(손 z≈105/95)라 재기준한 AO 를 그대로 얹으면 총이 안 올라간다. 비조준 가지(Rifle_Idle · Jog)·strafe BS 샘플은 그대로. `build_hero_combat.py` 도 새로 만들 때 같은 기준.
+- 원인: AO 9샘플은 `AS_Vesper_Rifle_AimIdle` 프레임 0 을 기준으로 저작된 포즈다(CC 샘플과 그 클립의 상체 본 회전차 0.0°, 위치 동일) — 그런데 additive 기준이 총 내린 `AS_Vesper_Rifle_Idle` 로 잡혀 있어 델타가 "총 들기 + 회전" 으로 거대해지고 샘플 사이(Yaw 30~85)의 보간이 무너진다(양 끝 샘플 자체는 손 거리 19~33 으로 멀쩡). 10-19 의 "AimingIdle + AO 비틀림 → Rifle_Idle 로 교체" 는 잘못된 기준 위에서 내린 결정이었다 — **교훈: AO 의 기준 포즈는 샘플이 저작된 클립이어야 하고, 조준 중 상체도 그 클립이어야 CC 가 항등이 된다.**
+- 수정(`build_hero_turninplace.py` A0, 멱등): ① 9샘플 `set_sequence_additive ref_pose_sequence = AS_Vesper_Rifle_AimIdle 프레임 0`(저장) ② 조준 가지의 Idle 클립 5개(IdleTurn Idle · Rotation/Recovery 기본·상체) → AimingIdle ③ Move 조준 가지(strafe)에도 상체 LayeredBoneBlend(spine_01·메시 공간·UseBasePose, AimingIdle) — Jog 클립은 총 내린 자세(손 z≈105/95)라 재기준한 AO 를 그대로 얹으면 총이 안 올라간다. 비조준 가지(Rifle_Idle · Jog)·strafe BS 샘플은 그대로. `build_hero_combat.py` 도 새로 만들 때 같은 기준.
 - 재검증: PASS(조준 가지 플레이어 5 = AimingIdle · Move 상체 LBB 1) · 점진 회전 4회 프로브 **두 손 거리 23cm 유지(최대 27)**, 오프셋 점프 2.1°, 링크 인스턴스 불변. AO 단독 프로브 `Tools/scripts/pie_ao_probe_run.py`(컨트롤러만 돌림) — `-unattended` 에디터에선 FaceRotation 이 액터를 돌려 결과적으로 턴 프로브가 됐다(기록용).
 - 연속 회전 "매끄럽지 않음" 은 같은 원인(팔 붕괴가 회전마다 반복) + Recovery→Rotation 재진입의 클립 재시작(관성 0.2초) — 후자는 Lyra 와 같다. 더 부드럽게 하려면 재진입 전이의 CrossfadeDuration(관성 시간)을 0.3~0.4 로.
 **AO 순서 교정 (2026-10-21, 사용자 PIE 스크린샷 "회전 중 가끔 목·상체 꺾임 · 왼손이 총열에서 떨어짐" → 사용자 A안 승인)**:
@@ -119,11 +120,11 @@ ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저
     `UAstralEquipmentManagerComponent::RefreshWeaponAnimData()`(10-22 이름 변경 — 옛 `RefreshLeftHandGrip`, 총구도 같이) 이 손에 든 무기(부착 기준으로 찾음 — 클라는 인스턴스 스폰 목록이 비어 있음)의 값을 메인 `UAstralAnimInstance::SetLeftHandGrip` 으로 넣는다(없으면 Clear).
     트리거 = 이벤트만: `RefreshAnimLayers` 끝(AnimBP 교체 포함) · `AAstralEquipmentActor::NotifyPresentationChanged`(서버 재부착 직후 `EquipmentInstance::ApplyAttachState` · 클라 `OnRep_AttachmentReplication` · 외형 `ApplyMeshInfo`) — 부착·상태·메시 복제 순서와 무관하게 마지막 호출로 수렴.
     AnimInstance 는 게임 스레드 `PendingLeftHandGrip` → 스냅샷 → 스레드 안전 업데이트가 `bHasLeftHandGrip · LeftHandGripLocation/Rotation` 노출(애님 워커와 경합 없음). 기준 본 `WeaponReferenceBone = hand_r`(10-22 이름 변경 — 옛 `LeftHandGripReferenceBone`, 총구도 이 본 공간).
-  - **그래프(공급자 Aim_UpperBody, AimOffset 뒤)**: `LayeredBoneBlend(hand_l 이하 ← AS_IdleRifleAiming_02, 로컬, 커브 UseBasePose)`(손가락 = 쥔 모양 — 비조준 애니는 손가락이 펴져 있다) → L2C → `CopyBone(hand_r → ik_hand_gun, 컴포넌트)` → `ModifyBone(ik_hand_l, 부모 공간 Replace ← GetMainAnimInstance.LeftHandGripLocation/Rotation)` → `TwoBoneIK(hand_l → ik_hand_l 본, 회전도 목표에서, 팔꿈치 = lowerarm_l, 늘이기 최대 10%, Alpha bool ← GetMainAnimInstance.bHasLeftHandGrip 0.15초)` → C2L (`build_hero_turninplace.py` A2·A3 — 1판이 있으면 지우고 교체, verify 포함). 플러그인 허용 목록에 `CopyBone` 추가. TwoBoneIK 단독은 목표 회전 = 기준 본 회전뿐이라(AnimNode_TwoBoneIK.cpp:181) 회전 오프셋은 UE5 ik 본 체인으로 준다.
+  - **그래프(공급자 Aim_UpperBody, AimOffset 뒤)**: `LayeredBoneBlend(hand_l 이하 ← AS_Vesper_Rifle_AimIdle, 로컬, 커브 UseBasePose)`(손가락 = 쥔 모양 — 비조준 애니는 손가락이 펴져 있다) → L2C → `CopyBone(hand_r → ik_hand_gun, 컴포넌트)` → `ModifyBone(ik_hand_l, 부모 공간 Replace ← GetMainAnimInstance.LeftHandGripLocation/Rotation)` → `TwoBoneIK(hand_l → ik_hand_l 본, 회전도 목표에서, 팔꿈치 = lowerarm_l, 늘이기 최대 10%, Alpha bool ← GetMainAnimInstance.bHasLeftHandGrip 0.15초)` → C2L (`build_hero_turninplace.py` A2·A3 — 1판이 있으면 지우고 교체, verify 포함). 플러그인 허용 목록에 `CopyBone` 추가. TwoBoneIK 단독은 목표 회전 = 기준 본 회전뿐이라(AnimNode_TwoBoneIK.cpp:181) 회전 오프셋은 UE5 ik 본 체인으로 준다.
   - **데이터**: `Tools/scripts/setup/rifle_left_hand_grip.py`(ue_exec, 멱등) — 총 스켈레톤 `SK_RifleScifi` 의 키트 소켓 `LeftHandIK`(원래 위치 표식뿐, 회전 Yaw 180)를 hand_l 트랜스폼으로 다시 정의(키트 원래 값일 때만 — 조정값 보존, `RESET_SOCKET`) + `BP_Weapon_Rifle.LeftHandGripSocket = LeftHandIK` + **BP 컴파일**. 초기값 = AimingIdle 의 hand_r 기준 파지(손가락 쥔 모양과 맞는 손 각도)를 총열 방향 7cm 앞(핸드가드) — **10-22 교체**: 7cm 는 무기 배치 이중 적용(아래 "총구 정렬")으로 저작 손이 뒤로 밀려 있던 걸 메운 값이었다. 배치 교정 뒤 초기값 = AimingIdle hand_l 그대로(키트 LeftHandIK 와 2.9cm, 조준 Idle IK 보정 0, 두 손 거리 23.0 = 저작값). 스크립트는 이전 자동값이면 갱신·손 조정값은 보존. 키트 `HandGripTransformLeft` 는 손 축이 이 스켈레톤과 달라 손바닥이 감싸지 않았다(스크린샷) — 쓰지 않음.
   - **결과**: PIE 왼손 = 소켓 0.0cm · 0.0°(조준·비조준). 두 손 거리(목표 29.2) 오프셋 0/±45 × Pitch 0/±40/−60 전부 29.1~29.2(늘이기 전엔 오른쪽 비틂 + 숙임에서 25.5 — 팔 길이 부족), AO 범위 밖 빠른 회전 최저 27.0. 점진 회전 29.1~29.5 · 비조준 29. 멀티(리슨+클라2): 호스트 폰·클라 자기 폰·서로의 시뮬 프록시 전부 29.2, 낫 든 폰은 IK 없음. 프로젝트 테스트 24/24 · 두 구성 빌드 경고 0. 손 클로즈업은 PIE 에서 스프링 암을 손 중심으로 돌려 `AutomationLibrary.take_high_res_screenshot` 으로 확인.
   - **함정(실측)**: ① 파이썬으로 BP CDO 프로퍼티만 바꾸면 스폰 인스턴스엔 안 들어간다 — BP 생성 클래스는 컴파일 때 만든 "네이티브 기본값과 다른 프로퍼티 목록"(CustomPropertyListForPostConstruction)만 복사 → 바꾼 뒤 `BlueprintEditorLibrary.compile_blueprint` ② `SkeletalMeshSocket.SocketName/BoneName` 은 파이썬 읽기 전용(VisibleAnywhere) — 새 소켓 이름을 못 준다 ③ `SkeletalMesh.find_socket` 은 메시 → 스켈레톤 순 — 키트 소켓은 총 스켈레톤 소유라 메시를 저장해도 반영 안 됨(소켓의 outer 를 저장) ④ 무기 월드 소켓을 매 프레임 IK 목표로 쓰면 부착이 애님 뒤에 갱신돼 1프레임 지연 — 손 본 공간 상수로 넘긴다.
-  - **남은 것**: 장전(`AS_ReloadRifle_01` — 손이 총을 떠남)·탄창 교체 몽타주를 연결하면 IK 를 끄는 커브 · 손 모양 미세 조정은 총 스켈레톤의 `LeftHandIK` 소켓을 옮기면 된다(PIE 재시작 또는 스타일 전환 시 반영). 총 방향 오차는 아래 "총구 정렬"로 해결.
+  - **남은 것**: 장전(`AS_Vesper_Rifle_Reload` — 손이 총을 떠남)·탄창 교체 몽타주를 연결하면 IK 를 끄는 커브 · 손 모양 미세 조정은 총 스켈레톤의 `LeftHandIK` 소켓을 옮기면 된다(PIE 재시작 또는 스타일 전환 시 반영). 총 방향 오차는 아래 "총구 정렬"로 해결.
 - **총구 정렬 (2026-10-21 진단 → 10-22 사용자 추천안 승인·적용)** — 증상: 조준 중 총열이 투사체 방향과 어긋남(AO 가 모자랄 때 · 제자리 회전 중 가끔).
   - **지표**: 총열 = 무기 `Muzzle` 소켓 +X(SKM_RifleScifi_01: WeaponRoot 기준 Yaw 180 — 총열이 −X) ↔ 실제 발사 방향(총구 → 카메라 조준점, `ResolveShot` 과 같은 계산). 발사 틱 총열 ↔ 투사체 속도로 지표 검증. 프로브 `pie_muzzle_probe_run.py [구간] [grip] [타임라인 구간]`(정지 · Pitch ±40/±60/−80 · 오프셋 ±45 × Pitch · 턴 90° · 빠른 360° · strafe 4방향) · `pie_mp_probe_run.py 3 pose [grip]`(PIE_MP_MUZZLE — 서버 조준점 기준, 월드 간 폰은 위치로 짝). `err3d` = 총열 ↔ 실제 발사 방향, `vsCam` = 총열 ↔ 카메라 방향(시차 제외 자세 오차).
   - **원인 분해(수정 전, vsCam)**: ① **무기 배치 데이터 — 최대 원인** `DA_WD_Rifle1.AttachOffset` 이 손 소켓 `WeaponHandR` 상대값과 똑같아(위치 (−3.51, 3.39, −1.03), 회전 (P −0.82, Y 4.74, R −12.85)) 소켓 + 오프셋으로 **이중 적용** → 정지 조준에서 총열 Yaw +10.3 · Pitch +4.9, 전 구간 ~9°. 오프라인(AimingIdle 프레임 0): 현재 +10.15/+4.83 · 한 번만 +5.44/+3.80 · 무기 루트 = hand_r(키트 저작 기준 — 애니의 ik_hand_gun == hand_r) +1.09/+1.74 ② AO 콘텐츠 — 대각(±45, ±40) Yaw 과회전 8~12° · Pitch 극단 3~7° ③ AO 범위 포화 — 오프셋 클램프 150 > AO ±90, 빠른 회전에서만 28~37° ④ 가까운 표적 시차(3m 6~8°, 1m ~20°) ⑤ 네트워크는 원인 아님(시뮬 프록시 = 서버 0.01°), 턴 메커니즘 자체도 추가 오차 거의 없음.
@@ -143,8 +144,8 @@ ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저
       결과(`pie_mp_probe_run.py 3 pose` · 새 `client_pose` 모드 — 클라가 조준한 폰을 다른 클라가 볼 때 = 서버가 원격 카메라로 계산한 점): 시뮬 프록시 정면 0.75 → **0.00** · 바닥 10.49 → **0.02** · 왼쪽 45+바닥 16.63 → **0.02** · 하늘 0.18 → 0.00 · 클라 폰 바닥 10.49/10.60 → **0.02**. 서버 0.00 · 소유 클라 ≤ 0.11 그대로.
     - **② 빠른 회전 포화 → `RootYawOffsetClamp` 150 → 120**(C++ 기본값). 실측식 `잔차 = |AimYaw| − 90(AO Yaw) − 30(보정 최대각)` — 빠른 360°(~240°/s)에서 |AimYaw| ≤ 120 구간은 ≤1.8°, 120 넘는 0.45초만 13~27°. 느린 360°(2°/틱)는 90 턴 4회·클램프 도달 0 → 클램프는 플릭에만 영향. 대안: 보정 최대각 60(척추 최대 60° 추가 비틀림 — 10-21 "상체 꺾임" 계열) · 절충 135/130/45 · AO Yaw 확장(원본 샘플 없음). **불변식: 클램프 ≤ AO Yaw 범위 + 보정 최대각**.
       결과(`pie_muzzle_probe_run.py spin`): `ao_sat` 평균 15.2 → **0.41**(p95 1.38) · spin 구간 p95 24.7 → **1.39**. 대가: 클램프 미끄러짐 84~96° → 120°(플릭 1회 +~30°, 클램프 프레임의 느린 발 평균 78 → 47cm/s), 턴은 Right90@−54 · Right180@−150 → Right90 ×3(180 클립은 180 임계 135 > 클램프라 안 나옴 — 쓰려면 클램프·AO 범위·보정 최대각을 함께 올린다). 느린 회전·정지/AO/Pitch/턴/strafe 구간 수치 회귀 없음. 테스트 `TurnInPlace.Accumulate` 갱신(기본 클램프 160° 한 프레임 → Right90, 클램프 150 명시 → Right180).
-    - **③ 반동·장전 몽타주 알파 — 설계만(몽타주 없음: 원본 `AS_ReloadRifle_01`·`AS_RifleRecoil_01` 시퀀스뿐, `FireMontage` 미지정)**:
-      반동 = 보정 노드 **뒤**(C2L 다음, Inertialization 앞)에 additive 슬롯 `UpperBodyAdditive` — 보정이 조준을 맞춘 포즈 위에 킥이 얹혀 되돌려지지 않는다(커브 불필요). `AS_RifleRecoil_01` → 프레임 0 기준 로컬 additive(`set_sequence_additive`) 몽타주. 기존 UpperBody 슬롯(보정 앞)에 비-additive 로 넣으면 보정이 저작 반동을 지운다.
+    - **③ 반동·장전 몽타주 알파 — 설계만(몽타주 없음: 원본 `AS_Vesper_Rifle_Reload`·`AS_Vesper_Rifle_Recoil` 시퀀스뿐, `FireMontage` 미지정)**:
+      반동 = 보정 노드 **뒤**(C2L 다음, Inertialization 앞)에 additive 슬롯 `UpperBodyAdditive` — 보정이 조준을 맞춘 포즈 위에 킥이 얹혀 되돌려지지 않는다(커브 불필요). `AS_Vesper_Rifle_Recoil` → 프레임 0 기준 로컬 additive(`set_sequence_additive`) 몽타주. 기존 UpperBody 슬롯(보정 앞)에 비-additive 로 넣으면 보정이 저작 반동을 지운다.
       손이 총을 떠나는 동작(장전) = 몽타주 커브 `DisableAimCorrection` · `DisableLHandIK`(Lyra 명명, 0 → 1, 경사 0.1~0.15초). 메인 AnimInstance 가 `GetCurveValue` 로 읽는다(상체 슬롯 → LayeredBoneBlend 커브 Override → 메인 출력, 턴 커브와 같은 1프레임 늦은 경로). 알파 = 켜짐 블렌드 × (1 − 커브) float — 노드 알파 바인딩을 bool(0.15초) → float 로 바꾸고 블렌드는 C++. `FireMontage` 는 UpperBody 슬롯(전신이면 누적이 꺼진다). 왼손 IK 커브는 IK 세션 결과 뒤.
     - 측정 도구: `pie_aim_probe.py` dump 에 `PIE_TURNS`(wants 상승 에지마다 클립·오프셋) · `PIE_CLAMP`(누적 중 클램프에 붙은 프레임의 액터 Yaw 합 = 발 대신 미끄러진 각) · 진단 `console` 단계(`PROBE_CONSOLE`). **함정**: 에디터는 `set` 콘솔 명령을 막는다(`UUnrealEdEngine::Exec` "Set commands not allowed in the editor") · BP CDO 를 메모리에서 바꿔도 인스턴스엔 안 간다(커스텀 프로퍼티 목록은 컴파일 때 — 값이 네이티브와 같으면 목록에 없다) → 튜닝 변형은 코드/애셋을 바꿔 전후 비교.
 - 프로브 함정: 원격 실행 클라이언트는 8KB 미만 조각을 받으면 응답 끝으로 본다(`remote_execution.py:465`) → 큰 덤프가 무작위로 잘려 "Failed to deserialize JSON" — 덤프 타임라인 ~200 줄 상한, 기록은 `unreal` 모듈에 남으니 재덤프 가능. 멀티 PIE 는 단계 하나가 ~0.7초라 사격을 회전 단계 안에서(AimHold 2초 · 진입 피벗 0.3초).
@@ -238,7 +239,7 @@ ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저
 
 **증상**: ① 조준 중 점프하면 상체가 조준 자세를 유지하지 않는다 ② 비조준 점프에서 왼손이 계속 총을 잡아 부자연스럽다("특정 조건일 때만 잡도록").
 
-**원인(MCP 조회 + PIE 실측 `pie_jump_probe_run.py`)**: 베이스 SM 의 JumpStart · FallLoop · FallLand 는 무기 무관 시퀀스(`AS_Hero_Jump/FallLoop/Land`)이고 Idle/Move 만 레이어였다. 조준 상체(`AS_IdleRifleAiming_02` = AO 기준 포즈)는 공급자가 **지상 상태마다** 덮었다(IdleTurn 회전·Recovery LBB · Move strafe LBB) — 공중엔 없어 AO 가산이 점프 클립 팔에 얹혔다. 왼손 TwoBoneIK 알파는 `bHasLeftHandGrip`(무기 듦)만 봤다.
+**원인(MCP 조회 + PIE 실측 `pie_jump_probe_run.py`)**: 베이스 SM 의 JumpStart · FallLoop · FallLand 는 무기 무관 시퀀스(`AS_Vesper_Jump_Start/FallLoop/Land`)이고 Idle/Move 만 레이어였다. 조준 상체(`AS_Vesper_Rifle_AimIdle` = AO 기준 포즈)는 공급자가 **지상 상태마다** 덮었다(IdleTurn 회전·Recovery LBB · Move strafe LBB) — 공중엔 없어 AO 가산이 점프 클립 팔에 얹혔다. 왼손 TwoBoneIK 알파는 `bHasLeftHandGrip`(무기 듦)만 봤다.
 
 | 수정 전 (제자리 점프, 호스트) | 지상 | 공중 |
 | :-- | :-- | :-- |
@@ -250,10 +251,10 @@ ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저
 **구현**:
 - C++ `UAstralAnimInstance`: `AimPoseAlpha`(bIsAiming 을 `AimPoseBlendTime` 0.2초 등속으로 따라감) · `LeftHandIKAlpha` = 파지점 ? 보간(1 − `DisableLHandIK` 커브 × (1 − AimPoseAlpha), `LeftHandIKBlendTime` 0.15) : 0. 메인이 계산(커브 = 메인의 지난 프레임 최종 포즈, 턴 커브와 같은 경로), 링크 인스턴스는 같은 프레임 메인 값을 복사(bIsAiming 과 같은 방식) — 공급자 그래프는 자기 변수를 읽는다. 설정 `LeftHandIKDisableCurve`("DisableLHandIK", Lyra 명명).
 - 인터페이스 `ALI_HeroCombat` + `Locomotion_WeaponOverlay(InPose)` (도구 `add_anim_layers` + conform). 베이스 루트 `Locomotions → LinkedAnimLayer Locomotion_WeaponOverlay → Slot DefaultSlot` — **슬롯 앞**이라 전신·상체 몽타주는 계속 이긴다(Aim_UpperBody 안에 두면 상체 몽타주를 덮는다). 베이스 기본 구현 = 통과(근접·맨손).
-- 라이플 오버레이 = `LayeredBoneBlend(spine_01↑ ← AS_IdleRifleAiming_02, 메시 공간, 커브 UseBasePose)` 가중치 ← `AimPoseAlpha`(VariableGet — 도구 `bind_pin` 은 배열 원소 핀 BlendWeights_0 을 바인딩 못 한다). 커브가 베이스 것이라 턴 클립 `TurnYawWeight` · 점프 클립 `DisableLHandIK` 가 지나간다.
+- 라이플 오버레이 = `LayeredBoneBlend(spine_01↑ ← AS_Vesper_Rifle_AimIdle, 메시 공간, 커브 UseBasePose)` 가중치 ← `AimPoseAlpha`(VariableGet — 도구 `bind_pin` 은 배열 원소 핀 BlendWeights_0 을 바인딩 못 한다). 커브가 베이스 것이라 턴 클립 `TurnYawWeight` · 점프 클립 `DisableLHandIK` 가 지나간다.
 - 지상 중복 제거: Move strafe LBB · IdleTurn Rotation/Recovery LBB 와 그 보조 AimingIdle 플레이어(공급자 플레이어 14 → 12). 조준 상체 = 오버레이 한 곳(무기마다 이 레이어 하나).
 - 공급자 `Aim_UpperBody`: TwoBoneIK 알파 bool(`GetMainAnimInstance.bHasLeftHandGrip`) → float `LeftHandIKAlpha` · 왼손 손가락(쥔 모양) LBB 가중치도 `LeftHandIKAlpha` — 놓으면 손가락도 클립 그대로.
-- 콘텐츠: `AS_Hero_Jump/FallLoop/Land` 에 `DisableLHandIK` = 1 (`Tools/scripts/setup/hero_jump_lhand_curve.py`, 멱등 · REVERT). 클립은 낫·맨손도 쓰지만 커브를 읽는 쪽은 파지점이 있을 때뿐(운영 `ABP_Hero_Base` 는 안 읽음). 나중에 무기 전용 두 손 점프 클립엔 커브를 안 넣으면 계속 잡는다 — 판단은 콘텐츠.
+- 콘텐츠: `AS_Vesper_Jump_Start/FallLoop/Land` 에 `DisableLHandIK` = 1 (`Tools/scripts/setup/hero_jump_lhand_curve.py`, 멱등 · REVERT). 클립은 낫·맨손도 쓰지만 커브를 읽는 쪽은 파지점이 있을 때뿐(운영 `ABP_Hero_Base` 는 안 읽음). 나중에 무기 전용 두 손 점프 클립엔 커브를 안 넣으면 계속 잡는다 — 판단은 콘텐츠.
 - 스크립트: `build_hero_turninplace.py` A5 `patch_weapon_overlay` · A6 `patch_left_hand_alpha` + verify(오버레이 체인 · 기본 구현 통과 · 라이플 오버레이 · 플레이어 12 · IK float), B2·A0-Move 는 오버레이가 있으면 건너뜀, `turn_state_ops` 기본(None) 플레이어 `bIgnoreForRelevancyTest`(새 빌드에서 빠져 있던 것), A1 이행 판정이 A4(보정 노드) 뒤에서도 통과하도록, 베이스 루트 레이어 노드 선택은 레이어 이름으로(`layer_node` — 이제 2개). `build_hero_combat.py` verify 레이어 3 → 4.
 
 **결과**(`pie_jump_probe_run.py [move]` 단일 · `pie_mp_probe_run.py 3 jump` 멀티):
@@ -271,7 +272,7 @@ ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저
 **후속 — 비조준 공중 휴대 팔 (같은 날, 사용자 "후속안도 구현")**: 왼손을 놓자 총이 오른손 혼자 점프 클립 팔을 따라 최대 +48° 들렸다(스크린샷: 낙하 중 두 손을 얼굴 앞에 든 채 총이 위를 향함).
 - 사용자 질문 "무기별로 확장성 있는 구조인가" → 예: 덮을 자리(오버레이 레이어)는 베이스, 무엇을 덮을지는 무기 공급자, 조건은 상태 규칙이 아니라 클립 표시(같은 `DisableLHandIK`) — 무기 전용 두 손 점프 클립이 생기면 커브만 뺀다. 장전처럼 손이 떠나는 몽타주는 슬롯이 오버레이 뒤라 계속 이긴다.
 - C++ `HandsFreeAlpha` = `DisableLHandIK` × (1 − AimPoseAlpha) 를 0.15초 등속 보간(왼손 IK 를 끄는 것과 같은 신호 — 파지점과 무관해 무기 교체 순간에도 휴대 팔이 튀지 않게 LeftHandIKAlpha 와 따로 보간). 메인 계산, 링크 복사.
-- 라이플 오버레이 = InPose → `LayeredBoneBlend(clavicle_r↓ ← AS_Hero_Rifle_Idle 프레임 0 SequenceEvaluator, 메시 공간 — 몸통이 숙여도 총은 휴대 방향, 커브 베이스)` 가중치 ← HandsFreeAlpha → 조준 상체 블렌드 → Output (`build_hero_turninplace.py` A7 `patch_weapon_carry` + verify). 정지 프레임인 이유: Rifle_Idle 은 8.9초 대기 클립이라 공중 1초 안에 몸짓이 섞이지 않게.
+- 라이플 오버레이 = InPose → `LayeredBoneBlend(clavicle_r↓ ← AS_Vesper_Rifle_Idle 프레임 0 SequenceEvaluator, 메시 공간 — 몸통이 숙여도 총은 휴대 방향, 커브 베이스)` 가중치 ← HandsFreeAlpha → 조준 상체 블렌드 → Output (`build_hero_turninplace.py` A7 `patch_weapon_carry` + verify). 정지 프레임인 이유: Rifle_Idle 은 8.9초 대기 클립이라 공중 1초 안에 몸짓이 섞이지 않게.
 - 결과(`pie_jump_probe_run.py` 의 PIE_JUMPHANDS 추가 지표, 전 → 후): 비조준 공중 총 Pitch −38..+48 → **−38..−36**(지상 휴대 −37) · 오른손 지상 휴대 대비 평균 29.4/최대 46.6 → **11.8/17.2cm**(남은 건 몸통 움직임) · 총구 위치 편차 98 → 35cm · 착지 오른손 최대 속도 512~542 → **266cm/s**(총 스냅 절반) · 이륙 219 → 150. 왼손은 그대로 놓음(알파 0.13 · 소켓에서 38cm). 조준 점프 무변화(상체 편차 0.6 · 총열↔카메라 ≤ 1.7°). 달리기 점프 같음. 멀티 전 월드 총 Pitch −41..−36 · 같은 값. verify PASS · 31/31 · 두 구성 빌드 경고 0.
 
 **남은 것**: 장전 몽타주를 저작하면 커브 `DisableLHandIK` 만 넣으면 같은 경로로 왼손 IK 가 꺼진다(§7 ③). 무기 전용 점프 클립이 생기면 그때 점프 상태를 레이어화(Lyra (a))해도 오버레이·커브는 그대로 쓴다.

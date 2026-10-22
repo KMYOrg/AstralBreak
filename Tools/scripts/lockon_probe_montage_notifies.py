@@ -9,10 +9,10 @@ import unreal
 import ab_montage as m; importlib.reload(m)
 
 MONTAGES = [
-    "/Game/Animation/Hero/Montages/AM_Hero_Attack1",
-    "/Game/Animation/Hero/Montages/AM_Hero_Attack2",
-    "/Game/Animation/Hero/Montages/AM_Hero_Attack3",
-    "/Game/Animation/Hero/Montages/AM_Hero_Finisher1",
+    "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack1",
+    "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack2",
+    "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack3",
+    "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Finisher1",
 ]
 
 for path in MONTAGES:

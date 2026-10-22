@@ -4,7 +4,7 @@ import sys
 #      또는 이 스크립트의 이전 자동값(PREV_AUTO)일 때만 바꾼다. 그 밖의 값이면 그대로(에디터에서 손 모양을 조정한 값 보존), RESET_SOCKET 이면 아래 초기값으로 덮어쓴다.
 #      (새 소켓을 만들지 않는 이유: 파이썬에선 SkeletalMeshSocket.SocketName 이 읽기 전용이라 이름을 줄 수 없다 — 2026-10-21 실측)
 #   2) BP_Weapon_Rifle(AAstralRangedWeaponActor) 의 LeftHandGripSocket = LeftHandIK → 블루프린트 컴파일 → 저장
-# 소켓 = 왼손 본(hand_l) 트랜스폼 그대로. 초기값 = AO 기준 포즈 AS_IdleRifleAiming_02 프레임 0 의 hand_l 을 무기(WeaponRoot) 공간으로 환산한 값 그대로 —
+# 소켓 = 왼손 본(hand_l) 트랜스폼 그대로. 초기값 = AO 기준 포즈 AS_Vesper_Rifle_AimIdle 프레임 0 의 hand_l 을 무기(WeaponRoot) 공간으로 환산한 값 그대로 —
 # 무기 루트 = hand_r 배치(setup/rifle_weapon_grip, 키트 저작 기준)에서 이 손은 이미 핸드가드(키트 LeftHandIK 소켓과 2.9cm)라 조준 Idle 에서 IK 보정이 0 이다.
 # (이전 자동값 PREV_AUTO 는 소켓 이중 적용 배치에서 저작 손이 7cm 뒤에 있어 총열 방향으로 7cm 당긴 값이었다 — 2026-10-21 총구 프로브로 배치 오류 확인 뒤 교체)
 # 키트의 HandGripTransformLeft 는 손 축이 이 스켈레톤과 달라 손바닥이 핸드가드를 감싸지 않았다(스크린샷).

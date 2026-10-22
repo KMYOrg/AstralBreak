@@ -26,10 +26,10 @@ PARENT = "/Script/AstralBreak.AstralAnimInstance"
 STATE_FILE = "Tools/mcp/phase6_1_state.json"
 ASSETS = {
     "idle": "/Game/Assets/IdaFaber/Demo/Animations/Girl/AS_Idle",
-    "bs": "/Game/Animation/Hero/Anims/Locomotions/BS_Hero_Locomotion1D",
-    "jump": "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_Jump",
-    "fall": "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_FallLoop",
-    "land": "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_Land",
+    "bs": "/Game/Animation/Hero/Vesper/Common/Locomotion/BS_Vesper_Locomotion1D",
+    "jump": "/Game/Animation/Hero/Vesper/Common/Locomotion/AS_Vesper_Jump_Start",
+    "fall": "/Game/Animation/Hero/Vesper/Common/Locomotion/AS_Vesper_Jump_FallLoop",
+    "land": "/Game/Animation/Hero/Vesper/Common/Locomotion/AS_Vesper_Jump_Land",
 }
 FAILS: list[str] = []
 

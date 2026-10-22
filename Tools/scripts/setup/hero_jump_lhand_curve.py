@@ -11,8 +11,8 @@ import unreal
 REVERT = False   # True — 커브를 지운다
 
 CURVE = "DisableLHandIK"   # = UAstralAnimInstance::LeftHandIKDisableCurve
-LOCO = "/Game/Animation/Hero/Anims/Locomotions"
-CLIPS = [f"{LOCO}/AS_Hero_Jump", f"{LOCO}/AS_Hero_FallLoop", f"{LOCO}/AS_Hero_Land"]   # 베이스 Locomotions 의 JumpStart · FallLoop · FallLand
+LOCO = "/Game/Animation/Hero/Vesper/Common/Locomotion"
+CLIPS = [f"{LOCO}/AS_Vesper_Jump_Start", f"{LOCO}/AS_Vesper_Jump_FallLoop", f"{LOCO}/AS_Vesper_Jump_Land"]   # 베이스 Locomotions 의 JumpStart · FallLoop · FallLand
 
 AL = unreal.AnimationLibrary
 EAL = unreal.EditorAssetLibrary

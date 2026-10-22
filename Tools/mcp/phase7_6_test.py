@@ -15,7 +15,7 @@
   D. 양성 — A→B (changed 1 · referred_changed 1 · 저장) · 레지스트리가 몽타주·AS_Idle 모두 B 로 보고 · 재호출은 skipped(already_on_target)
   E. 복귀 — from_skeleton 수집(B, /Game/Animation/Test)으로 B→A · 몽타주·AS_Idle 모두 A · 남은 B 애셋 0
   F. 본 검증 — UEFN 마네킹 스켈레톤(본 이름 다름)으로 시퀀스 재할당 → BONES_MISSING 거부(애셋 불변), dry_run 도 같은 거부
-  G. set_sequence_additive — AS_Hero_AO_RifleCD 로 같은 값 → unchanged · ref_frame_index 0→1→0 왕복(저장) · 거부(잘못된 enum ·
+  G. set_sequence_additive — AS_Vesper_Rifle_AO_CD 로 같은 값 → unchanged · ref_frame_index 0→1→0 왕복(저장) · 거부(잘못된 enum ·
      다른 스켈레톤 기준 포즈 → SKELETON_MISMATCH · 몽타주 → BAD_REQUEST · 음수 인덱스) · additive_valid 유지
   R. --recheck — 에디터 재시작 뒤 테스트 몽타주·AS_Idle 이 A, 몽타주 슬롯이 스켈레톤에 등록됨, AO_RifleCD 기준 포즈 그대로
 """
@@ -32,8 +32,8 @@ SKEL_OTHER = "/Game/Characters/UEFN_Mannequin/Meshes/SK_UEFN_Mannequin"
 SEQ_A = "/Game/Assets/IdaFaber/Demo/Animations/Girl/AS_Idle"
 MONTAGE = "/Game/Animation/Test/AM_McpSkelTest"
 TEST_DIR = "/Game/Animation/Test"
-AO_CD = "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_AO_RifleCD"
-AO_BASE = "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_Rifle_Idle"
+AO_CD = "/Game/Animation/Hero/Vesper/Rifle/Aim/AS_Vesper_Rifle_AO_CD"
+AO_BASE = "/Game/Animation/Hero/Vesper/Rifle/Locomotion/AS_Vesper_Rifle_Idle"
 OTHER_SEQ = "/Game/Characters/UEFN_Mannequin/Animations/Walk/M_Neutral_Walk_Loop_F"
 FAILS: list[str] = []
 

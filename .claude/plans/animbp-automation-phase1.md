@@ -55,10 +55,10 @@
 | 종류 | 경로 | 비고 |
 | :--- | :--- | :--- |
 | 기존 AnimBP | `/Game/Animation/Hero/ABP_Hero_Base` | **운영 애셋 — 테스트 대상 금지.** 테스트는 별도 경로에 생성 |
-| 1D 블렌드스페이스 | `/Game/Animation/Hero/Anims/Locomotions/BS_Hero_Locomotion1D` | Free Locomotion 후보 |
+| 1D 블렌드스페이스 | `/Game/Animation/Hero/Vesper/Common/Locomotion/BS_Vesper_Locomotion1D` | Free Locomotion 후보 |
 | 8방향 Walk/Run 루프 | 같은 폴더 `M_Neutral_{Walk,Run}_Loop_{F,FL,FR,L*,R*,B,BL,BR}` | Lock-On 2D 블렌드스페이스 재료 |
-| 점프 | `Jump_Start`, `Jump_Apex`, `Jump_Land`, `Jump_Recovery`, `AS_Hero_Jump/FallLoop/Land` | |
-| 공격 몽타주 | `/Game/Animation/Hero/Montages/AM_Hero_Attack1~3`, `AM_Hero_Finisher1` | 슬롯 이름은 Phase 5에서 조회 |
+| 점프 | `Jump_Start`, `Jump_Apex`, `Jump_Land`, `Jump_Recovery`, `AS_Vesper_Jump_Start/FallLoop/Land` | |
+| 공격 몽타주 | `/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack1~3`, `AM_Vesper_Sickle_Finisher1` | 슬롯 이름은 Phase 5에서 조회 |
 | 스켈레톤·메시 | `/Game/Characters/UEFN_Mannequin/Meshes/SK_UEFN_Mannequin` | Hero BP `BP_Hero_Vesper`가 사용하는지 Phase 2.5에서 확인 ❓ |
 
 ### A-5. 재사용 가능한 기존 자산
@@ -359,8 +359,8 @@ Python 측은 `mcp` 공식 SDK(FastMCP)로 각 Tool을 등록하고 입력 스�
   "schema_version": "1.0", "asset_path": "...", "revision": "sha1:…",
   "graphs": [ { "graph_guid": "…", "name": "AnimGraph", "class": "AnimationGraph", "parent_graph_guid": null, "owner_node_guid": null } ],
   "nodes": [
-    { "node_guid": "…", "graph_guid": "…", "class": "AnimGraphNode_SequencePlayer", "title": "Play AS_Hero_Rifle_Idle",
-      "pos": [0, 0], "asset": "/Game/.../AS_Hero_Rifle_Idle",
+    { "node_guid": "…", "graph_guid": "…", "class": "AnimGraphNode_SequencePlayer", "title": "Play AS_Vesper_Rifle_Idle",
+      "pos": [0, 0], "asset": "/Game/.../AS_Vesper_Rifle_Idle",
       "properties": { "bLoopAnimation": true, "PlayRate": 1.0 },
       "pins": [ { "name": "Pose", "dir": "out", "type": "struct:PoseLink", "linked": ["…nodeguid:Result"] },
                 { "name": "PlayRate", "dir": "in", "type": "real:double", "default": "1.0", "linked": [] } ],
@@ -388,7 +388,7 @@ Python 측은 `mcp` 공식 SDK(FastMCP)로 각 Tool을 등록하고 입력 스�
   "compile": false, "save": false,
   "operations": [
     { "op": "add_node", "ref": "idle", "graph": "<GraphGuid>", "class": "AnimGraphNode_SequencePlayer",
-      "pos": [-400, 0], "asset": "/Game/Animation/Hero/Anims/Locomotions/AS_Hero_Rifle_Idle",
+      "pos": [-400, 0], "asset": "/Game/Animation/Hero/Vesper/Rifle/Locomotion/AS_Vesper_Rifle_Idle",
       "properties": { "bLoopAnimation": true } },
     { "op": "connect", "from": { "ref": "idle", "pin": "Pose" }, "to": { "node": "<RootNodeGuid>", "pin": "Result" } },
     { "op": "set_property", "node": "<NodeGuid>", "property": "PlayRate", "value": 1.2 },
@@ -458,7 +458,7 @@ Python 측은 `mcp` 공식 SDK(FastMCP)로 각 Tool을 등록하고 입력 스�
 1. `FKismetEditorUtilities::CanCreateBlueprintOfClass(UAstralAnimInstance)` + `IsChildOf(UAnimInstance)` 사전 검증 → 실패면 `BAD_REQUEST` (모달 회피).
 2. `UPackage* Pkg = CreatePackage("/Game/Animation/Test/ABP_McpTest")` → `FKismetEditorUtilities::CreateBlueprint(Parent, Pkg, "ABP_McpTest", BPTYPE_Normal, UAnimBlueprint::StaticClass(), UBlueprintGeneratedClass::StaticClass())` → `TargetSkeleton` 3곳 세팅(팩토리 475-494 재현) → `FAssetRegistryModule::AssetCreated`.
 3. `FBlueprintEditorUtils::FindBlueprintForGraph`/`FunctionGraphs`에서 `GN_AnimGraph` 그래프 획득 → `GetNodesOfClass<UAnimGraphNode_Root>` 1개.
-4. `FGraphNodeCreator<UAnimGraphNode_SequencePlayer>` → `CreateNode()` → `Finalize()` → `SetAnimationAsset(AS_Hero_Rifle_Idle)` → `NodePosX/Y`.
+4. `FGraphNodeCreator<UAnimGraphNode_SequencePlayer>` → `CreateNode()` → `Finalize()` → `SetAnimationAsset(AS_Vesper_Rifle_Idle)` → `NodePosX/Y`.
 5. `Schema->TryCreateConnection(Seq->FindPin("Pose"), Root->FindPin("Result"))` → false면 `CanCreateConnection` 응답 메시지로 `CONNECTION_REJECTED`.
 6. `MarkBlueprintAsStructurallyModified` → `CompileBlueprint(BP, None, &Log)` → `NumErrors == 0`.
 7. `UEditorAssetSubsystem::SaveLoadedAsset(BP)`.
@@ -487,7 +487,7 @@ Python 측은 `mcp` 공식 SDK(FastMCP)로 각 Tool을 등록하고 입력 스�
 
 ### Phase 5 — 실제 캐릭터 적용
 
-Free Locomotion(`BS_Hero_Locomotion1D` + `Speed`), Jump(`bIsInAir`/`bIsJumping`/`bIsFalling`/`bIsOnGround`), Attack(Slot + LayeredBlendPerBone). **`ABP_Hero_Base`에 적용하기 전에 복제본에서 전 과정 수행 → diff 검토 → 승인 후 원본.**
+Free Locomotion(`BS_Vesper_Locomotion1D` + `Speed`), Jump(`bIsInAir`/`bIsJumping`/`bIsFalling`/`bIsOnGround`), Attack(Slot + LayeredBlendPerBone). **`ABP_Hero_Base`에 적용하기 전에 복제본에서 전 과정 수행 → diff 검토 → 승인 후 원본.**
 
 **보류 — Strafe Locomotion (2026-10-10 결정).** strafe는 락온 상태가 아니라 **추후 "사격 후 일정 시간 유지되는 strafe 모드"**로 도입한다. Phase 5에서는 다루지 않는다. 그때 필요한 선행 게임플레이 작업은 아래와 같고, 조사 결과만 남긴다.
 
@@ -595,7 +595,7 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 - revision 해시는 아직 FAnimNode 프로퍼티 값을 포함하지 않는다 (§D-3 ❓ 그대로, Phase 3).
 - 토큰 파일 경로를 절대 경로로 보고하도록 수정 — DebugGame 에 반영, Development 는 에디터 종료 후 재빌드 필요.
 
-**Phase 2.5 착수 조건**: 본 결과 검토. 테스트 AnimBP 경로 `/Game/Animation/Test/ABP_McpTest`, 스켈레톤 `SKEL_UE5_F`, 시퀀스 `AS_Hero_Rifle_Idle`.
+**Phase 2.5 착수 조건**: 본 결과 검토. 테스트 AnimBP 경로 `/Game/Animation/Test/ABP_McpTest`, 스켈레톤 `SKEL_UE5_F`, 시퀀스 `AS_Vesper_Rifle_Idle`.
 
 ---
 
@@ -611,7 +611,7 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 | 컴파일·저장 | `Core/AnimMcpCompiler` — `FCompilerResultsLog` 토큰 → node_guid 매핑, `UEditorAssetSubsystem::SaveLoadedAsset(…, false)` |
 | Inspector 확장 | `DescribeNode`/`DescribePin`/`BuildGraphStructure`(depth), `FindGraphByGuid`/`FindNodeByGuid` |
 | Tool 7개 추가 | `get_anim_graph_structure` · `list_animation_assets` · `create_animation_blueprint` · `save_animation_blueprint` · `preview_graph_operations` · `apply_graph_operations` · `compile_animation_blueprint` (총 9) |
-| 테스트 애셋 | `/Game/Animation/Test/ABP_McpTest` (SequencePlayer `AS_IdleRifleAiming_02` → Output Pose) |
+| 테스트 애셋 | `/Game/Animation/Test/ABP_McpTest` (SequencePlayer `AS_Vesper_Rifle_AimIdle` → Output Pose) |
 
 **검증**: 스켈레톤 필터 애셋 22건 · 생성(덮어쓰기 포함) · 루트 그래프 노드 `AnimGraphNode_Root` 핀 `Result` 확인 · preview valid & 그래프 불변 · apply 2 op + 컴파일 0/0 + 저장 · 재조회 연결 1건·revision 일치 · 실패 배치(없는 핀) `PIN_NOT_FOUND`, `rollback_verified=true`, 이후 revision 불변 · 중복 ref 거부. **에디터 재시작 후 재조회**: 노드 Guid·연결·애셋 참조 동일, `BS_UpToDate` (영속 확인). Development·DebugGame 빌드 성공.
 
@@ -682,15 +682,15 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 
 **규칙 그래프 멱등의 구현**: 전체 재생성이라 노드 Guid 가 바뀌므로 "같은 AST 2회 → 같은 revision" 은 재생성으로는 성립하지 않는다. 대신 주석에 (원문, 생성 직후 그래프 해시) 를 두고, 원문이 같고 해시가 일치(사람이 손대지 않음)하면 **no-op** 으로 처리한다. 해시는 Guid 대신 (위치, 클래스, 함수/변수 이름, 핀 기본값, 인덱스 기반 링크) 로 계산해 재생성해도 같다.
 
-**Phase 5 착수 조건**: 본 결과 검토. 범위는 §F Phase 5 — `ABP_Hero_Base` **복제본**에서 Free Locomotion(`BS_Hero_Locomotion1D` + `Speed`) · Jump · Attack(Slot + LayeredBlendPerBone) 을 구성하고 diff 검토 후 원본 적용. 선행: `create_blendspace`(축 설정 API 조사) 또는 기존 BlendSpace 재사용 결정, 복제 Tool(`duplicate_animation_blueprint`) 필요 여부.
+**Phase 5 착수 조건**: 본 결과 검토. 범위는 §F Phase 5 — `ABP_Hero_Base` **복제본**에서 Free Locomotion(`BS_Vesper_Locomotion1D` + `Speed`) · Jump · Attack(Slot + LayeredBlendPerBone) 을 구성하고 diff 검토 후 원본 적용. 선행: `create_blendspace`(축 설정 API 조사) 또는 기존 BlendSpace 재사용 결정, 복제 Tool(`duplicate_animation_blueprint`) 필요 여부.
 
 ---
 
 ## Phase 5 결과 (2026-10-16, 브랜치 `feat/ai_auto_ABP`)
 
-**선행 실측이 범위를 바꿨다.** 운영 애셋 `ABP_Hero_Base` 를 `depth=-1` 로 덤프하니 이동·점프 상태머신이 **상태 내부까지 사람이 이미 완성**한 상태였다 (Idle=`AS_Idle` · Move=`BS_Hero_Locomotion1D` X←`Get Speed` K2 노드 · JumpStart/FallLoop/FallLand 시퀀스 · alias 4 · conduit 2 · 전이 12). 복제본에 "구성할 것" 이 Attack 레이어뿐이라, 사용자 확정(2026-10-16)으로 범위를 바꿨다:
+**선행 실측이 범위를 바꿨다.** 운영 애셋 `ABP_Hero_Base` 를 `depth=-1` 로 덤프하니 이동·점프 상태머신이 **상태 내부까지 사람이 이미 완성**한 상태였다 (Idle=`AS_Idle` · Move=`BS_Vesper_Locomotion1D` X←`Get Speed` K2 노드 · JumpStart/FallLoop/FallLand 시퀀스 · alias 4 · conduit 2 · 전이 12). 복제본에 "구성할 것" 이 Attack 레이어뿐이라, 사용자 확정(2026-10-16)으로 범위를 바꿨다:
 
-- **적용 범위 = 새 ABP 처음부터 재구성** (`/Game/Animation/Hero/ABP_Hero_McpBuild`) → 운영 애셋과 구조 비교 → 검토 뒤 원본엔 Attack 레이어만 적용 후보.
+- **적용 범위 = 새 ABP 처음부터 재구성** (`/Game/Animation/Test/ABP_Hero_McpBuild`) → 운영 애셋과 구조 비교 → 검토 뒤 원본엔 Attack 레이어만 적용 후보.
 - **도구 추가 = VariableGet 노드 · LayerSetup 본 필터** (같은 배치 ref 그래프·duplicate Tool 은 보류). **BlendSpace = 기존 재사용**. **Attack 슬롯 = `UpperBody` 신설** (몽타주 5개는 전부 `DefaultSlot` — 콘텐츠 작업은 별도).
 
 | 산출물 | 위치 |
@@ -791,7 +791,7 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 - **2D 는 기본적으로 그리드가 비어 있다** — `bInterpolateUsingGrid=false`(기본) 면 `ResampleData2D` 가 삼각분할(`BlendSpaceData.Triangles`) 만 만들고 `EmptyGridElements()` 한다 (BlendSpace.cpp:2784-2804). 1D 는 선분(`Segments`) + 그리드. 첫 테스트가 그리드 20 을 기대해 실패했고, 요약에 `segment_count`/`triangle_count`/`interpolate_using_grid` 를 추가해 바로잡았다. 샘플 3 → 삼각형 1.
 - `ResampleData()` 는 내부에서 `ValidateSampleData()` 를 먼저 부른다(:2654) — Persona 순서(Resample → Validate) 를 그대로 따라도 무해.
 - **방금 저장한 파일은 잠깐 잠길 수 있다** — 회귀 중 간헐적으로 `DeleteAsset` 뒤 파일 삭제가 실패했다(`IFileManager::Delete` 뒤에도 `FileExists`). 외부 핸들(바이러스 검사·레지스트리 스캔)로 보이며, `AnimMcpAssetOps::DeleteAssetAtPath` 가 0.3초 간격 최대 10회 재시도하도록 고쳤다(실측 "2 attempts" 로 통과). 6-2 기계의 보완.
-- 원본 `BS_Hero_Locomotion1D`: 축 Speed 0..500 grid 5 · 샘플 3 · anim_length 6.0 — 도구로 1:1 재현되고 재시작 뒤 요약 동일.
+- 원본 `BS_Vesper_Locomotion1D`: 축 Speed 0..500 grid 5 · 샘플 3 · anim_length 6.0 — 도구로 1:1 재현되고 재시작 뒤 요약 동일.
 
 **Phase 6-4 착수 조건**: 본 결과 검토. 범위는 핸드오프 §12 "6-4 바인딩·레이어" — (a) Property Binding `bind_pin`/`unbind_pin`(`FAnimGraphNodePropertyBinding`, 에디터 UI 가 바인딩을 채우는 경로 ❓ `Editor/AnimGraph/Private/AnimGraphNodeBinding*.cpp` · `AnimBlueprintExtension_PropertyAccess`), (b) Linked Anim Layer 는 **§12-C 로 진행 여부 확정**(운영 애셋은 Linked Layer 0).
 
@@ -968,14 +968,14 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 | 테스트 | `Tools/mcp/phase7_3_test.py` — A 스켈레톤 슬롯(UpperBody 멱등 · 임시 슬롯/그룹 생성·이동 · 거부 6종) · B 생성(거부 6종) · C 슬롯(양방향 · 축약형 · 멱등 · 거부 5종) · D 섹션(체인+루프 · 멱등 · 정렬 · 거부 6종 · NO_SECTION_AT_ZERO) · E 저장·list details·스모크(미사용 슬롯 경고) · F AimOffset(2D 8샘플 · 1D 빈 · ADDITIVE_INVALID · ADDITIVE_TYPE) · `--recheck`(임시 슬롯 사라짐 · UpperBody 유지 · 요약 동일 · 스모크). 테스트 애셋 `AM_McpTest` · `AO_McpTest` · `AO_McpTest1D`. `run_all.py` PHASES 는 7-2 뒤·6-5 앞, RECHECKS 도 같은 자리 |
 
 **실측으로 바로잡은 것 · 확인한 것**
-- **프로젝트에 같은 이름의 스켈레톤이 둘 있다**: `/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F`(ABP_Hero_Base · AS_Hero_Finisher1 · AS_Hero_Jump · AM_Attack0 · AM_Hero_Finisher1)와 `/Game/IdaFaber/Meshes/Girl/SKEL_UE5_F`(AS_Hero_Attack1~3 · AO_Rifle 9종 · 로코모션 대부분 · **AM_Hero_Attack1~3**). 몽타주는 소스 시퀀스의 스켈레톤을 따르므로 테스트 소스를 `AS_Hero_Finisher1` 로 바꿨고, AimOffset 은 `/Game/IdaFaber` 쪽 스켈레톤으로 만든다. 두 스켈레톤은 `IsCompatibleForEditor` 가 아니어서 몽타주 스모크가 `AM_Hero_Attack1~3` 에 "DefaultSlot Slot 노드 없음" **경고**를 낸다(오류 아님) — 콘텐츠 정리 대상.
-- **기준 포즈 없는 additive 시퀀스는 엔진이 그 다음 샘플부터 거부한다**: `AS_Hero_AO_RifleCC` 가 `ABPT_AnimFrame` 인데 `RefPoseSeq` 가 비어 `IsValidAdditive()` false(AnimSequence.cpp:2615-2637). `AddSample` 은 새 샘플이 아니라 **기존 샘플**의 `IsValidAdditive` 를 본다(`ContainsMatchingSamples`, BlendSpace.cpp:2253-2268)라 CC 자신은 들어가고 6번째가 ENGINE_REJECTED 로 떨어졌다 → 사전 검증 `ADDITIVE_INVALID`(RefPoseType·RefPoseSeq 를 메시지에) 추가, `list_animation_assets details` 에 `additive_valid` 노출. AimOffset 테스트는 유효 8샘플로 만든다. **AS_Hero_AO_RifleCC 는 Additive Settings 의 기준 포즈를 지정해야 한다**(콘텐츠).
+- **프로젝트에 같은 이름의 스켈레톤이 둘 있다**: `/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F`(ABP_Hero_Base · AS_Vesper_Sickle_Finisher1 · AS_Vesper_Jump_Start · AM_Vesper_Sickle_Slash1 · AM_Vesper_Sickle_Finisher1)와 `/Game/IdaFaber/Meshes/Girl/SKEL_UE5_F`(AS_Vesper_Sickle_Attack1~3 · AO_Rifle 9종 · 로코모션 대부분 · **AM_Vesper_Sickle_Attack1~3**). 몽타주는 소스 시퀀스의 스켈레톤을 따르므로 테스트 소스를 `AS_Vesper_Sickle_Finisher1` 로 바꿨고, AimOffset 은 `/Game/IdaFaber` 쪽 스켈레톤으로 만든다. 두 스켈레톤은 `IsCompatibleForEditor` 가 아니어서 몽타주 스모크가 `AM_Vesper_Sickle_Attack1~3` 에 "DefaultSlot Slot 노드 없음" **경고**를 낸다(오류 아님) — 콘텐츠 정리 대상.
+- **기준 포즈 없는 additive 시퀀스는 엔진이 그 다음 샘플부터 거부한다**: `AS_Vesper_Rifle_AO_CC` 가 `ABPT_AnimFrame` 인데 `RefPoseSeq` 가 비어 `IsValidAdditive()` false(AnimSequence.cpp:2615-2637). `AddSample` 은 새 샘플이 아니라 **기존 샘플**의 `IsValidAdditive` 를 본다(`ContainsMatchingSamples`, BlendSpace.cpp:2253-2268)라 CC 자신은 들어가고 6번째가 ENGINE_REJECTED 로 떨어졌다 → 사전 검증 `ADDITIVE_INVALID`(RefPoseType·RefPoseSeq 를 메시지에) 추가, `list_animation_assets details` 에 `additive_valid` 노출. AimOffset 테스트는 유효 8샘플로 만든다. **AS_Vesper_Rifle_AO_CC 는 Additive Settings 의 기준 포즈를 지정해야 한다**(콘텐츠).
 - **6-3 실패 경로의 잠복 결함**: `AddSample` 거부 뒤 `MarkAsGarbage` 만 하면 GC 전까지 `AssetExists` 가 참이라 다음 `create_blendspace overwrite` 의 `DeleteAsset` 이 실패했다 → 거부된 애셋을 임시 패키지로 `Rename` 한 뒤 버린다(Stale 처리와 같은 방식).
 - `UAnimMontage::UpdateCommonTargetFrameRate` 는 private 오버라이드 → 베이스 포인터로 호출(위). `PostEditChangeProperty` 도 같은 것을 부른다(AnimMontage.cpp:802).
 - 같은 에디터에서 테스트를 두 번 돌리면 저장하지 않은 임시 스켈레톤 슬롯이 메모리에 남는다 → 테스트는 시작 상태 기준으로 `added`/`group_created` 를 기대한다.
 - 미검증: 다중 트랙 몽타주의 `DUPLICATE_SLOT`(테스트 몽타주는 트랙 1개 — 로직은 전체 이름 비교) · 보호 스켈레톤 편집(보호 목록은 파괴 연산 전용이라 `add_skeleton_slot` 은 `/Game/Assets/` 스켈레톤도 편집한다 — 의도) · 섹션 변경 뒤 브랜칭 포인트 트리거 오프셋 재계산은 `PostEditChange → RefreshCacheData` 에 맡김(코드 경로 확인, 실측 없음).
 
-**다음**: 로드맵 §4(Linked Layer 값 파라미터·InstanceClass·인터페이스 레이어 추가/삭제) → §5(PIE 런타임 검증). 운영 적용 후보(사용자 승인 배치): `AM_Hero_Attack1~3`·`Finisher1` 슬롯을 `UpperBody` 로(`set_montage_slots`), 콤보 섹션(`set_montage_sections`). 핸드오프 "최종 지시 (Phase 7 후속)".
+**다음**: 로드맵 §4(Linked Layer 값 파라미터·InstanceClass·인터페이스 레이어 추가/삭제) → §5(PIE 런타임 검증). 운영 적용 후보(사용자 승인 배치): `AM_Vesper_Sickle_Attack1~3`·`Finisher1` 슬롯을 `UpperBody` 로(`set_montage_slots`), 콤보 섹션(`set_montage_sections`). 핸드오프 "최종 지시 (Phase 7 후속)".
 
 ---
 
@@ -1028,7 +1028,7 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 | Tool | `Tools/AnimMcpTools_Automation.cpp` — `run_anim_scenario {asset_path, mesh?, map?, set_variables?, montage?, wait_frames=10, expect?{state_machines, slots_active}, timeout=120}`: `PIE_ACTIVE` · `NOT_ANIM_BLUEPRINT` · `NOT_COMPILED` · 메시(지정 > ABP 프리뷰 > 스켈레톤 프리뷰, `NO_PREVIEW_MESH`) · `SKELETON_MISMATCH`(메시 `IsCompatibleMesh(,false)`, 몽타주 `IsCompatibleForEditor`) · 변수 존재·`JsonToImportText` 선검증(`VARIABLE_NOT_FOUND` details.variables · `BAD_VALUE`) · 기대 상태머신·상태 이름을 BakedStateMachines 로 선검증(`STATE_MACHINE_NOT_FOUND` details.state_machines · `STATE_NOT_FOUND` details.states) · `BAD_WAIT_FRAMES`(1..100000 정수) · `BAD_SLOT` · 몽타주 없이 슬롯 기대 → 경고 `NO_MONTAGE`. 응답 = 잡(항상 `done:false`) + `scenario`(정규화 JSON) + `state_machines[]` |
 | 러너 | `Core/AnimMcpAutomationRunner` — `StartJobWithTests(Label, Tests[], Timeout)`(`StartJob` 은 이것의 `FindTests` 래퍼) · `FTestResult.ObservedJson`(`Record` 가 `TakeObservation`) → `DescribeJob` 의 `tests[].observed` · `FinishCurrent(강제)` 뒤 `GEditor->PlayWorld` 면 `RequestEndPlayMap`(타임아웃이 지연 명령을 버려 테스트가 못 닫는 PIE) |
 | 6-2 플레이크 수정 | `Core/AnimMcpAssetOps` — `FindReferencersIncludingMemory`(레지스트리 참조자 ∪ `FReferencerFinder::GetAllReferencers(패키지 안 모든 객체)` 의 콘텐츠 패키지; /Temp·Transient·CompiledIn·스크립트 제외) · `delete_animation_blueprint` 만 이것을 쓴다(레이어 conform 은 디스크 참조자가 필요해 `FindReferencers` 유지) |
-| 테스트 스크립트 | `Tools/mcp/phase7_5_test.py` — A 준비(Tool 28 · dry_run 1 · 직접 실행 passed+경고 · `ABP_McpRuntimeTest` 생성: `/Script/Engine.AnimInstance` + `Speed:float` + `Locomotion`(Idle·Run, `Speed > 150`/`<= 150`, AS_Idle·AS_Hero_Jump) → Slot `UpperBody{bAlwaysUpdateSourcePose}` → Root, 컴파일 0 에러·저장) · B 양성(Idle · Run+`AM_McpTest`→UpperBody 활성·montage_playing · PIE 닫힘) · C 음성(상태 불일치 failed+observed · NO_MONTAGE+failed) · D 거부 8종 · UEFN 마네킹 메시 통과 · 잡 진행 중 2종 · wait_frames 300 완료 · timeout 3초 → `timeout` · PIE 닫힘 · 다음 시나리오 정상 · E 운영 `ABP_Hero_Base` → `Locomotions` Idle. `--recheck` 는 B·E 관측(상태·슬롯·몽타주) 동일. `run_all.py` PHASES/RECHECKS 7-4 뒤·6-5 앞 |
+| 테스트 스크립트 | `Tools/mcp/phase7_5_test.py` — A 준비(Tool 28 · dry_run 1 · 직접 실행 passed+경고 · `ABP_McpRuntimeTest` 생성: `/Script/Engine.AnimInstance` + `Speed:float` + `Locomotion`(Idle·Run, `Speed > 150`/`<= 150`, AS_Idle·AS_Vesper_Jump_Start) → Slot `UpperBody{bAlwaysUpdateSourcePose}` → Root, 컴파일 0 에러·저장) · B 양성(Idle · Run+`AM_McpTest`→UpperBody 활성·montage_playing · PIE 닫힘) · C 음성(상태 불일치 failed+observed · NO_MONTAGE+failed) · D 거부 8종 · UEFN 마네킹 메시 통과 · 잡 진행 중 2종 · wait_frames 300 완료 · timeout 3초 → `timeout` · PIE 닫힘 · 다음 시나리오 정상 · E 운영 `ABP_Hero_Base` → `Locomotions` Idle. `--recheck` 는 B·E 관측(상태·슬롯·몽타주) 동일. `run_all.py` PHASES/RECHECKS 7-4 뒤·6-5 앞 |
 
 **실측으로 바로잡은 것 · 확인한 것**
 - **몽타주가 덮은 슬롯 뒤의 상태머신은 멈춘다** — 첫 실행에서 Speed 300 + 몽타주 시나리오가 `Locomotion = Idle, elapsed 0` 으로 실패했다. 테스트 ABP 는 Root ← Slot(UpperBody) ← 상태머신 이고 `AM_McpTest` 가 그 슬롯을 가중치 1 로 덮으니 `FAnimNode_Slot` 이 Source 를 갱신하지 않은 것(AnimNode_Slot.cpp:67). 테스트 ABP 의 Slot 에 `bAlwaysUpdateSourcePose=true` 를 주고 통과. 운영 ABP 처럼 상체 레이어가 `FullBody` 캐시 뒤에 있으면 전신 상태머신은 영향이 없지만, **전신 슬롯 뒤 상태머신을 몽타주 중에 검증하려면 이 플래그가 필요**하다 — 도구가 바로 보여준 설계 함정.
@@ -1046,7 +1046,7 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 
 ## Phase 7-6 결과 (2026-10-19, 브랜치 `feat/character_ABP`) — 스켈레톤 재할당 · 시퀀스 additive (히어로 전투 ABP 선행)
 
-**배경**: 히어로 전투 ABP([hero-combat-abp.md](hero-combat-abp.md), 사용자 확정 4건) 를 만들려니 라이플·AimOffset 애셋 40개가 두 번째 `SKEL_UE5_F`(`/Game/IdaFaber/…`)에 있어 ABP(`/Game/Assets/…` 스켈레톤)가 참조할 수 없었고, `AS_Hero_AO_RifleCC` 는 기준 포즈가 없어 AimOffset 샘플이 안 됐다(7-3 실측). Python 원격 실행은 에디터 기동 직후 멀티캐스트 발견이 실패하던 때가 있어(재기동 뒤 성공) 두 작업을 Tool 로 만들었다. 사용자 확정: 스켈레톤 통합은 **새 Tool**(에디터 수동 아님). Tool 28 → **30개**. Development · DebugGame 빌드 경고 0(`StackingType` deprecated 는 런타임 setter 가 없어 pragma).
+**배경**: 히어로 전투 ABP([hero-combat-abp.md](hero-combat-abp.md), 사용자 확정 4건) 를 만들려니 라이플·AimOffset 애셋 40개가 두 번째 `SKEL_UE5_F`(`/Game/IdaFaber/…`)에 있어 ABP(`/Game/Assets/…` 스켈레톤)가 참조할 수 없었고, `AS_Vesper_Rifle_AO_CC` 는 기준 포즈가 없어 AimOffset 샘플이 안 됐다(7-3 실측). Python 원격 실행은 에디터 기동 직후 멀티캐스트 발견이 실패하던 때가 있어(재기동 뒤 성공) 두 작업을 Tool 로 만들었다. 사용자 확정: 스켈레톤 통합은 **새 Tool**(에디터 수동 아님). Tool 28 → **30개**. Development · DebugGame 빌드 경고 0(`StackingType` deprecated 는 런타임 setter 가 없어 pragma).
 
 **엔진 경로 (소스로 확인)**
 - **제자리 리타겟**: `EditorAnimUtils::RetargetAnimations(Old, New, TArray<TWeakObjectPtr<UObject>>, bRetargetReferredAssets, NameRule=nullptr, bConvertSpace)`(EditorAnimUtils.h:92, .cpp:365-369) → `FAnimationRetargetContext::RetargetAnimations`(.cpp:256-316): 시퀀스마다 `UAnimationBlueprintLibrary::CopyAnimationCurveNamesToSkeleton(Old, New, Seq)` + 트랜스폼 커브 제거 + `ReplaceSkeleton(New, bConvertSpaces)` + `MarkPackageDirty`. NameRule 이 없으면 복제 없이 제자리, Slate 알림만 띄운다(:392-431). AnimBP 도 받지만(TargetSkeleton 교체) 도구는 애니 애셋만.
@@ -1061,11 +1061,11 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 | Tool | `Tools/AnimMcpTools_Sequence.cpp` — `set_sequence_additive {asset_path, additive_type?, ref_pose_type?, ref_pose_sequence?(경로\|null), ref_frame_index?, save}`: enum 은 접두(`AAT_`/`ABPT_`) 생략 허용(`BAD_ENUM` 에 허용 목록) · 생략 = 유지 · 같은 값 = `unchanged` · 응답에 `additive_valid` |
 | 서버 · 러너 | `server.py` Tool 2개 · `run_all.py` PHASES/RECHECKS 에 `phase7_6_test`(7-5 뒤 · 6-5 앞) |
 | 테스트 | `Tools/mcp/phase7_6_test.py` 7절 PASS(핸드오프 §8). 운영 시퀀스 `AS_Idle` 을 A→B→A 왕복하는 점(참조 전파 때문에 피할 수 없음)과 `restore_idle` 안전망 |
-| 기존 테스트 수정 | `phase7_3_test.py` `SKELETON_AO = SKELETON`(AO 샘플이 A 로 옮겨짐) · `phase7_5_test.py` 다른 스켈레톤 몽타주를 `AM_McpOtherSkel`(UEFN `M_Neutral_Walk_Loop_F` 로 생성)로 — `/Game/IdaFaber` 몽타주가 더는 없다 · `phase3_test.py` BlendSpace 선택에서 AimOffset 제외(`AO_Hero_Rifle` 이 알파벳순 첫째가 되어 BlendSpacePlayer preview 가 거부됨) · `phase7_4_test.py` 레이어 값 파라미터 `AimYaw`/`AimPitch` → `LayerYaw`/`LayerPitch`(`UAstralAnimInstance` 에 같은 이름 네이티브 변수가 생겨 구현 ABP 컴파일 "property already exists") |
-| 콘텐츠 적용 | `Tools/mcp/reassign_hero_skeleton.py --apply` — 40개 → A(+ 첫 테스트가 끌고 갔다가 미저장으로 남은 AO 8개를 재기동 뒤 다시). `/Game` 전체 B 애셋 0 · `ABP_Hero_Base` 컴파일 0 에러 · 스모크의 `AM_Hero_Attack1~3` "Slot 노드 없음" 경고도 사라짐(이제 같은 스켈레톤) |
+| 기존 테스트 수정 | `phase7_3_test.py` `SKELETON_AO = SKELETON`(AO 샘플이 A 로 옮겨짐) · `phase7_5_test.py` 다른 스켈레톤 몽타주를 `AM_McpOtherSkel`(UEFN `M_Neutral_Walk_Loop_F` 로 생성)로 — `/Game/IdaFaber` 몽타주가 더는 없다 · `phase3_test.py` BlendSpace 선택에서 AimOffset 제외(`AO_Vesper_Rifle` 이 알파벳순 첫째가 되어 BlendSpacePlayer preview 가 거부됨) · `phase7_4_test.py` 레이어 값 파라미터 `AimYaw`/`AimPitch` → `LayerYaw`/`LayerPitch`(`UAstralAnimInstance` 에 같은 이름 네이티브 변수가 생겨 구현 ABP 컴파일 "property already exists") |
+| 콘텐츠 적용 | `Tools/mcp/reassign_hero_skeleton.py --apply` — 40개 → A(+ 첫 테스트가 끌고 갔다가 미저장으로 남은 AO 8개를 재기동 뒤 다시). `/Game` 전체 B 애셋 0 · `ABP_Hero_Base` 컴파일 0 에러 · 스모크의 `AM_Vesper_Sickle_Attack1~3` "Slot 노드 없음" 경고도 사라짐(이제 같은 스켈레톤) |
 
 **실측으로 바로잡은 것 · 확인한 것**
-- **참조 애셋은 항상 따라간다** (위). 첫 7-6 테스트의 E 절이 `/Game/Animation/Test` 의 B 애셋을 수집하면서 7-3 이 B 로 만들어 둔 `AO_McpTest` 를 A 로 옮겼고, 그 샘플 `AS_Hero_AO_Rifle*` 8개가 메모리에서만 A 가 됐다(저장 목록 밖) → `quit_editor discard_dirty` 에서 버려져 디스크는 B 그대로 → 재기동 뒤 `reassign_hero_skeleton.py --apply` 가 8개를 다시 잡았다. 교훈: **referred 를 저장 목록에 넣지 않으면 메모리와 디스크가 갈린다** — 수정본은 넣는다.
+- **참조 애셋은 항상 따라간다** (위). 첫 7-6 테스트의 E 절이 `/Game/Animation/Test` 의 B 애셋을 수집하면서 7-3 이 B 로 만들어 둔 `AO_McpTest` 를 A 로 옮겼고, 그 샘플 `AS_Vesper_Rifle_AO_*` 8개가 메모리에서만 A 가 됐다(저장 목록 밖) → `quit_editor discard_dirty` 에서 버려져 디스크는 B 그대로 → 재기동 뒤 `reassign_hero_skeleton.py --apply` 가 8개를 다시 잡았다. 교훈: **referred 를 저장 목록에 넣지 않으면 메모리와 디스크가 갈린다** — 수정본은 넣는다.
 - `AssetRegistry` 의 `Skeleton` 태그는 저장 직후 바로 갱신됐다(테스트가 저장 뒤 즉시 `list_animation_assets` 로 확인) — 6-2 의 의존성 지연과 달리 태그는 동기 경로.
 - `RetargetAnimations` 의 Slate 알림은 에디터 안에서만 뜨고 응답에는 영향 없다. `skeleton_saved` 는 두 번 다 false — 커브 이름이 이미 대상 스켈레톤에 있었다.
 - **UE ExecuteFile 원격 실행 함정 재확인**: 스크립트 소스 앞부분(주석 포함)에 ".py" 가 있으면 엔진이 소스 전체를 파일 경로로 오인한다(lockon_input.py 주석에 기록된 그대로). 7-6 에서 두 번 걸렸다 — 주석에 확장자를 쓰지 않는다.

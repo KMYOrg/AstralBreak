@@ -1,6 +1,6 @@
 import sys
 # 라이플 파지 배치 (멱등) — 무기 루트(WeaponRoot)를 손 본 hand_r 에 그대로 붙인다 = 애니 키트의 저작 기준
-#   (조준 애니 AS_IdleRifleAiming_02 의 ik_hand_gun == hand_r, 이 배치에서 저작 왼손 hand_l 이 키트 LeftHandIK 소켓과 2.9cm)
+#   (조준 애니 AS_Vesper_Rifle_AimIdle 의 ik_hand_gun == hand_r, 이 배치에서 저작 왼손 hand_l 이 키트 LeftHandIK 소켓과 2.9cm)
 #   1) DA_EF_Rifle.ActorsToSpawn[*].AttachSocket: WeaponHandR → hand_r (WeaponHandR 는 낫 계열과 공유하는 소켓 — 회전이 있어 라이플 저작 기준과 다르다)
 #   2) DA_WD_Rifle1.MeshInfo.AttachOffset: 소켓 상대값과 같은 값(이중 적용)이면 → 항등. 다른 값이면 조정값으로 보고 건드리지 않는다
 # 근거(2026-10-21 총구 프로브 pie_muzzle_probe_run): 이전 배치는 소켓 + 같은 값의 AttachOffset 이 두 번 적용돼 정지 조준에서 총열이 발사 방향보다

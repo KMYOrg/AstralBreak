@@ -2,16 +2,16 @@
 
     PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/build_hero_combat.py [--overwrite] [--verify-only]
 
-산출 (전부 /Game/Animation/Hero 아래, 저장):
-  Anims/Locomotions/AO_Hero_Rifle       AimOffset 2D (Yaw -90..90 × Pitch -90..90, AS_Hero_AO_Rifle* 9샘플; CC 기준 포즈는 여기서 먼저 지정)
-  Anims/Locomotions/BS_Hero_Rifle_Strafe 2D (Direction -180..180 × Speed 0..500) — 조준 중 8방향 Jog + Idle
-  Anims/Locomotions/BS_Hero_Rifle_Jog    1D (Speed 0..500) — 비조준 라이플 이동 (Idle → JogFwd)
+산출 (전부 /Game/Animation/Hero 아래, 저장 — 애니 콘텐츠는 Vesper/<계열>/<용도>, 로직(ALI·ABP)은 Hero 루트. anim-asset-naming.md):
+  Vesper/Rifle/Aim/AO_Vesper_Rifle              AimOffset 2D (Yaw -90..90 × Pitch -90..90, AS_Vesper_Rifle_AO_* 9샘플; CC 기준 포즈는 여기서 먼저 지정)
+  Vesper/Rifle/Locomotion/BS_Vesper_Rifle_Strafe 2D (Direction -180..180 × Speed 0..500) — 조준 중 8방향 Jog + Idle
+  Vesper/Rifle/Locomotion/BS_Vesper_Rifle_Jog    1D (Speed 0..500) — 비조준 라이플 이동 (Idle → JogFwd)
   ALI_HeroCombat                         레이어 인터페이스: Locomotion_Idle · Locomotion_Move (입력 없음) · Aim_UpperBody (입력 포즈 InPose)
   ABP_Hero_Combat                        베이스 ABP(부모 UAstralAnimInstance): 운영 ABP_Hero_Base 의 상태머신·슬롯·UpperBody 레이어 1:1 +
                                          Idle/Move 상태 내부는 레이어 노드, LayeredBoneBlend 뒤에 Aim_UpperBody 레이어. 기본 구현 = 근접(낫) 세트
-  ABP_HeroLayers_Rifle                   원거리 공급자(인터페이스 구현; BlendListByBool 은 BlendPose_0 = True): Idle = AS_Hero_Rifle_Idle (조준 여부 무관 — AO 기준 포즈; 분기 노드는 유지) ·
-                                         Move = bIsAiming ? BS_Hero_Rifle_Strafe(Direction,Speed) : BS_Hero_Rifle_Jog(Speed) ·
-                                         Aim = InPose → AimOffset(AO_Hero_Rifle, X=AimYaw, Y=AimPitch, Alpha(bool)=bIsAiming)
+  ABP_HeroLayers_Rifle                   원거리 공급자(인터페이스 구현; BlendListByBool 은 BlendPose_0 = True): Idle = AS_Vesper_Rifle_Idle (조준 여부 무관 — AO 기준 포즈; 분기 노드는 유지) ·
+                                         Move = bIsAiming ? BS_Vesper_Rifle_Strafe(Direction,Speed) : BS_Vesper_Rifle_Jog(Speed) ·
+                                         Aim = InPose → AimOffset(AO_Vesper_Rifle, X=AimYaw, Y=AimPitch, Alpha(bool)=bIsAiming)
 런타임 배선(C++ 2026-10-19): DA_EF_Rifle.AnimLayerClass = ABP_HeroLayers_Rifle_C (장비 매니저가 스타일 활성 시 LinkAnimClassLayers) ·
 DA_CD_Vesper.AnimInstanceClass = ABP_Hero_Combat_C — Tools/scripts/setup/hero_abp_wire_data (ue_exec) 또는 에디터에서.
 운영 애셋 ABP_Hero_Base 는 읽기(비교)만 한다. 변수 bIsAiming/AimYaw/AimPitch 는 UAstralAnimInstance(C++) 가 매 프레임 쓴다.
@@ -25,33 +25,35 @@ import sys
 from anim_graph_mcp import bridge
 
 HERO = "/Game/Animation/Hero"
-LOCO = f"{HERO}/Anims/Locomotions"
-COMBAT = f"{HERO}/Anims/Combat"
+VESPER = f"{HERO}/Vesper"                     # Vesper 리그(SKEL_UE5_F) 전용 애니 — 영웅마다 스켈레톤이 다르다
+COMMON_LOCO = f"{VESPER}/Common/Locomotion"   # 무기 무관 (베이스 기본 구현 · 점프)
+RIFLE_LOCO = f"{VESPER}/Rifle/Locomotion"
+RIFLE_AIM = f"{VESPER}/Rifle/Aim"             # AimOffset + 샘플 9 + 저작 기준 포즈 AimIdle (한 덩어리)
 SKELETON = "/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F"
 MESH = "/Game/Assets/IdaFaber/Meshes/Girl/SK_StreetDemon_F_01"
 PARENT = "/Script/AstralBreak.AstralAnimInstance"
 PROD = f"{HERO}/ABP_Hero_Base"
 
-AO = f"{LOCO}/AO_Hero_Rifle"
-BS_STRAFE = f"{LOCO}/BS_Hero_Rifle_Strafe"
-BS_JOG = f"{LOCO}/BS_Hero_Rifle_Jog"
+AO = f"{RIFLE_AIM}/AO_Vesper_Rifle"
+BS_STRAFE = f"{RIFLE_LOCO}/BS_Vesper_Rifle_Strafe"
+BS_JOG = f"{RIFLE_LOCO}/BS_Vesper_Rifle_Jog"
 ALI = f"{HERO}/ALI_HeroCombat"
 ABP = f"{HERO}/ABP_Hero_Combat"
 PROV_RIFLE = f"{HERO}/ABP_HeroLayers_Rifle"
 STATE_FILE = pathlib.Path("Tools/mcp/build_hero_combat_state.json")
 
 IDLE_MELEE = "/Game/Assets/IdaFaber/Demo/Animations/Girl/AS_Idle"
-BS_MELEE = f"{LOCO}/BS_Hero_Locomotion1D"
-RIFLE_IDLE = f"{LOCO}/AS_Hero_Rifle_Idle"
-JUMP, FALL, LAND = f"{LOCO}/AS_Hero_Jump", f"{LOCO}/AS_Hero_FallLoop", f"{LOCO}/AS_Hero_Land"
+BS_MELEE = f"{COMMON_LOCO}/BS_Vesper_Locomotion1D"
+RIFLE_IDLE = f"{RIFLE_LOCO}/AS_Vesper_Rifle_Idle"
+JUMP, FALL, LAND = f"{COMMON_LOCO}/AS_Vesper_Jump_Start", f"{COMMON_LOCO}/AS_Vesper_Jump_FallLoop", f"{COMMON_LOCO}/AS_Vesper_Jump_Land"
 
-# AO_Rifle 이름 규약: 첫 글자 = Yaw(L/C/R), 둘째 = Pitch(U/C/D)
-AO_SAMPLES = {f"{LOCO}/AS_Hero_AO_Rifle{y}{p}": [yaw, pitch]
+# AO 샘플 이름 규약: AO_ 뒤 첫 글자 = Yaw(L/C/R), 둘째 = Pitch(U/C/D)
+AO_SAMPLES = {f"{RIFLE_AIM}/AS_Vesper_Rifle_AO_{y}{p}": [yaw, pitch]
               for y, yaw in (("L", -90), ("C", 0), ("R", 90)) for p, pitch in (("U", 90), ("C", 0), ("D", -90))}
-AO_CC = f"{LOCO}/AS_Hero_AO_RifleCC"
-# AO 9샘플의 저작 기준 = AS_IdleRifleAiming_02 프레임 0 (2026-10-20 실측: CC 와 0.0도 일치). 조준 중 상체도 이것 — 기준이 다르면(총 내린 Rifle_Idle)
+AO_CC = f"{RIFLE_AIM}/AS_Vesper_Rifle_AO_CC"
+# AO 9샘플의 저작 기준 = AS_Vesper_Rifle_AimIdle 프레임 0 (2026-10-20 실측: CC 와 0.0도 일치). 조준 중 상체도 이것 — 기준이 다르면(총 내린 Rifle_Idle)
 # 델타가 거대해져 Yaw 30~85 에서 두 손이 붙는다(제자리 회전에서 드러남). hero-combat-abp.md §7. 조준 가지 그래프는 build_hero_turninplace 가 고친다
-AIM_IDLE = f"{COMBAT}/AS_IdleRifleAiming_02"
+AIM_IDLE = f"{RIFLE_AIM}/AS_Vesper_Rifle_AimIdle"
 # strafe 방향(도) — MovementDirection 은 forward 기준 -180~180, 오른쪽이 양수 (AstralAnimInstance::CalculateDirectionAngle)
 JOG = {0: "JogFwd", 45: "JogFwdRight", 90: "JogRight", 135: "JogBwdRight", 180: "JogBwd", -180: "JogBwd", -135: "JogBwdLeft", -90: "JogLeft", -45: "JogFwdLeft"}
 SPEED_MAX = 500.0
@@ -146,25 +148,25 @@ def build_content(overwrite: bool) -> None:
     print("\n=== 1. 콘텐츠 애셋 — AO_CC 기준 포즈 · AimOffset · BlendSpace 2개 ===")
     for path in AO_SAMPLES:
         r = must(call("set_sequence_additive", asset_path=path, additive_type="RotationOffsetMeshSpace", ref_pose_type="AnimFrame", ref_pose_sequence=AIM_IDLE, ref_frame_index=0, save=True), "AO base " + path.split("/")[-1])
-        check(r["additive_valid"], path.split("/")[-1] + f" 기준 포즈 = AS_IdleRifleAiming_02 프레임 0 (changed={r['changed']})")
+        check(r["additive_valid"], path.split("/")[-1] + f" 기준 포즈 = AS_Vesper_Rifle_AimIdle 프레임 0 (changed={r['changed']})")
 
     ao = must(call("create_blendspace", asset_path=AO, skeleton=SKELETON, dimensions=2, aim_offset=True,
                    axes=[{"name": "Yaw", "min": -90, "max": 90, "grid": 4}, {"name": "Pitch", "min": -90, "max": 90, "grid": 4}],
                    samples=[{"animation": p, "value": v} for p, v in AO_SAMPLES.items()], preview_mesh=MESH, overwrite=overwrite, save=True), "create AO")
-    check(ao["class"] == "AimOffsetBlendSpace" and ao["sample_count"] == 9 and ao["saved"], f"AO_Hero_Rifle 9샘플 ({ao['class']})")
+    check(ao["class"] == "AimOffsetBlendSpace" and ao["sample_count"] == 9 and ao["saved"], f"AO_Vesper_Rifle 9샘플 ({ao['class']})")
 
     strafe_samples = [{"animation": RIFLE_IDLE, "value": [d, 0]} for d in (-180, -90, 0, 90, 180)]
-    strafe_samples += [{"animation": f"{LOCO}/AS_Hero_Rifle_{name}", "value": [d, SPEED_MAX]} for d, name in JOG.items()]
+    strafe_samples += [{"animation": f"{RIFLE_LOCO}/AS_Vesper_Rifle_{name}", "value": [d, SPEED_MAX]} for d, name in JOG.items()]
     bs = must(call("create_blendspace", asset_path=BS_STRAFE, skeleton=SKELETON, dimensions=2,
                    axes=[{"name": "Direction", "min": -180, "max": 180, "grid": 8, "wrap": True}, {"name": "Speed", "min": 0, "max": SPEED_MAX, "grid": 2}],
                    samples=strafe_samples, preview_mesh=MESH, overwrite=overwrite, save=True), "create strafe BS")
-    check(bs["class"] == "BlendSpace" and bs["sample_count"] == len(strafe_samples) and bs["saved"], f"BS_Hero_Rifle_Strafe {bs['sample_count']}샘플")
+    check(bs["class"] == "BlendSpace" and bs["sample_count"] == len(strafe_samples) and bs["saved"], f"BS_Vesper_Rifle_Strafe {bs['sample_count']}샘플")
 
     jog = must(call("create_blendspace", asset_path=BS_JOG, skeleton=SKELETON, dimensions=1,
                     axes=[{"name": "Speed", "min": 0, "max": SPEED_MAX, "grid": 5}],
-                    samples=[{"animation": RIFLE_IDLE, "value": [0]}, {"animation": f"{LOCO}/AS_Hero_Rifle_JogFwd", "value": [SPEED_MAX]}],
+                    samples=[{"animation": RIFLE_IDLE, "value": [0]}, {"animation": f"{RIFLE_LOCO}/AS_Vesper_Rifle_JogFwd", "value": [SPEED_MAX]}],
                     preview_mesh=MESH, overwrite=overwrite, save=True), "create jog BS")
-    check(jog["class"] == "BlendSpace1D" and jog["sample_count"] == 2 and jog["saved"], "BS_Hero_Rifle_Jog 2샘플")
+    check(jog["class"] == "BlendSpace1D" and jog["sample_count"] == 2 and jog["saved"], "BS_Vesper_Rifle_Jog 2샘플")
 
 
 def build_interface(overwrite: bool) -> None:
@@ -266,7 +268,7 @@ def build_rifle_provider(overwrite: bool) -> None:
         {"op": "add_node", "ref": "idle_bl", "graph": g["Locomotion_Idle"], "class": "AnimGraphNode_BlendListByBool", "pos": [-300, 0], "properties": {"BlendTime": [0.2, 0.2]}},
         {"op": "bind_pin", "ref": "idle_bl", "property": "bActiveValue", "path": "bIsAiming"},
         {"op": "add_node", "ref": "idle_seq", "graph": g["Locomotion_Idle"], "class": "AnimGraphNode_SequencePlayer", "pos": [-700, -100], "asset": RIFLE_IDLE, "properties": {"bLoopAnimation": True}},
-        # 조준 Idle = AS_IdleRifleAiming_02 = AO 기준 포즈(CC 항등). 10-19 에 "비틀림" 으로 Rifle_Idle 로 바꿨던 것은 AO 기준이 Rifle_Idle 로 잘못 잡혀 있던 탓(10-20 실측)
+        # 조준 Idle = AS_Vesper_Rifle_AimIdle = AO 기준 포즈(CC 항등). 10-19 에 "비틀림" 으로 Rifle_Idle 로 바꿨던 것은 AO 기준이 Rifle_Idle 로 잘못 잡혀 있던 탓(10-20 실측)
         # — build_hero_turninplace 가 이 가지를 IdleTurn 상태머신으로 바꾸고 Move 조준 가지에 상체 레이어를 얹는다
         {"op": "add_node", "ref": "aim_idle_seq", "graph": g["Locomotion_Idle"], "class": "AnimGraphNode_SequencePlayer", "pos": [-700, 150], "asset": AIM_IDLE, "properties": {"bLoopAnimation": True}},
         # ⚠️ BlendListByBool 은 BlendPose_0 = **True** Pose, BlendPose_1 = False Pose (AnimGraphNode_BlendListByBool.cpp:37 "intentionally flipped" —

@@ -109,6 +109,12 @@ void UAstralEquipmentInstance::ApplyAttachState(AActor* Actor, const FAstralEqui
 	// 부착 → 상대 트랜스폼 순서 — 재부착(전환) 경로에서도 결정적
 	Actor->AttachToComponent(AttachTarget, FAttachmentTransformRules::KeepRelativeTransform, Socket);
 	Actor->SetActorRelativeTransform(RelativeTransform);
+
+	// 상태 전환 훅(SetAttachState)은 재부착 전에 돌았다 — 새 소켓 기준으로 애님 입력(왼손 파지점)을 다시 넣게 한다 (서버. 클라는 부착 복제가 부른다)
+	if (const AAstralEquipmentActor* EquipmentActor = Cast<AAstralEquipmentActor>(Actor))
+	{
+		EquipmentActor->NotifyPresentationChanged();
+	}
 }
 
 void UAstralEquipmentInstance::DestroyEquipmentActors()

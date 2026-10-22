@@ -1,6 +1,7 @@
 #include "AstralGA_Hero_BasicAttack_Ranged.h"
 
 #include "AbilitySystemComponent.h"
+#include "Abilities/Tasks/AbilityTask_NetworkSyncPoint.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "AbilitySystem/AstralCombatStatics.h"
@@ -12,6 +13,7 @@
 #include "AbilitySystem/Facing/AstralFacingDebug.h"
 #include "AbilitySystem/Facing/AstralFacingSession.h"
 #include "AbilitySystem/Tasks/AstralAbilityTask_AttackTraceWindows.h"
+#include "AbilitySystem/Tasks/AstralAbilityTask_WaitAimAligned.h"
 #include "Animation/AnimMontage.h"
 #include "AstralLogChannels.h"
 #include "Combat/AstralCombatTypes.h"
@@ -183,8 +185,28 @@ void UAstralGA_Hero_BasicAttack_Ranged::ActivateAbility(const FGameplayAbilitySp
 	// 몽타주 미지정이면 즉발 — 같은 발사 처리 함수 (조준·중복·장애물 정책이 갈라지지 않도록)
 	if (!FireMontage)
 	{
-		ProcessFire();
-		EndAbility(Handle, ActorInfo, ActivationInfo, /*bReplicateEndAbility=*/true, /*bWasCancelled=*/false);
+		// 원격 폰의 서버 인스턴스 — 발사 시점은 소유 클라가 정한다(클라 화면에서 몸이 정렬된 순간). 자기 정렬은 기다리지 않고 클라 신호만 기다린다.
+		// 서버가 따로 기다리면 먼저 정렬된 클라의 EndAbility(복제)가 아직 대기 중인 서버 인스턴스를 끝내 투사체가 안 나갔다
+		if (bRemoteServer)
+		{
+			BeginFireSync();
+			return;
+		}
+
+		// 로컬(호스트·소유 클라) — 몸이 조준 방향을 향한 뒤 쏜다. 비조준(이동 방향 추종)에서 사격하면 방금 켠 조준 회전 모드가 몸을 카메라 쪽으로
+		// 돌리는 중이라, 바로 쏘면 투사체가 몸 뒤쪽으로 나간다. 이미 정렬돼 있으면(조준 중 연사) 같은 프레임에 쏜다.
+		// 몽타주 경로는 Facing 워프 밴드 뒤 발사 노티파이가 같은 역할을 한다
+		if (FireAlignToleranceYaw > 0.f && FireAlignMaxWait > 0.f && !UAstralAbilityTask_WaitAimAligned::IsAimAligned(Cast<APawn>(Avatar), FireAlignToleranceYaw))
+		{
+			if (UAstralAbilityTask_WaitAimAligned* AlignTask = UAstralAbilityTask_WaitAimAligned::WaitAimAligned(this, FireAlignToleranceYaw, FireAlignMaxWait))
+			{
+				AlignTask->OnFinished.AddDynamic(this, &ThisClass::OnFireAligned);
+				AlignTask->ReadyForActivation();
+				return;
+			}
+		}
+
+		BeginFireSync();
 		return;
 	}
 
@@ -465,44 +487,72 @@ AAstralRangedWeaponActor* UAstralGA_Hero_BasicAttack_Ranged::GetRangedWeaponActo
 bool UAstralGA_Hero_BasicAttack_Ranged::ComputeAimTarget(const AAstralRangedWeaponActor* WeaponActor, FVector& OutMuzzleLocation, FVector& OutTargetPoint) const
 {
 	const APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
-	UWorld* World = AvatarPawn ? AvatarPawn->GetWorld() : nullptr;
-	AController* Controller = AvatarPawn ? AvatarPawn->GetController() : nullptr;
-	if (!WeaponActor || !World || !Controller)
+	const AController* Controller = AvatarPawn ? AvatarPawn->GetController() : nullptr;
+	if (!WeaponActor || !Controller)
 	{
 		return false;
 	}
 
-	// 조준 기준 = 화면 중앙(카메라) 레이 — 크로스헤어와 탄착 일치.
-	// 원격 플레이어의 카메라 POV는 클라가 ServerUpdateCamera로 서버에 보고하는 엔진 표준 경로
-	FVector CameraLocation;
-	FRotator CameraRotation;
-	Controller->GetPlayerViewPoint(CameraLocation, CameraRotation);
-	const FVector CameraDirection = CameraRotation.Vector();
-
+	// 조준 기준 = 화면 중앙(카메라) 레이 — 크로스헤어와 탄착 일치. 최종 조준 보정 애니(UAstralAnimInstance)도 같은 함수로 총열을 이 점에 맞춘다
 	OutMuzzleLocation = WeaponActor->GetMuzzleLocation();
-
-	// 트레이스 시작 = 카메라 레이 위 총구 투영 지점 — 카메라~캐릭터 사이(등 뒤) 오브젝트 오폭 방지
-	const float MuzzleProjection = FMath::Max(FVector::DotProduct(OutMuzzleLocation - CameraLocation, CameraDirection), 0.f);
-	const FVector TraceStart = CameraLocation + CameraDirection * MuzzleProjection;
-	const FVector TraceEnd = TraceStart + CameraDirection * AimTraceRange;
-	OutTargetPoint = TraceEnd;
-
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(AstralRangedAim), /*bTraceComplex=*/false, AvatarPawn);
-	QueryParams.AddIgnoredActor(WeaponActor);
-
-	FHitResult AimHit;
-	if (World->LineTraceSingleByChannel(AimHit, TraceStart, TraceEnd, ECC_Visibility, QueryParams))
+	AstralRangedAim::FCameraAimPoint Aim;
+	if (!AstralRangedAim::ComputeCameraAimPoint(Controller, AvatarPawn, WeaponActor, OutMuzzleLocation, AimTraceRange, Aim))
 	{
-		OutTargetPoint = AimHit.ImpactPoint;
+		return false;
 	}
-
-	// 조준점이 총구 뒤/측면(극근접 지형 등)이면 카메라 레이 방향의 원거리 지점으로 보정 — 발사선의 전방 보장
-	if (FVector::DotProduct((OutTargetPoint - OutMuzzleLocation).GetSafeNormal(), CameraDirection) <= 0.f)
-	{
-		OutTargetPoint = OutMuzzleLocation + CameraDirection * AimTraceRange;
-	}
-
+	OutTargetPoint = Aim.TargetPoint;
 	return true;
+}
+
+void UAstralGA_Hero_BasicAttack_Ranged::OnFireAligned(bool bTimedOut)
+{
+	if (bTimedOut)
+	{
+		// 회전이 막혔거나(루트 모션) 조준 태그가 아직 복제되지 않은 소유 클라 — 정렬 전이라도 쏜다 (발사선은 카메라 기준이라 판정은 그대로)
+		UE_LOG(LogAstralAbilitySystem, Verbose, TEXT("[Ranged] %s: 몸 정렬 대기 시간 초과 — 그대로 발사"), *GetName());
+	}
+
+	BeginFireSync();
+}
+
+void UAstralGA_Hero_BasicAttack_Ranged::BeginFireSync()
+{
+	// 서버만 대기(OnlyServerWait): 소유 클라는 서버에 신호(신뢰성 RPC)를 보내고 즉시 진행, 원격 폰의 서버 인스턴스는 그 신호를 기다린다,
+	// 호스트(로컬 권위)는 기다릴 상대가 없어 즉시 진행. 신호와 클라의 EndAbility 는 같은 ASC 의 신뢰성 RPC 라 순서대로 도착 → 서버가 반드시 먼저 쏜다.
+	// 신호가 서버 인스턴스보다 먼저 와도 ASC 가 (스펙, 활성화 예측 키)로 보관했다가 대기 시작 때 바로 넘긴다
+	if (UAbilityTask_NetworkSyncPoint* SyncTask = UAbilityTask_NetworkSyncPoint::WaitNetSync(this, EAbilityTaskNetSyncType::OnlyServerWait))
+	{
+		SyncTask->OnSync.AddDynamic(this, &ThisClass::OnFireSynced);
+		SyncTask->ReadyForActivation();
+		return;
+	}
+	OnFireSynced();
+}
+
+void UAstralGA_Hero_BasicAttack_Ranged::OnFireSynced()
+{
+	const FGameplayAbilityActorInfo* ActorInfo = GetCurrentActorInfo();
+	if (!ActorInfo || !IsActive())
+	{
+		return;
+	}
+
+	// 원격 폰의 서버 인스턴스 — 클라가 몸 정렬을 확인하고 보낸 신호다. 서버 쪽 몸은 이동 패킷(정지 중엔 묶여 늦게 온다)만큼 뒤처져 있을 수 있어
+	// 그대로 쏘면 서버 무기의 총구가 몸 옆·뒤라 투사체가 엉뚱한 곳에서 나온다 — 허용각 밖이면 몸 Yaw 를 컨트롤러 Yaw 로 맞춘 뒤 쏜다.
+	// 발사선은 원래대로 서버의 카메라 레이(ResolveShot) — 클라에게서 믿는 것은 발사 시점뿐이다
+	if (ActorInfo->IsNetAuthority() && !ActorInfo->IsLocallyControlled() && FireAlignToleranceYaw > 0.f)
+	{
+		APawn* Pawn = Cast<APawn>(GetAvatarActorFromActorInfo());
+		if (Pawn && !UAstralAbilityTask_WaitAimAligned::IsAimAligned(Pawn, FireAlignToleranceYaw))
+		{
+			FRotator BodyRotation = Pawn->GetActorRotation();
+			BodyRotation.Yaw = Pawn->GetControlRotation().Yaw;
+			Pawn->SetActorRotation(BodyRotation);
+		}
+	}
+
+	ProcessFire();
+	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, /*bReplicateEndAbility=*/true, /*bWasCancelled=*/false);
 }
 
 void UAstralGA_Hero_BasicAttack_Ranged::OnMontageFinished()

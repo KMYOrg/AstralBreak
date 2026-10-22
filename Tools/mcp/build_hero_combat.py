@@ -49,6 +49,9 @@ JUMP, FALL, LAND = f"{LOCO}/AS_Hero_Jump", f"{LOCO}/AS_Hero_FallLoop", f"{LOCO}/
 AO_SAMPLES = {f"{LOCO}/AS_Hero_AO_Rifle{y}{p}": [yaw, pitch]
               for y, yaw in (("L", -90), ("C", 0), ("R", 90)) for p, pitch in (("U", 90), ("C", 0), ("D", -90))}
 AO_CC = f"{LOCO}/AS_Hero_AO_RifleCC"
+# AO 9샘플의 저작 기준 = AS_IdleRifleAiming_02 프레임 0 (2026-10-20 실측: CC 와 0.0도 일치). 조준 중 상체도 이것 — 기준이 다르면(총 내린 Rifle_Idle)
+# 델타가 거대해져 Yaw 30~85 에서 두 손이 붙는다(제자리 회전에서 드러남). hero-combat-abp.md §7. 조준 가지 그래프는 build_hero_turninplace 가 고친다
+AIM_IDLE = f"{COMBAT}/AS_IdleRifleAiming_02"
 # strafe 방향(도) — MovementDirection 은 forward 기준 -180~180, 오른쪽이 양수 (AstralAnimInstance::CalculateDirectionAngle)
 JOG = {0: "JogFwd", 45: "JogFwdRight", 90: "JogRight", 135: "JogBwdRight", 180: "JogBwd", -180: "JogBwd", -135: "JogBwdLeft", -90: "JogLeft", -45: "JogFwdLeft"}
 SPEED_MAX = 500.0
@@ -141,8 +144,9 @@ ALIASES = [("jumpsrc", "JumpSources", [-300, 250], ["idle", "move"]), ("interrup
 # ----------------------------------------------------------------------------------------------------------------------
 def build_content(overwrite: bool) -> None:
     print("\n=== 1. 콘텐츠 애셋 — AO_CC 기준 포즈 · AimOffset · BlendSpace 2개 ===")
-    cc = must(call("set_sequence_additive", asset_path=AO_CC, additive_type="RotationOffsetMeshSpace", ref_pose_type="AnimFrame", ref_pose_sequence=RIFLE_IDLE, ref_frame_index=0, save=True), "AO_CC base pose")
-    check(cc["additive_valid"], f"AS_Hero_AO_RifleCC 기준 포즈 = AS_Hero_Rifle_Idle (changed={cc['changed']})")
+    for path in AO_SAMPLES:
+        r = must(call("set_sequence_additive", asset_path=path, additive_type="RotationOffsetMeshSpace", ref_pose_type="AnimFrame", ref_pose_sequence=AIM_IDLE, ref_frame_index=0, save=True), "AO base " + path.split("/")[-1])
+        check(r["additive_valid"], path.split("/")[-1] + f" 기준 포즈 = AS_IdleRifleAiming_02 프레임 0 (changed={r['changed']})")
 
     ao = must(call("create_blendspace", asset_path=AO, skeleton=SKELETON, dimensions=2, aim_offset=True,
                    axes=[{"name": "Yaw", "min": -90, "max": 90, "grid": 4}, {"name": "Pitch", "min": -90, "max": 90, "grid": 4}],
@@ -262,9 +266,9 @@ def build_rifle_provider(overwrite: bool) -> None:
         {"op": "add_node", "ref": "idle_bl", "graph": g["Locomotion_Idle"], "class": "AnimGraphNode_BlendListByBool", "pos": [-300, 0], "properties": {"BlendTime": [0.2, 0.2]}},
         {"op": "bind_pin", "ref": "idle_bl", "property": "bActiveValue", "path": "bIsAiming"},
         {"op": "add_node", "ref": "idle_seq", "graph": g["Locomotion_Idle"], "class": "AnimGraphNode_SequencePlayer", "pos": [-700, -100], "asset": RIFLE_IDLE, "properties": {"bLoopAnimation": True}},
-        # 조준 Idle 도 AS_Hero_Rifle_Idle — AO_Hero_Rifle 의 기준 포즈가 이 클립(프레임 0)이라 다른 클립(AS_IdleRifleAiming_02)에 얹으면 상체가 비틀린다
-        # (2026-10-19 PIE 실측, 사용자 확정). 조준 자세는 AimOffset(CC = 정면 조준) 이 만든다. 분기는 블렌드 시간·후속 교체를 위해 남긴다
-        {"op": "add_node", "ref": "aim_idle_seq", "graph": g["Locomotion_Idle"], "class": "AnimGraphNode_SequencePlayer", "pos": [-700, 150], "asset": RIFLE_IDLE, "properties": {"bLoopAnimation": True}},
+        # 조준 Idle = AS_IdleRifleAiming_02 = AO 기준 포즈(CC 항등). 10-19 에 "비틀림" 으로 Rifle_Idle 로 바꿨던 것은 AO 기준이 Rifle_Idle 로 잘못 잡혀 있던 탓(10-20 실측)
+        # — build_hero_turninplace 가 이 가지를 IdleTurn 상태머신으로 바꾸고 Move 조준 가지에 상체 레이어를 얹는다
+        {"op": "add_node", "ref": "aim_idle_seq", "graph": g["Locomotion_Idle"], "class": "AnimGraphNode_SequencePlayer", "pos": [-700, 150], "asset": AIM_IDLE, "properties": {"bLoopAnimation": True}},
         # ⚠️ BlendListByBool 은 BlendPose_0 = **True** Pose, BlendPose_1 = False Pose (AnimGraphNode_BlendListByBool.cpp:37 "intentionally flipped" —
         # 2026-10-19 PIE 에서 거꾸로 꽂혀 조준 중에 전진 Jog 가 나온 실수)
         {"op": "connect", "from": {"ref": "aim_idle_seq", "pin": "Pose"}, "to": {"ref": "idle_bl", "pin": "BlendPose_0"}},
@@ -341,6 +345,9 @@ def main() -> int:
         build_interface(overwrite)
         build_base(overwrite)
         build_rifle_provider(overwrite)
+        # 제자리 회전(2026-10-20) — 베이스 RotateRootBone + 공급자 조준 Idle 상태머신. 별도 스크립트(멱등)라 기존 ABP 에도 단독 적용 가능
+        import build_hero_turninplace
+        build_hero_turninplace.patch()
     verify()
     print("\n" + ("PASS" if not FAILS else f"FAIL ({len(FAILS)}):\n  - " + "\n  - ".join(FAILS)))
     return 0 if not FAILS else 1

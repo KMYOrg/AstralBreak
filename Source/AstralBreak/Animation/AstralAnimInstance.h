@@ -3,9 +3,11 @@
 #include "CoreMinimal.h"
 #include "GameplayEffectTypes.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/AstralTurnInPlace.h"
 #include "AstralAnimInstance.generated.h"
 
 class APawn;
+class USkeletalMeshComponent;
 class UAbilitySystemComponent;
 class UCharacterMovementComponent;
 class UAstralCharacterMovementComponent;
@@ -35,6 +37,24 @@ struct FAstralAnimSnapshot
 
 	/** ASC 태그 State.Ranged.Aiming (게임 스레드에서 읽어 스냅샷). 전투 스타일은 AnimInstance 가 알 필요 없다 — 무기별 그래프는 장비 매니저의 레이어 링크가 고른다 */
 	bool bAiming = false;
+
+	/** 액터 Yaw 의 이번 프레임 변화량(정규화) — 제자리 회전의 누적 입력 */
+	float YawDeltaSinceLastUpdate = 0.f;
+
+	/** 전신 몽타주(FullBodyMontageSlot) 재생 중 — 제자리 회전 누적 금지. 상체 슬롯 몽타주(사격)는 허용 — Lyra 처럼 조준 사격 중에도 발을 붙여 둔다 */
+	bool bFullBodyMontagePlaying = false;
+
+	/** 왼손 파지점 (WeaponReferenceBone 공간) — 장비 매니저가 게임 스레드에서 넣은 값의 사본 */
+	bool bHasLeftHandGrip = false;
+	FTransform LeftHandGrip = FTransform::Identity;
+
+	/** 총구 (WeaponReferenceBone 공간, +X = 총열) — 장비 매니저가 넣은 값의 사본 */
+	bool bHasMuzzle = false;
+	FTransform Muzzle = FTransform::Identity;
+
+	/** 최종 조준 보정 조준점 (컴포넌트 공간) — 조준 중 ∧ 총구 있음일 때만 계산 */
+	bool bHasAimTarget = false;
+	FVector AimTarget = FVector::ZeroVector;
 };
 
 
@@ -48,6 +68,32 @@ public:
 	UAstralAnimInstance(const FObjectInitializer& ObjectInitializer);
 
 	virtual void InitializeWithAbilitySystem(UAbilitySystemComponent* ASC);
+
+	/**
+	 * 메시의 메인 AnimInstance (Lyra GetMainAnimBPThreadSafe 역할). 링크된 레이어 공급자 ABP 가 Property Access 경로
+	 * `GetMainAnimInstance.RootYawOffset` 처럼 베이스의 값을 읽는다 — 제자리 회전·조준값은 베이스 하나가 계산하고 공급자는 읽기만.
+	 * 메인 자신이면 this. 포인터는 게임 스레드(NativeUpdateAnimation)에서 캐시하고, 링크 인스턴스의 스레드 안전 업데이트는
+	 * 메인 그래프 순회 중 같은 스레드에서 메인의 ThreadSafe 업데이트 뒤에 돌므로 같은 프레임 값을 본다
+	 */
+	UFUNCTION(BlueprintPure, Category = "Astral|Animation", Meta = (BlueprintThreadSafe))
+	UAstralAnimInstance* GetMainAnimInstance() const;
+
+	/**
+	 * 왼손 파지점 — 손에 든 양손 무기의 파지 소켓을 WeaponReferenceBone(오른손) 공간으로 환산한 트랜스폼. 무기는 손 본에 붙은 강체라 자세와 무관한 상수다.
+	 * 장비 매니저가 무기 부착·외형·AnimBP 가 바뀔 때 메인 인스턴스에 넣는다(게임 스레드 이벤트 — 매 프레임 조회 없음). 스냅샷을 거쳐 스레드 안전 업데이트가
+	 * bHasLeftHandGrip · LeftHandGripLocation/Rotation 으로 노출하고, 공급자 레이어의 왼손 IK 가 GetMainAnimInstance 경로로 읽는다
+	 */
+	void SetLeftHandGrip(const FTransform& GripInReferenceBoneSpace);
+	void ClearLeftHandGrip();
+
+	/**
+	 * 총구 — 손에 든 원거리 무기의 총구 소켓(+X = 총열)을 WeaponReferenceBone 공간으로 환산한 트랜스폼. 왼손 파지점과 같은 경로·같은 수명(장비 매니저 이벤트).
+	 * 베이스 그래프의 최종 조준 보정 노드(FAnimNode_AstralAimCorrection)가 이 축을 조준점으로 돌린다. 근접 무기·맨손이면 Clear
+	 */
+	void SetMuzzle(const FTransform& MuzzleInReferenceBoneSpace);
+	void ClearMuzzle();
+
+	FName GetWeaponReferenceBone() const { return WeaponReferenceBone; }
 
 protected:
 	//~ UAnimInstance
@@ -98,11 +144,13 @@ protected:
 
 	// ---- 조준 (ASC 태그 스냅샷) — 무기 종류·스타일은 여기 두지 않는다 (무기별 그래프 = 장비 계열의 AnimLayerClass 링크) ----
 
-	// 사격 자세 유지 중 (State.Ranged.Aiming — 원거리 GA가 발사마다 갱신하는 지속 GE). 조준 로코모션(strafe)·AimOffset 알파
+	// 사격 자세 유지 중 (State.Ranged.Aiming — 원거리 GA가 발사마다 갱신하는 지속 GE). 조준 로코모션(strafe)·AimOffset 알파.
+	// 태그는 메인 인스턴스만 읽는다(ASC 결합은 메인만) — 링크된 공급자 인스턴스의 값도 메인 것이라 공급자 그래프는 자기 bIsAiming 을 그대로 바인딩한다
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Combat")
 	bool bIsAiming = false;
 
-	// 조준 방향 − 몸 방향 Yaw (-180~180). AimOffset X
+	// 조준 방향 − 몸 방향 Yaw (-180~180), 제자리 회전 오프셋을 뺀 값 (메시가 루트에서 돌아간 만큼 상체가 되돌려 조준). AimOffset X.
+	// 오프셋은 항상 메인 인스턴스의 것 — 링크된 공급자 인스턴스의 AimYaw 도 같은 값이라 공급자 그래프는 자기 AimYaw 를 그대로 바인딩한다
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Combat")
 	float AimYaw = 0.0f;
 
@@ -110,10 +158,142 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|Combat")
 	float AimPitch = 0.0f;
 
-private:
-	FAstralAnimSnapshot Snapshot;
+	// ---- 제자리 회전 (Lyra TurnInPlace — 계산은 FAstralTurnInPlaceState, 정책은 여기) ----
 
-	/** 태그 조회용 — InitializeWithAbilitySystem 에서 결합. 게임 스레드에서만 읽는다 */
+	/** 튜닝값 — ABP 클래스 기본값에서 조정 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|TurnInPlace")
+	FAstralTurnInPlaceSettings TurnInPlaceSettings;
+
+	/** 이 속도(cm/s) 미만이고 이동 입력이 없을 때만 발을 붙여 둔다(오프셋 누적). 조준 중 ∧ 지상 ∧ 전신 몽타주 없음 도 함께 본다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|TurnInPlace", Meta = (ClampMin = "0.0"))
+	float TurnInPlaceAccumulateMaxSpeed = 10.f;
+
+	/** 전신 몽타주 슬롯 — 이 슬롯에 몽타주 가중치가 있으면 누적하지 않는다 (루트를 돌리면 전신 몽타주가 틀어진다). 상체 슬롯(UpperBody)의 사격 몽타주는 무시 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|TurnInPlace")
+	FName FullBodyMontageSlot = TEXT("DefaultSlot");
+
+	/**
+	 * 조준 진입(State.Ranged.Aiming 상승 에지) 뒤 이 시간(초) 동안은 누적하지 않는다 — 메시가 액터와 함께 돈다(피벗).
+	 * 비조준에서 사격하면 몸이 조준 회전 속도(HeroMovementComponent::AimingRotationRate)로 카메라 쪽으로 도는데, 그 회전까지 발을 붙여 상쇄하면
+	 * 하체가 등진 채 남고 AimOffset(±90)이 총을 크로스헤어까지 못 돌린다. 180° ÷ 조준 회전 속도보다 길어야 한다. 복제 태그 기준이라 모든 머신이 같은 규칙
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|TurnInPlace", Meta = (ClampMin = "0.0"))
+	float AimEntryPivotTime = 0.3f;
+
+	// 루트 본 Yaw 오프셋(도) — 베이스 루트 그래프의 RotateRootBone.Yaw. 조준 중 서 있으면 액터 회전을 상쇄, 아니면 0
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|TurnInPlace")
+	float RootYawOffset = 0.0f;
+
+	// |오프셋| > 임계 ∧ 누적 중 — Idle → TurnInPlaceRotation (공급자 ABP 의 Idle 상태머신 전이 규칙)
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|TurnInPlace")
+	bool bWantsTurnInPlace = false;
+
+	// 턴 클립의 회전 구간이 끝남 — TurnInPlaceRotation → TurnInPlaceRecovery
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|TurnInPlace")
+	bool bTurnInPlaceRotationFinished = false;
+
+	// 재생할 턴 클립 — 공급자 ABP 의 BlendListByEnum 이 고른다
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|TurnInPlace")
+	EAstralTurnInPlaceKind TurnInPlaceKind = EAstralTurnInPlaceKind::None;
+
+	// 턴 클립이 활성인 동안 흐른 시간 — Recovery 상태 SequencePlayer 의 StartPosition (회전이 끝난 지점부터 이어서)
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|TurnInPlace")
+	float TurnInPlaceAnimTime = 0.0f;
+
+	// 디버그 — 가중 해제한 RemainingTurnYaw
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|TurnInPlace")
+	float TurnYawCurveValue = 0.0f;
+
+	// 디버그 — 스레드 안전 업데이트가 읽은 지난 프레임 커브 원값 (TurnYawWeight · RemainingTurnYaw). PIE 프로브가 전파·타이밍을 본다
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|TurnInPlace")
+	float TurnInPlaceDebugWeight = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|TurnInPlace")
+	float TurnInPlaceDebugRemaining = 0.0f;
+
+	// 디버그 — 이번 프레임 누적 모드였는지 (조준 ∧ 지상 ∧ 정지 ∧ 전신 몽타주 없음)
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|TurnInPlace")
+	bool bTurnInPlaceAccumulating = false;
+
+	/**
+	 * 손에 든 무기가 붙는 본 — 왼손 파지점·총구를 이 본 공간으로 받는다. 공급자 레이어가 ik_hand_gun 에 복사하는 본(CopyBone 원본)·
+	 * 베이스 조준 보정 노드의 WeaponBone 과 같아야 한다 (무기 계열의 손 부착 소켓도 이 본 — DA_EF_Rifle.AttachSocket = hand_r)
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Weapon")
+	FName WeaponReferenceBone = TEXT("hand_r");
+
+	// ---- 왼손 IK (양손 무기 파지점 — 값은 무기 메시 소켓이 정하고 장비 매니저가 넣는다) ----
+
+	// 왼손 IK 목표가 있다(양손 무기를 손에 듦) — 공급자 레이어 TwoBoneIK 알파
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|LeftHandIK")
+	bool bHasLeftHandGrip = false;
+
+	// 파지점 위치·회전 (기준 본 공간) — 공급자 레이어 ModifyBone(ik_hand_l, 부모 본 공간 Replace)
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|LeftHandIK")
+	FVector LeftHandGripLocation = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|LeftHandIK")
+	FRotator LeftHandGripRotation = FRotator::ZeroRotator;
+
+	// ---- 최종 조준 보정 (베이스 루트 RotateRootBone 뒤 AstralAimCorrection 노드 — AO 가 남긴 총열 오차를 척추로 마저 돌린다) ----
+
+	/**
+	 * 조준점이 트레이스 시작(카메라 레이 위 총구 투영점)에서 이보다 가까우면 이 거리로 민다 — 벽에 붙어 코앞을 조준할 때 시차 보정으로 상체가 크게 꺾이지 않게.
+	 * 이 거리 안쪽 표적만큼 총열이 실제 탄도와 어긋난다(투사체는 여전히 실제 조준점으로 간다 — ResolveShot). 1m 표적의 보정은 ~18° 로 최대 보정각(노드 30°) 안
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|AimCorrection", Meta = (ClampMin = "0.0"))
+	float AimCorrectionMinDistance = 50.f;
+
+	/**
+	 * 조준점 거리 보간 속도(1/s, 0 = 즉시) — 역거리(시차 각)로 보간한다. 크로스헤어가 가까운 벽과 먼 배경의 경계를 넘을 때 시차 보정이 한 프레임에 튀지 않게.
+	 * 방향(카메라)은 즉시 따른다
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|AimCorrection", Meta = (ClampMin = "0.0"))
+	float AimCorrectionDistanceInterpSpeed = 12.f;
+
+	// 보정 켬 — 조준 중 ∧ 총구 있음 ∧ 조준점 있음. 노드 알파(bool)
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|AimCorrection")
+	bool bAimCorrectionActive = false;
+
+	// 조준점 (컴포넌트 공간) — 로컬·서버의 플레이어는 발사와 같은 카메라 조준점(AstralRangedAim), 시뮬 프록시는 서버가 복제한 그 점
+	// (AAstralCharacter_Hero::ObservedAimTarget), AI·복제 전은 BaseAimRotation 방향의 먼 점
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|AimCorrection")
+	FVector AimCorrectionTarget = FVector::ZeroVector;
+
+	// 총구 (WeaponReferenceBone 공간, +X = 총열)
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|AimCorrection")
+	FVector MuzzleLocation = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Astral|AimCorrection")
+	FRotator MuzzleRotation = FRotator::ZeroRotator;
+
+private:
+	/** 최종 조준 보정 조준점(월드 → 컴포넌트 공간)을 구한다 — 게임 스레드(NativeUpdateAnimation), 메인 인스턴스 ∧ 조준 중 ∧ 총구 있음일 때만 */
+	bool ComputeAimCorrectionTarget(const USkeletalMeshComponent& Mesh, float DeltaSeconds, FVector& OutTargetComponentSpace);
+
+	/** 게임 스레드 쪽 파지점·총구 — Set/Clear 는 애님 워커와 겹칠 수 있는 게임 스레드 이벤트라 직접 노출하지 않고 NativeUpdateAnimation 이 스냅샷으로 옮긴다 */
+	TOptional<FTransform> PendingLeftHandGrip;
+	TOptional<FTransform> PendingMuzzle;
+
+	/** 보간 중인 조준점 거리의 역수 (트레이스 시작 기준, 1/cm — 시차 각에 비례). 음수 = 다음 계산에서 바로 맞춘다(조준 진입·총구 교체) */
+	float SmoothedAimInverseDistance = -1.f;
+
+	FAstralAnimSnapshot Snapshot;
+	FAstralTurnInPlaceState TurnInPlace;
+
+	/** 액터 Yaw 추적 — 첫 프레임·폰 교체 뒤에는 델타 0 */
+	float PreviousActorYaw = 0.f;
+	bool bHasPreviousActorYaw = false;
+
+	/** 조준 진입 피벗 창 — 남은 시간, 직전 프레임 조준 여부 (스레드 안전 업데이트에서만 쓴다) */
+	float AimEntryPivotRemaining = 0.f;
+	bool bWasAimingLastUpdate = false;
+
+	/** 메시의 메인 AnimInstance (게임 스레드 캐시). 메인 자신이면 this */
+	UPROPERTY(Transient)
+	TObjectPtr<UAstralAnimInstance> MainAnimInstance;
+
+	/** 태그 조회용 — InitializeWithAbilitySystem 에서 결합(메인 인스턴스만). 게임 스레드에서만 읽는다 */
 	TWeakObjectPtr<UAbilitySystemComponent> BoundASC;
 
 	UPROPERTY(Transient)

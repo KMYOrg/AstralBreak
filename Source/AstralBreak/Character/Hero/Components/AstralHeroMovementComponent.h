@@ -55,6 +55,9 @@ public:
 
 	/** 서버 — 이 move 패킷에 실린 샘플을 이동 직전에 설치한다. Old/Pending/New 각각. 서버 가속도나 비복제 TargetingComponent로 추정하지 않는다 */
 	virtual void ServerMove_PerformMovement(const FCharacterNetworkMoveData& MoveData) override;
+
+	/** 조준 회전 모드(컨트롤러 Desired 추종)의 Yaw 는 AimingRotationRate, 그 외는 기본 RotationRate */
+	virtual FRotator GetDeltaRotation(float DeltaTime) const override;
 	//~End UCharacterMovementComponent
 
 	//~UActorComponent
@@ -117,7 +120,7 @@ protected:
 	void HandleAimingTagChanged(const FGameplayTag Tag, int32 NewCount);
 
 	/**
-	 * 회전 모드 — 조준 중엔 몸이 컨트롤러 Yaw 를 따르고 이동은 strafe(조준 로코모션), 아니면 이동 방향을 향한다.
+	 * 회전 모드 — 조준 중엔 몸이 컨트롤러 Yaw 를 AimingRotationRate 로 따르고(컨트롤러 Desired 회전) 이동은 strafe(조준 로코모션), 아니면 이동 방향을 향한다.
 	 * 서버·소유 클라가 같은 복제 태그로 같은 규칙을 계산하고, 시뮬 프록시는 이동 복제로 회전을 받는다 (플래그 자체는 전송하지 않는다)
 	 */
 	void ApplyAimingRotationMode(bool bAiming);
@@ -129,6 +132,14 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Astral|HeroMovement", Meta = (ClampMin = "1.0"))
 	float SprintSpeedMultiplier = 800.0f / 600.0f;
+
+	/**
+	 * 조준 중 몸이 컨트롤러 Yaw 를 따라 도는 속도(도/초, 음수 = 즉시 스냅). 비조준에서 사격하면 이 속도로 카메라 쪽으로 돌고(180° ≈ 0.17초),
+	 * 원거리 GA 는 몸이 정렬될 때까지 발사를 미룬다(FireAlignToleranceYaw). 평소 마우스 회전보다 빨라야 조준 중 추종이 즉시와 구분되지 않는다.
+	 * AnimInstance 의 AimEntryPivotTime 은 180° ÷ 이 값보다 길어야 한다 (그 동안 제자리 회전 대신 몸 전체가 돈다)
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Astral|HeroMovement")
+	float AimingRotationRate = 1080.0f;
 
 	/** 플레이어 의도 — 클라 발신(압축 플래그). 서버는 이 값 단독으로 속도를 인정하지 않는다 */
 	bool bWantsToSprint = false;

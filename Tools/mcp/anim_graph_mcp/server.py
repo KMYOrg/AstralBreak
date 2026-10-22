@@ -68,7 +68,8 @@ def get_anim_graph_structure(asset_path: str, graph_guid: str | None = None, dep
     Each node also carries "properties" (allow-listed values set_property can change), "optional_pins" (pins expose_pin can
     toggle; "bound" pins carry "binding" {path, path_text, type, context, promotion} — bind_pin/unbind_pin edit them) and "has_binding".
     "state_machines" lists every state machine graph in range: entry_state, states (name, bound_graph_guid, transitions in/out) and
-    transitions (from/to, crossfade, priority, automatic, rule_source = the rule tree this tool generated, rule_modified = edited by hand since).
+    transitions (from/to, crossfade, priority, automatic, rule_source = the rule tree this tool generated, rule_modified = edited by hand since,
+    logic_type = "TLT_StandardBlend" | "TLT_Inertialization" | "TLT_Custom" — the transition's LogicType, settable via set_property).
     """
     params = {"asset_path": asset_path, "depth": depth}
     if graph_guid:

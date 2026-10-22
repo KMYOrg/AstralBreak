@@ -1,5 +1,6 @@
 #include "AstralEquipmentActor.h"
 
+#include "AstralEquipmentManagerComponent.h"
 #include "Components/SceneComponent.h"
 #include "Net/UnrealNetwork.h"
 
@@ -40,4 +41,21 @@ void AAstralEquipmentActor::SetAttachState(EAstralEquipmentAttachState InState)
 void AAstralEquipmentActor::OnRep_AttachState()
 {
 	HandleAttachStateChanged();
+}
+
+void AAstralEquipmentActor::OnRep_AttachmentReplication()
+{
+	Super::OnRep_AttachmentReplication();
+
+	// 클라 — 부착(소켓)은 AttachState 와 따로 복제된다
+	NotifyPresentationChanged();
+}
+
+void AAstralEquipmentActor::NotifyPresentationChanged() const
+{
+	// 아직 붙지 않았으면(클라 부착 복제 전) 건너뛴다 — 부착 복제가 다시 부른다
+	if (UAstralEquipmentManagerComponent* Manager = UAstralEquipmentManagerComponent::FindEquipmentManager(GetAttachParentActor()))
+	{
+		Manager->RefreshWeaponAnimData();
+	}
 }

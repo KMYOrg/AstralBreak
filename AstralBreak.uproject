@@ -15,6 +15,15 @@
 				"EnhancedInput",
 				"ModularGameplay"
 			]
+		},
+		{
+			"Name": "AstralBreakEditor",
+			"Type": "UncookedOnly",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine",
+				"AstralBreak"
+			]
 		}
 	],
 	"Plugins": [

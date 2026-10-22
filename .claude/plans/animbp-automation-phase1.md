@@ -1074,7 +1074,9 @@ LinkedAnimLayer 편집, Property Binding 쓰기, Alias/Conduit, Automation Test(
 - **네이티브 변수 이름은 레이어 값 파라미터·BP 변수와 한 이름 공간**: 테스트 인터페이스의 값 파라미터 `AimYaw` 가 새 네이티브 `UAstralAnimInstance::AimYaw` 와 충돌해 구현 ABP 가 "Tried to create a property AimYaw … already exists" 로 깨졌다(스모크 2건 failed). 프로젝트 ABP 변수·레이어 파라미터를 지을 때 네이티브 이름을 피한다.
 - 미검증: `convert_spaces=true`(기준 포즈가 다른 스켈레톤 — 재료 없음) · `allow_missing_bones=true` 양성(트랙이 버려지는 경우) · 대상 스켈레톤이 더티가 되는 경우(`skeleton_saved=true`).
 
-**히어로 전투 ABP(같은 날)** — [hero-combat-abp.md](hero-combat-abp.md). 도구만으로 AO(9)·BlendSpace 2·ALI·베이스·공급자 생성, 스모크 3 passed · 상태머신 운영 1:1 · PIE Idle 진입. 런타임 C++ 4건. 사용자 PIE 확인 대기.
+**히어로 전투 ABP(같은 날)** — [hero-combat-abp.md](hero-combat-abp.md). 도구만으로 AO(9)·BlendSpace 2·ALI·베이스·공급자 생성, 스모크 3 passed · 상태머신 운영 1:1 · PIE Idle 진입. 런타임 C++ 4건. 사용자 PIE 확인 대기. → 2026-10-19 밤 사용자 PIE 확인 완료.
+
+**제자리 회전(2026-10-20, 같은 브랜치)** — [hero-combat-abp.md](hero-combat-abp.md) §7. 도구 변경은 한 줄: 전이 허용 목록에 `LogicType`(`Core/AnimMcpPropertyRules.cpp`; TEnumAsByte 는 기존 FByteProperty+Enum setter 가 `TLT_Inertialization` 이름으로 받는다). 실측: ① `bind_pin` 의 enum(FEnumProperty uint8) → BlendListByEnum `ActiveEnumValue`(uint8) 는 호환(GetPropertyCompatibility) ② 같은 배치 안에서 `add_state` ref 로 만든 상태에 `set_property bAlwaysResetOnEntry`·`graph:{ref}` 노드 채우기·`add_transition` 53 op 한 번에 적용 ③ 함수 경로 바인딩 `GetMainAnimInstance.X`(BlueprintThreadSafe BlueprintPure 가 다른 인스턴스를 돌려주는 경우)와 규칙 `{"access": "GetMainAnimInstance.bWantsTurnInPlace"}` 모두 컴파일·런타임 동작 ④ 조회 응답의 바인딩은 `optional_pins[].bound/binding` (검증 스크립트가 `pins[]` 를 봐서 헛 FAIL) ⑤ 전이 조회에 `logic_type` 없음(후속) ⑥ 링크된 레이어 안 상태머신의 관성 전이 요청은 베이스 루트의 Inertialization 노드가 받는다(PIE 첫 프레임 w=1.00). ⑦ 허용 목록에 SequencePlayer/BlendSpace `bIgnoreForRelevancyTest`(상태 안 보조 플레이어를 자동 전이의 관련 플레이어에서 제외) ⑧ 상태 그래프의 출력 노드는 `AnimGraphNode_StateResult`(루트 AnimGraph 의 Root 가 아님) ⑨ 프로브용 에디터는 `-unattended` 로 띄운다(백그라운드 CPU 스로틀 해제, EditorEngine.cpp:5014).
 
 ---
 

@@ -38,9 +38,17 @@ public:
 
 	EAstralEquipmentAttachState GetAttachState() const { return AttachState; }
 
+	/**
+	 * 부착·외형이 바뀌었다 — 부착된 캐릭터의 장비 매니저가 이 액터에서 파생되는 애님 입력(왼손 파지점)을 다시 넣는다.
+	 * 호출: 서버 부착 직후(EquipmentInstance) · 클라 부착 복제(OnRep_AttachmentReplication) · 외형 적용(파생). 부착·상태·메시 복제가
+	 * 어떤 순서로 와도 마지막 호출이 최종 상태를 반영한다(멱등)
+	 */
+	void NotifyPresentationChanged() const;
+
 protected:
 	//~AActor
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void OnRep_AttachmentReplication() override;
 	//~End AActor
 
 	UFUNCTION()

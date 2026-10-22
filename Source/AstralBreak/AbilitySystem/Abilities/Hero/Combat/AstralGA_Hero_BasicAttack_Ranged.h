@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "AbilitySystem/Abilities/Hero/AstralGA_Hero_Base.h"
+#include "Combat/AstralRangedAim.h"
 #include "Combat/AstralRangedAttackTypes.h"
 #include "GameplayTagContainer.h"
 #include "AstralGA_Hero_BasicAttack_Ranged.generated.h"
@@ -65,6 +66,20 @@ protected:
 	UFUNCTION()
 	void OnMontageFinished();
 
+	/** 즉발 경로(로컬) — 몸 정렬(또는 대기 시간 초과) 뒤 발사 동기화로 */
+	UFUNCTION()
+	void OnFireAligned(bool bTimedOut);
+
+	/**
+	 * 즉발 경로 — 발사 시점 동기화(WaitNetSync OnlyServerWait). 발사 시점은 로컬(호스트·소유 클라)이 정하고 원격 폰의 서버 인스턴스는 그 신호를 따른다.
+	 * 서버가 따로 정렬을 기다리면 먼저 끝난 클라의 EndAbility 복제가 서버 인스턴스를 발사 전에 끝낸다
+	 */
+	void BeginFireSync();
+
+	/** 동기화 완료 — (원격 서버면 몸 Yaw 보정 후) 발사하고 종료 */
+	UFUNCTION()
+	void OnFireSynced();
+
 	/** 발사 처리 — 즉발(몽타주 없음) 경로와 이벤트 경로가 공유 (정책이 갈라지지 않도록). */
 	void ProcessFire();
 
@@ -107,9 +122,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged", Meta = (ClampMin = "0.0"))
 	float MarkGainOnHit = 10.f;
 
-	/** 자유 조준 — 조준점 확정 트레이스 사거리 */
+	/** 자유 조준 — 조준점 확정 트레이스 사거리 (기본값 = 조준 보정 애니와 같은 AstralRangedAim::DefaultTraceRange) */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged")
-	float AimTraceRange = 10000.f;
+	float AimTraceRange = AstralRangedAim::DefaultTraceRange;
 
 	/** 시작 몸 방향 워프 타겟 이름 — FireMontage의 MotionWarping 노티파이와 일치. 비우면 몸 회전 보정 없음 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged|Facing")
@@ -142,6 +157,18 @@ protected:
 	/** 마지막 발사 뒤 조준 자세를 유지하는 시간(초) — "계속 쏘는 중" 창의 길이 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged|Aim", Meta = (ClampMin = "0.0"))
 	float AimHoldSeconds = 2.f;
+
+	/**
+	 * 즉발(FireMontage 없음) 사격 전 몸 정렬 허용각(도) — 로컬(호스트·소유 클라)은 |컨트롤러 Yaw − 몸 Yaw| 가 이 안에 들 때까지 발사를 미룬다.
+	 * 몸은 조준 회전 모드(HeroMovementComponent::AimingRotationRate)가 돌린다. 원격 폰의 서버 인스턴스는 기다리지 않고 클라 신호를 따르되,
+	 * 신호 시점에 서버 쪽 몸이 이 각 밖이면 몸 Yaw 를 맞춘 뒤 쏜다. 0 이면 기다리지도 맞추지도 않는다
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged|Aim", Meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float FireAlignToleranceYaw = 10.f;
+
+	/** 몸 정렬 대기 상한(초) — 회전이 막혀도(루트 모션·조준 태그 복제 전의 소유 클라) 이 시간 뒤엔 쏜다. 0 이면 기다리지 않는다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Ranged|Aim", Meta = (ClampMin = "0.0"))
+	float FireAlignMaxWait = 0.3f;
 
 private:
 	/** 이 공격의 고정 조준 모드·타겟 — 활성화 시작에 결정, EndAbility에서 정리 */

@@ -11,5 +11,6 @@ public class AstralBreakEditorTarget : TargetRules
 		DefaultBuildSettings = BuildSettingsVersion.V6;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_7;
 		ExtraModuleNames.Add("AstralBreak");
+		ExtraModuleNames.Add("AstralBreakEditor");   // UncookedOnly — 커스텀 애님 그래프 노드
 	}
 }

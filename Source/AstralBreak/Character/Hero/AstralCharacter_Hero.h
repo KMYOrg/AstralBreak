@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Character/AstralCharacter.h"
 #include "Combat/AstralInputFacingTypes.h"
+#include "Engine/NetSerialization.h"
 #include "AstralCharacter_Hero.generated.h"
 
 class AAstralPlayerState;
@@ -15,6 +16,24 @@ class UAstralTargetingComponent;
 class UCameraComponent;
 class UMotionWarpingComponent;
 class USpringArmComponent;
+
+/**
+ * 관찰자(시뮬 프록시)용 조준점 — 최종 조준 보정(UAstralAnimInstance)이 총열을 겨누는 점. 카메라 POV 는 소유 머신과 서버(ServerUpdateCamera)만 알아
+ * 관찰자는 BaseAimRotation 방향의 먼 점을 겨눴는데, 카메라가 어깨 위(붐 SocketOffset)라 가까운 표적에서 총열이 탄도와 10~15° 어긋났다
+ */
+USTRUCT()
+struct FAstralObservedAimTarget
+{
+	GENERATED_BODY()
+
+	/** 조준점 — 메시 컴포넌트 공간(관찰자 쪽 보간된 메시를 따라간다), 0.1cm 양자화 */
+	UPROPERTY()
+	FVector_NetQuantize10 TargetComponentSpace = FVector::ZeroVector;
+
+	/** 조준 중 ∧ 손에 원거리 무기 — false 면 관찰자는 BaseAimRotation 방향의 먼 점으로 돌아간다 */
+	UPROPERTY()
+	bool bValid = false;
+};
 
 /**
  * 플레이어 히어로 — ASC는 PlayerState 소유. HeroComponent가 InitState 체인으로 PlayerState·컨트롤러·입력 도착을 중재하고
@@ -48,10 +67,14 @@ public:
 	/** 시뮬 프록시의 입력 Modifier가 읽는다 — 자기 창과 일치할 때만 유효 */
 	const FAstralInputFacingPresentation& GetInputFacingPresentation() const { return InputFacingPresentation; }
 
+	/** 시뮬 프록시의 최종 조준 보정이 읽는다 — 서버가 복제한 조준점(메시 컴포넌트 공간)이 유효하면 true */
+	bool GetObservedAimTarget(FVector& OutTargetComponentSpace) const;
+
 protected:
 	//~AActor
 	virtual void PostInitializeComponents() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker) override;
 	//~End AActor
 
 	//~AAstralCharacter
@@ -94,4 +117,15 @@ protected:
 	 */
 	UPROPERTY(Replicated)
 	FAstralInputFacingPresentation InputFacingPresentation;
+
+	/**
+	 * 관찰자용 조준점 — COND_SimulatedOnly (소유 클라·서버는 자기 카메라로 같은 점을 직접 구한다). 서버가 PreReplication 에서 채운다:
+	 * 엔진이 RemoteViewPitch16 을 채우는 자리라 같은 패킷의 이동·Pitch 와 같은 시점 값이고, 조준이 끝나면 bValid 만 한 번 바뀐다
+	 */
+	UPROPERTY(Replicated)
+	FAstralObservedAimTarget ObservedAimTarget;
+
+private:
+	/** 서버 — 조준 중이면 발사와 같은 카메라 조준점(AstralRangedAim)을 메시 컴포넌트 공간으로. 양자화 단위 안의 변화는 쓰지 않는다 */
+	void UpdateObservedAimTarget();
 };

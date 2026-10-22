@@ -8,6 +8,7 @@
 #include "UObject/PrimaryAssetId.h"
 #include "AstralEquipmentManagerComponent.generated.h"
 
+class AAstralRangedWeaponActor;
 class UAnimInstance;
 class UAstralAbilitySystemComponent;
 class UAstralEquipmentFamily;
@@ -105,13 +106,19 @@ public:
 	 * 어떤 구체 타입의 ID든(AstralWeaponDefinition:... 등) 스캔되어 있으면 해석된다 */
 	static const UAstralItemDefinition* ResolveItemDefinition(const FPrimaryAssetId& ItemId);
 
+	static UAstralEquipmentManagerComponent* FindEquipmentManager(const AActor* Actor) { return (Actor ? Actor->FindComponentByClass<UAstralEquipmentManagerComponent>() : nullptr); }
+
 	/**
-	 * ASC 결합 + 장착 정책 주입 — 소유 폰이 ASC 준비 시점에 호출
-	 * State.CombatStyle 태그 변경을 감지해 부착 상태를 스스로 갱신
+	 * 전 머신 — ASC 결합. 소유 폰이 ASC 준비 시점에 호출(OnAbilitySystemInitialized).
+	 * State.CombatStyle 태그 변경을 구독해 부착 상태(서버)와 Linked Anim Layer(전 머신)를 스스로 갱신하고, 결합 시점에 레이어를 한 번 맞춘다
+	 * (클라는 장비 복제가 ASC 결합보다 먼저 온다 — 그때는 레이어를 걸지 않고 여기서 건다)
 	 */
-	void InitializeWithAbilitySystem(UAstralAbilitySystemComponent* InASC, EAstralEquipmentPolicy InPolicy);
-	
+	void InitializeWithAbilitySystem(UAstralAbilitySystemComponent* InASC);
+
 	void UninitializeFromAbilitySystem();
+
+	/** 서버 — 장착 정책 주입. 소유 폰이 초기 스타일 시드·로드아웃 적용보다 먼저 호출 (정책을 읽는 곳은 전부 서버 권위 경로) */
+	void SetEquipmentPolicy(EAstralEquipmentPolicy InPolicy) { EquipmentPolicy = InPolicy; }
 
 	EAstralEquipmentPolicy GetEquipmentPolicy() const { return EquipmentPolicy; }
 
@@ -133,9 +140,20 @@ public:
 
 	/**
 	 * 전 머신 — 활성 계열의 AnimLayerClass 를 캐릭터 메시에 LinkAnimClassLayers (없으면 베이스 ABP 기본 구현으로 복귀).
-	 * 트리거: 스타일 태그 변경(HandleCombatStyleChanged) · 서버 장착/해제 · 클라 장비 복제 수신 · 외형 AnimBP 교체(LoadoutComponent).
+	 * 트리거: ASC 결합 · 스타일 태그 변경(HandleCombatStyleChanged) · 서버 장착/해제 · 클라 장비 복제 수신 · 외형 AnimBP 교체(LoadoutComponent).
+	 * ASC 결합 전에는 활성 계열을 판정할 수 없으므로 아무것도 걸지 않는다(결합 시 다시 불린다). 끝에 무기 애니 데이터도 맞춘다(AnimBP 교체 대비)
 	 */
 	void RefreshAnimLayers();
+
+	/**
+	 * 전 머신 — 손에 든 무기의 애니 데이터(양손 무기의 왼손 파지점 · 원거리 무기의 총구)를 메인 AnimInstance 에 넣는다(없으면 비운다).
+	 * 둘 다 무기 메시 소켓을 손 본 공간으로 환산한 상수라 매 프레임 조회하지 않는다. 무기는 부착 기준으로 찾는다 — 클라는 인스턴스의
+	 * 스폰 목록이 비어 있고 액터가 각자 복제되기 때문. 트리거: RefreshAnimLayers · 장비 액터의 부착/외형 변경(NotifyPresentationChanged). 멱등
+	 */
+	void RefreshWeaponAnimData();
+
+	/** 전 머신 — 손(Held)에 든 원거리 무기. RefreshWeaponAnimData 와 같은 규칙(부착 기준 — 클라는 스폰 목록이 비어 있다). 없으면 nullptr */
+	AAstralRangedWeaponActor* GetHeldRangedWeapon() const;
 
 	/** 해당 스타일과 일치하는 계열 장비 보유 여부 — 스타일 무관(빈 태그) 계열은 제외 (태그 비교만 = 종류-무지 유지) */
 	bool HasEquipmentForStyle(const FGameplayTag& StyleTag) const;

@@ -646,6 +646,8 @@ namespace AnimMcpGraphInspector
 				T->SetNumberField(TEXT("priority_order"), Transition->PriorityOrder);
 				T->SetNumberField(TEXT("crossfade_duration"), Transition->CrossfadeDuration);
 				T->SetStringField(TEXT("blend_mode"), StaticEnum<EAlphaBlendOption>()->GetNameStringByValue(static_cast<int64>(Transition->BlendMode)));
+				// Phase 7-6 — 전이 로직(TLT_StandardBlend | TLT_Inertialization | TLT_Custom). revision 해시에는 넣지 않는다(기존 호환)
+				T->SetStringField(TEXT("logic_type"), StaticEnum<ETransitionLogicType::Type>()->GetNameStringByValue(static_cast<int64>(Transition->LogicType.GetValue())));
 				T->SetBoolField(TEXT("bidirectional"), Transition->Bidirectional);
 				T->SetBoolField(TEXT("disabled"), Transition->bDisabled);
 				T->SetBoolField(TEXT("automatic"), Transition->bAutomaticRuleBasedOnSequencePlayerInState);

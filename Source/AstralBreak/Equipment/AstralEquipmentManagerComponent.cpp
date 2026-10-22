@@ -6,8 +6,10 @@
 #include "AstralEquipmentInstance.h"
 #include "AstralItemDefinition.h"
 #include "AstralLogChannels.h"
+#include "AstralRangedWeaponActor.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/AstralAnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "Net/UnrealNetwork.h"
@@ -273,40 +275,117 @@ void UAstralEquipmentManagerComponent::RefreshAnimLayers()
 		return;
 	}
 
-	// 활성 계열 중 공급자를 가진 첫 장비 — 스타일 하나에 무기 하나가 전제(스타일↔장비 정합)
+	// 활성 계열 중 공급자를 가진 첫 장비 — 스타일 하나에 무기 하나가 전제(스타일↔장비 정합).
+	// ASC 결합 전(클라는 장비 복제가 PlayerState·ASC 보다 먼저 온다)에는 스타일을 모른다 — IsFamilyActive 가 "전부 활성" 으로 답해
+	// 첫 공급자(Rifle)가 걸렸다(2026-10-20 멀티 PIE: 낫 스타일인데 클라에서 라이플 자세). 결합 시 InitializeWithAbilitySystem 이 다시 부른다
 	TSubclassOf<UAnimInstance> Desired;
-	for (const FAstralAppliedEquipmentEntry& Entry : EquipmentList.Entries)
+	if (BoundASC)
 	{
-		if (Entry.EquipmentFamily && Entry.EquipmentFamily->AnimLayerClass && IsFamilyActive(Entry.EquipmentFamily))
+		for (const FAstralAppliedEquipmentEntry& Entry : EquipmentList.Entries)
 		{
-			Desired = Entry.EquipmentFamily->AnimLayerClass;
-			break;
+			if (Entry.EquipmentFamily && Entry.EquipmentFamily->AnimLayerClass && IsFamilyActive(Entry.EquipmentFamily))
+			{
+				Desired = Entry.EquipmentFamily->AnimLayerClass;
+				break;
+			}
 		}
 	}
 
 	// no-op 판정 — 같은 클래스가 실제로 링크돼 있을 때만. 메시/AnimBP 교체로 링크가 사라졌으면 다시 건다
 	const bool bStillLinked = Desired && Mesh->GetAnimInstance() && Mesh->GetLinkedAnimLayerInstanceByClass(Desired) != nullptr;
-	if (Desired == LinkedAnimLayerClass && (!Desired || bStillLinked))
+	if (Desired != LinkedAnimLayerClass || (Desired && !bStillLinked))
+	{
+		if (!Mesh->GetAnimInstance())
+		{
+			// AnimBP 가 아직 없다(외형 교체 전) — 교체 시 LoadoutComponent 가 다시 부른다
+			LinkedAnimLayerClass = nullptr;
+			return;
+		}
+
+		if (LinkedAnimLayerClass && LinkedAnimLayerClass != Desired)
+		{
+			Mesh->UnlinkAnimClassLayers(LinkedAnimLayerClass);
+		}
+		if (Desired)
+		{
+			Mesh->LinkAnimClassLayers(Desired);
+		}
+		LinkedAnimLayerClass = Desired;
+	}
+
+	// 링크가 그대로여도 AnimBP 가 바뀌었을 수 있다 — 새 메인 인스턴스엔 파지점·총구가 없다
+	RefreshWeaponAnimData();
+}
+
+void UAstralEquipmentManagerComponent::RefreshWeaponAnimData()
+{
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	UAstralAnimInstance* AnimInstance = Mesh ? Cast<UAstralAnimInstance>(Mesh->GetAnimInstance()) : nullptr;
+	if (!AnimInstance)
 	{
 		return;
 	}
 
-	if (!Mesh->GetAnimInstance())
+	// 손에 든 무기 — 스타일 하나에 손에 든 무기 하나(나머지는 홀스터)라 첫 유효 값이 곧 그것이다. 홀스터 무기는 Held 가 아니라 둘 다 false
+	const FName ReferenceBone = AnimInstance->GetWeaponReferenceBone();
+	bool bHasGrip = false;
+	bool bHasMuzzle = false;
+	TArray<AActor*> AttachedActors;
+	Character->GetAttachedActors(AttachedActors);
+	for (const AActor* Actor : AttachedActors)
 	{
-		// AnimBP 가 아직 없다(외형 교체 전) — 교체 시 LoadoutComponent 가 다시 부른다
-		LinkedAnimLayerClass = nullptr;
-		return;
+		const AAstralWeaponActor* Weapon = Cast<AAstralWeaponActor>(Actor);
+		if (!Weapon)
+		{
+			continue;
+		}
+
+		FTransform Grip;
+		if (!bHasGrip && Weapon->GetLeftHandGrip(ReferenceBone, Grip))
+		{
+			AnimInstance->SetLeftHandGrip(Grip);
+			bHasGrip = true;
+		}
+
+		const AAstralRangedWeaponActor* RangedWeapon = Cast<AAstralRangedWeaponActor>(Weapon);
+		FTransform Muzzle;
+		if (!bHasMuzzle && RangedWeapon && RangedWeapon->GetMuzzleInReferenceBone(ReferenceBone, Muzzle))
+		{
+			AnimInstance->SetMuzzle(Muzzle);
+			bHasMuzzle = true;
+		}
 	}
 
-	if (LinkedAnimLayerClass && LinkedAnimLayerClass != Desired)
+	if (!bHasGrip)
 	{
-		Mesh->UnlinkAnimClassLayers(LinkedAnimLayerClass);
+		AnimInstance->ClearLeftHandGrip();
 	}
-	if (Desired)
+	if (!bHasMuzzle)
 	{
-		Mesh->LinkAnimClassLayers(Desired);
+		AnimInstance->ClearMuzzle();
 	}
-	LinkedAnimLayerClass = Desired;
+}
+
+AAstralRangedWeaponActor* UAstralEquipmentManagerComponent::GetHeldRangedWeapon() const
+{
+	const AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return nullptr;
+	}
+
+	TArray<AActor*> AttachedActors;
+	Owner->GetAttachedActors(AttachedActors);
+	for (AActor* Actor : AttachedActors)
+	{
+		AAstralRangedWeaponActor* Weapon = Cast<AAstralRangedWeaponActor>(Actor);
+		if (Weapon && Weapon->GetAttachState() == EAstralEquipmentAttachState::Held)
+		{
+			return Weapon;
+		}
+	}
+	return nullptr;
 }
 
 bool UAstralEquipmentManagerComponent::HasEquipmentForStyle(const FGameplayTag& StyleTag) const
@@ -380,10 +459,8 @@ UAstralEquipmentInstance* UAstralEquipmentManagerComponent::GetFirstInstanceOfTy
 	return nullptr;
 }
 
-void UAstralEquipmentManagerComponent::InitializeWithAbilitySystem(UAstralAbilitySystemComponent* InASC, EAstralEquipmentPolicy InPolicy)
+void UAstralEquipmentManagerComponent::InitializeWithAbilitySystem(UAstralAbilitySystemComponent* InASC)
 {
-	EquipmentPolicy = InPolicy;
-
 	if (BoundASC == InASC)
 	{
 		return;

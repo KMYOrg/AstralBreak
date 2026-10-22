@@ -37,8 +37,10 @@ BOM이 붙어 있으면 `json.load` 가 실패한다.
 
 # 경로 규약
 
-- 몽타주: `/Game/Animation/{Job}/Montages/AM_{Job}_{Action}{NN}`
-- 소스 애니메이션: `/Game/Animation/{Job}/Anims/...`
+- 몽타주: `/Game/Animation/Hero/{Hero}/{Family}/Actions/AM_{Hero}_{Family}_{Action}{NN}` — 소스 시퀀스 `AS_{Hero}_{Family}_{Action}{NN}` 와 같은 폴더
+  (타입별 폴더(Montages/ 등)를 만들지 않는다. 예: `/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack1`)
+- `{Hero}` = 리그(스켈레톤) 주인 영웅 — 영웅마다 스켈레톤이 달라 애니는 영웅 전용. `{Family}` = 장비 계열(Sickle · Rifle), 무기 무관이면 `Common`
+- 규칙 전체·근거: `.claude/plans/anim-asset-naming.md`
 - 테스트 산출물: `/Game/AstralBreak/_ScriptTest/` (프로덕션 경로에 테스트 애셋을 만들지 않는다)
 
 # Notify 클래스

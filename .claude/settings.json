@@ -49,7 +49,6 @@
       "Read(D:/UnrealSource/UnrealEngine-5.7.4-release/.vs/**)",
       "Edit(D:/UnrealSource/UnrealEngine-5.7.4-release/**)",
       "Write(D:/UnrealSource/UnrealEngine-5.7.4-release/**)",
-      "Bash(rm *)",
       "Bash(del *)",
       "Bash(rmdir *)",
       "Bash(git push --force *)",

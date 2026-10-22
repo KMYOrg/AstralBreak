@@ -68,7 +68,8 @@ def get_anim_graph_structure(asset_path: str, graph_guid: str | None = None, dep
     Each node also carries "properties" (allow-listed values set_property can change), "optional_pins" (pins expose_pin can
     toggle; "bound" pins carry "binding" {path, path_text, type, context, promotion} — bind_pin/unbind_pin edit them) and "has_binding".
     "state_machines" lists every state machine graph in range: entry_state, states (name, bound_graph_guid, transitions in/out) and
-    transitions (from/to, crossfade, priority, automatic, rule_source = the rule tree this tool generated, rule_modified = edited by hand since).
+    transitions (from/to, crossfade, priority, automatic, rule_source = the rule tree this tool generated, rule_modified = edited by hand since,
+    logic_type = "TLT_StandardBlend" | "TLT_Inertialization" | "TLT_Custom" — the transition's LogicType, settable via set_property).
     """
     params = {"asset_path": asset_path, "depth": depth}
     if graph_guid:
@@ -547,6 +548,76 @@ def add_skeleton_slot(skeleton: str, slot: str, group: str | None = None, confir
     if group:
         params["group"] = group
     return bridge.call("add_skeleton_slot", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def reassign_skeleton(skeleton: str, assets: list[str] | None = None, from_skeleton: str | None = None, path_prefix: str = "/Game",
+                      confirm: bool = False, dry_run: bool = False, allow_missing_bones: bool = False,
+                      convert_spaces: bool = False, save: bool = True) -> dict:
+    """Move animation assets onto another Skeleton in place (the engine's "retarget to another skeleton" path: bone tracks are
+    remapped by name, curve names copied to the target skeleton). Use it when the same character was imported twice and its
+    animations ended up split across two skeletons with identical bones — an AnimBP can only reference assets of its own skeleton.
+
+    Args:
+        skeleton: Target Skeleton asset path.
+        assets: Explicit animation asset paths (AnimSequence, AnimMontage, BlendSpace, AimOffset, AnimComposite). Either this
+            or from_skeleton.
+        from_skeleton: Collect every animation asset currently on this skeleton under path_prefix instead of listing them.
+        path_prefix: Folder searched with from_skeleton (default /Game).
+        confirm: Must be true to write — this rewrites assets on disk. Run with dry_run first and ask the user.
+        dry_run: Only return the plan (planned[], skipped[], referred[]).
+        allow_missing_bones: Proceed even when an AnimSequence has a bone track the target skeleton lacks (that track is dropped);
+            otherwise such assets make the call fail with BONES_MISSING listing them.
+        convert_spaces: Convert animation data in component space (only for skeletons with different reference poses).
+        save: Save every changed asset, and the target skeleton if copying curves made it dirty (default true).
+
+    Assets the listed ones reference (montage segments, BlendSpace samples, additive base poses) ALWAYS move along — the engine's
+    ReplaceSkeleton does that itself — so check "referred" in the dry_run plan before confirming.
+
+    Returns {skeleton, from_skeleton, total, referred[], planned[] (dry_run) | changed_assets[], referred_changed[], failed[],
+    skipped[{asset, reason}], changed, saved, skeleton_saved}. Assets already on the target are skipped (already_on_target).
+    """
+    params: dict = {"skeleton": skeleton, "path_prefix": path_prefix, "confirm": confirm, "dry_run": dry_run,
+                    "allow_missing_bones": allow_missing_bones, "convert_spaces": convert_spaces, "save": save}
+    if assets:
+        params["assets"] = assets
+    if from_skeleton:
+        params["from_skeleton"] = from_skeleton
+    return bridge.call("reassign_skeleton", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def set_sequence_additive(asset_path: str, additive_type: str | None = None, ref_pose_type: str | None = None,
+                          ref_pose_sequence: str | None = None, clear_ref_pose_sequence: bool = False,
+                          ref_frame_index: int | None = None, save: bool = False) -> dict:
+    """Set an AnimSequence's additive settings (the Details panel's "Additive Settings") — what makes a sequence usable as an
+    AimOffset sample: additive_type RotationOffsetMeshSpace plus a base pose (ref_pose_type AnimFrame + ref_pose_sequence, or
+    RefPose). create_blendspace(aim_offset=true) refuses samples whose base pose is missing (ADDITIVE_INVALID); fix them here first.
+
+    Args:
+        asset_path: The AnimSequence.
+        additive_type: None | LocalSpaceBase | RotationOffsetMeshSpace (AAT_ prefix optional).
+        ref_pose_type: None | RefPose | AnimScaled | AnimFrame | LocalAnimFrame (ABPT_ prefix optional).
+        ref_pose_sequence: Base pose AnimSequence (must be on the same skeleton — SKELETON_MISMATCH otherwise).
+        clear_ref_pose_sequence: Clear the base pose sequence instead.
+        ref_frame_index: Frame of ref_pose_sequence used when ref_pose_type is AnimFrame.
+        save: Save the sequence afterwards.
+
+    Omitted fields keep their value; identical values report unchanged=true. Returns {additive_type, ref_pose_type,
+    ref_pose_sequence, ref_frame_index, additive_valid, changed[], unchanged, saved, dirty}.
+    """
+    params: dict = {"asset_path": asset_path, "save": save}
+    if additive_type is not None:
+        params["additive_type"] = additive_type
+    if ref_pose_type is not None:
+        params["ref_pose_type"] = ref_pose_type
+    if clear_ref_pose_sequence:
+        params["ref_pose_sequence"] = None
+    elif ref_pose_sequence is not None:
+        params["ref_pose_sequence"] = ref_pose_sequence
+    if ref_frame_index is not None:
+        params["ref_frame_index"] = ref_frame_index
+    return bridge.call("set_sequence_additive", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()

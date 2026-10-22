@@ -72,6 +72,29 @@ void AAstralWeaponActor::ApplyMeshInfo()
 	// MeshInfo·AttachState 어느 쪽 OnRep이 먼저 와도 멱등 — 둘 다 현재값을 읽는다
 	const bool bUseHolster = (GetAttachState() == EAstralEquipmentAttachState::Holstered) && MeshInfo.bOverrideHolsterOffset;
 	MeshComponent->SetRelativeTransform(bUseHolster ? MeshInfo.HolsterOffset : MeshInfo.AttachOffset);
+
+	// 메시·자세값·부착 상태가 바뀌면 왼손 파지점도 바뀐다
+	NotifyPresentationChanged();
+}
+
+bool AAstralWeaponActor::GetLeftHandGrip(const FName ReferenceBone, FTransform& OutGrip) const
+{
+	return GetSocketInReferenceBone(LeftHandGripSocket, ReferenceBone, OutGrip);
+}
+
+bool AAstralWeaponActor::GetSocketInReferenceBone(const FName Socket, const FName ReferenceBone, FTransform& OutTransform) const
+{
+	const USceneComponent* Root = GetRootComponent();
+	const USkeletalMeshComponent* ParentMesh = Root ? Cast<USkeletalMeshComponent>(Root->GetAttachParent()) : nullptr;
+	if (GetAttachState() != EAstralEquipmentAttachState::Held || Socket.IsNone() || !MeshComponent || !MeshComponent->DoesSocketExist(Socket)
+		|| !ParentMesh || ParentMesh->GetBoneIndex(ReferenceBone) == INDEX_NONE)
+	{
+		return false;
+	}
+
+	// 둘 다 현재 월드 트랜스폼 — 무기가 손 본에 강체로 붙어 있어 상대값은 자세(지금 본이 어떤 포즈든)와 무관하다
+	OutTransform = MeshComponent->GetSocketTransform(Socket).GetRelativeTransform(ParentMesh->GetSocketTransform(ReferenceBone));
+	return true;
 }
 
 FVector AAstralWeaponActor::GetTraceStartLocation() const

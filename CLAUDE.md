@@ -1,6 +1,7 @@
 # AstralBreak
 
-UE 5.7.4 기반 4인 협동 액션 RPG. 런타임 모듈 1개(`Source/AstralBreak`), Lyra 아키텍처 미러
+UE 5.7.4 기반 4인 협동 액션 RPG. 런타임 모듈 1개(`Source/AstralBreak`) + 에디터 전용 UncookedOnly 모듈
+`Source/AstralBreakEditor`(커스텀 애님 그래프 노드만), Lyra 아키텍처 미러
 (InitState 체인 · AbilitySet · AssetManager/GameData · PawnExtension/HeroComponent 분리).
 
 ## 코드 탐색 규칙

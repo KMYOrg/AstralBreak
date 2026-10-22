@@ -7,25 +7,25 @@
   },
   "montages": [
     {
-      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack1",
+      "montage": "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack1",
       "warp_target_name": "BasicMelee.Stage0",
       "start": 0.0,
       "duration": 0.264
     },
     {
-      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack2",
+      "montage": "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack2",
       "warp_target_name": "BasicMelee.Stage1",
       "start": 0.0,
       "duration": 0.53
     },
     {
-      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack3",
+      "montage": "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack3",
       "warp_target_name": "BasicMelee.Stage2",
       "start": 0.136,
       "duration": 0.392
     },
     {
-      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Finisher1",
+      "montage": "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Finisher1",
       "warp_target_name": "MarkFinisher.Facing",
       "start": 0.0,
       "duration": 0.523

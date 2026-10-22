@@ -1,6 +1,6 @@
 # Phase 5 — ABP_Hero_McpBuild vs ABP_Hero_Base 구조 비교
 
-> 생성 `Tools/mcp/phase5_build_hero.py` · 빌드 애셋 `/Game/Animation/Hero/ABP_Hero_McpBuild` (revision `sha1:222ac9e449c20cb3d57ae66a0b36407a2a79708e`) · 운영 애셋 `/Game/Animation/Hero/ABP_Hero_Base` (revision `sha1:3c146b5f04c1648922feca885ba1eb8a0a52e118`, 읽기만)
+> 생성 `Tools/mcp/phase5_build_hero.py` · 빌드 애셋 `/Game/Animation/Test/ABP_Hero_McpBuild` (revision `sha1:222ac9e449c20cb3d57ae66a0b36407a2a79708e`) · 운영 애셋 `/Game/Animation/Hero/ABP_Hero_Base` (revision `sha1:3c146b5f04c1648922feca885ba1eb8a0a52e118`, 읽기만)
 > 빌드 애셋은 도구(apply_graph_operations)만으로 빈 AnimBP 에서 구성했다. 운영 애셋은 사람이 만든 것이며 변경하지 않았다.
 
 ## 1. 수치
@@ -25,12 +25,12 @@
 | 상태 | 운영 | 빌드 |
 | :--- | :--- | :--- |
 | Idle | state: SequencePlayer(AS_Idle) | state: SequencePlayer(AS_Idle) |
-| Move | state: BlendSpacePlayer(BS_Hero_Locomotion1D), K2Node_VariableGet | state: K2Node_VariableGet, BlendSpacePlayer(BS_Hero_Locomotion1D) |
+| Move | state: BlendSpacePlayer(BS_Vesper_Locomotion1D), K2Node_VariableGet | state: K2Node_VariableGet, BlendSpacePlayer(BS_Vesper_Locomotion1D) |
 | JumpSources | alias: — | alias: — |
 | JumpSelector | conduit: TransitionResult | conduit: TransitionResult, EdGraphNode_Comment |
-| JumpStart | state: SequencePlayer(AS_Hero_Jump) | state: SequencePlayer(AS_Hero_Jump) |
-| FallLoop | state: SequencePlayer(AS_Hero_FallLoop) | state: SequencePlayer(AS_Hero_FallLoop) |
-| FallLand | state: SequencePlayer(AS_Hero_Land) | state: SequencePlayer(AS_Hero_Land) |
+| JumpStart | state: SequencePlayer(AS_Vesper_Jump_Start) | state: SequencePlayer(AS_Vesper_Jump_Start) |
+| FallLoop | state: SequencePlayer(AS_Vesper_Jump_FallLoop) | state: SequencePlayer(AS_Vesper_Jump_FallLoop) |
+| FallLand | state: SequencePlayer(AS_Vesper_Jump_Land) | state: SequencePlayer(AS_Vesper_Jump_Land) |
 | EndInAir | conduit: TransitionResult | conduit: TransitionResult, EdGraphNode_Comment |
 | JumpFallInterruptSources | alias: — | alias: — |
 | IdleAlias | alias: — | alias: — |

@@ -6,7 +6,12 @@
 #include "AstralEquipmentInstance.h"
 #include "AstralItemDefinition.h"
 #include "AstralLogChannels.h"
+#include "AstralRangedWeaponActor.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AstralAnimInstance.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/Character.h"
 #include "Net/UnrealNetwork.h"
 #include "System/AstralAssetManager.h"
 
@@ -84,6 +89,15 @@ void FAstralEquipmentList::RemoveEntry(UAstralEquipmentInstance* Instance)
 			MarkArrayDirty();
 			return;
 		}
+	}
+}
+
+void FAstralEquipmentList::PostReplicatedReceive(const FFastArraySerializer::FPostReplicatedReceiveParameters& Parameters)
+{
+	// 클라는 장착 엔트리를 콜백 없이 받는다(인스턴스 훅은 서버 전용) — 레이어 링크만 여기서 따라간다
+	if (UAstralEquipmentManagerComponent* Manager = Cast<UAstralEquipmentManagerComponent>(OwnerComponent))
+	{
+		Manager->RefreshAnimLayers();
 	}
 }
 
@@ -170,6 +184,7 @@ UAstralEquipmentInstance* UAstralEquipmentManagerComponent::EquipItemById(const 
 		{
 			AddReplicatedSubObject(Instance);
 		}
+		RefreshAnimLayers();
 	}
 	return Instance;
 }
@@ -189,6 +204,7 @@ void UAstralEquipmentManagerComponent::UnequipItem(UAstralEquipmentInstance* Ins
 	Instance->OnUnequipped();
 	Instance->DestroyEquipmentActors();
 	EquipmentList.RemoveEntry(Instance);
+	RefreshAnimLayers();
 }
 
 void UAstralEquipmentManagerComponent::UnequipAll()
@@ -248,6 +264,128 @@ void UAstralEquipmentManagerComponent::RefreshEquipmentAttachState()
 			Entry.Instance->SetActorsAttachState(ComputeAttachState(Entry.EquipmentFamily));
 		}
 	}
+}
+
+void UAstralEquipmentManagerComponent::RefreshAnimLayers()
+{
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	if (!Mesh)
+	{
+		return;
+	}
+
+	// 활성 계열 중 공급자를 가진 첫 장비 — 스타일 하나에 무기 하나가 전제(스타일↔장비 정합).
+	// ASC 결합 전(클라는 장비 복제가 PlayerState·ASC 보다 먼저 온다)에는 스타일을 모른다 — IsFamilyActive 가 "전부 활성" 으로 답해
+	// 첫 공급자(Rifle)가 걸렸다(2026-10-20 멀티 PIE: 낫 스타일인데 클라에서 라이플 자세). 결합 시 InitializeWithAbilitySystem 이 다시 부른다
+	TSubclassOf<UAnimInstance> Desired;
+	if (BoundASC)
+	{
+		for (const FAstralAppliedEquipmentEntry& Entry : EquipmentList.Entries)
+		{
+			if (Entry.EquipmentFamily && Entry.EquipmentFamily->AnimLayerClass && IsFamilyActive(Entry.EquipmentFamily))
+			{
+				Desired = Entry.EquipmentFamily->AnimLayerClass;
+				break;
+			}
+		}
+	}
+
+	// no-op 판정 — 같은 클래스가 실제로 링크돼 있을 때만. 메시/AnimBP 교체로 링크가 사라졌으면 다시 건다
+	const bool bStillLinked = Desired && Mesh->GetAnimInstance() && Mesh->GetLinkedAnimLayerInstanceByClass(Desired) != nullptr;
+	if (Desired != LinkedAnimLayerClass || (Desired && !bStillLinked))
+	{
+		if (!Mesh->GetAnimInstance())
+		{
+			// AnimBP 가 아직 없다(외형 교체 전) — 교체 시 LoadoutComponent 가 다시 부른다
+			LinkedAnimLayerClass = nullptr;
+			return;
+		}
+
+		if (LinkedAnimLayerClass && LinkedAnimLayerClass != Desired)
+		{
+			Mesh->UnlinkAnimClassLayers(LinkedAnimLayerClass);
+		}
+		if (Desired)
+		{
+			Mesh->LinkAnimClassLayers(Desired);
+		}
+		LinkedAnimLayerClass = Desired;
+	}
+
+	// 링크가 그대로여도 AnimBP 가 바뀌었을 수 있다 — 새 메인 인스턴스엔 파지점·총구가 없다
+	RefreshWeaponAnimData();
+}
+
+void UAstralEquipmentManagerComponent::RefreshWeaponAnimData()
+{
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	UAstralAnimInstance* AnimInstance = Mesh ? Cast<UAstralAnimInstance>(Mesh->GetAnimInstance()) : nullptr;
+	if (!AnimInstance)
+	{
+		return;
+	}
+
+	// 손에 든 무기 — 스타일 하나에 손에 든 무기 하나(나머지는 홀스터)라 첫 유효 값이 곧 그것이다. 홀스터 무기는 Held 가 아니라 둘 다 false
+	const FName ReferenceBone = AnimInstance->GetWeaponReferenceBone();
+	bool bHasGrip = false;
+	bool bHasMuzzle = false;
+	TArray<AActor*> AttachedActors;
+	Character->GetAttachedActors(AttachedActors);
+	for (const AActor* Actor : AttachedActors)
+	{
+		const AAstralWeaponActor* Weapon = Cast<AAstralWeaponActor>(Actor);
+		if (!Weapon)
+		{
+			continue;
+		}
+
+		FTransform Grip;
+		if (!bHasGrip && Weapon->GetLeftHandGrip(ReferenceBone, Grip))
+		{
+			AnimInstance->SetLeftHandGrip(Grip);
+			bHasGrip = true;
+		}
+
+		const AAstralRangedWeaponActor* RangedWeapon = Cast<AAstralRangedWeaponActor>(Weapon);
+		FTransform Muzzle;
+		if (!bHasMuzzle && RangedWeapon && RangedWeapon->GetMuzzleInReferenceBone(ReferenceBone, Muzzle))
+		{
+			AnimInstance->SetMuzzle(Muzzle);
+			bHasMuzzle = true;
+		}
+	}
+
+	if (!bHasGrip)
+	{
+		AnimInstance->ClearLeftHandGrip();
+	}
+	if (!bHasMuzzle)
+	{
+		AnimInstance->ClearMuzzle();
+	}
+}
+
+AAstralRangedWeaponActor* UAstralEquipmentManagerComponent::GetHeldRangedWeapon() const
+{
+	const AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return nullptr;
+	}
+
+	TArray<AActor*> AttachedActors;
+	Owner->GetAttachedActors(AttachedActors);
+	for (AActor* Actor : AttachedActors)
+	{
+		AAstralRangedWeaponActor* Weapon = Cast<AAstralRangedWeaponActor>(Actor);
+		if (Weapon && Weapon->GetAttachState() == EAstralEquipmentAttachState::Held)
+		{
+			return Weapon;
+		}
+	}
+	return nullptr;
 }
 
 bool UAstralEquipmentManagerComponent::HasEquipmentForStyle(const FGameplayTag& StyleTag) const
@@ -321,10 +459,8 @@ UAstralEquipmentInstance* UAstralEquipmentManagerComponent::GetFirstInstanceOfTy
 	return nullptr;
 }
 
-void UAstralEquipmentManagerComponent::InitializeWithAbilitySystem(UAstralAbilitySystemComponent* InASC, EAstralEquipmentPolicy InPolicy)
+void UAstralEquipmentManagerComponent::InitializeWithAbilitySystem(UAstralAbilitySystemComponent* InASC)
 {
-	EquipmentPolicy = InPolicy;
-
 	if (BoundASC == InASC)
 	{
 		return;
@@ -340,6 +476,9 @@ void UAstralEquipmentManagerComponent::InitializeWithAbilitySystem(UAstralAbilit
 		// AnyCountChange 필수 — NewOrRemoved는 "해제→설정" 쓰기 순서(1→0→1)에 우연히 의존한다
 		CombatStyleChangedHandle = BoundASC->RegisterGameplayTagEvent(AstralGameplayTags::State_CombatStyle, EGameplayTagEventType::AnyCountChange)
 			.AddUObject(this, &ThisClass::HandleCombatStyleChanged);
+
+		// 클라는 장비 복제가 ASC 결합보다 먼저 올 수 있다 — 결합 시점에 현재 스타일 기준으로 한 번 맞춘다
+		RefreshAnimLayers();
 	}
 }
 
@@ -357,6 +496,8 @@ void UAstralEquipmentManagerComponent::HandleCombatStyleChanged(const FGameplayT
 {
 	// 전환 1회에 2번 발동(해제+설정) — 같은 프레임이라 중간 상태가 클라에 복제x
 	RefreshEquipmentAttachState();
+	// 레이어 링크는 전 머신 — 해제 발동(카운트 0)에서 공급자가 잠깐 풀리고 설정 발동에서 다시 걸린다 (같은 프레임, 포즈 평가 전)
+	RefreshAnimLayers();
 }
 
 void UAstralEquipmentManagerComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)

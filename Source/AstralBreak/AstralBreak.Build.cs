@@ -34,6 +34,9 @@ public class AstralBreak : ModuleRules
 			// 공격 방향 보정 — anim 루트모션의 로컬 트랜스폼을 월드 변환 직전에 수정 (락온 4단계)
 			"MotionWarping",
 
+			// 커스텀 애님 노드(FAnimNode_SkeletalControlBase 파생 — 최종 조준 보정). 에디터 그래프 노드는 AstralBreakEditor(UncookedOnly)
+			"AnimGraphRuntime",
+
 			// 팀/피아 판정 (IGenericTeamAgentInterface) + 추후 M3 AIController/Perception
 			"AIModule",
 			

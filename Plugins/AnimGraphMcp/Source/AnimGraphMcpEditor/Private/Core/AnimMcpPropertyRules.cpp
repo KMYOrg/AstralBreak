@@ -36,10 +36,12 @@ namespace AnimMcpPropertyRules
 			static const TArray<FClassRules> Rules = {
 				{ TEXT("AnimGraphNode_SequencePlayer"), {
 					{ TEXT("bLoopAnimation"), EScope::FNode }, { TEXT("PlayRate"), EScope::FNode },
-					{ TEXT("StartPosition"), EScope::FNode }, { TEXT("PlayRateBasis"), EScope::FNode } } },
+					{ TEXT("StartPosition"), EScope::FNode }, { TEXT("PlayRateBasis"), EScope::FNode },
+					// (2026-10-20 TurnInPlace) 자동 전이의 "관련 플레이어" 선정에서 제외 — 상태 안의 보조 플레이어(상체용 Idle 등) (AnimNode_AssetPlayerBase.h bIgnoreForRelevancyTest)
+					{ TEXT("bIgnoreForRelevancyTest"), EScope::FNode } } },
 				// (7-2) BlendSpacePlayer · RotationOffsetBlendSpace(AimOffset) 공통 — FAnimNode_BlendSpacePlayerBase 멤버 (AnimNode_BlendSpacePlayer.h:137-180)
 				{ TEXT("AnimGraphNode_BlendSpaceBase"), {
-					{ TEXT("bLoop"), EScope::FNode }, { TEXT("PlayRate"), EScope::FNode }, { TEXT("StartPosition"), EScope::FNode },
+					{ TEXT("bLoop"), EScope::FNode }, { TEXT("PlayRate"), EScope::FNode }, { TEXT("StartPosition"), EScope::FNode }, { TEXT("bIgnoreForRelevancyTest"), EScope::FNode },
 					{ TEXT("X"), EScope::FNode }, { TEXT("Y"), EScope::FNode }, { TEXT("bResetPlayTimeWhenBlendSpaceChanges"), EScope::FNode },
 					{ TEXT("GroupName"), EScope::FNode }, { TEXT("GroupRole"), EScope::FNode }, { TEXT("Method"), EScope::FNode } } },
 				// (7-2) AimOffset 전용 — FAnimNode_RotationOffsetBlendSpace (AnimNode_RotationOffsetBlendSpace.h:27-52)
@@ -72,6 +74,10 @@ namespace AnimMcpPropertyRules
 					{ TEXT("JointTarget"), EScope::FNode }, { TEXT("bAllowStretching"), EScope::FNode }, { TEXT("StartStretchRatio"), EScope::FNode },
 					{ TEXT("MaxStretchScale"), EScope::FNode }, { TEXT("bTakeRotationFromEffectorSpace"), EScope::FNode }, { TEXT("bMaintainEffectorRelRot"), EScope::FNode },
 					{ TEXT("bAllowTwist"), EScope::FNode }, { TEXT("TwistAxis"), EScope::FNode } } },
+				// CopyBone (AnimNode_CopyBone.h:24-45) — 왼손 IK 체인처럼 손 본을 IK 본(ik_hand_gun)에 복사할 때
+				{ TEXT("AnimGraphNode_CopyBone"), {
+					{ TEXT("SourceBone"), EScope::FNode }, { TEXT("TargetBone"), EScope::FNode }, { TEXT("bCopyTranslation"), EScope::FNode },
+					{ TEXT("bCopyRotation"), EScope::FNode }, { TEXT("bCopyScale"), EScope::FNode }, { TEXT("ControlSpace"), EScope::FNode } } },
 				// (7-2) ModifyBone (AnimNode_ModifyBone.h:36-73)
 				{ TEXT("AnimGraphNode_ModifyBone"), {
 					{ TEXT("BoneToModify"), EScope::FNode }, { TEXT("Translation"), EScope::FNode }, { TEXT("Rotation"), EScope::FNode }, { TEXT("Scale"), EScope::FNode },
@@ -108,7 +114,9 @@ namespace AnimMcpPropertyRules
 				{ TEXT("AnimStateTransitionNode"), {
 					{ TEXT("CrossfadeDuration"), EScope::Node }, { TEXT("PriorityOrder"), EScope::Node }, { TEXT("BlendMode"), EScope::Node },
 					{ TEXT("Bidirectional"), EScope::Node }, { TEXT("bDisabled"), EScope::Node },
-					{ TEXT("bAutomaticRuleBasedOnSequencePlayerInState"), EScope::Node }, { TEXT("AutomaticRuleTriggerTime"), EScope::Node } } },
+					{ TEXT("bAutomaticRuleBasedOnSequencePlayerInState"), EScope::Node }, { TEXT("AutomaticRuleTriggerTime"), EScope::Node },
+					// (2026-10-20 TurnInPlace) 전이 로직 — TLT_StandardBlend | TLT_Inertialization | TLT_Custom (AnimStateTransitionNode.h:82). 관성 블렌드는 하류 Inertialization 노드가 필요하다
+					{ TEXT("LogicType"), EScope::Node } } },
 				{ TEXT("AnimStateNode"), {
 					{ TEXT("bAlwaysResetOnEntry"), EScope::Node } } },
 			};

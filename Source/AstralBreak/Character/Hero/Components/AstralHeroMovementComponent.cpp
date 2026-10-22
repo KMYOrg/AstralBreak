@@ -66,6 +66,11 @@ void UAstralHeroMovementComponent::OnAbilitySystemBound()
 		.AddUObject(this, &ThisClass::HandleSprintTagChanged);
 
 	bSprintAuthorized = BoundASC->HasMatchingGameplayTag(AstralGameplayTags::State_Movement_Sprinting);
+
+	// 사격 자세 창 — 결합 시점에 이미 켜져 있을 수 있다
+	AimingTagChangedHandle = BoundASC->RegisterGameplayTagEvent(AstralGameplayTags::State_Ranged_Aiming, EGameplayTagEventType::NewOrRemoved)
+		.AddUObject(this, &ThisClass::HandleAimingTagChanged);
+	ApplyAimingRotationMode(BoundASC->HasMatchingGameplayTag(AstralGameplayTags::State_Ranged_Aiming));
 }
 
 void UAstralHeroMovementComponent::OnAbilitySystemUnbound()
@@ -75,9 +80,15 @@ void UAstralHeroMovementComponent::OnAbilitySystemUnbound()
 		BoundASC->RegisterGameplayTagEvent(AstralGameplayTags::State_Movement_Sprinting, EGameplayTagEventType::NewOrRemoved).Remove(SprintTagChangedHandle);
 		SprintTagChangedHandle.Reset();
 	}
+	if (AimingTagChangedHandle.IsValid())
+	{
+		BoundASC->RegisterGameplayTagEvent(AstralGameplayTags::State_Ranged_Aiming, EGameplayTagEventType::NewOrRemoved).Remove(AimingTagChangedHandle);
+		AimingTagChangedHandle.Reset();
+	}
 
-	// 안전한 기본값으로 복귀 — ASC 없는 폰은 질주 불가
+	// 안전한 기본값으로 복귀 — ASC 없는 폰은 질주 불가, 회전은 이동 방향 추종
 	bSprintAuthorized = false;
+	ApplyAimingRotationMode(false);
 
 	Super::OnAbilitySystemUnbound();
 }
@@ -85,6 +96,28 @@ void UAstralHeroMovementComponent::OnAbilitySystemUnbound()
 void UAstralHeroMovementComponent::HandleSprintTagChanged(const FGameplayTag Tag, int32 NewCount)
 {
 	bSprintAuthorized = (NewCount > 0);
+}
+
+void UAstralHeroMovementComponent::HandleAimingTagChanged(const FGameplayTag Tag, int32 NewCount)
+{
+	ApplyAimingRotationMode(NewCount > 0);
+}
+
+void UAstralHeroMovementComponent::ApplyAimingRotationMode(bool bAiming)
+{
+	bOrientRotationToMovement = !bAiming;
+	bUseControllerDesiredRotation = bAiming;
+}
+
+FRotator UAstralHeroMovementComponent::GetDeltaRotation(float DeltaTime) const
+{
+	FRotator DeltaRot = Super::GetDeltaRotation(DeltaTime);
+	// 조준 회전(컨트롤러 Desired 추종)만 별도 Yaw 속도 — 기본 RotationRate 는 이동 방향 추종(비조준)용 튜닝값이다. 음수 = 즉시 (엔진 규칙과 같다)
+	if (bUseControllerDesiredRotation && !bOrientRotationToMovement)
+	{
+		DeltaRot.Yaw = (AimingRotationRate >= 0.f) ? FMath::Min(AimingRotationRate * DeltaTime, 360.f) : 360.f;
+	}
+	return DeltaRot;
 }
 
 void UAstralHeroMovementComponent::PerformMovement(float DeltaSeconds)

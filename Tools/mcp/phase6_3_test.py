@@ -4,9 +4,9 @@
 
 새 Tool 은 세션 재시작 전 MCP 에 보이지 않으므로 HTTP 직접 호출(bridge)로 검증한다.
 대상(생성·덮어쓰기): /Game/Animation/Test/BS_McpTest (1D) · BS_McpTest2D (2D) · ABP_McpBsTest (BlendSpacePlayer 로 사용).
-원본 BS_Hero_Locomotion1D 와 운영 애셋은 읽기만.
+원본 BS_Vesper_Locomotion1D 와 운영 애셋은 읽기만.
 검사 항목:
-  A. list details — 원본 BS_Hero_Locomotion1D 의 축·샘플 요약
+  A. list details — 원본 BS_Vesper_Locomotion1D 의 축·샘플 요약
   B. 1D 생성 — 원본과 같은 스켈레톤·축·샘플 → class BlendSpace1D · 축/샘플/grid 수 동일 · 저장
   C. 사용 — 새 ABP 에 BlendSpacePlayer(set_asset BS_McpTest) + Speed→X → 컴파일 0 에러 → 저장
   D. 2D 생성 — 축 2 · 샘플 3 → class BlendSpace · grid_sample_count=(gx+1)(gy+1)
@@ -21,7 +21,7 @@ import sys
 
 from anim_graph_mcp import bridge
 
-SRC_BS = "/Game/Animation/Hero/Anims/Locomotions/BS_Hero_Locomotion1D"
+SRC_BS = "/Game/Animation/Hero/Vesper/Common/Locomotion/BS_Vesper_Locomotion1D"
 BS1 = "/Game/Animation/Test/BS_McpTest"
 BS2 = "/Game/Animation/Test/BS_McpTest2D"
 ABP = "/Game/Animation/Test/ABP_McpBsTest"
@@ -29,7 +29,7 @@ SKELETON = "/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F"
 PARENT = "/Script/AstralBreak.AstralAnimInstance"
 PROD_ABP = "/Game/Animation/Hero/ABP_Hero_Base"
 DEMO_ABP = "/Game/Assets/IdaFaber/Blueprints/ABP_UE5_Demo_F"
-MONTAGE = "/Game/Animation/Hero/Montages/AM_Hero_Attack1"
+MONTAGE = "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack1"
 STATE_FILE = "Tools/mcp/phase6_3_state.json"
 FAILS: list[str] = []
 

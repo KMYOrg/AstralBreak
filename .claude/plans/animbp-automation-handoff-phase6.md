@@ -95,7 +95,7 @@ Tool 9개 · op 12종(`add_node`·`connect`·`disconnect`·`remove_node`·`set_p
 
 **Inspector**: `list_animation_assets` 응답에 BlendSpace 의 축·샘플 요약을 더한다(`get_blendspace_info` 별도 Tool 은 두지 않는다 — Tool 수 최소 원칙).
 
-**테스트**: `phase6_3_test.py` — `BS_Hero_Locomotion1D` 와 같은 축(`Speed` 0~?·grid)·샘플로 `/Game/Animation/Test/BS_McpTest` 생성 → `BlendSpacePlayer` 에 `set_asset` → 컴파일 0 에러 → 원본과 축·샘플 비교 → 거부(스켈레톤 불일치, 축 범위 밖 샘플, 2D 에 1D 입력).
+**테스트**: `phase6_3_test.py` — `BS_Vesper_Locomotion1D` 와 같은 축(`Speed` 0~?·grid)·샘플로 `/Game/Animation/Test/BS_McpTest` 생성 → `BlendSpacePlayer` 에 `set_asset` → 컴파일 0 에러 → 원본과 축·샘플 비교 → 거부(스켈레톤 불일치, 축 범위 밖 샘플, 2D 에 1D 입력).
 
 ---
 

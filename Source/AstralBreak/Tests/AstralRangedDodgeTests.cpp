@@ -1,4 +1,5 @@
-// 락온 6단계 순수 계산 테스트 — 발사 허용각 경계 · 원거리/회피 페이로드 직렬화 · 회피 방향 우선순위.
+// 락온 6단계 순수 계산 테스트 — 발사 허용각 경계 · 원거리/회피 페이로드 직렬화 · 회피 방향 우선순위
+// + 원격 발사 데이터(클라 조준 보고) 직렬화·추출 · 보고 방향 허용각 검증(수락/클램프/거부) · 보고 조준점 전방·사거리 다듬기.
 // 월드 의존이 없어 -ExecCmds="Automation RunTests AstralBreak.Ranged" / "AstralBreak.Dodge"로 돈다.
 // 노티파이 저작 검증·실제 발사·복제·총구 차단은 PIE 수동 검증 (stage-6-existing-integration.md)
 
@@ -114,6 +115,161 @@ bool FAstralRangedPayloadTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("facing payload rejected"), FGameplayAbilityTargetData_AstralRangedActivation::Extract(FGameplayAbilityTargetData_AstralFacing::MakeHandle(Facing), Out));
 		FAstralFacingProposal FacingOut;
 		TestFalse(TEXT("ranged payload rejected by facing extractor"), FGameplayAbilityTargetData_AstralFacing::ExtractProposal(FGameplayAbilityTargetData_AstralRangedActivation::MakeHandle(Valid), 1, FacingOut));
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAstralRangedFirePayloadTest, "AstralBreak.Ranged.FirePayload", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FAstralRangedFirePayloadTest::RunTest(const FString& Parameters)
+{
+	// 직렬화 왕복 — 조준점 0.1cm 양자화, 방향 16비트 성분
+	{
+		FAstralRangedFireData Source;
+		Source.AimPoint = FVector(1234.56, -789.01, 23.45);
+		Source.AimDirection = FVector(0.3, -0.8, 0.2).GetSafeNormal();
+		FGameplayAbilityTargetData_AstralRangedFire Payload(Source);
+
+		TArray<uint8> Bytes;
+		FMemoryWriter Writer(Bytes);
+		bool bSuccess = false;
+		Payload.NetSerialize(Writer, nullptr, bSuccess);
+		TestTrue(TEXT("write"), bSuccess);
+
+		FGameplayAbilityTargetData_AstralRangedFire Loaded;
+		FMemoryReader Reader(Bytes);
+		Loaded.NetSerialize(Reader, nullptr, bSuccess);
+		TestTrue(TEXT("read"), bSuccess);
+		TestTrue(TEXT("aim point within 0.1cm"), Loaded.Data.AimPoint.Equals(Source.AimPoint, 0.1));
+		TestTrue(TEXT("direction within 1e-3"), Loaded.Data.AimDirection.Equals(Source.AimDirection, 1e-3));
+
+		// 왕복한 방향도 추출의 단위 허용치(±0.01) 안
+		FAstralRangedFireData Out;
+		TestTrue(TEXT("round-tripped payload extracts"), FGameplayAbilityTargetData_AstralRangedFire::Extract(FGameplayAbilityTargetData_AstralRangedFire::MakeHandle(Loaded.Data), Out));
+	}
+
+	// Extract — 구조·값 검증
+	{
+		FAstralRangedFireData Out;
+		FAstralRangedFireData Valid;
+		Valid.AimPoint = FVector(100.0, 0.0, 0.0);
+		Valid.AimDirection = FVector::ForwardVector;
+		TestTrue(TEXT("valid"), FGameplayAbilityTargetData_AstralRangedFire::Extract(FGameplayAbilityTargetData_AstralRangedFire::MakeHandle(Valid), Out));
+		TestTrue(TEXT("valid copied"), Out.AimPoint.Equals(Valid.AimPoint) && Out.AimDirection.Equals(Valid.AimDirection));
+		TestFalse(TEXT("empty"), FGameplayAbilityTargetData_AstralRangedFire::Extract(FGameplayAbilityTargetDataHandle(), Out));
+
+		// 클라가 조준을 해석하지 못하면 방향 0 으로 보낸다 — 서버는 거부(기준 방향)로 처리
+		FAstralRangedFireData ZeroDirection = Valid;
+		ZeroDirection.AimDirection = FVector::ZeroVector;
+		TestFalse(TEXT("zero direction rejected"), FGameplayAbilityTargetData_AstralRangedFire::Extract(FGameplayAbilityTargetData_AstralRangedFire::MakeHandle(ZeroDirection), Out));
+
+		FAstralRangedFireData LongDirection = Valid;
+		LongDirection.AimDirection = FVector(2.0, 0.0, 0.0);
+		TestFalse(TEXT("non-unit direction rejected"), FGameplayAbilityTargetData_AstralRangedFire::Extract(FGameplayAbilityTargetData_AstralRangedFire::MakeHandle(LongDirection), Out));
+
+		FAstralRangedFireData NanPoint = Valid;
+		NanPoint.AimPoint = FVector(NAN, 0.0, 0.0);
+		TestFalse(TEXT("nan aim point rejected"), FGameplayAbilityTargetData_AstralRangedFire::Extract(FGameplayAbilityTargetData_AstralRangedFire::MakeHandle(NanPoint), Out));
+
+		FAstralRangedFireData InfDirection = Valid;
+		InfDirection.AimDirection = FVector(INFINITY, 0.0, 0.0);
+		TestFalse(TEXT("inf direction rejected"), FGameplayAbilityTargetData_AstralRangedFire::Extract(FGameplayAbilityTargetData_AstralRangedFire::MakeHandle(InfDirection), Out));
+
+		// 활성화 페이로드와 섞이지 않는다
+		TestFalse(TEXT("activation payload rejected"), FGameplayAbilityTargetData_AstralRangedFire::Extract(FGameplayAbilityTargetData_AstralRangedActivation::MakeHandle(FAstralRangedActivationData()), Out));
+		FAstralRangedActivationData ActivationOut;
+		TestFalse(TEXT("fire payload rejected by activation extractor"), FGameplayAbilityTargetData_AstralRangedActivation::Extract(FGameplayAbilityTargetData_AstralRangedFire::MakeHandle(Valid), ActivationOut));
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAstralRangedReportedAimTest, "AstralBreak.Ranged.ReportedAim", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FAstralRangedReportedAimTest::RunTest(const FString& Parameters)
+{
+	using namespace AstralRangedAttack;
+	using E = EAstralReportedAimResult;
+
+	const auto AngleBetween = [](const FVector& A, const FVector& B)
+	{
+		return FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(A.GetSafeNormal(), B.GetSafeNormal()), -1.0, 1.0)));
+	};
+	const FVector Reference = FVector::ForwardVector;
+	const FVector Yaw30 = FRotator(0.0, 30.0, 0.0).Vector();
+	const FVector Yaw45 = FRotator(0.0, 45.0, 0.0).Vector();
+	const FVector Yaw70 = FRotator(0.0, 70.0, 0.0).Vector();
+	const FVector Pitch90 = FVector::UpVector;
+
+	// 허용각 안 — 보고 그대로
+	{
+		const FAstralReportedAimCheck Same = CheckReportedAimDirection(Reference, Reference, 45.f);
+		TestEqual(TEXT("same: accepted"), Same.Result, E::Accepted);
+		TestTrue(TEXT("same: divergence 0"), FMath::IsNearlyZero(Same.Divergence, 1e-3f));
+
+		const FAstralReportedAimCheck In = CheckReportedAimDirection(Yaw30 * 3.0, Reference, 45.f);
+		TestEqual(TEXT("30 deg: accepted"), In.Result, E::Accepted);
+		TestTrue(TEXT("30 deg: reported (normalized)"), In.Direction.Equals(Yaw30, 1e-6));
+		TestTrue(TEXT("30 deg: divergence"), FMath::IsNearlyEqual(In.Divergence, 30.f, 1e-3f));
+
+		TestEqual(TEXT("at limit (<=): accepted"), CheckReportedAimDirection(Yaw45, Reference, 45.f).Result, E::Accepted);
+	}
+
+	// 허용각 밖 — 기준에서 보고 쪽으로 허용각까지만 (옛 방향으로 되돌리지 않는다)
+	{
+		const FAstralReportedAimCheck Yaw = CheckReportedAimDirection(Yaw70, Reference, 45.f);
+		TestEqual(TEXT("70 deg: clamped"), Yaw.Result, E::Clamped);
+		TestTrue(TEXT("70 deg: 45 from reference"), FMath::IsNearlyEqual(AngleBetween(Yaw.Direction, Reference), 45.0, 1e-3));
+		TestTrue(TEXT("70 deg: 25 from reported"), FMath::IsNearlyEqual(AngleBetween(Yaw.Direction, Yaw70), 25.0, 1e-3));
+		TestTrue(TEXT("70 deg: divergence"), FMath::IsNearlyEqual(Yaw.Divergence, 70.f, 1e-3f));
+		TestTrue(TEXT("70 deg: unit"), FMath::IsNearlyEqual(Yaw.Direction.Size(), 1.0, 1e-6));
+
+		const FAstralReportedAimCheck Up = CheckReportedAimDirection(Pitch90, Reference, 45.f);
+		TestEqual(TEXT("pitch 90: clamped"), Up.Result, E::Clamped);
+		TestTrue(TEXT("pitch 90: toward up"), Up.Direction.Equals(FRotator(45.0, 0.0, 0.0).Vector(), 1e-6));
+
+		// 정반대 — 회전축이 없어도 기준에서 정확히 허용각
+		const FAstralReportedAimCheck Back = CheckReportedAimDirection(-Reference, Reference, 45.f);
+		TestEqual(TEXT("opposite: clamped"), Back.Result, E::Clamped);
+		TestTrue(TEXT("opposite: 45 from reference"), FMath::IsNearlyEqual(AngleBetween(Back.Direction, Reference), 45.0, 1e-3));
+
+		// 기준이 수직(정반대 축 후보가 위쪽과 평행)이어도 같다
+		const FAstralReportedAimCheck Vertical = CheckReportedAimDirection(-FVector::UpVector, FVector::UpVector, 45.f);
+		TestEqual(TEXT("vertical opposite: clamped"), Vertical.Result, E::Clamped);
+		TestTrue(TEXT("vertical opposite: 45 from reference"), FMath::IsNearlyEqual(AngleBetween(Vertical.Direction, FVector::UpVector), 45.0, 1e-3));
+	}
+
+	// 경계 값 — 180 이면 검증 없음, 0 이면 기준 그대로
+	{
+		TestEqual(TEXT("max 180: anything accepted"), CheckReportedAimDirection(-Reference, Reference, 180.f).Result, E::Accepted);
+		const FAstralReportedAimCheck Zero = CheckReportedAimDirection(Yaw30, Reference, 0.f);
+		TestEqual(TEXT("max 0: clamped"), Zero.Result, E::Clamped);
+		TestTrue(TEXT("max 0: reference"), Zero.Direction.Equals(Reference, 1e-6));
+	}
+
+	// 비정상 보고 — 거부, 기준 방향. 기준이 없으면(컨트롤러 없음) 보고 그대로
+	{
+		const FAstralReportedAimCheck ZeroReport = CheckReportedAimDirection(FVector::ZeroVector, Yaw30, 45.f);
+		TestEqual(TEXT("zero report: rejected"), ZeroReport.Result, E::Rejected);
+		TestTrue(TEXT("zero report: reference"), ZeroReport.Direction.Equals(Yaw30, 1e-6));
+		TestEqual(TEXT("nan report: rejected"), CheckReportedAimDirection(FVector(NAN, 0.0, 0.0), Reference, 45.f).Result, E::Rejected);
+
+		const FAstralReportedAimCheck NoReference = CheckReportedAimDirection(Yaw70, FVector::ZeroVector, 45.f);
+		TestEqual(TEXT("no reference: accepted"), NoReference.Result, E::Accepted);
+		TestTrue(TEXT("no reference: reported"), NoReference.Direction.Equals(Yaw70, 1e-6));
+	}
+
+	// 보고 조준점 다듬기 — 서버 총구 기준 전방 · 사거리 1.1배
+	{
+		const FVector Muzzle(0.0, 0.0, 100.0);
+		const float Range = 10000.f;
+		const FVector Ahead(500.0, 20.0, 110.0);
+		TestTrue(TEXT("ahead: unchanged"), ClampReportedAimPoint(Ahead, Reference, Muzzle, Range).Equals(Ahead));
+		TestTrue(TEXT("behind muzzle: range end along direction"), ClampReportedAimPoint(FVector(-50.0, 0.0, 100.0), Reference, Muzzle, Range).Equals(Muzzle + Reference * Range, 1e-3));
+		TestTrue(TEXT("at muzzle: range end along direction"), ClampReportedAimPoint(Muzzle, Reference, Muzzle, Range).Equals(Muzzle + Reference * Range, 1e-3));
+		TestTrue(TEXT("within 1.1x range: unchanged"), ClampReportedAimPoint(Muzzle + Reference * 10500.0, Reference, Muzzle, Range).Equals(Muzzle + Reference * 10500.0));
+		TestTrue(TEXT("beyond 1.1x range: pulled to range"), ClampReportedAimPoint(Muzzle + Yaw30 * 20000.0, Reference, Muzzle, Range).Equals(Muzzle + Yaw30 * Range, 1e-3));
 	}
 
 	return true;

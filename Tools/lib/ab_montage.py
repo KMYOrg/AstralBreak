@@ -292,9 +292,9 @@ def build_from_spec(spec: dict, dry_run: bool = False) -> dict:
     """JSON 스펙 하나로 몽타주 1개를 생성한다.
 
     {
-      "source": "/Game/Animation/Hero/Anims/Attacks/AS_Hero_Attack1",
-      "dst_dir": "/Game/Animation/Hero/Montages",
-      "name": "AM_Hero_Attack1",
+      "source": "/Game/Animation/Hero/Vesper/Sickle/Actions/AS_Vesper_Sickle_Attack1",
+      "dst_dir": "/Game/Animation/Hero/Vesper/Sickle/Actions",
+      "name": "AM_Vesper_Sickle_Attack1",
       "blend_in": 0.08, "blend_out": 0.20,
       "notifies": [
         {"type": "GameplayEventWindow", "track": "Combat",

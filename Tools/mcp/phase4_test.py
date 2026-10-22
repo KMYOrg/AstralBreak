@@ -9,6 +9,7 @@
   B2. (Phase 5) 상태 내부 채우기 — bound_graph_guid 에 SequencePlayer → StateResult.Result · K2Node_VariableGet(Speed) → BlendSpacePlayer.X
       → 컴파일 0 에러 · 거부 6종(variable 누락·없는 변수·규칙/상태머신 그래프·asset·set_property) · 중간 실패 롤백
   C. 뷰: entry_state · from/to · rule_source 복원 · rule_modified=false
+  C2. (Phase 7-6) 전이 logic_type — 기본 TLT_StandardBlend, set_property LogicType=TLT_Inertialization 뒤 재조회로 바뀜(되돌림까지)
   D. 멱등 — 같은 AST 재적용 → unchanged, revision 동일. 다른 AST → 교체(replaced_nodes)
   E. 거부 — 없는 변수 · 타입 불일치 · 리터럴끼리 비교 · 화이트리스트 외 함수 · 전이 아닌 노드 · Entry 를 전이 끝점으로 · 이름 중복
   F. 롤백 — 상태 삭제(전이 연쇄) + 규칙 교체 + 전이 추가가 섞인 배치의 중간 실패 → rollback_verified, 전이 수 복원
@@ -232,6 +233,18 @@ def section_b_to_f() -> None:
     check(t2["rule_source"] == RULE_LOGIC and t2["rule_node_count"] == 9, f"and/or/not 규칙 복원, 노드 {t2['rule_node_count']}개 (var×4 + compare + not + and×2 + or)")
     t4 = transition_by_guid(sm, refs["t_fall_idle"])
     check(t4["automatic"] and t4["rule_generated"] and t4["rule_node_count"] == 0, "automatic 규칙: 플래그 on, 규칙 노드 0, 원문 기록")
+
+    print("--- C2. 전이 logic_type (Phase 7-6) ---")
+    check(all(t.get("logic_type") == "TLT_StandardBlend" for t in sm["transitions"]), f"전이 4개 logic_type 기본 TLT_StandardBlend: {[t.get('logic_type') for t in sm['transitions']]}")
+    r_lt = apply([{"op": "set_property", "node": refs["t_fall_idle"], "property": "LogicType", "value": "TLT_Inertialization"}], expected=s1["revision"])
+    check(r_lt.get("ok"), f"set_property LogicType=TLT_Inertialization 적용: {json.dumps(r_lt.get('error'), ensure_ascii=False)[:300]}")
+    t4b = transition_by_guid(the_sm(structure(-1), refs["sm"]), refs["t_fall_idle"])
+    check(t4b.get("logic_type") == "TLT_Inertialization", f"재조회 logic_type == TLT_Inertialization: {t4b.get('logic_type')}")
+    r_lt2 = apply([{"op": "set_property", "node": refs["t_fall_idle"], "property": "LogicType", "value": "TLT_StandardBlend"}])
+    check(r_lt2.get("ok"), "LogicType 를 TLT_StandardBlend 로 되돌림 (하류 Inertialization 노드 없음)")
+    s1 = structure(-1)
+    sm = the_sm(s1, refs["sm"])
+    check(transition_by_guid(sm, refs["t_fall_idle"]).get("logic_type") == "TLT_StandardBlend", "되돌린 뒤 재조회 logic_type == TLT_StandardBlend")
     rev1 = s1["revision"]
 
     # -------------------------------------------------------------------------------------------------------------

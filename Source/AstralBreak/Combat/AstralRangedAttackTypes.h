@@ -31,6 +31,26 @@ struct FAstralFireAssistParams
 	float MinDistanceForYawCheck = 100.f;
 };
 
+/** 소유 클라가 보낸 발사 방향의 서버 검증 결과 */
+enum class EAstralReportedAimResult : uint8
+{
+	/** 기준 방향과 허용각 안 — 보고 조준점 그대로 */
+	Accepted,
+	/** 허용각 밖 — 기준에서 보고 쪽으로 허용각만큼 돌린 방향 */
+	Clamped,
+	/** 보고 방향이 비정상(NaN·0) — 기준 방향 */
+	Rejected,
+};
+
+struct FAstralReportedAimCheck
+{
+	EAstralReportedAimResult Result = EAstralReportedAimResult::Rejected;
+	/** 확정 방향 (단위) */
+	FVector Direction = FVector::ForwardVector;
+	/** 보고 ↔ 기준 각(도). Rejected 면 0 */
+	float Divergence = 0.f;
+};
+
 namespace AstralRangedAttack
 {
 	/**
@@ -40,6 +60,20 @@ namespace AstralRangedAttack
 	ASTRALBREAK_API EAstralFireAssistResult CheckFireAssist(float Distance2D, float BodyYaw, float BearingYaw, const FAstralFireAssistParams& Params);
 
 	ASTRALBREAK_API const TCHAR* ToString(EAstralFireAssistResult Value);
+
+	/**
+	 * 보고 방향 검증 (순수) — Reported·Reference 는 정규화 전이어도 된다. 각 ≤ MaxDivergenceDeg 면 Accepted(보고 방향),
+	 * 밖이면 Clamped(기준을 보고 쪽으로 MaxDivergenceDeg 만큼 돌린 방향 — 정반대면 기준에 수직인 아무 축), 보고가 NaN·0 이면 Rejected(기준 방향)
+	 */
+	ASTRALBREAK_API FAstralReportedAimCheck CheckReportedAimDirection(const FVector& Reported, const FVector& Reference, float MaxDivergenceDeg);
+
+	/**
+	 * 수락된 보고 조준점을 서버 총구 기준으로 다듬는다 (순수) — 총구 뒤·옆이면 총구에서 Direction 사거리 끝(카메라 조준점의 전방 보장과 같은 규칙),
+	 * 사거리(TraceRange)의 1.1배보다 멀면 같은 방향 사거리 끝으로 당긴다
+	 */
+	ASTRALBREAK_API FVector ClampReportedAimPoint(const FVector& AimPoint, const FVector& Direction, const FVector& MuzzleLocation, float TraceRange);
+
+	ASTRALBREAK_API const TCHAR* ToString(EAstralReportedAimResult Value);
 }
 
 /**
@@ -92,6 +126,58 @@ struct ASTRALBREAK_API FGameplayAbilityTargetData_AstralRangedActivation : publi
 
 template<>
 struct TStructOpsTypeTraits<FGameplayAbilityTargetData_AstralRangedActivation> : public TStructOpsTypeTraitsBase2<FGameplayAbilityTargetData_AstralRangedActivation>
+{
+	enum
+	{
+		WithNetSerializer = true,
+		WithCopy = true,
+	};
+};
+
+/**
+ * 원거리 발사 데이터 — 소유 클라가 발사 순간 보낸다(즉발 = 몸 정렬 뒤, 몽타주 = 발사 노티파이). 이 RPC 가 원격 폰의 서버 인스턴스에겐 발사 시점 신호이기도 하다.
+ *  - AimPoint: 클라 카메라 조준점(AstralRangedAim::ComputeCameraAimPoint 의 TargetPoint — 발사·보정 애니·관찰자와 같은 함수)
+ *  - AimDirection: 그 카메라 방향 — 서버가 자기 컨트롤 회전과 비교해 허용각을 검증한다
+ */
+USTRUCT()
+struct ASTRALBREAK_API FAstralRangedFireData
+{
+	GENERATED_BODY()
+
+	/** 0.1cm 양자화 — 가까운 표적 시차까지 보존 */
+	UPROPERTY()
+	FVector_NetQuantize10 AimPoint = FVector_NetQuantize10(ForceInitToZero);
+
+	/** 단위 벡터 (16비트 성분) */
+	UPROPERTY()
+	FVector_NetQuantizeNormal AimDirection = FVector_NetQuantizeNormal(ForceInitToZero);
+};
+
+/** GAS TargetData 페이로드 — 발사 시점 송신 전용 (CallServerSetReplicatedTargetData, 활성화 예측 키) */
+USTRUCT()
+struct ASTRALBREAK_API FGameplayAbilityTargetData_AstralRangedFire : public FGameplayAbilityTargetData
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FAstralRangedFireData Data;
+
+	FGameplayAbilityTargetData_AstralRangedFire() = default;
+	explicit FGameplayAbilityTargetData_AstralRangedFire(const FAstralRangedFireData& InData) : Data(InData) {}
+
+	virtual UScriptStruct* GetScriptStruct() const override { return FGameplayAbilityTargetData_AstralRangedFire::StaticStruct(); }
+	virtual FString ToString() const override;
+
+	bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess);
+
+	/** 구조 검증 + 추출 — 페이로드 정확히 1개 · 예상 ScriptStruct · 조준점 유한 · 방향 유한하고 단위(±0.01) */
+	static bool Extract(const FGameplayAbilityTargetDataHandle& Handle, FAstralRangedFireData& OutData);
+
+	static FGameplayAbilityTargetDataHandle MakeHandle(const FAstralRangedFireData& Data);
+};
+
+template<>
+struct TStructOpsTypeTraits<FGameplayAbilityTargetData_AstralRangedFire> : public TStructOpsTypeTraitsBase2<FGameplayAbilityTargetData_AstralRangedFire>
 {
 	enum
 	{

@@ -37,7 +37,7 @@ void AAstralCombatCharacter::PostInitializeComponents()
 	Super::PostInitializeComponents();
 
 	// 자기 ASC를 아바타 결합 — 전 머신. InitAbilityActorInfo(this, this) + OnAbilitySystemInitialized 브로드캐스트로
-	// 베이스가 Health·Movement·Equipment(정책, 서버)를 Hero와 같은 경로로 결합
+	// 베이스가 Health·Movement·Equipment(스타일 구독은 전 머신, 정책은 서버)를 Hero와 같은 경로로 결합
 	check(AbilitySystemComponent);
 	PawnExtComponent->InitializeAbilitySystem(AbilitySystemComponent, this);
 }

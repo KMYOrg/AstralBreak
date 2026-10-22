@@ -65,17 +65,24 @@ void AAstralCharacter::OnAbilitySystemInitialized()
 		AstralMoveComp->InitializeWithAbilitySystem(AstralASC);
 	}
 
-	// 장비 컴포넌트 ASC 결합(스타일 태그 구독)
-	// GameState는 GameMode::PreInitializeComponents(InitGameState)에서 생기므로 스폰 폰(히어로)은 물론
-	// 레벨 배치 폰(적)의 PostInitializeComponents 시점에도 존재한다.
-	if (HasAuthority() && EquipmentManagerComponent)
+	if (EquipmentManagerComponent)
 	{
-		EAstralEquipmentPolicy Policy = EAstralEquipmentPolicy::Full;
-		if (const AAstralGameState* AstralGS = GetWorld() ? GetWorld()->GetGameState<AAstralGameState>() : nullptr)
+		// 장비 컴포넌트 ASC 결합(스타일 태그 구독) — 전 머신. 부착 상태는 서버만 바꾸지만 Linked Anim Layer 는 머신마다 걸어야 한다
+		// (2026-10-20 멀티 PIE: 서버 전용이던 때 클라는 스타일 변경을 못 들어 라이플 레이어가 고정되고 낫으로 바꿔도 안 풀렸다)
+		EquipmentManagerComponent->InitializeWithAbilitySystem(AstralASC);
+
+		// 장착 정책 주입 — 서버 전용(정책을 읽는 곳은 전부 서버 권위 경로). 초기 스타일 시드·로드아웃 적용보다 먼저.
+		// GameState는 GameMode::PreInitializeComponents(InitGameState)에서 생기므로 스폰 폰(히어로)은 물론
+		// 레벨 배치 폰(적)의 PostInitializeComponents 시점에도 존재한다 (서버 기준 — 클라는 아직 복제 전일 수 있다)
+		if (HasAuthority())
 		{
-			Policy = AstralGS->GetEquipmentPolicy();
+			EAstralEquipmentPolicy Policy = EAstralEquipmentPolicy::Full;
+			if (const AAstralGameState* AstralGS = GetWorld() ? GetWorld()->GetGameState<AAstralGameState>() : nullptr)
+			{
+				Policy = AstralGS->GetEquipmentPolicy();
+			}
+			EquipmentManagerComponent->SetEquipmentPolicy(Policy);
 		}
-		EquipmentManagerComponent->InitializeWithAbilitySystem(AstralASC, Policy);
 	}
 
 	// 초기 스타일 시드 (서버, 초기화 전용 — 재적용 경로에서 실행 금지) — 장착보다 먼저

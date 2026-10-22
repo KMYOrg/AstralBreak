@@ -34,7 +34,16 @@ public:
 
 	USkeletalMeshComponent* GetMeshComponent() const { return MeshComponent; }
 
+	/**
+	 * 왼손 파지점 — LeftHandGripSocket 을 부착된 캐릭터 메시의 ReferenceBone 공간으로 환산한다. 손(Held)에 붙어 있고 소켓이 있을 때만 true.
+	 * 무기는 손 본에 붙은 강체라 결과는 자세와 무관한 상수 — 부착·외형이 바뀔 때만 다시 구한다(장비 매니저)
+	 */
+	bool GetLeftHandGrip(FName ReferenceBone, FTransform& OutGrip) const;
+
 protected:
+	/** 무기 메시 소켓을 부착된 캐릭터 메시의 ReferenceBone 공간으로 — 손(Held)에 붙어 있고 소켓이 있을 때만 true. 왼손 파지점·총구가 같은 규칙을 쓴다 */
+	bool GetSocketInReferenceBone(FName Socket, FName ReferenceBone, FTransform& OutTransform) const;
+
 	//~AActor
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -64,4 +73,11 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Weapon|Trace")
 	FName TraceEndSocket = TEXT("TraceEnd");
+
+	/**
+	 * 왼손 IK 파지 소켓 (무기 메시) — 비우면 한손 무기(왼손 IK 없음). 이름은 계열 액터 클래스의 관례, 위치·회전은 변형 메시마다 그 소켓이 정한다.
+	 * 소켓은 왼손 본(hand_l) 트랜스폼 그대로 — 손 모양 조정은 무기 메시 소켓을 옮긴다
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Weapon|Animation")
+	FName LeftHandGripSocket;
 };

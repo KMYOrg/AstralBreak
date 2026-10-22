@@ -62,7 +62,7 @@ Unreal Engine 5.7.4 Source Build 환경에서 Claude Code 가 Animation Blueprin
 
 **Phase 5 적용 대상**
 
-- **Free Locomotion** — Idle·Walk·Run. 기존 `BS_Hero_Locomotion1D`(`Speed` 축) 재사용이 1순위 (§14 결정 사항)
+- **Free Locomotion** — Idle·Walk·Run. 기존 `BS_Vesper_Locomotion1D`(`Speed` 축) 재사용이 1순위 (§14 결정 사항)
 - **Jump** — Start · Loop/Fall · Landing. 전이 규칙은 `bIsInAir` / `bIsJumping` / `bIsFalling` / `bIsOnGround`(`var`) 와 `automatic`
 - **Attack** — Montage 는 게임플레이(GAS)가 재생하므로 AnimGraph 쪽은 Slot(`SlotName`) + LayeredBoneBlend(Full/Upper Body) 구성이 대상
 - **Lock-On Locomotion(strafe)** — **보류 유지**. 2026-10-10 결정: 락온이 아니라 추후 "사격 후 일정 시간 유지되는 strafe 모드". 현재 코드는 `bOrientRotationToMovement=true` 라 strafe 자세가 성립하지 않는다. 선행 작업은 phase1 §F Phase 5 보류 표(S-A/B/C)
@@ -270,7 +270,7 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 **14.0 구현 전 사용자와 확정할 것** (선택지 제시 → 확정 → 코드)
 
 1. **복제 수단** — (A) `duplicate_animation_blueprint` Tool 추가(`UEditorAssetSubsystem::DuplicateAsset`; 재시작 전까지 HTTP 테스트) vs (B) 사용자가 에디터에서 복제해 경로를 알려 준다.
-2. **BlendSpace** — (A) 기존 `/Game/Animation/Hero/Anims/Locomotions/BS_Hero_Locomotion1D` 재사용 vs (B) `create_blendspace` 구현(`UBlendSpaceFactory1D`, 축·샘플 설정 API 조사 선행).
+2. **BlendSpace** — (A) 기존 `/Game/Animation/Hero/Vesper/Common/Locomotion/BS_Vesper_Locomotion1D` 재사용 vs (B) `create_blendspace` 구현(`UBlendSpaceFactory1D`, 축·샘플 설정 API 조사 선행).
 3. **적용 순서와 범위** — Free Locomotion → Jump → Attack 순. 운영 애셋에 이미 있는 상태머신(§3-1)을 어디까지 유지하고 무엇을 바꾸는지는 덤프 표를 보고 결정.
 
 **14.1 선행 실측 (확정 없이 진행)**
@@ -280,7 +280,7 @@ Python 함수명 = 플러그인 라우트명. 응답 봉투 `{ok, tool, request_
 **14.2 복제본 구성** (복제 수단 확정 후)
 - Free Locomotion: 상태 내부에 BlendSpacePlayer(`X`←`Speed` 노출 핀 연결 또는 `set_property X`), 전이 규칙 `compare Speed`.
 - Jump: 상태 Start·Loop·Land, 규칙 `var bIsJumping/bIsFalling/bIsOnGround`, Land → Idle 은 `automatic`.
-- Attack: 루트 그래프에 Slot(`SlotName` = 프로젝트 몽타주 슬롯 — `Tools/data/montages.json`·`AM_Hero_Attack1~3` 에서 확인) + LayeredBoneBlend(Upper Body). **LayerSetup 본 필터가 필요하면 허용 목록에 `set_property` 특수 처리 추가**(구조체 배열 → JSON 변환 설계 필요).
+- Attack: 루트 그래프에 Slot(`SlotName` = 프로젝트 몽타주 슬롯 — `Tools/data/montages.json`·`AM_Vesper_Sickle_Attack1~3` 에서 확인) + LayeredBoneBlend(Upper Body). **LayerSetup 본 필터가 필요하면 허용 목록에 `set_property` 특수 처리 추가**(구조체 배열 → JSON 변환 설계 필요).
 - 각 단계: preview → apply(compile=true) → structure 재조회. 복제본만 저장.
 
 **14.3 검토·적용**

@@ -8,17 +8,17 @@
   },
   "montages": [
     {
-      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack1",
+      "montage": "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack1",
       "start": 0.0,
       "duration": 0.26
     },
     {
-      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack2",
+      "montage": "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack2",
       "start": 0.0,
       "duration": 0.55
     },
     {
-      "montage": "/Game/Animation/Hero/Montages/AM_Hero_Attack3",
+      "montage": "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Attack3",
       "start": 0.0,
       "duration": 0.55
     }

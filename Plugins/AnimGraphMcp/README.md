@@ -1,12 +1,12 @@
 # AnimGraph MCP Bridge (`Plugins/AnimGraphMcp`)
 
-실행 중인 Unreal Editor 안에서 Animation Blueprint 를 **생성·조회·편집·컴파일·검증**하게 해 주는 에디터 전용 C++ 플러그인입니다. 바깥의 MCP 서버(`Tools/mcp/anim_graph_mcp/server.py`)가 HTTP/JSON 으로 이 플러그인을 부르고, Claude Code 같은 AI 에이전트는 MCP Tool 로 그 서버를 부릅니다.
+실행 중인 Unreal Editor 안에서 Animation Blueprint 를 **생성·조회·편집·컴파일·검증**하고, 애니메이션을 다른 스켈레톤으로 **임포트·IK 리타깃·측정**하게 해 주는 에디터 전용 C++ 플러그인입니다. 바깥의 MCP 서버(`Tools/mcp/anim_graph_mcp/server.py`)가 HTTP/JSON 으로 이 플러그인을 부르고, Claude Code 같은 AI 에이전트는 MCP Tool 로 그 서버를 부릅니다.
 
 ```text
 AI Agent ─ stdio MCP ─▶ Tools/mcp/anim_graph_mcp/server.py ─ HTTP/JSON 127.0.0.1:18765 ─▶ Plugins/AnimGraphMcp (에디터, 게임 스레드) ─▶ UAnimBlueprint
 ```
 
-- 엔진: **UE 5.7.4**(소스 빌드에서 검증). 모듈 1개 `AnimGraphMcpEditor`(Type Editor). 프로젝트 코드에 의존하지 않습니다.
+- 엔진: **UE 5.7.4**(소스 빌드에서 검증). 모듈 1개 `AnimGraphMcpEditor`(Type Editor). 프로젝트 코드에 의존하지 않습니다. 의존 플러그인 `IKRig` · `Interchange`(`.uplugin` 에 선언, 엔진 기본 활성).
 - 그래프 조회·편집은 전부 C++ 입니다(Python 래퍼는 `UEdGraph::Nodes`·핀을 노출하지 않음). MCP 서버는 얇은 프록시이고 그래프 로직이 없습니다.
 - 수신은 `127.0.0.1` 만, 기동 때마다 바뀌는 토큰으로 보호합니다.
 
@@ -33,9 +33,17 @@ bAutoStart=True            ; 에디터 기동 시 리스너 시작. 콘솔 AnimG
 +ProtectedAssets=/Game/Characters/Hero/ABP_Hero    ; 삭제·덮어쓰기 거부 (패키지 또는 오브젝트 경로, 정확히 일치)
 +ProtectedPaths=/Game/ThirdParty/                   ; 삭제·덮어쓰기 거부 (패키지 경로 접두)
 +SmokeTestPaths=/Game/Animation                     ; 스모크 테스트가 여는 AnimBP 경로 (생략 시 /Game/Animation)
++GenerationOutputPaths=/Game/Animation/Generated/   ; AI 애니 생성 Tool 의 쓰기 허용 목록 (패키지 경로 접두)
++ImportSourceRoots=Saved/AnimGen/Import/            ; import_animation_file 이 읽는 디스크 폴더 (프로젝트 기준 상대 또는 절대)
+MaxRetargetAssetsPerCall=50                         ; retarget_animations 요청당 애셋 수 상한(입력 + 동반 참조). 실측 20개 리타깃·검증·저장 3초
++AnimationTagFiles=Config/AnimGraphMcp/AnimationTags.json  ; search_animations 수동 태그 JSON (프로젝트 기준 상대 또는 절대)
 ```
 
+(UE ini 는 줄 끝 `;` 주석을 값으로 읽습니다 — 위 주석은 설명용이고 실제 ini 에서는 주석을 따로 줄에 둡니다.)
+
 보호 목록은 **파괴 연산만** 막습니다(`delete_animation_blueprint`, `create/duplicate_animation_blueprint` 의 `overwrite`). 조회·편집·저장은 막지 않습니다.
+
+생성 경로 설정은 출력·임포트 경로의 **유일한 기준**입니다. 목록이 비어 있으면 생성 Tool 은 아무 데도 쓰지 않고 임포트도 받지 않습니다. 생성 Tool 은 호출 전후 에디터 전체의 더티 패키지 집합을 비교해, 허용 목록 밖 패키지가 새로 더티가 되면 아무것도 저장하지 않고 `UNEXPECTED_DIRTY` 로 실패합니다. `get_editor_status.generation` 이 정규화된 값(`output_paths[]` · 절대 경로 `import_source_roots[]` · `max_retarget_assets_per_call` · `animation_tag_files[]`)을 돌려줍니다.
 
 ## 통신 규약
 
@@ -50,7 +58,7 @@ bAutoStart=True            ; 에디터 기동 시 리스너 시작. 콘솔 AnimG
 - `diagnostics[]` 는 성공 응답에도 붙는 경고(`{level, code, message}`).
 - 긴 작업은 동기입니다(에디터 프레임을 잡습니다). 클라이언트 타임아웃은 기본 60초, 컴파일을 포함하면 180초를 권장합니다.
 
-## Tool (30개)
+## Tool (39개)
 
 Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
@@ -87,6 +95,37 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | `remove_blueprint_variable` | `asset_path, name, force, compile, save` | 이 BP 가 선언한 변수만. 참조 중이면 `VARIABLE_IN_USE`, `force` 면 참조 노드도 삭제 |
 | `set_update_function` | `asset_path, assignments[{variable, value}] \| remove, compile=true, save` | `BlueprintThreadSafeUpdateAnimation` 오버라이드를 스펙에서 **전체 재생성**(Entry → VariableSet 사슬, 값은 규칙 AST). 멱등(`applied.unchanged`), 사람 편집 감지(`update_function.modified`). 변수는 BlueprintVisible ∧ 읽기 전용 아님 |
 | `quit_editor` | `save_dirty=false, discard_dirty=false` | 더티 패키지가 있으면 둘 중 하나 없이는 `DIRTY_PACKAGES` 로 거부. `save_dirty` 는 콘텐츠만 저장(맵 제외). 응답 `process_id` |
+
+**AI 애니 생성 — 리타깃 기반 (6개, [Docs/AIAnimation](../../Docs/AIAnimation/DevelopmentGuide.md) Phase 1).** 쓰기 Tool 은 `GenerationOutputPaths` 밖에 만들거나 저장하지 않고, 덮어쓰지 않으며(`ASSET_EXISTS`), 호출 전후 전역 더티 집합을 비교해 허용 목록 밖이 새로 더티면 저장하지 않고 `UNEXPECTED_DIRTY` 로 실패합니다. `save` 기본 false. 기존 IK Rig·리타기터 재사용은 `existing_*` 를 줄 때만, 메시는 항상 명시합니다.
+
+| Tool | 입력 | 하는 일 |
+| :--- | :--- | :--- |
+| `inspect_skeleton` | `skeleton? \| skeletal_mesh?, details=false, compare_to?` | 읽기 전용. `meshes[]`·`animation_count`(레지스트리) · `bones[{name, parent}]`(details: 기준 로컬/컴포넌트 `{t, r, s?}`) · `virtual_bones[]` · `sockets[]`(스켈레톤+메시) · `slot_groups[]` · `curve_count` · `ik_rigs[]`(프리뷰 메시 기준)·`retargeters[]`(그 리그의 참조자, `roles`) · `template_match{used, name, percent, pelvis, chains[]}`(IK Rig 자동 캐릭터라이저 — `used=false` 면 자동 IK Rig 불가) · `compare{common, missing_in_other[], ref_rot_diff_deg{p50,max,max_bone}, bone_length_ratio{p50,min,max}, verdict}`. **리그 판정은 이름이 아니라 기준 포즈**(UE4 마네킹은 68본 이름이 전부 UE5 계열에 있어도 10~40° 다르다) — `same_rig` = 회전 최대 < 1° ∧ 길이 비 0.99~1.01, 참고 정보. 본 이름 비교는 엔진처럼 FName(대소문자 무시) |
+| `import_animation_file` | `file, dest_path, skeleton?, sample_rate=0, name?, save` | Interchange FBX 임포트(동기 — 게임 스레드에서 끝까지). `file` 은 `ImportSourceRoots` 아래 절대 경로만(`IMPORT_SOURCE_NOT_ALLOWED` · `RELATIVE_PATH` · `FILE_NOT_FOUND` · `UNSUPPORTED_FORMAT`), `dest_path` 는 허용 목록 안의 **빈 폴더**(`ASSET_EXISTS` reason `DEST_NOT_EMPTY`). `skeleton` 이면 그 스켈레톤에 애니만, 없으면 메시·새 스켈레톤·애니. 커브 메타데이터의 스켈레톤 추가·재질·텍스처·피직스·스태틱 메시는 항상 끔, 덮어쓰기·대화상자 없음. 프로젝트 기본 파이프라인 스택을 트랜지언트로 복제해 씀(파이프라인 애셋 무변경) |
+| `create_ik_rig` | `skeletal_mesh, asset_path \| existing_rig, mode=auto\|manual, pelvis?, chains?[{name, start, end, goal?}], fbik=true, save` | 에디터 자동 리타깃과 같은 경로(SetSkeletalMesh → 자동 리타깃 정의 → 자동 FBIK). 템플릿과 맞지 않는 메시는 애셋을 만들기 **전에** `IKRIG_AUTO_FAILED` + `details.bones[{name, parent}]` → `mode: manual` 로 다시. 수동 체인은 전부 사전 검증(`BAD_CHAINS`: `BONE_NOT_FOUND`·`END_NOT_BELOW_START`·`DUPLICATE_NAME/GOAL`, 펠비스 필수). `existing_rig` 는 호환(`INCOMPATIBLE_MESH`)만 보고 쓰지 않음 |
+| `create_ik_retargeter` | `source_rig, target_rig, source_mesh, target_mesh, asset_path \| existing_retargeter, ops=default\|match_existing, auto_align=false, save` | `default` = 엔진 기본 op + 모든 op 정확한 이름 매핑. `match_existing` = 에디터 "Retarget Animations" 자동 생성 레시피(FK 매핑 Exact · 타깃 포즈 자동 정렬 · Run IK Rig 끔 · 루트 모션 op · Pin Bones) — 이 레시피로 만든 기존 RTG 와 필드·결과가 같음(Phase 1 회귀 비교: 본별 차 0°). 응답 `ops[]`·`chain_mapping{}`·`unmapped_target_chains[]`(경고)·`pin_bones[]`·`root_motion{}`·`retarget_poses{}`. `existing_retargeter` 는 리그 일치(`RIG_MISMATCH`)만 보고 쓰지 않음 |
+| `retarget_animations` | `retargeter, assets[], source_mesh, target_mesh, output_path, name_rule?{prefix, suffix, replace_from, replace_to}, include_referenced=true, dry_run, validate=true, thresholds?, save` | 엔진 일괄 "Duplicate and Retarget" 을 출력 폴더 지정으로(`FIKRetargetBatchOperationContext` + `RunRetarget`, 덮어쓰기 항상 끔). 입력은 시퀀스·몽타주·BlendSpace(소스 메시 스켈레톤), AnimBlueprint 는 `ANIM_BLUEPRINT_NOT_ALLOWED`. 출력 이름을 엔진 규칙으로 **먼저** 계산해 기존 애셋 `ASSET_EXISTS` · 배치 내 충돌 `NAME_COLLISION_IN_BATCH` · 상한(`MaxRetargetAssetsPerCall`) `LIMIT` 을 실행 전에 거부. `validate` 면 생성 시퀀스마다 `validate_animation`(소스 대비), FAILED 면 저장 없이 `VALIDATION_FAILED`. 엔진 진행 창이 뜬다(사람이 취소하면 삭제 확인 모달) |
+| `validate_animation` | `assets[], sources?[], skeleton?, checks?, thresholds?, feet?, pelvis?, source_feet?, source_pelvis?, expect?, seams?[], profile_bones?[]` | 읽기 전용 측정(C++, 프레임별 컴포넌트 공간 포즈). 구조(스켈레톤·트랙 본·NaN·스케일) · 절대(한 프레임 회전 > 90° — 소스에도 있는 튐은 경고 `ROTATION_JUMP_INHERITED`) · 상대(다른 스켈레톤 소스: 각속도 p99 비·착지 발 속도 비·루트 이동 비(펠비스 높이로 보정)·길이·루프 경계 / 같은 스켈레톤 소스: 본별 회전·위치 차 — 회귀 비교) · **요청 충족**(Phase 2: `expect{length, length_tolerance, loop, root_yaw_delta, root_yaw_tolerance}` 불일치 → `EXPECT_*` 오류, `seams[]`(초) 에서 포즈 변화가 앞뒤 창 중앙값의 `seam_ratio_max`(3.0)배 초과 → 경고 `SEAM_JUMP`) · `profile_bones` → `numeric.profile{times[], speed_cm_s{본: []}}`(타격 구간 찾기). 절대 속도 임계값은 쓰지 않음(정상 공격 p99 ≈ 2,000°/s). 상태 `PASSED`·`PASSED_WITH_WARNINGS`·`NEEDS_REVIEW`·`FAILED`, `needs_review[]` 에 시각 확인 항상 포함 |
+
+**AI 애니 생성 — 기존 모션 재사용·변형 (3개, Phase 2).** 원본은 읽기만 하고 결과는 항상 새 애셋입니다(Phase 1 공통 가드 그대로 — 허용 목록 · `ASSET_EXISTS` · 전역 더티 검사).
+
+| Tool | 입력 | 하는 일 |
+| :--- | :--- | :--- |
+| `search_animations` | `query?, skeleton?, path_prefix=/Game, class=AnimSequence\|AnimMontage\|AnimComposite\|all, min_length?, max_length?, root_motion?, additive?, loop?, tags?[], limit=50, details=false, max_loads=300` | 읽기 전용 메타데이터 검색. 인덱스 = AssetRegistry 태그(로드 없음: 길이 · 프레임 · fps · 루트 모션 · additive · 스켈레톤) + 수동 태그 파일(`AnimationTagFiles`, `{"tags": {"<애셋 또는 폴더/>": [..]}}`). 이름 토큰(`_`·CamelCase·숫자 경계) 접두 일치, 점수순. `bLoop` 은 레지스트리 태그가 아니라 `loop` 필터·`details` 만 로드(`max_loads` 초과 `LOAD_LIMIT`). `details` = 루프 · 노티파이 · 싱크 마커 · 커브 · 루트 이동량·Yaw |
+| `preview_animation_edits` | `source, operations[], asset_path?, loop?, root_motion?` | 애셋을 만들지 않고 메모리 버퍼에서 끝까지 계산. 파싱 오류는 모든 op 에 한 번에, 실행 오류는 첫 op 에서 멈추고 나머지 `skipped`. `planned[{range, length_before/after, note}]` · 결과 프레임·길이·커브·루트 Yaw · 노티파이 유지/제외 · `seams[{step_ratio, jump}]` · `would_create{allowed, exists}` |
+| `apply_animation_edits` | `source, asset_path, operations[], loop?, root_motion?, validate=true, thresholds?, save` | 버퍼 계산 성공 뒤에만 주 소스를 **복제**(`StaticDuplicateObject` — 루트 모션·압축·additive 설정·커브 메타 승계)하고 본 트랙·float 커브를 다시 씀(노티파이·싱크 마커는 먼저 비우고 새 시각으로 다시 건다 — 잘린·역재생 구간 것은 `NOTIFIES_DROPPED`). 출력 fps = 주 소스. 내장 검증 = 구조 · 한 프레임 회전(소스 최대 × 최대 재생 속도 안은 `ROTATION_JUMP_INHERITED`) · 쓰기 충실도 `expect`(길이·루프·루트 Yaw) · `seams`. FAILED 면 저장 없이 `VALIDATION_FAILED`(애셋은 미저장으로 남음). 소스의 트랜스폼 커브·본 속성은 옮기지 않음(경고) |
+
+키 편집 op (시간은 초, 각 op 직전 타임라인 기준, 구간은 가장 가까운 프레임으로):
+
+| op | 입력 | 비고 |
+| :--- | :--- | :--- |
+| `trim` | `start?, end?` | 구간만 남김 |
+| `retime` | `start?, end?, rate \| duration` | 구간 재생 속도(1.5 = 1.5배 빠르게). 전체 재샘플(회전 slerp) |
+| `hold_pose` | `at, duration` | 그 시각 포즈를 정지 삽입. `at` = 끝이면 연장 |
+| `concat` | `asset?(생략 = 원래 source), start?, end?, reverse=false, blend=0, align_root=true` | 같은 스켈레톤만(`SKELETON_MISMATCH` — 먼저 리타깃). `blend=0` 이면 붙는 첫 키가 현재 끝 키와 겹친다(한 동작을 자른 두 구간을 이으면 원래대로). 한쪽에만 있는 커브는 0 (`CURVE_FILLED`) |
+| `mirror` | `axis=x, mirror_table?` | 엔진 `MirrorPose` 수식. 짝 = 프로젝트 Animation 설정 미러 규칙 또는 MirrorDataTable, **짝 없는 본은 자기 자신으로 반전**(엔진 5.7 `FillMirrorBoneIndexes` 는 짝 없는 본을 반전하지 않는다). 커브는 반전하지 않음(`MIRROR_CURVES_UNCHANGED`) |
+| `offset_bone` | `targets[{bone, rotation?{pitch,yaw,roll}, translation?[x,y,z]}], space=component\|local, start?, end?, blend_in=0.2, blend_out=0.2` | component = 컴포넌트 축으로 본 위치를 축으로 회전(자식이 따라옴), local = 본 자신의 축 · 이동은 부모 공간 |
+| `rotate_root` | `yaw, start?, end?, ease=smooth\|linear` | 구간 동안 루트 Yaw 0 → yaw, 이후 유지. 루트 이동 증분도 그 시점 Yaw 로 돌려 다시 쌓음 |
 
 새 Tool 은 Claude Code **세션을 다시 시작해야** MCP 목록에 보입니다(HTTP 로는 바로 호출 가능).
 
@@ -154,11 +193,11 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 | HTTP | 코드 |
 | :---: | :--- |
-| 400 | `BAD_REQUEST`(`details.reason`/`field`) · `CONNECTION_REJECTED` · `PROPERTY_NOT_ALLOWED` · `COMPILE_FAILED` · `SAVE_FAILED` |
+| 400 | `BAD_REQUEST`(`details.reason`/`field`) · `CONNECTION_REJECTED` · `PROPERTY_NOT_ALLOWED` · `COMPILE_FAILED` · `SAVE_FAILED` · `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` |
 | 401 | `UNAUTHORIZED` |
-| 403 | `ASSET_PROTECTED` |
+| 403 | `ASSET_PROTECTED` · `OUTPUT_PATH_NOT_ALLOWED` · `IMPORT_SOURCE_NOT_ALLOWED` |
 | 404 | `TOOL_NOT_FOUND` · `ASSET_NOT_FOUND` · `GRAPH_NOT_FOUND` · `NODE_NOT_FOUND` · `PIN_NOT_FOUND` |
-| 409 | `ASSET_EXISTS` · `REVISION_MISMATCH` · `ASSET_REFERENCED` · `DIRTY_PACKAGES` |
+| 409 | `ASSET_EXISTS` · `REVISION_MISMATCH` · `ASSET_REFERENCED` · `DIRTY_PACKAGES` · `UNEXPECTED_DIRTY`(`details.unexpected[]`) |
 | 500 | `INTERNAL` |
 
 배치 실패의 원인은 사전 검증이면 `details.planned[i].error`, 적용 중이면 `details.cause` 와 `details.applied[i].error` 에 있습니다. Python 클라이언트는 전송 오류를 `EDITOR_GONE` · `TIMEOUT` · `TRANSPORT` · `BAD_RESPONSE` 로 같은 봉투 모양에 넣습니다.
@@ -190,8 +229,9 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 - **임의의 EventGraph 편집은 다루지 않습니다.** BP 변수 추가와 `BlueprintThreadSafeUpdateAnimation` 의 "변수 ← 식" 대입 사슬까지가 범위이고, 분기·루프·이벤트·임의 K2 노드는 만들지 않습니다. 복잡한 상태 판정은 C++ AnimInstance 에 두는 것을 권합니다.
 - 전이 규칙의 `call` 은 화이트리스트 함수만, `set_property` 는 허용 목록 프로퍼티만입니다. 허용 목록 밖 노드(Control Rig·PoseDriver·RigidBody·AnimDynamics·Motion Matching 등)는 생성·연결은 되지만 세부 설정은 못 합니다. 필요하면 `Core/AnimMcpPropertyRules.cpp` 의 표에 한 줄씩 더합니다.
 - Linked Anim Layer 의 값 파라미터는 **Input Pose 노드에 붙습니다**(엔진 구조) — 입력 포즈 없는 레이어는 값 파라미터를 가질 수 없습니다. 자식 Animation Blueprint 가 부모의 레이어를 오버라이드하는 그래프 생성은 범위 밖입니다. 인터페이스 변경 뒤 구현 ABP 동기화는 AssetRegistry 참조자(디스크에 저장된 ABP) 기준입니다.
-- 생성하는 콘텐츠 애셋은 BlendSpace·AimOffset·몽타주(시퀀스 1개, 슬롯·섹션)입니다. **노티파이**(프로젝트별 클래스)·몽타주 다중 세그먼트·블렌드 프로파일·싱크 마커는 범위 밖입니다. 스켈레톤 편집은 슬롯 등록(`add_skeleton_slot`, `confirm` 필수)과 애셋의 스켈레톤 재할당(`reassign_skeleton` — 본 이름이 같은 스켈레톤 사이, 본이 다른 스켈레톤으로의 리타게팅(IK Retargeter)은 범위 밖)뿐입니다. 시퀀스 편집은 additive 설정(`set_sequence_additive`)뿐입니다.
-- 검증은 구조 검사(스모크)와 상태머신 현재 상태·슬롯 활성(런타임 시나리오)까지입니다. 실제 포즈(본 트랜스폼)·애니메이션 품질은 PIE 에서 사람이 봅니다.
+- 생성하는 콘텐츠 애셋은 BlendSpace·AimOffset·몽타주(시퀀스 1개, 슬롯·섹션)입니다. **노티파이**(프로젝트별 클래스)·몽타주 다중 세그먼트·블렌드 프로파일·싱크 마커는 범위 밖입니다. 스켈레톤 편집은 슬롯 등록(`add_skeleton_slot`, `confirm` 필수)과 애셋의 스켈레톤 재할당(`reassign_skeleton` — 본 이름이 같은 스켈레톤 사이, **제자리**)뿐입니다. 본·기준 포즈가 다른 스켈레톤으로는 IK 리타깃(`create_ik_rig` → `create_ik_retargeter` → `retarget_animations`, 항상 복제)을 씁니다. 시퀀스 키 편집은 원본을 바꾸지 않고 새 애셋으로만 합니다(`apply_animation_edits` — op 7종, 원시 키 기준이라 트랜스폼 커브·본 속성은 옮기지 않음). 제자리 편집은 additive 설정(`set_sequence_additive`)뿐입니다.
+- 검증은 구조 검사(스모크)·상태머신 현재 상태·슬롯 활성(런타임 시나리오)·시퀀스 수치(`validate_animation`)까지입니다. 수치 통과가 동작 품질을 뜻하지 않습니다 — 애니메이션 품질은 Persona/PIE 에서 사람이 봅니다.
+- IK 리타깃은 FK 체인 매핑이 **정확한 이름**입니다(엔진 fuzzy 매핑은 발가락을 손가락에 붙이기도 함). 템플릿이 없는 스켈레톤은 수동 체인 이름을 대상 리그의 체인 이름과 맞춥니다. 리타깃 포즈 수동 편집·IK op 세부 설정은 범위 밖입니다.
 - 한 포트에 에디터 하나. PIE 중이거나 모달 작업(`GIsSlowTask`) 중에는 Automation 테스트가 시작되지 않습니다(런타임 시나리오는 테스트가 PIE 를 열고 닫습니다).
 - `/Game/...` 인자를 Git Bash 에서 넘길 때는 `MSYS_NO_PATHCONV=1`.
 
@@ -220,10 +260,26 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpUpdateFunction   BlueprintThreadSafeUpdateAnimation 함수 그래프 생성·재생성
             AnimMcpMontage          몽타주 생성(시퀀스 1개) · 슬롯 이름 · 섹션 전체 교체 · 스켈레톤 슬롯 등록 · 조회
             AnimMcpRuntimeScenario  런타임 시나리오 계약 — 테스트 명령 "<클래스> <JSON>" · 관측 슬롯(테스트 → 러너 → observed)
+            AnimMcpGeneration       AI 애니 생성 공통 가드: [AnimGraphMcp] 생성 경로 설정 · 출력/임포트 경로 검사 · 전역 더티 집합 비교(FDirtyGuard) ·
+                                    새 애셋 객체 · 복제본(덮어쓰기 없음) · FinishWrite(검사 → 저장)
+            AnimMcpSkeletonInspector  스켈레톤 조회 · 기준 포즈 비교 · 템플릿 캐릭터라이즈(트랜지언트 IK Rig)
+            AnimMcpAnimImport       Interchange FBX 임포트(파이프라인 트랜지언트 복제·안전 설정)
+            AnimMcpRetargetAssets   IK Rig · 리타기터 생성(에디터 자동 리타깃 레시피) · 조회
+            AnimMcpBatchRetarget    일괄 리타깃(계획 → RunRetarget → 계획대로 생겼는지 → 검증 → 저장)
+            AnimMcpAnimValidator    시퀀스 측정(구조 · 절대 · 상대 · 회귀 · 요청 충족 · 프로파일)   AnimMcpStats  백분위 · 반올림
+            AnimMcpAnimSearch       search_animations — 레지스트리 태그 · 이름 토큰 · 수동 태그 파일 · 필요할 때만 로드
+            AnimMcpAnimEditOps      키 편집 계산부(UObject 없음 — 리그 · 버퍼 · op 7종 · 출처 · 이음매) — 단위 테스트 대상
+            AnimMcpAnimEdit         preview/apply_animation_edits — 파싱 · 원시 키 읽기 · 버퍼 계산 · 복제 · 재작성 · 노티파이 이동 · 검증
   Tests/    AnimMcpSmokeTests.cpp    AnimGraphMcp.Smoke.AnimBlueprint · AnimGraphMcp.Smoke.AnimMontage
             AnimMcpRuntimeTests.cpp  AnimGraphMcp.Runtime.AnimBlueprint — PIE 시작·스폰·변수·몽타주·N 프레임·관측·비교·PIE 종료(지연 명령 7단계)
+            AnimMcpGenerationTests.cpp  AnimGraphMcp.Generation.Guard — 경로 '/' 경계 · 임포트 원본 · 허용 목록 밖 새 더티 → UNEXPECTED_DIRTY(메모리 패키지)
+            AnimMcpEditTests.cpp     AnimGraphMcp.Generation.Edit — 합성 리그로 op 수학(길이 · 키 대응 · 이음매 · 미러 두 번 = 원래 · 컴포넌트 축 회전)
   Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음; Montage = 몽타주·스켈레톤 슬롯 4종 · Automation = run/poll + run_anim_scenario 사전 검증 ·
-                                     Skeleton = reassign_skeleton(EditorAnimUtils::RetargetAnimations 제자리) · Sequence = set_sequence_additive)
+                                     Skeleton = reassign_skeleton(EditorAnimUtils::RetargetAnimations 제자리) + inspect_skeleton · Sequence = set_sequence_additive ·
+                                     Import = import_animation_file · Retarget = create_ik_rig · create_ik_retargeter · retarget_animations ·
+                                     Validate = validate_animation · Search = search_animations · Edit = preview/apply_animation_edits)
 ```
+
+AI 애니 생성 Tool 통합 테스트: `Tools/mcp/anim_gen_phase1_test.py`(섹션 inspect · guard · import · rig · validate · retarget · regression · dirty, 결과 요약 `anim_gen_phase1_state.json`) · `Tools/mcp/anim_gen_phase2_test.py`(섹션 hashes · search · unit · preview · guard · upper · ready · variant · mirror · notify · appendix · regression · dirty, 결과 요약 `anim_gen_phase2_state.json`). FBX 픽스처는 `Tools/scripts/anim_gen_export_fixture.py` 가 만든다.
 
 규칙: Inspector 는 쓰지 않고, Mutator 는 트랜잭션 밖에서 호출되지 않습니다. 같은 `FJsonObject` 를 두 컨테이너에 넣지 않습니다(순환 → 직렬화 무한 재귀).

@@ -16,6 +16,7 @@ DEFINE_LOG_CATEGORY(LogAnimGraphMcp);
  *   bRequireToken=True
  *   bAutoStart=True
  *   +ProtectedAssets=/Game/...   +ProtectedPaths=/Game/.../   (Phase 6-2 삭제·덮어쓰기 보호, Core/AnimMcpAssetProtection)
+ *   +GenerationOutputPaths=/Game/.../   +ImportSourceRoots=Saved/...   MaxRetargetAssetsPerCall=20   (AI 애니 생성, Core/AnimMcpGeneration)
  * 콘솔: AnimGraphMcp.Start / AnimGraphMcp.Stop / AnimGraphMcp.Status
  */
 class FAnimGraphMcpEditorModule : public IModuleInterface
@@ -112,6 +113,11 @@ private:
 		AnimMcpTools::RegisterMontageTools(*Dispatcher);
 		AnimMcpTools::RegisterSkeletonTools(*Dispatcher);
 		AnimMcpTools::RegisterSequenceTools(*Dispatcher);
+		AnimMcpTools::RegisterImportTools(*Dispatcher);
+		AnimMcpTools::RegisterRetargetTools(*Dispatcher);
+		AnimMcpTools::RegisterValidationTools(*Dispatcher);
+		AnimMcpTools::RegisterEditTools(*Dispatcher);
+		AnimMcpTools::RegisterSearchTools(*Dispatcher);
 
 		if (!Bridge->Start(Port, bRequireToken, Dispatcher.ToSharedRef()))
 		{

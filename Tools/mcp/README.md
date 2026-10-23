@@ -38,7 +38,11 @@ bAutoStart=True
 
 에디터 콘솔: `AnimGraphMcp.Start` / `AnimGraphMcp.Stop` / `AnimGraphMcp.Status`. 커맨드라인 `-AnimGraphMcpPort=18766` 으로 인스턴스별 포트 오버라이드. 토큰은 에디터가 기동할 때 `Saved/AnimGraphMcp/token` 에 쓴다. `get_editor_status` 만 토큰 면제.
 
-## Tool (30개)
+## Tool (39개)
+
+AI 애니 생성 리타깃 기반(Phase 1, `Docs/AIAnimation/`) `inspect_skeleton` · `import_animation_file` · `create_ik_rig` · `create_ik_retargeter` · `retarget_animations` · `validate_animation` — 출력·임포트 경로는 `[AnimGraphMcp] GenerationOutputPaths` · `ImportSourceRoots`(`get_editor_status.generation`)만, 덮어쓰기 없음, 허용 목록 밖이 새로 더티면 `UNEXPECTED_DIRTY`. 흐름: `inspect_skeleton`(소스·대상, `compare_to`) → `import_animation_file`(FBX) → `create_ik_rig`(auto, 실패면 `details.bones` 로 수동 체인 제안 → 사용자 확인 → manual) → `create_ik_retargeter` → `retarget_animations {dry_run}` → 같은 호출 `save:true`.
+
+AI 애니 생성 기존 모션 재사용·변형(Phase 2) `search_animations`(레지스트리 태그 + 수동 태그 `Config/AnimGraphMcp/AnimationTags.json`, 이름 토큰) · `preview_animation_edits` · `apply_animation_edits`(op 7종 `trim` · `retime` · `hold_pose` · `concat` · `mirror` · `offset_bone` · `rotate_root`, 원본은 읽기만 · 결과는 새 애셋) — `validate_animation` 에 요청 충족 `expect` · `seams` · `profile_bones`. 흐름: `search_animations` → (다른 스켈레톤이면 Phase 1 리타깃) → `validate_animation {profile_bones:["hand_r"]}` 로 구간 찾기 → `preview_animation_edits` → `apply_animation_edits {save:true}` → Persona 에서 사람이 확인.
 
 조회 `get_editor_status` · `get_anim_blueprint_info` · `get_anim_graph_structure` · `list_animation_assets` — 생성/저장 `create_animation_blueprint` · `create_blendspace`(`aim_offset` 로 AimOffset) · `create_anim_layer_interface` · `implement_anim_layer_interface` · `save_animation_blueprint` · `duplicate_animation_blueprint` · `delete_animation_blueprint` — 레이어 `set_layer_inputs`(값 파라미터) · `add_anim_layers` · `remove_anim_layers`(구현 ABP 자동 동기화) — 편집 `preview_graph_operations` · `apply_graph_operations`(op 20종, `set_layer_instance_class` 포함) · `compile_animation_blueprint` — 변수·업데이트 함수 `add_blueprint_variable` · `remove_blueprint_variable` · `set_update_function`(ThreadSafeUpdateAnimation 을 스펙에서 생성) — 몽타주 `create_anim_montage` · `set_montage_slots` · `set_montage_sections` · `add_skeleton_slot`(노티파이는 `Tools/lib/ab_montage.py`) — 콘텐츠 선행 `reassign_skeleton`(같은 본 이름의 중복 스켈레톤 통합, 참조 애셋 동반) · `set_sequence_additive`(AimOffset 샘플 기준 포즈) — 검증 `run_automation_tests` · `poll_automation_tests` · `run_anim_scenario`(PIE 에서 상태머신 현재 상태·슬롯 활성 확인) — 프로세스 `quit_editor`.
 
@@ -59,6 +63,8 @@ Tools/mcp/.venv/Scripts/python.exe Tools/mcp/smoke_test.py /Game/Animation/Hero/
 ```
 PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/run_all.py [--attach] [--only phase6_5_test] [--skip-recheck]
 ```
+
+AI 애니 생성 Tool 은 `anim_gen_phase1_test.py`(뜬 에디터에 붙어 섹션 inspect · guard · import · rig · validate · retarget · regression · dirty, `--only` 로 골라 실행 · 요약 `anim_gen_phase1_state.json`) — 테스트 애셋은 `/Game/Animation/Test/AIAnimation/Run<시각>/`(완료 기준 1 의 왕복 결과만 저장), FBX 픽스처는 `Saved/AnimGen/Import/`(`Tools/scripts/anim_gen_export_fixture.py` 가 자동 생성). `run_all.py` 에는 넣지 않았다(저장되는 왕복 애셋이 실행마다 쌓인다). Phase 2 는 `anim_gen_phase2_test.py`(섹션 hashes · search · unit · preview · guard · upper · ready · variant · mirror · notify · appendix · regression · dirty · 요약 `anim_gen_phase2_state.json`) — 애셋은 `/Game/Animation/Test/AIAnimation/P2Run<시각>/`(완료 기준 3건 · Narmaya 리타깃만 저장).
 
 Git Bash 에서 `/Game/...` 인자는 `MSYS_NO_PATHCONV=1`, 한글 출력은 `PYTHONIOENCODING=utf-8`. 개별 스크립트와 기동·종료 폴링(`wait_for_bridge.py` · `wait_for_exit.py`)은 `.claude/plans/animbp-automation-handoff-phase6-2.md` §8 참조. 테스트 애셋은 `/Game/Animation/Test/` 아래(덮어쓰기 대상).
 

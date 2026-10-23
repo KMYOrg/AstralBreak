@@ -34,6 +34,18 @@ public class AnimGraphMcpEditor : ModuleRules
 			"AssetRegistry",
 			// IPluginManager (플러그인 상태 조회)
 			"Projects",
+
+			// AI 애니 생성 Phase 1 (Docs/AIAnimation) — IK Rig·리타기터 애셋(UIKRigDefinition · UIKRetargeter · 리타깃 op)
+			"IKRig",
+			// UIKRigController · UIKRetargeterController · UIKRetargetBatchOperation · 팩토리
+			"IKRigEditor",
+			// FBX 임포트 — UInterchangeManager · UInterchangeSourceData · 파이프라인 기반 클래스
+			"InterchangeCore",
+			"InterchangeEngine",
+			// UInterchangeGenericAssetsPipeline 과 하위 설정 (Interchange 플러그인)
+			"InterchangePipelines",
+			// UAnimPoseExtensions — 검증용 프레임 포즈 샘플링 (에디터 전용)
+			"AnimationBlueprintLibrary",
 		});
 	}
 }

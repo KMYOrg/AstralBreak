@@ -32,11 +32,26 @@ namespace AnimMcpTools
 	/** 몽타주 콘텐츠 (create_anim_montage, set_montage_slots, set_montage_sections, add_skeleton_slot) — Phase 7-3 */
 	void RegisterMontageTools(FAnimMcpDispatcher& Dispatcher);
 
-	/** 스켈레톤 재할당 (reassign_skeleton) — Phase 7-6: 같은 본 이름의 두 스켈레톤으로 갈라진 애니 애셋을 한쪽으로 */
+	/** 스켈레톤 재할당 (reassign_skeleton) — Phase 7-6: 같은 본 이름의 두 스켈레톤으로 갈라진 애니 애셋을 한쪽으로 · (inspect_skeleton) AI 애니 생성 Phase 1 */
 	void RegisterSkeletonTools(FAnimMcpDispatcher& Dispatcher);
 
 	/** 시퀀스 additive 설정 (set_sequence_additive) — Phase 7-6: AimOffset 샘플 선행 조건(기준 포즈) */
 	void RegisterSequenceTools(FAnimMcpDispatcher& Dispatcher);
+
+	/** FBX 임포트 (import_animation_file) — AI 애니 생성 Phase 1 (Docs/AIAnimation) */
+	void RegisterImportTools(FAnimMcpDispatcher& Dispatcher);
+
+	/** IK 리타깃 (create_ik_rig, create_ik_retargeter, retarget_animations) — AI 애니 생성 Phase 1 */
+	void RegisterRetargetTools(FAnimMcpDispatcher& Dispatcher);
+
+	/** 애니메이션 검증 (validate_animation) — AI 애니 생성 Phase 1 · 요청 충족(expect · seams · profile_bones) Phase 2 */
+	void RegisterValidationTools(FAnimMcpDispatcher& Dispatcher);
+
+	/** 기존 모션 키 편집 (preview_animation_edits, apply_animation_edits) — AI 애니 생성 Phase 2 */
+	void RegisterEditTools(FAnimMcpDispatcher& Dispatcher);
+
+	/** 기존 모션 메타데이터 검색 (search_animations) — AI 애니 생성 Phase 2 */
+	void RegisterSearchTools(FAnimMcpDispatcher& Dispatcher);
 
 	/** 그래프 변경 (preview_graph_operations, apply_graph_operations) */
 	void RegisterGraphTools(FAnimMcpDispatcher& Dispatcher);

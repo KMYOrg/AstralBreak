@@ -11,8 +11,11 @@
 #include "Bridge/AnimMcpDispatcher.h"
 #include "Bridge/AnimMcpTypes.h"
 #include "Core/AnimMcpAssetResolver.h"
+#include "Core/AnimMcpGeneration.h"
 #include "Core/AnimMcpMontage.h"
+#include "Core/AnimMcpSkeletonInspector.h"
 #include "EditorAnimUtils.h"
+#include "Engine/SkeletalMesh.h"
 #include "Misc/PackageName.h"
 #include "ReferenceSkeleton.h"
 
@@ -99,6 +102,69 @@ namespace AnimMcpTools
 
 	void RegisterSkeletonTools(FAnimMcpDispatcher& Dispatcher)
 	{
+		// AI 애니 생성 Phase 1 — 스켈레톤 조회 (Core/AnimMcpSkeletonInspector). 읽기 전용: 호출 중 새로 더티가 된 패키지가 있으면 경고만 붙인다
+		Dispatcher.RegisterTool(TEXT("inspect_skeleton"),
+			TEXT("Read-only facts about a Skeleton for animation generation/retargeting. Params: skeleton? | skeletal_mesh? (one required; both must agree), details? (default false: bones as {name, parent}; true adds ref_local/ref_component {t, r[pitch,yaw,roll], s?} and socket transforms), compare_to? (another Skeleton path: common bone names, missing_in_other[], reference-pose local rotation difference {p50,max,max_bone} in degrees, bone length ratio {p50,min,max} = compare_to/this, verdict same_rig | needs_ik_retarget | no_common_bones — judged by reference pose, not names; reference info only). Returns skeleton_path, meshes[] (registry), animation_count, bone_count, root_bone, bones[], virtual_bones[], mesh (skeletal_mesh, else skeleton preview, else first registered) + mesh_source, sockets[] (skeleton + mesh), slot_groups[], curve_count, ik_rigs[] (preview mesh is one of meshes[]), retargeters[] (referencing those rigs, with roles), template_match{used, name, percent, matching_bones, missing_bones, pelvis, chains[]} (IK Rig auto characterizer on the mesh; non-template skeletons report used=false and need manual chains)."),
+			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
+			{
+				const AnimMcpGeneration::FDirtyGuard Guard;
+				AnimMcpSkeletonInspector::FInspectParams Params;
+				Params.bDetails = Context.Request.GetOptionalBool(TEXT("details"), false);
+
+				const FString SkeletonPath = Context.Request.GetOptionalString(TEXT("skeleton"));
+				const FString MeshPath = Context.Request.GetOptionalString(TEXT("skeletal_mesh"));
+				if (SkeletonPath.IsEmpty() && MeshPath.IsEmpty())
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("Pass skeleton or skeletal_mesh"));
+					return nullptr;
+				}
+				if (!MeshPath.IsEmpty())
+				{
+					Params.Mesh = Cast<USkeletalMesh>(AnimMcpAssetResolver::LoadAssetOfClass(MeshPath, USkeletalMesh::StaticClass(), OutError));
+					if (!Params.Mesh) { return nullptr; }
+				}
+				if (!SkeletonPath.IsEmpty())
+				{
+					Params.Skeleton = AnimMcpAssetResolver::LoadSkeleton(SkeletonPath, OutError);
+					if (!Params.Skeleton) { return nullptr; }
+				}
+				if (Params.Mesh)
+				{
+					USkeleton* MeshSkeleton = Params.Mesh->GetSkeleton();
+					if (!MeshSkeleton)
+					{
+						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' has no skeleton"), *Params.Mesh->GetPathName()));
+						return nullptr;
+					}
+					if (Params.Skeleton && Params.Skeleton != MeshSkeleton)
+					{
+						TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+						Details->SetStringField(TEXT("reason"), TEXT("SKELETON_MISMATCH"));
+						Details->SetStringField(TEXT("mesh_skeleton"), MeshSkeleton->GetPathName());
+						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("'%s' uses skeleton '%s', not '%s'"), *Params.Mesh->GetPathName(), *MeshSkeleton->GetPathName(), *Params.Skeleton->GetPathName()), Details);
+						return nullptr;
+					}
+					Params.Skeleton = MeshSkeleton;
+				}
+				const FString ComparePath = Context.Request.GetOptionalString(TEXT("compare_to"));
+				if (!ComparePath.IsEmpty())
+				{
+					Params.CompareTo = AnimMcpAssetResolver::LoadSkeleton(ComparePath, OutError);
+					if (!Params.CompareTo) { return nullptr; }
+				}
+
+				TSharedRef<FJsonObject> Result = AnimMcpSkeletonInspector::Inspect(Params);
+				TArray<FString> Allowed, Unexpected;
+				Guard.GetNewlyDirty(Allowed, Unexpected);
+				Unexpected.Append(Allowed);
+				if (Unexpected.Num() > 0)
+				{
+					Context.AddDiagnostic(TEXT("warning"), AnimMcpErrorCodes::UnexpectedDirty,
+						FString::Printf(TEXT("Read-only inspection left %d package(s) dirty (engine load fix-ups?): %s"), Unexpected.Num(), *FString::Join(Unexpected, TEXT(", "))));
+				}
+				return Result;
+			});
+
 		Dispatcher.RegisterTool(TEXT("reassign_skeleton"),
 			TEXT("Move animation assets (AnimSequence, AnimMontage, BlendSpace, AimOffset, AnimComposite) onto another Skeleton in place — the engine's 'retarget to another skeleton' path (bone tracks remapped by name, curves copied to the new skeleton). Params: skeleton (target), assets? [paths] or (from_skeleton + path_prefix? default /Game) to collect every animation asset currently on from_skeleton, confirm (must be true unless dry_run), dry_run? (default false; returns the plan), allow_missing_bones? (default false: an AnimSequence with a bone track the target skeleton lacks is refused with BONES_MISSING), convert_spaces? (default false), save? (default true: saves every changed asset and the target skeleton if it became dirty). Assets the listed ones reference (montage segments, BlendSpace samples, additive base poses) ALWAYS move with them (engine behaviour) — they are listed under 'referred'. Assets already on the target skeleton are skipped."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>

@@ -27,6 +27,14 @@ namespace AnimMcpErrorCodes
 	inline const TCHAR* const AssetProtected     = TEXT("ASSET_PROTECTED");   // 403 — [AnimGraphMcp] ProtectedAssets/ProtectedPaths
 	inline const TCHAR* const AssetReferenced    = TEXT("ASSET_REFERENCED");  // 409 — 다른 애셋이 참조 중 (force 없이는 삭제 거부)
 	inline const TCHAR* const DirtyPackages      = TEXT("DIRTY_PACKAGES");    // 409 — 저장 안 된 패키지가 있어 quit 거부
+	// AI 애니 생성 Phase 1 (Docs/AIAnimation/ArchitectureAudit.md §10)
+	inline const TCHAR* const OutputPathNotAllowed   = TEXT("OUTPUT_PATH_NOT_ALLOWED");   // 403 — [AnimGraphMcp] GenerationOutputPaths 밖
+	inline const TCHAR* const ImportSourceNotAllowed = TEXT("IMPORT_SOURCE_NOT_ALLOWED"); // 403 — [AnimGraphMcp] ImportSourceRoots 밖 파일
+	inline const TCHAR* const UnexpectedDirty        = TEXT("UNEXPECTED_DIRTY");          // 409 — 허용 목록 밖 패키지가 새로 더티가 됨 (저장 안 함)
+	inline const TCHAR* const ImportFailed           = TEXT("IMPORT_FAILED");
+	inline const TCHAR* const IKRigAutoFailed        = TEXT("IKRIG_AUTO_FAILED");         // 자동 캐릭터라이즈 실패 — details.bones[] 로 수동 체인 정의
+	inline const TCHAR* const RetargetFailed         = TEXT("RETARGET_FAILED");
+	inline const TCHAR* const ValidationFailed       = TEXT("VALIDATION_FAILED");
 	inline const TCHAR* const Internal           = TEXT("INTERNAL");
 }
 

@@ -20,12 +20,14 @@ int32 FAnimMcpError::ToHttpStatus() const
 	{
 		return 404;
 	}
-	if (Code == AnimMcpErrorCodes::AssetProtected)
+	if (Code == AnimMcpErrorCodes::AssetProtected || Code == AnimMcpErrorCodes::OutputPathNotAllowed
+		|| Code == AnimMcpErrorCodes::ImportSourceNotAllowed)
 	{
 		return 403;
 	}
 	if (Code == AnimMcpErrorCodes::RevisionMismatch || Code == AnimMcpErrorCodes::AssetExists
-		|| Code == AnimMcpErrorCodes::AssetReferenced || Code == AnimMcpErrorCodes::DirtyPackages)
+		|| Code == AnimMcpErrorCodes::AssetReferenced || Code == AnimMcpErrorCodes::DirtyPackages
+		|| Code == AnimMcpErrorCodes::UnexpectedDirty)
 	{
 		return 409;
 	}
@@ -33,7 +35,8 @@ int32 FAnimMcpError::ToHttpStatus() const
 	{
 		return 500;
 	}
-	// BAD_REQUEST · CONNECTION_REJECTED · PROPERTY_NOT_ALLOWED · COMPILE_FAILED · SAVE_FAILED — 요청 내용으로 인한 실패
+	// BAD_REQUEST · CONNECTION_REJECTED · PROPERTY_NOT_ALLOWED · COMPILE_FAILED · SAVE_FAILED
+	// · IMPORT_FAILED · IKRIG_AUTO_FAILED · RETARGET_FAILED · VALIDATION_FAILED — 요청 내용으로 인한 실패
 	return 400;
 }
 

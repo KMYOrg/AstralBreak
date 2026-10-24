@@ -13,6 +13,7 @@
 #include "Retargeter/IKRetargetChainMapping.h"
 #include "Retargeter/RetargetOps/FKChainsOp.h"
 #include "Retargeter/RetargetOps/PinBoneOp.h"
+#include "Retargeter/RetargetOps/RetargetPoseOp.h"
 #include "Retargeter/RetargetOps/RootMotionGeneratorOp.h"
 #include "Retargeter/RetargetOps/RunIKRigOp.h"
 #include "Rig/IKRigDefinition.h"
@@ -152,8 +153,155 @@ namespace AnimMcpRetargetAssets
 			return Obj;
 		}
 
+		/** 정면 맞춤 (헤더 주석) — 대상 리타깃 포즈 루트(본 0)의 로컬 델타 두 개 */
+		struct FFacing
+		{
+			FName Root;
+			/** 소스 정면 → 대상 정면 (UE +Z) */
+			FQuat Yaw = FQuat::Identity;
+			/** 풀이용 포즈: 루트 전역 = Yaw⁻¹ · 기준 */
+			FQuat AlignDelta = FQuat::Identity;
+			/** 복원 포즈(Additive Pose): 루트 전역 = 기준 */
+			FQuat RestoreDelta = FQuat::Identity;
+
+			bool IsSet() const { return !Root.IsNone(); }
+		};
+
+		const FName FacingRestorePoseName(TEXT("FacingRestore"));
+
+		FFacing MakeFacing(const USkeletalMesh* TargetMesh, double YawDeg)
+		{
+			FFacing Facing;
+			if (FMath::IsNearlyZero(YawDeg, 1e-3))
+			{
+				return Facing;
+			}
+			const FReferenceSkeleton& RefSkeleton = TargetMesh->GetRefSkeleton();
+			Facing.Root = RefSkeleton.GetBoneName(0);
+			const FQuat RefRoot = RefSkeleton.GetRefBonePose()[0].GetRotation();
+			Facing.Yaw = FQuat(FVector::UpVector, FMath::DegreesToRadians(YawDeg));
+			// 리타깃 포즈 로컬 = 기준 × 델타 (IKRetargetProcessor.cpp:73) — 전역 Yaw⁻¹ 를 걸려면 델타 = 기준⁻¹ · Yaw⁻¹ · 기준
+			Facing.AlignDelta = RefRoot.Inverse() * Facing.Yaw.Inverse() * RefRoot;
+			Facing.RestoreDelta = Facing.AlignDelta.Inverse();
+			return Facing;
+		}
+
+		/** ① 현재 대상 포즈에 루트 회전을 넣는다 (자동 정렬 앞) */
+		void SetFacingAlignDelta(const UIKRetargeterController* Controller, const FFacing& Facing)
+		{
+			if (Facing.IsSet())
+			{
+				Controller->SetRotationOffsetForRetargetPoseBone(Facing.Root, Facing.AlignDelta, ERetargetSourceOrTarget::Target);
+			}
+		}
+
+		/** 대상 포즈 자동 정렬 — AutoAlignAllBones 는 포즈를 먼저 전부 리셋한다(IKRetargeterController.cpp:1356). 정면 맞춤이면 루트를 돌린 뒤 리셋 없는 정렬(빈 목록 = 전부) */
+		void AutoAlignTarget(const UIKRetargeterController* Controller, const FFacing& Facing)
+		{
+			if (!Facing.IsSet())
+			{
+				Controller->AutoAlignAllBones(ERetargetSourceOrTarget::Target);
+				return;
+			}
+			Controller->ResetRetargetPose(Controller->GetCurrentRetargetPoseName(ERetargetSourceOrTarget::Target), TArray<FName>(), ERetargetSourceOrTarget::Target);
+			SetFacingAlignDelta(Controller, Facing);
+			Controller->AutoAlignBones(TArray<FName>(), ERetargetAutoAlignMethod::ChainToChain, ERetargetSourceOrTarget::Target);
+		}
+
+		int32 FindOpIndex(const UIKRetargeterController* Controller, const UScriptStruct* Type)
+		{
+			for (int32 i = 0; i < Controller->GetNumRetargetOps(); ++i)
+			{
+				const FInstancedStruct* Op = Controller->GetRetargetOpStructAtIndex(i);
+				if (Op && Op->GetScriptStruct() && Op->GetScriptStruct()->IsChildOf(Type))
+				{
+					return i;
+				}
+			}
+			return INDEX_NONE;
+		}
+
+		/** ② 복원 포즈 + Additive Pose op(Root Motion op 앞) ③ 소스 루트 복사면 Root Motion GlobalOffset — 레시피 적용 뒤 */
+		void ApplyFacingRestore(const UIKRetargeterController* Controller, const FFacing& Facing, FAnimMcpContext& Context)
+		{
+			const FName AlignedPose = Controller->GetCurrentRetargetPoseName(ERetargetSourceOrTarget::Target);
+			// 새 포즈가 현재 포즈가 된다 — 델타를 넣고 풀이용 포즈로 돌려 놓는다
+			const FName RestorePose = Controller->CreateRetargetPose(FacingRestorePoseName, ERetargetSourceOrTarget::Target);
+			Controller->SetRotationOffsetForRetargetPoseBone(Facing.Root, Facing.RestoreDelta, ERetargetSourceOrTarget::Target);
+			Controller->SetCurrentRetargetPose(AlignedPose, ERetargetSourceOrTarget::Target);
+
+			int32 OpIndex = Controller->AddRetargetOp(FIKRetargetAdditivePoseOp::StaticStruct());
+			if (FIKRetargetOpBase* Op = Controller->GetRetargetOpByIndex(OpIndex))
+			{
+				FIKRetargetAdditivePoseOpSettings* Settings = static_cast<FIKRetargetAdditivePoseOpSettings*>(Op->GetSettings());
+				Settings->PoseToApply = RestorePose;
+				Settings->Alpha = 1.0f;
+			}
+			// 루트 모션은 되돌린 좌표계의 펠비스에서 만들어야 한다
+			const int32 RootMotionIndex = FindOpIndex(Controller, FIKRetargetRootMotionOp::StaticStruct());
+			if (RootMotionIndex != INDEX_NONE && RootMotionIndex < OpIndex && Controller->MoveRetargetOpInStack(OpIndex, RootMotionIndex))
+			{
+				OpIndex = RootMotionIndex;
+			}
+
+			FIKRetargetRootMotionOp* RootOp = Controller->GetFirstRetargetOpOfType<FIKRetargetRootMotionOp>();
+			if (RootOp && RootOp->IsEnabled())
+			{
+				if (RootOp->Settings.RootMotionSource == ERootMotionSource::CopyFromSourceRoot)
+				{
+					// 소스 루트 복사는 풀이 좌표계(Yaw⁻¹) 값 — 전역에서 Yaw 를 마지막에 곱한다
+					RootOp->Settings.GlobalOffset = RootOp->Settings.GlobalOffset * FTransform(Facing.Yaw);
+				}
+				else if (!RootOp->Settings.bRotateWithPelvis)
+				{
+					Context.AddDiagnostic(TEXT("warning"), TEXT("FACING_ROOT_ROTATION"),
+						TEXT("root motion is generated from the pelvis without rotate_with_pelvis — the root keeps the facing-aligned reference rotation"));
+				}
+			}
+		}
+
+		/** 애셋의 정면 맞춤 — Additive Pose op 가 대상 루트(본 0) 하나만 돌리는 포즈를 쓰면 그 전역 Yaw. 풀이용 포즈가 그 역인지(consistent)도 본다 */
+		TSharedPtr<FJsonValue> DescribeFacing(const UIKRetargeter* Retargeter, const UIKRetargeterController* Controller)
+		{
+			const USkeletalMesh* Mesh = Retargeter->GetPreviewMesh(ERetargetSourceOrTarget::Target);
+			if (!Mesh || Mesh->GetRefSkeleton().GetNum() == 0)
+			{
+				return MakeShared<FJsonValueNull>();
+			}
+			const FName Root = Mesh->GetRefSkeleton().GetBoneName(0);
+			const FQuat RefRoot = Mesh->GetRefSkeleton().GetRefBonePose()[0].GetRotation();
+			for (int32 i = 0; i < Controller->GetNumRetargetOps(); ++i)
+			{
+				const FInstancedStruct* Struct = Controller->GetRetargetOpStructAtIndex(i);
+				FIKRetargetOpBase* Op = Controller->GetRetargetOpByIndex(i);
+				if (!Struct || !Op || Struct->GetScriptStruct() != FIKRetargetAdditivePoseOp::StaticStruct())
+				{
+					continue;
+				}
+				const FIKRetargetAdditivePoseOpSettings* Settings = static_cast<const FIKRetargetAdditivePoseOpSettings*>(Op->GetSettings());
+				const FIKRetargetPose* Pose = Retargeter->GetRetargetPoseByName(ERetargetSourceOrTarget::Target, Settings->PoseToApply);
+				const FQuat* Restore = Pose && Pose->GetAllDeltaRotations().Num() == 1 ? Pose->GetAllDeltaRotations().Find(Root) : nullptr;
+				if (!Restore)
+				{
+					continue;
+				}
+				const FQuat Yaw = RefRoot * *Restore * RefRoot.Inverse();
+				const FQuat* Aligned = Controller->GetCurrentRetargetPose(ERetargetSourceOrTarget::Target).GetAllDeltaRotations().Find(Root);
+				TSharedRef<FJsonObject> Obj = AnimMcpJson::MakeObject();
+				Obj->SetNumberField(TEXT("yaw_deg"), AnimMcpStats::Round(Yaw.Rotator().Yaw));
+				Obj->SetStringField(TEXT("target_root"), Root.ToString());
+				Obj->SetStringField(TEXT("restore_pose"), Settings->PoseToApply.ToString());
+				Obj->SetStringField(TEXT("op"), Controller->GetOpName(i).ToString());
+				Obj->SetNumberField(TEXT("op_index"), i);
+				Obj->SetBoolField(TEXT("enabled"), Controller->GetRetargetOpEnabled(i));
+				Obj->SetBoolField(TEXT("consistent"), Aligned && FMath::RadiansToDegrees(Aligned->AngularDistance(Restore->Inverse())) < 0.01);
+				return MakeShared<FJsonValueObject>(Obj);
+			}
+			return MakeShared<FJsonValueNull>();
+		}
+
 		/** 에디터 자동 생성 레시피 (SRetargetAnimAssetsWindow.cpp:668-742) — 컨트롤러는 SetIKRig·AddDefaultOps 뒤 */
-		void ApplyMatchExisting(const UIKRetargeterController* Controller, const UIKRigDefinition* SourceRig, const UIKRigDefinition* TargetRig, const FAutoCharacterizeResults& TargetCharacterization)
+		void ApplyMatchExisting(const UIKRetargeterController* Controller, const UIKRigDefinition* SourceRig, const UIKRigDefinition* TargetRig, const FAutoCharacterizeResults& TargetCharacterization, const FFacing& Facing)
 		{
 			// 정확한 이름 매핑만 (기본 fuzzy 는 발가락을 손가락에 붙이기도 한다 — 엔진 주석)
 			if (FIKRetargetFKChainsOp* FKChainOp = Controller->GetFirstRetargetOpOfType<FIKRetargetFKChainsOp>())
@@ -164,11 +312,12 @@ namespace AnimMcpRetargetAssets
 			// 타깃 리타깃 포즈 리셋 → 자동 정렬 → 템플릿이 제외한 본(보통 발)만 다시 리셋
 			const FName TargetPose = Controller->GetCurrentRetargetPoseName(ERetargetSourceOrTarget::Target);
 			Controller->ResetRetargetPose(TargetPose, TArray<FName>(), ERetargetSourceOrTarget::Target);
-			Controller->AutoAlignAllBones(ERetargetSourceOrTarget::Target);
+			AutoAlignTarget(Controller, Facing);
 			const TArray<FName>& Excluded = TargetCharacterization.AutoRetargetDefinition.BonesToExcludeFromAutoPose;
 			if (!Excluded.IsEmpty())
 			{
 				Controller->ResetRetargetPose(Controller->GetCurrentRetargetPoseName(ERetargetSourceOrTarget::Target), Excluded, ERetargetSourceOrTarget::Target);
+				SetFacingAlignDelta(Controller, Facing);
 			}
 
 			// 자동 IK 는 아직 불안정 — 엔진도 끈다
@@ -495,6 +644,7 @@ namespace AnimMcpRetargetAssets
 			Root->SetStringField(TEXT("height_source"), StaticEnum<ERootMotionHeightSource>()->GetNameStringByValue(static_cast<int64>(RootOp->Settings.RootHeightSource)));
 			Root->SetBoolField(TEXT("rotate_with_pelvis"), RootOp->Settings.bRotateWithPelvis);
 			Root->SetBoolField(TEXT("maintain_offset_from_pelvis"), RootOp->Settings.bMaintainOffsetFromPelvis);
+			Root->SetNumberField(TEXT("global_offset_yaw_deg"), AnimMcpStats::Round(RootOp->Settings.GlobalOffset.GetRotation().Rotator().Yaw));
 			Obj->SetObjectField(TEXT("root_motion"), Root);
 		}
 
@@ -502,6 +652,7 @@ namespace AnimMcpRetargetAssets
 		Poses->SetObjectField(TEXT("source"), DescribePose(Controller, ERetargetSourceOrTarget::Source));
 		Poses->SetObjectField(TEXT("target"), DescribePose(Controller, ERetargetSourceOrTarget::Target));
 		Obj->SetObjectField(TEXT("retarget_poses"), Poses);
+		Obj->SetField(TEXT("facing_alignment"), DescribeFacing(Retargeter, Controller));
 		return Obj;
 	}
 
@@ -530,9 +681,37 @@ namespace AnimMcpRetargetAssets
 			WarnPreviewMesh(Params.Existing, Params.Existing->GetPreviewMesh(ERetargetSourceOrTarget::Source), Params.SourceMesh, TEXT("Source"), Context);
 			WarnPreviewMesh(Params.Existing, Params.Existing->GetPreviewMesh(ERetargetSourceOrTarget::Target), Params.TargetMesh, TEXT("Target"), Context);
 			TSharedRef<FJsonObject> Result = DescribeRetargeter(Params.Existing);
+			// 재사용은 쓰지 않는다 — 요청한 정면 맞춤과 애셋의 것이 다르면 알리기만 한다
+			const TSharedPtr<FJsonObject>* ExistingFacing = nullptr;
+			const double ExistingYaw = Result->TryGetObjectField(TEXT("facing_alignment"), ExistingFacing) ? (*ExistingFacing)->GetNumberField(TEXT("yaw_deg")) : 0.0;
+			if (!FMath::IsNearlyEqual(ExistingYaw, Params.FacingYawDeg, 0.5))
+			{
+				Context.AddDiagnostic(TEXT("warning"), TEXT("FACING_MISMATCH_EXISTING"),
+					FString::Printf(TEXT("existing retargeter aligns facing by %.1f deg, the request asks %.1f deg — the existing asset is used unchanged"), ExistingYaw, Params.FacingYawDeg));
+			}
 			Result->SetBoolField(TEXT("reused"), true);
 			Result->SetBoolField(TEXT("saved"), false);
 			return Result;
+		}
+
+		const FFacing Facing = MakeFacing(Params.TargetMesh, Params.FacingYawDeg);
+		if (Facing.IsSet())
+		{
+			TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+			Details->SetNumberField(TEXT("facing_yaw_deg"), Params.FacingYawDeg);
+			Details->SetStringField(TEXT("target_root"), Facing.Root.ToString());
+			if (FMath::Abs(Params.FacingYawDeg) > 180.0)
+			{
+				OutError = FieldError(TEXT("facing_yaw_deg"), TEXT("OUT_OF_RANGE"), TEXT("facing_yaw_deg must be within [-180, 180]"), Details);
+				return nullptr;
+			}
+			if (Facing.Root == Params.TargetRig->GetPelvis())
+			{
+				// 루트 = 펠비스면 Additive Pose 가 펠비스 제자리에서만 돌아 펠비스 이동이 소스 정면에 남는다
+				OutError = FieldError(TEXT("facing_yaw_deg"), TEXT("FACING_NEEDS_ROOT"),
+					FString::Printf(TEXT("target root '%s' is the pelvis — facing alignment needs a separate root bone above the pelvis"), *Facing.Root.ToString()), Details);
+				return nullptr;
+			}
 		}
 
 		FAutoCharacterizeResults TargetCharacterization;
@@ -558,15 +737,23 @@ namespace AnimMcpRetargetAssets
 			Controller->AddDefaultOps();
 			if (Params.Ops == EOpsRecipe::MatchExisting)
 			{
-				ApplyMatchExisting(Controller, Params.SourceRig, Params.TargetRig, TargetCharacterization);
+				ApplyMatchExisting(Controller, Params.SourceRig, Params.TargetRig, TargetCharacterization, Facing);
 			}
 			else
 			{
 				Controller->AutoMapChains(EAutoMapChainType::Exact, /*bForceRemap*/ true);
 				if (Params.bAutoAlign)
 				{
-					Controller->AutoAlignAllBones(ERetargetSourceOrTarget::Target);
+					AutoAlignTarget(Controller, Facing);
 				}
+				else
+				{
+					SetFacingAlignDelta(Controller, Facing);
+				}
+			}
+			if (Facing.IsSet())
+			{
+				ApplyFacingRestore(Controller, Facing, Context);
 			}
 		}
 		Retargeter->MarkPackageDirty();

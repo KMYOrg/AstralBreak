@@ -19,6 +19,8 @@
 #include "InterchangeGenericTexturePipeline.h"
 #include "InterchangeManager.h"
 #include "InterchangeProjectSettings.h"
+#include "InterchangeResult.h"
+#include "InterchangeResultsContainer.h"
 #include "InterchangeSourceData.h"
 #include "InterchangeTranslatorBase.h"
 #include "UObject/Package.h"
@@ -88,12 +90,39 @@ namespace AnimMcpAnimImport
 			{
 				Animation->bImportAnimations = true;
 				Animation->bImportBoneTracks = true;
+				// 굽는 rate 의 프레임 경계에 안 맞는 길이는 꺼 두면 애니를 건너뛴다(InterchangeGenericAnimationPipeline.cpp:757-807)
+				// → 가까운 프레임에 맞춘다 (LENGTH_SNAPPED)
+				Animation->bSnapToClosestFrameBoundary = true;
 				if (Params.SampleRate > 0)
 				{
 					Animation->bUse30HzToBakeBoneAnimation = false;
 					Animation->CustomBoneAnimationSampleRate = Params.SampleRate;
 				}
 			}
+		}
+
+		/** 길이를 프레임 경계에 맞춘 트랙 — 애니 파이프라인의 Info_ImportLengthSnap 경고. 문구는 에디터 언어로 바뀌므로 원문 키로 찾는다 */
+		TArray<FString> SnappedTracks(const UInterchangeResultsContainer* Results)
+		{
+			TArray<FString> Tracks;
+			if (!Results)
+			{
+				return Tracks;
+			}
+			for (const UInterchangeResult* Item : Results->GetResults())
+			{
+				if (!Item || Item->GetResultType() != EInterchangeResultType::Warning || Item->AssetType != UAnimSequence::StaticClass())
+				{
+					continue;
+				}
+				TArray<FHistoricTextFormatData> Formats;
+				FTextInspector::GetHistoricFormatData(Item->GetText(), Formats);
+				if (Formats.ContainsByPredicate([](const FHistoricTextFormatData& Format) { return FTextInspector::GetKey(Format.SourceFmt.GetSourceText()).Get(FString()) == TEXT("Info_ImportLengthSnap"); }))
+				{
+					Tracks.AddUnique(Item->DestinationAssetName);
+				}
+			}
+			return Tracks;
 		}
 	}
 
@@ -160,9 +189,10 @@ namespace AnimMcpAnimImport
 		// ---- 임포트 (동기) ----
 		const AnimMcpGeneration::FDirtyGuard Guard;
 		const double Start = FPlatformTime::Seconds();
-		TArray<UObject*> Imported;
-		const bool bImportOk = Manager.ImportAsset(Params.DestPath, SourceData.Get(), ImportParams, Imported);
+		const UE::Interchange::FAssetImportResultRef ImportResult = Manager.ImportAssetWithResult(Params.DestPath, SourceData.Get(), ImportParams);
 		const double Seconds = FPlatformTime::Seconds() - Start;
+		TArray<UObject*> Imported = ImportResult->GetImportedObjects();
+		const bool bImportOk = ImportResult->IsValid();
 		Imported.RemoveAll([](const UObject* Obj) { return !IsValid(Obj); });
 		UE_LOG(LogAnimGraphMcp, Log, TEXT("import_animation_file: '%s' -> %s, %d object(s), %.2fs (ok=%d)"), *Params.File, *Params.DestPath, Imported.Num(), Seconds, bImportOk);
 
@@ -202,6 +232,15 @@ namespace AnimMcpAnimImport
 			{
 				Mesh = Mesh ? Mesh : NewMesh;
 			}
+		}
+		// 맞춘 뒤 길이는 animations[].length — 잘린 양은 반 프레임 이하
+		for (const FString& Track : SnappedTracks(ImportResult->GetResults()))
+		{
+			const FString Rate = Params.SampleRate > 0 ? FString::Printf(TEXT("%d Hz"), Params.SampleRate) : FString(TEXT("the source rate"));
+			TSharedRef<FJsonObject> Extra = AnimMcpJson::MakeObject();
+			Extra->SetStringField(TEXT("track"), Track);
+			Context.AddDiagnostic(TEXT("warning"), TEXT("LENGTH_SNAPPED"),
+				FString::Printf(TEXT("'%s' length was not on the frame borders of %s — Interchange moved its start/stop to the closest frames"), *Track, *Rate), Extra);
 		}
 		ImportedPaths.Sort();
 		Animations.Sort([](const TSharedPtr<FJsonValue>& A, const TSharedPtr<FJsonValue>& B) { return A->AsObject()->GetStringField(TEXT("asset")) < B->AsObject()->GetStringField(TEXT("asset")); });

@@ -23,7 +23,8 @@ struct FAnimMcpError;
  *            · 같은 스켈레톤(회귀 비교 — 같은 소스를 다른 RTG 로 리타깃한 두 결과): 본별 컴포넌트 공간 회전 차 {p50, p99, max, worst[]}
  *   요청 충족 (Phase 2 — 지침서 §13) — expect{length, loop, root_yaw_delta} 불일치 → EXPECT_* 오류(FAILED).
  *            seams(이음매 시각)의 프레임 간 회전 변화가 주변 창 중앙값의 seam_ratio_max 배를 넘으면 경고 SEAM_JUMP
- *   측정   — profile_bones: 프레임별 컴포넌트 공간 선속도(cm/s) — 타격 구간 같은 시간 범위를 고르는 데 쓴다
+ *   측정   — profile_bones: 프레임별 컴포넌트 공간 선속도(cm/s) — 타격 구간 같은 시간 범위를 고르는 데 쓴다.
+ *            profile_positions 면 같은 시각의 위치(cm)도 — 리타깃 정면 맞춤 전후의 동작 평면 비교
  *   시각   — 항상 needs_review[] 에 남긴다. 상태는 자동 검사 결과다(PASSED · PASSED_WITH_WARNINGS · NEEDS_REVIEW · FAILED).
  */
 namespace AnimMcpAnimValidator
@@ -82,6 +83,8 @@ namespace AnimMcpAnimValidator
 		TArray<double> Seams;
 		/** 프레임별 선속도를 낼 본 */
 		TArray<FName> ProfileBones;
+		/** profile 에 같은 시각의 컴포넌트 공간 위치(cm)도 낸다 — 손 궤적 같은 동작 평면 비교용 */
+		bool bProfilePositions = false;
 		/**
 		 * 한 프레임 회전 튐의 "물려받은" 기준값(°). 설정되면 소스 샘플 대신 이 값으로 ROTATION_JUMP_INHERITED 를 판정한다 —
 		 * apply_animation_edits 가 소스 최대 × 최대 재생 속도를 넘긴다(빠르게 만든 정상 동작이 절대 규칙에 걸리지 않게)

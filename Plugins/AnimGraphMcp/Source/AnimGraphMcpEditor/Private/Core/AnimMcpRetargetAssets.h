@@ -22,6 +22,14 @@ struct FAnimMcpError;
  *                      Run IK Rig 끔 · 루트 모션 op(타깃 루트≠펠비스면 소스가 루트 없을 때 펠비스에서 생성, 같으면 끔) · Pin Bones op(템플릿 핀 본,
  *                      전역 위치·회전 복사). 회귀 비교(완료 기준 2)용.
  * 재사용은 existing_rig / existing_retargeter 를 줄 때만 — 호환성만 검사하고 쓰지 않는다.
+ *
+ * 정면 맞춤 (facing_yaw_deg ≠ 0) — FK · 펠비스 op 는 전역 델타(소스 현재 × 소스 기준⁻¹ × 대상 기준, FKChainsOp.cpp:343-350)이고
+ * 소스 현재 포즈에는 리타깃 포즈가 적용되지 않는다(IKRetargetProcessor.cpp:1268-1316). 그래서 소스 쪽 포즈만 돌리면 동작 평면은 맞아도
+ * 결과 전체가 소스 정면을 본다. 대신 대상 쪽에서:
+ *   ① 대상 리타깃 포즈의 스켈레톤 루트(본 0, 펠비스 아님)를 −yaw → 풀이 동안 대상이 소스 정면을 본다(자동 정렬도 같은 정면에서 비교)
+ *   ② Additive Pose op(RetargetPoseOp.cpp:66-128)를 Root Motion op 바로 앞에 — 루트를 +yaw 로 되돌리고 자식은 따라 돈다(펠비스 이동 포함)
+ *   ③ Root Motion op 가 소스 루트를 복사하면 GlobalOffset 에 +yaw (RootMotionGeneratorOp.cpp:160 NewRoot * GlobalOffset)
+ * 루트 회전이 기준 대비 Yaw 만일 때 정확하다. 대상 루트가 펠비스면 펠비스 이동이 돌지 않아 거부한다.
  */
 namespace AnimMcpRetargetAssets
 {
@@ -70,10 +78,12 @@ namespace AnimMcpRetargetAssets
 		UIKRetargeter* Existing = nullptr;
 		EOpsRecipe Ops = EOpsRecipe::Default;
 		bool bAutoAlign = false;
+		/** 소스 정면을 대상 정면으로 돌리는 Yaw(°, UE +Z 축) — 0 이면 맞추지 않는다 */
+		double FacingYawDeg = 0.0;
 		bool bSave = false;
 	};
 
-	/** {asset_path, reused, ops_recipe, source_rig, target_rig, source_mesh, target_mesh, ops[], chain_mapping{}, unmapped_target_chains[], pin_bones[], root_motion{}, retarget_poses{}, saved} */
+	/** {asset_path, reused, ops_recipe, source_rig, target_rig, source_mesh, target_mesh, ops[], chain_mapping{}, unmapped_target_chains[], pin_bones[], root_motion{}, retarget_poses{}, facing_alignment{}|null, saved} */
 	TSharedPtr<FJsonObject> CreateRetargeter(const FRetargeterParams& Params, FAnimMcpContext& Context, FAnimMcpError& OutError);
 
 	TSharedRef<FJsonObject> DescribeIKRig(const UIKRigDefinition* Rig);

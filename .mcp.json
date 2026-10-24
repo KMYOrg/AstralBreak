@@ -6,6 +6,13 @@
       "env": {
         "ANIMGRAPH_MCP_PORT": "18765"
       }
+    },
+    "anim-gen-mcp": {
+      "command": "Tools/mcp/.venv/Scripts/python.exe",
+      "args": ["Tools/mcp/anim_gen/server.py"],
+      "env": {
+        "ANIMGRAPH_MCP_PORT": "18765"
+      }
     }
   }
 }

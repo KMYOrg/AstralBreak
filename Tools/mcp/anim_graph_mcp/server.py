@@ -632,7 +632,8 @@ def import_animation_file(file: str, dest_path: str, skeleton: str | None = None
         name: Base asset name (default: the file name).
         save: Save the imported assets.
 
-    Curve metadata on the skeleton, materials, textures, physics asset and static meshes are always off; the project's default
+    A clip whose length is not on the bake rate's frame borders is snapped to the closest frames (warning LENGTH_SNAPPED
+    {track}; the result length is animations[].length). Curve metadata on the skeleton, materials, textures, physics asset and static meshes are always off; the project's default
     pipeline stack is duplicated transiently. A package outside GenerationOutputPaths that becomes dirty fails the call with
     UNEXPECTED_DIRTY and nothing is saved. Returns imported[], animations[{asset, skeleton, frame_rate, frames, length}],
     skeleton, skeleton_created, mesh, source_frame_rate, pipelines[], seconds, saved.
@@ -683,7 +684,7 @@ def create_ik_rig(skeletal_mesh: str, asset_path: str | None = None, existing_ri
 @mcp.tool()
 def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, target_mesh: str, asset_path: str | None = None,
                          existing_retargeter: str | None = None, ops: str = "default", auto_align: bool = False,
-                         save: bool = False) -> dict:
+                         facing_yaw_deg: float = 0.0, save: bool = False) -> dict:
     """Create an IK Retargeter between two IK Rigs.
 
     Args:
@@ -695,13 +696,22 @@ def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, tar
             auto-retarget recipe (exact FK mapping, target retarget pose auto-aligned, Run IK Rig off, root motion op configured,
             Pin Bones op with the template's pinned IK bones); the project's RTG_* assets were made this way.
         auto_align: default ops only — auto-align the target retarget pose to the source.
+        facing_yaw_deg: Yaw (degrees about UE +Z) that turns the SOURCE's facing onto the TARGET's, e.g. source faces +X and
+            target +Y → 90. FK chains copy global rotation deltas, so differently facing skeletons move in the wrong plane. Non-zero:
+            the target root (bone 0) is turned by -yaw in the target retarget pose before auto-align, an Additive Pose op before the
+            Root Motion op turns it back, and a root motion op copying the source root gets +yaw in GlobalOffset. Refused when the
+            target root is the pelvis (FACING_NEEDS_ROOT).
         save: Save the new retargeter.
 
     Returns asset_path, reused, ops_recipe, ops[{name, type, enabled, parent}], chain_mapping{target: source|null},
-    unmapped_target_chains[] (warning UNMAPPED_TARGET_CHAINS), pin_bones[], root_motion{}, retarget_poses{}, saved.
+    unmapped_target_chains[] (warning UNMAPPED_TARGET_CHAINS), pin_bones[], root_motion{}, retarget_poses{},
+    facing_alignment{yaw_deg, target_root, restore_pose, op, op_index, enabled, consistent}|null (read from the asset; a reused
+    retargeter whose yaw differs warns FACING_MISMATCH_EXISTING), saved.
     """
     params: dict = {"source_rig": source_rig, "target_rig": target_rig, "source_mesh": source_mesh, "target_mesh": target_mesh,
                     "ops": ops, "auto_align": auto_align, "save": save}
+    if facing_yaw_deg:
+        params["facing_yaw_deg"] = facing_yaw_deg
     if asset_path:
         params["asset_path"] = asset_path
     if existing_retargeter:
@@ -750,7 +760,8 @@ def retarget_animations(retargeter: str, assets: list[str], source_mesh: str, ta
 def validate_animation(assets: list[str], sources: list[str | None] | None = None, skeleton: str | None = None,
                        checks: list[str] | None = None, thresholds: dict | None = None, feet: list[str] | None = None,
                        pelvis: str | None = None, source_feet: list[str] | None = None, source_pelvis: str | None = None,
-                       expect: dict | None = None, seams: list[float] | None = None, profile_bones: list[str] | None = None) -> dict:
+                       expect: dict | None = None, seams: list[float] | None = None, profile_bones: list[str] | None = None,
+                       profile_positions: bool = False) -> dict:
     """Measure AnimSequences (read-only): structure, obvious breakage, comparison with a source, and whether a request was met.
 
     Args:
@@ -768,6 +779,8 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
             (degrees first→last, signed), root_yaw_tolerance (default 5)}. A mismatch is an EXPECT_* error (FAILED).
         seams: Times (seconds) where segments meet — a pose step over seam_ratio_max × the surrounding frames is SEAM_JUMP.
         profile_bones: Bones whose per-frame speed (cm/s) is returned in numeric.profile — use it to find strike windows.
+        profile_positions: Also return numeric.profile.position_cm{bone: [[x, y, z]]} (component space, same times) — e.g. the
+            plane a hand moves in, to compare a retarget with its source.
 
     Per asset: status PASSED | PASSED_WITH_WARNINGS | NEEDS_REVIEW | FAILED, structural[], numeric{}, relative{}, needs_review[]
     (always lists the visual check — passing checks is not motion quality). No absolute speed limits: normal attacks reach
@@ -776,7 +789,7 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
     params: dict = {"assets": assets}
     for key, value in (("sources", sources), ("skeleton", skeleton), ("checks", checks), ("thresholds", thresholds), ("feet", feet),
                        ("pelvis", pelvis), ("source_feet", source_feet), ("source_pelvis", source_pelvis), ("expect", expect),
-                       ("seams", seams), ("profile_bones", profile_bones)):
+                       ("seams", seams), ("profile_bones", profile_bones), ("profile_positions", profile_positions)):
         if value:
             params[key] = value
     return bridge.call("validate_animation", params, timeout=bridge.COMPILE_TIMEOUT)

@@ -475,7 +475,7 @@ def section_appendix() -> None:
                                             "match_existing": ratios(a["validation"])[0], "default": ratios(b["validation"])[0]}
     check(cmp["per_bone_rot_diff_deg"]["max"] >= 0, "default vs match_existing measured (quality judged by a person)")
 
-    # ③ Narmaya 수동 체인 → Vesper (얼굴 방향 +Y vs −Y). match_existing 결과는 저장해 사람이 보고, default(Run IK Rig 켬)는 측정만 남긴다
+    # ③ Narmaya 수동 체인 → Vesper (둘 다 +Y 정면 — 지침서 부록 B 개정 7 보강). match_existing 결과는 저장해 사람이 보고, default(Run IK Rig 켬)는 측정만 남긴다
     nar_rig = must(call("create_ik_rig", skeletal_mesh=NARMAYA_MESH, asset_path=f"{out}/IK_Narmaya", mode="manual", pelvis=NARMAYA_PELVIS, chains=NARMAYA_CHAINS), "narmaya rig")
     nar = must(call("search_animations", skeleton=NARMAYA, path_prefix="/Game/Assets/Narmaya", limit=50), "narmaya anims")["items"]
     pick = max(nar, key=lambda i: i["length"] or 0)["asset_path"] if nar else None

@@ -4,7 +4,8 @@
 개정 1: 2026-10-23 — 문서 검토 반영. 임포트의 스켈레톤 부작용, 생성 흐름에서 재할당 분기 제거, 전역 더티 검사, 명시적 재사용, 용어 통일(골든 → 회귀), 수치 정정.  
 개정 2: 2026-10-23 — Phase 1 구현 중 실측으로 바뀐 사실을 §12 에 기록(§4 · §5 · §7 · §8 · §10 · §11 정정).  
 개정 3: 2026-10-23 — Phase 2(기존 모션 재사용·변형) 구현 중 확인한 엔진 사실·측정을 §13 에 기록.  
-상태: Phase 0 산출물 + Phase 1 · 2 실측 정정. Phase 2 완료.  
+개정 4: 2026-10-24 — Phase 4(Blender Provider) 착수 전 엔진·Blender 소스 대조와 에디터 실측을 §14 에 기록.  
+상태: Phase 0 산출물 + Phase 1 · 2 · 4 실측 정정.  
 관련 문서: [개발 지침서](DevelopmentGuide.md) (이 감사 결과로 개정 2) · [AnimGraphMcp README](../../Plugins/AnimGraphMcp/README.md)
 
 **방법.** 코드 변경 없이 ① UE 5.7.4 엔진 소스 대조, ② 실행 중인 에디터(DebugGame, main `1f8ee47`)에서 Python 원격 실행 3회 + AnimGraphMcp 조회로 측정했다. 에디터 쪽은 **읽기 전용**이었다 — IK Rig는 임시 패키지 객체로만 만들었고 애셋 생성·저장은 0건, 더티 패키지는 측정 전후 모두 0개였다.
@@ -315,6 +316,32 @@ Phase 2 구현(`search_animations` · `preview/apply_animation_edits` · `valida
 | 빨라진 동작의 한 프레임 회전 | 소스 최대 + 10° 안이면 물려받은 튐 | 1.5배 리타임은 소스의 튐도 1.5배가 된다(Finisher1 `upperarm_twist_01_r` 113.6° — 소스 최대 82.0°). apply 의 내장 검증은 기준을 소스 최대 × 최대 재생 속도(123.1°)로 둔다. 재생 속도를 모르는 바깥 `validate_animation` 은 같은 애셋을 `ROTATION_JUMP` 로 본다 | `apply_animation_edits` · `validate_animation` |
 | 리타기터 `default` vs `match_existing` (부록 B) | 품질 차이 미측정 | 같은 소스(HK `Katana_Attack_Combo2`)의 두 결과 본별 회전 차 p50 6.6° · p99 98.7° · 최대 178°(`ik_hand_*`) — `default` 의 Run IK Rig 가 IK 본과 손 위치를 바꾼다. Narmaya 수동 체인은 `match_existing` 이면 `PASSED`(각속도 p99 비 1.09, 최대 12°/프레임), `default` 는 자동 정렬과 상관없이 `FAILED`(179°/프레임 뒤집힘, 비 5.7) | `anim_gen_phase2_test.py` appendix |
 | 상대 검증 허용 비율 (부록 B) | 초기값(각속도 0.5~2.0 · 발 ≤ 3.0 · 루트 0.67~1.5)은 Phase 1 한 건 근거 | 3계열 9건(UE4 HK · UE4 HS1 · UE5 Manny DSAS1)이 모두 범위 안: 전체 각속도 p99 비 0.71~0.86(Vesper 가 본이 많아 낮다) · 공통 본 p99 비 1.00~1.05 · 착지 발 0.94~2.26 · 루트 1.00 → 초기값 유지 | `anim_gen_phase2_test.py` appendix |
+
+---
+
+## 14. Phase 4 실측 (개정 4)
+
+Blender 4.4.1 headless 변환 + 에디터 임포트(`import_animation_file`)로 확인했다. 스파이크는 합성 BVH(관절 11개, 키 183 단위, 발끝 +Z, 루트가 프레임당 2 cm 앞으로)를 0° · 180° 회전으로 변환해 `/Game/Animation/Test/AIAnimation/P4Spike/`에 미저장으로 임포트했다.
+
+| 항목 | 가정 | 실측 | 근거 |
+| :--- | :--- | :--- | :--- |
+| 아마추어만 있는 FBX | Interchange 가 메시 없이 스켈레톤을 만들 수도 있다 | 못 만든다 — 스켈레톤 팩토리 노드는 스킨 메시마다, 애니 파이프라인은 기존 스켈레톤 지정 때만 관절에서 만든다. 본마다 가중치 1.0 기둥 메시를 붙이면 메시 · 스켈레톤 · 애니 3개가 새로 생긴다(0.07초) | `InterchangeGenericSkeletalMeshPipeline.cpp:181-314` · `InterchangeGenericAnimationPipeline.cpp:642-694, 850` · 스파이크 |
+| 루트 본 | Blender 아마추어 객체가 루트 본이 될 수 있다 | 객체 이름 `Armature` 면 Interchange 가 그 널을 뺀다 → 루트 = `Hips`, 본 11 = BVH 관절 11 | `FbxScene.cpp:780-790` · 스파이크 |
+| 단위 | Blender m ↔ UE cm 배율 문제 | 장면 `scale_length` 0.01 + `apply_unit_scale` + `FBX_SCALE_NONE` → 노드 스케일 1 · 모든 기준 본 스케일 1 · 좌표가 BVH(cm) 그대로(`LeftUpLeg` x = 10) | `export_fbx_bin.py:3453-3463` · 스파이크 |
+| 축 | — | BVH `(x, y, z)` → UE `(x, z, y)`: BVH +Z 발끝 → UE +Y, `LeftUpLeg` +X 그대로. Vesper(`SKEL_UE5_F`)도 +Y 정면 · `thigh_l` +X → 회전 없이 같은 손잡이 | `inspect_skeleton details` |
+| Vesper 정면 | 지침서 부록 B "Vesper −Y 쪽" | **+Y** — 기준 포즈 `foot_l` (11.95, −3.45, 9.45) → `ball_l` (12.90, 8.26, 2.55). 키 171.45 cm | `inspect_skeleton details` |
+| 정면 회전 | 회전 적용이 루트 이동을 돌리는가 | 돌린다 — 180° 변환의 루트가 0 → −60 cm(0° 는 +60 cm), 발끝 −Y · `LeftUpLeg` x −10. BVH 위치 키가 기준 포즈 로컬 공간이라서 | `import_bvh.py:577-580` · report `root_path` |
+| BVH 기준 포즈 높이 | — | 루트 OFFSET 0 → 기준 포즈 골반 z = 0, 발 −98 cm. 리타기터 Pelvis Motion op 는 소스 골반 높이가 0 근처면 높이 1 로 두고 이동을 대상 높이배로 키운다 → 가장 낮은 점을 z = 0 으로 올리고 루트 위치 키에서 뺀다: 임포트 기준 포즈 골반 98 cm · 최저 0, 애니 골반 높이 98 cm 유지 | `PelvisMotionOp.cpp:183-196` · 스파이크 |
+| BVH 임포터 프레임 | `frame_start=0` 이면 키 0 부터 | 첫 키가 1(1 미만은 올림) — 0 기준이라고 보고 범위를 맞추면 첫 프레임이 겹치고 끝 프레임이 빠진다(60 cm 이동이 58 cm). 실제 첫 키 기준으로 옮겨 해결(범위 5~25 → 루트 −10 → −50 cm 정확) | 스파이크 |
+| 포즈 평가 갱신 | — | `Armature.transform` 뒤 태그 + `view_layer.update()` 가 없으면 포즈 평가가 이전 기준 포즈를 쓴다(내보낸 FBX 는 맞았고 측정만 틀림) | 스파이크 |
+| 자동 캐릭터라이즈 | BVH 이름은 템플릿 밖 | 합성 이름(Hips · LeftUpLeg · LeftToeBase · Spine · Head)은 **Mixamo 템플릿 57.7%** 로 통과 — 체인 Spine · Head · LeftLeg · RightLeg(골 2) | `inspect_skeleton.template_match` |
+| 원격 실행 | — | 이 에디터에서 Python 원격 실행(UDP 6766)이 노드를 찾지 못한다 — 측정은 플러그인 Tool 과 Blender report 로 한다 | `Tools/ue_exec.py` |
+| 임포트 리샘플 (CMU) | `sample_rate=30` 이면 Interchange 가 30 fps 로 굽는다 | CMU 01_01(2,752프레임 @ 120 fps = 22.925초)은 30 fps 로 687.75프레임 — 경계가 안 맞아 `CreateAnimSequenceFactoryNode` 가 애니를 건너뛴다(`bSnapToClosestFrameBoundary` 기본 false). 같은 FBX 를 `sample_rate` 0 으로는 2,752프레임 애니가 정상. 합성 BVH(1초 = 30프레임)는 경계라 통과했었다 → blender 가 범위 끝을 경계로 당긴다(끝 3프레임) | `InterchangeGenericAnimationPipeline.cpp:714-807` · 직접 임포트 비교 |
+| CMU 단위 | cm · m · inch 중 하나 | 기준 포즈 키 25.65 단위 — 어느 표준 단위로도 사람 키가 안 된다(CMU ASF 단위는 약 1/0.45 inch) → 170 cm 정규화(cm/단위 6.627, `SCALE_NORMALIZED`). 리타깃 상대 비가 모두 허용 범위라 동작 크기 영향은 없다 | 계획 · `validate_animation` |
+| CMU 정면 · 손잡이 | — | 발끝 +Z(BVH) → UE +Y, 편차 0.06° — Vesper 와 같아 회전 0. `LeftUpLeg` 쪽이 +X(UE)로 Vesper `thigh_l` 과 같은 쪽 | 계획 · 임포트 스켈레톤 |
+| CMU 자동 캐릭터라이즈 | 비표준 이름이라 실패 | **HumanIK / Motionbuilder 템플릿 64%** 로 성공 → 체인 없이도 리타깃 `PASSED_WITH_WARNINGS`. 수동 체인 9개(골반 `Hips`, `LHipJoint`·`RHipJoint` 제외)와 같은 판정 | `inspect_skeleton.template_match` · 통합 `auto` |
+| CMU 0번 프레임 | 첫 프레임부터 동작 | 0번 프레임은 회전 채널 73개 중 4개만 0 이 아닌 기준 포즈 → 1번 프레임에 179.8° 튐(소스 · 결과 모두, `ROTATION_JUMP_INHERITED`). `range.start` 로 빼면 최대 50.4°/프레임 · `PASSED` | BVH 데이터 · 통합 `trim` |
+| 소요 시간 (CMU) | — | Blender 4.4~5.5초(그중 FBX 내보내기 2.4초, 5.4 MB) · 임포트 1.2초 · 계획~저장 전체 9.8초 | report · 통합 |
 
 ---
 

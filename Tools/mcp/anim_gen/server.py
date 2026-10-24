@@ -83,18 +83,36 @@ def plan_motion_generation(request: dict) -> dict:
             reference_animations[] (explicit sources) | search{query, path_prefix, min_length, max_length, root_motion, loop, tags,
             limit}, edits{source?, operations[]} (anim-graph-mcp apply_animation_edits op dictionary), retarget{source_mesh?,
             existing_source_rig?, existing_target_rig?, existing_retargeter?, source_pelvis?, source_chains?, ops?,
-            source_facing? auto|keep|+X|-X|+Y|-Y (the UE axis the SOURCE faces; auto = measured from its reference pose)}, constraints{},
+            source_facing? auto|keep|+X|-X|+Y|-Y (the UE axis the SOURCE faces; auto = measured from its reference pose),
+            align_mode? per_bone|engine (default per_bone with ops match_existing: chains with matching bone counts copy rotations
+            one-to-one and the target pose is aligned bone-to-bone and at chain ends — create_ik_retargeter align_mode; engine = the
+            engine's auto-align only, the only choice with ops default)}, constraints{},
             generation_policy? (cannot escape a FREE_ONLY policy), provider ("auto" or a name — a name disables fallback),
             integrate_anim_bp, output_path (under GenerationOutputPaths), motion_file? (a .bvh path under ImportSourceRoots, or
             {path, unit auto|cm|m|mm|inch|<cm per unit>, facing auto|keep|+X|-X|+Y|-Y (UE axes; auto = the target skeleton's),
             range{start, end} seconds, axis_forward "-Z", axis_up "Y"} — puts the blender provider first: BVH → FBX in a headless
-            Blender subprocess, then import → retarget)}. `save` is a generate_motion argument.
+            Blender subprocess, then import → retarget), prompt? (the English sentence the local_ai model reads — YOU write it from the
+            user's words; description stays a record), generation?{seed? (omit → the plan pins one), samples 1-4, steps 10-1000 (100),
+            postprocess auto|on|off (Kimodo foot-skate cleanup), pick (which sample is retargeted), constraints[] — root_path{points[{t s,
+            forward_cm, left_cm, yaw_deg? (+ = turn left)}]} character-relative to the first frame | keep_pose{npz (a previous Kimodo
+            NPZ under ImportSourceRoots), times[] s, part full|left_hand|right_hand|left_foot|right_foot} (keep those poses, regenerate
+            the rest) | kimodo_raw{path (Kimodo constraints.json)}}}, review?{render{times[] s on the converted clip (0 = its first
+            frame) | count 1-12 (default 4, evenly spaced, first and last included), views front|side (both), reference_images[] (≤ 4
+            absolute .png/.jpg under ImportSourceRoots — an extra sheet column, the same image on every row)}} (rendered by the blender
+            convert step only), fix?{ops[{op, ...}]} (blender fix step — the op dictionary is empty in this phase, so any op excludes the
+            candidate with UNSUPPORTED_FIX_OP). `save` is a generate_motion argument.
 
     Read-only editor calls pin the chosen source, source mesh and edit preview into the plan (what you see is what runs). A retarget
     step pins the source and target facing (steps[].inputs.facing); differing facings are risk FACING_DIFFERS with the limitation
     FACING_ALIGNED (the retargeter turns them to match), unmeasurable ones FACING_UNKNOWN (not aligned). A motion_file
     plan pins the BVH header (joints with parents — propose retarget.source_chains from them if the auto IK rig fails), unit, facing
-    rotation and frame range. A blender job returns RUNNING; poll get_generation_status until it finishes.
+    rotation and frame range. A local_ai plan (NVIDIA Kimodo, ≤ 10 s, 30 fps) chains generate → blender convert (resolved when the
+    BVH exists) → import → retarget with SOMA chains; its job reports every sample's BVH/NPZ in diagnostics KIMODO_GENERATED
+    (reuse one with motion_file, or its NPZ in keep_pose). Blender and local_ai jobs return RUNNING; poll get_generation_status
+    until they finish. With review.render the blender step also writes front/side orthographic PNGs per time and one comparison
+    sheet (rows = times, columns = views + reference images) — Read them from job.review{frames[{time, frame, view, path}], sheet}.
+    They show the converted SOURCE skeleton (left blue, right red, thin amber root, green nose = facing, gray floor at z 0), not the
+    target character (limitation REVIEW_IS_SOURCE_SKELETON); a failed render does not fail the job (REVIEW_NOT_RENDERED).
     Returns plan_id, executable, request (normalized), policy{mode, effective_mode, paid_allowed}, candidates[{index, provider, role,
     chain[], steps[{step, provider, tool, inputs, resolved?}], paid, cost_known, estimated_cost_usd, needs_approval, risks[],
     expected_limitations[{code, message, source}]}], excluded[{provider, cause, reason, message}], final_asset. Show it to the user.
@@ -140,7 +158,8 @@ def generate_motion(plan_id: str, save: bool = False, retry: bool = False) -> di
     ok=true only when the job SUCCEEDED (or RUNNING for an asynchronous provider — poll get_generation_status). Waiting for approval →
     APPROVAL_REQUIRED (error.details.job); failure → the last cause (error.details.job.fallback_history). The job holds job_id, status,
     provider, chain, generated_assets[], reused_assets[], intermediate_assets[] (<output_path>/Work/<job_id>/), validation,
-    limitations[] (what is missing versus the request — always present for a fallback result), fallback_history[], cost, events[],
+    review (blender frame renders + sheet when requested), limitations[] (what is missing versus the request — always present for
+    a fallback result), fallback_history[], cost, events[],
     diagnostics[] (including the editor tools' own warnings, each with tool and step — e.g. LENGTH_SNAPPED from the import step).
     """
     return service.generate_motion(plan_id=plan_id, save=save, retry=retry)

@@ -55,6 +55,7 @@ class PlanContext:
     request: dict
     diagnostics: list
     settings: dict | None = None  # get_editor_status 결과 (generation.output_paths · import_source_roots) — 에디터가 없으면 None
+    policy: dict | None = None    # 계획 시점의 정책 (Provider 경로 · 의존 Provider 가용성)
 
 
 @dataclasses.dataclass

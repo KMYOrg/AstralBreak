@@ -684,7 +684,7 @@ def create_ik_rig(skeletal_mesh: str, asset_path: str | None = None, existing_ri
 @mcp.tool()
 def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, target_mesh: str, asset_path: str | None = None,
                          existing_retargeter: str | None = None, ops: str = "default", auto_align: bool = False,
-                         facing_yaw_deg: float = 0.0, save: bool = False) -> dict:
+                         align_mode: str = "engine", facing_yaw_deg: float = 0.0, save: bool = False) -> dict:
     """Create an IK Retargeter between two IK Rigs.
 
     Args:
@@ -693,9 +693,24 @@ def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, tar
         asset_path: New asset under GenerationOutputPaths. Required unless existing_retargeter.
         existing_retargeter: Reuse this retargeter (its rigs must be exactly source_rig/target_rig — RIG_MISMATCH otherwise).
         ops: "default" — engine default ops, every op's chains mapped by exact name. "match_existing" — the editor's
-            auto-retarget recipe (exact FK mapping, target retarget pose auto-aligned, Run IK Rig off, root motion op configured,
-            Pin Bones op with the template's pinned IK bones); the project's RTG_* assets were made this way.
+            auto-retarget recipe (target retarget pose auto-aligned, Run IK Rig off, root motion op configured, Pin Bones op with
+            the template's pinned IK bones); the project's RTG_* assets were made this way. Unlike the editor, every op's chains
+            are mapped by exact name — the editor leaves a fuzzy map on the disabled Run IK Rig op and auto-align follows it,
+            bending target chains the source lacks (fingers) toward look-alike chains (LeftIndex → LeftLeg).
         auto_align: default ops only — auto-align the target retarget pose to the source.
+        align_mode: "engine" — the engine's auto-align as is. "per_bone" (only with match_existing or auto_align, else
+            ALIGN_MODE_WITHOUT_ALIGN) — after it, the axial chains (mapped chains on the target's midline with no left/right
+            mirror: spine, neck, head — found geometrically from mirrored chain pairs in the target reference pose, a chain is axial
+            when every bone lies within a quarter of the innermost mirror pair's half-width) and the pelvis get the target reference
+            pose's global rotations turned only by the facing alignment, so the target keeps its own spine curve and neck tilt and
+            receives only the source's motion relative to the source reference pose (copying the source's reference-pose shape put
+            e.g. the CMU neck +20° back and the SOMA neck −27° forward against Vesper's own on every frame). Every mapped FK chain
+            whose source and target bone counts match copies rotations one-to-one (FK OneToOne; Interpolated blends neighbouring
+            source rotations when joints sit at different chain fractions, e.g. the elbow bends 0.87× for CMU → Vesper), and the
+            non-axial ones are aligned bone-to-bone to the matching source segment on the final torso; the end bone is aimed at the
+            starts of the mapped chains right below it (2+ spread landmarks: full frame incl. roll, the roll carried by the chain
+            parent); a non-axial single-bone chain with no mapped chain below it gets the same neutral rotation. Other single-bone
+            chains (clavicles, metacarpals) and template-excluded bones (feet) stay as the engine set them.
         facing_yaw_deg: Yaw (degrees about UE +Z) that turns the SOURCE's facing onto the TARGET's, e.g. source faces +X and
             target +Y → 90. FK chains copy global rotation deltas, so differently facing skeletons move in the wrong plane. Non-zero:
             the target root (bone 0) is turned by -yaw in the target retarget pose before auto-align, an Additive Pose op before the
@@ -703,13 +718,18 @@ def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, tar
             target root is the pelvis (FACING_NEEDS_ROOT).
         save: Save the new retargeter.
 
-    Returns asset_path, reused, ops_recipe, ops[{name, type, enabled, parent}], chain_mapping{target: source|null},
+    Returns asset_path, reused, ops_recipe, align_mode, ops[{name, type, enabled, parent}], chain_mapping{target: source|null},
     unmapped_target_chains[] (warning UNMAPPED_TARGET_CHAINS), pin_bones[], root_motion{}, retarget_poses{},
     facing_alignment{yaw_deg, target_root, restore_pose, op, op_index, enabled, consistent}|null (read from the asset; a reused
-    retargeter whose yaw differs warns FACING_MISMATCH_EXISTING), saved.
+    retargeter whose yaw differs warns FACING_MISMATCH_EXISTING), pose_alignment{mode, one_to_one_chains[], interpolated_chains[],
+    bones[{bone, deg}], chain_ends[{bone, landmarks[], fit, deg, residual_max_deg, twist_bone?, twist_deg?}],
+    axial{lateral_axis[3], tolerance_cm, mirror_pairs[[a, b]], chains[], pelvis|null} | {skipped_reason: NO_MIRROR_CHAINS},
+    neutral_bones[{bone, deg}] (pelvis, axial and neutral leaf bones), skipped[]}|null (per_bone only), saved.
     """
     params: dict = {"source_rig": source_rig, "target_rig": target_rig, "source_mesh": source_mesh, "target_mesh": target_mesh,
                     "ops": ops, "auto_align": auto_align, "save": save}
+    if align_mode != "engine":
+        params["align_mode"] = align_mode
     if facing_yaw_deg:
         params["facing_yaw_deg"] = facing_yaw_deg
     if asset_path:

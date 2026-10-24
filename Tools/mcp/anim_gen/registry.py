@@ -9,6 +9,7 @@ from .providers.base import Provider
 from .providers.blender import BlenderProvider
 from .providers.builtin import DirectKey, ExistingMotion, RetargetPipe
 from .providers.inactive import InactiveProvider
+from .providers.local_ai import KimodoProvider
 
 MANIFEST_FILE = pathlib.Path(__file__).with_name("providers.json")
 IMPLEMENTATIONS = {
@@ -16,7 +17,7 @@ IMPLEMENTATIONS = {
     "existing_motion": ExistingMotion,
     "direct_key": DirectKey,
     "blender": BlenderProvider,
-    "local_ai": InactiveProvider,
+    "local_ai": KimodoProvider,
     "external.meshy": InactiveProvider,
     "control_rig": InactiveProvider,
 }

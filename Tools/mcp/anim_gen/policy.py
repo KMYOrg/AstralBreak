@@ -33,10 +33,12 @@ SCHEMA = {
         "max_generation_attempts": ("int", 1, 10),
         "allow_fallback": ("bool",),
         "preserve_intermediate_results": ("bool",),
-        "subprocess_timeout_seconds": ("number", 10, 3600),  # 로컬 서브프로세스 단계(blender) — 넘으면 끝내고 GENERATION_FAILED TIMEOUT
+        "subprocess_timeout_seconds": ("number", 10, 3600),  # 로컬 서브프로세스 단계(blender · local_ai) — 넘으면 끝내고 GENERATION_FAILED TIMEOUT
     },
     "paths": {
         "blender_executable": ("str",),
+        "kimodo_python": ("str",),    # local_ai(Phase 5) — Kimodo 전용 venv 의 python.exe (Tools/mcp/.venv 와 따로)
+        "kimodo_hf_cache": ("str",),  # local_ai — 체크포인트 · 텍스트 인코더가 든 Hugging Face 캐시(HF_HUB_CACHE). 실행은 오프라인
     },
 }
 _FORBIDDEN = re.compile(r"(output|candidate_root|overwrite|api_key|apikey|token|secret|password)", re.IGNORECASE)

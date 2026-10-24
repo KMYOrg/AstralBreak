@@ -27,7 +27,7 @@ def test_idle_free_first_pins_source_and_previews_edits(service, fake):
     assert edit["step"] == "edit" and edit["preview"]["length"] == pytest.approx(1.3333)
     assert validate["step"] == "validate"
     assert "SEARCH_PICKED_TOP" in cand["risks"]
-    assert excluded(p) == {"local_ai": ("PROVIDER_UNAVAILABLE", "NOT_IMPLEMENTED"),
+    assert excluded(p) == {"local_ai": ("PROVIDER_UNAVAILABLE", "NOT_INSTALLED"),  # Phase 5 — conftest 가 Kimodo 경로를 없는 곳으로
                            "external.meshy": ("APPROVAL_REQUIRED", "PAID_API_DISABLED")}
     assert fake.count("preview_animation_edits") == 1
     assert not fake.writes  # 계획은 아무것도 만들지 않는다
@@ -139,6 +139,25 @@ def test_generated_motion_measures_facing_after_import(make_service, fake):
     assert "facing_yaw_deg" not in rtg
 
 
+def test_align_mode_defaults_per_bone_with_match_existing(service, fake):
+    """retarget.align_mode — match_existing 의 기본 per_bone(뼈 수 같은 체인 FK 1:1 + 본 대 본 정렬), default ops 는 engine 만."""
+    p = plan(service, reference_animations=[KATANA], search=None, edits=..., target_mesh=VESPER_MESH, retarget={"align_mode": "engine"})
+    assert p["candidates"][0]["steps"][1]["inputs"]["align_mode"] == "engine"
+    p = plan(service, reference_animations=[KATANA], search=None, edits=..., target_mesh=VESPER_MESH, retarget={"ops": "default"})
+    assert p["candidates"][0]["steps"][1]["inputs"]["align_mode"] == "engine"
+    for bad, reason in (({"align_mode": "chain"}, None), ({"ops": "default", "align_mode": "per_bone"}, "ALIGN_MODE_WITHOUT_ALIGN")):
+        env = service.plan_motion_generation(request=request(reference_animations=[KATANA], search=None, edits=..., target_mesh=VESPER_MESH, retarget=bad))
+        assert not env["ok"] and env["error"]["details"]["field"] == "retarget.align_mode"
+        if reason:
+            assert env["error"]["details"]["reason"] == reason
+    p = plan(service, reference_animations=[KATANA], search=None, edits=..., target_mesh=VESPER_MESH)
+    assert p["candidates"][0]["steps"][1]["inputs"]["align_mode"] == "per_bone"
+    env = service.generate_motion(plan_id=p["plan_id"])
+    assert env["ok"], env["error"]
+    [(_, rtg)] = [(t, q) for t, q in fake.writes if t == "create_ik_retargeter"]
+    assert (rtg["ops"], rtg["align_mode"]) == ("match_existing", "per_bone")
+
+
 def test_retarget_without_target_mesh_is_excluded(service):
     p = plan(service, reference_animations=[KATANA], search=None, edits=...)
     assert not p["executable"]
@@ -239,8 +258,10 @@ def test_list_motion_providers_reports_state_without_key_values(service, monkeyp
     assert providers["external.meshy"]["state"]["auth"] == {"env": "MESHY_API_KEY", "present": True}
     assert providers["external.meshy"]["pricing"] == "unconfirmed"
     assert providers["retarget"]["role"] == "pipe" and providers["existing_motion"]["state"]["available"]
-    for name in ("local_ai", "external.meshy", "control_rig"):
+    for name in ("external.meshy", "control_rig"):
         assert providers[name]["state"]["unavailable_reason"]["reason"] == "NOT_IMPLEMENTED"
-    # Phase 4: 구현됐지만 정책의 실행 파일이 없다(conftest 가 없는 경로를 준다)
-    assert providers["blender"]["state"]["implemented"] and providers["blender"]["state"]["unavailable_reason"]["reason"] == "NOT_INSTALLED"
+    # Phase 4 · 5: 구현됐지만 정책의 실행 파일이 없다(conftest 가 없는 경로를 준다)
+    for name in ("blender", "local_ai"):
+        assert providers[name]["state"]["implemented"] and providers[name]["state"]["unavailable_reason"]["reason"] == "NOT_INSTALLED"
+    assert providers["local_ai"]["capabilities"]["license"] == "ok" and providers["local_ai"]["capabilities"]["max_duration_seconds"] == 10
     assert {p["name"] for p in service.list_motion_providers(include_inactive=False)["result"]["providers"]} == {"retarget", "existing_motion", "direct_key"}

@@ -1,77 +1,60 @@
 """blender Provider — headless Blender 로 BVH → FBX (지침서 §4 · §14 Phase 4).
 
 계획: BVH 헤더를 Python 으로 읽어(bvh.py) 단위 · 정면 회전 · 범위 · fps 를 정하고 계획에 고정한다 — Blender 를 띄우지 않는다.
-실행: blender -b --factory-startup -P anim_gen/blender/bvh_to_fbx.py -- args.json 을 Popen 으로 띄우고 pending 핸들을 돌려준다.
-게임 스레드 · 백그라운드 스레드 없이 get_generation_status 의 poll 이 끝났는지 본다(§3.4 · §16-14). 출력은 ini ImportSourceRoots
-아래만(<첫 루트>/Blender/<job_id>/A<n>/) — 그 FBX 를 retarget 파이프의 import 단계가 받는다. 취소하면 프로세스를 끝낸다
-(로컬 프로세스라 실제로 멈춘다 — 외부 API 의 '결과 무시'와 다르다). 자식 프로세스는 stdin 을 막고 출력을 로그 파일로 보낸다
-(anim-gen-mcp 는 stdio MCP 라 상속하면 프로토콜이 깨진다).
+실행: blender -b --factory-startup -P anim_gen/blender/bvh_to_fbx.py -- args.json 을 Popen 으로 띄우고 pending 핸들을 돌려준다
+(서브프로세스 공통 — subprocess_step.py). 출력은 ini ImportSourceRoots 아래만(<첫 루트>/Blender/<job_id>/A<n>/) — 그 FBX 를
+retarget 파이프의 import 단계가 받는다.
+
+생성 Provider 의 BVH(Phase 5 local_ai): 계획 때 파일이 아직 없다 → plan_convert_generated 가 그 Provider 가 아는 값(단위 · 정면 ·
+관절 수)을 '예상'으로 고정하고, 실행 때 앞 단계 결과 파일로 같은 규칙(resolve)을 돌려 다르면 진단으로 남긴다.
+
+프레임 렌더 비교(Phase 5 review.render): 같은 Blender 실행이 FBX 를 내보낸 뒤 (시각 × 뷰) PNG 와 비교 시트 한 장을 <시도 폴더>/frames/ 에
+쓴다(blender/review_render.py). 보이는 것은 변환된 소스 골격(기둥 더미 메시)이지 Vesper 가 아니다(REVIEW_IS_SOURCE_SKELETON).
+렌더가 실패해도 변환은 성공이다(REVIEW_NOT_RENDERED). 보정 단계(fix.ops)는 자리만 — op 사전(FIX_OPS)이 비어 있어 op 가 오면 계획에서 막는다.
 """
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 import pathlib
 import re
-import subprocess
-import time
 
 from .. import bvh
 from ..editor import EditorCallError
 from ..envelope import AnimGenError, diag, limitation
 from ..fallback import from_editor_error
-from ..store import PROJECT_DIR
-from .base import PlanBlocked, PlanContext, Provider, RunContext, StepFailed, StepResult
+from ..request import MOTION_FILE_DEFAULTS
+from .base import PlanBlocked, PlanContext, RunContext, StepFailed, StepResult
+from .subprocess_step import SubprocessProvider, child_env, file_sha256, import_roots, is_under
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "blender" / "bvh_to_fbx.py"
 PACKAGE_DIR = pathlib.Path(__file__).resolve().parents[2]
-DEFAULT_TIMEOUT_S = 300
 FPS_SNAP = 0.05           # 120.0048 fps(Frame Time 0.008333) 같은 반올림 오차는 정수 fps 로 맞춘다
-LOG_TAIL_LINES = 3
 PROXY_MESH = {"min_width_cm": 0.5, "width_ratio": 0.08}
-_SECRET_ENV = re.compile(r"(API_KEY|APIKEY|TOKEN|SECRET|PASSWORD)", re.IGNORECASE)
+# 렌더 비교 설정 — 셀 높이 고정, 폭은 포즈 범위 비율(최대 max_aspect 배). 범위는 전 프레임(최대 bounds_max_samples 개를 고르게).
+# 시트는 긴 변 sheet_max_px 안으로 줄인다(12행 × 뷰 2 + 레퍼런스 4 면 원래 4344 × 6222 · 10.7 MB — 프레임 PNG 는 원래 크기 그대로)
+REVIEW_RENDER = {"cell_height_px": 512, "max_aspect": 2.0, "margin": 0.08, "bounds_max_samples": 600, "sheet_max_px": 3000}
+# 보정 op 사전: 이름 → 인자 검사(계획 때, 틀리면 PlanBlocked). 실행은 bvh_to_fbx.py 의 FIX_OPS 에 같은 이름의 함수.
+# Phase 5 는 자리만 — 비어 있다(발 고정 · 스무딩 … 은 Phase 8 에서 하나씩 끼운다)
+FIX_OPS: dict = {}
 _NAME = re.compile(r"[^A-Za-z0-9_]")
+_TOOL = "blender -b -P anim_gen/blender/bvh_to_fbx.py"
 
 
-def import_roots(settings: dict | None) -> list[pathlib.Path]:
-    """get_editor_status.generation.import_source_roots — ini 가 유일한 기준(§3.1-6). 상대 경로는 프로젝트 기준."""
-    raw = ((settings or {}).get("generation") or {}).get("import_source_roots") or []
-    return [p if p.is_absolute() else PROJECT_DIR / p for p in map(pathlib.Path, raw)]
+def review_limitation() -> dict:
+    return limitation("REVIEW_IS_SOURCE_SKELETON", "프레임 렌더 비교(review.render)는 변환된 소스 골격(본마다 기둥 더미 메시)이다 — Vesper 의 모습이 "
+                      "아니다. 리타깃 결과는 Persona · PIE 에서 보고, Vesper 캡처는 Phase 8", "provider")
 
 
-def is_under(path: str | os.PathLike, root: str | os.PathLike) -> bool:
-    a, b = os.path.normcase(os.path.abspath(path)), os.path.normcase(os.path.abspath(root))
-    try:
-        return os.path.commonpath([a, b]) == b
-    except ValueError:  # 다른 드라이브
-        return False
+def spread(count: int, duration: float | None) -> list[float]:
+    """count 개 시각을 클립에 고르게 — 첫 · 끝 프레임 포함."""
+    if count == 1 or not duration:
+        return [0.0]
+    return [round(i * duration / (count - 1), 4) for i in range(count)]
 
 
-def file_sha256(path: pathlib.Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def child_env() -> dict:
-    """키 · 토큰 이름의 환경 변수는 넘기지 않는다(§16-16 — Blender 는 필요 없다)."""
-    return {k: v for k, v in os.environ.items() if not _SECRET_ENV.search(k)}
-
-
-def launch(cmd: list[str], **kwargs):
-    """실제 서브프로세스 — 테스트는 Provider 에 popen 을 주거나 이 함수를 막는다."""
-    return subprocess.Popen(cmd, **kwargs)
-
-
-class BlenderProvider(Provider):
-    def __init__(self, manifest: dict, *, popen=None, clock=None):
-        super().__init__(manifest)
-        self._popen = popen
-        self._clock = clock or time.time
-        self._procs: dict[str, object] = {}   # 출력 폴더 → Popen. 이 서버 프로세스 안에서만 — 다시 뜨면 report 파일로 판정한다
+class BlenderProvider(SubprocessProvider):
+    label = "Blender"
+    exit_prefix = "BLENDER"
 
     @staticmethod
     def executable(policy: dict | None) -> str | None:
@@ -89,7 +72,7 @@ class BlenderProvider(Provider):
             raise PlanBlocked("UNSUPPORTED_REQUEST", "MISSING_INPUT", "blender converts request.motion_file (a .bvh under ImportSourceRoots) — none given",
                               missing=["motion_file"])
         try:
-            resolved = self.resolve(request, pctx.settings, pctx.editor if pctx.editor_ok else None)
+            resolved = self.resolve(mf, request, pctx.settings, pctx.editor if pctx.editor_ok else None)
         except StepFailed as failed:
             raise PlanBlocked(failed.cause, failed.reason, failed.message, editor_error=failed.editor_error)
         risks = []
@@ -107,13 +90,64 @@ class BlenderProvider(Provider):
             pctx.diagnostics.append(diag("info", "RANGE_ALIGNED", f"last {rng['trimmed_frames']} source frame(s) dropped so the clip ends on a "
                                          f"{rng['aligned_to']:g} fps frame — keeps the source frames exact (Interchange would otherwise "
                                          "snap the length by up to half a frame, LENGTH_SNAPPED)"))
-        return {"step": "convert", "provider": self.name, "tool": "blender -b -P anim_gen/blender/bvh_to_fbx.py", "inputs": dict(mf),
-                "resolved": resolved, "risks": risks, "expected_limitations": self.limitations(resolved), "sample_rate": resolved["sample_rate"],
+        review = self.plan_review(request, pctx.settings, rng["duration"])
+        self.check_fix(request)
+        return {"step": "convert", "provider": self.name, "tool": _TOOL, "inputs": {**mf, "review": review, "fix": request["fix"]},
+                "resolved": resolved, "risks": risks, "sample_rate": resolved["sample_rate"],
+                "expected_limitations": self.limitations(resolved) + ([review_limitation()] if review else []),
                 "measured": {"length": rng["duration"], "frame_rate": resolved["sample_rate"] or resolved["fps"]["output"]}}
 
-    def resolve(self, request: dict, settings: dict | None, editor) -> dict:
+    def plan_convert_generated(self, request: dict, expected: dict, pctx: PlanContext | None = None) -> dict:
+        """앞 단계(생성)가 만들 BVH 의 변환 — 파일이 아직 없으니 생성 Provider 가 아는 값만 '예상'으로 고정하고 실행 때 정한다.
+
+        expected: {unit, facing, joints, fps, frames} — unit 은 motion_file.unit 으로 그대로 쓰고, 나머지는 실행 때 잰 값과 비교한다.
+        """
+        mf = {**MOTION_FILE_DEFAULTS, "unit": expected.get("unit", "auto")}
+        rate = request["frame_rate"]
+        # 생성 fps 와 같으면 리샘플하지 않는다. 다르면 실행 때 범위를 그 rate 의 경계에 맞추고 import 가 그 값으로 굽는다(값은 앞 단계 결과로)
+        sample_rate = rate if rate and expected.get("fps") and abs(rate - expected["fps"]) > 0.01 else None
+        frames, fps = expected.get("frames"), expected.get("fps")
+        review = self.plan_review(request, pctx.settings if pctx else None, (frames - 1) / fps if frames and fps else None)
+        self.check_fix(request)
+        step = {"step": "convert", "provider": self.name, "tool": _TOOL,
+                "inputs": {**mf, "path": None, "from_step": "generate", "review": review, "fix": request["fix"]},
+                "resolved": None, "expected": dict(expected), "risks": ["CONVERT_RESOLVED_AT_RUN"], "sample_rate": sample_rate}
+        if review:
+            step["expected_limitations"] = [review_limitation()]
+        return step
+
+    def plan_review(self, request: dict, settings: dict | None, duration: float | None) -> dict | None:
+        """review.render → 렌더할 시각(초, 변환된 클립 기준) · 뷰 · 레퍼런스 이미지. count 는 지금 펼쳐 보여 주고 실행 때 잰 길이로 다시 펼친다.
+        이미지는 루트 · 존재만 본다(디코딩은 Blender). duration 을 모르면(계획 때 길이 미상) 시각 범위는 실행 때 Blender 가 끝 프레임으로 자른다."""
+        render = (request.get("review") or {}).get("render")
+        if render is None:
+            return None
+        times = list(render["times"]) if render["times"] is not None else spread(render["count"], duration)
+        late = [t for t in times if duration is not None and t > duration + 1e-6]
+        if late:
+            raise PlanBlocked("UNSUPPORTED_REQUEST", "REVIEW_TIME_OUT_OF_RANGE", f"review.render.times {late} are past the end of the converted clip "
+                              f"({duration:g}s)", duration=duration)
+        refs = []
+        for path in map(pathlib.Path, render["reference_images"]):
+            self.check_root(path, settings, "reference images")
+            if not path.is_file():
+                raise PlanBlocked("UNSUPPORTED_REQUEST", "FILE_NOT_FOUND", f"review.render.reference_images: no file at {path.as_posix()}")
+            refs.append(path.as_posix())
+        return {"times": times, "count": render["count"], "views": list(render["views"]), "reference_images": refs}
+
+    @staticmethod
+    def check_fix(request: dict) -> None:
+        """fix.ops 를 op 사전으로 검사 — 모르는 op 가 하나라도 있으면 이 후보를 막는다(무시하고 변환하지 않는다)."""
+        ops = (request.get("fix") or {}).get("ops") or []
+        unknown = [o["op"] for o in ops if o["op"] not in FIX_OPS]
+        if unknown:
+            raise PlanBlocked("UNSUPPORTED_REQUEST", "UNSUPPORTED_FIX_OP", f"fix ops {unknown} are not available — the blender fix dictionary is "
+                              f"{sorted(FIX_OPS) or 'empty in this phase (foot lock, smoothing … are Phase 8)'}", ops=unknown, available=sorted(FIX_OPS))
+        for op in ops:
+            FIX_OPS[op["op"]](op)
+
+    def resolve(self, mf: dict, request: dict, settings: dict | None, editor) -> dict:
         """BVH → 계획에 고정할 값. settings 가 없으면 루트 검사를, editor 가 없으면 대상 정면 측정을 미룬다."""
-        mf = request["motion_file"]
         path = pathlib.Path(mf["path"])
         if path.suffix.lower() != ".bvh":
             raise PlanBlocked("UNSUPPORTED_REQUEST", "UNSUPPORTED_FORMAT", f"blender converts .bvh — got '{path.suffix or path.name}'")
@@ -137,12 +171,12 @@ class BlenderProvider(Provider):
                 "name": "BVH_" + _NAME.sub("_", path.stem)}
 
     @staticmethod
-    def check_root(path: pathlib.Path, settings: dict | None) -> None:
+    def check_root(path: pathlib.Path, settings: dict | None, what: str = "the motion file") -> None:
         if settings is None:
             return
         roots = import_roots(settings)
         if not any(is_under(path, root) for root in roots):
-            raise AnimGenError("IMPORT_SOURCE_NOT_ALLOWED", f"{path.as_posix()} is outside [AnimGraphMcp] ImportSourceRoots — put the motion file under one",
+            raise AnimGenError("IMPORT_SOURCE_NOT_ALLOWED", f"{path.as_posix()} is outside [AnimGraphMcp] ImportSourceRoots — put {what} under one",
                                reason="OUTSIDE_IMPORT_ROOTS", allowed=[r.as_posix() for r in roots])
 
     @staticmethod
@@ -183,6 +217,20 @@ class BlenderProvider(Provider):
                                   "motion_file.facing 에 대상 축을 주거나 keep", "provider", source_axis=facing["source"], target_axis=facing["target"]))
         return out
 
+    @staticmethod
+    def unexpected(resolved: dict, expected: dict) -> list[str]:
+        """생성 Provider 가 예상한 값과 실행 때 잰 값의 차이 — 다르면 그 Provider 의 출력 규약이 바뀐 것이다."""
+        out = []
+        if expected.get("unit") not in (None, "auto") and resolved["unit"]["normalized"]:
+            out.append(f"unit normalized (expected {expected['unit']})")
+        if expected.get("facing") and resolved["facing"]["source"] != expected["facing"]:
+            out.append(f"faces {resolved['facing']['source']} (expected {expected['facing']})")
+        if expected.get("joints") and resolved["bvh"]["joint_count"] != expected["joints"]:
+            out.append(f"{resolved['bvh']['joint_count']} joints (expected {expected['joints']})")
+        if expected.get("fps") and abs(resolved["fps"]["output"] - expected["fps"]) > 0.01:
+            out.append(f"{resolved['fps']['output']} fps (expected {expected['fps']})")
+        return out
+
     # ---- 실행 ----
     def run(self, ctx: RunContext) -> StepResult:
         exe = self.executable(ctx.policy)
@@ -192,42 +240,67 @@ class BlenderProvider(Provider):
         if settings is None:
             raise StepFailed("PROVIDER_UNAVAILABLE", "EDITOR", "Editor unreachable — import roots come from get_editor_status and the next steps need it",
                              fatal=True)
-        resolved = self._resolve_at_run(ctx, settings)
+        mf, resolved = self._resolve_at_run(ctx, settings)
+        notes = []
+        if ctx.step.get("expected"):
+            off = self.unexpected(resolved, ctx.step["expected"])
+            if off:
+                notes.append(diag("warning", "GENERATED_BVH_UNEXPECTED", f"{pathlib.Path(resolved['file']).name}: {'; '.join(off)} — converted with the measured values"))
         out_dir = import_roots(settings)[0] / "Blender" / ctx.job_id / f"A{ctx.attempt}"
         out_dir.mkdir(parents=True, exist_ok=True)
-        paths = {name: out_dir / file for name, file in (("fbx", f"{resolved['name']}.fbx"), ("report", "report.json"), ("log", "blender.log"),
-                                                          ("args", "args.json"))}
+        # rest_fbx — 첫 프레임이 기준 포즈인 FBX: 스켈레톤은 이것으로 만든다(bvh_to_fbx.export_rest_fbx — 깊은 본이 있으면 Interchange 가
+        # 바인드 포즈를 무효로 보고 애니 첫 프레임을 기준 포즈로 삼는다)
+        paths = {name: out_dir / file for name, file in (("fbx", f"{resolved['name']}.fbx"), ("rest_fbx", f"{resolved['name']}_Rest.fbx"),
+                                                          ("report", "report.json"), ("log", "blender.log"), ("args", "args.json"))}
         paths["report"].unlink(missing_ok=True)  # 같은 시도 폴더의 이전 report 가 '끝남'으로 읽히지 않게
-        mf = ctx.request["motion_file"]
-        args = {"bvh": resolved["file"], "fbx": paths["fbx"].as_posix(), "report": paths["report"].as_posix(), "cm_per_unit": resolved["unit"]["cm_per_unit"],
+        inputs = ctx.step["inputs"]
+        args = {"bvh": resolved["file"], "fbx": paths["fbx"].as_posix(), "rest_fbx": paths["rest_fbx"].as_posix(), "report": paths["report"].as_posix(),
+                "cm_per_unit": resolved["unit"]["cm_per_unit"],
                 "axis_forward": mf["axis_forward"], "axis_up": mf["axis_up"], "rotate_z_deg": resolved["facing"]["rotate_z_deg"],
                 "first": resolved["range"]["first"], "last": resolved["range"]["last"], "fps": resolved["fps"]["output"], "proxy_mesh": PROXY_MESH,
+                "fix": list((inputs.get("fix") or {}).get("ops") or []),
+                "review": self._review_args(inputs.get("review"), resolved, settings, out_dir / "frames", notes),
                 "package_dir": PACKAGE_DIR.as_posix()}
         paths["args"].write_text(json.dumps(args, ensure_ascii=False, indent=1), encoding="utf-8")
         cmd = [exe, "-b", "--factory-startup", "--python-exit-code", "3", "-P", str(SCRIPT), "--", str(paths["args"])]
-        kwargs = {"stdin": subprocess.DEVNULL, "stderr": subprocess.STDOUT, "cwd": str(out_dir), "env": child_env()}
-        if os.name == "nt":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        with paths["log"].open("wb") as log:
-            try:
-                proc = (self._popen or launch)(cmd, stdout=log, **kwargs)
-            except OSError as exc:
-                raise StepFailed("PROVIDER_UNAVAILABLE", "LAUNCH_FAILED", f"could not start Blender: {exc}") from None
-        timeout = float(((ctx.policy or {}).get("execution") or {}).get("subprocess_timeout_seconds", DEFAULT_TIMEOUT_S))
-        started = self._clock()
-        handle = {"pid": proc.pid, "started_at": started, "deadline": started + timeout, "timeout_s": timeout, "dir": out_dir.as_posix(),
-                  **{name: p.as_posix() for name, p in paths.items()},
-                  "resolved": {k: resolved[k] for k in ("file", "sha256", "unit", "range", "fps", "facing", "name")},
-                  "joint_count": resolved["bvh"]["joint_count"]}
-        self._procs[handle["dir"]] = proc
+        handle = self.start(cmd, out_dir, paths["log"], ctx.policy, child_env(),
+                            **{name: p.as_posix() for name, p in paths.items() if name != "log"},
+                            resolved={k: resolved[k] for k in ("file", "sha256", "unit", "range", "fps", "facing", "name", "sample_rate")},
+                            joint_count=resolved["bvh"]["joint_count"], deferred=bool(inputs.get("from_step")), notes=notes,
+                            review_requested=args["review"] is not None)
         return StepResult(pending=handle)
 
-    def _resolve_at_run(self, ctx: RunContext, settings: dict) -> dict:
-        """계획 값을 그대로 쓰되, 파일이 바뀌었으면 멈춘다. 계획 때 에디터가 없어 못 정한 값(루트 · 대상 정면)은 지금 정한다."""
+    def _review_args(self, review: dict | None, resolved: dict, settings: dict, frames_dir: pathlib.Path, notes: list[dict]) -> dict | None:
+        """계획의 review → Blender 인자. count 는 지금 잰 길이로 다시 펼친다(생성 BVH 는 계획 때 길이가 예상값). 계획 뒤 사라진 레퍼런스는 빼고 알린다."""
+        if not review:
+            return None
+        times = review["times"] if review.get("count") is None else spread(review["count"], resolved["range"]["duration"])
+        refs = []
+        for path in map(pathlib.Path, review["reference_images"]):
+            try:
+                self.check_root(path, settings, "reference images")
+            except AnimGenError as err:
+                raise StepFailed(err.code, err.reason, err.message, fatal=True) from None
+            if path.is_file():
+                refs.append(path.as_posix())
+            else:
+                notes.append(diag("warning", "REVIEW_REFERENCE_MISSING", f"{path.as_posix()} is gone since planning — left out of the sheet"))
+        return {"times": times, "views": review["views"], "reference_images": refs, "dir": frames_dir.as_posix(), **REVIEW_RENDER}
+
+    def _resolve_at_run(self, ctx: RunContext, settings: dict) -> tuple[dict, dict]:
+        """계획 값을 그대로 쓰되, 파일이 바뀌었으면 멈춘다. 계획 때 에디터가 없어 못 정한 값(루트 · 대상 정면)과
+        생성 결과 파일(from_step — 앞 단계 values.file)은 지금 정한다."""
+        inputs = ctx.step["inputs"]
         planned = ctx.step.get("resolved")
+        if inputs.get("from_step"):
+            mf = {**{k: inputs[k] for k in MOTION_FILE_DEFAULTS if k in inputs}, "path": ctx.values.get("file")}
+            if not mf["path"]:
+                raise StepFailed("GENERATION_FAILED", "NO_OUTPUT", f"the {inputs['from_step']} step left no motion file to convert")
+        else:
+            mf = ctx.request["motion_file"]
         try:
             if planned is None or not planned["facing"]["resolved"]:
-                resolved = self.resolve(ctx.request, settings, ctx.editor)
+                resolved = self.resolve(mf, ctx.request, settings, ctx.editor)
             else:
                 path = pathlib.Path(planned["file"])
                 self.check_root(path, settings)
@@ -241,77 +314,59 @@ class BlenderProvider(Provider):
         if planned is not None and resolved["sha256"] != planned["sha256"]:
             raise StepFailed("UNSUPPORTED_REQUEST", "FILE_CHANGED", f"{planned['file']} changed after planning — plan again (what was shown is what runs)",
                              fatal=True)
-        return resolved
+        return mf, resolved
 
     def poll(self, ctx: RunContext, handle: dict) -> StepResult | None:
-        key = handle["dir"]
-        proc = self._procs.get(key)
-        code = proc.poll() if proc is not None else None
-        if proc is not None and code is None:
-            if self._clock() > handle["deadline"]:
-                self._stop(key)
-                raise StepFailed("GENERATION_FAILED", "TIMEOUT", f"Blender ran over {handle['timeout_s']:.0f}s and was stopped{self._tail(handle)}")
-            return None
-        report = _read_json(handle["report"])
-        if proc is None and report is None:
-            # 서버가 다시 떴다 — 이 프로세스의 핸들이 없어 끝났는지는 report 로만 안다
-            if self._clock() <= handle["deadline"]:
-                return None
-            raise StepFailed("GENERATION_FAILED", "TIMEOUT", f"no Blender report by the deadline and the process (pid {handle['pid']}) is not tracked "
-                             f"after a server restart — it was not stopped{self._tail(handle)}")
-        self._procs.pop(key, None)
+        report = self.await_report(handle)
         if report is None:
-            raise StepFailed("GENERATION_FAILED", f"BLENDER_EXIT_{code}", f"Blender exited ({code}) without a report{self._tail(handle)}")
+            return None
         if not report.get("ok"):
             error = report.get("error") or {}
-            raise StepFailed("GENERATION_FAILED", error.get("code") or "BLENDER_FAILED", f"bvh_to_fbx: {error.get('message')}{self._tail(handle)}")
-        if not pathlib.Path(handle["fbx"]).is_file():
-            raise StepFailed("GENERATION_FAILED", "NO_OUTPUT", f"Blender reported success but {handle['fbx']} is missing{self._tail(handle)}")
+            raise StepFailed("GENERATION_FAILED", error.get("code") or "BLENDER_FAILED", f"bvh_to_fbx: {error.get('message')}{self.tail(handle)}")
+        for key in ("fbx",) + (("rest_fbx",) if report.get("rest_fbx") else ()):
+            if not pathlib.Path(handle[key]).is_file():
+                raise StepFailed("GENERATION_FAILED", "NO_OUTPUT", f"Blender reported success but {handle[key]} is missing{self.tail(handle)}")
         return self._result(handle, report)
 
     def _result(self, handle: dict, report: dict) -> StepResult:
         resolved = handle["resolved"]
         converted = {k: report.get(k) for k in ("blender", "bones", "roots", "rest_height_cm", "ground_lift_cm", "rotate_z_deg", "frames",
-                                                 "root_path", "fbx_bytes", "seconds")}
+                                                 "root_path", "fbx_bytes", "fix", "seconds")}
         converted["facing"] = (report.get("facing") or {}).get("axis")
-        diagnostics = [diag("info", "BLENDER_CONVERTED", f"{pathlib.Path(resolved['file']).name} → {pathlib.Path(handle['fbx']).name}: "
-                            f"{report.get('bones')} bones, {(report.get('frames') or {}).get('keys')} keys, {report.get('seconds')}s")]
+        diagnostics = list(handle.get("notes") or [])
+        diagnostics.append(diag("info", "BLENDER_CONVERTED", f"{pathlib.Path(resolved['file']).name} → {pathlib.Path(handle['fbx']).name}: "
+                                f"{report.get('bones')} bones, {(report.get('frames') or {}).get('keys')} keys, {report.get('seconds')}s"))
         target = resolved["facing"].get("target")
         if target and converted["facing"] != target:
             diagnostics.append(diag("warning", "FACING_MISMATCH", f"converted skeleton faces {converted['facing']}, the target faces {target}"))
         if report.get("bones") != handle["joint_count"]:
             diagnostics.append(diag("warning", "BONE_COUNT_MISMATCH", f"{report.get('bones')} bones from {handle['joint_count']} BVH joints"))
-        return StepResult(values={"file": handle["fbx"], "converted": converted}, limitations=self.limitations(resolved), diagnostics=diagnostics)
-
-    def cancel(self, handle: dict) -> dict | None:
-        pid = handle.get("pid")
-        if handle.get("dir") not in self._procs:
-            return {"stopped": False, "reason": "NOT_TRACKED", "pid": pid}
-        return {"stopped": self._stop(handle["dir"]), "pid": pid}
-
-    def _stop(self, key: str) -> bool:
-        proc = self._procs.pop(key, None)
-        if proc is None or proc.poll() is not None:
-            return False
-        proc.kill()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            pass
-        return True
+        values = {"file": handle["fbx"], "converted": converted}
+        if report.get("rest_fbx"):
+            # import 단계가 이 파일로 스켈레톤 · 메시를 만들고 동작은 그 스켈레톤에 애니만 가져온다
+            values["rest_file"] = handle["rest_fbx"]
+        if handle.get("deferred"):
+            # 생성 결과의 변환 — 임포트 리샘플 rate 는 지금 정한 값(계획 때는 파일이 없었다)
+            values["sample_rate"] = resolved.get("sample_rate")
+        limitations = self.limitations(resolved)
+        if handle.get("review_requested"):
+            self._review_result(handle, report, values, limitations, diagnostics)
+        return StepResult(values=values, limitations=limitations, diagnostics=diagnostics)
 
     @staticmethod
-    def _tail(handle: dict) -> str:
-        try:
-            lines = [ln for ln in pathlib.Path(handle["log"]).read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
-        except OSError:
-            return f" (log: {handle['log']})"
-        tail = " | ".join(lines[-LOG_TAIL_LINES:])
-        return f" (log: {handle['log']}{' — ' + tail if tail else ''})"
-
-
-def _read_json(path: str) -> dict | None:
-    try:
-        return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    def _review_result(handle: dict, report: dict, values: dict, limitations: list[dict], diagnostics: list[dict]) -> None:
+        """report.review → values.review{frames[], sheet, …}(Job 의 review 로도 남는다). 렌더 실패는 변환 실패가 아니다 — 한계로 남긴다."""
+        review = report.get("review") or {}
+        if not review.get("ok"):
+            error = review.get("error") or {"code": "NO_REVIEW", "message": "the report has no review"}
+            diagnostics.append(diag("warning", "REVIEW_RENDER_FAILED", f"{error.get('code')}: {error.get('message')} — the FBX is fine, the frames were "
+                                    f"not rendered{SubprocessProvider.tail(handle)}"))
+            limitations.append(limitation("REVIEW_NOT_RENDERED", f"프레임 렌더 비교가 실패했다({error.get('code')}) — 변환 · 리타깃은 그대로 진행했다", "provider",
+                                          reason=error.get("code")))
+            return
+        values["review"] = {"shows": "source_skeleton", **{k: review.get(k) for k in ("frames", "sheet", "layout", "colors", "camera", "seconds")}}
+        diagnostics.append(diag("info", "BLENDER_REVIEW_RENDERED", f"{len(review.get('frames') or [])} frame image(s) + sheet {review.get('sheet')} in "
+                                f"{review.get('seconds')}s ({report.get('seconds')}s with the conversion, timeout {handle.get('timeout_s', 0):.0f}s) — the "
+                                f"converted SOURCE skeleton ({review.get('colors', {}).get('legend')}), not Vesper", sheet=review.get("sheet"),
+                                frames=[f["path"] for f in review.get("frames") or []]))
+        limitations.append(review_limitation())

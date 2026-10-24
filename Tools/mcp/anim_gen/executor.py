@@ -250,6 +250,9 @@ class Executor:
                 if asset not in job[bucket]:
                     job[bucket].append(asset)
             job["diagnostics"] += result.diagnostics
+            if "review" in result.values:
+                # 변환 단계의 프레임 렌더 비교 — 뒤 단계가 실패하거나 폴백해도 Job 에 남긴다(무엇이 변환됐는지 보는 근거)
+                job["review"] = result.values["review"]
         self.store.update_job(job_id, mutate)
 
     def _validate(self, request: dict, values: dict) -> None:

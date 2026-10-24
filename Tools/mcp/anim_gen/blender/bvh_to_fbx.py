@@ -14,6 +14,11 @@ args.json 에 넣고, 여기서는 적용만 한다. 결과는 report.json(임�
   InterchangeGenericAnimationPipeline.cpp) → 본마다 가중치 1.0 인 가는 기둥 메시를 붙인다(Persona 에서 막대 인형으로 보인다).
 - 정면 회전은 회전만 적용한다 — 포즈 키는 본 로컬 공간이라 루트 이동도 같이 돈다. 스케일 적용은 위치 키를 바꾸지 않아 쓰지 않는다.
 - 기준 포즈를 바닥(가장 낮은 점 z = 0)에 맞추고 루트 위치 키에서 같은 만큼 뺀다(ground) — 소스 골반이 바닥 높이면 리타깃 이동이 튄다.
+- args.rest_fbx 가 있으면 첫 프레임이 기준 포즈인 FBX 도 쓴다(export_rest_fbx) — Interchange 가 깊은 본의 바인드 포즈를 무효로 보면
+  애니 첫 프레임을 기준 포즈로 삼기 때문에, 스켈레톤은 이 파일로 만든다.
+
+Phase 5: 범위를 정한 뒤 보정 op(args.fix — FIX_OPS, 이번엔 비어 있다)를 돌리고, FBX 를 내보낸 뒤 args.review 가 있으면 같은 실행에서
+프레임 렌더 비교를 한다(review_render.py). 렌더가 실패해도 변환은 성공이다 — report.review.ok = false 로 남긴다.
 """
 import json
 import math
@@ -139,6 +144,32 @@ def set_range(arm, args):
     return action
 
 
+# 보정 op 사전: 이름 → 함수(arm, op) → 적용 기록(dict). Provider 의 FIX_OPS(인자 검사)와 같은 이름을 쓴다.
+# Phase 5 는 자리만 — 비어 있다(발 고정 · 스무딩 … 은 Phase 8 에서 하나씩 끼운다)
+FIX_OPS = {}
+
+
+def apply_fixes(arm, ops):
+    """범위를 정한 액션에 보정 op 를 차례로 — 모르는 op 는 하나도 적용하지 않고 실패한다(계획이 막았어야 한다)."""
+    unknown = [op.get("op") for op in ops if op.get("op") not in FIX_OPS]
+    if unknown:
+        raise ConvertError("UNSUPPORTED_FIX_OP", f"fix ops {unknown} are not in this script's dictionary {sorted(FIX_OPS)}")
+    applied = [{"op": op["op"], **(FIX_OPS[op["op"]](arm, op) or {})} for op in ops]
+    if ops:
+        refresh(arm)
+    return applied
+
+
+def review(arm, mesh, cfg, out):
+    """FBX 를 내보낸 뒤의 프레임 렌더 비교 — 어떤 실패든 report.review 로만 남긴다(FBX 는 이미 끝났다)."""
+    try:
+        from anim_gen.blender import review_render
+        return review_render.render(arm, mesh, cfg, out)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": {"code": getattr(exc, "code", "REVIEW_EXCEPTION"), "message": f"{type(exc).__name__}: {exc}",
+                                       "trace": traceback.format_exc(limit=8)}}
+
+
 def proxy_mesh(arm, args):
     """본마다 head → tail 사각 기둥(8 정점) — 그 본의 버텍스 그룹에 1.0. 모든 본이 FBX 클러스터(바인드 포즈)를 갖는다."""
     cfg = args.get("proxy_mesh") or {}
@@ -212,6 +243,43 @@ def export_fbx(path):
         raise ConvertError("FBX_EXPORT_FAILED", f"export_scene.fbx returned {sorted(result)}")
 
 
+ROTATION_PATHS = {"QUATERNION": "rotation_quaternion", "AXIS_ANGLE": "rotation_axis_angle"}
+
+
+def export_rest_fbx(arm, path):
+    """기준 포즈 FBX(같은 아마추어 · 프록시 메시, 기준 포즈 그대로인 2프레임 애니) — 이것으로 스켈레톤을 만들고 동작 FBX 는 그 스켈레톤에
+    애니만 가져온다. Interchange 는 깊은 본(SOMA 손가락 둘째 마디 아래, 계층 깊이 10 이상)이 있으면 바인드 포즈를 무효로 보고 time zero
+    (= 애니 첫 프레임)로 다시 바인드한다(InterchangeSkeletalMeshFactory.cpp:792-808, 허용 오차 0.0001 FbxScene.cpp IsValidBindPose)
+    → 소스 기준 포즈가 BVH 기준(T 포즈)이 아니라 첫 프레임이 된다. 이 파일은 첫 프레임이 기준 포즈다.
+    애니를 아예 빼지 않는 것은 import_animation_file 이 애니 없는 FBX 를 NO_ANIMATION 으로 거부하기 때문."""
+    scene = bpy.context.scene
+    action = arm.animation_data.action if arm.animation_data else None
+    span = (scene.frame_start, scene.frame_end)
+    if arm.animation_data is None:
+        arm.animation_data_create()
+    rest = bpy.data.actions.new("Rest")
+    arm.animation_data.action = rest
+    for pb in arm.pose.bones:
+        pb.location = (0.0, 0.0, 0.0)
+        pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+        pb.rotation_euler = (0.0, 0.0, 0.0)
+        pb.rotation_axis_angle = (0.0, 0.0, 1.0, 0.0)
+        pb.scale = (1.0, 1.0, 1.0)
+        for frame in (0, 1):
+            pb.keyframe_insert("location", frame=frame)
+            pb.keyframe_insert(ROTATION_PATHS.get(pb.rotation_mode, "rotation_euler"), frame=frame)
+    scene.frame_start, scene.frame_end = 0, 1
+    refresh(arm)
+    try:
+        export_fbx(path)
+    finally:
+        arm.animation_data.action = action
+        bpy.data.actions.remove(rest)
+        scene.frame_start, scene.frame_end = span
+        scene.frame_set(scene.frame_start)
+        refresh(arm)
+
+
 def convert(args):
     sys.path.insert(0, args["package_dir"])
     clear_scene()
@@ -219,16 +287,23 @@ def convert(args):
     rotate(arm, float(args.get("rotate_z_deg", 0.0)))
     lift = ground(arm)
     action = set_range(arm, args)
+    fixes = apply_fixes(arm, args.get("fix") or [])
     mesh = proxy_mesh(arm, args)
     out = measure(arm)
     out["root_path"] = root_path(arm)
     export_fbx(args["fbx"])
+    if args.get("rest_fbx"):
+        export_rest_fbx(arm, args["rest_fbx"])
+        out.update({"rest_fbx": args["rest_fbx"], "rest_fbx_bytes": os.path.getsize(args["rest_fbx"])})
     scene = bpy.context.scene
     out.update({"fbx": args["fbx"], "fbx_bytes": os.path.getsize(args["fbx"]), "action": action.name,
                 "frames": {"start": scene.frame_start, "end": scene.frame_end, "keys": scene.frame_end - scene.frame_start + 1,
                            "fps": round(scene.render.fps / scene.render.fps_base, 6)},
                 "proxy_mesh": {"vertices": len(mesh.data.vertices), "groups": len(mesh.vertex_groups)},
-                "rotate_z_deg": float(args.get("rotate_z_deg", 0.0)), "cm_per_unit": args["cm_per_unit"], "ground_lift_cm": lift})
+                "rotate_z_deg": float(args.get("rotate_z_deg", 0.0)), "cm_per_unit": args["cm_per_unit"], "ground_lift_cm": lift,
+                "fix": {"applied": fixes}})
+    if args.get("review"):
+        out["review"] = review(arm, mesh, args["review"], out)
     return out
 
 

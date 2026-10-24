@@ -13,6 +13,8 @@
     "subprocess_timeout_seconds": 300
   },
   "paths": {
-    "blender_executable": "C:/Program Files/Blender Foundation/Blender 4.4/blender.exe"
+    "blender_executable": "C:/Program Files/Blender Foundation/Blender 4.4/blender.exe",
+    "kimodo_python": "D:/AnimGenModels/Kimodo/.venv/Scripts/python.exe",
+    "kimodo_hf_cache": "D:/AnimGenModels/Kimodo/hf_cache"
   }
 }

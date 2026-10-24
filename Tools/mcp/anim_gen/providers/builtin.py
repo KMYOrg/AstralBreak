@@ -137,7 +137,8 @@ class RetargetPipe(Provider):
         inputs = {"target_mesh": request["target_mesh"], "source_mesh": rt.get("source_mesh"), "source_mesh_source": "argument" if rt.get("source_mesh") else None,
                   "existing_source_rig": rt.get("existing_source_rig"), "existing_target_rig": rt.get("existing_target_rig"),
                   "existing_retargeter": rt.get("existing_retargeter"), "source_pelvis": rt.get("source_pelvis"),
-                  "source_chains": rt.get("source_chains"), "ops": rt.get("ops", "match_existing")}
+                  "source_chains": rt.get("source_chains"), "ops": rt.get("ops", "match_existing"),
+                  "align_mode": rt.get("align_mode", "engine")}
         step = {"step": "retarget", "provider": self.name, "tool": "create_ik_rig → create_ik_retargeter → retarget_animations",
                 "inputs": inputs, "conditional": conditional}
         source_info = None
@@ -242,19 +243,31 @@ class RetargetPipe(Provider):
     def _import(self, ctx: RunContext) -> StepResult:
         editor = ctx.editor
         dest = f"{ctx.work_path}/Import"
-        rate = (ctx.step.get("inputs") or {}).get("sample_rate")  # 요청 frame_rate — Interchange 가 그 rate 로 굽는다(없으면 파일 rate)
+        # 요청 frame_rate — Interchange 가 그 rate 로 굽는다(없으면 파일 rate). 생성 결과 변환은 실행 때 정한 값(앞 단계 values)
+        rate = ctx.values["sample_rate"] if "sample_rate" in ctx.values else (ctx.step.get("inputs") or {}).get("sample_rate")
+        rate = int(round(rate)) if rate else None
+        created: list[str] = []
+        rest = None
         try:
-            res = editor.require("import_animation_file", file=ctx.values["file"], dest_path=dest, save=ctx.save,
-                                 sample_rate=int(round(rate)) if rate else None)
+            if ctx.values.get("rest_file"):
+                # 변환이 남긴 기준 포즈 FBX(첫 프레임 = 기준 포즈인 2프레임 애니)로 스켈레톤 · 메시 → 동작은 그 스켈레톤에 애니만. 동작 FBX 로
+                # 바로 만들면 Interchange 가 깊은 본의 바인드 포즈를 무효로 보고 첫 프레임을 기준 포즈로 삼는다(bvh_to_fbx.export_rest_fbx)
+                rest = editor.require("import_animation_file", file=ctx.values["rest_file"], dest_path=dest, save=ctx.save, sample_rate=rate)
+                created += [package_path(p) for p in rest.get("imported", [])]
+                res = editor.require("import_animation_file", file=ctx.values["file"], dest_path=f"{dest}/Motion", save=ctx.save, sample_rate=rate,
+                                     skeleton=package_path(rest.get("skeleton")))
+            else:
+                res = editor.require("import_animation_file", file=ctx.values["file"], dest_path=dest, save=ctx.save, sample_rate=rate)
         except EditorCallError as err:
-            raise from_editor_error("import", err)
+            raise from_editor_error("import", err, created=created)
+        created += [package_path(p) for p in res.get("imported", [])]
         anims = res.get("animations") or []
         if not anims:
-            raise StepFailed("IMPORT_FAILED", "NO_ANIMATION", f"{ctx.values['file']} produced no animation",
-                             created=[package_path(p) for p in res.get("imported", [])])
-        return StepResult(values={"asset": package_path(anims[0]["asset"]), "skeleton": package_path(res.get("skeleton")),
-                                  "mesh": package_path(res.get("mesh"))},
-                          created=[package_path(p) for p in res.get("imported", [])])
+            raise StepFailed("IMPORT_FAILED", "NO_ANIMATION", f"{ctx.values['file']} produced no animation", created=created)
+        source = rest or res
+        return StepResult(values={"asset": package_path(anims[0]["asset"]), "skeleton": package_path(source.get("skeleton")),
+                                  "mesh": package_path(source.get("mesh"))},
+                          created=created)
 
     def _retarget(self, ctx: RunContext) -> StepResult:
         editor = ctx.editor
@@ -298,7 +311,7 @@ class RetargetPipe(Provider):
                     created.append(target_rig)
                 r = editor.require("create_ik_retargeter", source_rig=source_rig, target_rig=target_rig, source_mesh=source_mesh,
                                    target_mesh=target_mesh, asset_path=f"{ctx.work_path}/RTG_Retarget", ops=inputs.get("ops", "match_existing"),
-                                   facing_yaw_deg=facing["yaw_deg"] or None, save=ctx.save)
+                                   align_mode=inputs.get("align_mode", "engine"), facing_yaw_deg=facing["yaw_deg"] or None, save=ctx.save)
                 retargeter = package_path(r["asset_path"])
                 created.append(retargeter)
             res = editor.require("retarget_animations", retargeter=retargeter, assets=[source_anim], source_mesh=source_mesh,
@@ -313,8 +326,32 @@ class RetargetPipe(Provider):
         if not generated:
             raise StepFailed("RETARGET_FAILED", "NOTHING_GENERATED", "retarget_animations generated no asset", created=created)
         validation = res.get("validation")
+        if inputs.get("source_pelvis") and validation:
+            validation = self._revalidate(editor, generated[0], source_anim, ctx.request["target_skeleton"], inputs, validation, diagnostics)
+            if validation.get("status") == "FAILED":
+                raise StepFailed("VALIDATION_FAILED", "FAILED", f"{generated[0]} fails validation against its source", created=created + generated)
         first = ((validation or {}).get("assets") or [None])[0]
         return StepResult(values={"asset": generated[0], "skeleton": ctx.request["target_skeleton"], "validation": validation,
                                   "measured": _measured_from_validation(first), "retargeter": retargeter, "source_mesh": source_mesh,
                                   "facing": {k: facing.get(k) for k in ("mode", "source", "target", "yaw_deg")}},
                           created=created + generated, diagnostics=diagnostics, limitations=limitations)
+
+    @staticmethod
+    def _revalidate(editor, asset: str, source: str, target: str, inputs: dict, validation: dict, diagnostics: list[dict]) -> dict:
+        """retarget_animations 의 내장 검증은 소스 골반 이름을 받지 않는다(기본 'pelvis' — BVH · SOMA 의 'Hips' 를 못 찾아 거리 비율을
+        크기 보정하지 않는다, NO_PELVIS_SCALE). 소스 골반을 알면 validate_animation 으로 같은 소스 대비 검증을 다시 해 그 결과를 쓴다."""
+        params = {"assets": [asset], "sources": [source], "skeleton": target, "source_pelvis": inputs["source_pelvis"]}
+        if inputs.get("source_feet"):
+            params["source_feet"] = inputs["source_feet"]
+        try:
+            res = editor.require("validate_animation", **params)
+        except EditorCallError as err:
+            diagnostics.append(diag("warning", "REVALIDATE_FAILED", f"validate_animation with source_pelvis failed ({err.code}) — keeping the "
+                                    "retarget_animations validation"))
+            return validation
+        items = res.get("assets") or []
+        order = ["PASSED", "PASSED_WITH_WARNINGS", "NEEDS_REVIEW", "FAILED"]
+        status = res.get("status") or max((i.get("status", "PASSED") for i in items), key=lambda s: order.index(s) if s in order else 0, default=None)
+        diagnostics.append(diag("info", "VALIDATED_WITH_SOURCE_PELVIS", f"relative checks against {source.rsplit('/', 1)[-1]} use source pelvis "
+                                f"'{inputs['source_pelvis']}' — {validation.get('status')} → {status}"))
+        return {"status": status, "assets": items}

@@ -2,7 +2,8 @@
 
 FakeEditor 는 플러그인 Tool 봉투를 흉내 낸다(허용 목록 · 덮어쓰기 없음 · 스켈레톤). Mock Provider 는 local_ai · external.meshy
 자리에 끼워 실제 규칙 표로 시험한다. 진짜 HTTP 와 서브프로세스는 막아 둔다 — 호출되면 테스트가 실패한다. 정책의 Blender 경로는
-기본으로 없는 파일을 가리킨다(이 컴퓨터에 Blender 가 있어도 결과가 같다) — Blender 테스트는 test_blender.py 가 가짜 실행 파일을 준다.
+기본으로 없는 파일을 가리킨다(이 컴퓨터에 Blender · Kimodo 가 있어도 결과가 같다) — Blender 테스트는 test_blender.py, Kimodo 테스트는
+test_local_ai.py 가 가짜 실행 파일 · 캐시를 준다.
 
     Tools/mcp/.venv/Scripts/python.exe -m pytest Tools/mcp/anim_gen/tests -q
 """
@@ -234,11 +235,17 @@ class FakeEditor:
     def _import_animation_file(self, p):
         dest = package_path(p["dest_path"])
         self._allowed(dest)
+        anim_info = {"class": "AnimSequence", "length": 2.0, "frame_rate": 30.0, "loop": False, "root_motion": False}
+        if p.get("skeleton"):
+            # 기존 스켈레톤에 애니만 (메시 · 스켈레톤을 만들지 않는다)
+            skel = package_path(p["skeleton"])
+            anim = self._new(f"{dest}/Mock_Anim", **anim_info, skeleton=skel)
+            return {"imported": [_obj(anim)], "animations": [{"asset": _obj(anim), "skeleton": _obj(skel)}], "skeleton": _obj(skel), "mesh": None,
+                    "skeleton_created": False}
         skel = self._new(f"{dest}/Mock_Skeleton", **{"class": "Skeleton"})
         mesh = self._new(f"{dest}/Mock", **{"class": "SkeletalMesh", "skeleton": skel})
-        anim = self._new(f"{dest}/Mock_Anim", **{"class": "AnimSequence", "skeleton": skel, "length": 2.0, "frame_rate": 30.0,
-                                                 "loop": False, "root_motion": False})
         self.meshes[skel] = mesh
+        anim = self._new(f"{dest}/Mock_Anim", **anim_info, skeleton=skel)
         return {"imported": [_obj(skel), _obj(mesh), _obj(anim)], "animations": [{"asset": _obj(anim), "skeleton": _obj(skel)}],
                 "skeleton": _obj(skel), "mesh": _obj(mesh)}
 
@@ -354,17 +361,19 @@ def no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def no_real_blender(monkeypatch, tmp_path):
-    """정책 기본값의 Blender 경로를 없는 파일로 · 진짜 서브프로세스 금지 — 결과가 이 컴퓨터의 설치 여부에 따라 달라지지 않게."""
-    from anim_gen.providers import blender as blender_mod
+def no_real_subprocess(monkeypatch, tmp_path):
+    """정책 기본값의 Blender · Kimodo 경로를 없는 파일로 · 진짜 서브프로세스 금지 — 결과가 이 컴퓨터의 설치 여부에 따라 달라지지 않게."""
+    from anim_gen.providers import subprocess_step
 
     def refuse(*args, **kwargs):
         raise AssertionError("real subprocess in a mock test")
 
     original = policy_mod.load_default
-    missing = (tmp_path / "no-blender" / "blender.exe").as_posix()
-    monkeypatch.setattr(policy_mod, "load_default", lambda: policy_mod.deep_merge(original(), {"paths": {"blender_executable": missing}}))
-    monkeypatch.setattr(blender_mod, "launch", refuse)
+    missing = tmp_path / "not-installed"
+    paths = {"blender_executable": (missing / "blender.exe").as_posix(), "kimodo_python": (missing / "kimodo" / "python.exe").as_posix(),
+             "kimodo_hf_cache": (missing / "kimodo" / "hf_cache").as_posix()}
+    monkeypatch.setattr(policy_mod, "load_default", lambda: policy_mod.deep_merge(original(), {"paths": paths}))
+    monkeypatch.setattr(subprocess_step, "launch", refuse)
 
 
 @pytest.fixture

@@ -226,7 +226,7 @@ class Service:
             "job_id": new_id("job"), "plan_id": plan_id, "status": QUEUED, "save": bool(save), "provider": None, "chain": None, "stage": None,
             "attempt": 0, "retry_count": 0, "cursor": None, "pending": None, "work_path": None,
             "request_summary": {k: plan["request"][k] for k in ("animation_name", "output_path", "motion_category", "description")},
-            "generated_assets": [], "reused_assets": [], "intermediate_assets": [], "left_assets": [], "validation": None,
+            "generated_assets": [], "reused_assets": [], "intermediate_assets": [], "left_assets": [], "validation": None, "review": None,
             "limitations": [], "fallback_history": [], "preserved_candidates": [], "diagnostics": [],
             "cost": {"estimated_usd": 0.0, "actual_usd": None, "confirmed": True},
             "approval_id": None, "idempotency_key": None, "error": None, "result_ignored": False,

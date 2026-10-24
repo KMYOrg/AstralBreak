@@ -2,6 +2,7 @@
 
 #include "AnimMcpGeneration.h"
 #include "AnimMcpLog.h"
+#include "AnimMcpRetargetPoseAlign.h"
 #include "AnimMcpSkeletonInspector.h"
 #include "AnimMcpStats.h"
 #include "Bridge/AnimMcpTypes.h"
@@ -300,14 +301,14 @@ namespace AnimMcpRetargetAssets
 			return MakeShared<FJsonValueNull>();
 		}
 
-		/** 에디터 자동 생성 레시피 (SRetargetAnimAssetsWindow.cpp:668-742) — 컨트롤러는 SetIKRig·AddDefaultOps 뒤 */
-		void ApplyMatchExisting(const UIKRetargeterController* Controller, const UIKRigDefinition* SourceRig, const UIKRigDefinition* TargetRig, const FAutoCharacterizeResults& TargetCharacterization, const FFacing& Facing)
+		/** 에디터 자동 생성 레시피 (SRetargetAnimAssetsWindow.cpp:668-742) — 컨트롤러는 SetIKRig·AddDefaultOps 뒤. per_bone 이면 OutAlignment 에 정렬 결과 */
+		void ApplyMatchExisting(const UIKRetargeterController* Controller, const UIKRigDefinition* SourceRig, const UIKRigDefinition* TargetRig, const FAutoCharacterizeResults& TargetCharacterization, const FFacing& Facing,
+			EAlignMode AlignMode, TSharedPtr<FJsonObject>& OutAlignment, FAnimMcpContext& Context)
 		{
-			// 정확한 이름 매핑만 (기본 fuzzy 는 발가락을 손가락에 붙이기도 한다 — 엔진 주석)
-			if (FIKRetargetFKChainsOp* FKChainOp = Controller->GetFirstRetargetOpOfType<FIKRetargetFKChainsOp>())
-			{
-				FKChainOp->Settings.ChainMapping.AutoMapChains(EAutoMapChainType::Exact, /*bForceRemap*/ true);
-			}
+			// 모든 op 를 정확한 이름 매핑으로 (기본 fuzzy 는 발가락을 손가락에 붙이기도 한다 — 엔진 주석). 에디터 레시피는 FK op 만 바꿔
+			// 꺼진 Run IK Rig op 에 fuzzy 가 남는데, 자동 정렬은 꺼진 op 의 매핑도 '매핑된 체인'으로 본다(IKRetargetProcessor.cpp
+			// GetFirstChainMappedToChain) → 소스에 없는 대상 체인이 이름만 닮은 체인 방향으로 꺾인 채 남는다(Phase 5: LeftIndex → LeftLeg, 검지 MCP 120°)
+			Controller->AutoMapChains(EAutoMapChainType::Exact, /*bForceRemap*/ true);
 
 			// 타깃 리타깃 포즈 리셋 → 자동 정렬 → 템플릿이 제외한 본(보통 발)만 다시 리셋
 			const FName TargetPose = Controller->GetCurrentRetargetPoseName(ERetargetSourceOrTarget::Target);
@@ -318,6 +319,11 @@ namespace AnimMcpRetargetAssets
 			{
 				Controller->ResetRetargetPose(Controller->GetCurrentRetargetPoseName(ERetargetSourceOrTarget::Target), Excluded, ERetargetSourceOrTarget::Target);
 				SetFacingAlignDelta(Controller, Facing);
+			}
+			if (AlignMode == EAlignMode::PerBone)
+			{
+				// 엔진 정렬 결과 위에 — 제외 본은 그대로 둔다
+				OutAlignment = AnimMcpRetargetPoseAlign::AlignPerBone(Controller, Excluded, Facing.Yaw.Inverse(), Context);
 			}
 
 			// 자동 IK 는 아직 불안정 — 엔진도 끈다
@@ -689,6 +695,10 @@ namespace AnimMcpRetargetAssets
 				Context.AddDiagnostic(TEXT("warning"), TEXT("FACING_MISMATCH_EXISTING"),
 					FString::Printf(TEXT("existing retargeter aligns facing by %.1f deg, the request asks %.1f deg — the existing asset is used unchanged"), ExistingYaw, Params.FacingYawDeg));
 			}
+			if (Params.AlignMode != EAlignMode::Engine)
+			{
+				Context.AddDiagnostic(TEXT("warning"), TEXT("ALIGN_MODE_IGNORED_EXISTING"), TEXT("align_mode applies to new retargeters only — the existing asset is used unchanged"));
+			}
 			Result->SetBoolField(TEXT("reused"), true);
 			Result->SetBoolField(TEXT("saved"), false);
 			return Result;
@@ -714,6 +724,12 @@ namespace AnimMcpRetargetAssets
 			}
 		}
 
+		if (Params.AlignMode == EAlignMode::PerBone && Params.Ops == EOpsRecipe::Default && !Params.bAutoAlign)
+		{
+			OutError = FieldError(TEXT("align_mode"), TEXT("ALIGN_MODE_WITHOUT_ALIGN"), TEXT("align_mode per_bone refines the auto-aligned target pose — use ops=match_existing or auto_align=true"));
+			return nullptr;
+		}
+
 		FAutoCharacterizeResults TargetCharacterization;
 		if (Params.Ops == EOpsRecipe::MatchExisting)
 		{
@@ -727,6 +743,7 @@ namespace AnimMcpRetargetAssets
 			return nullptr;
 		}
 		const UIKRetargeterController* Controller = UIKRetargeterController::GetController(Retargeter);
+		TSharedPtr<FJsonObject> Alignment;
 		{
 			FScopedReinitializeIKRetargeter Reinitialize(Controller, ERetargetRefreshMode::ProcessorAndOpStack);
 			Controller->SetIKRig(ERetargetSourceOrTarget::Source, Params.SourceRig);
@@ -737,7 +754,7 @@ namespace AnimMcpRetargetAssets
 			Controller->AddDefaultOps();
 			if (Params.Ops == EOpsRecipe::MatchExisting)
 			{
-				ApplyMatchExisting(Controller, Params.SourceRig, Params.TargetRig, TargetCharacterization, Facing);
+				ApplyMatchExisting(Controller, Params.SourceRig, Params.TargetRig, TargetCharacterization, Facing, Params.AlignMode, Alignment, Context);
 			}
 			else
 			{
@@ -745,6 +762,10 @@ namespace AnimMcpRetargetAssets
 				if (Params.bAutoAlign)
 				{
 					AutoAlignTarget(Controller, Facing);
+					if (Params.AlignMode == EAlignMode::PerBone)
+					{
+						Alignment = AnimMcpRetargetPoseAlign::AlignPerBone(Controller, TArray<FName>(), Facing.Yaw.Inverse(), Context);
+					}
 				}
 				else
 				{
@@ -767,6 +788,15 @@ namespace AnimMcpRetargetAssets
 		TSharedRef<FJsonObject> Result = DescribeRetargeter(Retargeter);
 		Result->SetBoolField(TEXT("reused"), false);
 		Result->SetStringField(TEXT("ops_recipe"), Params.Ops == EOpsRecipe::MatchExisting ? TEXT("match_existing") : TEXT("default"));
+		Result->SetStringField(TEXT("align_mode"), Params.AlignMode == EAlignMode::PerBone ? TEXT("per_bone") : TEXT("engine"));
+		if (Alignment.IsValid())
+		{
+			Result->SetObjectField(TEXT("pose_alignment"), Alignment);
+		}
+		else
+		{
+			Result->SetField(TEXT("pose_alignment"), MakeShared<FJsonValueNull>());
+		}
 		if (Result->GetArrayField(TEXT("unmapped_target_chains")).Num() > 0)
 		{
 			Context.AddDiagnostic(TEXT("warning"), TEXT("UNMAPPED_TARGET_CHAINS"), FString::Printf(TEXT("%d target chain(s) have no source chain (exact-name mapping) — they keep the target reference pose"),

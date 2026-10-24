@@ -51,10 +51,14 @@ class FakeProc:
         return self.returncode
 
     def complete(self, kind: str = "ok") -> None:
+        """kind: ok · error(report 오류) · crash(report 없음) · no_fbx · review_error(변환 성공 + 렌더 실패) · no_rest(기준 포즈 FBX 를 안 쓰는 이전 스크립트)."""
         report = {"ok": True, "blender": "4.4.1", "bones": 11, "roots": ["Hips"], "rest_height_cm": 183.0, "ground_lift_cm": 98.0,
                   "facing": {"axis": "+Y"}, "rotate_z_deg": self.args["rotate_z_deg"], "root_path": {"bone": "Hips"},
                   "frames": {"start": 0, "end": self.args["last"] - self.args["first"], "keys": self.args["last"] - self.args["first"] + 1,
-                             "fps": self.args["fps"]}, "fbx_bytes": 1234, "seconds": 0.6}
+                             "fps": self.args["fps"]}, "fbx_bytes": 1234, "fix": {"applied": []}, "seconds": 0.6}
+        if self.args.get("review"):
+            report["review"] = self._review() if kind != "review_error" else {
+                "ok": False, "error": {"code": "REVIEW_EXCEPTION", "message": "RuntimeError: no GPU context"}}
         code = 0
         if kind == "error":
             report, code = {"ok": False, "blender": "4.4.1", "error": {"code": "BVH_IMPORT_FAILED", "message": "import_anim.bvh returned ['CANCELLED']"}}, 2
@@ -64,9 +68,30 @@ class FakeProc:
             pathlib.Path(self.args["report"]).write_text(json.dumps(report), encoding="utf-8")
         else:
             code = 3
-        if kind == "ok":
+        if kind in ("ok", "review_error", "no_rest"):
             pathlib.Path(self.args["fbx"]).write_bytes(b"fbx")
+        if kind in ("ok", "review_error") and self.args.get("rest_fbx"):
+            pathlib.Path(self.args["rest_fbx"]).write_bytes(b"fbx")
+            report.update(rest_fbx=self.args["rest_fbx"], rest_fbx_bytes=3)
+            pathlib.Path(self.args["report"]).write_text(json.dumps(report), encoding="utf-8")
         self.returncode = code
+
+    def _review(self) -> dict:
+        """review_render.py 처럼 (시각 × 뷰) PNG 와 시트를 args.review.dir 에 쓴다(내용은 가짜)."""
+        cfg = self.args["review"]
+        out = pathlib.Path(cfg["dir"])
+        out.mkdir(parents=True, exist_ok=True)
+        frames = []
+        for row, t in enumerate(cfg["times"]):
+            for view in cfg["views"]:
+                path = out / f"{view}_{row:05d}.png"
+                path.write_bytes(b"png")
+                frames.append({"row": row, "time": t, "frame": row, "view": view, "path": path.as_posix()})
+        sheet = out / "sheet.png"
+        sheet.write_bytes(b"png")
+        columns = [{"kind": "view", "view": v} for v in cfg["views"]] + [{"kind": "reference", "path": p} for p in cfg["reference_images"]]
+        return {"ok": True, "frames": frames, "sheet": sheet.as_posix(), "layout": {"rows": len(cfg["times"]), "columns": columns},
+                "colors": {"legend": "left blue, right red"}, "camera": {}, "seconds": 0.4}
 
 
 class FakeLauncher:
@@ -248,10 +273,19 @@ def test_success_runs_async_then_imports_and_retargets(bl, monkeypatch):
     job = env["result"]
     assert env["ok"] and job["status"] == "SUCCEEDED", job.get("error")
     assert [e["to"] for e in job["events"]] == ["QUEUED", "RUNNING", "SUCCEEDED"]
-    assert job["generated_assets"] == [FINAL] and any(a.endswith("/Import/Mock_Anim") for a in job["intermediate_assets"])
-    [(_, imp)] = [(t, p) for t, p in bl.fake.calls if t == "import_animation_file"]
-    assert imp["file"] == proc.args["fbx"] and imp["sample_rate"] == 30 and imp["dest_path"].endswith(f"/Work/{job['job_id']}/A1/Import")
-    assert job["cursor"]["values"]["converted"]["bones"] == 11
+    assert job["generated_assets"] == [FINAL] and any(a.endswith("/Import/Motion/Mock_Anim") for a in job["intermediate_assets"])
+    # 기준 포즈 FBX 로 스켈레톤 · 메시 → 동작 FBX 는 그 스켈레톤에 애니만
+    assert proc.args["rest_fbx"].endswith("BVH_walk_Rest.fbx")
+    rest, imp = [p for t, p in bl.fake.calls if t == "import_animation_file"]
+    work = f"/Work/{job['job_id']}/A1/Import"
+    assert rest["file"] == proc.args["rest_fbx"] and rest["dest_path"].endswith(work) and "skeleton" not in rest
+    assert imp["file"] == proc.args["fbx"] and imp["sample_rate"] == 30 and imp["dest_path"].endswith(f"{work}/Motion")
+    assert imp["skeleton"].endswith(f"{work}/Mock_Skeleton")
+    [(_, rig)] = [(t, p) for t, p in bl.fake.calls if t == "create_ik_rig" and p["asset_path"].endswith("IK_Source")]
+    assert rig["skeletal_mesh"].endswith(f"{work}/Mock")  # 소스 메시 = 기준 포즈 FBX 의 메시
+    [(_, rtg)] = [(t, p) for t, p in bl.fake.calls if t == "create_ik_retargeter"]
+    assert rtg["align_mode"] == "per_bone" and rtg["ops"] == "match_existing"
+    assert job["cursor"]["values"]["converted"]["bones"] == 11 and job["cursor"]["values"]["rest_file"] == proc.args["rest_fbx"]
     assert "BLENDER_CONVERTED" in {d["code"] for d in job["diagnostics"]}
     codes = [lim["code"] for lim in job["limitations"]]
     assert len(codes) == len(set(codes))
@@ -264,8 +298,30 @@ def test_import_length_snap_reaches_the_job(bl):
     bl.launcher.last.complete("ok")
     job = status(bl, env["result"]["job_id"])["result"]
     assert job["status"] == "SUCCEEDED", job.get("error")
-    [d] = [d for d in job["diagnostics"] if d["code"] == "LENGTH_SNAPPED"]
-    assert (d["tool"], d["step"], d["track"]) == ("import_animation_file", "import", "Scene")
+    # 가짜는 두 임포트(기준 포즈 · 동작) 모두에 같은 진단을 단다 — 실제로는 애니가 있는 동작 임포트만 낸다
+    snapped = [d for d in job["diagnostics"] if d["code"] == "LENGTH_SNAPPED"]
+    assert snapped and {(d["tool"], d["step"], d["track"]) for d in snapped} == {("import_animation_file", "import", "Scene")}
+
+
+def test_without_rest_fbx_the_motion_fbx_makes_the_skeleton(bl):
+    """기준 포즈 FBX 를 쓰지 않은 변환(이전 스크립트) — 예전처럼 동작 FBX 하나로 스켈레톤 · 메시 · 애니."""
+    _, env = generate(bl, provider="blender")
+    bl.launcher.last.complete("no_rest")
+    job = status(bl, env["result"]["job_id"])["result"]
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    [imp] = [p for t, p in bl.fake.calls if t == "import_animation_file"]
+    assert imp["file"] == bl.launcher.last.args["fbx"] and "skeleton" not in imp and "rest_file" not in job["cursor"]["values"]
+
+
+def test_rest_import_failure_is_an_import_failure(bl):
+    from conftest import err
+    bl.fake.fail["import_animation_file"] = [err("IMPORT_FAILED", "Interchange failed")]
+    _, env = generate(bl, provider="blender")
+    bl.launcher.last.complete("ok")
+    job = status(bl, env["result"]["job_id"])["result"]
+    assert job["status"] == "FAILED" and job["error"]["code"] == "IMPORT_FAILED"
+    [rest] = [p for t, p in bl.fake.calls if t == "import_animation_file"]
+    assert rest["file"].endswith("_Rest.fbx")  # 동작 FBX 는 가져오지 않았다
 
 
 def test_blender_error_falls_back_and_records_what_is_missing(bl):

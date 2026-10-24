@@ -87,6 +87,17 @@ def expected_limitations(request: dict, provider, *, reuse: bool, resolved: dict
     return _dedupe(out)
 
 
+def _without_convert(request: dict, name: str) -> list[dict]:
+    """변환 단계(blender)가 없는 경로 — 보정 op 는 돌 곳이 없어 후보를 막고, 렌더 비교는 하지 않는다는 한계를 단다."""
+    ops = [o["op"] for o in request["fix"]["ops"]]
+    if ops:
+        raise PlanBlocked("UNSUPPORTED_REQUEST", "UNSUPPORTED_FIX_OP", f"fix ops {ops} run in the blender convert step — the {name} route has none",
+                          ops=ops)
+    if request["review"]:
+        return [limitation("REVIEW_NOT_RENDERED", "프레임 렌더 비교(review.render)는 blender 변환 단계에서만 한다 — 이 경로는 렌더하지 않는다", "router")]
+    return []
+
+
 def _validate_step(reuse: bool) -> dict:
     return {"step": "validate", "provider": "validation",
             "tool": "validate_animation" if reuse else "validation of the producing step (retarget_animations / apply_animation_edits)"}
@@ -102,6 +113,7 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
         if name == "direct_key" and not (request["edits"] and request["reference_animations"]):
             raise PlanBlocked("UNSUPPORTED_REQUEST", "MISSING_INPUT", "provider direct_key needs edits.operations and a source "
                               "(edits.source or reference_animations)", missing=["edits", "reference_animations"])
+        no_review = _without_convert(request, name)
         resolve = registry.get("existing_motion").plan_resolve(request, pctx)
         steps = [resolve]
         resolved = resolve["resolved"]
@@ -126,26 +138,46 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
         reuse = needs_retarget is False and not request["edits"]
         steps.append(_validate_step(reuse))
         lims = expected_limitations(request, provider, reuse=reuse, resolved=resolved, has_edit=bool(request["edits"]), preview=preview)
-        return steps, risks, _dedupe(lims + retarget_lims)
+        return steps, risks, _dedupe(lims + retarget_lims + no_review)
     converts = hasattr(provider, "plan_convert")
     if provider.generates or converts:
         # 생성(AI) 또는 파일 변환(blender) → FBX → import → retarget 파이프
         first = provider.plan_convert(request, pctx) if converts else provider.plan_generate(request, pctx)
+        steps = [first]
+        last = first
+        if first.pop("output", None) == "bvh":
+            # 생성 결과가 BVH(local_ai) — Phase 4 blender 변환을 잇는다(대상 정면 · 바닥 · 더미 스킨 메시). 파일은 실행 때 생긴다
+            blender = registry.get("blender")
+            state = blender.state(pctx.policy) if pctx.policy is not None else {"available": True}
+            if not state["available"]:
+                why = state["unavailable_reason"]
+                raise PlanBlocked("PROVIDER_UNAVAILABLE", "DEPENDS_ON_BLENDER", f"{name} writes BVH and the blender converter is not available "
+                                  f"({why['reason']})", blender=why)
+            last = blender.plan_convert_generated(request, first.pop("bvh"), pctx)
+            steps.append(last)
+        no_review = [] if converts or last is not first else _without_convert(request, name)
         # 리샘플 rate: 변환 단계가 정한 값(프레임 경계에 맞춘 경우만) 또는 요청 frame_rate
-        rate = first.pop("sample_rate") if "sample_rate" in first else request["frame_rate"]
-        steps = [first, {"step": "import", "provider": "retarget", "tool": "import_animation_file",
-                         "inputs": {"dest": "<work>/Import", "sample_rate": rate}}]
+        rate = last.pop("sample_rate") if "sample_rate" in last else request["frame_rate"]
+        steps.append({"step": "import", "provider": "retarget", "tool": "import_animation_file", "inputs": {"dest": "<work>/Import", "sample_rate": rate}})
         # blender 는 변환 단계에서 대상 정면으로 돌린다 — 생성 결과(FBX)는 임포트 뒤에 정면을 잰다
-        step, r = retarget.plan_retarget(request, None, pctx, conditional=False, from_import=True, source_faces_target=converts)
+        step, r = retarget.plan_retarget(request, None, pctx, conditional=False, from_import=True, source_faces_target=converts or last is not first)
+        defaults = first.pop("retarget_defaults", None) or {}
+        filled = [k for k, v in defaults.items() if not step["inputs"].get(k)]
+        for key in filled:
+            # 생성 Provider 는 자기 스켈레톤을 안다(SOMA 수동 체인 · 골반 · 발) — 요청이 주지 않은 것만 채운다
+            step["inputs"][key] = defaults[key]
+        if filled:
+            step["inputs"]["defaults_from"] = {"provider": name, "keys": filled}
         retarget_lims = step.pop("expected_limitations", [])
         steps.append(step)
-        risks += first.pop("risks", []) + r
+        risks += first.pop("risks", []) + (last.pop("risks", []) if last is not first else []) + r
         if request["edits"]:
             steps.append(direct_key.plan_edit(request, None, pctx))
             risks.append("EDITS_NOT_PREVIEWED")
         steps.append(_validate_step(False))
         lims = expected_limitations(request, provider, reuse=False, resolved=first.pop("measured", None), has_edit=bool(request["edits"]), preview=None)
-        lims = _dedupe(lims + first.pop("expected_limitations", []) + retarget_lims)
+        lims = _dedupe(lims + first.pop("expected_limitations", []) + (last.pop("expected_limitations", []) if last is not first else [])
+                       + retarget_lims + no_review)
         return steps, risks, lims
     raise PlanBlocked("UNSUPPORTED_REQUEST", "NOT_ROUTABLE", f"{name} is not a generation route (pipe or post-process only)")
 
@@ -196,7 +228,7 @@ def build_plan(request: dict, policy: dict, registry, editor, diagnostics: list[
             raise AnimGenError("BAD_REQUEST", f"'{explicit}' is a pipe, not a provider", reason="PIPE_NOT_PROVIDER")
         diagnostics.append(diag("info", "FALLBACK_DISABLED_EXPLICIT_PROVIDER", f"provider '{explicit}' was requested — no fallback to others"))
     order = provider_order(request["motion_category"], mode, request["provider"], motion_file=bool(request["motion_file"]))
-    pctx = PlanContext(editor=editor, editor_ok=editor_ok, request=request, diagnostics=diagnostics, settings=settings)
+    pctx = PlanContext(editor=editor, editor_ok=editor_ok, request=request, diagnostics=diagnostics, settings=settings, policy=policy)
     candidates, excluded = [], []
     for name in order:
         provider = registry.get(name)

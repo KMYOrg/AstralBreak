@@ -18,9 +18,11 @@ struct FAnimMcpError;
  *             템플릿이 맞지 않으면(bUsedTemplate 거짓) 체인 0개라 애셋을 만들기 전에 IKRIG_AUTO_FAILED + 본 계층을 돌려준다 → mode manual 로 체인 지정.
  *   RTG     — SetIKRig ×2 → RemoveAllOps → AddDefaultOps → (ops) 아래 레시피. 프리뷰 메시는 인자(필수)로.
  *     default        — 모든 op 의 체인 매핑을 정확한 이름(대소문자 무시)으로. auto_align 이면 타깃 리타깃 포즈 자동 정렬.
- *     match_existing — 에디터 자동 생성과 같다: FK Chains 매핑 Exact · 타깃 포즈 리셋 → AutoAlignAllBones(Target) → 템플릿의 자동 포즈 제외 본 리셋 ·
+ *     match_existing — 에디터 자동 생성과 같다(체인 매핑만 다름): 모든 op 매핑 Exact(에디터는 FK op 만 — 꺼진 Run IK Rig 의 fuzzy 를 자동 정렬이 따른다) · 타깃 포즈 리셋 → AutoAlignAllBones(Target) → 템플릿의 자동 포즈 제외 본 리셋 ·
  *                      Run IK Rig 끔 · 루트 모션 op(타깃 루트≠펠비스면 소스가 루트 없을 때 펠비스에서 생성, 같으면 끔) · Pin Bones op(템플릿 핀 본,
  *                      전역 위치·회전 복사). 회귀 비교(완료 기준 2)용.
+ *   align_mode — 타깃 포즈를 자동 정렬할 때(match_existing, default + auto_align): engine(기본, 위 그대로) | per_bone
+ *                (엔진 정렬 뒤 뼈 수가 같은 체인을 FK 1:1 로 바꾸고 본 대 본 · 체인 끝까지 맞춘다 — AnimMcpRetargetPoseAlign.h).
  * 재사용은 existing_rig / existing_retargeter 를 줄 때만 — 호환성만 검사하고 쓰지 않는다.
  *
  * 정면 맞춤 (facing_yaw_deg ≠ 0) — FK · 펠비스 op 는 전역 델타(소스 현재 × 소스 기준⁻¹ × 대상 기준, FKChainsOp.cpp:343-350)이고
@@ -68,6 +70,12 @@ namespace AnimMcpRetargetAssets
 		MatchExisting,
 	};
 
+	enum class EAlignMode : uint8
+	{
+		Engine,
+		PerBone,
+	};
+
 	struct FRetargeterParams
 	{
 		FString AssetPath;
@@ -78,12 +86,14 @@ namespace AnimMcpRetargetAssets
 		UIKRetargeter* Existing = nullptr;
 		EOpsRecipe Ops = EOpsRecipe::Default;
 		bool bAutoAlign = false;
+		/** 타깃 포즈 자동 정렬 방식 — 정렬하지 않는 레시피(default, auto_align 없음)에 PerBone 은 BAD_REQUEST */
+		EAlignMode AlignMode = EAlignMode::Engine;
 		/** 소스 정면을 대상 정면으로 돌리는 Yaw(°, UE +Z 축) — 0 이면 맞추지 않는다 */
 		double FacingYawDeg = 0.0;
 		bool bSave = false;
 	};
 
-	/** {asset_path, reused, ops_recipe, source_rig, target_rig, source_mesh, target_mesh, ops[], chain_mapping{}, unmapped_target_chains[], pin_bones[], root_motion{}, retarget_poses{}, facing_alignment{}|null, saved} */
+	/** {asset_path, reused, ops_recipe, align_mode, source_rig, target_rig, source_mesh, target_mesh, ops[], chain_mapping{}, unmapped_target_chains[], pin_bones[], root_motion{}, retarget_poses{}, facing_alignment{}|null, pose_alignment{}|null, saved} */
 	TSharedPtr<FJsonObject> CreateRetargeter(const FRetargeterParams& Params, FAnimMcpContext& Context, FAnimMcpError& OutError);
 
 	TSharedRef<FJsonObject> DescribeIKRig(const UIKRigDefinition* Rig);

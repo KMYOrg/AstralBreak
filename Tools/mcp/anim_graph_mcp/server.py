@@ -588,7 +588,7 @@ def reassign_skeleton(skeleton: str, assets: list[str] | None = None, from_skele
 
 @mcp.tool()
 def inspect_skeleton(skeleton: str | None = None, skeletal_mesh: str | None = None, details: bool = False,
-                     compare_to: str | None = None) -> dict:
+                     compare_to: str | None = None, suggest_finger_chains: bool = False) -> dict:
     """Read-only facts about a Skeleton for animation generation / IK retargeting (measured values only, nothing guessed).
 
     Args:
@@ -597,6 +597,9 @@ def inspect_skeleton(skeleton: str | None = None, skeletal_mesh: str | None = No
         details: Add reference pose transforms per bone (ref_local / ref_component {t, r[pitch,yaw,roll], s?}) and socket transforms.
         compare_to: Another Skeleton to compare with. Rigs are judged by REFERENCE POSE, not bone names — a skeleton can share
             every bone name and still be 10-40 degrees off (UE4 mannequin vs UE5-style skeletons).
+        suggest_finger_chains: Also return finger_chain_suggestion — standard finger chains ({Side}Thumb, {Side}{Finger},
+            {Side}{Finger}Metacarpal) found by geometry, not names, the same proposal create_ik_rig makes (a proposal, so only on
+            request). The template's finger chains are compared: differs[] shows a template that matched the fingers one joint off.
 
     Returns skeleton_path, meshes[], animation_count, bone_count, root_bone, bones[{name, parent}], virtual_bones[], mesh +
     mesh_source (argument | skeleton_preview | first_registered | none), sockets[{name, bone, owner, asset}], slot_groups[],
@@ -608,6 +611,8 @@ def inspect_skeleton(skeleton: str | None = None, skeletal_mesh: str | None = No
     retarget_animations, never reassign_skeleton.
     """
     params: dict = {"details": details}
+    if suggest_finger_chains:
+        params["suggest_finger_chains"] = True
     if skeleton:
         params["skeleton"] = skeleton
     if skeletal_mesh:
@@ -667,7 +672,18 @@ def create_ik_rig(skeletal_mesh: str, asset_path: str | None = None, existing_ri
         fbik: auto: template Full Body IK; manual: a FullBodyIK solver on the pelvis connected to the goals you gave.
         save: Save the new rig.
 
-    Returns asset_path, reused, mode, preview_mesh, template_match, pelvis, chains[], goals[], solvers[], saved.
+    Finger chains are proposed by geometry, not names (finger_chain_suggestion, also in the IKRIG_AUTO_FAILED details): hands =
+    ends of the mirrored arm chain pair (the chains you give, or the template), or with no arm chains the farthest mirrored pair
+    of bones with 3+ finger-like child chains; thumb = the chain deviating most from the others' mean direction; the rest index →
+    pinky from the thumb side across the knuckles; a first joint closer to the wrist than its own segment is a metacarpal; joints
+    past 3 phalanges at the leaf end are tips (left out); Left/Right from the arm chain names, else the feet facing. Proposed
+    chains missing from the rig → info FINGER_CHAINS_SUGGESTED with chains[] (without them the target fingers keep their
+    reference pose — show them to the user and add them on confirmation); a same-named finger chain on other bones → warning
+    FINGER_CHAINS_DIFFER (e.g. SOMA77 auto-characterized as Mixamo puts LeftIndex on Index1..3, the metacarpal included).
+
+    Returns asset_path, reused, mode, preview_mesh, template_match, pelvis, chains[], goals[], solvers[],
+    finger_chain_suggestion{hands_from, side_from, chains_from, hands[{side, hand, fingers, thumb_margin_deg, tips_excluded[],
+    issues[]}], chains[{name, start, end}], missing[], differs[], mirrored[], not_mirrored[], skipped_reason?}, saved.
     """
     params: dict = {"skeletal_mesh": skeletal_mesh, "mode": mode, "fbik": fbik, "save": save}
     if asset_path:
@@ -709,8 +725,12 @@ def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, tar
             source rotations when joints sit at different chain fractions, e.g. the elbow bends 0.87× for CMU → Vesper), and the
             non-axial ones are aligned bone-to-bone to the matching source segment on the final torso; the end bone is aimed at the
             starts of the mapped chains right below it (2+ spread landmarks: full frame incl. roll, the roll carried by the chain
-            parent); a non-axial single-bone chain with no mapped chain below it gets the same neutral rotation. Other single-bone
-            chains (clavicles, metacarpals) and template-excluded bones (feet) stay as the engine set them.
+            parent); a non-axial single-bone chain with no mapped chain below it gets the same neutral rotation. A chain hanging
+            from a mapped single-bone chain whose parent mapped bone is off the midline (fingers below metacarpals) is aligned
+            relative to it — each segment to the source segment turned by the minimal rotation from the source's single-bone →
+            chain-start segment to the target's — so the target keeps its own palm and copies the source's joint angles (the
+            metacarpal segment differed 3–7° for SOMA → Vesper, bending the MCP up to 17.5°). The single-bone chains with chains
+            below them (clavicles, metacarpals) and template-excluded bones (feet) stay as the engine set them.
         facing_yaw_deg: Yaw (degrees about UE +Z) that turns the SOURCE's facing onto the TARGET's, e.g. source faces +X and
             target +Y → 90. FK chains copy global rotation deltas, so differently facing skeletons move in the wrong plane. Non-zero:
             the target root (bone 0) is turned by -yaw in the target retarget pose before auto-align, an Additive Pose op before the
@@ -722,7 +742,8 @@ def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, tar
     unmapped_target_chains[] (warning UNMAPPED_TARGET_CHAINS), pin_bones[], root_motion{}, retarget_poses{},
     facing_alignment{yaw_deg, target_root, restore_pose, op, op_index, enabled, consistent}|null (read from the asset; a reused
     retargeter whose yaw differs warns FACING_MISMATCH_EXISTING), pose_alignment{mode, one_to_one_chains[], interpolated_chains[],
-    bones[{bone, deg}], chain_ends[{bone, landmarks[], fit, deg, residual_max_deg, twist_bone?, twist_deg?}],
+    bones[{bone, deg}], relative_chains[{chain, parent_bone, offset_deg}],
+    chain_ends[{bone, landmarks[], fit, deg, residual_max_deg, twist_bone?, twist_deg?}],
     axial{lateral_axis[3], tolerance_cm, mirror_pairs[[a, b]], chains[], pelvis|null} | {skipped_reason: NO_MIRROR_CHAINS},
     neutral_bones[{bone, deg}] (pelvis, axial and neutral leaf bones), skipped[]}|null (per_bone only), saved.
     """
@@ -742,7 +763,8 @@ def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, tar
 @mcp.tool()
 def retarget_animations(retargeter: str, assets: list[str], source_mesh: str, target_mesh: str, output_path: str,
                         name_rule: dict | None = None, include_referenced: bool = True, dry_run: bool = False,
-                        validate: bool = True, thresholds: dict | None = None, save: bool = False) -> dict:
+                        validate: bool = True, thresholds: dict | None = None, save: bool = False,
+                        body_clearance: str | dict | None = None, fingers: bool = True) -> dict:
     """Duplicate animation assets onto another skeleton through an IK Retargeter (the engine batch "Duplicate and Retarget",
     with an explicit output folder). Sources are only read; results are new assets.
 
@@ -760,11 +782,21 @@ def retarget_animations(retargeter: str, assets: list[str], source_mesh: str, ta
             error VALIDATION_FAILED with details.partial.
         thresholds: validate_animation thresholds.
         save: Save the generated assets.
+        body_clearance: "measure" (validation adds validate_animation body_clearance on the target mesh, chains from the
+            retargeter's target IK Rig) | "resolve" (before validation, frames where the hands/forearms go into the target mesh's
+            body get the smallest least-squares rotation about the shoulder that clears them by margin — only the upper-arm tracks
+            change, elbow/hand keep their local rotations; smoothed over ±0.13 s and re-checked) | {mode, margin_cm (0.5 × scale),
+            max_deg (30), + validate_animation body_clearance keys} | omitted = off. Result body_clearance[{asset, arms[{upper_arm,
+            corrected_frames_pct, deg_p50, deg_p95, deg_max, deg_per_s_max, clamped_frames}], grip_changed_frames, before{}, after{},
+            issues[]}] — warnings BODY_CLEARANCE_LIMIT (clamped at max_deg), CLEARANCE_GRIP_CHANGED (wrists within 20 cm moved
+            relative to each other; the grip is not solved), BODY_PENETRATION_REMAINS.
+        fingers: The validation also runs validate_animation fingers with this retargeter (target rig hands, FK op mapping) —
+            default true; warnings add diagnostic FINGER_WARNINGS.
 
     Never overwrites: existing outputs → ASSET_EXISTS (details.problems), two outputs with the same name → BAD_REQUEST
     NAME_COLLISION_IN_BATCH, more planned assets (inputs + referenced) than get_editor_status.generation.max_retarget_assets_per_call
     → BAD_REQUEST LIMIT. The engine shows a progress dialog; cancelling it pops a delete confirmation — don't cancel during automation.
-    Returns generated[], referred[], seconds, seconds_per_asset, frames, ms_per_frame, validation{status, assets[]}, saved.
+    Returns generated[], referred[], seconds, seconds_per_asset, frames, ms_per_frame, body_clearance[]?, validation{status, assets[]}, saved.
     """
     params: dict = {"retargeter": retargeter, "assets": assets, "source_mesh": source_mesh, "target_mesh": target_mesh,
                     "output_path": output_path, "include_referenced": include_referenced, "dry_run": dry_run, "validate": validate,
@@ -773,6 +805,10 @@ def retarget_animations(retargeter: str, assets: list[str], source_mesh: str, ta
         params["name_rule"] = name_rule
     if thresholds:
         params["thresholds"] = thresholds
+    if body_clearance:
+        params["body_clearance"] = body_clearance
+    if not fingers:
+        params["fingers"] = False
     return bridge.call("retarget_animations", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
@@ -781,7 +817,8 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
                        checks: list[str] | None = None, thresholds: dict | None = None, feet: list[str] | None = None,
                        pelvis: str | None = None, source_feet: list[str] | None = None, source_pelvis: str | None = None,
                        expect: dict | None = None, seams: list[float] | None = None, profile_bones: list[str] | None = None,
-                       profile_positions: bool = False) -> dict:
+                       profile_positions: bool = False, body_clearance: bool | dict | None = None,
+                       fingers: bool | dict | None = None) -> dict:
     """Measure AnimSequences (read-only): structure, obvious breakage, comparison with a source, and whether a request was met.
 
     Args:
@@ -801,6 +838,25 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
         profile_bones: Bones whose per-frame speed (cm/s) is returned in numeric.profile — use it to find strike windows.
         profile_positions: Also return numeric.profile.position_cm{bone: [[x, y, z]]} (component space, same times) — e.g. the
             plane a hand moves in, to compare a retarget with its source.
+        body_clearance: true or {mesh?, ik_rig?, upper_arms?[2], body_bones?[], include_secondary?, contact_cm?, penetration_cm?} —
+            how deep the hands/forearms go into the body (waist, pelvis, thighs) of the target MESH, from its LOD0 skinned
+            vertices per frame. mesh defaults to the skeleton's preview mesh; arms/legs/spine come from ik_rig chains (default: the
+            mesh's auto-characterization) found geometrically (mirrored chain pairs), or give upper_arms + body_bones. Hanging
+            branches of 3+ bones (coat tails, hair) are 'secondary', reported only with include_secondary. contact_cm (1) /
+            penetration_cm (2) default × pelvis reference height / 100 cm. Result body_clearance{arms[{upper_arm,
+            frames_over_contact_pct, frames_over_penetration_pct, depth_p50/p95/max, worst{frame, time, arm_bone, body_bone},
+            body_bones_hit[]}], body{core_roots[], secondary_branches[]}, …}; a depth over penetration_cm → warning BODY_PENETRATION.
+        fingers: true or {ik_rig?, retargeter?, mesh?} — finger sanity of a retarget result, hands/fingers found by geometry (the
+            create_ik_rig finger topology; ik_rig default = the retargeter's target rig, else the preview mesh template, else
+            topology; mesh = whose reference pose counts, default the retargeter's target preview mesh). Per frame: a finger bone
+            with no mapped source chain (retargeter FK op) must keep its reference local rotation (> 2° →
+            FINGER_UNMAPPED_NOT_REFERENCE — a bent retarget pose rides on every frame; needs retargeter);
+            non-thumb MCP / PIP bends, + toward the palm by hand chirality, within MCP −60..110° and PIP −25..130°
+            (FINGER_BEND_REVERSED / FINGER_OVERBENT; Vesper's 57 shipped clips: MCP −37..102°, PIP 1.5..113°); fingertips in
+            index → pinky lateral order on all but 5% of frames (FINGER_ORDER_BROKEN). Result fingers{topology_from, chains_from,
+            reference_mesh, mapping_from, hands[{side, hand, order_broken_pct,
+            fingers[{finger, chain, metacarpal_chain?, mapped, mcp{min,p50,max}, pip{…}}]}], unmapped[{bone, chain, max_deg,
+            frame}], thresholds{}, issues[]} | {skipped_reason}.
 
     Per asset: status PASSED | PASSED_WITH_WARNINGS | NEEDS_REVIEW | FAILED, structural[], numeric{}, relative{}, needs_review[]
     (always lists the visual check — passing checks is not motion quality). No absolute speed limits: normal attacks reach
@@ -809,7 +865,8 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
     params: dict = {"assets": assets}
     for key, value in (("sources", sources), ("skeleton", skeleton), ("checks", checks), ("thresholds", thresholds), ("feet", feet),
                        ("pelvis", pelvis), ("source_feet", source_feet), ("source_pelvis", source_pelvis), ("expect", expect),
-                       ("seams", seams), ("profile_bones", profile_bones), ("profile_positions", profile_positions)):
+                       ("seams", seams), ("profile_bones", profile_bones), ("profile_positions", profile_positions),
+                       ("body_clearance", body_clearance), ("fingers", fingers)):
         if value:
             params[key] = value
     return bridge.call("validate_animation", params, timeout=bridge.COMPILE_TIMEOUT)

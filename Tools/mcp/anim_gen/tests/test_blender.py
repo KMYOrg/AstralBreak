@@ -303,6 +303,19 @@ def test_import_length_snap_reaches_the_job(bl):
     assert snapped and {(d["tool"], d["step"], d["track"]) for d in snapped} == {("import_animation_file", "import", "Scene")}
 
 
+def test_finger_chain_suggestion_reaches_the_job(bl):
+    """create_ik_rig 의 FINGER_CHAINS_SUGGESTED(손가락 체인 없는 수동 체인 — 기하로 찾은 표준 체인) 가 체인 목록째 Job diagnostics 에 남는다:
+    사용자가 확인하면 retarget.source_chains 에 더해 다시 계획한다(지침서 §10 제안 → 확인 → manual)."""
+    chains = [{"name": "LeftThumb", "start": "LThumb1", "end": "LThumb3"}]
+    bl.fake.diags["create_ik_rig"] = [{"level": "info", "code": "FINGER_CHAINS_SUGGESTED", "message": "1 finger chain(s) found by geometry", "chains": chains}]
+    _, env = generate(bl, frame_rate=30)
+    bl.launcher.last.complete("ok")
+    job = status(bl, env["result"]["job_id"])["result"]
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    suggested = [d for d in job["diagnostics"] if d["code"] == "FINGER_CHAINS_SUGGESTED"]
+    assert suggested and all(d["chains"] == chains and (d["tool"], d["step"]) == ("create_ik_rig", "retarget") for d in suggested)
+
+
 def test_without_rest_fbx_the_motion_fbx_makes_the_skeleton(bl):
     """기준 포즈 FBX 를 쓰지 않은 변환(이전 스크립트) — 예전처럼 동작 FBX 하나로 스켈레톤 · 메시 · 애니."""
     _, env = generate(bl, provider="blender")

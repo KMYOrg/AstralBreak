@@ -10,14 +10,32 @@
 개정 7: 2026-10-24 — Phase 4(Blender Provider) 착수 전 엔진·Blender 소스 대조와 실측. 메시 없는 FBX는 스켈레톤을 못 만든다(더미 스킨 메시), BVH 기준 포즈 바닥 맞춤, 정면 방향 맞춤(FK 전역 델타), `motion_file` 요청 필드, 서브프로세스 타임아웃 정책 키, Vesper 정면 정정(+Y).  
 개정 7 보강: 2026-10-24 — 리타깃 파이프(existing_motion · 생성 임포트)의 정면 맞춤. 소스 12개 스켈레톤 정면 실측(SB만 +X), 리타깃 포즈는 소스 현재 포즈에 걸리지 않음(소스 쪽 회전으로는 불가) → 대상 루트 반대 회전 + Additive Pose op(`create_ik_retargeter facing_yaw_deg`), 요청 `retarget.source_facing`, 계획 위험 `FACING_DIFFERS` · 한계 `FACING_ALIGNED`, `validate_animation profile_positions`.  
 개정 7 보강 2: 2026-10-24 — `import_animation_file` 리샘플 경계 스냅. `bSnapToClosestFrameBoundary` 를 항상 켜서 경계에 안 맞는 길이도 임포트하고, 맞춘 트랙은 `warning LENGTH_SNAPPED` 로 알린다(§2.3 · 부록 B). 생성 잡은 단계 안 에디터 Tool 진단을 `tool` · `step` 과 함께 Job `diagnostics` 에 남긴다(§3.4).  
-상태: Phase 1 · 2 · 3 · 4 구현·검증 완료(§14). 다음 = Phase 6(Meshy) 또는 Phase 5 조사 — 사용자 승인 후.  
-관련 문서: [AnimGraphMcp README](../../Plugins/AnimGraphMcp/README.md) · [Phase 0 감사](ArchitectureAudit.md)
+개정 8: 2026-10-25 — Phase 5(로컬 AI) 구현·실측 반영. 조사 결론과 채택(NVIDIA Kimodo-SOMA-RP-v1.2, §2.4), `local_ai` Provider(전용 venv 서브프로세스 · 오프라인 · 텍스트 인코더 CPU — §4 · §6), 요청 `prompt` · `generation` · `review` · `fix` · `retarget.align_mode` · `retarget.body_clearance`(§9), 생성 BVH → `blender` 변환 사슬(§5), 리타깃 정렬 엔진 함정과 `per_bone` 정렬 · 기준 포즈 FBX 2단 임포트 · 손가락 체인 · 팔-몸통 관통 보정(§2.3 · §10 · §13), §14 Phase 5 결과.  
+상태: Phase 1 · 2 · 3 · 4 · 5 구현·검증 완료(§14). 다음 = Phase 6(Meshy) 또는 Phase 7 — 사용자 승인 후.  
+관련 문서: [AnimGraphMcp README](../../Plugins/AnimGraphMcp/README.md) · [Phase 0 감사](ArchitectureAudit.md) · [Phase 5 로컬 모델 조사](LocalModelSurvey.md)
 
 | 항목 | 내용 |
 | :--- | :--- |
 | 환경 | Windows 11 · UE 5.7.4 소스 빌드 · C++ · Python 3.13 · Claude Code · MCP |
 | 구조 | Multi-Provider + 규칙 기반 라우터 + 폴백 + 공통 리타깃 처리 + 기존 AnimBP MCP 연결 |
 | 기본 정책 | Free-First · 유료 API는 명시 승인 · 비파괴 · Editor 전용 |
+
+---
+
+## 개정 8 변경 요약 (Phase 5 — 로컬 AI · Kimodo)
+
+| 항목 | 개정 7 | 개정 8 (조사 · 엔진 소스 대조 · 실측) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 로컬 모델 | "공개 Text-to-Motion 은 학습 데이터 조건 미확인" | HumanML3D 계열(MDM · MoMask · T2M-GPT …)은 AMASS 가 "commercial use of any kind" 학습을 금지 → 상업 부적법(포트폴리오는 원문이 정하지 않음). HY-Motion 1.0 은 한국 제외. **유일한 적법 · 호환 후보 Kimodo-SOMA-RP-v1.2 채택**(2026-10-24, 사용자) | §2.4 · 부록 B · [조사](LocalModelSurvey.md) |
+| `local_ai` | 비활성 자리(`NOT_IMPLEMENTED`) | Kimodo 전용 venv 를 서브프로세스로(`kimodo_run.py`, 오프라인 · 텍스트 인코더 CPU) → BVH(SOMA77 표준 T 포즈 · cm · 루트 트랙) → `blender` 변환 → retarget(SOMA 수동 체인 27개). 서브프로세스 공통 기반 `subprocess_step.py`(blender 와 같이) | §3.4 · §4 · §14 |
+| 정책 | `paths.blender_executable` | + `paths.kimodo_python` · `paths.kimodo_hf_cache` | §6 |
+| 요청 | 생성 필드 없음 | `prompt`(모델이 읽는 영어 문장) · `generation{seed, samples, steps, postprocess, pick, constraints[root_path · keep_pose · kimodo_raw]}` · `review.render` · `fix.ops`(사전 비어 있음) · `retarget.align_mode` · `retarget.body_clearance` | §9 |
+| 라우터 | 생성 → import | 생성 결과가 BVH 면 `blender` 변환을 잇는다(예상 규약 고정 → 실행 때 측정). blender 가 없으면 `DEPENDS_ON_BLENDER`. Provider 가 아는 리타깃 기본값(SOMA 골반 · 체인 · 발)은 요청이 비운 것만 채운다 | §5 |
+| 리타깃 정렬 (엔진 함정) | `match_existing` = FK op 만 정확 매핑 | 리타깃 포즈 자동 정렬은 '매핑된 체인'을 **꺼진 op 까지 모든 op** 의 매핑으로 판정한다 → 꺼진 Run IK Rig op 의 퍼지 매핑이 소스에 없는 손가락을 다리 · 팔 방향으로 꺾었다(SOMA 검지 MCP 120°). `match_existing` 은 모든 op 를 정확 매핑 | §2.3 · §10 |
+| 리타깃 정렬 (`per_bone`) | 엔진 자동 정렬만 | `create_ik_retargeter align_mode=per_bone`(anim_gen 기본): 뼈 수 같은 체인 FK 1:1 + 본 대 본 · 체인 끝 정렬, 축 체인(척추 · 목 · 머리) · 펠비스 = 대상 고유 자세, 머리 해부적 중립, 손가락은 메타카팔 상대 | §2.3 · §10 |
+| 기준 포즈 FBX | 동작 FBX 하나 | Interchange 는 계층 깊이 ≥ 10 본이 있으면 바인드 포즈를 무효로 보고 첫 프레임으로 다시 바인드한다 → blender 가 기준 포즈 2프레임 FBX 를 따로 내고 임포트는 2단(스켈레톤 ← 기준 포즈 FBX, 동작 ← 그 스켈레톤에 애니만) | §2.3 · §10 |
+| 손가락 · 관통 | 검증 없음 | `create_ik_rig finger_chain_suggestion`(이름 없는 위상 · 좌표 제안) · `validate_animation fingers`(미매핑 = 기준 포즈 · 굽힘 방향 · 끝 순서) · `body_clearance`(대상 메시 반경 지도) · `retarget_animations body_clearance resolve`(관통 프레임만 위팔 최소 회전) | §10 · §13 |
+| 시각 확인 | 사람이 Persona/PIE (캡처는 Phase 8) | + `review.render` — 변환된 **소스 골격**의 프레임 PNG · 비교 시트(Blender Workbench). Vesper 캡처는 Phase 8 그대로 | §13 |
 
 ---
 
@@ -184,8 +202,9 @@ Claude Code ─ stdio MCP ─▶ Tools/mcp/anim_graph_mcp/server.py (얇은 프�
 | 명명 규칙 | `/Game/Animation/Hero/<영웅>/<계열>/<용도>/` · `AS_<영웅>_<계열>_<동작>` · 몽타주 `AM_` · 타입 폴더 금지 (`.claude/plans/anim-asset-naming.md`) |
 | 테스트 산출물 위치 | `/Game/Animation/Test/` |
 | Blender | 4.4.1, `C:\Program Files\Blender Foundation\Blender 4.4\` (PATH에 없음 — 정책 `paths.blender_executable`). `-b --factory-startup` 기동 약 2.9초, BVH 1건 변환 0.6~2초 |
-| GPU | RTX 3080 Ti 12GB |
+| GPU · 메모리 | RTX 3080 Ti 12GB · RAM 64 GB · i7-12700KF |
 | MCP Python | `Tools/mcp/.venv` Python 3.13.1, `mcp` 2.x |
+| 로컬 AI (개정 8) | Kimodo — 저장소 밖 `D:\AnimGenModels\Kimodo\`. 시스템 Python 3.13 venv(`Tools/mcp/.venv` 와 별개) · 코드 `nv-tlabs/kimodo` `e1c219c` · torch 2.14.1+cu130 · NVIDIA 잠금 버전 72개(numpy 만 2.3.5 — 3.13 휠) · C++ 확장 `motion_correction`(발 미끄러짐 후처리) VS2022 빌드. 오프라인 Hugging Face 캐시 `hf_cache` 17 GB(체크포인트 `nvidia/Kimodo-SOMA-RP-v1.2` · LLM2Vec 어댑터 2개 · `meta-llama/Meta-Llama-3-8B-Instruct` — 사용자가 직접 약관 동의 후 받음, 파일 SHA-256 대조). 텍스트 인코더 CPU(`TEXT_ENCODER_DEVICE=cpu`) → 생성 1건(프로세스 하나 = torch 임포트 + 모델 · 인코더 적재 + 생성) 에디터를 띄운 채 51 ~ 88초(그중 확산 생성 8.5 ~ 13초, 첫 실행은 torch 임포트가 47초) · RAM 약 15 GB · VRAM < 3 GB. 실행에 HF 토큰을 쓰지 않는다(`HF_HUB_OFFLINE`) |
 
 ### 2.3 UE 5.7.4 API (엔진 소스 확인)
 
@@ -213,6 +232,11 @@ Claude Code ─ stdio MCP ─▶ Tools/mcp/anim_graph_mcp/server.py (얇은 프�
 | 골반 이동 (개정 7) | `FIKRetargetPelvisMotionOp` | `…/RetargetOps/PelvisMotionOp.cpp:183-196, 223` | 소스 골반 기준 높이가 0에 가까우면 오류 로그 후 높이 1 로 두고 이동 배율 = 대상 높이 / 1 → 기준 포즈를 바닥에 맞춘다 |
 | Blender FBX 단위 (개정 7) | `io_scene_fbx` `export_fbx_bin.py` | `Blender 4.4/4.4/scripts/addons_core/io_scene_fbx/export_fbx_bin.py:3453-3463` · `fbx_utils.py:216` | 단위 계수 = 100 × `scale_length`, `FBX_SCALE_NONE`이면 그만큼 노드에 곱한다 → 장면 `scale_length` 0.01(1 BU = 1 cm)이면 노드 스케일 1 · `UnitScaleFactor` 1 |
 | Blender BVH 임포터 (개정 7) | `io_anim_bvh` `import_bvh.py` | `…/addons_core/io_anim_bvh/import_bvh.py:213-224, 545-560, 577-580, 646-647, 785` | End Site는 본이 아니라 꼬리. 축 변환은 객체 회전 → 회전만 적용. 위치 키 = 기준 포즈 로컬 공간(회전 적용 시 루트 이동도 같이 돈다). `frame_start=0`을 줘도 첫 키가 1(실측) · 장면 길이는 늘리기만 한다 → 변환 스크립트가 실제 첫 키 기준으로 옮기고 범위를 직접 맞춘다. `Armature.transform` 뒤에는 데이터 태그 + `view_layer.update()`가 있어야 포즈 평가가 새 기준 포즈를 쓴다(실측) |
+| 리타깃 포즈 자동 정렬의 '매핑된 체인' (개정 8) | `FIKRetargetProcessor::IsBoneInAMappedChain` · `GetFirstChainMappedToChain` · Run IK Rig op `AutoMapChains(Fuzzy)` · `FRetargetChainMapping::AutoMapChains` | `Plugins/Animation/IKRig/Source/IKRig/Private/Retargeter/IKRetargetProcessor.cpp:1496, 1675` · `…/RetargetOps/RunIKRigOp.cpp:150` · `…/Retargeter/IKRetargetChainMapping.cpp:222-242` | 자동 정렬이 본을 '매핑된 체인'으로 보는지는 스택의 **모든 op**(꺼진 op 포함) 매핑에서 첫 상대를 찾는다. 엔진은 Run IK Rig op 에 퍼지 매핑(점수 = 1 − 편집거리 / 두 이름 길이 합, 0.2 초과)을 깔아 두므로, FK op 만 정확 매핑하면 꺼진 op 의 퍼지 짝(LeftIndex · LeftRing → LeftLeg, LeftThumb · LeftPinky → LeftArm)으로 소스에 없는 손가락의 리타깃 포즈를 돌린다. FK op 는 그 손가락을 움직이지 않으니 꺾인 포즈가 모든 프레임에 남는다(SOMA 검지 MCP 120° · CMU 63.8°, 가운데 손가락만 멀쩡 — 퍼지 짝이 뼈 1개 쇄골이라 접선 0). → `match_existing` 은 `AutoMapChains(Exact, bForceRemap=true)` 를 모든 op 에 |
+| FK 체인 Interpolated 회전 (개정 8) | `FIKRetargetFKChainsOp` `EFKChainRotationMode::Interpolated` · `GetTransformAtChainParam` | `…/RetargetOps/FKChainsOp.cpp:283-291` | 대상 본의 체인 param(길이 비율) 위치에서 **소스 체인을 보간한 회전**을 쓴다 → 관절 비율이 다르면(팔꿈치 param Vesper 0.512 · CMU 0.589) 위팔 · 아래팔 회전이 섞여 굽힘이 0.87배로 전달된다(굽힘 평면 회전 0.00° — 롤 문제가 아님). 뼈 수가 같은 체인은 1:1(`OneToOne`)이 맞다 |
+| 리타깃 포즈 자동 생성기 (개정 8) | `FRetargetAutoPoseGenerator::AlignPelvisBone` · 체인 접선 | `Plugins/Animation/IKRig/Source/IKRigEditor/Private/RetargetEditor/IKRetargeterPoseGenerator.cpp:107, 249, 386` | 같은 param 의 접선(유한 차분)끼리 맞춘다 — param 1 근처(뼈 1개 말단 · 머리)는 접선을 못 만들어 건너뛰고, 펠비스는 소스 척추 방향으로, 척추는 소스 곡선 접선으로 돌린다 → 대상 몸통이 소스 기준 포즈 모양(숙임 · 목 기울기)을 물려받아 모든 프레임에 붙는다 |
+| 바인드 포즈 무효 → 첫 프레임 재바인드 (개정 8) | `UInterchangeSkeletalMeshFactory` `bUseTimeZeroAsBindPose` | `Plugins/Interchange/Runtime/Source/Import/Private/Mesh/InterchangeSkeletalMeshFactory.cpp:792-808` | FBX SDK 가 바인드 포즈를 무효로 보면 "invalid bind poses … rebind using the time zero pose" — 스켈레톤 기준 포즈가 **애니 첫 프레임**이 된다. Blender 가 쓴 FBX 는 행렬이 일관인데도 계층 깊이 ≥ 10 본(SOMA 손가락 둘째 마디 아래)이 있으면 정밀도 판정(허용 0.0001 cm)으로 무효가 된다(이분 탐색 실측, CMU 깊이 ≤ 9 는 유효). 미터 단위 FBX 는 유효하지만 루트 본 스케일 100 이 남아 못 쓴다 → 기준 포즈 2프레임 FBX 로 스켈레톤을 만들고 동작은 그 스켈레톤에 애니만 임포트(§10) |
+| 메시 기준 포즈 ≠ 스켈레톤 기준 포즈 (개정 8) | `USkeletalMesh::GetRefSkeleton` · `USkeleton::GetReferenceSkeleton` | — | 메시 46개가 공유하는 Vesper 스켈레톤의 기준 포즈는 `SK_StreetDemon_F_01` 과 손가락 로컬 회전이 최대 14.13°(`index_metacarpal`) 다르다 — 리타기터 · 렌더는 **메시** 기준 포즈를 쓰므로 미매핑 손가락 비교도 대상 메시 기준이어야 한다(스켈레톤 기준이면 고친 결과도 30본 오탐) |
 | IKRig 플러그인 | `EnabledByDefault: true` | `Plugins/Animation/IKRig/IKRig.uplugin` | 플러그인 의존 선언만 추가하면 된다 |
 
 ### 2.4 외부 Provider와 라이선스
@@ -220,7 +244,8 @@ Claude Code ─ stdio MCP ─▶ Tools/mcp/anim_graph_mcp/server.py (얇은 프�
 | 대상 | 확인 결과 | 결정 |
 | :--- | :--- | :--- |
 | HY-Motion 1.0 | "Tencent HY-MOTION 1.0 Community License". Territory = 전 세계에서 **EU · UK · 한국 제외**. 월간 사용자 100만 초과 시 별도 라이선스 | 별도 적법 라이선스 없이 설치·활성화 금지 |
-| 공개 Text-to-Motion 모델 (MDM · MoMask · T2M-GPT 등) | 코드 라이선스와 별개로 학습 데이터(HumanML3D ← AMASS)의 비상업 조건 가능성 — **미확인** | Phase 5에서 모델별 조사 |
+| 공개 Text-to-Motion 모델 (MDM · MoMask · T2M-GPT · MotionGPT · MLD · MotionLCM · MotionStreamer · MoMask++) | 개정 8 — **확인**([조사](LocalModelSurvey.md) §2 · §3.1): 코드는 대개 MIT/Apache 지만 가중치 라이선스 미기재, 학습 데이터 HumanML3D ← AMASS 가 "train methods/algorithms/neural networks/etc. for commercial use of any kind" 를 금지(SMPL 도 같은 조항, MotionLCM 은 코드부터 비상업) → 상업 이용 부적법. 개인 포트폴리오가 AMASS 허용 범위(비상업 연구 · 교육 · 예술)에 드는지, 가중치 사용자에게 미치는지는 원문이 정하지 않는다(조사 §4 H-1 ~ H-3). 대부분 관절 위치만 내고 손가락 없음 · 20 fps | 채택하지 않음 |
+| **NVIDIA Kimodo-SOMA-RP-v1.2** (개정 8) | 코드 Apache-2.0 · 가중치 NVIDIA Open Model License("commercially usable" · 전 세계 · 출력 소유 주장 없음 · 모델 재배포 시 고지) · 학습 데이터 Bones Rigplay(700 h 독점 모캡, NVIDIA 라이선스) · 텍스트 인코더 Meta Llama 3 8B Instruct(Llama 3 Community License — HF 게이트, 약관 동의는 사용자 본인) + LLM2Vec 어댑터(MIT). 같은 저장소의 SMPLX-RP 는 NVIDIA R&D 라이선스라 제외, `*-SEED` 는 BONES-SEED 학습 계약이 공개되지 않아 제외. 출력 30 fps · 최대 10초 · `--bvh` SOMA77 cm. ARDY(같은 데이터 · 라이선스)는 BVH 가 없어 2순위 | **채택**(2026-10-24, 사용자) → `local_ai`(§4 · §14 Phase 5). 남은 해석: "Built with Meta Llama 3" 표시가 생성 애셋만 쓰는 게임에도 필요한지(조사 §4 K-1) |
 | Meshy Text-to-Motion | `POST /openapi/v1/text-to-motion`(`prompt`, `duration`, `mode`) → task id, `GET …/:id` 폴링, `…/:id/stream` SSE, Bearer 키. 입력이 텍스트뿐이라 캐릭터 데이터를 전송하지 않는다. 출력은 Meshy 리그라 리타깃이 필수 | 첫 외부 어댑터 (Phase 6). 길이 범위·가격은 그때 공식 문서로 확인 |
 | DeepMotion SayMotion | REST API 있음. 검증 파트너 한정, base URL은 요청해야 받음 | 보류 |
 
@@ -307,10 +332,11 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
   - diagnostics(개정 7 보강 2): `anim_gen` 자신의 진단과 함께 **단계 안 에디터 Tool 이 봉투로 돌려준 진단**(`LENGTH_SNAPPED` · `UNMAPPED_TARGET_CHAINS` 등)을 항목마다 `tool` · `step` 을 붙여 남긴다. 단계가 실패해도 남긴다. 실행기가 단계마다 `EditorClient.collect()`(스레드별)로 감싸 모으므로 Provider 는 따로 넘기지 않는다. 계획 시점 호출의 진단은 계획 `diagnostics` 쪽이다
   - 전이: `QUEUED → RUNNING | WAITING_FOR_APPROVAL | CANCELLED`, `RUNNING → SUCCEEDED | FAILED | WAITING_FOR_APPROVAL | CANCELLED`, `WAITING_FOR_APPROVAL → QUEUED(승인) | CANCELLED`. 종료 3종(`SUCCEEDED` · `FAILED` · `CANCELLED`) 뒤 전이는 없다.
   - 실행 모델(Phase 3): 에디터 Provider(`existing_motion` · `direct_key` · `retarget`)는 `generate_motion` 호출 안에서 동기로 끝난다. 비동기 Provider(외부 · Blender · 로컬 AI)는 백그라운드 스레드 없이 `get_generation_status`가 poll 할 때 진행한다.
-  - 로컬 서브프로세스(개정 7 — `blender`): `generate_motion`이 프로세스를 띄우고 `RUNNING`을 돌려준다. poll 이 끝남(report 파일)을 보면 같은 호출 안에서 import → retarget → 검증까지 동기로 잇는다. 자식은 stdin을 막고 출력을 로그 파일로 보낸다(MCP stdio 보호), 키·토큰 이름의 환경 변수는 넘기지 않는다. 기한(`execution.subprocess_timeout_seconds`)을 넘기면 끝내고 `GENERATION_FAILED`(`TIMEOUT`). 서버가 다시 뜨면 프로세스 핸들이 없어 report 파일로만 판정하고, 기한까지 report가 없으면 멈추지 못한 채 `TIMEOUT`으로 적는다.
+  - 로컬 서브프로세스(개정 7 — `blender`, 개정 8 — `local_ai`): `generate_motion`이 프로세스를 띄우고 `RUNNING`을 돌려준다. poll 이 끝남(report 파일)을 보면 같은 호출 안에서 다음 단계를 잇는다 — 다음도 서브프로세스면(Kimodo → Blender) 그것을 띄우고 다시 `RUNNING`, 에디터 단계면 import → retarget → 검증까지 동기로. 자식은 stdin을 막고 출력을 로그 파일로 보낸다(MCP stdio 보호), 키·토큰 이름의 환경 변수는 넘기지 않는다. 기한(`execution.subprocess_timeout_seconds`, 단계마다)을 넘기면 끝내고 `GENERATION_FAILED`(`TIMEOUT`). 서버가 다시 뜨면 프로세스 핸들이 없어 report 파일로만 판정하고, 기한까지 report가 없으면 멈추지 못한 채 `TIMEOUT`으로 적는다. 공통 부분은 `providers/subprocess_step.py`(`SubprocessProvider` — 띄우기 · report 대기 · 기한 · 종료 · 로그 꼬리)이고 Provider 는 명령 · 인자와 report 해석만 정한다.
+  - 프레임 렌더 비교(개정 8): `blender` 변환 단계가 `review.render` 결과(`values.review` — 프레임 PNG · 시트 · 배치 · 카메라)를 내면 Job 최상위 `review` 에도 남긴다. 뒤 단계가 실패하거나 폴백해도 지우지 않는다(무엇이 변환됐는지 보는 근거).
   - 같은 계획으로 `generate_motion`을 다시 부르면 기존 Job을 돌려준다. 실패·취소된 Job은 `retry=true`일 때만 새 Job을 만든다.
   - 저장 위치: `Saved/AnimGen/{policy.json, plans/, jobs/, approvals/, ledger.jsonl}`(`ANIM_GEN_STATE_DIR`로 바꿀 수 있다 — 테스트 격리용). 서버 프로세스 하나를 전제한다.
-- **취소:** 취소가 Provider 실행의 즉시 중단을 뜻하지 않는다. 외부 작업은 "결과 무시"로 처리하고, 이미 발생한 비용은 장부에 남긴다. 로컬 서브프로세스(`blender`)는 실제로 종료하고 Job에 `cancel_effect{stopped, pid}`를 남긴다(개정 7).
+- **취소:** 취소가 Provider 실행의 즉시 중단을 뜻하지 않는다. 외부 작업은 "결과 무시"로 처리하고, 이미 발생한 비용은 장부에 남긴다. 로컬 서브프로세스(`blender` · `local_ai`)는 실제로 종료하고 Job에 `cancel_effect{stopped, pid}`를 남긴다(개정 7 · 8).
 
 ---
 
@@ -321,8 +347,8 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 | `retarget` (파이프) | 공통 처리 계층 — 모든 Provider 결과가 지난다 | 1 | 활성 |
 | `existing_motion` | 메타데이터 인덱스로 검색 → 리타깃 → 편집 | 2 | 활성 (주 경로) |
 | `direct_key` | `IAnimationDataController`로 키 작성: 리타임 · 트림 · 미러 · 본 오프셋 · 루트 Yaw · 포즈 유지 · 구간 연결 | 2 | 활성 |
-| `blender` | `motion_file`(BVH)을 headless(`blender -b --factory-startup -P anim_gen/blender/bvh_to_fbx.py`)로 FBX로 바꿔 retarget 파이프로 넘긴다 — 더미 스킨 메시 · 대상 정면 · 바닥 맞춤 · 범위 · fps. FBX 입력·아마추어 편집은 이후 | 4 | 실행 파일(정책 `paths.blender_executable`)이 있으면 활성 |
-| `local_ai` | 라이선스 게이트를 통과한 모델만 | 5 | 비활성 |
+| `blender` | `motion_file`(BVH)을 headless(`blender -b --factory-startup -P anim_gen/blender/bvh_to_fbx.py`)로 FBX로 바꿔 retarget 파이프로 넘긴다 — 더미 스킨 메시 · 대상 정면 · 바닥 맞춤 · 범위 · fps. 개정 8: 기준 포즈 2프레임 FBX 도 낸다(§10), 생성 Provider 의 BVH 도 변환한다(§5), 같은 실행에서 프레임 렌더 비교(`review.render`)와 보정 op 자리(`fix.ops` — 사전은 Phase 8 까지 비어 있다). FBX 입력·아마추어 편집은 이후 | 4 · 5 | 실행 파일(정책 `paths.blender_executable`)이 있으면 활성 |
+| `local_ai` | 개정 8 — NVIDIA Kimodo-SOMA-RP-v1.2(§2.4). `request.prompt`(+ `generation`) → Kimodo 전용 venv 서브프로세스 `<paths.kimodo_python> -I anim_gen/local_ai/kimodo_run.py args.json`(오프라인 · 텍스트 인코더 CPU) → 샘플별 NPZ + BVH(SOMA77 표준 T 포즈 · cm · 루트 트랙) → `blender` 변환 → retarget(SOMA 수동 체인 27개 · 골반 `Hips`). 제약 `root_path` · `keep_pose` · `kimodo_raw` | 5 | 정책 `paths.kimodo_python` · `kimodo_hf_cache` 가 있고 캐시에 필요한 4개 저장소가 있으면 활성(`license: ok`) |
 | `external.meshy` | text-to-motion → FBX → 리타깃 | 6 | 비활성 (유료, 승인 필수) |
 | `control_rig` | 손·무기 파지, 발 고정 같은 제약 보정 베이크 | 8 | 비활성 |
 
@@ -360,7 +386,9 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 - **재사용:** 소스가 대상 스켈레톤에 있고 `edits`가 없으면 복제하지 않는다 — `reused_assets` + 한계 `REUSED_EXISTING`.
 - **`provider` 지정:** 그 Provider의 후보만 만들고 폴백을 끈다(원 요청이 Provider를 고른 것이므로).
 - **`motion_file` (개정 7):** 있으면 `blender`를 모드 순서 맨 앞에 둔다(요청이 소스를 준 것). 없으면 위 표 그대로이고 `blender`는 후보·제외 목록에 나오지 않는다. 사슬 = 변환(blender) → `import_animation_file`(`sample_rate` = 요청 `frame_rate`) → `retarget` → [`direct_key`] → 검증.
-- **계획 단계 제외(`excluded[]`):** `PROVIDER_UNAVAILABLE`(`NOT_IMPLEMENTED` 등) · `LICENSE_RESTRICTED` · `AUTHENTICATION_FAILED`(`API_KEY_MISSING`) · `APPROVAL_REQUIRED`(`POLICY_FREE_ONLY` · `PAID_API_DISABLED`) · `COST_UNKNOWN` · `UNSUPPORTED_REQUEST`(Capability 밖, 예: 최대 길이 초과).
+- **생성 BVH (개정 8 — `local_ai`):** 생성 Provider 의 출력이 BVH 면 사슬 = 생성 → 변환(`blender`) → import → `retarget` → [`direct_key`] → 검증(`chain` 은 `local_ai` · `blender` · `retarget`). 파일이 계획 때 없으므로 변환 단계는 생성 Provider 가 아는 규약(Kimodo: cm · 정면 +Y · 관절 78 · 30 fps · 프레임 수)을 `expected` 로 고정하고(위험 `CONVERT_RESOLVED_AT_RUN`), 실행 때 그 파일로 같은 규칙을 돌려 다르면 진단 `GENERATED_BVH_UNEXPECTED` 를 남기고 잰 값으로 변환한다. 리샘플은 생성 fps 와 요청 `frame_rate` 가 다를 때만. `blender` 를 쓸 수 없으면 그 후보를 `PROVIDER_UNAVAILABLE`(`DEPENDS_ON_BLENDER`)로 제외. 리타깃 단계의 소스 골반 · 체인 · 발은 요청이 비운 것만 Provider 기본값으로 채우고 계획에 `defaults_from{provider, keys}` 로 보인다(Kimodo = SOMA 골반 `Hips` · 체인 27개 · 발 — SOMA `LeftLeg` 는 넓적다리라 자동 캐릭터라이즈를 믿지 않는다). 생성 단계의 프롬프트 · 프레임 수 · seed(없으면 계획이 골라 고정 — `SEED_PINNED`) · 모델 커밋 · 제약 파일 SHA-256 도 계획에 고정한다.
+- **변환 없는 경로 (개정 8):** `existing_motion` · `direct_key` 처럼 `blender` 변환이 없는 후보는 `fix.ops` 가 있으면 `UNSUPPORTED_FIX_OP` 로 막고, `review` 에는 한계 `REVIEW_NOT_RENDERED` 를 단다.
+- **계획 단계 제외(`excluded[]`):** `PROVIDER_UNAVAILABLE`(`NOT_IMPLEMENTED` · `NOT_INSTALLED` · `DEPENDS_ON_BLENDER` 등) · `LICENSE_RESTRICTED` · `AUTHENTICATION_FAILED`(`API_KEY_MISSING`) · `APPROVAL_REQUIRED`(`POLICY_FREE_ONLY` · `PAID_API_DISABLED`) · `COST_UNKNOWN` · `UNSUPPORTED_REQUEST`(Capability 밖, 예: 최대 길이 초과 `DURATION_OVER_MAX`. 개정 8: `MISSING_INPUT`(프롬프트 없음) · `CONSTRAINT_OUT_OF_RANGE` · `DUPLICATE_FRAME` · `BAD_RAW_CONSTRAINTS` · `FILE_NOT_FOUND` · `POSTPROCESS_UNAVAILABLE` · `REVIEW_TIME_OUT_OF_RANGE` · `UNSUPPORTED_FIX_OP`). 제약 파일 · 레퍼런스 이미지가 `ImportSourceRoots` 밖이면 계획 전체가 `IMPORT_SOURCE_NOT_ALLOWED`.
 - **계획은 실행하지 않는다:** 읽기 전용 에디터 호출(`get_editor_status` · `inspect_skeleton` · `search_animations`)로 고른 소스·소스 메시를 계획에 고정해 보여 주고, 출력 경로를 ini 허용 목록으로 미리 검사한다. 에디터가 없으면 단계를 미해결로 둔 계획만 만든다.
 - 중간 애셋(IK Rig · 리타기터 · 리타깃 중간본)은 `<output_path>/Work/<job_id>/`에 만들고 결과와 같은 `save`를 따른다. 지우지 않는다(정리는 사용자 확인 후).
 
@@ -386,10 +414,14 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
   "billing": { "paid_api_enabled": false, "require_explicit_approval": true, "max_cost_per_job_usd": 0, "max_total_cost_usd": 0 },
   "execution": { "max_generation_attempts": 3, "allow_fallback": true, "preserve_intermediate_results": true, "subprocess_timeout_seconds": 300 },  // 타임아웃: 개정 7
   "paths": {
-    "blender_executable": "C:/Program Files/Blender Foundation/Blender 4.4/blender.exe"
+    "blender_executable": "C:/Program Files/Blender Foundation/Blender 4.4/blender.exe",
+    "kimodo_python": "D:/AnimGenModels/Kimodo/.venv/Scripts/python.exe",   // 개정 8 — Kimodo 전용 venv
+    "kimodo_hf_cache": "D:/AnimGenModels/Kimodo/hf_cache"                    // 개정 8 — 오프라인 Hugging Face 캐시
   }
 }
 ```
+
+- **로컬 AI 경로 (개정 8):** `paths.kimodo_python` 이 파일이 아니거나 `paths.kimodo_hf_cache` 에 `nvidia/Kimodo-SOMA-RP-v1.2` · LLM2Vec 어댑터 2개 · `meta-llama/Meta-Llama-3-8B-Instruct` 의 `refs/main` 이 없으면 `local_ai` 는 미설치(`NOT_INSTALLED`, 사유에 빠진 저장소). 캐시 `refs/main` 이 계획의 `model_commit` 이 된다. 실행 환경은 `HF_HUB_OFFLINE` · `TRANSFORMERS_OFFLINE` · `TEXT_ENCODER_DEVICE=cpu` 등을 Provider 가 넣고 HF 토큰은 넘기지 않는다. 기본 `subprocess_timeout_seconds` 300 은 Kimodo 1건(차가운 첫 실행 약 90초 — §14 Phase 5)에 충분하다. 다른 PC 는 `Saved/AnimGen/policy.json` 의 `paths` 로 덮어쓴다.
 
 ---
 
@@ -473,13 +505,19 @@ UNSUPPORTED_REQUEST · GENERATION_FAILED · IMPORT_FAILED · RETARGET_FAILED · 
   "reference_animations": [],                // 주면 검색 대신 이 소스를 쓴다 (선택)
   "search": { "query": "sickle attack", "path_prefix": "/Game", "min_length": null, "max_length": null },  // 개정 6
   "edits": { "source": null, "operations": [] },                // 개정 6 — Phase 2 op 사전 그대로
-  "retarget": { "source_mesh": null, "existing_retargeter": null, "source_facing": "auto" }, // 개정 6 — 재사용은 명시할 때만 · 개정 7 보강 source_facing
+  "retarget": { "source_mesh": null, "existing_retargeter": null, "source_facing": "auto",   // 개정 6 — 재사용은 명시할 때만 · 개정 7 보강 source_facing
+                "align_mode": "per_bone", "body_clearance": "resolve" },                // 개정 8
   "constraints": { "two_hand_weapon_grip": true, "foot_contact": true, "smooth_start_end": true },
   "generation_policy": "FREE_FIRST",
   "provider": "auto",
   "integrate_anim_bp": false,
   "output_path": "/Game/Animation/Generated/Vesper",
-  "motion_file": null                        // 개정 7 — BVH 경로 또는 {path, unit, facing, range, axis_forward, axis_up}
+  "motion_file": null,                       // 개정 7 — BVH 경로 또는 {path, unit, facing, range, axis_forward, axis_up}
+  "prompt": "A person swings a scythe in a circle three times.",   // 개정 8 — 생성 모델이 읽는 영어 문장 (description 은 기록만)
+  "generation": { "seed": null, "samples": 1, "steps": 100, "postprocess": "auto", "pick": 0,
+                  "constraints": [{ "type": "root_path", "points": [{ "t": 3.0, "forward_cm": 400, "left_cm": 0, "yaw_deg": 180 }] }] },  // 개정 8
+  "review": { "render": { "count": 4, "views": ["front", "side"], "reference_images": [] } },  // 개정 8 — blender 변환 단계의 프레임 렌더
+  "fix": { "ops": [] }                       // 개정 8 — blender 보정 op 자리 (사전은 Phase 8 까지 비어 있다)
 }
 ```
 
@@ -499,6 +537,11 @@ Provider가 지원하지 않는 제약은 후처리로 해결 가능한지 따�
 | `duration_seconds` · `frame_rate` · `loop` · `constraints` · `integrate_anim_bp` | 결과와 다르면 한계로 기록: `DURATION_MISMATCH` · `FRAME_RATE_MISMATCH`(출력 fps = 주 소스, §2.3) · `LOOP_MISMATCH` · `GRIP_NOT_VALIDATED` · `FOOT_CONTACT_NOT_ENFORCED` · `CONSTRAINT_UNSUPPORTED` · `ANIM_BP_NOT_INTEGRATED`(Phase 7). 길이·fps·루프는 결과를 측정해 적는다(계획 단계 값은 예상). `loop`는 `direct_key` 결과의 `bLoop`로도 쓰인다(내장 검증 `expect`가 쓴 값을 확인) |
 | `save` | 요청에 두지 않는다 — `generate_motion(plan_id, save)` 인자 |
 | `motion_file` (개정 7) | 문자열이면 `path`. `path`: 절대 경로, ini `ImportSourceRoots` 아래만(밖이면 계획 전체가 `IMPORT_SOURCE_NOT_ALLOWED`), `.bvh`만. `unit`: `auto`(기본) · `cm` · `m` · `mm` · `inch` · 숫자(cm/파일 단위). `facing`: `auto`(대상 스켈레톤 정면에 맞춤, 기본) · `keep` · `+X` · `−X` · `+Y` · `−Y`(UE 축). `range{start, end}`(초, 굽기 범위 — 요청 `frame_rate` 가 있으면 끝을 그 rate 의 프레임 경계로 당긴다, 진단 `RANGE_ALIGNED`. 정수 fps 가 아니라 맞출 수 없으면 리샘플하지 않는다). `axis_forward`(`-Z`) · `axis_up`(`Y`) — Blender BVH 임포터와 같은 뜻. 계획이 BVH 헤더(관절 계층 — 수동 체인 제안용) · 단위 · 회전 · 범위 · fps · 파일 SHA-256 을 고정하고, 실행 때 파일이 바뀌었으면 `FILE_CHANGED`로 멈춘다 |
+| `prompt` (개정 8) | 생성 Provider(`local_ai`)가 읽는 영어 문장, 1 ~ 500자. `description` 은 기록만이고 서버는 해석하지 않는다(자연어 → 프롬프트 변환은 Claude Code). 없으면 `local_ai` 후보는 `MISSING_INPUT` 으로 제외. 길이는 `duration_seconds`(없으면 5초 — `DURATION_DEFAULTED`) → 프레임 = round(길이 × 30) + 1(최대 300 = 10초) |
+| `generation{seed?, samples=1, steps=100, postprocess=auto, pick=0, constraints[]}` (개정 8) | `seed` 0 ~ 2³¹−1(없으면 계획이 골라 고정 — `SEED_PINNED`) · `samples` 1 ~ 4(같은 seed 로 여러 샘플, 리타깃은 `pick` 번째) · `steps` 10 ~ 1000(확산 단계) · `postprocess` `auto`(설치돼 있으면 켬) · `on`(없으면 `POSTPROCESS_UNAVAILABLE`) · `off`(한계 `POSTPROCESS_OFF`) — Kimodo 발 미끄러짐 후처리(`motion_correction`). `constraints[]`: `root_path{points[{t, forward_cm, left_cm, yaw_deg?}]}` — **캐릭터 기준**(생성 첫 프레임 정면 = forward, 왼쪽 = left, yaw + = 왼쪽으로 돎) → Kimodo `root2d`(yaw 있는 점은 따로 묶어 방향 고정). `keep_pose{npz, times[], part=full\|left_hand\|right_hand\|left_foot\|right_foot}` — 이전 Kimodo 결과 NPZ 의 그 시각 포즈를 고정하고 나머지를 다시 만든다(레퍼런스 기반 다듬기). `kimodo_raw{path}` — Kimodo `constraints.json` 그대로(≤ 8 MB, 타입 · 프레임 범위 검사). 시각 → 프레임 round(t × 30), 생성 길이 밖이면 `CONSTRAINT_OUT_OF_RANGE`, 같은 프레임 두 번이면 `DUPLICATE_FRAME`. 파일은 `ImportSourceRoots` 아래만 · SHA-256 고정(실행 때 바뀌었으면 `FILE_CHANGED`). 요청 `constraints{}`(플래그)와는 별개다 |
+| `review{render{times[] \| count, views[], reference_images[]}}` (개정 8) | `blender` 변환 단계의 프레임 렌더 비교. `times`(변환된 클립 기준 초, 0 = 첫 프레임, 1 ~ 12개) 또는 `count`(1 ~ 12, 기본 4 — 첫 · 끝 포함 고르게, 실행 때 잰 길이로 다시 펼친다). 둘 다 주면 `CONFLICTING_FIELDS`, 클립 끝을 넘는 시각은 그 후보를 `REVIEW_TIME_OUT_OF_RANGE` 로 막는다. `views` ⊆ `front` · `side`(기본 둘). `reference_images` ≤ 4, `ImportSourceRoots` 아래 .png/.jpg(시트의 모든 행에 같은 그림). 보이는 것은 변환된 **소스 골격**이다(한계 `REVIEW_IS_SOURCE_SKELETON`) |
+| `fix{ops[{op, …}]}` (개정 8) | `blender` 변환 단계의 보정 op(범위를 정한 뒤 · 기둥 메시 앞). op 사전이 Phase 5 에서는 **비어 있어** op 가 하나라도 오면 모든 후보가 `UNSUPPORTED_FIX_OP`(`details.ops` · `available`) — 발 고정 · 스무딩은 Phase 8 |
+| `retarget.align_mode` · `retarget.body_clearance` (개정 8) | `align_mode`: `per_bone`(`ops: match_existing` 의 기본) · `engine`(`ops: default` 는 정렬하지 않아 `engine` 만 — `per_bone` 이면 `ALIGN_MODE_WITHOUT_ALIGN`). §10. `body_clearance`: `resolve`(기본 — 관통 프레임만 위팔 보정) · `measure`(검증에만) · `off` → `retarget_animations body_clearance`. §10 · §13 |
 
 ---
 
@@ -528,6 +571,16 @@ FBX 파일 또는 프로젝트 안의 기존 시퀀스
 - **재사용과 메시는 명시한다:** 기존 IK Rig·RTG는 `existing_rig` / `existing_retargeter`로 줄 때만 쓰고, 소스·대상 메시는 필수 인자다. Vesper 스켈레톤에는 메시가 46개 있고, 기존 타깃 IK Rig는 `SK_StreetDemon_F_02`에, `ABP_Hero_Combat` 프리뷰는 `F_01`에 묶여 있어 암묵적으로 고르면 결과가 달라진다.
 - **임포트 부작용 차단:** `bAddCurveMetadataToSkeleton=false` · `bReplaceExisting=false` · `bIsAutomated=true`. 메시째 임포트할 때는 `bImportMaterials` · `bImportTextures` · `bCreatePhysicsAsset` · `bImportStaticMeshes`를 끈다(리타깃 소스에는 스켈레탈 메시·스켈레톤·애니만 필요).
 - **자동 매핑 실패 처리:** 자동 캐릭터라이즈는 템플릿이 맞지 않으면 체인 0개로 전부 실패한다. `create_ik_rig`는 이때 `IKRIG_AUTO_FAILED`와 함께 본 이름·부모 목록을 돌려주고, Claude Code가 그것으로 `chains[{name, start, end, goal?}]`를 제안 → 사용자 확인 → `mode: manual`로 다시 부른다. 수동 정의가 잘못되면(본 없음·조상 관계 아님) 해당 체인 목록과 함께 `BAD_REQUEST`.
+  - **손가락 체인 제안 (개정 8):** 손가락은 이름 대신 위상 · 좌표로 찾는다(`Core/AnimMcpFingerChains` — 손목 아래 갈래 · 마디 수 · 좌우 거울 · 엄지 = 손바닥 평면에서 가장 벗어난 갈래). `create_ik_rig` 결과(auto 실패 `details` 포함)에 `finger_chain_suggestion`, 진단 `FINGER_CHAINS_SUGGESTED`(info) · 템플릿 체인과 다르면 `FINGER_CHAINS_DIFFER`(warning — SOMA 는 자동 캐릭터라이즈가 Mixamo 템플릿으로 잡혀 `LeftIndex` = Index1 ~ 3, 메타카팔부터 한 마디 밀림). `inspect_skeleton suggest_finger_chains`(옵트인)도 같다. 대상에 손가락 체인이 있는데 소스에 없으면 그 손가락은 대상 기준 포즈로 남아야 한다(아래 정렬 · §13 `fingers`).
+- **`match_existing` 매핑 (개정 8):** 모든 op 를 정확 이름으로 매핑한다(`AutoMapChains(Exact, bForceRemap)` — 꺼진 Run IK Rig op 포함). FK op 만 바꾸면 꺼진 op 의 퍼지 매핑이 자동 정렬을 그르친다(§2.3). 기존 RTG 회귀(`RTG_KatanaToH` 본별 0°)는 그대로 — 메타카팔은 뼈 1개 체인이라 그 RTG 에서도 퍼지 매핑이 정렬에 안 걸렸다.
+- **리타깃 포즈 정렬 `align_mode` (개정 8):** `create_ik_retargeter align_mode` = `engine`(플러그인 기본 — 엔진 `AutoAlignAllBones`/`AutoAlignBones`, Phase 1 회귀 기준) · `per_bone`(anim_gen `match_existing` 기본, `Core/AnimMcpRetargetPoseAlign`). 원칙: **기준 포즈 관례가 다른 부위(팔 · 다리의 T 대 A)만 소스에 맞추고, 같은 자세(직립)를 뜻하는 부위의 차이는 체형이니 대상 것을 둔다.** `per_bone` 순서:
+  - ⓪ 축 체인 중립 — 대상 기준 포즈에서 거울 짝 체인(뼈 ≥ 2, 수직이등분면 반사)으로 좌우축 · 정중선을 이름 없이 정하고, 짝이 없고 정중선 근처(가장 안쪽 짝 반폭 × 0.25)인 체인(척추 · 목 · 머리)과 펠비스는 **정면 맞춤만 반영한 대상 기준 포즈**로 둔다(엔진의 `AlignPelvisBone` · 척추 접선 · 목 정렬이 소스 몸통 모양을 복사하던 것을 되돌림). 팔 · 다리는 바뀐 몸통 위에서 다시 정렬한다.
+  - ① 뼈 수가 같은 체인은 FK op 를 `OneToOne`(관절 비율 차가 굽힘을 섞지 않게 — §2.3), ② 대응 본 구간 정렬 + ③ 체인 끝 랜드마크(매핑된 자식 체인의 시작, 둘 이상이면 Horn 최소제곱, 잔차 15° 넘는 랜드마크는 뺌 — 엄지)로 굴림은 체인 부모가 정한다.
+  - ②' 메타카팔 상대 — 손가락 체인은 대상 메타카팔을 그대로 두고 소스 메타카팔 → 첫 마디 구간을 대상 메타카팔 구간에 맞춘 최소 회전(Q) 뒤의 소스 방향으로(부모 매핑 본이 정중선 밖일 때 — 쇄골 → 팔은 제외), 응답 `relative_chains[]`. 메타카팔 자체를 소스로 돌리는 안은 손 굴림 · 손바닥 변형으로 기각.
+  - ④ 머리 해부적 중립 — 아래에 매핑 체인이 없는 뼈 1개 말단(머리)은 엔진이 건너뛴다(§2.3) → 소스 짝 본의 기준 포즈 대비 회전 × 정면 맞춤 × 대상 기준.
+  - 결과 `pose_alignment{chains[], chain_ends[], relative_chains[], axial{lateral_axis, mirror_pairs, chains, pelvis}, neutral_bones[]}`.
+- **기준 포즈 FBX 2단 임포트 (개정 8):** `blender` 변환이 동작 FBX 와 함께 기준 포즈 2프레임 FBX(`<이름>_Rest.fbx` — 애니가 없으면 `import_animation_file` 이 `NO_ANIMATION`)를 내면, import 단계는 ① 기준 포즈 FBX → `<work>/Import/`(메시 · `_Rest_Skeleton` · `_Rest_Anim`) ② 동작 FBX → `<work>/Import/Motion/` 에 그 스켈레톤으로 애니만. 깊은 본 때문에 Interchange 가 첫 프레임을 기준 포즈로 삼는 것을 피한다(§2.3).
+- **팔-몸통 관통 (개정 8):** 위팔 월드 방향은 소스와 같아도 어깨 반폭 · 옷 부피가 다르면(CMU 21.5 vs Vesper 12.0 cm) 손 · 아래팔이 허리 · 넓적다리에 들어간다. `retarget_animations body_clearance` = `off`(플러그인 기본) · `measure` · `resolve`(anim_gen 기본) · `{mode, margin_cm, max_deg, …}`. `resolve` 는 관통한 프레임만 위팔 트랙을 어깨 둘레 최소 회전(최소제곱, 8° 걸음, 쇄골 공간에서 ±0.13 초 팽창 + 가우시안, 재검사 3회)으로 고친다 — 팔꿈치 · 손 로컬 회전은 그대로. 몸은 대상 메시 LOD0 스킨의 **반경 지도**(몸통 축 = 엉덩 관절 중점 → 척추 끝, 넓적다리 축, (t × 10°) 칸마다 최대 반경, 깊이 = 반경 − 축 거리)로 잰다 — 가장 가까운 정점 법선은 깊이 박힌 점에서 방향이 엉켜 버렸다. 체인 = 리타기터 대상 IK Rig, 거리 기본값 × 펠비스 높이 / 100. 경고 `BODY_CLEARANCE_LIMIT` · `CLEARANCE_GRIP_CHANGED`(양손 거리 변화) · `BODY_PENETRATION_REMAINS`, anim_gen 진단 `BODY_CLEARANCE_RESOLVED`. 기존 Vesper 애니(다른 체형에서 리타깃된 마켓 애니)도 18 ~ 35% 관통하지만 일괄 보정은 하지 않았다(부록 B).
 
 ---
 
@@ -556,8 +609,10 @@ FBX 파일 또는 프로젝트 안의 기존 시퀀스
 | 수치 — 상대 | 리타깃 결과 vs 소스: 체인별 각속도 p99 비율 · 착지 발 수평 속도 p50 비율(다리 길이 비 보정) · 루트 이동 거리 비율(펠비스 높이 비 보정) · 루프 경계 차 / 프레임당 중앙값 비율. 허용 범위 밖이면 `PASSED_WITH_WARNINGS`. 허용 비율 초기값은 Phase 1 첫 결과로 정한다 | 1 |
 | 회귀 비교 | 같은 소스를 기존 RTG로 리타깃한 결과와 본별 각 차이 — "Tool 결과 = 에디터 수동 절차 결과" 확인 (Phase 1 테스트 전용) | 1 |
 | 요청 충족 | 길이·루프 조건 · 요청한 순서(세그먼트 경계) · 제약 충족. Phase 2: `expect{length, loop, root_yaw_delta}` 불일치 → `FAILED`(`EXPECT_*`), `seams[]`(이음매 시각)의 회전 변화가 앞 · 뒤 4프레임 중앙값 중 큰 쪽의 `seam_ratio_max`(3.0)배 초과 → 경고 `SEAM_JUMP`. 구간을 고르는 측정용 `profile_bones[]`(프레임별 본 선속도) — 개정 7 보강 `profile_positions`면 같은 시각의 컴포넌트 공간 위치도(동작 평면 비교) | 2 · 8 |
+| 손가락 (개정 8) | `fingers: true \| {ik_rig?, retargeter?, mesh?}` → `fingers{hands[{side, fingers[{chain, mapped, mcp, pip}], order_broken_pct}], unmapped[], thresholds, issues[]}`. 손 기준틀(손목 → 손가락 첫 마디 평균, 검지 − 새끼) 위의 MCP · PIP 굽힘(손바닥 쪽 +). 경고 `FINGER_UNMAPPED_NOT_REFERENCE`(소스 체인 없는 손가락이 **대상 메시** 기준 포즈에서 벗어남 — 꺾인 리타깃 포즈가 모든 프레임에 탄다) · `FINGER_BEND_REVERSED` · `FINGER_OVERBENT` · `FINGER_ORDER_BROKEN`(손끝 검지 → 새끼 순서가 깨진 프레임 비율). `retarget_animations` 는 기본으로 그 리타기터 매핑으로 검사하고 경고면 진단 `FINGER_WARNINGS`. Vesper 원본 57개 경고 0 | 5 |
+| 팔-몸통 관통 (개정 8) | `body_clearance: true \| {mesh, ik_rig, upper_arms, body_bones, include_secondary, contact_cm, penetration_cm}` → `body_clearance{arms[{upper_arm, frames_over_contact_pct, frames_over_penetration_pct, depth_p50/p95/max, worst{frame, time, arm_bone, body_bone}}], body{…}, issues[]}`. 관통(기본 깊이 > 2 cm × 펠비스 높이 / 100 — Vesper 2.1 cm, 접촉 1 cm × 같은 배율)이면 경고 `BODY_PENETRATION`. 보정은 §10 | 5 |
 | 제약 | 양손 파지 오차 · 무기 궤적 이상 | 8 |
-| 시각 | 항상 `needs_review[]`에 남긴다(사람이 Persona/PIE에서 확인). 프리뷰 프레임 캡처는 Phase 8 | 1 · 8 |
+| 시각 | 항상 `needs_review[]`에 남긴다(사람이 Persona/PIE에서 확인). 개정 8: `review.render` 가 변환된 **소스 골격**(본마다 기둥, 좌 파랑 · 우 빨강 · 머리 앞 초록 코 · 루트 호박색 막대 · 바닥 띠)을 정면 · 측면 정사영으로 그린 프레임 PNG 와 시트(행 = 시각, 열 = 뷰 + 레퍼런스)를 낸다(Blender Workbench, 카메라는 전 프레임 범위에 고정 — 이동이 보인다). Vesper 프리뷰 캡처는 Phase 8 | 1 · 5 · 8 |
 
 - 절대 임계값을 쓰지 않는 이유: 정상 공격 모션의 각속도 p99가 약 2,000°/s(손가락 최대 3,762°/s)이고, 높이 기준 발 미끄러짐은 정상 Walk 루프에서도 수백 cm/s로 튄다(감사 §5.2). 검증 계산은 C++에서 한다.
 - 상태: `PASSED` · `PASSED_WITH_WARNINGS` · `NEEDS_REVIEW` · `FAILED`. 구조 검증 통과가 동작 품질을 뜻하지 않는다(원본 유지).
@@ -732,6 +787,47 @@ headless 실행, BVH → FBX, 결과는 Phase 1 처리로 넘긴다. C++ 변경 
 
 완료 기준: 적법하고 호환되는 모델이 있으면 생성 → `AS_`까지 실행한다. 없으면 조사 문서 + Provider 비활성 유지가 정상 완료다.
 
+**진행 (개정 8):** 조사(2026-10-24) → 사용자 Kimodo-SOMA-RP-v1.2 채택 → 설치 항목별 승인 · 설치(§2.2) → 설계 초안 확인 → 커밋 단위 ① `local_ai` Provider ② Blender 프레임 렌더 비교 · 보정 op 자리 ③ 통합 테스트 + 회귀 + 이 개정. ① · ② 뒤 손가락 꺾임을 고치는 과정에서 리타깃 정렬(§2.3 · §10)과 손가락 · 관통 검사(§13)를 플러그인에 더했다.
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/providers/local_ai.py` | `KimodoProvider`: `installed`(정책 경로 + 캐시 4개 저장소) · `plan_generate`(프롬프트 · 프레임 · seed · 샘플 · 후처리 · 제약 → 계획 고정, 제약 파일 루트 · SHA-256, **모델을 띄우지 않음**) · `run`(Popen, 오프라인 환경) · `poll`(report · 샘플 수 · BVH 존재) · `cancel`(종료). SOMA 수동 체인 27개 · 골반 `Hips` · 발 · 예상 BVH 규약 |
+| `Tools/mcp/anim_gen/local_ai/kimodo_run.py` | Kimodo venv 의 python 으로 도는 스크립트(서버가 import 하지 않음) — `load_model` · 제약(`load_constraints_lst`, `keep_pose` 는 NPZ 에서 꺼냄) · `seed_everything` · 생성(`num_samples` · `post_processing`) → 샘플별 NPZ + BVH(`motion_to_bvh(standard_tpose=True)` + 루트 트랙) · report.json(종료 코드 0 / 2 알려진 실패 / 3 예외) |
+| `Tools/mcp/anim_gen/local_ai/{root_track, constraints}.py` | 순수 Python(pytest): Kimodo BVH `Root` 래퍼에 바닥 궤적 · 방향을 넣고 `Hips` 를 Root 기준으로 / 요청 제약 → Kimodo 제약(`root2d` 등) |
+| `Tools/mcp/anim_gen/providers/subprocess_step.py` | 서브프로세스 공통(`blender` 에서 뽑아냄) — 띄우기 · report 대기 · 기한 · 종료 · 로그 꼬리 · 키 이름 환경 변수 제외 |
+| `providers/blender.py` · `blender/bvh_to_fbx.py` · `blender/review_render.py` | `plan_convert_generated`(생성 BVH 예상 → 실행 때 측정) · 기준 포즈 FBX · `review.render`(Workbench 프레임 PNG · 시트) · `fix.ops` 자리 |
+| `router.py` · `request.py` · `executor.py` · `service.py` · `providers/builtin.py` | 생성 BVH 사슬 · `DEPENDS_ON_BLENDER` · `defaults_from` · 요청 필드 검사 · Job `review` · 2단 임포트 · 재검증(소스 골반 + `body_clearance` + `fingers`) · 관통 보정 진단 |
+| 플러그인 C++ (`Plugins/AnimGraphMcp`) | `create_ik_retargeter align_mode`(`Core/AnimMcpRetargetPoseAlign`) · `match_existing` 모든 op 정확 매핑 · `retarget_animations body_clearance` · `fingers` · `validate_animation body_clearance` · `fingers` · `create_ik_rig finger_chain_suggestion` · `inspect_skeleton suggest_finger_chains` · 공유 기하 `Core/AnimMcpSkeletonGeometry` · `Core/AnimMcpBodyClearance` · `Core/AnimMcpFingerChains` · 단위 테스트 `AnimGraphMcp.Generation.BodyClearance` · `FingerChains`. Tool 수는 그대로(39 — 인자 · 결과만 늘었다) |
+| `providers.json` · `policy.default.json` · `anim_gen/server.py` · `anim_graph_mcp/server.py` · 플러그인 README | `local_ai` 매니페스트(`license: ok` · 최대 10초 · 출력 bvh) · `paths.kimodo_*` · Tool 설명 |
+
+산출물: `<ImportSourceRoots[0]>/LocalAI/<job_id>/A<n>/{args.json, kimodo.log, report.json, kimodo_00.npz, kimodo_00.bvh}` → `…/Blender/<job_id>/A<n>/{BVH_kimodo_00.fbx, BVH_kimodo_00_Rest.fbx, frames/{front,side}_<프레임>.png, frames/sheet.png, report.json, blender.log}`. UE 이름: `<output_path>/Work/<job_id>/A<n>/Import/BVH_kimodo_00_Rest{, _Skeleton, _Anim}` · `Import/Motion/BVH_kimodo_00` · `IK_Source` · `IK_Target` · `RTG_Retarget` → `<output_path>/<animation_name>`.
+
+**세부 완료 기준 (개정 8 — 위 완료 기준을 Phase 4 형식으로 나눔):**
+
+1. 적법 · 호환 모델 판정 + 사용자 승인(채택).
+2. 승인한 모델로 프롬프트 → `/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F`(대상 메시 `SK_StreetDemon_F_01`) `AS_` 저장 + `validate_animation`.
+3. 에디터 없이 도는 pytest: Provider Mock(설치 없음 · 성공 사슬 · 실패 · 폴백 · 타임아웃 · 취소 · 제약 · 루트 트랙 · 렌더 비교).
+4. 실제 Kimodo · Blender · 에디터 통합(`Tools/mcp/anim_gen_phase5_test.py`).
+5. 기존 pytest · Phase 1 ~ 4 통합 테스트 회귀 없음 · 두 구성 빌드 경고 0.
+
+**결과 (2026-10-25, `Tools/mcp/anim_gen_phase5_test.py` 전 섹션 PASS 두 번 — 요약 `anim_gen_phase5_state.json`, 마지막 실행 `P5Run1025_160301`):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 모델 판정 · 채택 | ✅ [조사](LocalModelSurvey.md)(2026-10-24): 적법 · 호환 후보는 Kimodo-SOMA-RP-v1.2 하나(§2.4) → 사용자 채택 · 설치(§2.2). `list_motion_providers`: `local_ai` 구현 · 설치 · 사용 가능 · `license: ok`, 캐시 모델 커밋 `0e3c890…`, 후처리(`motion_correction`) 설치됨 |
+| 2 | 프롬프트 → Vesper `AS_` + 검증 | ✅ "A person walks forward, turns around and walks back." · 6초 · seed 20261025 · `locomotion` · `provider: auto` → 계획: `existing_motion` 제외(`NO_SOURCE_HINT` — 검색 힌트 없음) · `external.meshy` 제외(`PAID_API_DISABLED`) → `local_ai` → `blender` → `retarget`(181프레임 · SOMA 체인 27 · `per_bone` · `body_clearance resolve` 고정). 실행: Kimodo 52.2초(RTX 3080 Ti, 확산 9.8초 · 후처리 켬) → BVH 181프레임 · 루트 이동 660.8 cm · 방향 −189.8° → Blender 3.1초(본 78 · +Y · 바닥 0.5 cm) + 렌더 비교 1.9초 → 2단 임포트(본 78 · 루트 `Root`) → SOMA 수동 체인 IK Rig + Vesper 자동 IK Rig → RTG `match_existing` · `per_bone` → 리타깃 + 관통 보정(관통 프레임 왼/오른 52.5 / 45.3% → 0 / 0, 위팔 최대 13.2 / 11.2°) → **`/Game/Animation/Test/AIAnimation/P5Run1025_160301/AS_Vesper_Kimodo_WalkTurnBackP5` 저장**, 잡 69.6초(첫 실행 107초 — Kimodo 88초). `validate_animation`(소스 골반 `Hips` · 손가락 · 관통): **`PASSED`** — 181프레임 @ 30 · 6.0초(요청 그대로), 각속도 p99 비 0.954 · 골반 높이 1.047 · 착지 발 1.756 · 루트 이동 비 1.000(Vesper 691.8 cm), 루트 Yaw +189.8°(Kimodo θ −189.8° 와 같은 오른쪽 돌기 — UE Yaw + = 오른쪽, Kimodo θ + = 왼쪽), 최대 33.5°/프레임, 손가락 경고 0 · 순서 깨짐 0 / 0%, 관통 0 / 0%. 한계 `FINGERS_STATIC` · `REVIEW_IS_SOURCE_SKELETON`. **같은 seed 로 두 번 실행한 결과가 같다**(Kimodo 루트 660.78 cm · −189.81°, Vesper 691.83 cm · 189.81° — 소수 둘째 자리까지) |
+| 3 | pytest (Mock) | ✅ **282건**(Phase 4 189 → 282: `test_local_ai.py` 39 · `test_review.py` 32 · `test_blender` · `test_bvh` · `test_router` · `test_jobs` 추가). 계획이 실행하지 않음 · SOMA 체인이 손가락을 표준 이름으로 매핑 · 요청 체인이 기본값을 덮음 · seed 고정 · 30 fps 아니면 실행 값으로 리샘플 · 제외(프롬프트 · 길이 · 후처리) · 미설치 · `DEPENDS_ON_BLENDER` · 성공 사슬(오프라인 환경 · 인자 · Kimodo → Blender → 리타깃) · 샘플 · `pick` · 예상과 다른 BVH = 경고 · Kimodo 오류 → 폴백 기록 · 보고 없이 종료 · 타임아웃 · 취소 = 종료 · `keep_pose` 파일 고정 · 루트 밖 거부 · `kimodo_raw` 검사 · 재검증 실패 시 리타깃 검증 유지 · 루트 경로 캐릭터 기준 변환 · 오일러 왕복 · 방향 펼침 · 루트 트랙이 월드 포즈 유지 · 다른 BVH 구조 거부 · 정책 경로 검사. 렌더 비교: 요청 형식 · 시각 펼침 · 범위 밖 · 레퍼런스 루트 · 사라진 레퍼런스 · 렌더 실패 = 한계(`REVIEW_NOT_RENDERED`) · 변환 없는 경로 · `fix` 사전 |
+| 4 | 실제 통합 | ✅ `state` · `plan`(계획이 Kimodo 를 띄우지 않음 · 애셋 0 · 더티 0 · 거부 5종: 프롬프트 없음 `MISSING_INPUT` · 12초 `DURATION_OVER_MAX` · 7초 제약 `CONSTRAINT_OUT_OF_RANGE` · 보정 op `UNSUPPORTED_FIX_OP` · 루트 밖 NPZ `IMPORT_SOURCE_NOT_ALLOWED`) · `generate`(위 2 + 프레임 PNG 8장 · 시트 1424 × 2078 을 직접 보고 확인 — 앞으로 걷기 → 4초에 뒤로 돎 → 6초에 출발점 근처) · `constraint`(`root_path` 3초에 앞 400 cm · 왼쪽 0 · 방향 180° → Kimodo `root2d` 프레임 90: 끝 루트 앞 397.2 · 왼쪽 1.1 cm · 방향 182.5°(왼쪽으로 돎) → Vesper 루트 프레임 1 → 끝 406.5 · 1.7 cm = Kimodo 388.3 × 1.047(골반 높이 비 — Root Motion op 배율), Yaw Δ −182.0°, 검증 `PASSED_WITH_WARNINGS` — `FOOT_SLIDE_RATIO` 3.86(3초에 4 m + 180° 도는 빠른 동작)) · `cancel`(torch 임포트 중인 실제 Kimodo 프로세스 종료 · pid 사라짐 · report · BVH 없음) · `dirty`(대상 스켈레톤 · 메시 .uasset SHA-256 불변 · 미저장 수 그대로 · `Content/` 변경은 실행 폴더뿐) |
+| 5 | 회귀 · 빌드 | ✅ 같은 에디터에서 `anim_gen_phase1_test.py` 113 · `phase2` 62 · `phase3` 34 · `phase4` 27 확인 실패 0 — Phase 1 `RTG_KatanaToH` 대비 본별 0° · 위치 0 cm(플러그인 기본 `engine` 정렬), `AnimGraphMcp.Generation` 4/4(BodyClearance · Edit · FingerChains · Guard) · `AnimGraphMcp.Smoke` 26/26 · `AstralBreak.*` 31/31 · 런타임 시나리오 2/2. Phase 3 · 4 는 테스트 기대값 두 곳을 Phase 5 동작에 맞춘 뒤 다시 돌렸다(아래). Development · DebugGame 빌드 경고 0(C++ 는 리타깃 수정 세션들이 두 구성으로 빌드 · 이 단위의 빌드는 "Target is up to date") |
+
+Phase 4 CMU 수치는 anim_gen 기본이 `per_bone` 정렬 + 관통 보정 + 2단 임포트로 바뀌어 달라졌다(기대된 변화 — 감사 §15): 각속도 p99 비 0.833 → 0.868 · 착지 발 1.513 → 1.444 · 골반 높이 0.975 · 루트 이동 1.299 그대로, 관통 프레임 49.3 / 72.8% → 0 / 0, 잡 9.8 → 27.2초. Trim(`PASSED`, 50.44°/프레임) · 자동 IK Rig(HumanIK 64%)는 그대로.
+
+통합 테스트에서 고친 것(테스트만, 제품 코드 변경 없음): ① `anim_gen_phase3_test.py` 가 `local_ai` 제외 사유를 `NOT_IMPLEMENTED` 로 기대했다 → 구현 뒤에는 이 요청(프롬프트 없음)에서 `MISSING_INPUT`(Kimodo 가 없는 PC 는 `NOT_INSTALLED`). ② `anim_gen_phase4_test.py` 가 소스 애니를 `_Anim` 접미사로 골라 2단 임포트의 기준 포즈 애니(`BVH_01_01_Rest_Anim`, 2프레임)를 소스로 비교해 `FAILED` → `Import/Motion/` 애니 우선(잡 내장 검증은 처음부터 `PASSED_WITH_WARNINGS`). ③ Phase 5 테스트의 기록용 골반 높이 비가 소스 골반 이름 없이 재 105.24 로 나왔다 → `pelvis` 를 주고 다시 실행(1.047).
+
+남은 것: Vesper 메시로 Persona/PIE 눈 확인(부록 B) · 기존 Vesper 애니의 팔-몸통 관통 18 ~ 35%(사용자 결정으로 일괄 보정 안 함 — 부록 B) · `keep_pose` · `kimodo_raw` 제약과 `samples` > 1 은 pytest(Mock)로만 확인 · "Built with Meta Llama 3" 표시 판단(부록 B).
+
 ### Phase 6 — 외부 AI (Meshy)
 
 어댑터, 비용 추정(공식 가격을 확인할 수 없으면 승인 단계에서 "미확인"으로 차단), 결과 다운로드·만료 처리, 폴백 통합.
@@ -800,7 +896,7 @@ headless 실행, BVH → FBX, 결과는 Phase 1 처리로 넘긴다. C++ 변경 
 
 ## 17. Claude Code 작업 지시
 
-1. 한 번에 한 Phase만 진행한다(Phase 0 · 1 · 2 · 3 · 4 완료). 다음 Phase는 사용자 승인 후 착수한다.
+1. 한 번에 한 Phase만 진행한다(Phase 0 · 1 · 2 · 3 · 4 · 5 완료). 다음 Phase는 사용자 승인 후 착수한다.
 2. 각 Phase는 코드 편집 전에 Tool 시그니처 · 커밋 단위 · 구현 순서를 보여 주고 **사용자 확인을 받는다.** 문서와 엔진 API가 어긋나면 문서 수정안을 함께 낸다.
 3. 에디터 확인용 애셋은 `/Game/Animation/Test/AIAnimation/`에 만들고, 끝나면 정리 목록을 보고한다.
 4. 순서: 구현 → 정적 검증(두 구성 빌드 · Python 문법) → 에디터 통합 테스트(`Tools/mcp/anim_gen_phaseN_test.py`) → 결과 기록.
@@ -815,6 +911,12 @@ headless 실행, BVH → FBX, 결과는 Phase 1 처리로 넘긴다. C++ 변경 
 - HY-Motion 1.0 라이선스: <https://raw.githubusercontent.com/Tencent-Hunyuan/HY-Motion-1.0/master/License.txt> · <https://huggingface.co/tencent/HY-Motion-1.0>
 - Meshy Text-to-Motion API: <https://docs.meshy.ai/vi/api/text-to-motion>
 - DeepMotion SayMotion REST API: <https://github.com/DeepMotion/SayMotion-REST-API> · <https://deepmotion.com/post/saymotion-api-now-available-for-free-trials>
+- Phase 5 로컬 모델 조사(개정 8): [LocalModelSurvey.md](LocalModelSurvey.md) 부록(2026-10-24 열람 — 데이터셋 · 모델 · 라이선스 원문 전체 목록). 채택 근거만 여기 다시 적는다:
+  - Kimodo 저장소 · 라이선스: <https://github.com/nv-tlabs/kimodo> · <https://github.com/nv-tlabs/kimodo/blob/main/LICENSE> · 출력 형식 <https://research.nvidia.com/labs/sil/projects/kimodo/docs/user_guide/output_formats.html> · BVH 내보내기 `kimodo/exports/bvh.py`
+  - 모델 카드: <https://huggingface.co/nvidia/Kimodo-SOMA-RP-v1.2> · NVIDIA Open Model License <https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/>
+  - 텍스트 인코더: Meta Llama 3 Community License <https://www.llama.com/llama3/license/> · <https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct>(게이트) · LLM2Vec 어댑터 <https://huggingface.co/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp>
+  - 공개 T2M 학습 데이터: AMASS License <https://amass.is.tue.mpg.de/license.html> · SMPL Model License <https://smpl.is.tue.mpg.de/modellicense.html> · HumanML3D <https://github.com/EricGuo5513/HumanML3D>
+- 엔진 소스(개정 8 추가 행): `Plugins/Animation/IKRig/Source/IKRig/Private/Retargeter/{IKRetargetProcessor.cpp, IKRetargetChainMapping.cpp, RetargetOps/RunIKRigOp.cpp, RetargetOps/FKChainsOp.cpp, RetargetOps/RootMotionGeneratorOp.cpp}` · `…/IKRigEditor/Private/RetargetEditor/IKRetargeterPoseGenerator.cpp` · `Plugins/Interchange/Runtime/Source/Import/Private/Mesh/InterchangeSkeletalMeshFactory.cpp`
 
 ## 부록 B. 미확인 항목
 
@@ -834,4 +936,8 @@ headless 실행, BVH → FBX, 결과는 Phase 1 처리로 넘긴다. C++ 변경 
 | ~~`import_animation_file` + `sample_rate` 의 경계 안 맞는 길이~~ | Phase 4 발견(Interchange 가 애니를 건너뛰어 `IMPORT_FAILED NO_ANIMATION`) → 개정 7 보강 2 해결 — `ConfigurePipeline` 이 `bSnapToClosestFrameBoundary` 를 항상 켜고, 맞춘 트랙은 `warning LENGTH_SNAPPED`. 경계 안 맞는 CMU 01_01 FBX `sample_rate=30` → 689키 · 22.9333초(§2.3). 다른 FBX(Meshy 등)도 같은 경로로 임포트된다. blender 의 범위 정렬(`bvh.align_to_rate`)은 그대로 둔다(반 프레임 늘림·줄임 없이 소스 프레임 그대로 — `RANGE_ALIGNED` 문구도 이에 맞춰 정정). 생성 잡도 이 진단을 받는다 — 실행기가 단계 안 에디터 진단을 `tool` · `step` 과 함께 Job `diagnostics` 에 남긴다(§3.4) |
 | cgspeed CMU BVH 의 0번 프레임 | Phase 4 확인 — 회전 거의 없는 기준 포즈(T 비슷)라 1번 프레임에 최대 179.8° 튐(`ROTATION_JUMP_INHERITED`). `motion_file.range.start` = 1프레임으로 뺀다. 다른 CMU 클립도 같은 형식일 것(미확인) |
 | Meshy 길이 범위 · 가격 · 결과 파일 만료 · 데이터 정책 | Phase 6 |
-| 공개 Text-to-Motion 모델의 학습 데이터 라이선스 | Phase 5 |
+| ~~공개 Text-to-Motion 모델의 학습 데이터 라이선스~~ | Phase 5 확인(개정 8, [조사](LocalModelSurvey.md) §2 · §3.1 · §4) — HumanML3D 계열의 학습 데이터 AMASS(와 SMPL)는 "commercial use of any kind" 를 위한 신경망 학습을 금지 → **상업 이용 부적법**. 개인 포트폴리오가 허용 범위(비상업 연구 · 교육 · 예술)에 드는지 · 가중치만 받은 사용자에게 미치는지는 원문이 정하지 않는다(사용자 판단, 채택하지 않음). HumanAct12 · KIT-ML · SnapMoGen 데이터 라이선스는 원문을 못 찾았지만 AMASS 로 이미 판정돼 결론에 영향 없음. **적법 · 호환 후보 Kimodo-SOMA-RP-v1.2 채택**(§2.4) |
+| "Built with Meta Llama 3" 표시가 생성 애셋만 쓰는 게임 · 문서에도 필요한지 (개정 8) | 원문(Llama 3 License §1.b.i "a product or service that uses any of them")이 정하지 않는다 — 출시 · 배포 전 사용자 판단([조사](LocalModelSurvey.md) §4 K-1). 필요하다고 보면 표시를 넣는다 |
+| Phase 5 결과의 사람 시각 확인 (개정 8) | 자동 검증(소스 대비 상대 비 · 손가락 · 관통 · 루트 궤적)과 소스 골격 렌더 시트까지 확인. **Vesper 메시로 Persona/PIE 에서 보는 것은 남음** — 통합 테스트 산출물(`P5Run…/AS_Vesper_Kimodo_WalkTurnBackP5` · `AS_Vesper_Kimodo_RootPathP5`)은 2026-10-25 휴지통으로 정리했다. 다시 보려면 `anim_gen_phase5_test.py --only hashes,generate,constraint,dirty` 로 만든다(같은 seed 면 같은 동작). 같은 계열로 이전 세션들이 남긴 확인용 애셋(관통 보정 CMU 오른팔 최대 27° 벌림 · SOMA 양손 상대 위치 · 손가락 메타카팔 상대 정렬)도 Persona 눈 확인 남음 |
+| 기존 Vesper 애니의 팔-몸통 관통 (개정 8) | 다른 체형에서 리타깃된 원래 애니(Neutral Walk/Run · Rifle Idle)도 관통 프레임 18 ~ 35%(옷 부피 포함). 사용자 결정(2026-10-25)으로 일괄 보정하지 않음 — PIE 에서 거슬리면 재검토(확인 장면 `Neutral_Run_Loop_F` 1.9 s · `Walk_Loop_F` 0.23 s). 런타임 레이어가 팔을 덮으므로 고친다면 ABP · Control Rig 쪽도 후보 |
+| 몸통 대비 팔 벌림 (개정 8) | 위팔은 월드로 소스에 맞추고 몸통은 대상 중립(⓪)이라 몸통 기준 팔 벌림이 소스와 ±2.6°(CMU) 다르다 — 후속 후보: 팔 리타깃 포즈 정렬을 몸통 기준틀 상대로. 미수정 |

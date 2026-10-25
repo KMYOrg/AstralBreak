@@ -138,7 +138,7 @@ class RetargetPipe(Provider):
                   "existing_source_rig": rt.get("existing_source_rig"), "existing_target_rig": rt.get("existing_target_rig"),
                   "existing_retargeter": rt.get("existing_retargeter"), "source_pelvis": rt.get("source_pelvis"),
                   "source_chains": rt.get("source_chains"), "ops": rt.get("ops", "match_existing"),
-                  "align_mode": rt.get("align_mode", "engine")}
+                  "align_mode": rt.get("align_mode", "engine"), "body_clearance": rt.get("body_clearance", "resolve")}
         step = {"step": "retarget", "provider": self.name, "tool": "create_ik_rig → create_ik_retargeter → retarget_animations",
                 "inputs": inputs, "conditional": conditional}
         source_info = None
@@ -292,7 +292,9 @@ class RetargetPipe(Provider):
                 raise StepFailed("UNSUPPORTED_REQUEST", "MISSING_INPUT", f"no skeletal mesh for {ctx.values['skeleton']}", missing=["retarget.source_mesh"])
             diagnostics.append(diag("warning", "SOURCE_MESH_IMPLICIT", f"source mesh {source_mesh} ({mesh_source}) chosen at run time"))
         target_mesh = inputs["target_mesh"]
+        clearance = inputs.get("body_clearance", "resolve")
         created: list[str] = []
+        target_rig = inputs.get("existing_target_rig")
         try:
             retargeter = inputs.get("existing_retargeter")
             if not retargeter:
@@ -304,7 +306,6 @@ class RetargetPipe(Provider):
                                        chains=inputs.get("source_chains"), save=ctx.save)
                     source_rig = package_path(r["asset_path"])
                     created.append(source_rig)
-                target_rig = inputs.get("existing_target_rig")
                 if not target_rig:
                     r = editor.require("create_ik_rig", skeletal_mesh=target_mesh, asset_path=f"{ctx.work_path}/IK_Target", save=ctx.save)
                     target_rig = package_path(r["asset_path"])
@@ -317,7 +318,8 @@ class RetargetPipe(Provider):
             res = editor.require("retarget_animations", retargeter=retargeter, assets=[source_anim], source_mesh=source_mesh,
                                  target_mesh=target_mesh, output_path=ctx.output_folder,
                                  name_rule={"replace_from": asset_name(source_anim), "replace_to": ctx.output_name},
-                                 include_referenced=False, validate=True, save=ctx.save)
+                                 include_referenced=False, validate=True, save=ctx.save,
+                                 body_clearance=None if clearance == "off" else clearance)
         except EditorCallError as err:
             if err.code == "VALIDATION_FAILED":
                 created.append(f"{ctx.output_folder}/{ctx.output_name}")
@@ -326,23 +328,56 @@ class RetargetPipe(Provider):
         if not generated:
             raise StepFailed("RETARGET_FAILED", "NOTHING_GENERATED", "retarget_animations generated no asset", created=created)
         validation = res.get("validation")
+        clearance_items = res.get("body_clearance") or []
+        diagnostics += self.clearance_notes(clearance_items)
         if inputs.get("source_pelvis") and validation:
-            validation = self._revalidate(editor, generated[0], source_anim, ctx.request["target_skeleton"], inputs, validation, diagnostics)
+            body = None if clearance == "off" else {"mesh": target_mesh, **({"ik_rig": target_rig} if target_rig else {})}
+            validation = self._revalidate(editor, generated[0], source_anim, ctx.request["target_skeleton"], inputs, validation, diagnostics, body,
+                                          retargeter)
             if validation.get("status") == "FAILED":
                 raise StepFailed("VALIDATION_FAILED", "FAILED", f"{generated[0]} fails validation against its source", created=created + generated)
         first = ((validation or {}).get("assets") or [None])[0]
         return StepResult(values={"asset": generated[0], "skeleton": ctx.request["target_skeleton"], "validation": validation,
                                   "measured": _measured_from_validation(first), "retargeter": retargeter, "source_mesh": source_mesh,
-                                  "facing": {k: facing.get(k) for k in ("mode", "source", "target", "yaw_deg")}},
+                                  "facing": {k: facing.get(k) for k in ("mode", "source", "target", "yaw_deg")},
+                                  "body_clearance": clearance_items or None},
                           created=created + generated, diagnostics=diagnostics, limitations=limitations)
 
     @staticmethod
-    def _revalidate(editor, asset: str, source: str, target: str, inputs: dict, validation: dict, diagnostics: list[dict]) -> dict:
+    def clearance_notes(items: list[dict]) -> list[dict]:
+        """retarget_animations body_clearance(resolve) 결과 → 진단 — 팔마다 보정 프레임 · 최대 각과 관통 프레임 전 → 후, 플러그인 경고는 그대로."""
+        notes = []
+        for item in items:
+            name = (item.get("asset") or "").rsplit("/", 1)[-1].split(".")[0]
+            if item.get("skipped_reason"):
+                notes.append(diag("warning", "BODY_CLEARANCE_SKIPPED", f"{name}: body clearance not applied ({item['skipped_reason']})"))
+                continue
+            before = {a["upper_arm"]: a for a in (item.get("before") or {}).get("arms", [])}
+            after = {a["upper_arm"]: a for a in (item.get("after") or {}).get("arms", [])}
+            parts = [f"{a['upper_arm']} {a['corrected_frames_pct']:g}% frames ≤ {a['deg_max']:g}° (penetration frames "
+                     f"{(before.get(a['upper_arm']) or {}).get('frames_over_penetration_pct', '?')}% → {(after.get(a['upper_arm']) or {}).get('frames_over_penetration_pct', '?')}%)"
+                     for a in item.get("arms", [])]
+            if item.get("modified"):
+                notes.append(diag("info", "BODY_CLEARANCE_RESOLVED", f"{name}: " + "; ".join(parts)))
+            for issue in item.get("issues", []):
+                if issue.get("level") == "warning":
+                    notes.append(diag("warning", issue["code"], f"{name}: {issue['message']}"))
+        return notes
+
+    @staticmethod
+    def _revalidate(editor, asset: str, source: str, target: str, inputs: dict, validation: dict, diagnostics: list[dict],
+                    body_clearance: dict | None = None, retargeter: str | None = None) -> dict:
         """retarget_animations 의 내장 검증은 소스 골반 이름을 받지 않는다(기본 'pelvis' — BVH · SOMA 의 'Hips' 를 못 찾아 거리 비율을
-        크기 보정하지 않는다, NO_PELVIS_SCALE). 소스 골반을 알면 validate_animation 으로 같은 소스 대비 검증을 다시 해 그 결과를 쓴다."""
+        크기 보정하지 않는다, NO_PELVIS_SCALE). 소스 골반을 알면 validate_animation 으로 같은 소스 대비 검증을 다시 해 그 결과를 쓴다.
+        body_clearance 면 그 재검증도 팔-몸통 관통을 잰다(내장 검증과 같은 대상 메시 · 리그). 손가락 검사(매핑 안 된 손가락 = 기준 포즈,
+        굽힘 방향 · 끝 순서)도 내장 검증처럼 그 리타기터의 매핑으로 한다."""
         params = {"assets": [asset], "sources": [source], "skeleton": target, "source_pelvis": inputs["source_pelvis"]}
         if inputs.get("source_feet"):
             params["source_feet"] = inputs["source_feet"]
+        if body_clearance:
+            params["body_clearance"] = body_clearance
+        if retargeter:
+            params["fingers"] = {"retargeter": retargeter}
         try:
             res = editor.require("validate_animation", **params)
         except EditorCallError as err:

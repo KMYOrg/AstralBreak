@@ -174,6 +174,19 @@ def test_plan_chains_generate_convert_import_retarget_and_runs_nothing(ka):
     assert not ka.launcher.procs and not ka.fake.writes
 
 
+def test_soma_chains_map_every_finger_by_standard_name():
+    """손 체인 18개 — 엔진 표준 이름(FCharacterizationStandard)으로 엄지 Thumb1~3 · 메타카팔 Hand{F}1 · 손가락 Hand{F}2~4, End 와 IK 골은 없다."""
+    by_name = {c["name"]: c for c in SOMA_CHAINS}
+    assert len(SOMA_CHAINS) == len(by_name) == 9 + 18
+    for side in ("Left", "Right"):
+        assert (by_name[f"{side}Thumb"]["start"], by_name[f"{side}Thumb"]["end"]) == (f"{side}HandThumb1", f"{side}HandThumb3")
+        for finger in ("Index", "Middle", "Ring", "Pinky"):
+            mc, chain = by_name[f"{side}{finger}Metacarpal"], by_name[f"{side}{finger}"]
+            assert mc["start"] == mc["end"] == f"{side}Hand{finger}1"
+            assert (chain["start"], chain["end"]) == (f"{side}Hand{finger}2", f"{side}Hand{finger}4")
+    assert not any("End" in c["start"] + c["end"] or c.get("goal") for c in SOMA_CHAINS[9:])
+
+
 def test_request_chains_override_the_provider_defaults(ka):
     mine = [{"name": "LeftLeg", "start": "LeftLeg", "end": "LeftFoot"}]
     ri = plan(ka, retarget={"source_chains": mine})["candidates"][0]["steps"][3]["inputs"]
@@ -260,8 +273,14 @@ def test_success_runs_kimodo_offline_then_blender_then_retargets(ka, monkeypatch
     assert rig["mode"] == "manual" and rig["pelvis"] == "Hips" and rig["chains"] == SOMA_CHAINS
     [(_, val)] = [(t, q) for t, q in ka.fake.calls if t == "validate_animation"]
     assert val["source_pelvis"] == "Hips" and val["source_feet"] == ["LeftFoot", "RightFoot"] and val["sources"][0].endswith("/Import/Motion/Mock_Anim")
+    # 재검증도 팔-몸통 관통을 잰다 — 보정(retarget_animations resolve)과 같은 대상 메시 · 대상 IK Rig
+    assert val["body_clearance"]["mesh"] == VESPER_MESH and val["body_clearance"]["ik_rig"].endswith("/IK_Target")
+    # 손가락 검사도 내장 검증과 같은 리타기터 매핑으로 (매핑 안 된 손가락 = 기준 포즈 · 굽힘 방향 · 끝 순서)
+    assert val["fingers"]["retargeter"].endswith("/RTG_Retarget")
+    [(_, rt)] = [(t, q) for t, q in ka.fake.calls if t == "retarget_animations"]
+    assert rt["body_clearance"] == "resolve"
     codes = {d["code"] for d in job["diagnostics"]}
-    assert {"KIMODO_GENERATED", "BLENDER_CONVERTED", "VALIDATED_WITH_SOURCE_PELVIS"} <= codes and "GENERATED_BVH_UNEXPECTED" not in codes
+    assert {"KIMODO_GENERATED", "BLENDER_CONVERTED", "VALIDATED_WITH_SOURCE_PELVIS", "BODY_CLEARANCE_RESOLVED"} <= codes and "GENERATED_BVH_UNEXPECTED" not in codes
     assert "FINGERS_STATIC" in {lim["code"] for lim in job["limitations"]}
     generated = job["cursor"]["values"]["generated"]
     assert generated["pick"] == 0 and generated["root"]["root_travel_cm"] == 900.0

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AnimMcpBodyClearance.h"
 #include "CoreMinimal.h"
 #include "Dom/JsonObject.h"
 
@@ -46,12 +47,21 @@ namespace AnimMcpBatchRetarget
 		bool bValidate = true;
 		/** validate 의 thresholds{} (null = 기본) */
 		TSharedPtr<FJsonObject> Thresholds;
+		/**
+		 * 팔-몸통 관통 (AnimMcpBodyClearance) — Measure: 검증에 body_clearance(대상 메시 · 리타기터의 대상 IK Rig 체인), Resolve: 그 전에 새 시퀀스의
+		 * 위팔 트랙을 고친다(관통한 프레임만 · 최소 어깨 회전)
+		 */
+		AnimMcpBodyClearance::EMode BodyClearanceMode = AnimMcpBodyClearance::EMode::Off;
+		AnimMcpBodyClearance::FSpec BodyClearance;
+		AnimMcpBodyClearance::FResolveOptions BodyClearanceOptions;
+		/** 검증에 손가락 검사(AnimMcpFingerChains::Check) — 손 · 체인 = 리타기터의 대상 IK Rig, 매핑 = 그 FK op */
+		bool bFingers = true;
 		bool bSave = false;
 	};
 
 	/**
-	 * {planned[] (dry_run) | generated[{source, asset, class}], referred[], seconds, seconds_per_asset, frames, ms_per_frame, validation{}, saved}.
-	 * 검증 FAILED 면 저장하지 않고 VALIDATION_FAILED(details: generated · validation).
+	 * {planned[] (dry_run) | generated[{source, asset, class}], referred[], seconds, seconds_per_asset, frames, ms_per_frame, body_clearance[]? (resolve · 검증 없는 measure),
+	 * validation{}, saved}. 검증 FAILED 면 저장하지 않고 VALIDATION_FAILED(details: generated · validation).
 	 */
 	TSharedPtr<FJsonObject> Run(const FParams& Params, FAnimMcpContext& Context, FAnimMcpError& OutError);
 }

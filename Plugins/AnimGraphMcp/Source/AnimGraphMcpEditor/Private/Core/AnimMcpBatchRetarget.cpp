@@ -251,11 +251,50 @@ namespace AnimMcpBatchRetarget
 			return nullptr;
 		}
 
+		// ---- 팔-몸통 관통: 체인은 리타기터의 대상 IK Rig, 몸은 대상 메시 ----
+		AnimMcpBodyClearance::FSpec Clearance = Params.BodyClearance;
+		if (Params.BodyClearanceMode != AnimMcpBodyClearance::EMode::Off)
+		{
+			if (!Clearance.Mesh) { Clearance.Mesh = Params.TargetMesh; }
+			if (!Clearance.Rig) { Clearance.Rig = Params.Retargeter->GetIKRig(ERetargetSourceOrTarget::Target); }
+		}
+		const bool bResolve = Params.BodyClearanceMode == AnimMcpBodyClearance::EMode::Resolve;
+		if (bResolve || (Params.BodyClearanceMode == AnimMcpBodyClearance::EMode::Measure && !Params.bValidate))
+		{
+			TArray<TSharedPtr<FJsonValue>> Items;
+			for (const TPair<UAnimSequence*, UAnimSequence*>& Pair : ToValidate)
+			{
+				bool bWarning = false;
+				TSharedRef<FJsonObject> One = bResolve ? AnimMcpBodyClearance::Resolve(Pair.Key, Clearance, Params.BodyClearanceOptions, bWarning)
+					: AnimMcpBodyClearance::Measure(Pair.Key, Clearance, bWarning);
+				One->SetStringField(TEXT("asset"), Pair.Key->GetPathName());
+				Items.Add(MakeShared<FJsonValueObject>(One));
+				if (bWarning)
+				{
+					Context.AddDiagnostic(TEXT("warning"), TEXT("BODY_CLEARANCE_WARNINGS"), FString::Printf(TEXT("%s: body clearance %s left warnings — see body_clearance[].issues"),
+						*Pair.Key->GetName(), bResolve ? TEXT("resolve") : TEXT("measure")));
+				}
+			}
+			Result->SetArrayField(TEXT("body_clearance"), Items);
+		}
+
 		// ---- 검증 ----
 		if (Params.bValidate)
 		{
 			AnimMcpAnimValidator::FOptions Options;
 			Options.ExpectedSkeleton = Params.TargetMesh->GetSkeleton();
+			if (Params.BodyClearanceMode != AnimMcpBodyClearance::EMode::Off)
+			{
+				Options.BodyClearance = Clearance;
+			}
+			if (Params.bFingers)
+			{
+				// 매핑 안 된 대상 손가락은 기준 포즈 그대로인지, 매핑된 손가락은 손바닥 쪽으로 · 순서대로 굽는지 — 꺼진 op 의 퍼지 매핑 같은 사고를 잡는다
+				AnimMcpFingerChains::FCheckSpec Fingers;
+				Fingers.Retargeter = Params.Retargeter;
+				Fingers.Mesh = Params.TargetMesh;
+				Options.Fingers = Fingers;
+			}
 			if (!AnimMcpAnimValidator::ParseThresholds(Params.Thresholds, Options.Thresholds, OutError))
 			{
 				return nullptr;
@@ -267,6 +306,22 @@ namespace AnimMcpBatchRetarget
 				TSharedRef<FJsonObject> One = AnimMcpAnimValidator::Validate(Pair.Key, Pair.Value, Options);
 				Worst = AnimMcpAnimValidator::WorstStatus(Worst, One->GetStringField(TEXT("status")));
 				Assets.Add(MakeShared<FJsonValueObject>(One));
+				const TSharedPtr<FJsonObject>* FingersObj = nullptr;
+				const TArray<TSharedPtr<FJsonValue>>* FingerIssues = nullptr;
+				if (One->TryGetObjectField(TEXT("fingers"), FingersObj) && (*FingersObj)->TryGetArrayField(TEXT("issues"), FingerIssues))
+				{
+					TArray<FString> Codes;
+					for (const TSharedPtr<FJsonValue>& Item : *FingerIssues)
+					{
+						const TSharedPtr<FJsonObject>* IssueObj = nullptr;
+						if (Item->TryGetObject(IssueObj) && (*IssueObj)->GetStringField(TEXT("level")) == TEXT("warning")) { Codes.Add((*IssueObj)->GetStringField(TEXT("code"))); }
+					}
+					if (Codes.Num() > 0)
+					{
+						Context.AddDiagnostic(TEXT("warning"), TEXT("FINGER_WARNINGS"), FString::Printf(TEXT("%s: finger check %s — see validation.assets[].fingers"),
+							*Pair.Key->GetName(), *FString::Join(Codes, TEXT(", "))));
+					}
+				}
 			}
 			TSharedRef<FJsonObject> Validation = AnimMcpJson::MakeObject();
 			Validation->SetStringField(TEXT("status"), Worst);

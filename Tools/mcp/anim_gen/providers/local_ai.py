@@ -35,7 +35,20 @@ DEFAULT_DURATION_S = 5.0    # kimodo_gen 기본값
 BVH_EXPECTED = {"unit": "cm", "facing": "+Y", "joints": 78, "fps": FPS}
 SOMA_PELVIS = "Hips"
 SOMA_FEET = ["LeftFoot", "RightFoot"]
-# Vesper 자동 IK Rig 의 표준 체인 이름(FCharacterizationStandard) — 스파이크에서 수동 체인 PASSED(각속도 p99 비 0.98)
+
+
+def _soma_hand_chains(side: str) -> list[dict]:
+    """SOMA77 손가락은 Hand{F}1(손목에서 2.9~4.0 cm, 메타카팔) → 2 · 3 · 4 → End(끝점), 엄지는 Thumb1~3 → End. 대상에 손가락 체인이
+    없으면 자동 정렬이 꺼진 op 의 퍼지 매핑을 따라 손가락을 꺾었고(2026-10-24), 자동 캐릭터라이즈는 SOMA 를 Mixamo 로 잡아 Index1~3
+    (메타카팔부터 한 마디 밀림)을 손가락으로 맞춘다. 같은 체인을 범용 제안기(create_ik_rig finger_chain_suggestion)도 낸다."""
+    chains = [{"name": f"{side}Thumb", "start": f"{side}HandThumb1", "end": f"{side}HandThumb3"}]
+    for finger in ("Index", "Middle", "Ring", "Pinky"):
+        chains += [{"name": f"{side}{finger}Metacarpal", "start": f"{side}Hand{finger}1", "end": f"{side}Hand{finger}1"},
+                   {"name": f"{side}{finger}", "start": f"{side}Hand{finger}2", "end": f"{side}Hand{finger}4"}]
+    return chains
+
+
+# Vesper 자동 IK Rig 의 표준 체인 이름(FCharacterizationStandard) — 스파이크에서 수동 체인 PASSED(각속도 p99 비 0.98). 손은 _soma_hand_chains
 SOMA_CHAINS = [
     {"name": "Spine", "start": "Spine1", "end": "Chest"},
     {"name": "Neck", "start": "Neck1", "end": "Neck2"},
@@ -46,7 +59,7 @@ SOMA_CHAINS = [
     {"name": "RightArm", "start": "RightArm", "end": "RightHand", "goal": "RightHandIK"},
     {"name": "LeftLeg", "start": "LeftLeg", "end": "LeftToeBase", "goal": "LeftFootIK"},
     {"name": "RightLeg", "start": "RightLeg", "end": "RightToeBase", "goal": "RightFootIK"},
-]
+] + _soma_hand_chains("Left") + _soma_hand_chains("Right")
 _RAW_MAX_BYTES = 8 << 20
 _OFFLINE_ENV = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "LOCAL_CACHE": "true", "HF_HUB_DISABLE_TELEMETRY": "1",
                 "GRADIO_ANALYTICS_ENABLED": "False", "TEXT_ENCODER_MODE": "local", "TEXT_ENCODER_DEVICE": "cpu", "TRANSFORMERS_VERBOSITY": "error"}
@@ -122,7 +135,8 @@ class KimodoProvider(SubprocessProvider):
         risks = ["TEXT_ENCODER_CPU"]  # Llama 3 8B 인코더를 CPU 로 — 한 건 약 35초, RAM 약 15 GB (스파이크)
         if pctx.settings is None and files:
             risks.append("IMPORT_ROOTS_UNCHECKED")
-        lims = [limitation("FINGERS_STATIC", "Kimodo 는 손가락 없는 30관절로 생성한다 — SOMA77 손은 고정 포즈(relaxed hands)", "provider")]
+        lims = [limitation("FINGERS_STATIC", "Kimodo 는 손가락 없는 30관절로 생성한다 — SOMA77 손은 고정 포즈(relaxed hands)라 결과 손가락도 "
+                           "그 포즈를 따른다(손 체인 매핑)", "provider")]
         if not postprocess:
             lims.append(limitation("POSTPROCESS_OFF", "Kimodo 발 미끄러짐 후처리(motion_correction)를 쓰지 않았다 — 발이 미끄러질 수 있다", "provider"))
         inputs = {"model": MODEL, "repo": MODEL_REPO, "model_commit": self.model_commit(cache), "prompt": prompt, "duration_seconds": duration,

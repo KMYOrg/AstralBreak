@@ -158,6 +158,28 @@ def test_align_mode_defaults_per_bone_with_match_existing(service, fake):
     assert (rtg["ops"], rtg["align_mode"]) == ("match_existing", "per_bone")
 
 
+def test_body_clearance_defaults_resolve(service, fake):
+    """retarget.body_clearance — 기본 resolve 가 retarget_animations 로 가고 보정 결과가 진단 BODY_CLEARANCE_RESOLVED 로 남는다. off 면 인자 없음."""
+    p = plan(service, reference_animations=[KATANA], search=None, edits=..., target_mesh=VESPER_MESH)
+    assert p["candidates"][0]["steps"][1]["inputs"]["body_clearance"] == "resolve"
+    env = service.generate_motion(plan_id=p["plan_id"])
+    assert env["ok"], env["error"]
+    [(_, rt)] = [(t, q) for t, q in fake.writes if t == "retarget_animations"]
+    assert rt["body_clearance"] == "resolve"
+    resolved = [d for d in env["result"]["diagnostics"] if d["code"] == "BODY_CLEARANCE_RESOLVED"]
+    assert resolved and "upperarm_l 40% frames ≤ 9.5° (penetration frames 30.0% → 0.0%)" in resolved[0]["message"]
+
+    fake.calls.clear()
+    p = plan(service, reference_animations=[KATANA], search=None, edits=..., target_mesh=VESPER_MESH, retarget={"body_clearance": "off"},
+             animation_name="AS_Vesper_Katana_ClearanceOff")
+    assert service.generate_motion(plan_id=p["plan_id"])["ok"]
+    [(_, rt)] = [(t, q) for t, q in fake.writes if t == "retarget_animations"]
+    assert "body_clearance" not in rt
+    env = service.plan_motion_generation(request=request(reference_animations=[KATANA], search=None, edits=..., target_mesh=VESPER_MESH,
+                                                         retarget={"body_clearance": "fix"}))
+    assert not env["ok"] and env["error"]["details"]["field"] == "retarget.body_clearance"
+
+
 def test_retarget_without_target_mesh_is_excluded(service):
     p = plan(service, reference_animations=[KATANA], search=None, edits=...)
     assert not p["executable"]

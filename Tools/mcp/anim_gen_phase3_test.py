@@ -164,7 +164,9 @@ def section_plan() -> None:
     would = edit["preview"]["would_create"]
     check(would["allowed"] is True and would["exists"] is False, f"preview would_create allowed={would['allowed']} exists={would['exists']}")
     ex = {e["provider"]: (e["cause"], e["reason"]) for e in plan["excluded"]}
-    check(ex == {"local_ai": ("PROVIDER_UNAVAILABLE", "NOT_IMPLEMENTED"), "external.meshy": ("APPROVAL_REQUIRED", "PAID_API_DISABLED")}, f"excluded {ex}")
+    # local_ai 는 Phase 5 부터 구현 — 이 요청엔 prompt 가 없어 MISSING_INPUT(Kimodo 가 없는 PC 면 NOT_INSTALLED)
+    check(set(ex) == {"local_ai", "external.meshy"} and ex["external.meshy"] == ("APPROVAL_REQUIRED", "PAID_API_DISABLED")
+          and ex["local_ai"] in (("UNSUPPORTED_REQUEST", "MISSING_INPUT"), ("PROVIDER_UNAVAILABLE", "NOT_INSTALLED")), f"excluded {ex}")
     env = SERVICE.plan_motion_generation(request=base_request(output_path=f"{HERO}/Generated"))
     check(not env["ok"] and env["error"]["code"] == "OUTPUT_PATH_NOT_ALLOWED", "output_path outside GenerationOutputPaths -> OUTPUT_PATH_NOT_ALLOWED")
     must(SERVICE.set_generation_policy(patch={"mode": "FREE_ONLY"}), "FREE_ONLY")

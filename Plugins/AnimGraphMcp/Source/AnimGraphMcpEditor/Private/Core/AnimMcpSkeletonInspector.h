@@ -32,6 +32,8 @@ namespace AnimMcpSkeletonInspector
 		USkeletalMesh* Mesh = nullptr;
 		bool bDetails = false;
 		USkeleton* CompareTo = nullptr;
+		/** 손가락 체인 제안(AnimMcpFingerChains::Suggest — 손은 메시 템플릿 체인의 팔 짝, 없으면 위상)을 finger_chain_suggestion 으로 — 측정이 아닌 제안이라 요청할 때만 */
+		bool bSuggestFingerChains = false;
 	};
 
 	TSharedRef<FJsonObject> Inspect(const FInspectParams& Params);

@@ -61,7 +61,11 @@ namespace AnimMcpRetargetAssets
 		bool bSave = false;
 	};
 
-	/** {asset_path, reused, preview_mesh, template_match, pelvis, chains[], goals[], solvers[], saved} */
+	/**
+	 * {asset_path, reused, preview_mesh, template_match, pelvis, chains[], goals[], solvers[], finger_chain_suggestion{} (새로 만들 때 — AnimMcpFingerChains::Suggest:
+	 * 손은 manual 인자 · 템플릿 체인의 팔 짝, 정할 체인에 없는 손가락 체인은 진단 FINGER_CHAINS_SUGGESTED, 같은 이름이 다른 본이면 FINGER_CHAINS_DIFFER), saved}.
+	 * IKRIG_AUTO_FAILED details 에도 finger_chain_suggestion(위상으로 찾은 손)
+	 */
 	TSharedPtr<FJsonObject> CreateIKRig(const FIKRigParams& Params, FAnimMcpContext& Context, FAnimMcpError& OutError);
 
 	enum class EOpsRecipe : uint8

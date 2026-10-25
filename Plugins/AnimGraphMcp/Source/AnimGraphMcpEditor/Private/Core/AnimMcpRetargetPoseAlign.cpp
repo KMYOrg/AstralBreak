@@ -456,7 +456,7 @@ namespace AnimMcpRetargetPoseAlign
 			return int32(INDEX_NONE);
 		};
 
-		TArray<TSharedPtr<FJsonValue>> BonesOut, EndsOut, NeutralOut, Skipped;
+		TArray<TSharedPtr<FJsonValue>> BonesOut, RelativeOut, EndsOut, NeutralOut, Skipped;
 		const FRetargetSkeleton& SourceSkeleton = Editor->Processor.GetSkeleton(Source);
 		const TArray<FTransform> TargetRef = RefGlobalPose(TargetSkeleton);
 		const TArray<FTransform> SourceRef = RefGlobalPose(SourceSkeleton);
@@ -554,7 +554,37 @@ namespace AnimMcpRetargetPoseAlign
 			const TArray<int32>& T = Pair.TargetBones->BoneIndices;
 			const TArray<int32>& S = Pair.SourceBones->BoneIndices;
 
-			// ② 구간 i → i+1 을 소스 같은 번호 구간에
+			// ②' 정중선 밖 끝 본(손)에 매달린 뼈 1개 체인(메타카팔) 아래 체인 — 소스 구간을 그 본의 어긋남 Q(소스 '본 → 체인 시작' →
+			//    대상 같은 구간 최소 회전)만큼 돌린 방향에. 메타카팔 배치(손바닥)는 대상 체형 그대로, 관절 각(MCP · PIP)만 소스를 복사한다
+			//    (2026-10-25 실측 SOMA → Vesper 오른손: 이 구간이 소스와 3.2~7.0° 일정하게 달라 MCP −17.5~−1.7°). 쇄골 → 팔은 부모가 정중선 위라 해당 없음.
+			//    본 순서상 손 ③ 이 이미 끝난 리타깃 포즈에서 잰다
+			FQuat Offset = FQuat::Identity;
+			const int32 Single = NearestMappedAncestor(T[0]);
+			const int32* SinglePair = Single == INDEX_NONE ? nullptr : PairOfBone.Find(Single);
+			if (SinglePair && Pairs[*SinglePair].TargetBones->BoneIndices.Num() == 1 && !Axial.Contains(*SinglePair))
+			{
+				const int32 Owner = NearestMappedAncestor(Single);
+				if (Owner != INDEX_NONE && Midline.IsValid() && Midline.Offset(TargetRef[Owner].GetLocation()) > Midline.ToleranceCm)
+				{
+					const FVector Dt = Editor->Pos(Target, T[0]) - Editor->Pos(Target, Single);
+					const FVector Ds = Editor->Pos(Source, S[0]) - Editor->Pos(Source, SourceBoneFor(Pairs[*SinglePair], 0));
+					if (Dt.Size() < MinSegmentCm || Ds.Size() < MinSegmentCm)
+					{
+						Skipped.Add(Skip(Editor->TargetName(Single), TEXT("ZERO_LENGTH")));
+					}
+					else
+					{
+						Offset = FQuat::FindBetweenNormals(Ds.GetSafeNormal(), Dt.GetSafeNormal());
+						TSharedRef<FJsonObject> RelObj = AnimMcpJson::MakeObject();
+						RelObj->SetStringField(TEXT("chain"), Pair.TargetChain.ToString());
+						RelObj->SetStringField(TEXT("parent_bone"), Editor->TargetName(Single).ToString());
+						RelObj->SetNumberField(TEXT("offset_deg"), AnimMcpStats::Round(Deg(Offset)));
+						RelativeOut.Add(MakeShared<FJsonValueObject>(RelObj));
+					}
+				}
+			}
+
+			// ② 구간 i → i+1 을 소스 같은 번호 구간에 (②' 이면 Q 만큼 돌린 방향에)
 			for (int32 i = 0; i + 1 < T.Num(); ++i)
 			{
 				if (Excluded.Contains(T[i]))
@@ -569,7 +599,7 @@ namespace AnimMcpRetargetPoseAlign
 					Skipped.Add(Skip(Editor->TargetName(T[i]), TEXT("ZERO_LENGTH")));
 					continue;
 				}
-				const FQuat W = FQuat::FindBetweenNormals(Dt.GetSafeNormal(), Ds.GetSafeNormal());
+				const FQuat W = FQuat::FindBetweenNormals(Dt.GetSafeNormal(), Offset.RotateVector(Ds.GetSafeNormal()));
 				if (Deg(W) > MinCorrectionDeg)
 				{
 					Editor->RotateGlobal(T[i], W);
@@ -689,6 +719,7 @@ namespace AnimMcpRetargetPoseAlign
 			SetNeutral(Bone, SourceBoneFor(Pairs[p], 0));
 		}
 		Out->SetArrayField(TEXT("bones"), BonesOut);
+		Out->SetArrayField(TEXT("relative_chains"), RelativeOut);
 		Out->SetArrayField(TEXT("chain_ends"), EndsOut);
 		Out->SetObjectField(TEXT("axial"), AxialObj);
 		Out->SetArrayField(TEXT("neutral_bones"), NeutralOut);

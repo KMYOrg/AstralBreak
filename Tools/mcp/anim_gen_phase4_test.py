@@ -234,7 +234,8 @@ def section_generate() -> None:
     check(not src["scaled"], "every reference bone has scale 1 (FBX unit 1 · no node scale)")
     check(abs(src["min_z"]) < 0.5 and src["root_z"] > 10, f"reference pose grounded (lowest {src['min_z']}cm, root {src['root_z']}cm above)")
     check(src["facing"] == "+Y", f"imported skeleton faces the target (+Y): {src['facing']}")
-    anim = next(a for a in job["intermediate_assets"] if a.endswith("_Anim"))
+    # 2단 임포트(Phase 5 — 기준 포즈 FBX → 스켈레톤, 동작은 Import/Motion/ 에 애니만)면 Import/ 의 _Rest_Anim 은 기준 포즈 2프레임이다
+    anim = next((a for a in job["intermediate_assets"] if "/Import/Motion/" in a), None) or next(a for a in job["intermediate_assets"] if a.endswith("_Anim"))
     v = must(editor("validate_animation", assets=[final], sources=[anim], skeleton=VESPER, source_feet=["LeftFoot", "RightFoot"],
                     source_pelvis=src["root"]), "validate result")["assets"][0]
     n = v["numeric"]

@@ -5,7 +5,8 @@
 개정 2: 2026-10-23 — Phase 1 구현 중 실측으로 바뀐 사실을 §12 에 기록(§4 · §5 · §7 · §8 · §10 · §11 정정).  
 개정 3: 2026-10-23 — Phase 2(기존 모션 재사용·변형) 구현 중 확인한 엔진 사실·측정을 §13 에 기록.  
 개정 4: 2026-10-24 — Phase 4(Blender Provider) 착수 전 엔진·Blender 소스 대조와 에디터 실측을 §14 에 기록.  
-상태: Phase 0 산출물 + Phase 1 · 2 · 4 실측 정정.  
+개정 5: 2026-10-25 — Phase 5(로컬 AI · Kimodo) 설치 · 구현 · 리타깃 정렬 수정 · 통합 테스트에서 확인한 엔진 사실과 측정을 §15 에 기록.  
+상태: Phase 0 산출물 + Phase 1 · 2 · 4 · 5 실측 정정.  
 관련 문서: [개발 지침서](DevelopmentGuide.md) (이 감사 결과로 개정 2) · [AnimGraphMcp README](../../Plugins/AnimGraphMcp/README.md)
 
 **방법.** 코드 변경 없이 ① UE 5.7.4 엔진 소스 대조, ② 실행 중인 에디터(DebugGame, main `1f8ee47`)에서 Python 원격 실행 3회 + AnimGraphMcp 조회로 측정했다. 에디터 쪽은 **읽기 전용**이었다 — IK Rig는 임시 패키지 객체로만 만들었고 애셋 생성·저장은 0건, 더티 패키지는 측정 전후 모두 0개였다.
@@ -342,6 +343,33 @@ Blender 4.4.1 headless 변환 + 에디터 임포트(`import_animation_file`)로 
 | CMU 자동 캐릭터라이즈 | 비표준 이름이라 실패 | **HumanIK / Motionbuilder 템플릿 64%** 로 성공 → 체인 없이도 리타깃 `PASSED_WITH_WARNINGS`. 수동 체인 9개(골반 `Hips`, `LHipJoint`·`RHipJoint` 제외)와 같은 판정 | `inspect_skeleton.template_match` · 통합 `auto` |
 | CMU 0번 프레임 | 첫 프레임부터 동작 | 0번 프레임은 회전 채널 73개 중 4개만 0 이 아닌 기준 포즈 → 1번 프레임에 179.8° 튐(소스 · 결과 모두, `ROTATION_JUMP_INHERITED`). `range.start` 로 빼면 최대 50.4°/프레임 · `PASSED` | BVH 데이터 · 통합 `trim` |
 | 소요 시간 (CMU) | — | Blender 4.4~5.5초(그중 FBX 내보내기 2.4초, 5.4 MB) · 임포트 1.2초 · 계획~저장 전체 9.8초 | report · 통합 |
+
+---
+
+## 15. Phase 5 실측 (개정 5)
+
+Kimodo 설치 · `local_ai` 구현(커밋 단위 1 · 2), 손가락 꺾임에서 시작한 리타깃 정렬 수정 세션들(per_bone · 축 체인 · 머리 · 메타카팔 · 손가락 체인 · 팔-몸통 관통), 통합 테스트(`Tools/mcp/anim_gen_phase5_test.py`, 단위 3)에서 확인한 것. 측정 방법은 C++ 추가 없이 `validate_animation profile_bones` + `profile_positions`(관절 위치 → 구간 방향 · 손 기준틀 · 마디 굽힘)로 했다.
+
+| 항목 | 가정 | 실측 | 근거 |
+| :--- | :--- | :--- | :--- |
+| Kimodo 설치 (Windows · Python 3.13) | 조사 §5: Linux 개발 · 문서 예시 Python 3.10 · `motion_correction` 빌드 실패 가능 | 시스템 Python 3.13 venv 로 동작. NVIDIA 잠금 버전 72개 그대로(numpy 만 3.13 휠이 있는 2.3.5) · torch 2.14.1+cu130 · `motion_correction` VS2022 빌드 성공(후처리 켬). 비공식 휠 안 씀 | 설치 기록 |
+| Hugging Face 다운로드 | — | 캐시 심볼릭 링크 경합(`WinError 1314` — 개발자 모드 없이 심볼릭 링크 불가) → 링크 없는 방식 + `--max-workers 1`. 게이트 모델 파일 해시는 익명 API 가 `****` 로 가려 인증 API 로 대조. pip 제약 파일의 한글 주석은 cp949 로 읽혀 실패 → 인자 · 제약 파일은 ASCII | 설치 기록 |
+| Kimodo BVH 기준 포즈 | 기본(BONES-SEED 형식)으로 충분 | 기본 기준 포즈는 회전 0 이 서 있는 자세가 아니라 `bvh.py` 의 단위 · 정면 측정이 틀린다 → `motion_to_bvh(standard_tpose=True)` | 스파이크 |
+| Kimodo BVH 루트 | 조사 §5 위험 — 원점 래퍼 `Root` | 그대로 리타깃하면 Root Motion op 가 정지한 `Root` 를 복사해 Vesper `root_travel_cm` 0(골반만 걸어 나감). 리타기터 op 를 바꾸면 Phase 1 ~ 4 경로가 다 바뀌므로 Kimodo 출력 안에서 고친다: `root_track` 이 모델의 바닥 궤적 `smooth_root_pos` · 방향 `global_root_heading` 을 `Root` 에 넣고 `Hips` 를 그 기준 상대값으로(펼친 θ) | `local_ai/root_track.py` · 통합 |
+| 루트 이동 배율 | 소스 이동 그대로 | Root Motion op(`CopyFromSourceRoot`)는 소스 루트 이동 × Pelvis Motion op 전역 배율(골반 높이 비). 제약 3초 앞 400 cm: Kimodo 396.6 cm → Vesper 406.5 cm(프레임 1 → 끝), 비 1.047 = 골반 높이 105.24 / 100.52 | `RootMotionGeneratorOp.cpp:281-312` · 통합 `constraint` |
+| 루트 경로 제약 (`root2d`) | — | 3초(끝 프레임 90)에 앞 400 · 왼쪽 0 cm · 방향 180°: Kimodo 끝 루트 앞 397.2 · 왼쪽 1.1 cm · 방향 182.5°. 방향은 (cos, sin) 으로만 고정돼 **도는 쪽은 모델이 정한다**(이번엔 왼쪽). Vesper 루트 Yaw Δ −181.98°(UE Yaw + = 오른쪽 — Kimodo θ + = 왼쪽과 부호 반대, 같은 방향). 결과는 `FOOT_SLIDE_RATIO` 3.86(허용 3.0) 경고 — 3초에 4 m + 180° 도는 빠른 동작이고 소스(후처리한 Kimodo) 착지 발 속도가 낮아 비가 커진다. 6초 걷기는 1.756 | 통합 `constraint` · `generate` |
+| Kimodo 시간 · 메모리 | 조사: 미측정 | 에디터를 띄운 채 1건 51 ~ 88초(torch 임포트 18 ~ 47 · 모델 적재 24 ~ 28 · 확산 생성 8.5 ~ 13 · 내보내기 0.3초 — 그날 첫 실행이 가장 느림, 4건) · RAM 약 15 GB · VRAM < 3 GB. 기본 기한 300초 안. 취소는 torch 임포트 중인 프로세스를 2초 만에 종료(report · BVH 없음) | `report.json seconds` · 통합 `cancel` |
+| SOMA 자동 캐릭터라이즈 | 조사 §5: `LeftLeg`(넓적다리) 오매핑 가능 | Mixamo 템플릿으로 잡혀 손가락이 한 마디 밀린다(`LeftIndex` = Index1 ~ 3 — 메타카팔부터). → SOMA 수동 체인 27개(몸 9 + 손 18: 엄지 Thumb1 ~ 3 · 손가락마다 메타카팔 Hand{F}1 + Hand{F}2 ~ 4, End 제외) | `FINGER_CHAINS_DIFFER` · `test_soma_chains_map_every_finger_by_standard_name` |
+| 손가락 꺾임 | 소스에 없는 손가락은 대상 기준 포즈로 남는다(`UNMAPPED_TARGET_CHAINS` 문구) | 자동 정렬이 꺼진 Run IK Rig op 의 퍼지 매핑을 따라 꺾는다(지침서 §2.3). SOMA 9체인 왼손 MCP/PIP: 검지 120.3/−30.3 · 약지 107.8/−30.3 · 새끼 −109.4/130.5 · 순서 정상 0%(가운데만 멀쩡) → 모든 op 정확 매핑 뒤 기준 포즈 ±0.3° · 순서 100%. Phase 4 CMU 결과도 같은 패턴(검지 MCP 63.8°) → ±0.2°. `RTG_KatanaToH` 회귀 본별 0° · 리타깃 포즈 34본 20.234° 그대로 | `IKRetargetProcessor.cpp:1496, 1675` · `RunIKRigOp.cpp:150` · `IKRetargetChainMapping.cpp:222-242` |
+| 팔꿈치 굽힘 전달 | 아래팔 오차 = 위팔 롤 | 롤이 아니다 — 굽힘 평면 회전 0.00°, 굽힘 전달 0.87 / 0.85배 = Vesper 팔꿈치 param 0.5116 ÷ CMU 0.5886 / 0.6035. FK Interpolated 가 대상 본 param 위치의 소스 회전을 섞는다. CMU 아래팔 구간 방향 p50 7.56 / 8.10° → `per_bone`(1:1) 0.02 / 0.02°(비 1.00), HK 6.1 / 5.7° → 0.02° · 손 굴림 ±7.3 → −0.03 / +0.06° | `FKChainsOp.cpp:283-291` |
+| SOMA 기준 포즈 = 0프레임 | 임포트 스켈레톤 기준 포즈 = FBX 기준 포즈 | Interchange 가 바인드 포즈 무효 → 첫 프레임 재바인드(이분 탐색: 손가락 둘째 마디 아래, 계층 깊이 ≥ 10 이 있으면 무효 — FBX 행렬은 일관, SDK 정밀도 판정 0.0001 cm). 미터 FBX 는 유효하지만 루트 본 스케일 100. → 기준 포즈 2프레임 FBX + 2단 임포트: SOMA 쇄골 구간 13.3 / 29.4° → 5.8 / 5.8°, 발 26.8 / 17.3° → 13.4 / 13.4°. CMU(깊이 ≤ 9)는 원래 유효 | `InterchangeSkeletalMeshFactory.cpp:792-808` |
+| 머리 · 목 · 몸통 | — | 엔진 자동 정렬은 머리(param 1)를 건너뛰고 펠비스(`AlignPelvisBone`) · 척추 접선 · 목을 소스 기준 포즈 몸통 모양에 맞춘다 → 모든 프레임에 일정 오프셋. ④ 머리 중립: 얼굴 들림 오차 CMU +6.84 → −0.31°, SOMA −3.72 → 0.00°. ⓪ 축 체인 중립: 목 윗마디(Vesper 대비) CMU +19.7 → +6.3°, SOMA −27.3 → −19.4°, 허리 CMU +11.9 → +1.3°. 팔 · 손 · 다리 관절 회귀 0. 남은 "젖혀 보임"은 소스 동작(CMU 8.7초에 37° 올려다봄) | `IKRetargeterPoseGenerator.cpp:107, 249, 386` · 측정 |
+| 메타카팔 → 첫 마디 | — | 손바닥 해부 차로 3 ~ 7° 일정하게 어긋난다(SOMA MCP 최대 −17.5°). 메타카팔을 소스로 돌리면 손 굴림 −3.6° · 손바닥 변형 → 기각. 메타카팔은 대상 그대로 · 손가락은 메타카팔 상대(②'): MCP ±0.6 · 옆 벌림 ≤ 1° · 손 굴림 불변, 대가 = 손가락 전역 방향 3 ~ 7° · 오른 중지 PIP −0.75°(FK 전역 델타의 1차 오차) | 측정 |
+| 메시 vs 스켈레톤 기준 포즈 | 같다 | Vesper 스켈레톤(메시 46개 공유) 기준 포즈와 `SK_StreetDemon_F_01` 의 손가락 로컬 회전이 최대 14.13°(`index_metacarpal`) 다르다 → 미매핑 손가락 비교는 대상 메시 기준(스켈레톤 기준이면 고친 결과도 30본 > 2° 오탐) | `fingers` 검사 |
+| 손가락 체인 제안기 | — | 이름 없는 위상 · 좌표로: SOMA 18(템플릿과 다름 8 · 없음 8) · Vesper 18 · UE4 10(= 템플릿) · Narmaya 14(약지 · 새끼만 메타카팔) · SB 10 · CMU 0(`NO_HANDS` — 기준 포즈 좌우 손 높이 1 ~ 2.6 cm 비대칭이라 팔 짝 실패, 어차피 손가락 1개). 안전망: 수정 전 SOMA 결과 4종 경고(미매핑 16본 최대 147° · 순서 100% 깨짐), HK · Vesper 원본 57개 경고 0 | `AnimMcpFingerChains` · `AnimGraphMcp.Generation.FingerChains` |
+| 팔-몸통 관통 | 위팔 매핑이 맞으면 관통 없음 | 위팔 월드 방향은 소스와 같다 — 원인은 체형(어깨 관절 반폭 CMU 21.5 · Vesper 12.0 cm, 엉덩 8.8 · 9.1 cm) + 옷(코트 · 벨트 · 파우치 — 같은 CMU 결과를 F_01 로 재면 49 / 73%, Lingerie 메시로는 20 / 33%). 판정을 '가장 가까운 몸 정점 법선'으로 하면 깊이 박힌 점에서 방향이 엉켜 보정 p50 20 ~ 30° · 보정 뒤에도 18 ~ 21% → **반경 지도**로 바꿈. 관통 프레임(왼/오른): CMU → Vesper 49.3 / 72.8% → 0 / 0(보정 p50 · 최대 9.0 · 17.3 / 14.5 · 26.7°, 팔꿈치 각 변화 0.06°), SOMA 71.7 / 0 → 0 / 0, HK 6.9 / 0 → 0 / 0, CMU → UE4 마네킹 9.3 / 19.3 → 0 / 0. 통합: Kimodo 걷기 52.5 / 45.3 → 0 / 0(최대 13.2 / 11.2°), 제약 클립 3.3 / 17.6 → 0 / 0. Vesper 원래 애니도 18 ~ 35%(기준선: UE4 카타나 7개 중 5개 0 — 원래 마네킹 메시) | `AnimMcpBodyClearance` · `AnimGraphMcp.Generation.BodyClearance` |
+| Phase 4 CMU 회귀 수치 | 10-24 기준(§14 · 지침서 §14 Phase 4) 그대로 | 같은 CMU 01_01 요청이 anim_gen 기본 `per_bone` 정렬 + `body_clearance resolve` + 2단 임포트를 거치면서: 각속도 p99 비 0.833 → 0.868 · 착지 발 1.513 → 1.444(둘 다 허용 범위 — 정렬 · 관통 보정 각각의 기여는 따로 재지 않았다. 정렬 쪽 근거는 위 '팔꿈치 굽힘 전달' 행) · 골반 높이 0.975 · 루트 이동 1.299 · 최대 179.75°/프레임(`ROTATION_JUMP_INHERITED`) · Trim 50.44° `PASSED` · 자동 IK Rig HumanIK 64% 는 그대로. 관통 프레임 49.3 / 72.8% → 0 / 0(위팔 보정 최대 17.3 / 26.7°). 잡 9.8 → 27.2초(관통 보정 · 손가락 검사 · 2단 임포트 · 재검증이 더해짐 — 단계별 시간은 따로 재지 않음). 플러그인 기본(`align_mode engine`)을 쓰는 Phase 1 회귀는 `RTG_KatanaToH` 대비 본별 0° 그대로 | `anim_gen_phase4_test.py` · `phase1` 재실행 |
+| 프레임 렌더 비교 비용 | 기한에 부담 | Blender Workbench 백그라운드: CMU 2,749프레임 4행 × 2뷰 1.9 ~ 2.6초, 12행 × 2뷰 + 레퍼런스 4 = 시트 2085 × 2994(상한 전 4344 × 6222 · 10.7 MB → 긴 변 3000 px 로 줄임), Kimodo 6초 4행 × 2뷰 2.2초 · 시트 1424 × 2078 — 기한 300초의 1% 안팎 | `review_render.py` · 통합 `generate` |
 
 ---
 

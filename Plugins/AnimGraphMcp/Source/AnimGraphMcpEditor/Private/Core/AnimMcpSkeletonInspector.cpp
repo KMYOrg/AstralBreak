@@ -1,5 +1,6 @@
 #include "AnimMcpSkeletonInspector.h"
 
+#include "AnimMcpFingerChains.h"
 #include "AnimMcpMontage.h"
 #include "AnimMcpStats.h"
 #include "Animation/AnimSequence.h"
@@ -420,6 +421,14 @@ namespace AnimMcpSkeletonInspector
 		Result->SetArrayField(TEXT("retargeters"), RetargeterValues);
 
 		Result->SetObjectField(TEXT("template_match"), DescribeTemplateMatch(Mesh));
+
+		if (Params.bSuggestFingerChains)
+		{
+			AnimMcpSkeletonGeometry::FTree Tree;
+			Tree.Init(RefSkeleton);
+			const AnimMcpSkeletonGeometry::FChainSource Source = AnimMcpSkeletonGeometry::ResolveChains(Mesh, nullptr, RefSkeleton, Tree);
+			Result->SetObjectField(TEXT("finger_chain_suggestion"), AnimMcpFingerChains::Suggest(RefSkeleton, Tree, Source, AnimMcpFingerChains::GivenChains(RefSkeleton, Source)).Json);
+		}
 
 		if (Params.CompareTo)
 		{

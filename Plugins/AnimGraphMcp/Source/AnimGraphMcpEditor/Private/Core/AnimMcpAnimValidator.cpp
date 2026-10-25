@@ -622,6 +622,8 @@ namespace AnimMcpAnimValidator
 		FIssues Structural;
 		FIssues RelativeIssues;
 		FIssues RequestIssues;
+		bool bClearanceWarning = false;
+		bool bFingerWarning = false;
 		TSharedRef<FJsonObject> Result = AnimMcpJson::MakeObject();
 		Result->SetStringField(TEXT("asset"), Asset->GetPathName());
 		Result->SetField(TEXT("source"), AnimMcpJson::ObjectPathOrNull(Source));
@@ -779,6 +781,18 @@ namespace AnimMcpAnimValidator
 				}
 			}
 
+			// ---- 제약: 팔-몸통 관통 (대상 메시) ----
+			if (Options.BodyClearance.IsSet())
+			{
+				Result->SetObjectField(TEXT("body_clearance"), AnimMcpBodyClearance::Measure(Asset, Options.BodyClearance.GetValue(), bClearanceWarning));
+			}
+
+			// ---- 손가락: 미매핑 = 기준 포즈 · 굽힘 방향 · 끝 순서 ----
+			if (Options.Fingers.IsSet())
+			{
+				Result->SetObjectField(TEXT("fingers"), AnimMcpFingerChains::Check(Skeleton, A.Bones, A.Component, Options.Fingers.GetValue(), bFingerWarning));
+			}
+
 			// ---- 절대: 한 프레임 회전 ----
 			// 30fps 마켓 공격은 손·손가락이 프레임당 90° 를 넘기도 한다(Phase 1 실측: Katana_Attack_Slash1 109°). 소스에 이미 있던 튐은 리타깃이 만든
 			// 깨짐이 아니므로, 소스가 있으면 소스 최대 + InheritedJumpMargin 이내는 경고로 낮춘다. 소스가 없으면 절대 규칙 그대로(감사 §5)
@@ -830,7 +844,7 @@ namespace AnimMcpAnimValidator
 		FString Status = TEXT("PASSED");
 		if (Structural.bError || RequestIssues.bError) { Status = TEXT("FAILED"); }
 		else if (RelativeIssues.bUndetermined) { Status = TEXT("NEEDS_REVIEW"); }
-		else if (Structural.bWarning || RelativeIssues.bWarning || RequestIssues.bWarning) { Status = TEXT("PASSED_WITH_WARNINGS"); }
+		else if (Structural.bWarning || RelativeIssues.bWarning || RequestIssues.bWarning || bClearanceWarning || bFingerWarning) { Status = TEXT("PASSED_WITH_WARNINGS"); }
 		Result->SetStringField(TEXT("status"), Status);
 		Result->SetNumberField(TEXT("seconds"), AnimMcpStats::Round(FPlatformTime::Seconds() - Start));
 		return Result;

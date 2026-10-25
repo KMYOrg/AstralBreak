@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AnimMcpBodyClearance.h"
+#include "AnimMcpFingerChains.h"
 #include "CoreMinimal.h"
 #include "Dom/JsonObject.h"
 
@@ -25,6 +27,8 @@ struct FAnimMcpError;
  *            seams(이음매 시각)의 프레임 간 회전 변화가 주변 창 중앙값의 seam_ratio_max 배를 넘으면 경고 SEAM_JUMP
  *   측정   — profile_bones: 프레임별 컴포넌트 공간 선속도(cm/s) — 타격 구간 같은 시간 범위를 고르는 데 쓴다.
  *            profile_positions 면 같은 시각의 위치(cm)도 — 리타깃 정면 맞춤 전후의 동작 평면 비교
+ *   제약   — body_clearance: 손 · 아래팔이 대상 메시의 몸(허리 · 골반 · 넓적다리)을 뚫는 깊이 · 프레임 비율(AnimMcpBodyClearance) → 경고 BODY_PENETRATION
+ *   손가락 — fingers: 매핑 안 된 손가락은 기준 포즈 유지 · 매핑된 손가락은 손바닥 쪽 굽힘 · 끝 순서(AnimMcpFingerChains::Check) → 경고 FINGER_*
  *   시각   — 항상 needs_review[] 에 남긴다. 상태는 자동 검사 결과다(PASSED · PASSED_WITH_WARNINGS · NEEDS_REVIEW · FAILED).
  */
 namespace AnimMcpAnimValidator
@@ -90,6 +94,10 @@ namespace AnimMcpAnimValidator
 		 * apply_animation_edits 가 소스 최대 × 최대 재생 속도를 넘긴다(빠르게 만든 정상 동작이 절대 규칙에 걸리지 않게)
 		 */
 		TOptional<double> InheritedMaxDegPerFrame;
+		/** 설정되면 팔-몸통 관통을 잰다 — 결과 body_clearance{}, 경고는 상태에 반영 */
+		TOptional<AnimMcpBodyClearance::FSpec> BodyClearance;
+		/** 설정되면 손가락을 검사한다 — 결과 fingers{}, 경고는 상태에 반영 */
+		TOptional<AnimMcpFingerChains::FCheckSpec> Fingers;
 	};
 
 	/** 애셋 하나 — {asset, source, status, structural[], numeric{}, relative{}, needs_review[], seconds} */

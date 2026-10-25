@@ -86,7 +86,10 @@ def plan_motion_generation(request: dict) -> dict:
             source_facing? auto|keep|+X|-X|+Y|-Y (the UE axis the SOURCE faces; auto = measured from its reference pose),
             align_mode? per_bone|engine (default per_bone with ops match_existing: chains with matching bone counts copy rotations
             one-to-one and the target pose is aligned bone-to-bone and at chain ends — create_ik_retargeter align_mode; engine = the
-            engine's auto-align only, the only choice with ops default)}, constraints{},
+            engine's auto-align only, the only choice with ops default), body_clearance? resolve|measure|off (default resolve: after
+            retargeting, frames where the hands/forearms go into the target mesh's body — waist, pelvis, thighs; e.g. a source with
+            wide shoulders onto a target with wide hips or bulky clothes — get the smallest shoulder rotation that clears them, elbow and
+            hand untouched; measure = only report it in validation; retarget_animations body_clearance)}, constraints{},
             generation_policy? (cannot escape a FREE_ONLY policy), provider ("auto" or a name — a name disables fallback),
             integrate_anim_bp, output_path (under GenerationOutputPaths), motion_file? (a .bvh path under ImportSourceRoots, or
             {path, unit auto|cm|m|mm|inch|<cm per unit>, facing auto|keep|+X|-X|+Y|-Y (UE axes; auto = the target skeleton's),
@@ -106,8 +109,12 @@ def plan_motion_generation(request: dict) -> dict:
     step pins the source and target facing (steps[].inputs.facing); differing facings are risk FACING_DIFFERS with the limitation
     FACING_ALIGNED (the retargeter turns them to match), unmeasurable ones FACING_UNKNOWN (not aligned). A motion_file
     plan pins the BVH header (joints with parents — propose retarget.source_chains from them if the auto IK rig fails), unit, facing
-    rotation and frame range. A local_ai plan (NVIDIA Kimodo, ≤ 10 s, 30 fps) chains generate → blender convert (resolved when the
-    BVH exists) → import → retarget with SOMA chains; its job reports every sample's BVH/NPZ in diagnostics KIMODO_GENERATED
+    rotation and frame range. Retarget jobs carry the IK rig's finger proposal: diagnostic FINGER_CHAINS_SUGGESTED{chains[]} (finger
+    chains found by geometry that the source chains lack — the target fingers then keep their reference pose; show them to the user
+    and on confirmation plan again with them added to retarget.source_chains) or FINGER_CHAINS_DIFFER, and the validation's finger
+    check (FINGER_WARNINGS: an unmapped target finger off its reference pose, a bend toward the back of the hand, crossed fingertips).
+    A local_ai plan (NVIDIA Kimodo, ≤ 10 s, 30 fps) chains generate → blender convert (resolved when the
+    BVH exists) → import → retarget with SOMA chains (body + hands: Kimodo's fixed relaxed hands); its job reports every sample's BVH/NPZ in diagnostics KIMODO_GENERATED
     (reuse one with motion_file, or its NPZ in keep_pose). Blender and local_ai jobs return RUNNING; poll get_generation_status
     until they finish. With review.render the blender step also writes front/side orthographic PNGs per time and one comparison
     sheet (rows = times, columns = views + reference images) — Read them from job.review{frames[{time, frame, view, path}], sheet}.

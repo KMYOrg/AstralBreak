@@ -14,10 +14,14 @@ ROOT_MOTION_MODES = ("auto", "on", "off")
 REQUIRED = ("target_skeleton", "animation_name", "output_path", "motion_category")
 SEARCH_KEYS = {"query", "path_prefix", "asset_class", "min_length", "max_length", "root_motion", "additive", "loop", "tags", "limit"}
 RETARGET_KEYS = {"source_mesh", "existing_source_rig", "existing_target_rig", "existing_retargeter", "source_pelvis", "source_chains", "ops",
-                 "source_facing", "align_mode"}
+                 "source_facing", "align_mode", "body_clearance"}
 # create_ik_retargeter align_mode — per_bone: 뼈 수 같은 체인 FK 1:1 + 본 대 본 · 체인 끝 정렬(엔진 정렬은 같은 param 끼리 짝지어
 # 관절 비율이 다르면 팔꿈치 굽힘이 덜 전달된다). match_existing 의 기본, default ops 는 정렬하지 않아 engine 만
 ALIGN_MODES = ("per_bone", "engine")
+# retarget_animations body_clearance — 대상 메시 몸(허리 · 골반 · 넓적다리)에 손 · 아래팔이 들어가는지. resolve(기본): 관통한 프레임만 어깨 둘레
+# 최소 회전으로 위팔을 고친다(소스 어깨 반폭 대비 대상 엉덩 · 옷 부피가 크면 같은 팔 각도로 손이 몸에 들어간다 — 2026-10-25 CMU → Vesper 관통
+# 프레임 49 · 73% → 0 · 0%) · measure: 검증에만 · off
+BODY_CLEARANCE_MODES = ("resolve", "measure", "off")
 # Phase 4 — blender Provider 가 변환할 모션 파일
 MOTION_FILE_DEFAULTS = {"path": None, "unit": "auto", "facing": "auto", "range": None, "axis_forward": "-Z", "axis_up": "Y"}
 FACINGS = ("auto", "keep", "+X", "-X", "+Y", "-Y")
@@ -136,6 +140,9 @@ def normalize(raw: dict) -> tuple[dict, list[dict]]:
     if align == "per_bone" and ops != "match_existing":
         raise _bad("retarget.align_mode", "per_bone refines the auto-aligned target pose — only with ops match_existing", reason="ALIGN_MODE_WITHOUT_ALIGN")
     retarget["align_mode"] = align
+    if retarget.get("body_clearance", "resolve") not in BODY_CLEARANCE_MODES:
+        raise _bad("retarget.body_clearance", f"must be one of {list(BODY_CLEARANCE_MODES)}")
+    retarget["body_clearance"] = retarget.get("body_clearance", "resolve")
     # 소스가 보는 UE 축 — auto 면 소스 스켈레톤 기준 포즈로 잰다, keep 이면 정면을 맞추지 않는다
     if retarget.get("source_facing", "auto") not in FACINGS:
         raise _bad("retarget.source_facing", f"must be one of {list(FACINGS)} (UE axes the source faces)")

@@ -1,5 +1,6 @@
 #include "AnimMcpRetargetAssets.h"
 
+#include "AnimMcpFingerChains.h"
 #include "AnimMcpGeneration.h"
 #include "AnimMcpLog.h"
 #include "AnimMcpRetargetPoseAlign.h"
@@ -467,6 +468,31 @@ namespace AnimMcpRetargetAssets
 		FAutoCharacterizeResults Characterization;
 		AnimMcpSkeletonInspector::Characterize(Params.Mesh, Characterization);
 		const TSharedRef<FJsonObject> TemplateMatch = AnimMcpSkeletonInspector::TemplateMatchToJson(Characterization, Params.Mesh);
+		// 손가락 체인 제안 — 손은 정할 체인(manual 인자 · 템플릿)의 팔 짝에서, 없으면 위상으로. 이름이 아니라 기하라 템플릿이 손가락을 밀려 맞춘 것도 드러난다
+		auto SuggestFingers = [&Params, &RefSkeleton, &Characterization]()
+		{
+			AnimMcpSkeletonGeometry::FTree Tree;
+			Tree.Init(RefSkeleton);
+			AnimMcpSkeletonGeometry::FChainSource Source;
+			TArray<AnimMcpFingerChains::FGivenChain> Given;
+			const TArray<FBoneChain>& Template = Characterization.AutoRetargetDefinition.RetargetDefinition.BoneChains;
+			Source.From = Params.bManual ? TEXT("argument") : Characterization.bUsedTemplate ? TEXT("template") : TEXT("characterize");
+			auto Add = [&](FName Name, FName Start, FName End)
+			{
+				TArray<int32> Bones = AnimMcpSkeletonGeometry::ChainBones(RefSkeleton, Tree, Start, End);
+				if (Bones.Num() > 0) { Source.Chains.Add({ Name, MoveTemp(Bones) }); }
+				Given.Add({ Name, Start, End });
+			};
+			if (Params.bManual)
+			{
+				for (const FChainSpec& Chain : Params.Chains) { Add(Chain.Name, Chain.Start, Chain.End); }
+			}
+			else
+			{
+				for (const FBoneChain& Chain : Template) { Add(Chain.ChainName, Chain.StartBone.BoneName, Chain.EndBone.BoneName); }
+			}
+			return AnimMcpFingerChains::Suggest(RefSkeleton, Tree, Source, Given);
+		};
 		if (Params.bManual)
 		{
 			if (!ValidateManual(RefSkeleton, Params.Pelvis, Params.Chains, OutError))
@@ -489,12 +515,15 @@ namespace AnimMcpRetargetAssets
 				Details->SetObjectField(TEXT("template_match"), TemplateMatch);
 				Details->SetNumberField(TEXT("bone_count"), RefSkeleton.GetRawBoneNum());
 				Details->SetArrayField(TEXT("bones"), AnimMcpSkeletonInspector::DescribeBones(RefSkeleton, /*bDetails*/ false));
-				Details->SetStringField(TEXT("next"), TEXT("call create_ik_rig again with mode=manual, pelvis and chains[{name, start, end, goal?}] chosen from bones[]"));
+				Details->SetObjectField(TEXT("finger_chain_suggestion"), SuggestFingers().Json);
+				Details->SetStringField(TEXT("next"), TEXT("call create_ik_rig again with mode=manual, pelvis and chains[{name, start, end, goal?}] chosen from bones[] — finger_chain_suggestion.chains[] are finger chains found by geometry; add them once the user confirms"));
 				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::IKRigAutoFailed,
 					FString::Printf(TEXT("'%s' matches no known skeleton template — auto characterization makes no chains; define them manually"), *Params.Mesh->GetPathName()), Details);
 				return nullptr;
 			}
 		}
+
+		const AnimMcpFingerChains::FSuggestion Fingers = SuggestFingers();
 
 		// ---- 생성 ----
 		const AnimMcpGeneration::FDirtyGuard Guard;
@@ -583,6 +612,22 @@ namespace AnimMcpRetargetAssets
 		Result->SetBoolField(TEXT("reused"), false);
 		Result->SetStringField(TEXT("mode"), Params.bManual ? TEXT("manual") : TEXT("auto"));
 		Result->SetObjectField(TEXT("template_match"), TemplateMatch);
+		Result->SetObjectField(TEXT("finger_chain_suggestion"), Fingers.Json);
+		const TCHAR* Whose = Params.bManual ? TEXT("given") : TEXT("template");
+		if (Fingers.Differs.Num() > 0)
+		{
+			TSharedRef<FJsonObject> Extra = AnimMcpJson::MakeObject();
+			Extra->SetArrayField(TEXT("differs"), Fingers.Differs);
+			Context.AddDiagnostic(TEXT("warning"), TEXT("FINGER_CHAINS_DIFFER"), FString::Printf(TEXT("%d %s finger chain(s) sit on other bones than the geometry suggests (thumb, metacarpal and fingertips found by position, not name) — see finger_chain_suggestion.differs"),
+				Fingers.Differs.Num(), Whose), Extra);
+		}
+		if (Fingers.Missing.Num() > 0)
+		{
+			TSharedRef<FJsonObject> Extra = AnimMcpJson::MakeObject();
+			Extra->SetArrayField(TEXT("chains"), Fingers.Missing);
+			Context.AddDiagnostic(TEXT("info"), TEXT("FINGER_CHAINS_SUGGESTED"), FString::Printf(TEXT("%d finger chain(s) found by geometry are not in the %s chains — without them the target fingers keep their reference pose; add chains[] (mode manual) once the user confirms"),
+				Fingers.Missing.Num(), Whose), Extra);
+		}
 		Result->SetBoolField(TEXT("saved"), bSaved);
 		return Result;
 	}

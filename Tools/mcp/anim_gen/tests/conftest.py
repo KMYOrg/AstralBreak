@@ -270,7 +270,16 @@ class FakeEditor:
             generated.append({"source": _obj(a), "asset": _obj(path)})
             items.append({"asset": _obj(path), "status": "PASSED_WITH_WARNINGS",
                           "numeric": {"length": src["length"], "frame_rate": src["frame_rate"], "loop": src["loop"]}})
-        return {"generated": generated, "validation": {"status": "PASSED_WITH_WARNINGS", "assets": items}, "saved": p.get("save", False)}
+        out = {"generated": generated, "validation": {"status": "PASSED_WITH_WARNINGS", "assets": items}, "saved": p.get("save", False)}
+        if p.get("body_clearance") == "resolve":
+            # 팔-몸통 관통 보정 — 왼팔만 고쳐진 모양 (수치는 고정값)
+            arm = lambda side, pen: {"upper_arm": f"upperarm_{side}", "frames_over_penetration_pct": pen}  # noqa: E731
+            out["body_clearance"] = [{"asset": g["asset"], "modified": True, "issues": [],
+                                      "arms": [{"upper_arm": "upperarm_l", "corrected_frames_pct": 40.0, "deg_max": 9.5},
+                                               {"upper_arm": "upperarm_r", "corrected_frames_pct": 0.0, "deg_max": 0.0}],
+                                      "before": {"arms": [arm("l", 30.0), arm("r", 0.0)]}, "after": {"arms": [arm("l", 0.0), arm("r", 0.0)]}}
+                                     for g in generated]
+        return out
 
 
 class _Refuse(Exception):

@@ -136,7 +136,7 @@ class Executor:
             return ("skip", why["cause"], why["reason"], f"{provider.name} is not available now", {})
         if not provider.paid:
             return None
-        estimate = provider.estimate(plan["request"])
+        estimate = provider.estimate(plan["request"], policy)
         if not estimate["cost_known"]:
             return ("skip", "COST_UNKNOWN", estimate.get("basis"), f"{provider.name}: cost cannot be confirmed — never run (§6)", {})
         cost = float(estimate["estimate_usd"])
@@ -187,7 +187,8 @@ class Executor:
                     final = kind in _PRODUCING and self._is_final(steps, j, values, target)
                     folder, name = (request["output_path"], self._final_name(job_id, request, attempt)) if final else (work, f"{request['animation_name']}_{kind.title()}")
                     ctx = RunContext(editor=self.editor, job_id=job_id, request=request, step=step, values=values, work_path=work,
-                                     output_folder=folder, output_name=name, is_final=final, save=bool(job["save"]), attempt=attempt, policy=policy)
+                                     output_folder=folder, output_name=name, is_final=final, save=bool(job["save"]), attempt=attempt, policy=policy,
+                                     state_dir=self.store.root)
                     if provider.paid:
                         result = self._paid_step(job_id, plan, provider, ctx, j)
                         if result is None:
@@ -277,23 +278,30 @@ class Executor:
         pending = job.get("pending")
         if pending and pending["step"] == j:
             return self._poll_step(job_id, provider, ctx, pending)
-        cost = float(provider.estimate(plan["request"])["estimate_usd"])
+        estimate = provider.estimate(plan["request"], ctx.policy)
+        cost = float(estimate["estimate_usd"])
+        credits = estimate.get("credits")  # 크레딧으로 과금하는 Provider(Meshy) — 장부 · Job 비용에 같이 적는다
         approval = self.usable_approval(plan["plan_id"], provider.name)
         if approval is None:  # 게이트를 지난 뒤 다른 호출이 승인을 다 썼다
             raise StepFailed("APPROVAL_REQUIRED", "ATTEMPTS_EXHAUSTED", f"no approval left for {provider.name}")
         key = ledger_key(plan["plan_id"], self.store.paid_attempts(plan["plan_id"]) + 1)
         self.store.patch_job(job_id, pending={"key": key, "provider": provider.name, "handle": None, "step": j}, idempotency_key=key,
                              approval_id=approval["approval_id"])
-        self.store.ledger_append({"kind": "reserve", "key": key, "plan_id": plan["plan_id"], "job_id": job_id, "provider": provider.name, "usd": cost})
+        self.store.ledger_append({"kind": "reserve", "key": key, "plan_id": plan["plan_id"], "job_id": job_id, "provider": provider.name, "usd": cost,
+                                  **({"credits": credits} if credits is not None else {})})
         approval["used_attempts"] += 1
         approval["committed_usd"] = round(approval["committed_usd"] + cost, 4)
         self.store.save_approval(approval)
-        self.store.update_job(job_id, lambda jb: jb["cost"].update(estimated_usd=round(jb["cost"]["estimated_usd"] + cost, 4)))
+
+        def reserve(jb):
+            jb["cost"].update(estimated_usd=round(jb["cost"]["estimated_usd"] + cost, 4))
+            if credits is not None:
+                jb["cost"].setdefault("credits", {"estimated": 0, "actual": None})["estimated"] += credits
+        self.store.update_job(job_id, reserve)
         try:
             result = provider.run(ctx)
         except StepFailed as failed:
-            if failed.details.get("charged") is False:
-                self.store.ledger_append({"kind": "release", "key": key})
+            self._settle_failure(job_id, key, failed)
             self.store.patch_job(job_id, pending=None)
             raise
         if result.pending is not None:
@@ -315,7 +323,9 @@ class Executor:
             self.store.patch_job(job_id, pending={**pending, "handle": handle})
         try:
             result = provider.poll(ctx, handle)
-        except StepFailed:
+        except StepFailed as failed:
+            # 외부 작업이 실패로 끝났다 — Provider 가 환불(charged=False)이나 실제 과금을 알려 주면 장부에 반영, 모르면 예약으로 남긴다
+            self._settle_failure(job_id, pending.get("key"), failed)
             self.store.patch_job(job_id, pending=None)
             raise
         self.store.patch_job(job_id, polled_at=now_iso())
@@ -329,16 +339,35 @@ class Executor:
         """실제 금액을 알려 주면 확정, 아니면 미확정(추정액이 예약으로 남는다 — 임의로 확정하지 않는다)."""
         if key is None:
             return  # 무료 단계
-        if result.actual_cost_usd is not None:
-            self.store.ledger_append({"kind": "charge", "key": key, "usd": float(result.actual_cost_usd)})
+        self._charge(job_id, key, result.actual_cost_usd, result.actual_credits)
+
+    def _charge(self, job_id: str, key: str, usd: float | None, credits: float | None) -> None:
+        if usd is not None:
+            self.store.ledger_append({"kind": "charge", "key": key, "usd": float(usd), **({"credits": credits} if credits is not None else {})})
 
         def mutate(job):
             cost = job["cost"]
-            if result.actual_cost_usd is not None:
-                cost["actual_usd"] = round((cost["actual_usd"] or 0.0) + float(result.actual_cost_usd), 4)
+            if usd is not None:
+                cost["actual_usd"] = round((cost["actual_usd"] or 0.0) + float(usd), 4)
             else:
                 cost["confirmed"] = False
+            if credits is not None and "credits" in cost:
+                cost["credits"]["actual"] = (cost["credits"]["actual"] or 0) + credits
         self.store.update_job(job_id, mutate)
+
+    def _settle_failure(self, job_id: str, key: str | None, failed: StepFailed) -> None:
+        """실패한 유료 단계의 장부 — 과금 없음이 확인되면(charged=False) 예약 해제, 실제 금액을 알면 확정, 그 밖에는 예약 유지(미확정)."""
+        if key is None:
+            return
+        if failed.details.get("charged") is False:
+            self.store.ledger_append({"kind": "release", "key": key})
+            if failed.details.get("actual_credits") == 0:
+                def refunded(job):  # Provider 가 0 크레딧(환불)을 알려 줬다 — 실제 크레딧을 0 으로 확정
+                    if "credits" in job["cost"]:
+                        job["cost"]["credits"]["actual"] = job["cost"]["credits"]["actual"] or 0
+                self.store.update_job(job_id, refunded)
+        elif failed.details.get("actual_cost_usd") is not None:
+            self._charge(job_id, key, failed.details["actual_cost_usd"], failed.details.get("actual_credits"))
 
     # ---- 끝 ----
     def _wait(self, job_id: str, cs: dict, cand: dict, cause: str, reason: str, message: str, extra: dict) -> dict:

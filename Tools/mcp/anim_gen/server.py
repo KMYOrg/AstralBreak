@@ -65,7 +65,9 @@ def set_generation_policy(patch: dict | None = None, reset: bool = False) -> dic
         patch: Deep-merged keys, e.g. {"mode": "FREE_ONLY"} or {"billing": {"paid_api_enabled": true, "max_cost_per_job_usd": 2}}.
             Keys: mode (FREE_ONLY | FREE_FIRST | QUALITY_FIRST), billing{paid_api_enabled, require_explicit_approval (true only),
             max_cost_per_job_usd, max_total_cost_usd}, execution{max_generation_attempts 1-10, allow_fallback,
-            preserve_intermediate_results, subprocess_timeout_seconds 10-3600}, paths{blender_executable}. Output paths, overwrite switches and API keys are refused
+            preserve_intermediate_results, subprocess_timeout_seconds 10-3600}, paths{blender_executable, kimodo_python, kimodo_hf_cache},
+            external{meshy{usd_per_credit (the USER's own Meshy plan rate — ask them, never guess; null = cost unconfirmed, so Meshy is
+            never run), timeout_seconds 60-86400}}. Output paths, overwrite switches and API keys are refused
             (BAD_REQUEST FORBIDDEN_KEY); unknown keys are BAD_REQUEST UNKNOWN_KEY.
         reset: Drop the existing local overrides first.
     """
@@ -99,7 +101,9 @@ def plan_motion_generation(request: dict) -> dict:
             postprocess auto|on|off (Kimodo foot-skate cleanup), pick (which sample is retargeted), constraints[] — root_path{points[{t s,
             forward_cm, left_cm, yaw_deg? (+ = turn left)}]} character-relative to the first frame | keep_pose{npz (a previous Kimodo
             NPZ under ImportSourceRoots), times[] s, part full|left_hand|right_hand|left_foot|right_foot} (keep those poses, regenerate
-            the rest) | kimodo_raw{path (Kimodo constraints.json)}}}, review?{render{times[] s on the converted clip (0 = its first
+            the rest) | kimodo_raw{path (Kimodo constraints.json)}, options{<provider>: {...}} (settings only that provider reads —
+            {"external.meshy": {"mode": "prime" (default, FBX, 10 credits) | "swift" (BVH via blender, 3 credits)}})},
+            review?{render{times[] s on the converted clip (0 = its first
             frame) | count 1-12 (default 4, evenly spaced, first and last included), views front|side (both), reference_images[] (≤ 4
             absolute .png/.jpg under ImportSourceRoots — an extra sheet column, the same image on every row)}} (rendered by the blender
             convert step only), fix?{ops[{op, ...}]} (blender fix step — the op dictionary is empty in this phase, so any op excludes the
@@ -118,6 +122,12 @@ def plan_motion_generation(request: dict) -> dict:
     (reuse one with motion_file, or its NPZ in keep_pose). Blender and local_ai jobs return RUNNING; poll get_generation_status
     until they finish. With review.render the blender step also writes front/side orthographic PNGs per time and one comparison
     sheet (rows = times, columns = views + reference images) — Read them from job.review{frames[{time, frame, view, path}], sheet}.
+    An external.meshy plan (paid — Meshy Text-to-Motion, 2-10 s in 0.5 s steps, prompt ≤ 400 characters) pins the exact body it will
+    send (steps[0].inputs.request_body{prompt, duration, mode} — only text leaves the machine) and the estimate (estimated_credits ×
+    policy external.meshy.usd_per_credit); show both to the user before approve_generation. It runs only inside an approved paid step:
+    balance check → submit → RUNNING; poll get_generation_status (Retry-After paced) → download → import (prime FBX) or blender
+    (swift BVH) → retarget with an auto IK rig (Meshy's rig is undocumented; on RETARGET_FAILED propose retarget.source_chains from the
+    returned bones). Every Meshy HTTP request is logged without headers to <state>/external/meshy_requests.jsonl.
     They show the converted SOURCE skeleton (left blue, right red, thin amber root, green nose = facing, gray floor at z 0), not the
     target character (limitation REVIEW_IS_SOURCE_SKELETON); a failed render does not fail the job (REVIEW_NOT_RENDERED).
     Returns plan_id, executable, request (normalized), policy{mode, effective_mode, paid_allowed}, candidates[{index, provider, role,
@@ -129,9 +139,9 @@ def plan_motion_generation(request: dict) -> dict:
 
 @mcp.tool()
 def estimate_generation_cost(plan_id: str) -> dict:
-    """Cost per candidate of a plan: {provider, paid, cost_known, estimate_usd, basis, verdict free | needs_approval | approved | blocked,
-    reason}, the ledger (spent_usd, reserved_usd) and caps (max_cost_per_job_usd, max_total_cost_usd, remaining_usd).
-    A paid request whose cost cannot be confirmed is never run.
+    """Cost per candidate of a plan: {provider, paid, cost_known, estimate_usd, basis, credits?, usd_per_credit?, mode?, verdict free |
+    needs_approval | approved | blocked, reason}, the ledger (spent_usd, reserved_usd) and caps (max_cost_per_job_usd,
+    max_total_cost_usd, remaining_usd). A paid request whose cost cannot be confirmed is never run. Calls no external service.
     """
     return service.estimate_generation_cost(plan_id=plan_id)
 
@@ -180,8 +190,9 @@ def get_generation_status(job_id: str | None = None, plan_id: str | None = None,
 
 @mcp.tool()
 def cancel_generation(job_id: str) -> dict:
-    """Cancel a job. QUEUED / WAITING_FOR_APPROVAL → CANCELLED. RUNNING → CANCELLED; a provider step in flight is not stopped but its
-    result is ignored and any cost stays in the ledger. Already finished → BAD_REQUEST ALREADY_TERMINAL. Assets made so far are kept.
+    """Cancel a job. QUEUED / WAITING_FOR_APPROVAL → CANCELLED. RUNNING → CANCELLED; a local subprocess step (blender · local_ai) is
+    stopped (cancel_effect), an external step (external.meshy — Meshy has no cancel) is not: its result is ignored, nothing is sent to
+    Meshy and its cost stays reserved in the ledger. Already finished → BAD_REQUEST ALREADY_TERMINAL. Assets made so far are kept.
     """
     return service.cancel_generation(job_id=job_id)
 

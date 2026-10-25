@@ -46,6 +46,7 @@ class StepResult:
     diagnostics: list[dict] = dataclasses.field(default_factory=list)
     pending: dict | None = None                                   # 비동기 제출 핸들 (외부 작업 id 등)
     actual_cost_usd: float | None = None                          # Provider 가 알려 준 실제 금액 (없으면 미확정)
+    actual_credits: float | None = None                           # 크레딧으로 과금하는 Provider 가 알려 준 실제 크레딧 (Phase 6 — Meshy)
 
 
 @dataclasses.dataclass
@@ -72,6 +73,7 @@ class RunContext:
     save: bool
     attempt: int
     policy: dict | None = None  # 실행 시점의 정책 (경로 · 타임아웃)
+    state_dir: object = None    # anim_gen 상태 폴더 (Store.root) — 외부 Provider 의 요청 로그 위치. None 이면 기본(Saved/AnimGen)
 
 
 class Provider:
@@ -111,8 +113,9 @@ class Provider:
                 "license": license_status, "available": cause is None,
                 "unavailable_reason": {"cause": cause, "reason": reason} if cause else None}
 
-    def estimate(self, request: dict) -> dict:
-        """{cost_known, estimate_usd, basis}. 무료 Provider 는 0. 유료 Provider 는 확인된 가격표가 있을 때만 cost_known."""
+    def estimate(self, request: dict, policy: dict | None = None) -> dict:
+        """{cost_known, estimate_usd, basis[, credits]}. 무료 Provider 는 0. 유료 Provider 는 확인된 가격표가 있을 때만 cost_known.
+        policy 는 정책이 금액 환산을 정하는 Provider(크레딧 → USD)만 쓴다."""
         if self.paid:
             return {"cost_known": False, "estimate_usd": None, "basis": "pricing not confirmed"}
         return {"cost_known": True, "estimate_usd": 0.0, "basis": "free"}

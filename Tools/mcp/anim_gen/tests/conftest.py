@@ -329,7 +329,7 @@ class MockPaid(Provider):
     def external_calls(self) -> int:
         return self.submits + self.polls
 
-    def estimate(self, request):
+    def estimate(self, request, policy=None):
         if not self.cost_known:
             return {"cost_known": False, "estimate_usd": None, "basis": "mock: price unknown"}
         return {"cost_known": True, "estimate_usd": self.price, "basis": "mock price list"}
@@ -356,7 +356,8 @@ class MockPaid(Provider):
 # ---- 픽스처 ----
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
-    """진짜 브리지·HTTP 호출 금지 — Mock 단계 테스트는 외부 호출 0 이어야 한다."""
+    """진짜 브리지·HTTP 호출 금지 — Mock 단계 테스트는 외부 호출 0 이어야 한다. external.meshy 는 httpx.Client 를 쓰므로 실제 전송 계층
+    (HTTPTransport) 자체를 막는다 — 테스트는 httpx.MockTransport 를 준다."""
     import httpx
 
     from anim_graph_mcp import bridge
@@ -367,6 +368,7 @@ def no_network(monkeypatch):
     monkeypatch.setattr(bridge, "call", refuse)
     monkeypatch.setattr(httpx, "post", refuse)
     monkeypatch.setattr(httpx, "get", refuse)
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
 
 
 @pytest.fixture(autouse=True)

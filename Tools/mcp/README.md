@@ -58,7 +58,7 @@ AI 애니 생성 기존 모션 재사용·변형(Phase 2) `search_animations`(�
 
 - Tool 9개: `list_motion_providers` · `get/set_generation_policy` · `plan_motion_generation`(실행 안 함 — 읽기 전용 에디터 호출로 소스·메시·미리보기를 계획에 고정) · `estimate_generation_cost` · `approve_generation`(계획 × 유료 Provider 하나, 횟수 · 금액 상한) · `generate_motion` · `get_generation_status`(비동기 단계 poll) · `cancel_generation`.
 - 흐름: Claude Code 가 자연어를 구조화된 요청(§9)으로 바꾼다 → `plan_motion_generation` → 사용자에게 계획을 보여 준다 → (유료면 `estimate_generation_cost` → 사용자 동의 → `approve_generation`) → `generate_motion {save}` → 결과의 `limitations[]` 를 사용자에게 알린다.
-- 실제 Provider: `existing_motion`(검색·참조) · `direct_key`(`apply_animation_edits`) · `retarget` 파이프(IK Rig ×2 · RTG `match_existing` · `retarget_animations`) · `blender`(Phase 4 — 요청 `motion_file`(BVH, ini `ImportSourceRoots` 아래)을 headless Blender 서브프로세스로 FBX 로 바꿔 retarget 파이프로. 실행 파일은 정책 `paths.blender_executable`, 스크립트 `anim_gen/blender/bvh_to_fbx.py`, `generate_motion` 은 `RUNNING` 을 돌려주고 `get_generation_status` 가 poll). `local_ai` · `external.meshy` · `control_rig` 은 매니페스트(`anim_gen/providers.json`)와 비활성 자리만.
+- 실제 Provider: `existing_motion`(검색·참조) · `direct_key`(`apply_animation_edits`) · `retarget` 파이프(IK Rig ×2 · RTG `match_existing` · `retarget_animations`) · `blender`(Phase 4 — 요청 `motion_file`(BVH, ini `ImportSourceRoots` 아래)을 headless Blender 서브프로세스로 FBX 로 바꿔 retarget 파이프로. 실행 파일은 정책 `paths.blender_executable`, 스크립트 `anim_gen/blender/bvh_to_fbx.py`, `generate_motion` 은 `RUNNING` 을 돌려주고 `get_generation_status` 가 poll) · `local_ai`(Phase 5 — NVIDIA Kimodo, 전용 venv 서브프로세스 → BVH → `blender` → retarget, 정책 `paths.kimodo_*`) · `external.meshy`(Phase 6 — Meshy Text-to-Motion, **유료**: 정책 `billing.paid_api_enabled` + `external.meshy.usd_per_credit`(사용자 요금제의 크레딧당 USD) + `approve_generation` 이 있어야 호출한다. 키는 환경 변수 `MESHY_API_KEY` 만, 요청은 헤더 없이 `<state>/external/meshy_requests.jsonl` 에 기록). `control_rig` 은 매니페스트(`anim_gen/providers.json`)와 비활성 자리만.
 - 정책: `anim_gen/policy.default.json`(추적) ← `Saved/AnimGen/policy.json`(로컬). 출력 경로는 정책에 없고 ini `GenerationOutputPaths` 만 기준. API 키는 환경 변수만(값은 어디에도 기록하지 않는다).
 - 상태: `Saved/AnimGen/{plans, jobs, approvals}/` · `ledger.jsonl`(유료 제출 예약·확정, 멱등 키 `(plan_id, attempt)`). `ANIM_GEN_STATE_DIR` 로 바꾼다. 중간 애셋은 `<output_path>/Work/<job_id>/A<시도>/`.
 - 새 서버는 Claude Code 세션을 다시 시작해야 목록에 보인다.
@@ -70,7 +70,11 @@ Tools/mcp/.venv/Scripts/python.exe -m pip install -r Tools/mcp/requirements-dev.
 Tools/mcp/.venv/Scripts/python.exe -m pytest Tools/mcp/anim_gen/tests -q
 PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/anim_gen_phase3_test.py [--only plan,generate]
 PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/anim_gen_phase4_test.py [--bvh <path>|synthetic] [--only plan,generate]
+PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/anim_gen_phase5_test.py [--only plan,generate]
+PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/anim_gen_phase6_test.py [--only hashes,state,blocked,dirty]
 ```
+
+`anim_gen_phase6_test.py` 의 기본 섹션은 외부 호출이 없다(`blocked` — 승인 없음 · `FREE_ONLY` · 유료 끔 · 환율 없음이면 요청 로그 0줄). 유료 1건(`real`)은 `--real --usd-per-credit <값>` 을 주고, 키를 그 셸에만 설정한 터미널에서 실행하면 계획 · 견적(보낼 본문 · 크레딧 · USD)을 보여 주고 plan_id 를 직접 입력해야 승인한다.
 
 `anim_gen_phase3_test.py` 는 뜬 에디터에 붙어 섹션 hashes · mcp(stdio 로 서버 기동) · plan · generate(완료 기준 1건) · retarget · reuse · dirty 를 돌린다. 애셋은 `/Game/Animation/Test/AIAnimation/P3Run<시각>/`(저장), 상태는 `Saved/AnimGen/TestRuns/P3Run<시각>/`, 요약은 `anim_gen_phase3_state.json`.
 

@@ -11,7 +11,8 @@
 개정 7 보강: 2026-10-24 — 리타깃 파이프(existing_motion · 생성 임포트)의 정면 맞춤. 소스 12개 스켈레톤 정면 실측(SB만 +X), 리타깃 포즈는 소스 현재 포즈에 걸리지 않음(소스 쪽 회전으로는 불가) → 대상 루트 반대 회전 + Additive Pose op(`create_ik_retargeter facing_yaw_deg`), 요청 `retarget.source_facing`, 계획 위험 `FACING_DIFFERS` · 한계 `FACING_ALIGNED`, `validate_animation profile_positions`.  
 개정 7 보강 2: 2026-10-24 — `import_animation_file` 리샘플 경계 스냅. `bSnapToClosestFrameBoundary` 를 항상 켜서 경계에 안 맞는 길이도 임포트하고, 맞춘 트랙은 `warning LENGTH_SNAPPED` 로 알린다(§2.3 · 부록 B). 생성 잡은 단계 안 에디터 Tool 진단을 `tool` · `step` 과 함께 Job `diagnostics` 에 남긴다(§3.4).  
 개정 8: 2026-10-25 — Phase 5(로컬 AI) 구현·실측 반영. 조사 결론과 채택(NVIDIA Kimodo-SOMA-RP-v1.2, §2.4), `local_ai` Provider(전용 venv 서브프로세스 · 오프라인 · 텍스트 인코더 CPU — §4 · §6), 요청 `prompt` · `generation` · `review` · `fix` · `retarget.align_mode` · `retarget.body_clearance`(§9), 생성 BVH → `blender` 변환 사슬(§5), 리타깃 정렬 엔진 함정과 `per_bone` 정렬 · 기준 포즈 FBX 2단 임포트 · 손가락 체인 · 팔-몸통 관통 보정(§2.3 · §10 · §13), §14 Phase 5 결과.  
-상태: Phase 1 · 2 · 3 · 4 · 5 구현·검증 완료(§14). 다음 = Phase 6(Meshy) 또는 Phase 7 — 사용자 승인 후.  
+개정 9: 2026-10-25 — Phase 6(외부 AI — Meshy Text-to-Motion) 공식 문서 확인 · 구현. API · 크레딧 가격 · Rate Limit · 만료 · 약관(§2.4 · 부록 A · B), `external.meshy` Provider(HTTP 어댑터 · 비동기 Job · 잔액 확인 · 요청 로그 — §4), 크레딧 × 사용자 환율 비용 추정과 장부의 크레딧(§6), 요청 `generation.options`(§9), poll 단계 실패의 환불 · 과금 반영(§3.4 · §6), §14 Phase 6.  
+상태: Phase 1 · 2 · 3 · 4 · 5 · 6 완료(§14). Phase 6 완료 기준 ① 실제 유료 1건은 **미실행으로 마감**(사용자 Meshy 계정이 Free 요금제 — API 생성은 유료 요금제만, 2026-10-25 사용자 결정). 다음 = Phase 7(AnimBP 연결) 또는 Phase 8-1(품질 — §14 Phase 8 로드맵) — 사용자 승인 후. 3D 메시 생성(Tripo)은 애니 파이프라인 밖 별도 트랙(§14 끝).  
 관련 문서: [AnimGraphMcp README](../../Plugins/AnimGraphMcp/README.md) · [Phase 0 감사](ArchitectureAudit.md) · [Phase 5 로컬 모델 조사](LocalModelSurvey.md)
 
 | 항목 | 내용 |
@@ -19,6 +20,23 @@
 | 환경 | Windows 11 · UE 5.7.4 소스 빌드 · C++ · Python 3.13 · Claude Code · MCP |
 | 구조 | Multi-Provider + 규칙 기반 라우터 + 폴백 + 공통 리타깃 처리 + 기존 AnimBP MCP 연결 |
 | 기본 정책 | Free-First · 유료 API는 명시 승인 · 비파괴 · Editor 전용 |
+
+---
+
+## 개정 9 변경 요약 (Phase 6 — 외부 AI · Meshy)
+
+| 항목 | 개정 8 | 개정 9 (공식 문서 확인 · 구현) | 위치 |
+| :--- | :--- | :--- | :--- |
+| Meshy API | 엔드포인트 · Bearer 만 | `prompt` ≤ 400자 · `duration` 2 ~ 10초(0.5초 단위, 필수) · `mode` prime(FBX, 기본) / swift(BVH) → 태스크(`consumed_credits` · `expires_at` · `task_error`), 결과 3일 보존, 취소 없음(DELETE 는 PENDING 만 환불), 잔액 `GET /openapi/v1/balance`(무료), 초당 20 요청 · 동시 태스크 Pro 10, 테스트 모드 키 폐지(2026-09-16). **출력 리그는 문서에 없다** | §2.4 · 부록 A · B |
+| 가격 | 미확인 | 크레딧은 공식(prime 10 · swift 3, 실패 환불). **돈 값은 요금제마다 달라(KRW 표시 · 크레딧 팩 비공개) 공식 문서로 확정할 수 없다** → 정책 `external.meshy.usd_per_credit`(사용자가 자기 요금제로 정함, 기본 null = `COST_UNKNOWN`) | §6 |
+| 약관 · 데이터 | 미확인 | 유료 요금제 출력 소유 · 비 Enterprise 입력 · 출력 학습 사용 가능(§2.9) · 경쟁 AI 학습 금지 · 지역 제한 없음 → 사용자 수용(`license: ok`). 보내는 것은 프롬프트 · 길이 · 모드뿐 | §2.4 · §16-11 |
+| `external.meshy` | 비활성 자리 | `providers/meshy.py`: 계획(보낼 본문 고정 · 네트워크 없음) → 승인된 유료 단계 안에서만 잔액 → 제출 → poll(Retry-After) → 결과 다운로드(인증 헤더 없음 · https · 형식 바이트) → prime = import, swift = blender 변환 → retarget(자동 IK Rig). 요청 로그 `<state>/external/meshy_requests.jsonl` | §4 · §14 |
+| 요청 | — | `generation.options{<provider>: {...}}` — 그 Provider 만 읽는 설정(`{"external.meshy": {"mode": "swift"}}`), 이름은 레지스트리로 검사 | §9 |
+| 장부 · Job | USD 만 · poll 실패는 예약 유지 | reserve · charge 에 `credits`, Job `cost.credits{estimated, actual}`. **poll 단계 실패**도 Provider 가 환불(`charged: false`)이나 실제 과금을 알려 주면 반영(전에는 제출 단계만) | §3.4 · §6 |
+| 비용 추정 | `estimate(request)` | `estimate(request, policy)` — 정책이 환산을 정하는 Provider 용. 계획 후보 `estimated_credits`, 견적 `credits` · `usd_per_credit` | §6 |
+| Phase 6 마감 | — | 완료 기준 ② · ③ · ④ 충족, ① 실제 유료 1건은 **미실행**(사용자 Meshy Free 요금제 — API 생성 402). 유료 요금제에서 `anim_gen_phase6_test.py --real` 로 실행 | §14 |
+| Phase 8 로드맵 | "품질 · 세그먼트" 한 줄 | Kimodo 칼 휘두르기 시험(사용자 Persona 판정: 다리가 많이 벌어짐 · 베기가 흐느적)을 근거로 8-1 생성 품질 · 8-2 Vesper 캡처 · 8-3 자동 보정 · 8-4 무기 파지 4단위. 세그먼트는 그 뒤. 상세 시그니처는 착수 때 개정 10 | §14 |
+| 별도 트랙 | — | 3D 메시 생성(Tripo — 텍스트 → 모션 없음)은 애니 파이프라인 밖 별도 트랙, 애니 자동화 뒤 | §2.4 · §14 |
 
 ---
 
@@ -246,8 +264,9 @@ Claude Code ─ stdio MCP ─▶ Tools/mcp/anim_graph_mcp/server.py (얇은 프�
 | HY-Motion 1.0 | "Tencent HY-MOTION 1.0 Community License". Territory = 전 세계에서 **EU · UK · 한국 제외**. 월간 사용자 100만 초과 시 별도 라이선스 | 별도 적법 라이선스 없이 설치·활성화 금지 |
 | 공개 Text-to-Motion 모델 (MDM · MoMask · T2M-GPT · MotionGPT · MLD · MotionLCM · MotionStreamer · MoMask++) | 개정 8 — **확인**([조사](LocalModelSurvey.md) §2 · §3.1): 코드는 대개 MIT/Apache 지만 가중치 라이선스 미기재, 학습 데이터 HumanML3D ← AMASS 가 "train methods/algorithms/neural networks/etc. for commercial use of any kind" 를 금지(SMPL 도 같은 조항, MotionLCM 은 코드부터 비상업) → 상업 이용 부적법. 개인 포트폴리오가 AMASS 허용 범위(비상업 연구 · 교육 · 예술)에 드는지, 가중치 사용자에게 미치는지는 원문이 정하지 않는다(조사 §4 H-1 ~ H-3). 대부분 관절 위치만 내고 손가락 없음 · 20 fps | 채택하지 않음 |
 | **NVIDIA Kimodo-SOMA-RP-v1.2** (개정 8) | 코드 Apache-2.0 · 가중치 NVIDIA Open Model License("commercially usable" · 전 세계 · 출력 소유 주장 없음 · 모델 재배포 시 고지) · 학습 데이터 Bones Rigplay(700 h 독점 모캡, NVIDIA 라이선스) · 텍스트 인코더 Meta Llama 3 8B Instruct(Llama 3 Community License — HF 게이트, 약관 동의는 사용자 본인) + LLM2Vec 어댑터(MIT). 같은 저장소의 SMPLX-RP 는 NVIDIA R&D 라이선스라 제외, `*-SEED` 는 BONES-SEED 학습 계약이 공개되지 않아 제외. 출력 30 fps · 최대 10초 · `--bvh` SOMA77 cm. ARDY(같은 데이터 · 라이선스)는 BVH 가 없어 2순위 | **채택**(2026-10-24, 사용자) → `local_ai`(§4 · §14 Phase 5). 남은 해석: "Built with Meta Llama 3" 표시가 생성 애셋만 쓰는 게임에도 필요한지(조사 §4 K-1) |
-| Meshy Text-to-Motion | `POST /openapi/v1/text-to-motion`(`prompt`, `duration`, `mode`) → task id, `GET …/:id` 폴링, `…/:id/stream` SSE, Bearer 키. 입력이 텍스트뿐이라 캐릭터 데이터를 전송하지 않는다. 출력은 Meshy 리그라 리타깃이 필수 | 첫 외부 어댑터 (Phase 6). 길이 범위·가격은 그때 공식 문서로 확인 |
+| Meshy Text-to-Motion | 개정 9 — **확인**(2026-10-25, 부록 A): `POST https://api.meshy.ai/openapi/v1/text-to-motion` `{prompt ≤ 400자, duration 2 ~ 10초 · 0.5초 단위(필수), mode prime(FBX · 10 크레딧, 기본) \| swift(BVH · 3 크레딧)}` → 202 `{result: task_id}`, `GET …/:id`(PENDING · IN_PROGRESS · SUCCEEDED · FAILED, `consumed_credits` — 실패 0 = 환불, `expires_at` — 결과 3일 보존, `motion_url` 은 읽을 때마다 재서명), SSE · 목록 · DELETE(PENDING 만 환불) — 취소 없음. 잔액 `GET /openapi/v1/balance`(무료). 초당 20 요청 · 동시 태스크 Pro 10, 429 = `Retry-After`(초당) / `NoMorePendingTasks`(동시). 멱등 키 헤더 없음. API 는 유료 요금제 필요(Free 402), 테스트 모드 키 폐지(2026-09-16). **출력 리그 · FBX 안 메시 여부는 문서에 없다.** 돈 값은 요금제마다 다르다(요금제 페이지는 KRW — Pro ₩28,869/월 1,000 크레딧 · 크레딧 팩 가격 비공개). 약관(2026-09-19): 유료 요금제 출력 소유 · 비 Enterprise 입력 · 출력을 Meshy 학습에 쓸 수 있음(§2.9) · Meshy 와 경쟁하는 AI 학습에 출력 사용 금지 · 지역 제한 없음. 보내는 것은 프롬프트 · 길이 · 모드뿐(캐릭터 데이터 없음) | **채택**(2026-10-25, 사용자 — 약관 수용 · `license: ok`) → `external.meshy`(§4 · §14 Phase 6). 금액 = 크레딧 × 정책 `usd_per_credit`(사용자 요금제) |
 | DeepMotion SayMotion | REST API 있음. 검증 파트너 한정, base URL은 요청해야 받음 | 보류 |
+| Tripo3D (개정 9) | 2026-10-25 확인([developers.tripo3d.com](https://developers.tripo3d.com/en/models/animation)): **텍스트 → 모션 생성 없음.** 애니메이션 API 는 리깅된 모델(보통 Tripo Auto Rig, 25 크레딧)에 프리셋(100개 이상)을 적용하는 retarget(10 크레딧/개). 무료 API 크레딧 양은 공식 문서로 확인 안 됨. 본업은 텍스트 · 이미지 → 3D 메시(공식 CLI 있음) | 모션 Provider 로는 채택 안 함. 메시 생성은 **별도 트랙**(§14 끝) |
 
 ---
 
@@ -336,7 +355,8 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
   - 프레임 렌더 비교(개정 8): `blender` 변환 단계가 `review.render` 결과(`values.review` — 프레임 PNG · 시트 · 배치 · 카메라)를 내면 Job 최상위 `review` 에도 남긴다. 뒤 단계가 실패하거나 폴백해도 지우지 않는다(무엇이 변환됐는지 보는 근거).
   - 같은 계획으로 `generate_motion`을 다시 부르면 기존 Job을 돌려준다. 실패·취소된 Job은 `retry=true`일 때만 새 Job을 만든다.
   - 저장 위치: `Saved/AnimGen/{policy.json, plans/, jobs/, approvals/, ledger.jsonl}`(`ANIM_GEN_STATE_DIR`로 바꿀 수 있다 — 테스트 격리용). 서버 프로세스 하나를 전제한다.
-- **취소:** 취소가 Provider 실행의 즉시 중단을 뜻하지 않는다. 외부 작업은 "결과 무시"로 처리하고, 이미 발생한 비용은 장부에 남긴다. 로컬 서브프로세스(`blender` · `local_ai`)는 실제로 종료하고 Job에 `cancel_effect{stopped, pid}`를 남긴다(개정 7 · 8).
+- **취소:** 취소가 Provider 실행의 즉시 중단을 뜻하지 않는다. 외부 작업은 "결과 무시"로 처리하고, 이미 발생한 비용은 장부에 남긴다. 로컬 서브프로세스(`blender` · `local_ai`)는 실제로 종료하고 Job에 `cancel_effect{stopped, pid}`를 남긴다(개정 7 · 8). `external.meshy`(개정 9)는 Meshy 에 취소가 없어 아무것도 보내지 않는다(PENDING 태스크 DELETE 는 환불되지만 처리 중앙값 15초라 쓰지 않는다) — 예약은 남는다.
+- **외부 비동기 단계 (개정 9 — `external.meshy`):** 유료 단계는 실행기가 승인 · 장부 예약(`(plan_id, attempt)`)을 마친 뒤 Provider `run` 을 부르고, `run` 은 잔액 확인 → 제출 → `pending{task_id, deadline, usd_per_credit}` 를 돌려준다(장부 `submitted`). `get_generation_status` 의 poll 이 태스크를 읽어 끝났으면 결과를 받고 다음 단계(import · blender)를 같은 호출에서 잇는다 — 백그라운드 스레드 없음. poll 의 429 · 5xx · 연결 실패는 실패가 아니라 다음 poll(Meshy 안내), `Retry-After` 전에는 요청하지 않는다. 기한(정책 `external.meshy.timeout_seconds`, 기본 3600 — Meshy 권장 "60분은 기다릴 것")을 넘기면 `GENERATION_FAILED TIMEOUT`(예약 유지 — 끝날 수도 있다). poll 단계가 실패로 끝나면 Provider 가 알려 준 과금을 장부에 반영한다: 환불(`charged: false`, 실패 태스크 `consumed_credits` 0) → `release`, 실제 크레딧 → `charge`, 모르면 예약 유지.
 
 ---
 
@@ -349,7 +369,7 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 | `direct_key` | `IAnimationDataController`로 키 작성: 리타임 · 트림 · 미러 · 본 오프셋 · 루트 Yaw · 포즈 유지 · 구간 연결 | 2 | 활성 |
 | `blender` | `motion_file`(BVH)을 headless(`blender -b --factory-startup -P anim_gen/blender/bvh_to_fbx.py`)로 FBX로 바꿔 retarget 파이프로 넘긴다 — 더미 스킨 메시 · 대상 정면 · 바닥 맞춤 · 범위 · fps. 개정 8: 기준 포즈 2프레임 FBX 도 낸다(§10), 생성 Provider 의 BVH 도 변환한다(§5), 같은 실행에서 프레임 렌더 비교(`review.render`)와 보정 op 자리(`fix.ops` — 사전은 Phase 8 까지 비어 있다). FBX 입력·아마추어 편집은 이후 | 4 · 5 | 실행 파일(정책 `paths.blender_executable`)이 있으면 활성 |
 | `local_ai` | 개정 8 — NVIDIA Kimodo-SOMA-RP-v1.2(§2.4). `request.prompt`(+ `generation`) → Kimodo 전용 venv 서브프로세스 `<paths.kimodo_python> -I anim_gen/local_ai/kimodo_run.py args.json`(오프라인 · 텍스트 인코더 CPU) → 샘플별 NPZ + BVH(SOMA77 표준 T 포즈 · cm · 루트 트랙) → `blender` 변환 → retarget(SOMA 수동 체인 27개 · 골반 `Hips`). 제약 `root_path` · `keep_pose` · `kimodo_raw` | 5 | 정책 `paths.kimodo_python` · `kimodo_hf_cache` 가 있고 캐시에 필요한 4개 저장소가 있으면 활성(`license: ok`) |
-| `external.meshy` | text-to-motion → FBX → 리타깃 | 6 | 비활성 (유료, 승인 필수) |
+| `external.meshy` | 개정 9 — Meshy Text-to-Motion(§2.4). `request.prompt` · 길이(0.5초 단위로 맞춤) · `generation.options["external.meshy"].mode` 로 보낼 본문을 계획에 고정 → 승인된 유료 단계에서 잔액 → 제출 → poll → 결과 다운로드(`<ImportSourceRoots[0]>/Meshy/<job_id>/A<n>/meshy_motion.{fbx,bvh}` + `task.json`) → prime(FBX) = `import_animation_file`, swift(BVH) = `blender` 변환 → retarget(리그 미문서 — 자동 IK Rig, 실패하면 본 계층으로 수동 체인). 금액 = 크레딧 × 정책 `external.meshy.usd_per_credit` | 6 | 키(`MESHY_API_KEY`)가 있으면 사용 가능(`license: ok`). 유료 — 정책 `paid_api_enabled` + 환율 + 승인이 있어야 실행 |
 | `control_rig` | 손·무기 파지, 발 고정 같은 제약 보정 베이크 | 8 | 비활성 |
 
 - **Motion Primitive** 개념은 유지하되 Phase 2에서는 `direct_key` 편집 op(`retime` · `trim` · `mirror` · `offset_bone` · `rotate_root` · `hold_pose` · `concat`(+ `reverse` 옵션))로 한정한다.
@@ -387,6 +407,7 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 - **`provider` 지정:** 그 Provider의 후보만 만들고 폴백을 끈다(원 요청이 Provider를 고른 것이므로).
 - **`motion_file` (개정 7):** 있으면 `blender`를 모드 순서 맨 앞에 둔다(요청이 소스를 준 것). 없으면 위 표 그대로이고 `blender`는 후보·제외 목록에 나오지 않는다. 사슬 = 변환(blender) → `import_animation_file`(`sample_rate` = 요청 `frame_rate`) → `retarget` → [`direct_key`] → 검증.
 - **생성 BVH (개정 8 — `local_ai`):** 생성 Provider 의 출력이 BVH 면 사슬 = 생성 → 변환(`blender`) → import → `retarget` → [`direct_key`] → 검증(`chain` 은 `local_ai` · `blender` · `retarget`). 파일이 계획 때 없으므로 변환 단계는 생성 Provider 가 아는 규약(Kimodo: cm · 정면 +Y · 관절 78 · 30 fps · 프레임 수)을 `expected` 로 고정하고(위험 `CONVERT_RESOLVED_AT_RUN`), 실행 때 그 파일로 같은 규칙을 돌려 다르면 진단 `GENERATED_BVH_UNEXPECTED` 를 남기고 잰 값으로 변환한다. 리샘플은 생성 fps 와 요청 `frame_rate` 가 다를 때만. `blender` 를 쓸 수 없으면 그 후보를 `PROVIDER_UNAVAILABLE`(`DEPENDS_ON_BLENDER`)로 제외. 리타깃 단계의 소스 골반 · 체인 · 발은 요청이 비운 것만 Provider 기본값으로 채우고 계획에 `defaults_from{provider, keys}` 로 보인다(Kimodo = SOMA 골반 `Hips` · 체인 27개 · 발 — SOMA `LeftLeg` 는 넓적다리라 자동 캐릭터라이즈를 믿지 않는다). 생성 단계의 프롬프트 · 프레임 수 · seed(없으면 계획이 골라 고정 — `SEED_PINNED`) · 모델 커밋 · 제약 파일 SHA-256 도 계획에 고정한다.
+- **외부 생성 (개정 9 — `external.meshy`):** prime(FBX) = 생성 → `import_animation_file`(요청 `frame_rate` 로 굽기) → `retarget` → 검증, swift(BVH) = 생성 → `blender` 변환(단위 · 정면 · 관절 모름 → `expected{unit: auto}` 로 실행 때 잼, 대상 정면으로 돌림) → import(2단) → `retarget` → 검증(`blender` 가 없으면 `DEPENDS_ON_BLENDER`). 리그가 문서에 없어 리타깃 소스 체인을 채우지 않는다(자동 IK Rig — 위험 `SOURCE_RIG_UNVERIFIED`), prime 은 정면을 실행 때 잰다(`FACING_UNRESOLVED_AT_PLAN`). 후보의 위험 `PROMPT_SENT_EXTERNALLY` 와 생성 단계 `inputs.request_body`(보낼 본문 그대로)를 승인 전에 보여 준다. 비용 미확인(환율 없음) 후보는 `COST_UNKNOWN` 으로 제외된다.
 - **변환 없는 경로 (개정 8):** `existing_motion` · `direct_key` 처럼 `blender` 변환이 없는 후보는 `fix.ops` 가 있으면 `UNSUPPORTED_FIX_OP` 로 막고, `review` 에는 한계 `REVIEW_NOT_RENDERED` 를 단다.
 - **계획 단계 제외(`excluded[]`):** `PROVIDER_UNAVAILABLE`(`NOT_IMPLEMENTED` · `NOT_INSTALLED` · `DEPENDS_ON_BLENDER` 등) · `LICENSE_RESTRICTED` · `AUTHENTICATION_FAILED`(`API_KEY_MISSING`) · `APPROVAL_REQUIRED`(`POLICY_FREE_ONLY` · `PAID_API_DISABLED`) · `COST_UNKNOWN` · `UNSUPPORTED_REQUEST`(Capability 밖, 예: 최대 길이 초과 `DURATION_OVER_MAX`. 개정 8: `MISSING_INPUT`(프롬프트 없음) · `CONSTRAINT_OUT_OF_RANGE` · `DUPLICATE_FRAME` · `BAD_RAW_CONSTRAINTS` · `FILE_NOT_FOUND` · `POSTPROCESS_UNAVAILABLE` · `REVIEW_TIME_OUT_OF_RANGE` · `UNSUPPORTED_FIX_OP`). 제약 파일 · 레퍼런스 이미지가 `ImportSourceRoots` 밖이면 계획 전체가 `IMPORT_SOURCE_NOT_ALLOWED`.
 - **계획은 실행하지 않는다:** 읽기 전용 에디터 호출(`get_editor_status` · `inspect_skeleton` · `search_animations`)로 고른 소스·소스 메시를 계획에 고정해 보여 주고, 출력 경로를 ini 허용 목록으로 미리 검사한다. 에디터가 없으면 단계를 미해결로 둔 계획만 만든다.
@@ -417,9 +438,12 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
     "blender_executable": "C:/Program Files/Blender Foundation/Blender 4.4/blender.exe",
     "kimodo_python": "D:/AnimGenModels/Kimodo/.venv/Scripts/python.exe",   // 개정 8 — Kimodo 전용 venv
     "kimodo_hf_cache": "D:/AnimGenModels/Kimodo/hf_cache"                    // 개정 8 — 오프라인 Hugging Face 캐시
-  }
+  },
+  "external": { "meshy": { "usd_per_credit": null, "timeout_seconds": 3600 } }  // 개정 9 — 크레딧당 USD(사용자 요금제) · 결과 대기 한도
 }
 ```
+
+- **외부 AI 금액 (개정 9 — `external.meshy`):** 크레딧 가격(prime 10 · swift 3)은 공식 문서지만 크레딧의 돈 값은 요금제(월 크레딧 · 구매 크레딧)마다 달라 문서로 확정할 수 없다. 그래서 추정액 = 공식 크레딧 × **사용자가 정한** `external.meshy.usd_per_credit`(0 초과 10 이하)이고, null(기본)이면 비용 미확인 — 계획에서 `COST_UNKNOWN` 으로 빠지고 승인도 실행도 없다. 승인 상한 · 정책 상한은 그대로 USD 다. 실제 금액 = 태스크의 `consumed_credits` × 제출 때 핸들에 고정한 같은 환율(장부 `charge{usd, credits}`) — 크레딧은 Provider 가 알려 준 실제 값이다. 제출 직전 잔액(무료 엔드포인트)이 모자라면 제출하지 않는다(`BUDGET_EXCEEDED INSUFFICIENT_CREDITS`, 예약 해제). 키 · 결과 서명 URL 은 정책 · 장부 · Job · 요청 로그 어디에도 남기지 않는다. 기본 URL 은 코드에 고정이다(정책으로 바꿀 수 없다 — 키가 다른 호스트로 가지 않게).
 
 - **로컬 AI 경로 (개정 8):** `paths.kimodo_python` 이 파일이 아니거나 `paths.kimodo_hf_cache` 에 `nvidia/Kimodo-SOMA-RP-v1.2` · LLM2Vec 어댑터 2개 · `meta-llama/Meta-Llama-3-8B-Instruct` 의 `refs/main` 이 없으면 `local_ai` 는 미설치(`NOT_INSTALLED`, 사유에 빠진 저장소). 캐시 `refs/main` 이 계획의 `model_commit` 이 된다. 실행 환경은 `HF_HUB_OFFLINE` · `TRANSFORMERS_OFFLINE` · `TEXT_ENCODER_DEVICE=cpu` 등을 Provider 가 넣고 HF 토큰은 넘기지 않는다. 기본 `subprocess_timeout_seconds` 300 은 Kimodo 1건(차가운 첫 실행 약 90초 — §14 Phase 5)에 충분하다. 다른 PC 는 `Saved/AnimGen/policy.json` 의 `paths` 로 덮어쓴다.
 
@@ -515,7 +539,8 @@ UNSUPPORTED_REQUEST · GENERATION_FAILED · IMPORT_FAILED · RETARGET_FAILED · 
   "motion_file": null,                       // 개정 7 — BVH 경로 또는 {path, unit, facing, range, axis_forward, axis_up}
   "prompt": "A person swings a scythe in a circle three times.",   // 개정 8 — 생성 모델이 읽는 영어 문장 (description 은 기록만)
   "generation": { "seed": null, "samples": 1, "steps": 100, "postprocess": "auto", "pick": 0,
-                  "constraints": [{ "type": "root_path", "points": [{ "t": 3.0, "forward_cm": 400, "left_cm": 0, "yaw_deg": 180 }] }] },  // 개정 8
+                  "constraints": [{ "type": "root_path", "points": [{ "t": 3.0, "forward_cm": 400, "left_cm": 0, "yaw_deg": 180 }] }],  // 개정 8
+                  "options": { "external.meshy": { "mode": "prime" } } },                    // 개정 9 — Provider 별 설정
   "review": { "render": { "count": 4, "views": ["front", "side"], "reference_images": [] } },  // 개정 8 — blender 변환 단계의 프레임 렌더
   "fix": { "ops": [] }                       // 개정 8 — blender 보정 op 자리 (사전은 Phase 8 까지 비어 있다)
 }
@@ -539,6 +564,7 @@ Provider가 지원하지 않는 제약은 후처리로 해결 가능한지 따�
 | `motion_file` (개정 7) | 문자열이면 `path`. `path`: 절대 경로, ini `ImportSourceRoots` 아래만(밖이면 계획 전체가 `IMPORT_SOURCE_NOT_ALLOWED`), `.bvh`만. `unit`: `auto`(기본) · `cm` · `m` · `mm` · `inch` · 숫자(cm/파일 단위). `facing`: `auto`(대상 스켈레톤 정면에 맞춤, 기본) · `keep` · `+X` · `−X` · `+Y` · `−Y`(UE 축). `range{start, end}`(초, 굽기 범위 — 요청 `frame_rate` 가 있으면 끝을 그 rate 의 프레임 경계로 당긴다, 진단 `RANGE_ALIGNED`. 정수 fps 가 아니라 맞출 수 없으면 리샘플하지 않는다). `axis_forward`(`-Z`) · `axis_up`(`Y`) — Blender BVH 임포터와 같은 뜻. 계획이 BVH 헤더(관절 계층 — 수동 체인 제안용) · 단위 · 회전 · 범위 · fps · 파일 SHA-256 을 고정하고, 실행 때 파일이 바뀌었으면 `FILE_CHANGED`로 멈춘다 |
 | `prompt` (개정 8) | 생성 Provider(`local_ai`)가 읽는 영어 문장, 1 ~ 500자. `description` 은 기록만이고 서버는 해석하지 않는다(자연어 → 프롬프트 변환은 Claude Code). 없으면 `local_ai` 후보는 `MISSING_INPUT` 으로 제외. 길이는 `duration_seconds`(없으면 5초 — `DURATION_DEFAULTED`) → 프레임 = round(길이 × 30) + 1(최대 300 = 10초) |
 | `generation{seed?, samples=1, steps=100, postprocess=auto, pick=0, constraints[]}` (개정 8) | `seed` 0 ~ 2³¹−1(없으면 계획이 골라 고정 — `SEED_PINNED`) · `samples` 1 ~ 4(같은 seed 로 여러 샘플, 리타깃은 `pick` 번째) · `steps` 10 ~ 1000(확산 단계) · `postprocess` `auto`(설치돼 있으면 켬) · `on`(없으면 `POSTPROCESS_UNAVAILABLE`) · `off`(한계 `POSTPROCESS_OFF`) — Kimodo 발 미끄러짐 후처리(`motion_correction`). `constraints[]`: `root_path{points[{t, forward_cm, left_cm, yaw_deg?}]}` — **캐릭터 기준**(생성 첫 프레임 정면 = forward, 왼쪽 = left, yaw + = 왼쪽으로 돎) → Kimodo `root2d`(yaw 있는 점은 따로 묶어 방향 고정). `keep_pose{npz, times[], part=full\|left_hand\|right_hand\|left_foot\|right_foot}` — 이전 Kimodo 결과 NPZ 의 그 시각 포즈를 고정하고 나머지를 다시 만든다(레퍼런스 기반 다듬기). `kimodo_raw{path}` — Kimodo `constraints.json` 그대로(≤ 8 MB, 타입 · 프레임 범위 검사). 시각 → 프레임 round(t × 30), 생성 길이 밖이면 `CONSTRAINT_OUT_OF_RANGE`, 같은 프레임 두 번이면 `DUPLICATE_FRAME`. 파일은 `ImportSourceRoots` 아래만 · SHA-256 고정(실행 때 바뀌었으면 `FILE_CHANGED`). 요청 `constraints{}`(플래그)와는 별개다 |
+| `generation.options{<provider>: {...}}` · `prompt` 의 Meshy 규칙 (개정 9) | Provider 이름 → 그 Provider 만 읽는 설정(다른 Provider 는 무시). 이름이 레지스트리에 없으면 `BAD_REQUEST UNKNOWN_PROVIDER`, 값은 그 Provider 계획이 검사한다. `external.meshy`: `{mode: prime (기본, FBX · 10 크레딧) \| swift (BVH · 3 크레딧 — blender 변환 사슬)}`, 다른 키 · 값은 `BAD_OPTION`. Meshy 는 `prompt` 1 ~ 400자(넘으면 `PROMPT_TOO_LONG`), 길이를 0.5초 단위로 맞추고(`DURATION_SNAPPED` — 결과 `DURATION_MISMATCH`), 없으면 5초(`DURATION_DEFAULTED`), 2초 미만 `DURATION_TOO_SHORT` · 10초 초과 `DURATION_OVER_MAX`. 로컬 모델 설정(`seed` · `samples` · `steps` · `postprocess` · `pick`)을 기본값과 다르게 주면 한계 `GENERATION_SETTINGS_IGNORED{fields}`, 생성 제약은 종류마다 `CONSTRAINT_UNSUPPORTED`, 항상 `NOT_REPRODUCIBLE`(seed 없음) |
 | `review{render{times[] \| count, views[], reference_images[]}}` (개정 8) | `blender` 변환 단계의 프레임 렌더 비교. `times`(변환된 클립 기준 초, 0 = 첫 프레임, 1 ~ 12개) 또는 `count`(1 ~ 12, 기본 4 — 첫 · 끝 포함 고르게, 실행 때 잰 길이로 다시 펼친다). 둘 다 주면 `CONFLICTING_FIELDS`, 클립 끝을 넘는 시각은 그 후보를 `REVIEW_TIME_OUT_OF_RANGE` 로 막는다. `views` ⊆ `front` · `side`(기본 둘). `reference_images` ≤ 4, `ImportSourceRoots` 아래 .png/.jpg(시트의 모든 행에 같은 그림). 보이는 것은 변환된 **소스 골격**이다(한계 `REVIEW_IS_SOURCE_SKELETON`) |
 | `fix{ops[{op, …}]}` (개정 8) | `blender` 변환 단계의 보정 op(범위를 정한 뒤 · 기둥 메시 앞). op 사전이 Phase 5 에서는 **비어 있어** op 가 하나라도 오면 모든 후보가 `UNSUPPORTED_FIX_OP`(`details.ops` · `available`) — 발 고정 · 스무딩은 Phase 8 |
 | `retarget.align_mode` · `retarget.body_clearance` (개정 8) | `align_mode`: `per_bone`(`ops: match_existing` 의 기본) · `engine`(`ops: default` 는 정렬하지 않아 `engine` 만 — `per_bone` 이면 `ALIGN_MODE_WITHOUT_ALIGN`). §10. `body_clearance`: `resolve`(기본 — 관통 프레임만 위팔 보정) · `measure`(검증에만) · `off` → `retarget_animations body_clearance`. §10 · §13 |
@@ -837,6 +863,31 @@ Phase 4 CMU 수치는 anim_gen 기본이 `per_bone` 정렬 + 관통 보정 + 2�
 - 승인된 경우에만 1건을 생성하고, Phase 1 처리를 거쳐 검증한다.
 - 승인이 없거나 `FREE_ONLY`이면 외부 호출 0회(요청 로그로 확인).
 
+**진행 (개정 9):** 공식 문서 확인(2026-10-25, §2.4 · 부록 A) → 설계 초안 → 사용자 결정(기본 · 첫 호출 prime, 금액 = 정책 `usd_per_credit`, 약관 수용) → 정정 3건 반영 후 착수(불확실 제출의 목록 기반 자동 채택은 뺌 — 태스크 객체에 프롬프트가 없어 시각만으로는 남의 태스크를 채택할 수 있다 / 요청 로그는 실행기 상태 폴더 / 실제 금액 환산은 제출 때 핸들에 고정한 환율). C++ 변경 없음.
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/providers/meshy.py` | `MeshyProvider`: `estimate(request, policy)`(매니페스트 크레딧 × 정책 환율) · `plan_generate`(본문 고정 · 길이 맞춤 · 모드 · 한계, 네트워크 없음) · `run`(키 · 에디터 · 환율 확인 → 잔액 → 제출, 초당 429 는 `Retry-After` ≤ 5초면 같은 시도에서 한 번 더) · `poll`(Retry-After 간격 · 기한 · FAILED 환불 · 재시도 가능 분류) · 결과 다운로드(인증 헤더 없는 별도 클라이언트 · https · 200 MB · FBX 매직 / `HIERARCHY` · 403 · 404 면 태스크를 다시 읽어 재서명 URL 로 한 번 더) · `cancel`(외부 호출 없음). httpx, 기본 URL 고정, 리다이렉트 안 따름, POST 60초 · GET 30초 |
+| `providers/base.py` · `executor.py` · `router.py` · `service.py` | `estimate(request, policy)` · `StepResult.actual_credits` · `RunContext.state_dir`(요청 로그 위치) · 장부 `credits` · Job `cost.credits` · poll 단계 실패의 환불 / 과금(`_settle_failure`) · 후보 `estimated_credits` · 견적 `credits` · `usd_per_credit` · `generation.options` 이름 검사 |
+| `policy.py` · `policy.default.json` · `request.py` · `providers.json` · `registry.py` · `server.py` | `external.meshy{usd_per_credit, timeout_seconds}` · `generation.options` · 매니페스트(모드 · 크레딧 · 길이 · 프롬프트 한도 · 보존 3일 · `license: ok` · 약관 요약) · Tool 설명 |
+| `tests/test_meshy.py` · `conftest.py` | `httpx.MockTransport` 가짜 Meshy(잔액 · 제출 · 태스크 · 결과 호스트). conftest 가 실제 `HTTPTransport` 를 막는다 |
+| `Tools/mcp/anim_gen_phase6_test.py` | 통합 — `hashes` · `state` · `blocked`(완료 기준 ②) · `real`(완료 기준 ① — `--real` 과 터미널에서 plan_id 를 직접 입력해야 승인, 키는 그 셸의 환경 변수만) · `dirty` |
+
+산출물: `<ImportSourceRoots[0]>/Meshy/<job_id>/A<n>/{submission.json, meshy_motion.fbx \| .bvh, task.json(서명 쿼리 뺀 URL)}` · 요청 로그 `<state>/external/meshy_requests.jsonl`(시각 · Job · 시도 · 메서드 · 엔드포인트 · 태스크 · 상태 · ms, 본문은 길이 · 모드 · 프롬프트 SHA-256 만 — 헤더 · 쿼리 없음).
+
+**오류 분류:** 키 없음 `AUTHENTICATION_FAILED API_KEY_MISSING`(계획 제외 · 실행 게이트) · 401 `UNAUTHORIZED` · 403 IP `IP_NOT_AUTHORIZED` · 402 / 잔액 부족 `BUDGET_EXCEEDED INSUFFICIENT_CREDITS` · 403 모더레이션 `UNSUPPORTED_REQUEST MODERATION_BLOCKED` · 400 `BAD_REQUEST` → 모두 예약 해제 후 폴백. 429 → `RATE_LIMITED`(`CONCURRENT_TASKS` · `REQUESTS_PER_SECOND`, 재시도는 승인 `max_attempts` 안에서만). 제출 응답 없음 · 5xx → `GENERATION_FAILED SUBMISSION_UNCERTAIN`(멈춤 · 다시 내지 않음 · 예약 유지). 태스크 FAILED → `GENERATION_FAILED <task_error.code | type>`(환불 = 해제, timeout · service_unavailable · server_error · queue_timeout 계열만 재시도 가능). 결과 만료 · 재서명 뒤에도 못 받음 → `RESULT_EXPIRED`(과금 확정). 형식 · 크기 · https 위반 → `BAD_FORMAT` · `DOWNLOAD_TOO_LARGE` · `INSECURE_URL`. 404 → `TASK_NOT_FOUND`. 기한 → `TIMEOUT`.
+
+**결과 (2026-10-25 — 완료. 완료 기준 ① 은 미실행으로 마감, 사용자 결정):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 승인된 경우에만 실제 1건 → Phase 1 처리 → Vesper `AS_` + 검증 | ⏸ **미실행** — 사용자 Meshy 계정이 Free 요금제(100 크레딧)다. Meshy API 는 Free 요금제의 생성 요청을 402 로 거절한다(text-to-motion 402 "free plan (paid plan required)" · errors "On the Free plan, most task-creating requests return this" · credits guide "API access requires a paid plan"). 이 기준은 "승인된 경우에만"이라 승인 없는 마감도 기준 안이다. 그래서 **실제 Meshy 응답 형식 · 다운로드 · 출력 리그(본 · 정면 · 단위 · FBX 안 메시 여부) · Vesper 리타깃 결과는 미검증**이다(부록 B). 유료 요금제가 되면 키를 그 셸에만 설정하고 `anim_gen_phase6_test.py --only hashes,state,blocked,real,dirty --real --usd-per-credit <요금제 값>` (승인 화면에서 plan_id 를 직접 입력) — `real` 섹션은 리허설(더미 키 · 비대화형 → 승인 화면 → 호출 0)까지 확인했다 |
+| 2 | 승인 없음 · `FREE_ONLY` → 외부 호출 0(요청 로그) | ✅ 실제 에디터 · 더미 키(카나리)로 기본 정책(`PAID_API_DISABLED`) · `FREE_ONLY`(`POLICY_FREE_ONLY`) · 환율 없음(`COST_UNKNOWN`) · 유료 켬 + 승인 없음(`WAITING_FOR_APPROVAL NO_APPROVAL`, 대기 Job poll 도 호출 없음) → 계획 · `generate_motion` · `approve_generation` 거부, 요청 로그 파일 없음 · 장부 0건 · Meshy 결과 폴더 0. 견적: 본문 고정 · 10 크레딧 × $0.02 = $0.20 · `needs_approval` |
+| 3 | 어댑터 pytest (HTTP Mock) | ✅ `test_meshy.py` 43건 — 계획(본문 · 크레딧 견적 · 호출 0) · swift 사슬 · blender 없음 · 길이 맞춤 · 제외 6종 · 옵션 이름 · 한계 · 환율 없음 · `FREE_ONLY` / 유료 끔 / 승인 없음 = 요청 0 · 성공(잔액 → 제출 1회 → poll 2 → 다운로드, 장부 reserve → submitted → charge 10 크레딧 $0.20, Job `cost.credits`, 결과 파일 루트 · 서명 쿼리 없는 `task.json` · Authorization 은 API 호스트에만, 요청 로그 5줄) · 키 문자열이 상태 · 결과 · 봉투 어디에도 없음 · 실행 때 키 없음 → 폴백(예약 없음) · 거부 6종(401 잔액 · 401 · 402 · 403 모더레이션 · 403 IP · 400) → 해제 · 폴백 · 잔액 부족 → 제출 안 함 · 잔액 조회 실패는 제출을 막지 않음 · 초당 429 → 기다렸다 같은 시도 · 동시 429 → 새 승인 뒤 `plan#2` · poll 500 / 429 는 실패 아님 · Retry-After 전 요청 없음 · FAILED → 환불 · 폴백 / 재시도 가능 → 새 승인 · 만료 → 과금 · 다운로드 403 → 재서명 1회 · 두 번 실패 → `RESULT_EXPIRED` · HTML → `BAD_FORMAT`(파일 안 남김) · 형식 불일치 · 기한 → `TIMEOUT`(예약 유지) · 404 · 취소 = 요청 없음 · 예약 유지 · 서버 재시작 → 같은 태스크 poll · 응답 없음 / 502 → `SUBMISSION_UNCERTAIN`(다시 내지 않음) |
+| 4 | 기존 pytest · Phase 1 ~ 5 통합 회귀 | ✅ pytest **325건**(기존 282 + 43, 기존 기대값 1곳 갱신 — `external.meshy` 가 이제 구현됨). 같은 에디터에서 `anim_gen_phase1_test.py` · `phase2` · `phase3` · `phase4` · `phase5`(실제 Kimodo 2건) 실패 0 — Phase 5 수치는 개정 8 과 같다(각속도 p99 비 0.954 · 루트 691.83 cm · Yaw 189.81°, 같은 seed). C++ 변경 없음 — 빌드 생략. `real` 섹션 리허설(더미 키 · 비대화형): 승인 화면(본문 · 10 크레딧 × $0.02 · 사슬 · 위험) → plan_id 미입력 = 호출 0 |
+
 ### Phase 7 — AnimBP 연결 · 승격
 
 기존 Tool 조합 + `promote_animation`.
@@ -846,6 +897,32 @@ Phase 4 CMU 수치는 anim_gen 기본이 `per_bone` 정렬 + 관통 보정 + 2�
 ### Phase 8 — 품질 · 세그먼트
 
 세그먼트 생성·연결, 손 IK·무기 파지 보정(`control_rig`), 프리뷰 프레임 캡처, 다양한 스켈레톤.
+
+**로드맵 (개정 9 — 2026-10-25 사용자 합의, 상세 시그니처 · 완료 기준은 착수 때 개정 10):** 목표는 "AI 가 품질을 최대한 끌어올리고, 사람은 결과를 보고 판정 · 말로만 지시한다"(사람이 키를 직접 만지는 애니메이터 작업이 아니다 — 남는 수작업은 출시용 핵심 동작처럼 기준이 아주 높을 때의 선택지). 지시는 Claude Code 가 편집 · 보정 op 로 바꿔 원본을 둔 채 새 애셋으로 적용한다(§16-9 — 시각 판정은 사람). 단위마다 설계 확인 → 구현 → 검증 → 사용자 판정, 효과 대비 비용 순서.
+
+| 단위 | 내용 | 겨냥하는 문제 | 무게 |
+| :--- | :--- | :--- | :--- |
+| 8-1 생성 품질 | 요청 제약 플래그(`two_hand_weapon_grip` · `foot_contact`)를 생성 제약(Kimodo 손 · 발 end-effector · `root_path`)으로 자동 변환 · seed 별 후보 여러 개 생성 · 수치 자동 선별(양손 간격 · 발 간격 · 휘두르는 손 속도 정점 · 관통 · 깨짐 — `validate_animation profile_positions` 측정) · 팔-몸통 관통 보정이 양손 파지를 깨지 않게(양손 무기면 보조 손 팔 보정 제한 또는 측정만) | 처음부터 덜 틀린 동작 | Python 위주 |
+| 8-2 Vesper 캡처 | 리타깃 결과를 **대상 메시 모습**으로 찍은 프레임 시트 · 짧은 영상(지금 `review.render` 는 변환된 소스 골격) — Persona 를 열지 않고 채팅에서 판정 | "보고 말하기" 단계의 근거 | C++ 조금(에디터 캡처) |
+| 8-3 자동 보정 | 휘두르는 구간 자동 탐지(손 속도) 후 가속(`retime`) · blender `fix.ops` 사전 채우기: 발 고정 · 발 간격 좁히기(IK, 발 접지 유지) · 스무딩 | 넓은 다리 · 흐느적거림 · 발 미끄러짐 | Blender 스크립트 |
+| 8-4 무기 파지 | 손 IK 로 손을 무기 손잡이 · 소켓에 붙이기(`control_rig` — UE Control Rig 베이크, 또는 Blender IK). 무기 정보는 요청이 무기 메시 · 소켓으로 준다(§8) | 양손 무기 완성도 | 가장 무겁다 |
+
+세그먼트 생성(준비 → 베기 → 복귀를 따로 만들어 연결)과 다양한 스켈레톤은 8-1 ~ 8-4 결과를 보고 필요하면 뒤에 붙인다. Phase 7(AnimBP 연결)과의 순서는 사용자 결정.
+
+**근거 — Kimodo 칼 휘두르기 시험 (2026-10-25):** "A person holds a sword with both hands, raises it over the right shoulder, slashes diagonally down to the left, then returns to a fighting stance." · 4초 · seed 20261025 · `weapon_action` · `provider: local_ai` → `/Game/Animation/Test/AIAnimation/KimodoSword1025_185815/AS_Vesper_Sword_KimodoSlash`(저장, 사용자 확인용으로 유지). 잡 98.5초(Kimodo 80초). 자동 검증 `PASSED`(121프레임 · 최대 44.6°/프레임 · 관통 0 · 손가락 경고 0). **사용자 Persona 판정: 다리가 많이 벌어지고 베기가 흐느적거린다.** 원인 측정:
+- 넓은 다리 = Kimodo 원본 동작 자체(소스 골격 렌더 시트 0.8초 큰 내디딤, 1.6 ~ 4초 넓은 자세 유지) — 리타깃은 다리 각도를 그대로 옮긴다
+- 양손 파지 없음 = 생성 모델이 무기 없이 몸만 만든다(손이 붙지 않음 · `FINGERS_STATIC`)
+- 우리 후처리 영향 가능성 = `body_clearance resolve` 가 **왼 위팔을 98.3% 프레임에서 최대 15.5° 바깥으로** 돌렸다(관통 프레임 39.7% → 0) — 양손으로 모아야 할 팔을 벌렸을 수 있다(가설: 같은 seed · `body_clearance: measure` 비교로 확인 — 8-1 첫 실험)
+- 휘두르는 구간이 짧고 나머지는 자세 유지 — 4초 중 동작 구간 비율이 낮다(8-3 의 구간 탐지 · 가속 · 트림 대상)
+- 상대 각속도 p99 비 0.688 은 공통 본 3개 기준이라 근거로 쓰지 않는다
+
+### 별도 트랙 — 3D 메시(에셋) 생성 (개정 9 메모)
+
+애니 파이프라인(이 지침서의 Phase 1 ~ 8) 밖의 별도 작업으로 둔다 — **애니 자동화 뒤**에 착수(사용자 결정 2026-10-25). Phase 6(외부 AI **애니메이션**)에 넣지 않는 이유: 완료 기준이 모션(`AS_` · 리타깃 · 검증)이고, 요청 스키마(대상 스켈레톤 · 동작 분류 · 애니 이름)와 맞지 않으며, 메시 임포트는 재질 · 텍스처가 핵심이라 지금 `import_animation_file`(리타깃 소스용 — 재질 · 텍스처를 끈다)과 다른 경로가 필요하다.
+
+- 후보: Tripo3D — 텍스트 · 이미지 → 3D 메시(공식 CLI · API), 자동 리깅. 무료 크레딧 · 가격 · 출력 리그 · 약관은 그 트랙에서 다시 확인. 조사 · 설계 초안(모션 Provider 로는 채택 안 함 결론 포함): 공유 노트 `phase6-tripo-survey-design.md`(Tripo 세션)
+- 재사용: Phase 6 의 외부 API 공통 구조(승인 · 장부 `(plan_id, attempt)` · 요청 로그 · 비동기 Job · 키는 환경 변수만 · 기본 URL 고정)
+- 애니 쪽과 만나는 곳: 생성 · 리깅한 캐릭터를 새 대상 스켈레톤으로 삼아 Vesper 애니를 리타깃(Phase 8 "다양한 스켈레톤")
 
 ---
 
@@ -896,7 +973,7 @@ Phase 4 CMU 수치는 anim_gen 기본이 `per_bone` 정렬 + 관통 보정 + 2�
 
 ## 17. Claude Code 작업 지시
 
-1. 한 번에 한 Phase만 진행한다(Phase 0 · 1 · 2 · 3 · 4 · 5 완료). 다음 Phase는 사용자 승인 후 착수한다.
+1. 한 번에 한 Phase만 진행한다(Phase 0 · 1 · 2 · 3 · 4 · 5 · 6 완료 — 6 의 실제 유료 1건은 미실행). 다음 Phase는 사용자 승인 후 착수한다. Phase 8 은 단위(8-1 ~ 8-4)마다 승인한다.
 2. 각 Phase는 코드 편집 전에 Tool 시그니처 · 커밋 단위 · 구현 순서를 보여 주고 **사용자 확인을 받는다.** 문서와 엔진 API가 어긋나면 문서 수정안을 함께 낸다.
 3. 에디터 확인용 애셋은 `/Game/Animation/Test/AIAnimation/`에 만들고, 끝나면 정리 목록을 보고한다.
 4. 순서: 구현 → 정적 검증(두 구성 빌드 · Python 문법) → 에디터 통합 테스트(`Tools/mcp/anim_gen_phaseN_test.py`) → 결과 기록.
@@ -909,7 +986,7 @@ Phase 4 CMU 수치는 anim_gen 기본이 `per_bone` 정렬 + 관통 보정 + 2�
 - 엔진 소스: `D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/` 아래, §2.3 표의 경로
 - 기존 플러그인: [Plugins/AnimGraphMcp/README.md](../../Plugins/AnimGraphMcp/README.md) · `Tools/mcp/anim_graph_mcp/server.py` · `bridge.py`
 - HY-Motion 1.0 라이선스: <https://raw.githubusercontent.com/Tencent-Hunyuan/HY-Motion-1.0/master/License.txt> · <https://huggingface.co/tencent/HY-Motion-1.0>
-- Meshy Text-to-Motion API: <https://docs.meshy.ai/vi/api/text-to-motion>
+- Meshy Text-to-Motion API: <https://docs.meshy.ai/vi/api/text-to-motion> · 개정 9(2026-10-25 열람): <https://docs.meshy.ai/en/api/text-to-motion> · 가격(크레딧) <https://docs.meshy.ai/en/api/pricing> · Rate Limit <https://docs.meshy.ai/en/api/rate-limits> · 오류 · `task_error` <https://docs.meshy.ai/en/api/errors> · 잔액 <https://docs.meshy.ai/en/api/balance> · 사용 내역(Studio · Enterprise) <https://docs.meshy.ai/en/api/usage> · 태스크 수명 · poll · 타임아웃 <https://docs.meshy.ai/api/task-lifecycle.md> · 결과 보존 3일 <https://docs.meshy.ai/api/asset-retention.md> · 인증(`msy_` 키 · IP 허용 목록) <https://docs.meshy.ai/api/authentication.md> · 변경 이력(2026-08-21 출시 · 2026-09-16 테스트 키 폐지) <https://docs.meshy.ai/api/changelog.md> · 메타데이터 태그(Studio · Enterprise) <https://docs.meshy.ai/api/metadata.md> · 문서 색인 <https://docs.meshy.ai/llms.txt> · 요금제(KRW 표시) <https://www.meshy.ai/pricing> · 크레딧 안내 <https://www.meshy.ai/tutorials/meshy-credits-guide> · 약관(2026-09-19) <https://www.meshy.ai/terms-of-use> · 개인정보(2026-09-19) <https://www.meshy.ai/privacy-policy>
 - DeepMotion SayMotion REST API: <https://github.com/DeepMotion/SayMotion-REST-API> · <https://deepmotion.com/post/saymotion-api-now-available-for-free-trials>
 - Phase 5 로컬 모델 조사(개정 8): [LocalModelSurvey.md](LocalModelSurvey.md) 부록(2026-10-24 열람 — 데이터셋 · 모델 · 라이선스 원문 전체 목록). 채택 근거만 여기 다시 적는다:
   - Kimodo 저장소 · 라이선스: <https://github.com/nv-tlabs/kimodo> · <https://github.com/nv-tlabs/kimodo/blob/main/LICENSE> · 출력 형식 <https://research.nvidia.com/labs/sil/projects/kimodo/docs/user_guide/output_formats.html> · BVH 내보내기 `kimodo/exports/bvh.py`
@@ -932,10 +1009,11 @@ Phase 4 CMU 수치는 anim_gen 기본이 `per_bone` 정렬 + 관통 보정 + 2�
 | ~~루트 op 기본값과 Run IK Rig 활성 여부의 품질 차이~~ | Phase 2 측정 — `default`(Run IK Rig 켬)는 IK 본·손 위치를 바꾼다(본별 회전 차 p50 6.6° · p99 98.7°), Narmaya 에서는 179°/프레임 뒤집힘으로 `FAILED`. 생성 흐름은 `match_existing` 이 기준 (감사 §13) |
 | 얼굴 방향이 다른 스켈레톤(Narmaya) 리타깃 품질 | Phase 2 — `match_existing` 이면 자동 검증 `PASSED`(각속도 비 1.09, 최대 12°/프레임). **사람의 시각 확인은 남음** — 테스트 산출물은 정리했으므로 `anim_gen_phase2_test.py --only appendix` 로 다시 만들어 본다. 개정 7: Vesper 정면은 −Y 가 아니라 **+Y**(기준 포즈 `foot_l` → `ball_l`)로 정정. **개정 7 보강(2026-10-24) — 해결:** 소스 스켈레톤 12개 실측 — Vesper · IdaFaber M · UE4 마네킹 4 · UE5 Manny 2 · Greystone · Narmaya `pl1400`/`fp1400` = +Y, **SB `CH_P_EVE_01_Body` 만 +X**(3ds Max Biped, 왼쪽 −Y. 예전 `bvh.facing` 은 FX 본 z −2217cm 때문에 발 선분 0개 → 외톨이 제외로 해결). **Narmaya 는 Vesper 와 정면이 같다**(발 `_014` → `_015` +Y, 왼팔 +X) — "Narmaya ↔ Vesper 정면 차이"는 Vesper −Y 오기에서 나온 것. 소스 리타깃 포즈 루트 회전은 소스 현재 포즈에 걸리지 않아 결과가 소스 정면을 보므로(§2.3) 리타기터 대상 쪽에서 맞춘다(§10 `facing_yaw_deg`). SB `Evefin`(10.4초) → Vesper 손 궤적(펠비스 기준, 각자 몸 좌표): 맞춤 전 주축 각 85° · 44°, 소스의 앞뒤가 Vesper 의 좌우로 감(소스 앞 ↔ 대상 왼쪽 상관 0.98 · 0.97 — 세계 방향을 그대로 따름) → 맞춤 후 주축 각 15° · 13°, 몸 좌표 앞 · 왼쪽 상관 0.96 ~ 0.996, 출력 정면 +Y · 루트 원점 유지(정면이 같은 Narmaya 기준선 7 ~ 8°). 자동 검증은 맞춤 전후 둘 다 `PASSED`(각속도 비 0.896) — **평면 오류는 상대 비율 검증으로 안 보인다**. 계획은 SB 에 위험 `FACING_DIFFERS` + 한계 `FACING_ALIGNED`(yaw +90), Narmaya 는 정면 위험 없음. **사람의 시각 확인은 남음** — `/Game/Animation/Test/AIAnimation/FacingRun1024_012108/{Before,After}/AS_Facing_Evefin`(저장) |
 | ~~오래된 버전으로 저장된 마켓 애셋에 "Number of Frames" · "Source Frame Rate" 레지스트리 태그가 있는지~~ | Phase 2 확인 — 마켓 시퀀스 1,237개 전부 있음 |
-| ~~Blender 출력의 단위·축~~ · Meshy 출력의 단위·축 | Blender — Phase 4 확인(§2.3 · §10). Meshy — Phase 6 |
+| ~~Blender 출력의 단위·축~~ · Meshy 출력의 단위·축 · 리그 | Blender — Phase 4 확인(§2.3 · §10). Meshy — 공식 문서에 없음(개정 9). Phase 6 실제 1건이 **미실행**(Free 요금제, 2026-10-25)이라 여전히 미확인 — 유료 요금제에서 `anim_gen_phase6_test.py --real` 이 임포트 스켈레톤 · 자동 IK Rig 템플릿 · 정면을 `real.rig` 에 기록한다. prime FBX 에 스킨 메시가 없으면 Interchange 가 스켈레톤을 만들지 못한다(§2.3) — 그때는 blender FBX 변환 경로가 후속 |
 | ~~`import_animation_file` + `sample_rate` 의 경계 안 맞는 길이~~ | Phase 4 발견(Interchange 가 애니를 건너뛰어 `IMPORT_FAILED NO_ANIMATION`) → 개정 7 보강 2 해결 — `ConfigurePipeline` 이 `bSnapToClosestFrameBoundary` 를 항상 켜고, 맞춘 트랙은 `warning LENGTH_SNAPPED`. 경계 안 맞는 CMU 01_01 FBX `sample_rate=30` → 689키 · 22.9333초(§2.3). 다른 FBX(Meshy 등)도 같은 경로로 임포트된다. blender 의 범위 정렬(`bvh.align_to_rate`)은 그대로 둔다(반 프레임 늘림·줄임 없이 소스 프레임 그대로 — `RANGE_ALIGNED` 문구도 이에 맞춰 정정). 생성 잡도 이 진단을 받는다 — 실행기가 단계 안 에디터 진단을 `tool` · `step` 과 함께 Job `diagnostics` 에 남긴다(§3.4) |
 | cgspeed CMU BVH 의 0번 프레임 | Phase 4 확인 — 회전 거의 없는 기준 포즈(T 비슷)라 1번 프레임에 최대 179.8° 튐(`ROTATION_JUMP_INHERITED`). `motion_file.range.start` = 1프레임으로 뺀다. 다른 CMU 클립도 같은 형식일 것(미확인) |
-| Meshy 길이 범위 · 가격 · 결과 파일 만료 · 데이터 정책 | Phase 6 |
+| ~~Meshy 길이 범위 · 가격 · 결과 파일 만료 · 데이터 정책~~ | Phase 6 확인(개정 9, §2.4 · 부록 A): 2 ~ 10초 · 0.5초 단위 · 프롬프트 ≤ 400자 · prime 10 / swift 3 크레딧(실패 환불) · 결과 3일 · 약관 수용(사용자). **크레딧의 돈 값은 공식 문서로 확정 불가**(요금제마다 다름) → 정책 `usd_per_credit`(사용자) |
+| Meshy 크레딧의 돈 값 (개정 9) | 사용자 요금제가 정한다 — 월 크레딧을 다 쓰기 전에는 추가 지출이 없고, 크레딧 팩 가격은 공개되지 않았다. 정책 `external.meshy.usd_per_credit` 는 사용자가 정한 환산값이고 장부 USD 는 그 값 기준이다 |
 | ~~공개 Text-to-Motion 모델의 학습 데이터 라이선스~~ | Phase 5 확인(개정 8, [조사](LocalModelSurvey.md) §2 · §3.1 · §4) — HumanML3D 계열의 학습 데이터 AMASS(와 SMPL)는 "commercial use of any kind" 를 위한 신경망 학습을 금지 → **상업 이용 부적법**. 개인 포트폴리오가 허용 범위(비상업 연구 · 교육 · 예술)에 드는지 · 가중치만 받은 사용자에게 미치는지는 원문이 정하지 않는다(사용자 판단, 채택하지 않음). HumanAct12 · KIT-ML · SnapMoGen 데이터 라이선스는 원문을 못 찾았지만 AMASS 로 이미 판정돼 결론에 영향 없음. **적법 · 호환 후보 Kimodo-SOMA-RP-v1.2 채택**(§2.4) |
 | "Built with Meta Llama 3" 표시가 생성 애셋만 쓰는 게임 · 문서에도 필요한지 (개정 8) | 원문(Llama 3 License §1.b.i "a product or service that uses any of them")이 정하지 않는다 — 출시 · 배포 전 사용자 판단([조사](LocalModelSurvey.md) §4 K-1). 필요하다고 보면 표시를 넣는다 |
 | Phase 5 결과의 사람 시각 확인 (개정 8) | 자동 검증(소스 대비 상대 비 · 손가락 · 관통 · 루트 궤적)과 소스 골격 렌더 시트까지 확인. **Vesper 메시로 Persona/PIE 에서 보는 것은 남음** — 통합 테스트 산출물(`P5Run…/AS_Vesper_Kimodo_WalkTurnBackP5` · `AS_Vesper_Kimodo_RootPathP5`)은 2026-10-25 휴지통으로 정리했다. 다시 보려면 `anim_gen_phase5_test.py --only hashes,generate,constraint,dirty` 로 만든다(같은 seed 면 같은 동작). 같은 계열로 이전 세션들이 남긴 확인용 애셋(관통 보정 CMU 오른팔 최대 27° 벌림 · SOMA 양손 상대 위치 · 손가락 메타카팔 상대 정렬)도 Persona 눈 확인 남음 |

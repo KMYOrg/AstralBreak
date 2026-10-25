@@ -213,6 +213,10 @@ def check_output(request: dict, settings: dict | None, editor, editor_ok: bool, 
 
 
 def build_plan(request: dict, policy: dict, registry, editor, diagnostics: list[dict]) -> dict:
+    unknown = sorted(name for name in request["generation"]["options"] if not registry.has(name))
+    if unknown:
+        raise AnimGenError("BAD_REQUEST", f"request.generation.options names unknown provider(s) {unknown}", reason="UNKNOWN_PROVIDER",
+                           field="generation.options", known=registry.names())
     mode, mode_diags = resolve_mode(policy, request["generation_policy"])
     diagnostics += mode_diags
     block = paid_block_reason(policy, mode)
@@ -248,7 +252,7 @@ def build_plan(request: dict, policy: dict, registry, editor, diagnostics: list[
         if max_duration and request["duration_seconds"] and request["duration_seconds"] > max_duration:
             exclude("UNSUPPORTED_REQUEST", "DURATION_OVER_MAX", f"{name} supports up to {max_duration}s")
             continue
-        estimate = provider.estimate(request)
+        estimate = provider.estimate(request, policy)
         if provider.paid and not estimate["cost_known"]:
             exclude("COST_UNKNOWN", estimate.get("basis"), f"{name}: the cost cannot be confirmed, so it is never run (§6)")
             continue
@@ -261,6 +265,7 @@ def build_plan(request: dict, policy: dict, registry, editor, diagnostics: list[
             "index": len(candidates), "provider": name, "role": "approximate" if name in APPROXIMATE.get(request["motion_category"], ()) else "primary",
             "chain": _chain_names(steps), "steps": steps, "paid": provider.paid, "cost_known": estimate["cost_known"],
             "estimated_cost_usd": estimate["estimate_usd"], "estimate_basis": estimate.get("basis"), "needs_approval": provider.paid,
+            **({"estimated_credits": estimate["credits"]} if estimate.get("credits") is not None else {}),
             "risks": risks, "expected_limitations": lims,
         })
     return {

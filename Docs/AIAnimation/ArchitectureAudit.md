@@ -6,7 +6,8 @@
 개정 3: 2026-10-23 — Phase 2(기존 모션 재사용·변형) 구현 중 확인한 엔진 사실·측정을 §13 에 기록.  
 개정 4: 2026-10-24 — Phase 4(Blender Provider) 착수 전 엔진·Blender 소스 대조와 에디터 실측을 §14 에 기록.  
 개정 5: 2026-10-25 — Phase 5(로컬 AI · Kimodo) 설치 · 구현 · 리타깃 정렬 수정 · 통합 테스트에서 확인한 엔진 사실과 측정을 §15 에 기록.  
-상태: Phase 0 산출물 + Phase 1 · 2 · 4 · 5 실측 정정.  
+개정 6: 2026-10-25 — Phase 6(외부 AI · Meshy) 공식 문서 대조 · 어댑터 구현 · 차단 통합 테스트에서 확인한 것을 §16 에 기록. 실제 유료 1건은 미실행(사용자 Free 요금제 — Meshy 출력 리그는 미측정).  
+상태: Phase 0 산출물 + Phase 1 · 2 · 4 · 5 · 6 실측 정정.  
 관련 문서: [개발 지침서](DevelopmentGuide.md) (이 감사 결과로 개정 2) · [AnimGraphMcp README](../../Plugins/AnimGraphMcp/README.md)
 
 **방법.** 코드 변경 없이 ① UE 5.7.4 엔진 소스 대조, ② 실행 중인 에디터(DebugGame, main `1f8ee47`)에서 Python 원격 실행 3회 + AnimGraphMcp 조회로 측정했다. 에디터 쪽은 **읽기 전용**이었다 — IK Rig는 임시 패키지 객체로만 만들었고 애셋 생성·저장은 0건, 더티 패키지는 측정 전후 모두 0개였다.
@@ -370,6 +371,28 @@ Kimodo 설치 · `local_ai` 구현(커밋 단위 1 · 2), 손가락 꺾임에서
 | 팔-몸통 관통 | 위팔 매핑이 맞으면 관통 없음 | 위팔 월드 방향은 소스와 같다 — 원인은 체형(어깨 관절 반폭 CMU 21.5 · Vesper 12.0 cm, 엉덩 8.8 · 9.1 cm) + 옷(코트 · 벨트 · 파우치 — 같은 CMU 결과를 F_01 로 재면 49 / 73%, Lingerie 메시로는 20 / 33%). 판정을 '가장 가까운 몸 정점 법선'으로 하면 깊이 박힌 점에서 방향이 엉켜 보정 p50 20 ~ 30° · 보정 뒤에도 18 ~ 21% → **반경 지도**로 바꿈. 관통 프레임(왼/오른): CMU → Vesper 49.3 / 72.8% → 0 / 0(보정 p50 · 최대 9.0 · 17.3 / 14.5 · 26.7°, 팔꿈치 각 변화 0.06°), SOMA 71.7 / 0 → 0 / 0, HK 6.9 / 0 → 0 / 0, CMU → UE4 마네킹 9.3 / 19.3 → 0 / 0. 통합: Kimodo 걷기 52.5 / 45.3 → 0 / 0(최대 13.2 / 11.2°), 제약 클립 3.3 / 17.6 → 0 / 0. Vesper 원래 애니도 18 ~ 35%(기준선: UE4 카타나 7개 중 5개 0 — 원래 마네킹 메시) | `AnimMcpBodyClearance` · `AnimGraphMcp.Generation.BodyClearance` |
 | Phase 4 CMU 회귀 수치 | 10-24 기준(§14 · 지침서 §14 Phase 4) 그대로 | 같은 CMU 01_01 요청이 anim_gen 기본 `per_bone` 정렬 + `body_clearance resolve` + 2단 임포트를 거치면서: 각속도 p99 비 0.833 → 0.868 · 착지 발 1.513 → 1.444(둘 다 허용 범위 — 정렬 · 관통 보정 각각의 기여는 따로 재지 않았다. 정렬 쪽 근거는 위 '팔꿈치 굽힘 전달' 행) · 골반 높이 0.975 · 루트 이동 1.299 · 최대 179.75°/프레임(`ROTATION_JUMP_INHERITED`) · Trim 50.44° `PASSED` · 자동 IK Rig HumanIK 64% 는 그대로. 관통 프레임 49.3 / 72.8% → 0 / 0(위팔 보정 최대 17.3 / 26.7°). 잡 9.8 → 27.2초(관통 보정 · 손가락 검사 · 2단 임포트 · 재검증이 더해짐 — 단계별 시간은 따로 재지 않음). 플러그인 기본(`align_mode engine`)을 쓰는 Phase 1 회귀는 `RTG_KatanaToH` 대비 본별 0° 그대로 | `anim_gen_phase4_test.py` · `phase1` 재실행 |
 | 프레임 렌더 비교 비용 | 기한에 부담 | Blender Workbench 백그라운드: CMU 2,749프레임 4행 × 2뷰 1.9 ~ 2.6초, 12행 × 2뷰 + 레퍼런스 4 = 시트 2085 × 2994(상한 전 4344 × 6222 · 10.7 MB → 긴 변 3000 px 로 줄임), Kimodo 6초 4행 × 2뷰 2.2초 · 시트 1424 × 2078 — 기한 300초의 1% 안팎 | `review_render.py` · 통합 `generate` |
+
+---
+
+## 16. Phase 6 실측 (개정 6)
+
+Meshy 공식 문서 · 약관(2026-10-25 열람, 지침서 부록 A)과 어댑터 구현 · `httpx.MockTransport` pytest · 실제 에디터 차단 통합(`Tools/mcp/anim_gen_phase6_test.py blocked`)에서 확인한 것. 실제 유료 1건은 **미실행**으로 마감 — 사용자 계정이 Free 요금제라 API 생성이 402 로 막힌다(문서 3곳). 아래 '출력 리그' 행은 문서 확인까지이고 실측이 아니다.
+
+| 항목 | 가정 | 확인 | 근거 |
+| :--- | :--- | :--- | :--- |
+| 길이 · 모드 | 지침서 §2.4 "길이 범위는 Phase 6 에서" | 2 ~ 10초 · 0.5초 단위(필수, 다른 값 400) · prime(FBX, 기본) / swift(BVH) · 프롬프트 ≤ 400자. 요청 `duration_seconds` 는 0.5초로 맞춰 보내고(`DURATION_SNAPPED`) 결과 길이는 측정해 적는다 | text-to-motion 문서 |
+| 가격 | 공식 가격표가 있으면 확정 | 크레딧만 공식(prime 10 · swift 3, 실패 0 = 환불). 돈 값은 요금제 페이지가 지역 통화(KRW)로만 보이고 크레딧 팩 가격은 비공개 → 문서로 USD 를 확정할 수 없다. 사용자 결정: 정책 `usd_per_credit`(없으면 `COST_UNKNOWN`) | pricing · meshy.ai/pricing |
+| 잔액 · 사용 내역 | — | 잔액 `GET /openapi/v1/balance` 무료(`balance · monthly_credits · permanent_credits`) → 제출 직전 확인. 사용 내역은 Studio · Enterprise 만이라 대조에 못 쓴다 | balance · usage |
+| 멱등 · 불확실 제출 | 멱등 키 헤더가 있을 수 있다 | 없다. 메타데이터 태그(`X-Meshy-Metadata`)는 Studio · Enterprise 만 반영되고, 태스크 객체에 프롬프트가 없다 → 목록으로 "방금 만든 태스크"를 고를 근거가 시각뿐 — 남의 태스크를 채택할 수 있어 자동 채택을 뺐다. 응답 없음 · 5xx 는 `SUBMISSION_UNCERTAIN`(다시 내지 않음, Meshy 안내 "클라이언트 타임아웃 뒤 바로 다시 만들지 말 것"과 같다) | errors · metadata · task-lifecycle |
+| 취소 | 외부 작업 취소 API 가 있을 수 있다 | text-to-motion 취소 없음(`CANCELED` 는 Creative Lab 만). DELETE 는 PENDING 만 환불 · IN_PROGRESS 409 → 지침서대로 결과 무시 · 예약 유지 | text-to-motion · task-lifecycle |
+| Rate Limit | — | 초당 20 요청(전 요금제) · 동시 태스크 Pro 10. 초당 초과 429 는 `Retry-After`, 동시 초과 429(`NoMorePendingTasks`)는 없음 → 앞은 같은 시도에서 기다렸다 한 번 더, 뒤는 `RATE_LIMITED`(승인 범위 안 재시도). poll 의 429 · 5xx 는 실패가 아니다(Meshy 안내) | rate-limits · task-lifecycle |
+| 결과 URL | 만료 시각 고정 | `motion_url` 은 읽을 때마다 재서명, 보존 3일(`expires_at`). 다운로드 403 · 404 면 태스크를 다시 읽어 새 URL 로 한 번 더. 기록에는 서명 쿼리를 뺀 URL | text-to-motion · asset-retention |
+| 키 노출 경로 | 로그 · 기록만 막으면 된다 | 결과 URL 은 다른 호스트(저장소) — 같은 클라이언트로 받으면 Authorization 이 그 호스트로 간다 → 헤더 없는 별도 클라이언트. API 리다이렉트는 따르지 않는다(POST 가 GET 으로 바뀌고 키가 다른 곳으로 갈 수 있다 — authentication 문서). 기본 URL 은 정책으로 바꿀 수 없다 | authentication · pytest `Authorization 은 API 호스트에만` |
+| 테스트 키 | 무료 테스트 키로 통합 테스트 | 2026-09-16 폐지(401) → 실제 호출은 유료 1건뿐. 차단 통합은 더미 키(카나리 — 실수로 보내면 401 이 요청 로그에 남는다)로 했다: 기본 정책 · `FREE_ONLY` · 환율 없음 · 승인 없음 → 요청 로그 파일 없음 · 장부 0 | changelog · 통합 `blocked` |
+| 출력 리그 | Meshy 리그 → 리타깃 필수 | 문서에 본 이름 · 기준 포즈 · 단위 · 축 · fps · FBX 안 메시 여부가 없다 → 실제 1건에서 잰다(미실행 — 유료 요금제에서 `--real` 이 `real.rig` 에 기록). 처음은 자동 IK Rig(실패하면 본 계층으로 수동 체인 제안) · 정면은 실행 때 측정 | text-to-motion · rigging |
+| Free 요금제 | 무료 크레딧으로 API 1건 | Free 요금제(월 100 크레딧)는 API 접근이 없다 — 생성 요청은 402(`INSUFFICIENT_CREDITS` 로 분류, 예약 해제 · 과금 없음). 잔액 조회는 될 수 있으나 생성은 유료 요금제만 | text-to-motion · errors · credits guide |
+| 다른 외부 후보 | Tripo 무료 API 로 대체 | Tripo3D 에는 텍스트 → 모션이 없다(리깅된 모델에 프리셋 적용만) → 모션 Provider 로 채택 안 함. 메시 생성은 애니 파이프라인 밖 별도 트랙(지침서 §14 끝) | developers.tripo3d.com |
+| 약관 · 데이터 | — | 유료 요금제 출력 소유 · 비 Enterprise 입력 · 출력 학습 사용 가능(§2.9) · 경쟁 AI 학습 금지(§2.6(xi)) · API 출력 3일 뒤 삭제(§2.5) · 지역 제한 없음. 사용자 수용(2026-10-25) | terms-of-use · privacy-policy |
 
 ---
 

@@ -40,6 +40,14 @@ SCHEMA = {
         "kimodo_python": ("str",),    # local_ai(Phase 5) — Kimodo 전용 venv 의 python.exe (Tools/mcp/.venv 와 따로)
         "kimodo_hf_cache": ("str",),  # local_ai — 체크포인트 · 텍스트 인코더가 든 Hugging Face 캐시(HF_HUB_CACHE). 실행은 오프라인
     },
+    "external": {
+        # external.meshy(Phase 6) — 크레딧 가격은 공식 문서(prime 10 · swift 3)지만 크레딧의 돈 값은 요금제마다 달라 문서로 확정할 수 없다.
+        # 사용자가 자기 요금제로 정한 크레딧당 USD — null 이면 비용 미확인(COST_UNKNOWN)으로 계획 · 승인 · 실행을 막는다
+        "meshy": {
+            "usd_per_credit": ("positive_or_null", 10.0),
+            "timeout_seconds": ("number", 60, 86400),  # 제출부터 결과까지 기다리는 한도(Meshy 권장: 60분은 기다릴 것) — 넘으면 TIMEOUT
+        },
+    },
 }
 _FORBIDDEN = re.compile(r"(output|candidate_root|overwrite|api_key|apikey|token|secret|password)", re.IGNORECASE)
 
@@ -55,6 +63,9 @@ def _check_value(path: str, spec: tuple, value) -> None:
         raise AnimGenError("BAD_REQUEST", f"'{path}' can only be {json.dumps(spec[1])}", reason="FORBIDDEN_VALUE", key=path)
     elif kind == "str" and not isinstance(value, str):
         bad = "must be a string"
+    elif kind == "positive_or_null" and value is not None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= spec[1]:
+            bad = f"must be null or a number in (0, {spec[1]}]"
     elif kind in ("number", "int"):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or (kind == "int" and not isinstance(value, int)):
             bad = f"must be {'an integer' if kind == 'int' else 'a number'}"

@@ -26,7 +26,9 @@ BODY_CLEARANCE_MODES = ("resolve", "measure", "off")
 MOTION_FILE_DEFAULTS = {"path": None, "unit": "auto", "facing": "auto", "range": None, "axis_forward": "-Z", "axis_up": "Y"}
 FACINGS = ("auto", "keep", "+X", "-X", "+Y", "-Y")
 # Phase 5 — AI 생성 Provider(local_ai) 설정. prompt 는 모델이 읽는 영어 문장(description 은 기록만)
-GENERATION_DEFAULTS = {"seed": None, "samples": 1, "steps": 100, "postprocess": "auto", "pick": 0, "constraints": []}
+# options: Provider 이름 → 그 Provider 만 읽는 설정(Phase 6 — {"external.meshy": {"mode": "prime" | "swift"}}). 다른 Provider 는 무시하고,
+# 값의 검사는 그 Provider 의 계획 단계가 한다(이름은 라우터가 레지스트리로 검사)
+GENERATION_DEFAULTS = {"seed": None, "samples": 1, "steps": 100, "postprocess": "auto", "pick": 0, "constraints": [], "options": {}}
 CONSTRAINT_KEYS = {"root_path": ({"points"}, set()), "keep_pose": ({"npz", "times"}, {"part"}), "kimodo_raw": ({"path"}, set())}
 POSE_PARTS = ("full", "left_hand", "right_hand", "left_foot", "right_foot")
 PROMPT_MAX = 500
@@ -230,6 +232,9 @@ def _generation(raw) -> dict:
         raise _bad("generation.postprocess", "must be auto, on or off")
     if not _int(gen["pick"], 0, gen["samples"] - 1):
         raise _bad("generation.pick", f"must be an integer in [0, samples - 1 = {gen['samples'] - 1}] (the sample that is retargeted)")
+    options = gen["options"]
+    if not isinstance(options, dict) or not all(isinstance(k, str) and k and isinstance(v, dict) for k, v in options.items()):
+        raise _bad("generation.options", "must be {<provider name>: {...}} — settings only that provider reads, e.g. {\"external.meshy\": {\"mode\": \"swift\"}}")
     items = gen["constraints"]
     if not isinstance(items, list):
         raise _bad("generation.constraints", "must be a list of {type: root_path | keep_pose | kimodo_raw, ...}")

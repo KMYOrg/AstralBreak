@@ -66,7 +66,7 @@ class Service:
             if not include_inactive and not state["available"]:
                 continue
             capabilities = {k: v for k, v in manifest.items() if k not in ("name", "role", "phase", "description")}
-            pricing = "free" if not provider.paid else ("confirmed" if provider.estimate({}).get("cost_known") else "unconfirmed")
+            pricing = "free" if not provider.paid else ("confirmed" if provider.estimate({}, policy).get("cost_known") else "unconfirmed")
             items.append({"name": provider.name, "role": manifest.get("role", "provider"), "phase": manifest.get("phase"),
                           "description": manifest.get("description"), "capabilities": capabilities, "pricing": pricing, "state": state})
         return {"providers": items, "router": "rule table (DevelopmentGuide §5)"}
@@ -103,9 +103,10 @@ class Service:
         out = []
         for cand in plan["candidates"]:
             provider = self.registry.get(cand["provider"])
-            est = provider.estimate(plan["request"])
+            est = provider.estimate(plan["request"], policy)
             item = {"candidate": cand["index"], "provider": provider.name, "paid": provider.paid, "cost_known": est["cost_known"],
-                    "estimate_usd": est["estimate_usd"], "basis": est.get("basis")}
+                    "estimate_usd": est["estimate_usd"], "basis": est.get("basis"),
+                    **{k: est[k] for k in ("credits", "usd_per_credit", "mode") if est.get(k) is not None}}
             if not provider.paid:
                 item["verdict"] = "free"
             elif block:
@@ -160,7 +161,7 @@ class Service:
             raise AnimGenError("BAD_REQUEST", f"Plan {plan_id} has no runnable paid step{' for ' + provider if provider else ''}"
                                + (" — paid providers were excluded when planning; plan again after changing the policy" if excluded_paid else ""),
                                reason="NO_PAID_STEP", excluded=excluded_paid)
-        est = self.registry.get(provider).estimate(plan["request"])
+        est = self.registry.get(provider).estimate(plan["request"], policy)
         if not est["cost_known"]:
             raise AnimGenError("COST_UNKNOWN", f"{provider}: the cost cannot be confirmed — not approvable (§6)", basis=est.get("basis"))
         estimate = float(est["estimate_usd"])
@@ -176,7 +177,8 @@ class Service:
             raise AnimGenError("BUDGET_EXCEEDED", f"spent+reserved ${totals['spent_usd'] + totals['reserved_usd']:.2f} + ${max_cost_usd:.2f} > "
                                f"policy max_total_cost_usd {billing['max_total_cost_usd']}", reason="MAX_TOTAL", ledger=totals)
         approval = {"approval_id": new_id("appr"), "plan_id": plan_id, "provider": provider, "max_cost_usd": float(max_cost_usd),
-                    "max_attempts": max_attempts, "used_attempts": 0, "committed_usd": 0.0, "estimate_usd": estimate, "created_at": now_iso()}
+                    "max_attempts": max_attempts, "used_attempts": 0, "committed_usd": 0.0, "estimate_usd": estimate, "created_at": now_iso(),
+                    **({"estimate_credits": est["credits"], "basis": est.get("basis")} if est.get("credits") is not None else {})}
         self.store.save_approval(approval)
         resumed = None
         for job in self.store.list_jobs(plan_id, limit=0):

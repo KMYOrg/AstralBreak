@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import uuid
 
-# §7 폴백 원인 분류 (개정 6: COST_UNKNOWN 추가)
+# §7 폴백 원인 분류 (개정 6: COST_UNKNOWN 추가 · 개정 10: INTEGRATION_FAILED — 포장 · AnimBP 연결 실패, 폴백 없이 중단)
 CAUSES = (
     "PROVIDER_UNAVAILABLE", "AUTHENTICATION_FAILED", "APPROVAL_REQUIRED", "BUDGET_EXCEEDED", "COST_UNKNOWN", "RATE_LIMITED",
     "LICENSE_RESTRICTED", "UNSUPPORTED_REQUEST", "GENERATION_FAILED", "IMPORT_FAILED", "RETARGET_FAILED", "VALIDATION_FAILED",
-    "QUALITY_INSUFFICIENT",
+    "QUALITY_INSUFFICIENT", "INTEGRATION_FAILED",
 )
 
 # 다른 Provider 로 넘어가지 않고 Job 을 끝내는 에디터 가드 코드 — 요청·보호 문제라 어느 경로든 같다 (§7)

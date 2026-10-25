@@ -69,8 +69,13 @@ ABP_HeroLayers_Rifle (공급자, DA_EF_Rifle.AnimLayerClass — 장비 매니저
 ## 6. 남은 것 / 범위 밖
 
 - 사격 몽타주(`FireMontage`)·`AS_Vesper_Rifle_Recoil`(additive) 연결 — 현재 원거리 GA 는 몽타주 미지정(즉발)일 수 있음. 반동은 UpperBody 슬롯 몽타주나 ApplyAdditive 로 후속.
+  → 2026-10-25 AI 애니 생성 Phase 7: 반동 concat 루프 + additive + UpperBody 루프 몽타주를 anim-gen 이 후보 경로에 만들고 `ABP_Hero_Combat` **복제본**에서
+  `slots_active[UpperBody]` 를 확인했다(운영 ABP 는 revision · 미리보기만, SHA-256 불변). 운영 적용 절차(승격 → 노티파이 → 바인딩을 정식 경로로 →
+  `apply_graph_operations(expected_revision)` → 스모크 · 시나리오 · `AstralBreak.*` → GA `FireMontage` 지정은 별도 승인)는
+  `Docs/AIAnimation/DevelopmentGuide.md` §12. 실제 운영 적용은 사용자 결정으로 Phase 7 완료 기준 밖.
 - 조준 중 점프 상태는 무기 무관 시퀀스 그대로(라이플 점프 없음). → 2026-10-22 §9 무기 포즈 오버레이로 조준 상체 유지 · 비조준 공중 왼손 놓음.
-- `/Game/IdaFaber/` 중복 폴더 정리(사용자 판단) · 운영 몽타주 UpperBody 슬롯·콤보 섹션(기존 후보 그대로).
+- `/Game/IdaFaber/` 중복 폴더 정리(사용자 판단) · 운영 몽타주 UpperBody 슬롯·콤보 섹션(기존 후보 그대로 — 슬롯 · 섹션 편집 Tool 은
+  `set_montage_slots` · `set_montage_sections`, 생성 몽타주는 옵트인 `generation_guard`).
 - Python 원격 실행(`ue_exec`)은 에디터 기동 직후 UDP 멀티캐스트 발견이 간헐적으로 실패했다(5초 → 30초로 늘려도 0건이던 때가 있음, 재기동 뒤 성공). 실패 시 재기동하거나 `Tools/mcp` 도구를 쓴다.
 
 ## 7. 제자리 회전 — TurnInPlace (2026-10-20, 사용자 요구: Lyra 식 Yaw AimOffset + RotateRootBone + 턴 클립, 조준 중에만)

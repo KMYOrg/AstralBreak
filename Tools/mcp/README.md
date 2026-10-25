@@ -38,7 +38,9 @@ bAutoStart=True
 
 에디터 콘솔: `AnimGraphMcp.Start` / `AnimGraphMcp.Stop` / `AnimGraphMcp.Status`. 커맨드라인 `-AnimGraphMcpPort=18766` 으로 인스턴스별 포트 오버라이드. 토큰은 에디터가 기동할 때 `Saved/AnimGraphMcp/token` 에 쓴다. `get_editor_status` 만 토큰 면제.
 
-## Tool (39개)
+## Tool (40개)
+
+AI 애니 생성 연결 · 승격(Phase 7) `promote_animation`(후보 `GenerationOutputPaths` → 정식 `[AnimGraphMcp] PromotionPaths` — 엔진 AssetTools rename, 리디렉터 0 · 참조자 자동 수정 · 저장. **`dry_run` → 사용자 확인 → `confirm`**, 후보 밖 참조자는 `allow_referencers` 로 명시) · 기존 쓰기 Tool 6개(`create_anim_montage` · `set_montage_sections` · `create_blendspace` · `set_sequence_additive` · `duplicate_animation_blueprint` · `apply_graph_operations`)의 옵트인 `generation_guard`(기본 false = 기존 동작 그대로 · true = 허용 목록 안 · 덮어쓰기 거부 · 전역 더티 비교 — 운영 AnimBP 는 가드가 거부한다).
 
 AI 애니 생성 리타깃 기반(Phase 1, `Docs/AIAnimation/`) `inspect_skeleton` · `import_animation_file` · `create_ik_rig` · `create_ik_retargeter` · `retarget_animations` · `validate_animation` — 출력·임포트 경로는 `[AnimGraphMcp] GenerationOutputPaths` · `ImportSourceRoots`(`get_editor_status.generation`)만, 덮어쓰기 없음, 허용 목록 밖이 새로 더티면 `UNEXPECTED_DIRTY`. 흐름: `inspect_skeleton`(소스·대상, `compare_to`) → `import_animation_file`(FBX) → `create_ik_rig`(auto, 실패면 `details.bones` 로 수동 체인 제안 → 사용자 확인 → manual) → `create_ik_retargeter` → `retarget_animations {dry_run}` → 같은 호출 `save:true`. 소스와 대상이 보는 방향이 다르면(예: SB +X ↔ Vesper +Y) `create_ik_retargeter {facing_yaw_deg: 90}` — FK 체인은 전역 회전 델타라 그대로면 동작이 다른 평면으로 휜다(대상 루트 반대 회전 + Additive Pose op 로 되돌림, 결과 `facing_alignment`). anim-gen-mcp 는 이 값을 계획 때 재서 넣는다(`retarget.source_facing`).
 
@@ -56,9 +58,10 @@ AI 애니 생성 기존 모션 재사용·변형(Phase 2) `search_animations`(�
 
 두 번째 MCP 서버 `Tools/mcp/anim_gen/server.py`(`.mcp.json` 의 `anim-gen-mcp`). 로직은 여기에만 있고 에디터 조작은 `anim_graph_mcp/bridge.py` 로 위 플러그인 Tool 을 부른다. 설계·시그니처는 `Docs/AIAnimation/DevelopmentGuide.md` §3.4 · §5 · §6 · §7 · §9 · §14 Phase 3.
 
-- Tool 9개: `list_motion_providers` · `get/set_generation_policy` · `plan_motion_generation`(실행 안 함 — 읽기 전용 에디터 호출로 소스·메시·미리보기를 계획에 고정) · `estimate_generation_cost` · `approve_generation`(계획 × 유료 Provider 하나, 횟수 · 금액 상한) · `generate_motion` · `get_generation_status`(비동기 단계 poll) · `cancel_generation`.
+- Tool 9개: `list_motion_providers`(Provider 6 + 파이프 `retarget` · `package` · `anim_bp`) · `get/set_generation_policy` · `plan_motion_generation`(실행 안 함 — 읽기 전용 에디터 호출로 소스·메시·미리보기를 계획에 고정) · `estimate_generation_cost` · `approve_generation`(계획 × 유료 Provider 하나, 횟수 · 금액 상한) · `generate_motion` · `get_generation_status`(비동기 단계 poll) · `cancel_generation`.
 - 흐름: Claude Code 가 자연어를 구조화된 요청(§9)으로 바꾼다 → `plan_motion_generation` → 사용자에게 계획을 보여 준다 → (유료면 `estimate_generation_cost` → 사용자 동의 → `approve_generation`) → `generate_motion {save}` → 결과의 `limitations[]` 를 사용자에게 알린다.
 - 실제 Provider: `existing_motion`(검색·참조) · `direct_key`(`apply_animation_edits`) · `retarget` 파이프(IK Rig ×2 · RTG `match_existing` · `retarget_animations`) · `blender`(Phase 4 — 요청 `motion_file`(BVH, ini `ImportSourceRoots` 아래)을 headless Blender 서브프로세스로 FBX 로 바꿔 retarget 파이프로. 실행 파일은 정책 `paths.blender_executable`, 스크립트 `anim_gen/blender/bvh_to_fbx.py`, `generate_motion` 은 `RUNNING` 을 돌려주고 `get_generation_status` 가 poll) · `local_ai`(Phase 5 — NVIDIA Kimodo, 전용 venv 서브프로세스 → BVH → `blender` → retarget, 정책 `paths.kimodo_*`) · `external.meshy`(Phase 6 — Meshy Text-to-Motion, **유료**: 정책 `billing.paid_api_enabled` + `external.meshy.usd_per_credit`(사용자 요금제의 크레딧당 USD) + `approve_generation` 이 있어야 호출한다. 키는 환경 변수 `MESHY_API_KEY` 만, 요청은 헤더 없이 `<state>/external/meshy_requests.jsonl` 에 기록). `control_rig` 은 매니페스트(`anim_gen/providers.json`)와 비활성 자리만.
+- 포장 · AnimBP 연결(Phase 7 — 지침서 §12): 요청 `package{additive?, montage?, blendspace?}` 는 검증 뒤 `package_*` 단계(출력은 `output_path`, 모든 쓰기에 `generation_guard`), `integrate_anim_bp: true` + `anim_bp{asset_path, operations[], scenario?, smoke}` 일 때만 `anim_bp_test`(복제본 `<work>/<ABP>_Test_<job>` 에 적용 · 컴파일 · 스모크 · `run_anim_scenario` — 비동기라 `RUNNING` 후 poll) · `anim_bp_prepare`(운영 AnimBP 는 revision · `preview_graph_operations` 읽기만). 자리표시 `$asset` · `$montage` · `$blendspace`. Job 결과 `package` · `anim_bp{test, operational, apply_payload}` · `promotion{assets[{source, dest}]}`(이름 규칙 제안 — 이동은 `promote_animation`). **운영 AnimBP 적용은 anim_gen 이 하지 않는다** — 사용자 승인 뒤 승격 → 바인딩을 정식 경로로 → `apply_graph_operations(expected_revision)`. 실패는 `INTEGRATION_FAILED`(폴백 없음, 만든 시퀀스는 남긴다).
 - 정책: `anim_gen/policy.default.json`(추적) ← `Saved/AnimGen/policy.json`(로컬). 출력 경로는 정책에 없고 ini `GenerationOutputPaths` 만 기준. API 키는 환경 변수만(값은 어디에도 기록하지 않는다).
 - 상태: `Saved/AnimGen/{plans, jobs, approvals}/` · `ledger.jsonl`(유료 제출 예약·확정, 멱등 키 `(plan_id, attempt)`). `ANIM_GEN_STATE_DIR` 로 바꾼다. 중간 애셋은 `<output_path>/Work/<job_id>/A<시도>/`.
 - 새 서버는 Claude Code 세션을 다시 시작해야 목록에 보인다.
@@ -72,7 +75,10 @@ PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Too
 PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/anim_gen_phase4_test.py [--bvh <path>|synthetic] [--only plan,generate]
 PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/anim_gen_phase5_test.py [--only plan,generate]
 PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/anim_gen_phase6_test.py [--only hashes,state,blocked,dirty]
+PYTHONIOENCODING=utf-8 MSYS_NO_PATHCONV=1 Tools/mcp/.venv/Scripts/python.exe Tools/mcp/anim_gen_phase7_test.py [--only hashes,plan,chain_bs,...]
 ```
+
+`anim_gen_phase7_test.py` 는 섹션 hashes · plan · chain_bs(예시 B — 리타임 → BS1D → `ABP_McpRuntimeTest` 복제본 Run 상태 · Speed 전이) · chain_montage(예시 C — 반동 concat → additive · UpperBody 루프 몽타주 → `ABP_Hero_Combat` 복제본 + 운영 미리보기) · independent(유지한 Kimodo 칼 애셋 재사용 → DefaultSlot 몽타주) · guard · apply_mech · promote · dirty. 출력 `/Game/Animation/Test/AIAnimation/P7Run<시각>/`, **승격 실제 이동은 `/Game/Animation/Hero/Vesper/_P7PromoteTest/P7Run<시각>/` 에만**(추적 안 되는 새 폴더 — 끝나면 정리 목록을 보고 휴지통으로). 운영 AnimBP 4개 · 스켈레톤은 읽기 · 미리보기만, 전후 SHA-256 비교. 요약 `anim_gen_phase7_state.json`.
 
 `anim_gen_phase6_test.py` 의 기본 섹션은 외부 호출이 없다(`blocked` — 승인 없음 · `FREE_ONLY` · 유료 끔 · 환율 없음이면 요청 로그 0줄). 유료 1건(`real`)은 `--real --usd-per-credit <값>` 을 주고, 키를 그 셸에만 설정한 터미널에서 실행하면 계획 · 견적(보낼 본문 · 크레딧 · USD)을 보여 주고 plan_id 를 직접 입력해야 승인한다.
 

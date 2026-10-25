@@ -107,7 +107,17 @@ def plan_motion_generation(request: dict) -> dict:
             frame) | count 1-12 (default 4, evenly spaced, first and last included), views front|side (both), reference_images[] (≤ 4
             absolute .png/.jpg under ImportSourceRoots — an extra sheet column, the same image on every row)}} (rendered by the blender
             convert step only), fix?{ops[{op, ...}]} (blender fix step — the op dictionary is empty in this phase, so any op excludes the
-            candidate with UNSUPPORTED_FIX_OP). `save` is a generate_motion argument.
+            candidate with UNSUPPORTED_FIX_OP), package?{additive?{additive_type LocalSpaceBase|RotationOffsetMeshSpace, ref_pose_type
+            RefPose|AnimScaled|AnimFrame|LocalAnimFrame (default LocalAnimFrame 0), ref_frame_index, ref_pose_sequence ('$asset' = itself;
+            needed by AnimFrame/AnimScaled)} (edits the new sequence in place — refused on a reused asset), montage?{name? (default
+            animation_name AS_ → AM_), slot (default DefaultSlot; must already be in the skeleton), blend_in?, blend_out?, sections?[{name,
+            start, next?}] (next = own name → loop)}, blendspace?{name, dimensions 1|2, axes[{name, min, max, grid?}], samples[{animation
+            '$asset' | path, value[]}], aim_offset?}} (outputs in output_path, every write under the plugin's generation_guard),
+            integrate_anim_bp + anim_bp{asset_path (the AnimBP to connect — only a test copy is written), operations[]
+            (apply_graph_operations ops; '$asset' · '$montage' · '$blendspace' as whole string values become the packaged assets; empty =
+            playback check only), scenario?{montage? ('$montage'), expect{state_machines{}, slots_active[]}, wait_frames, set_variables,
+            mesh?, map?} (run_anim_scenario on the copy), smoke (default true)} — anim_bp only when integrate_anim_bp is true
+            (CONFLICTING_FIELDS otherwise; MISSING_FIELD when true without it). `save` is a generate_motion argument.
 
     Read-only editor calls pin the chosen source, source mesh and edit preview into the plan (what you see is what runs). A retarget
     step pins the source and target facing (steps[].inputs.facing); differing facings are risk FACING_DIFFERS with the limitation
@@ -130,6 +140,11 @@ def plan_motion_generation(request: dict) -> dict:
     returned bones). Every Meshy HTTP request is logged without headers to <state>/external/meshy_requests.jsonl.
     They show the converted SOURCE skeleton (left blue, right red, thin amber root, green nose = facing, gray floor at z 0), not the
     target character (limitation REVIEW_IS_SOURCE_SKELETON); a failed render does not fail the job (REVIEW_NOT_RENDERED).
+    package / anim_bp add steps after validation (package_additive · package_montage · package_blendspace · anim_bp_test · anim_bp_prepare).
+    The plan checks the montage slot against the skeleton (SLOT_NOT_IN_SKELETON — registering it edits the shared skeleton: ask the user),
+    fixed BlendSpace samples, the AnimBP's skeleton (SKELETON_MISMATCH), pins its revision and previews ops without placeholders on it
+    (read only; risk ANIM_BP_OPS_RESOLVED_AT_RUN otherwise). Limitations ANIM_BP_APPLY_PENDING (the production AnimBP is NOT changed) and
+    NOTIFIES_NOT_ADDED (project notifies come after promotion via the astral-ue-montage skill).
     Returns plan_id, executable, request (normalized), policy{mode, effective_mode, paid_allowed}, candidates[{index, provider, role,
     chain[], steps[{step, provider, tool, inputs, resolved?}], paid, cost_known, estimated_cost_usd, needs_approval, risks[],
     expected_limitations[{code, message, source}]}], excluded[{provider, cause, reason, message}], final_asset. Show it to the user.
@@ -177,7 +192,14 @@ def generate_motion(plan_id: str, save: bool = False, retry: bool = False) -> di
     provider, chain, generated_assets[], reused_assets[], intermediate_assets[] (<output_path>/Work/<job_id>/), validation,
     review (blender frame renders + sheet when requested), limitations[] (what is missing versus the request — always present for
     a fallback result), fallback_history[], cost, events[],
-    diagnostics[] (including the editor tools' own warnings, each with tool and step — e.g. LENGTH_SNAPPED from the import step).
+    diagnostics[] (including the editor tools' own warnings, each with tool and step — e.g. LENGTH_SNAPPED from the import step),
+    package{additive, montage, blendspace} (packaged assets are in generated_assets), anim_bp{target, test_copy (intermediate),
+    bindings, operations, test{apply{revision_before, revision_after, compile}, smoke[], scenario{observed}}, operational{revision,
+    preview{valid, planned}}, apply_payload{asset_path, operations, expected_revision, compile} — apply it ONLY after the user approved,
+    after promotion, re-binding the candidate paths}, promotion{folder, assets[{source, dest}]} (proposal for promote_animation —
+    dry_run first). A scenario step returns RUNNING (PIE runs asynchronously) — poll get_generation_status. Package / AnimBP failures
+    are INTEGRATION_FAILED (SLOT_NOT_IN_SKELETON · COMPILE_FAILED · SMOKE_FAILED · SCENARIO_FAILED{details.observed} · PREVIEW_INVALID …):
+    no fallback, the sequence already made stays in generated_assets.
     """
     return service.generate_motion(plan_id=plan_id, save=save, retry=retry)
 

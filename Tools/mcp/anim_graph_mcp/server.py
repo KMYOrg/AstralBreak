@@ -98,7 +98,8 @@ def list_animation_assets(skeleton: str | None = None, asset_class: str = "all",
 
 @mcp.tool()
 def create_blendspace(asset_path: str, skeleton: str, dimensions: int, axes: list[dict], samples: list[dict] | None = None,
-                      aim_offset: bool = False, preview_mesh: str | None = None, overwrite: bool = False, save: bool = False) -> dict:
+                      aim_offset: bool = False, preview_mesh: str | None = None, overwrite: bool = False, save: bool = False,
+                      generation_guard: bool = False) -> dict:
     """Create a BlendSpace (dimensions=2) or BlendSpace1D (dimensions=1) asset with axes and samples — or an AimOffset.
 
     Args:
@@ -113,6 +114,9 @@ def create_blendspace(asset_path: str, skeleton: str, dimensions: int, axes: lis
         preview_mesh: Optional skeletal mesh for the preview viewport.
         overwrite: If true, an existing asset at asset_path is DELETED first (refused for protected assets). Ask the user first.
         save: Save the new asset to disk right away.
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): asset_path must be inside [AnimGraphMcp]
+            GenerationOutputPaths (OUTPUT_PATH_NOT_ALLOWED), overwrite is refused, and the editor-wide dirty-package diff is checked before
+            saving (UNEXPECTED_DIRTY — nothing saved). Result gains guard{enabled, newly_dirty[]}.
 
     Returns the asset summary (axes, samples, sample_count, grid_sample_count, aim_offset) plus created=true and saved. Use set_asset on an
     AnimGraphNode_BlendSpacePlayer (or AnimGraphNode_RotationOffsetBlendSpace for an AimOffset) to plug it into a graph.
@@ -121,6 +125,8 @@ def create_blendspace(asset_path: str, skeleton: str, dimensions: int, axes: lis
               "samples": samples or [], "aim_offset": aim_offset, "overwrite": overwrite, "save": save}
     if preview_mesh:
         params["preview_mesh"] = preview_mesh
+    if generation_guard:
+        params["generation_guard"] = True
     return bridge.call("create_blendspace", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
@@ -223,7 +229,7 @@ def preview_graph_operations(asset_path: str, operations: list[dict]) -> dict:
 
 @mcp.tool()
 def apply_graph_operations(asset_path: str, operations: list[dict], expected_revision: str | None = None,
-                           compile: bool = False, save: bool = False) -> dict:
+                           compile: bool = False, save: bool = False, generation_guard: bool = False) -> dict:
     """Apply a batch of graph operations in one undoable transaction. Validated first; a mid-batch failure is rolled back.
 
     Args:
@@ -232,12 +238,17 @@ def apply_graph_operations(asset_path: str, operations: list[dict], expected_rev
         expected_revision: Revision from the last inspection; the call aborts with REVISION_MISMATCH if the graph changed.
         compile: Compile after applying and include the result.
         save: Save to disk after a successful compile (requires compile=true to be meaningful).
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): the AnimBP must be inside [AnimGraphMcp]
+            GenerationOutputPaths (a test copy — production AnimBPs are refused on purpose), and the editor-wide dirty-package diff is
+            checked after compiling and before saving (UNEXPECTED_DIRTY — nothing saved). Result gains guard{enabled, newly_dirty[]}.
 
     Returns revision_before/after, refs (ref name -> node_guid), per-operation results, compile result and saved flag.
 """ + _OPERATIONS_DOC
     params = {"asset_path": asset_path, "operations": operations, "compile": compile, "save": save}
     if expected_revision:
         params["expected_revision"] = expected_revision
+    if generation_guard:
+        params["generation_guard"] = True
     return bridge.call("apply_graph_operations", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
@@ -261,7 +272,7 @@ def save_animation_blueprint(asset_path: str) -> dict:
 
 @mcp.tool()
 def duplicate_animation_blueprint(source_path: str, dest_path: str, overwrite: bool = False,
-                                  preserve_node_guids: bool = True, save: bool = False) -> dict:
+                                  preserve_node_guids: bool = True, save: bool = False, generation_guard: bool = False) -> dict:
     """Duplicate an Animation Blueprint to a new content path (e.g. to edit a copy of a production asset).
 
     Args:
@@ -271,13 +282,17 @@ def duplicate_animation_blueprint(source_path: str, dest_path: str, overwrite: b
             the project's [AnimGraphMcp] ProtectedAssets / ProtectedPaths. Ask the user before using this.
         preserve_node_guids: Keep every node_guid identical to the source (default). With false the engine assigns new guids.
         save: Save the duplicate to disk right away.
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): dest_path must be inside [AnimGraphMcp]
+            GenerationOutputPaths, overwrite is refused, and the editor-wide dirty-package diff is checked before saving
+            (UNEXPECTED_DIRTY — nothing saved). The source is only read. Result gains guard{enabled, newly_dirty[]}.
 
     Returns the same summary as get_anim_blueprint_info plus duplicated=true, source_path, source_revision, node_guids_preserved, saved.
     """
-    return bridge.call("duplicate_animation_blueprint", {
-        "source_path": source_path, "dest_path": dest_path, "overwrite": overwrite,
-        "preserve_node_guids": preserve_node_guids, "save": save,
-    }, timeout=bridge.COMPILE_TIMEOUT)
+    params = {"source_path": source_path, "dest_path": dest_path, "overwrite": overwrite,
+              "preserve_node_guids": preserve_node_guids, "save": save}
+    if generation_guard:
+        params["generation_guard"] = True
+    return bridge.call("duplicate_animation_blueprint", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()
@@ -469,7 +484,7 @@ def set_update_function(asset_path: str, assignments: list[dict] | None = None, 
 
 @mcp.tool()
 def create_anim_montage(asset_path: str, animation: str, slot: str | None = None, blend_in: float | None = None, blend_out: float | None = None,
-                        preview_mesh: str | None = None, overwrite: bool = False, save: bool = False) -> dict:
+                        preview_mesh: str | None = None, overwrite: bool = False, save: bool = False, generation_guard: bool = False) -> dict:
     """Create an AnimMontage from one AnimSequence: one slot track with one segment and a "Default" section at 0.
 
     Args:
@@ -481,6 +496,9 @@ def create_anim_montage(asset_path: str, animation: str, slot: str | None = None
         preview_mesh: Optional skeletal mesh for the preview viewport.
         overwrite: If true, an existing asset at asset_path is DELETED first (refused for protected assets). Ask the user first.
         save: Save the new asset to disk right away.
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): asset_path must be inside [AnimGraphMcp]
+            GenerationOutputPaths, overwrite is refused, and the editor-wide dirty-package diff is checked before saving
+            (UNEXPECTED_DIRTY — nothing saved). Result gains guard{enabled, newly_dirty[]}.
 
     Notifies are not created here (they are project specific — use the project's own notify pipeline). Returns the montage summary
     (slots, sections, length, skeleton_slot_groups) plus created=true and saved. Next: set_montage_sections for combo/loop sections.
@@ -494,6 +512,8 @@ def create_anim_montage(asset_path: str, animation: str, slot: str | None = None
         params["blend_out"] = blend_out
     if preview_mesh:
         params["preview_mesh"] = preview_mesh
+    if generation_guard:
+        params["generation_guard"] = True
     return bridge.call("create_anim_montage", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
@@ -514,7 +534,7 @@ def set_montage_slots(asset_path: str, slots: list[dict | str], save: bool = Fal
 
 
 @mcp.tool()
-def set_montage_sections(asset_path: str, sections: list[dict], save: bool = False) -> dict:
+def set_montage_sections(asset_path: str, sections: list[dict], save: bool = False, generation_guard: bool = False) -> dict:
     """Replace the section list of an AnimMontage (combo sections, loops, section chains).
 
     Args:
@@ -523,11 +543,16 @@ def set_montage_sections(asset_path: str, sections: list[dict], save: bool = Fal
             — start in seconds inside [0, length]; next = the section played after this one (omit/null = stop at its end, its own
             name = loop). Names must be unique and next must name a section in this list.
         save: Save the montage afterwards.
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): the montage must be inside [AnimGraphMcp]
+            GenerationOutputPaths and the editor-wide dirty-package diff is checked before saving (UNEXPECTED_DIRTY — nothing saved).
 
     The whole list is replaced and sorted by start; notifies are untouched. Re-applying the same list is a no-op (unchanged=true).
     A first section that does not start at 0 is applied with a NO_SECTION_AT_ZERO warning. Returns the montage summary plus unchanged and saved.
     """
-    return bridge.call("set_montage_sections", {"asset_path": asset_path, "sections": sections, "save": save}, timeout=bridge.COMPILE_TIMEOUT)
+    params = {"asset_path": asset_path, "sections": sections, "save": save}
+    if generation_guard:
+        params["generation_guard"] = True
+    return bridge.call("set_montage_sections", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()
@@ -975,7 +1000,7 @@ def apply_animation_edits(source: str, asset_path: str, operations: list[dict], 
 @mcp.tool()
 def set_sequence_additive(asset_path: str, additive_type: str | None = None, ref_pose_type: str | None = None,
                           ref_pose_sequence: str | None = None, clear_ref_pose_sequence: bool = False,
-                          ref_frame_index: int | None = None, save: bool = False) -> dict:
+                          ref_frame_index: int | None = None, save: bool = False, generation_guard: bool = False) -> dict:
     """Set an AnimSequence's additive settings (the Details panel's "Additive Settings") — what makes a sequence usable as an
     AimOffset sample: additive_type RotationOffsetMeshSpace plus a base pose (ref_pose_type AnimFrame + ref_pose_sequence, or
     RefPose). create_blendspace(aim_offset=true) refuses samples whose base pose is missing (ADDITIVE_INVALID); fix them here first.
@@ -988,6 +1013,8 @@ def set_sequence_additive(asset_path: str, additive_type: str | None = None, ref
         clear_ref_pose_sequence: Clear the base pose sequence instead.
         ref_frame_index: Frame of ref_pose_sequence used when ref_pose_type is AnimFrame.
         save: Save the sequence afterwards.
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): the sequence must be inside [AnimGraphMcp]
+            GenerationOutputPaths and the editor-wide dirty-package diff is checked before saving (UNEXPECTED_DIRTY — nothing saved).
 
     Omitted fields keep their value; identical values report unchanged=true. Returns {additive_type, ref_pose_type,
     ref_pose_sequence, ref_frame_index, additive_valid, changed[], unchanged, saved, dirty}.
@@ -1003,7 +1030,38 @@ def set_sequence_additive(asset_path: str, additive_type: str | None = None, ref
         params["ref_pose_sequence"] = ref_pose_sequence
     if ref_frame_index is not None:
         params["ref_frame_index"] = ref_frame_index
+    if generation_guard:
+        params["generation_guard"] = True
     return bridge.call("set_sequence_additive", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def promote_animation(assets: list[dict], dry_run: bool = False, confirm: bool = False, allow_referencers: list[str] | None = None) -> dict:
+    """Move generated candidate animation assets to their production paths with the engine's rename (no redirectors left).
+
+    ALWAYS run dry_run=true first, show the planned list (and every referencer the engine will fix and save) to the user, and only call
+    again with confirm=true after the user approved. The engine saves the moved and the referencing packages itself.
+
+    Args:
+        assets: [{"source": "/Game/Animation/Generated/Vesper/AS_X", "dest": "/Game/Animation/Hero/Vesper/Sickle/Actions/AS_X"}] — full asset
+            paths. Source must be a candidate (inside [AnimGraphMcp] GenerationOutputPaths) and an AnimSequence, AnimMontage, AnimComposite or
+            BlendSpace (incl. 1D / AimOffset). Dest must be inside [AnimGraphMcp] PromotionPaths, outside the candidate paths, not protected and
+            not existing (redirectors count). The plugin knows no naming rule — anim_gen jobs propose promotion.assets[].
+        dry_run: Run every check and return planned[] without changing anything (no confirm needed).
+        confirm: Must be true for the real move.
+        allow_referencers: Packages outside the candidate paths that reference a promoted asset and that the engine may fix and save
+            (refused otherwise with ASSET_REFERENCED REFERENCED_OUTSIDE_CANDIDATES — details.referencers[]). Maps, protected assets and
+            packages with unsaved changes are always refused (REFERENCED_BY_MAP · REFERENCER_PROTECTED · DIRTY_PACKAGES REFERENCER_DIRTY).
+
+    Returns {dry_run, planned[{source, dest, class, content_hash, referencers[{package, candidate, allowed}]}], moved[{source, dest, class,
+    content_hash, same_content}], fixed_referencers[], saved_packages[], redirectors (0), removed_files[]}. Engine failures are PROMOTE_FAILED
+    (reason CDO_REFERENCED · REGISTRY_LOADING · ENGINE_ABORTED · ENGINE · REDIRECTOR_LEFT · OLD_FILE_LEFT · REFERENCES_NOT_UPDATED — details.moved
+    lists what already moved); packages outside candidates ∪ dests ∪ allow_referencers dirtied or saved → UNEXPECTED_DIRTY (reported, not reverted).
+    """
+    params: dict = {"assets": assets, "dry_run": dry_run, "confirm": confirm}
+    if allow_referencers:
+        params["allow_referencers"] = allow_referencers
+    return bridge.call("promote_animation", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()

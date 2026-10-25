@@ -53,6 +53,9 @@ namespace AnimMcpTools
 	/** 기존 모션 메타데이터 검색 (search_animations) — AI 애니 생성 Phase 2 */
 	void RegisterSearchTools(FAnimMcpDispatcher& Dispatcher);
 
+	/** 후보 → 정식 경로 승격 (promote_animation) — AI 애니 생성 Phase 7 */
+	void RegisterPromoteTools(FAnimMcpDispatcher& Dispatcher);
+
 	/** 그래프 변경 (preview_graph_operations, apply_graph_operations) */
 	void RegisterGraphTools(FAnimMcpDispatcher& Dispatcher);
 

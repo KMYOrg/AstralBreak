@@ -33,8 +33,18 @@ AIM_IDLE = f"{HERO}/Rifle/Aim/AS_Vesper_Rifle_AimIdle"
 ATTACK3 = f"{HERO}/Sickle/Actions/AS_Vesper_Sickle_Attack3"
 KATANA = "/Game/Assets/CM/Anims/Katana_Attack_Slash1"
 OUT = "/Game/Animation/Test/AIAnimation/P3"
-WRITE_TOOLS = {"apply_animation_edits", "retarget_animations", "import_animation_file", "create_ik_rig", "create_ik_retargeter"}
+# Phase 7 — 포장 · 연결 Tool 도 쓰기(계획은 이것들을 부르지 않는다)
+INTEGRATION_WRITE_TOOLS = {"set_sequence_additive", "create_anim_montage", "set_montage_sections", "create_blendspace",
+                           "duplicate_animation_blueprint", "apply_graph_operations"}
+WRITE_TOOLS = {"apply_animation_edits", "retarget_animations", "import_animation_file", "create_ik_rig", "create_ik_retargeter"} | INTEGRATION_WRITE_TOOLS
+ABP_TOOLS = {"get_anim_blueprint_info", "preview_graph_operations", "duplicate_animation_blueprint", "apply_graph_operations",
+             "compile_animation_blueprint", "run_anim_scenario"}
 KNOWN_OPS = {"trim", "retime", "hold_pose", "concat", "mirror", "offset_bone", "rotate_root"}
+COMBAT_ABP = "/Game/Animation/Hero/ABP_Hero_Combat"
+RUNTIME_ABP = "/Game/Animation/Test/ABP_McpRuntimeTest"
+WALK = f"{HERO}/Common/Locomotion/AS_Vesper_Neutral_Walk_Loop_F"
+IDLE = f"{HERO}/Common/Locomotion/AS_Vesper_Idle"
+OTHER_ABP = "/Game/Characters/Enemy/ABP_Grunt"
 
 
 def _bone(name, parent, t):
@@ -111,7 +121,20 @@ class FakeEditor:
             ATTACK3: {"class": "AnimSequence", "skeleton": VESPER, "length": 1.6, "frame_rate": 60.0, "loop": False, "root_motion": True},
             KATANA: {"class": "AnimSequence", "skeleton": UE4, "length": 1.9, "frame_rate": 30.0, "loop": False, "root_motion": True},
             SB_ANIM: {"class": "AnimSequence", "skeleton": SB, "length": 10.375, "frame_rate": 24.0, "loop": False, "root_motion": False},
+            WALK: {"class": "AnimSequence", "skeleton": VESPER, "length": 1.0667, "frame_rate": 30.0, "loop": True, "root_motion": False},
+            IDLE: {"class": "AnimSequence", "skeleton": VESPER, "length": 2.0, "frame_rate": 30.0, "loop": True, "root_motion": False},
         }
+        # Phase 7 — 스켈레톤 슬롯 · AnimBP · 스모크 · 시나리오 흉내
+        self.promotion_paths = ["/Game/Animation/Hero/"]
+        self.slots = {VESPER: ["DefaultSlot", "UpperBody"]}
+        self.abps: dict[str, dict] = {COMBAT_ABP: {"skeleton": VESPER, "revision": "sha1:combat"},
+                                      RUNTIME_ABP: {"skeleton": VESPER, "revision": "sha1:runtime"},
+                                      OTHER_ABP: {"skeleton": UE4, "revision": "sha1:grunt"}}
+        self.compile_ok = True
+        self.smoke_fail: set[str] = set()      # 이 문자열을 품은 필터는 실패
+        self.smoke_missing: set[str] = set()   # 이 문자열을 품은 필터는 테스트 0개
+        self.scenario_polls = 1                # 끝나기 전 poll 횟수
+        self.scenario_jobs: dict[str, dict] = {}
 
     # ---- 호출 ----
     def call(self, tool: str, params: dict, timeout: float | None = None) -> dict:
@@ -142,6 +165,10 @@ class FakeEditor:
     def writes(self) -> list[tuple[str, dict]]:
         return [(t, p) for t, p in self.calls if t in WRITE_TOOLS]
 
+    @property
+    def abp_calls(self) -> list[tuple[str, dict]]:
+        return [(t, p) for t, p in self.calls if t in ABP_TOOLS]
+
     # ---- 가드 ----
     def _allowed(self, path: str) -> None:
         if not is_under(path, self.output_paths):
@@ -164,7 +191,7 @@ class FakeEditor:
     # ---- Tool ----
     def _get_editor_status(self, p):
         return {"generation": {"output_paths": self.output_paths, "import_source_roots": self.import_roots,
-                               "max_retarget_assets_per_call": 50}, "dirty_package_count": 0}
+                               "max_retarget_assets_per_call": 50, "promotion_paths": self.promotion_paths}, "dirty_package_count": 0}
 
     def _search_animations(self, p):
         tokens = [t for t in (p.get("query") or "").lower().replace("_", " ").split() if t]
@@ -192,7 +219,7 @@ class FakeEditor:
         if not p.get("details"):
             bones = [{"name": b["name"], "parent": b["parent"]} for b in bones]
         return {"skeleton_path": _obj(p["skeleton"]), "mesh": _obj(mesh) if mesh else None, "mesh_source": "skeleton_preview" if mesh else "none",
-                "bones": bones}
+                "bones": bones, "slot_groups": [{"group": "DefaultGroup", "slots": self.slots.get(package_path(p["skeleton"]), ["DefaultSlot"])}]}
 
     def _check_ops(self, ops):
         bad = [i for i, o in enumerate(ops) if o.get("op") not in KNOWN_OPS]
@@ -280,6 +307,147 @@ class FakeEditor:
                                       "before": {"arms": [arm("l", 30.0), arm("r", 0.0)]}, "after": {"arms": [arm("l", 0.0), arm("r", 0.0)]}}
                                      for g in generated]
         return out
+
+    # ---- Phase 7 — 포장 · 연결 (플러그인의 옵트인 generation_guard 흉내) ----
+    def _guard(self, p: dict, path: str) -> dict | None:
+        if not p.get("generation_guard"):
+            return None
+        self._allowed(path)
+        if p.get("overwrite"):
+            raise _Refuse(err("BAD_REQUEST", "generation_guard never overwrites", reason="OVERWRITE_NOT_ALLOWED", field="overwrite"))
+        return {"enabled": True, "newly_dirty": [package_path(path)]}
+
+    def _set_sequence_additive(self, p):
+        path = package_path(p["asset_path"])
+        guard = self._guard(p, path)
+        info = self._source(path)
+        info.update({k: p[k] for k in ("additive_type", "ref_pose_type", "ref_frame_index") if k in p})
+        return {"asset_path": _obj(path), "additive_type": f"AAT_{info.get('additive_type', 'None')}", "ref_pose_type": f"ABPT_{info.get('ref_pose_type', 'RefPose')}",
+                "ref_pose_sequence": _obj(p["ref_pose_sequence"]) if p.get("ref_pose_sequence") else None, "ref_frame_index": info.get("ref_frame_index", 0),
+                "additive_valid": True, "changed": ["AdditiveAnimType"], "unchanged": False, "saved": p.get("save", False), **({"guard": guard} if guard else {})}
+
+    def _create_anim_montage(self, p):
+        guard = self._guard(p, p["asset_path"])
+        anim = self._source(p["animation"])
+        slot = p.get("slot", "DefaultSlot")
+        if slot not in self.slots.get(anim["skeleton"], ["DefaultSlot"]):
+            raise _Refuse(err("BAD_REQUEST", f"Slot '{slot}' is not registered", reason="SLOT_NOT_IN_SKELETON", field="slot"))
+        path = self._new(p["asset_path"], **{"class": "AnimMontage", "skeleton": anim["skeleton"], "length": anim["length"], "frame_rate": anim["frame_rate"],
+                                             "loop": False, "root_motion": False, "slot": slot, "animation": package_path(p["animation"])})
+        return {"asset_path": _obj(path), "class": "AnimMontage", "length": anim["length"], "slots": [{"index": 0, "name": slot}],
+                "sections": [{"name": "Default", "start": 0.0, "next": None}], "blend_in": p.get("blend_in", 0.25), "blend_out": p.get("blend_out", 0.25),
+                "created": True, "saved": p.get("save", False), **({"guard": guard} if guard else {})}
+
+    def _set_montage_sections(self, p):
+        path = package_path(p["asset_path"])
+        guard = self._guard(p, path)
+        info = self._source(path)
+        names = [s["name"] for s in p["sections"]]
+        if any(s.get("next") and s["next"] not in names for s in p["sections"]):
+            raise _Refuse(err("BAD_REQUEST", "next not found", reason="NEXT_NOT_FOUND"))
+        info["sections"] = p["sections"]
+        return {"asset_path": _obj(path), "length": info["length"], "sections": [{"name": s["name"], "start": s["start"], "next": s.get("next")} for s in p["sections"]],
+                "unchanged": False, "saved": p.get("save", False), **({"guard": guard} if guard else {})}
+
+    def _create_blendspace(self, p):
+        guard = self._guard(p, p["asset_path"])
+        skeleton = package_path(p["skeleton"])
+        for i, s in enumerate(p.get("samples") or []):
+            if self._source(s["animation"]).get("skeleton") != skeleton:
+                raise _Refuse(err("BAD_REQUEST", "sample skeleton", reason="SKELETON_MISMATCH", field=f"samples[{i}]"))
+        cls = "BlendSpace1D" if p["dimensions"] == 1 else "BlendSpace"
+        path = self._new(p["asset_path"], **{"class": cls, "skeleton": skeleton, "samples": p.get("samples") or []})
+        return {"asset_path": _obj(path), "class": cls, "sample_count": len(p.get("samples") or []), "samples": p.get("samples") or [], "created": True,
+                "saved": p.get("save", False), **({"guard": guard} if guard else {})}
+
+    def _abp(self, path: str) -> dict:
+        info = self.abps.get(package_path(path))
+        if info is None:
+            raise _Refuse(err("ASSET_NOT_FOUND", f"No asset at '{path}'"))
+        return info
+
+    def _get_anim_blueprint_info(self, p):
+        info = self._abp(p["asset_path"])
+        return {"asset_path": _obj(p["asset_path"]), "revision": info["revision"], "target_skeleton": _obj(info["skeleton"])}
+
+    def _plan_ops(self, ops):
+        planned = [{"index": i, "op": o.get("op"), "ok": o.get("op") != "bad_op"} for i, o in enumerate(ops)]
+        return planned, all(x["ok"] for x in planned)
+
+    def _preview_graph_operations(self, p):
+        info = self._abp(p["asset_path"])
+        planned, valid = self._plan_ops(p["operations"])
+        return {"valid": valid, "revision": info["revision"], "planned": planned}
+
+    def _duplicate_animation_blueprint(self, p):
+        src = self._abp(p["source_path"])
+        dest = package_path(p["dest_path"])
+        guard = self._guard(p, dest)
+        if dest in self.abps or dest in self.assets:
+            raise _Refuse(err("ASSET_EXISTS", f"{dest} exists"))
+        self.abps[dest] = {"skeleton": src["skeleton"], "revision": src["revision"]}
+        self.assets[dest] = {"class": "AnimBlueprint", "skeleton": src["skeleton"]}
+        return {"asset_path": _obj(dest), "revision": src["revision"], "source_revision": src["revision"], "duplicated": True,
+                "saved": p.get("save", False), **({"guard": guard} if guard else {})}
+
+    def _apply_graph_operations(self, p):
+        path = package_path(p["asset_path"])
+        guard = self._guard(p, path)
+        info = self._abp(path)
+        if p.get("expected_revision") and p["expected_revision"] != info["revision"]:
+            raise _Refuse(err("REVISION_MISMATCH", "Graph changed since the plan was made", expected=p["expected_revision"], actual=info["revision"]))
+        planned, valid = self._plan_ops(p["operations"])
+        if not valid:
+            raise _Refuse(err("BAD_REQUEST", "One or more operations failed validation; nothing was applied", planned=planned))
+        for o in p["operations"]:
+            if o.get("op") == "set_asset" and package_path(o.get("asset")) not in self.assets:
+                raise _Refuse(err("ASSET_NOT_FOUND", f"{o.get('asset')} not found"))
+        before = info["revision"]
+        info["revision"] = before + "+"
+        compiled = {"ok": self.compile_ok, "num_errors": 0 if self.compile_ok else 1, "num_warnings": 0,
+                    "messages": [] if self.compile_ok else [{"level": "error", "text": "bad pin"}]} if p.get("compile") else {"ran": False}
+        return {"revision_before": before, "revision_after": info["revision"], "applied": len(p["operations"]), "operations": planned, "refs": {},
+                "compile": compiled, "saved": bool(p.get("save") and self.compile_ok), **({"guard": guard} if guard else {})}
+
+    def _compile_animation_blueprint(self, p):
+        self._abp(p["asset_path"])
+        return {"ok": self.compile_ok, "num_errors": 0 if self.compile_ok else 1, "num_warnings": 0, "messages": []}
+
+    def _run_automation_tests(self, p):
+        flt = p["filter"]
+        total = 0 if any(s in flt for s in self.smoke_missing) else 1
+        failed = int(total > 0 and any(s in flt for s in self.smoke_fail))
+        return {"done": True, "total": total, "completed": total, "passed": total - failed, "failed": failed, "ok": not failed,
+                "tests": [{"name": flt, "state": "failed" if failed else "Success", "errors": ["smoke boom"] if failed else [], "warnings": []}] if total else []}
+
+    def _run_anim_scenario(self, p):
+        self._abp(p["asset_path"])
+        job_id = f"scn{len(self.scenario_jobs) + 1}"
+        self.scenario_jobs[job_id] = {"params": copy.deepcopy(p), "left": self.scenario_polls}
+        return {"job_id": job_id, "done": False, "total": 1, "completed": 0, "tests": []}
+
+    def _poll_automation_tests(self, p):
+        job = self.scenario_jobs[p["job_id"]]
+        if job["left"] > 0:
+            job["left"] -= 1
+            return {"job_id": p["job_id"], "done": False, "total": 1, "completed": 0, "tests": []}
+        q = job["params"]
+        expect = q.get("expect") or {}
+        speed = (q.get("set_variables") or {}).get("Speed", 0)
+        machines = {m: {"state": "Run" if speed >= 100 else "Idle", "elapsed": 0.3} for m in (expect.get("state_machines") or {"Locomotion": None})}
+        montage = q.get("montage")
+        slots = {s: bool(montage) and package_path(montage) in self.assets for s in expect.get("slots_active") or []}
+        errors = [f"expected '{st}' but it is in '{machines[m]['state']}'" for m, st in (expect.get("state_machines") or {}).items() if machines[m]["state"] != st]
+        errors += [f"Slot '{s}' is not active" for s, on in slots.items() if not on]
+        observed = {"state_machines": machines, "slots": slots, "montage_playing": bool(montage), "frames_waited": q.get("wait_frames", 10)}
+        return {"job_id": p["job_id"], "done": True, "total": 1, "completed": 1, "passed": int(not errors), "failed": int(bool(errors)), "ok": not errors,
+                "tests": [{"name": "AnimGraphMcp.Runtime.AnimBlueprint", "state": "failed" if errors else "Success", "errors": errors, "observed": observed}]}
+
+    def _list_animation_assets(self, p):
+        prefix = p.get("path_prefix", "/Game")
+        items = [{"asset_path": _obj(path), "name": asset_name(path), "class": info.get("class")} for path, info in sorted(self.assets.items())
+                 if path.startswith(prefix.rstrip("/") + "/")]
+        return {"total": len(items), "returned": len(items), "truncated": False, "assets": items}
 
 
 class _Refuse(Exception):

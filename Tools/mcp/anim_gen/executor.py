@@ -15,6 +15,7 @@ from .envelope import limitation
 from .fallback import fallback_limitations, from_editor_error, history_entry
 from .policy import paid_block_reason, resolve_mode
 from .providers.base import RunContext, StepFailed, StepResult
+from .providers.integrate import promotion_proposal
 from .store import (CANCELLED, FAILED, QUEUED, RUNNING, SUCCEEDED, WAITING_FOR_APPROVAL, InvalidTransition, Store, ledger_key,
                     now_iso)
 
@@ -101,6 +102,8 @@ class Executor:
                         self._append(job_id, "preserved_candidates", {"candidate": cand["index"], "provider": cand["provider"],
                                                                       "assets": failed.created, "note": "validation FAILED — kept unsaved"})
                 last = {"code": failed.cause, "reason": failed.reason, "message": failed.message}
+                if failed.cause == "INTEGRATION_FAILED" and failed.details:
+                    last["details"] = failed.details  # 포장 · 연결 실패의 근거(시나리오 observed · 컴파일 메시지 · 스모크 결과)
                 if self._cancelled(job_id):
                     return self.store.load_job(job_id)
                 if failed.fatal:
@@ -201,7 +204,9 @@ class Executor:
                             result = self._poll_step(job_id, provider, ctx, pending)
                         else:
                             result = provider.run(ctx)
-                            if result.pending is not None:  # 무료 비동기 단계(Blender · 로컬 AI) — 장부 없이 핸들만
+                            if result.pending is not None:  # 무료 비동기 단계(Blender · 로컬 AI · AnimBP 시나리오) — 장부 없이 핸들만
+                                if result.created:  # 기다리기 전에 만든 애셋(AnimBP 복제본) — 취소 · 실패해도 Job 에 남는다
+                                    self._append(job_id, "intermediate_assets", *result.created)
                                 self.store.patch_job(job_id, pending={"key": None, "provider": provider.name, "handle": result.pending, "step": j})
                                 result = None
                         if result is None:
@@ -247,7 +252,9 @@ class Executor:
 
         def mutate(job):
             for asset in result.created:
-                bucket = "generated_assets" if final and asset == result.values.get("asset") else "intermediate_assets"
+                # 최종 결과물: 마지막 생성 단계의 시퀀스 · 포장 단계의 몽타주 · BlendSpace (deliverables). 그 밖(IK Rig · RTG · ABP 복제본)은 중간
+                deliverable = (final and asset == result.values.get("asset")) or asset in result.deliverables
+                bucket = "generated_assets" if deliverable else "intermediate_assets"
                 if asset not in job[bucket]:
                     job[bucket].append(asset)
             job["diagnostics"] += result.diagnostics
@@ -394,10 +401,12 @@ class Executor:
             lims.append(limitation("OUTPUT_RENAMED", f"앞선 시도가 같은 이름을 남겨 {final} 로 만들었다", "fallback", asset=final))
         lims += fallback_limitations(job["fallback_history"], cand, plan, self.registry.manifests())
         lims = [lim for i, lim in enumerate(lims) if lim not in lims[:i]]  # 계획의 예상 한계와 단계가 다시 적은 같은 한계는 하나로
+        # Phase 7 — 포장 · 연결 결과와 승격 제안(만든 애셋만 — 재사용 애셋은 옮기지 않는다)
+        promotion = promotion_proposal(request, job["generated_assets"], plan.get("promotion_paths")) if job["generated_assets"] else None
         return self.store.transition(
             job_id, SUCCEEDED, f"{cand['provider']} ok", stage=None, cursor=cs, error=None, pending=None,
             reused_assets=[values["reused"]] if values.get("reused") else [], validation=values.get("validation"), limitations=lims,
-            measured=values.get("measured"))
+            measured=values.get("measured"), package=values.get("package"), anim_bp=values.get("anim_bp"), promotion=promotion)
 
     def _append(self, job_id: str, field: str, *items) -> None:
         def mutate(job):

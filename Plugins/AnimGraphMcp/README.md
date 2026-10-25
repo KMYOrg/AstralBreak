@@ -37,13 +37,18 @@ bAutoStart=True            ; 에디터 기동 시 리스너 시작. 콘솔 AnimG
 +ImportSourceRoots=Saved/AnimGen/Import/            ; import_animation_file 이 읽는 디스크 폴더 (프로젝트 기준 상대 또는 절대)
 MaxRetargetAssetsPerCall=50                         ; retarget_animations 요청당 애셋 수 상한(입력 + 동반 참조). 실측 20개 리타깃·검증·저장 3초
 +AnimationTagFiles=Config/AnimGraphMcp/AnimationTags.json  ; search_animations 수동 태그 JSON (프로젝트 기준 상대 또는 절대)
++PromotionPaths=/Game/Characters/                    ; promote_animation 이 후보를 옮길 수 있는 정식 경로 (패키지 경로 접두, 생성 경로와 겹치면 무시)
 ```
 
 (UE ini 는 줄 끝 `;` 주석을 값으로 읽습니다 — 위 주석은 설명용이고 실제 ini 에서는 주석을 따로 줄에 둡니다.)
 
-보호 목록은 **파괴 연산만** 막습니다(`delete_animation_blueprint`, `create/duplicate_animation_blueprint` 의 `overwrite`). 조회·편집·저장은 막지 않습니다.
+보호 목록은 **파괴 연산만** 막습니다(`delete_animation_blueprint`, `create/duplicate_animation_blueprint` 의 `overwrite`, 그리고 `promote_animation` 의 dest · 엔진이 고쳐 저장할 참조자). 조회·편집·저장은 막지 않습니다.
 
-생성 경로 설정은 출력·임포트 경로의 **유일한 기준**입니다. 목록이 비어 있으면 생성 Tool 은 아무 데도 쓰지 않고 임포트도 받지 않습니다. 생성 Tool 은 호출 전후 에디터 전체의 더티 패키지 집합을 비교해, 허용 목록 밖 패키지가 새로 더티가 되면 아무것도 저장하지 않고 `UNEXPECTED_DIRTY` 로 실패합니다. `get_editor_status.generation` 이 정규화된 값(`output_paths[]` · 절대 경로 `import_source_roots[]` · `max_retarget_assets_per_call` · `animation_tag_files[]`)을 돌려줍니다.
+생성 경로 설정은 출력·임포트 경로의 **유일한 기준**입니다. 목록이 비어 있으면 생성 Tool 은 아무 데도 쓰지 않고 임포트도 받지 않습니다. 생성 Tool 은 호출 전후 에디터 전체의 더티 패키지 집합을 비교해, 허용 목록 밖 패키지가 새로 더티가 되면 아무것도 저장하지 않고 `UNEXPECTED_DIRTY` 로 실패합니다. `get_editor_status.generation` 이 정규화된 값(`output_paths[]` · 절대 경로 `import_source_roots[]` · `max_retarget_assets_per_call` · `animation_tag_files[]` · `promotion_paths[]`)을 돌려줍니다.
+
+**옵트인 생성 가드 `generation_guard`** — 기존 쓰기 Tool 6개(`create_anim_montage` · `set_montage_sections` · `create_blendspace` · `set_sequence_additive` · `duplicate_animation_blueprint` · `apply_graph_operations`)는 `generation_guard: true` 를 주면 생성 Tool 과 같은 가드를 받습니다: 쓰는 애셋(`asset_path` · `dest_path`)이 `GenerationOutputPaths` 안(`OUTPUT_PATH_NOT_ALLOWED`) · `overwrite=true` 거부(`BAD_REQUEST` reason `OVERWRITE_NOT_ALLOWED`) · 호출 전후 전역 더티 비교(`UNEXPECTED_DIRTY` — 검사는 저장 전에, 실패면 저장 안 함, `apply_graph_operations` 는 컴파일 뒤 · 저장 전) · 결과에 `guard{enabled, newly_dirty[]}`. **기본 false = 지금까지와 같은 동작**(경로 검사 없음, 결과에 `guard` 없음) — 프로젝트 스크립트(`build_hero_combat.py` 등)는 영향이 없습니다. 운영 AnimBP 처럼 허용 목록 밖 애셋은 가드를 켜면 거부되는 것이 의도입니다(복제본에서 검증 → 운영 적용은 사람이 가드 없이).
+
+**승격 경로 `PromotionPaths`** — `promote_animation` 은 후보(`GenerationOutputPaths` 안)를 이 목록 안으로만 옮깁니다. 생성 경로와 겹치는 항목(어느 쪽이 다른 쪽 안이든)과 마운트 루트는 경고 후 무시합니다.
 
 ## 통신 규약
 
@@ -58,7 +63,7 @@ MaxRetargetAssetsPerCall=50                         ; retarget_animations 요청
 - `diagnostics[]` 는 성공 응답에도 붙는 경고(`{level, code, message}`).
 - 긴 작업은 동기입니다(에디터 프레임을 잡습니다). 클라이언트 타임아웃은 기본 60초, 컴파일을 포함하면 180초를 권장합니다.
 
-## Tool (39개)
+## Tool (40개)
 
 Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
@@ -70,14 +75,14 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | | | `state_machines[].transitions[]` 는 `from/to · priority_order · crossfade_duration · blend_mode · logic_type`(`TLT_StandardBlend \| TLT_Inertialization \| TLT_Custom`, revision 해시 밖) `· bidirectional · disabled · automatic · rule_*` |
 | `list_animation_assets` | `skeleton?, asset_class=all, path_prefix=/Game, limit=200, details=false` | AnimSequence·BlendSpace·AnimMontage·AnimComposite 목록. `details` 면 로드해서 BlendSpace → `blendspace{}`(축·샘플·`aim_offset`), AnimMontage → `montage{}`(슬롯·섹션·`skeleton_slot_groups`), AnimSequence → `additive_type`·`additive_valid`·`ref_pose_type`·`ref_pose_sequence`·`length` |
 | `create_animation_blueprint` | `asset_path, skeleton, parent_class, preview_mesh?, overwrite=false` | 루트 AnimGraph 만 있는 ABP 생성. `overwrite` 는 기존 애셋 삭제 |
-| `duplicate_animation_blueprint` | `source_path, dest_path, overwrite=false, preserve_node_guids=true, save=false` | 노드 Guid 를 보존한 복제 |
+| `duplicate_animation_blueprint` | `source_path, dest_path, overwrite=false, preserve_node_guids=true, save=false, generation_guard=false` | 노드 Guid 를 보존한 복제. `generation_guard` = 위 옵트인 가드(dest 허용 목록 · 덮어쓰기 거부 · 전역 더티 — 원본은 읽기만; 실측 `ABP_Hero_Combat` 복제 시 새로 더티 = 복제본 1개) |
 | `delete_animation_blueprint` | `asset_path, confirm(true 필수), force=false` | AnimBP 만. 다른 애셋이 참조하면(AssetRegistry + 메모리 참조자) `force` 없이는 `ASSET_REFERENCED` |
-| `create_blendspace` | `asset_path, skeleton, dimensions 1\|2, axes[{name,min,max,grid=4,snap,wrap}], samples?[{animation, value}], aim_offset=false, preview_mesh?, overwrite, save` | BlendSpace1D / BlendSpace 생성, `aim_offset` 면 AimOffsetBlendSpace1D / AimOffsetBlendSpace(샘플은 Mesh Space additive 만 — `ADDITIVE_TYPE`). 샘플은 생성 전 전부 검증(범위·중복·스켈레톤·additive 일치·기준 포즈 유무 `ADDITIVE_INVALID`) |
-| `create_anim_montage` | `asset_path, animation, slot?=DefaultSlot, blend_in?, blend_out?, preview_mesh?, overwrite, save` | AnimSequence 하나로 몽타주 생성(트랙 1·세그먼트 1·섹션 `Default`@0). 스켈레톤·길이는 시퀀스를 따름. 슬롯은 스켈레톤에 등록돼 있어야 함(`SLOT_NOT_IN_SKELETON`). 노티파이는 범위 밖 |
+| `create_blendspace` | `asset_path, skeleton, dimensions 1\|2, axes[{name,min,max,grid=4,snap,wrap}], samples?[{animation, value}], aim_offset=false, preview_mesh?, overwrite, save, generation_guard=false` | BlendSpace1D / BlendSpace 생성, `aim_offset` 면 AimOffsetBlendSpace1D / AimOffsetBlendSpace(샘플은 Mesh Space additive 만 — `ADDITIVE_TYPE`). 샘플은 생성 전 전부 검증(범위·중복·스켈레톤·additive 일치·기준 포즈 유무 `ADDITIVE_INVALID`) |
+| `create_anim_montage` | `asset_path, animation, slot?=DefaultSlot, blend_in?, blend_out?, preview_mesh?, overwrite, save, generation_guard=false` | AnimSequence 하나로 몽타주 생성(트랙 1·세그먼트 1·섹션 `Default`@0). 스켈레톤·길이는 시퀀스를 따름. 슬롯은 스켈레톤에 등록돼 있어야 함(`SLOT_NOT_IN_SKELETON`). 노티파이는 범위 밖 |
 | `set_montage_slots` | `asset_path, slots[{index?, slot} \| "name"], save` | 슬롯 트랙 이름 변경(전부 검증 뒤 적용). 스켈레톤에 없는 이름 거부(`SLOT_NOT_IN_SKELETON`, details 에 `slot_groups`), 트랙 이름 중복 거부(`DUPLICATE_SLOT`). 노티파이·섹션은 트랙 인덱스로 링크돼 유지. 같은 이름 = `unchanged` |
-| `set_montage_sections` | `asset_path, sections[{name, start, next?}], save` | 섹션 목록 **전체 교체**(시작 시간 순 정렬). `next` 생략/null = 섹션 끝에서 정지, 자기 이름 = 루프. 이름 중복·길이 밖·없는 next·빈 목록 거부. 같은 목록 재적용 = `unchanged`. 첫 섹션이 0 이 아니면 경고 `NO_SECTION_AT_ZERO` |
+| `set_montage_sections` | `asset_path, sections[{name, start, next?}], save, generation_guard=false` | 섹션 목록 **전체 교체**(시작 시간 순 정렬). `next` 생략/null = 섹션 끝에서 정지, 자기 이름 = 루프. 이름 중복·길이 밖·없는 next·빈 목록 거부. 같은 목록 재적용 = `unchanged`. 첫 섹션이 0 이 아니면 경고 `NO_SECTION_AT_ZERO` |
 | `reassign_skeleton` | `skeleton(대상), assets?[경로] \| (from_skeleton + path_prefix?=/Game), confirm(true 필수; dry_run 제외), dry_run?, allow_missing_bones?, convert_spaces?, save?=true` | 애니 애셋(시퀀스·몽타주·BlendSpace·AimOffset·컴포짓)을 다른 스켈레톤으로 **제자리** 이동 — 같은 캐릭터를 두 번 임포트해 본 이름이 같은 스켈레톤이 둘이 된 경우(ABP 는 자기 스켈레톤의 애셋만 참조할 수 있다). 엔진의 "retarget to another skeleton" 경로(본 트랙 이름 재매핑·커브 이름 복사). **참조 애셋(몽타주 세그먼트·BlendSpace 샘플·additive 기준 포즈)은 엔진이 항상 같이 옮긴다** → `dry_run` 의 `referred[]` 를 먼저 본다. 시퀀스 본 트랙이 대상 스켈레톤에 없으면 `BONES_MISSING`(details.assets[].missing_bones) 거부. 이미 대상이면 `skipped(already_on_target)`. 커브 이름 복사로 대상 스켈레톤이 더티가 되면 저장하되, 호출 전부터 더티였으면(남의 미저장 편집) 저장하지 않고 `SKELETON_DIRTY_NOT_SAVED` 경고. 응답 `{total, referred[], planned[] \| changed_assets[], referred_changed[], failed[], skipped[], changed, saved, skeleton_saved}` |
-| `set_sequence_additive` | `asset_path(AnimSequence), additive_type?(None\|LocalSpaceBase\|RotationOffsetMeshSpace), ref_pose_type?(None\|RefPose\|AnimScaled\|AnimFrame\|LocalAnimFrame), ref_pose_sequence?(경로 \| null), ref_frame_index?, save` | 디테일 패널의 Additive Settings — AimOffset 샘플(Mesh Space additive + 기준 포즈)을 만들기 전 단계. 생략 = 유지, 같은 값 = `unchanged`. 다른 스켈레톤 기준 포즈는 `SKELETON_MISMATCH`(엔진은 조용히 null 로 만든다). 응답에 `additive_valid` |
+| `set_sequence_additive` | `asset_path(AnimSequence), additive_type?(None\|LocalSpaceBase\|RotationOffsetMeshSpace), ref_pose_type?(None\|RefPose\|AnimScaled\|AnimFrame\|LocalAnimFrame), ref_pose_sequence?(경로 \| null), ref_frame_index?, save, generation_guard=false` | 디테일 패널의 Additive Settings — AimOffset 샘플(Mesh Space additive + 기준 포즈)을 만들기 전 단계. 생략 = 유지, 같은 값 = `unchanged`. 다른 스켈레톤 기준 포즈는 `SKELETON_MISMATCH`(엔진은 조용히 null 로 만든다). 응답에 `additive_valid` |
 | `add_skeleton_slot` | `skeleton, slot, group?=DefaultGroup, confirm(true 필수), save` | 스켈레톤에 슬롯 등록(그룹 없으면 생성, 다른 그룹에 있으면 이동). 슬롯·그룹은 같은 이름 공간(`SLOT_IS_GROUP`·`GROUP_IS_SLOT`). 응답 `added, moved_from, group_created, unchanged, slot_groups[]`. `save` 없으면 에디터 종료 시 사라짐 |
 | `create_anim_layer_interface` | `asset_path, layers[{name, group?, input_poses?["Name" \| {name, inputs?[{name, type}]}]}], overwrite, save` | Anim Layer Interface 애셋 + 레이어 그래프(+ 값 파라미터 `inputs`). 항상 컴파일 |
 | `implement_anim_layer_interface` | `asset_path, interface, compile=true, save` | ABP 가 인터페이스 구현 → 레이어 그래프(Root + 입력 포즈 + 값 핀) 자동 생성 |
@@ -85,7 +90,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | `add_anim_layers` | `asset_path, layers[…], compile=true, save, conform_implementers=true` | 인터페이스 레이어 또는 ABP 자체 레이어 그래프 추가(이름 충돌 전부 선검증) |
 | `remove_anim_layers` | `asset_path, layers[names], force=false, compile=true, save, conform_implementers=true` | 레이어 그래프 삭제. 인터페이스면 참조 ABP 의 채워진 구현 그래프·LinkedAnimLayer 노드 사용을 `usage[]` 로 보고하고 `force` 없이는 `LAYER_IN_USE_BY` |
 | `preview_graph_operations` | `asset_path, operations[]` | 그래프 불변. `valid`, `planned[{index, op, ok, error?, note?}]` |
-| `apply_graph_operations` | `asset_path, operations[], expected_revision?, compile=false, save=false` | 전체 사전 검증 → 트랜잭션 → 실패 시 롤백(`rollback_verified`). 응답 `refs`, `revision_before/after`, `operations[]`, `compile`, `saved` |
+| `apply_graph_operations` | `asset_path, operations[], expected_revision?, compile=false, save=false, generation_guard=false` | 전체 사전 검증 → 트랜잭션 → 실패 시 롤백(`rollback_verified`). 응답 `refs`, `revision_before/after`, `operations[]`, `compile`, `saved`. `generation_guard` 면 AnimBP 가 허용 목록 안이어야 하고(복제본 — 운영 AnimBP 는 거부) 컴파일 뒤 · 저장 전에 전역 더티 비교(`UNEXPECTED_DIRTY` 면 details 에 `applied` · `revision_before/after`, 적용은 메모리에 남음) |
 | `compile_animation_blueprint` | `asset_path, save_on_success=false` | `num_errors`, `num_warnings`, `messages[{level, text, node_guid, graph_guid}]` |
 | `save_animation_blueprint` | `asset_path` | 강제 저장 |
 | `run_automation_tests` | `filter(필수), timeout=120, dry_run=false` | 에디터 안에서 Automation 테스트 실행(`FAutomationTestFramework` 직접 구동). 지연 명령이 없으면 동기 완료(`done=true`), 아니면 `job_id` 로 poll |
@@ -114,6 +119,12 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | `search_animations` | `query?, skeleton?, path_prefix=/Game, class=AnimSequence\|AnimMontage\|AnimComposite\|all, min_length?, max_length?, root_motion?, additive?, loop?, tags?[], limit=50, details=false, max_loads=300` | 읽기 전용 메타데이터 검색. 인덱스 = AssetRegistry 태그(로드 없음: 길이 · 프레임 · fps · 루트 모션 · additive · 스켈레톤) + 수동 태그 파일(`AnimationTagFiles`, `{"tags": {"<애셋 또는 폴더/>": [..]}}`). 이름 토큰(`_`·CamelCase·숫자 경계) 접두 일치, 점수순. `bLoop` 은 레지스트리 태그가 아니라 `loop` 필터·`details` 만 로드(`max_loads` 초과 `LOAD_LIMIT`). `details` = 루프 · 노티파이 · 싱크 마커 · 커브 · 루트 이동량·Yaw |
 | `preview_animation_edits` | `source, operations[], asset_path?, loop?, root_motion?` | 애셋을 만들지 않고 메모리 버퍼에서 끝까지 계산. 파싱 오류는 모든 op 에 한 번에, 실행 오류는 첫 op 에서 멈추고 나머지 `skipped`. `planned[{range, length_before/after, note}]` · 결과 프레임·길이·커브·루트 Yaw · 노티파이 유지/제외 · `seams[{step_ratio, jump}]` · `would_create{allowed, exists}` |
 | `apply_animation_edits` | `source, asset_path, operations[], loop?, root_motion?, validate=true, thresholds?, save` | 버퍼 계산 성공 뒤에만 주 소스를 **복제**(`StaticDuplicateObject` — 루트 모션·압축·additive 설정·커브 메타 승계)하고 본 트랙·float 커브를 다시 씀(노티파이·싱크 마커는 먼저 비우고 새 시각으로 다시 건다 — 잘린·역재생 구간 것은 `NOTIFIES_DROPPED`). 출력 fps = 주 소스. 내장 검증 = 구조 · 한 프레임 회전(소스 최대 × 최대 재생 속도 안은 `ROTATION_JUMP_INHERITED`) · 쓰기 충실도 `expect`(길이·루프·루트 Yaw) · `seams`. FAILED 면 저장 없이 `VALIDATION_FAILED`(애셋은 미저장으로 남음). 소스의 트랜스폼 커브·본 속성은 옮기지 않음(경고) |
+
+**AI 애니 생성 — 승격 (1개, Phase 7).** 몽타주 · BlendSpace · AnimBP 연결은 기존 Tool(위 표)을 옵트인 `generation_guard` 로 조합합니다 — 새 Tool 은 승격 하나입니다.
+
+| Tool | 입력 | 하는 일 |
+| :--- | :--- | :--- |
+| `promote_animation` | `assets[{source, dest}], dry_run=false, confirm=false, allow_referencers=[]` | 후보(`GenerationOutputPaths` 안) → 정식 경로(`PromotionPaths` 안) 이동 — `IAssetTools::RenameAssets`(대화상자 없는 경로) 한 번, 호출 동안만 `GIsRunningUnattendedScript`(모달은 기본값). **엔진이 새 패키지 · 참조 패키지를 자동 저장**하므로(사후 더티 비교로는 못 막는다) 사전 검사 + `confirm`(dry_run 이 아니면 필수 — `MISSING_CONFIRM`). source: 존재 · 후보 경로(`SOURCE_NOT_CANDIDATE`) · AnimSequence · AnimMontage · AnimComposite · BlendSpace(1D · AimOffset)만(`UNSUPPORTED_CLASS`) · 리디렉터 아님. dest: 전체 애셋 경로(`DEST_NOT_ASSET_PATH`) · 후보 경로 밖(`DEST_IS_CANDIDATE_PATH`) · `PromotionPaths` 안(`OUTSIDE_PROMOTION_PATHS`) · 보호 목록 아님(`ASSET_PROTECTED DEST_PROTECTED`) · 없음 — 레지스트리 · 리디렉터 · 디스크 파일 · 메모리 객체(`ASSET_EXISTS`) · 배치 안 중복 없음(`DUPLICATE_DEST`). 참조자(레지스트리 + 메모리, 배치 안 제외): 후보 경로 안 = 허용(엔진이 고치고 저장) · 밖 = `allow_referencers` 에 있어야(`ASSET_REFERENCED REFERENCED_OUTSIDE_CANDIDATES`, details.referencers[]) · 맵(`REFERENCED_BY_MAP` — 엔진이 리디렉터를 남긴다) · 보호 애셋(`REFERENCER_PROTECTED`) · 미저장 편집이 있는 패키지(`DIRTY_PACKAGES REFERENCER_DIRTY` — 엔진이 남의 편집까지 저장한다)는 거부. 네이티브 클래스 CDO 가 가리키면 `PROMOTE_FAILED CDO_REFERENCED`(엔진이 OkCancel 모달 기본 Cancel 로 멈춘다). 사후 검증: 옛 경로 애셋 · 리디렉터 없음(남으면 `FixupReferencers` + 삭제, 그래도 남으면 `REDIRECTOR_LEFT`) · 옛 .uasset 없음(엔진이 못 지운 빈 파일은 지우고 `removed_files[]`) · dest 존재 · 같은 클래스 · 내용 해시 같음(시퀀스 = 데이터 모델 GUID + additive · 루프 · 루트 모션, 그 밖 = 경로를 뺀 구조 요약 — 다르면 경고 `CONTENT_CHANGED`) · 저장된 참조자를 레지스트리에 다시 읽혀 dest 를 가리키는지(`REFERENCES_NOT_UPDATED`) · 엔진이 더티로 만들거나 저장한 패키지가 후보 ∪ dest ∪ allow_referencers 안인지(`UNEXPECTED_DIRTY` details.unexpected_saved — 이미 옮겼으므로 되돌리지 않고 알린다). 응답 `{dry_run, planned[{source, dest, class, content_hash, referencers[{package, candidate, allowed}]}], moved[{source, dest, class, content_hash, same_content}], fixed_referencers[], saved_packages[], redirectors, removed_files[]}`. 실측(2026-10-25): BS 1개 0.6초 · 리디렉터 0 · 옛 파일은 엔진이 지움. 이름 규칙은 모른다 — dest 는 호출자(anim_gen Job 의 `promotion` 제안)가 준다 |
 
 키 편집 op (시간은 초, 각 op 직전 타임라인 기준, 구간은 가장 가까운 프레임으로):
 
@@ -193,7 +204,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 | HTTP | 코드 |
 | :---: | :--- |
-| 400 | `BAD_REQUEST`(`details.reason`/`field`) · `CONNECTION_REJECTED` · `PROPERTY_NOT_ALLOWED` · `COMPILE_FAILED` · `SAVE_FAILED` · `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` |
+| 400 | `BAD_REQUEST`(`details.reason`/`field` — 생성 가드의 덮어쓰기 거부는 `OVERWRITE_NOT_ALLOWED`) · `CONNECTION_REJECTED` · `PROPERTY_NOT_ALLOWED` · `COMPILE_FAILED` · `SAVE_FAILED` · `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` · `PROMOTE_FAILED`(`promote_animation` — reason `CDO_REFERENCED` · `REGISTRY_LOADING` · `ENGINE_ABORTED` · `ENGINE` · `REDIRECTOR_LEFT` · `OLD_FILE_LEFT` · `DEST_MISSING` · `REFERENCES_NOT_UPDATED`, details.moved 에 이미 옮긴 것) |
 | 401 | `UNAUTHORIZED` |
 | 403 | `ASSET_PROTECTED` · `OUTPUT_PATH_NOT_ALLOWED` · `IMPORT_SOURCE_NOT_ALLOWED` |
 | 404 | `TOOL_NOT_FOUND` · `ASSET_NOT_FOUND` · `GRAPH_NOT_FOUND` · `NODE_NOT_FOUND` · `PIN_NOT_FOUND` |
@@ -220,7 +231,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 - 테스트(`AnimGraphMcp.Runtime.AnimBlueprint`)가 **PIE 를 직접 엽니다** — 바깥에서 PIE 를 켜 두면 `PIE_ACTIVE` 로 거부됩니다(`StartTestByName` 이 PIE 중에는 시작하지 않음). `map` 을 주면 그 맵으로, 없으면 에디터에 열린 월드로 PIE 를 돌립니다.
 - 변수는 스폰 직후 한 번 리플렉션으로 씁니다. **매 프레임 변수를 다시 계산하는 네이티브 AnimInstance(폰 속도 → Speed 등)는 값을 덮어쓰므로**, 변수로 몰고 가는 시나리오는 BP 변수(`add_blueprint_variable`)나 부모 `UAnimInstance` 로 만든 ABP 에서 씁니다. 운영 ABP 는 변수 없이 "진입 상태" 만 보는 식으로 씁니다.
-- 슬롯 활성은 몽타주가 재생 중일 때만 참이 됩니다(`montage` 없이 `slots_active` 를 기대하면 `NO_MONTAGE` 경고). 몽타주가 슬롯을 가중치 1 로 덮는 동안 슬롯 노드는 **Source(그 뒤의 상태머신)를 갱신하지 않습니다**(`bAlwaysUpdateSourcePose` 가 꺼진 기본값) — 전신 슬롯 뒤의 상태 전이를 몽타주 중에 보려면 그 Slot 노드에 `set_property bAlwaysUpdateSourcePose=true`.
+- 슬롯 활성은 몽타주가 재생 중일 때만 참이 됩니다(`montage` 없이 `slots_active` 를 기대하면 `NO_MONTAGE` 경고). `wait_frames` 동안 몽타주가 끝나면 비활성으로 관측됩니다 — 실측(2026-10-25) PIE 10프레임 ≈ 0.47 ~ 0.57초, 0.23초 반동 몽타주는 5프레임 뒤 `montage_playing false` · 슬롯 꺼짐, 섹션 `Loop → Loop` 이면 활성. 짧은 몽타주는 루프 섹션으로 시험합니다. 몽타주가 슬롯을 가중치 1 로 덮는 동안 슬롯 노드는 **Source(그 뒤의 상태머신)를 갱신하지 않습니다**(`bAlwaysUpdateSourcePose` 가 꺼진 기본값) — 전신 슬롯 뒤의 상태 전이를 몽타주 중에 보려면 그 Slot 노드에 `set_property bAlwaysUpdateSourcePose=true`.
 - 메시 호환 검사는 엔진이 AnimInstance 를 만들지 말지 보는 기준 그대로(`USkeleton::IsCompatibleMesh`, 본 이름 집합)라 본 이름이 같은 다른 스켈레톤(UE5 마네킹 계열)도 통과합니다.
 - 관측은 테스트 결과의 `observed` 에 남고, 기대값과 다르면 `errors[]` 에 "expected 'Run' but it is in 'Idle' after 10 frames" 식으로 적힙니다. 실제 포즈(본 트랜스폼)는 범위 밖입니다.
 
@@ -260,8 +271,9 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpUpdateFunction   BlueprintThreadSafeUpdateAnimation 함수 그래프 생성·재생성
             AnimMcpMontage          몽타주 생성(시퀀스 1개) · 슬롯 이름 · 섹션 전체 교체 · 스켈레톤 슬롯 등록 · 조회
             AnimMcpRuntimeScenario  런타임 시나리오 계약 — 테스트 명령 "<클래스> <JSON>" · 관측 슬롯(테스트 → 러너 → observed)
-            AnimMcpGeneration       AI 애니 생성 공통 가드: [AnimGraphMcp] 생성 경로 설정 · 출력/임포트 경로 검사 · 전역 더티 집합 비교(FDirtyGuard) ·
-                                    새 애셋 객체 · 복제본(덮어쓰기 없음) · FinishWrite(검사 → 저장)
+            AnimMcpGeneration       AI 애니 생성 공통 가드: [AnimGraphMcp] 생성 · 승격 경로 설정 · 출력/임포트 경로 검사 · 전역 더티 집합 비교(FDirtyGuard, 추가 허용 집합) ·
+                                    새 애셋 객체 · 복제본(덮어쓰기 없음) · FinishWrite(검사 → 저장) · 기존 쓰기 Tool 의 옵트인 FWriteGuard(generation_guard)
+            AnimMcpPromote          promote_animation — 사전 검사(경로 · 클래스 · 참조자 · 맵 · 더티 · 보호 · CDO) → RenameAssets → 사후 검증(리디렉터 · 파일 · 해시 · 참조 · 저장)
             AnimMcpSkeletonInspector  스켈레톤 조회 · 기준 포즈 비교 · 템플릿 캐릭터라이즈(트랜지언트 IK Rig)
             AnimMcpAnimImport       Interchange FBX 임포트(파이프라인 트랜지언트 복제·안전 설정)
             AnimMcpRetargetAssets   IK Rig · 리타기터 생성(에디터 자동 리타깃 레시피) · 조회
@@ -272,14 +284,16 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpAnimEdit         preview/apply_animation_edits — 파싱 · 원시 키 읽기 · 버퍼 계산 · 복제 · 재작성 · 노티파이 이동 · 검증
   Tests/    AnimMcpSmokeTests.cpp    AnimGraphMcp.Smoke.AnimBlueprint · AnimGraphMcp.Smoke.AnimMontage
             AnimMcpRuntimeTests.cpp  AnimGraphMcp.Runtime.AnimBlueprint — PIE 시작·스폰·변수·몽타주·N 프레임·관측·비교·PIE 종료(지연 명령 7단계)
-            AnimMcpGenerationTests.cpp  AnimGraphMcp.Generation.Guard — 경로 '/' 경계 · 임포트 원본 · 허용 목록 밖 새 더티 → UNEXPECTED_DIRTY(메모리 패키지)
+            AnimMcpGenerationTests.cpp  AnimGraphMcp.Generation.Guard — 경로 '/' 경계 · 임포트 원본 · 허용 목록 밖 새 더티 → UNEXPECTED_DIRTY(메모리 패키지) ·
+                                     .Promote — 승격 경로 정규화(겹침 · 마운트 루트) · dest 규칙(후보 · 밖 · 보호 · 메모리 객체) · confirm · 후보 아닌 소스 · FDirtyGuard 추가 허용 집합 ·
+                                     .WriteGuard — 쓰기 Tool 6개를 로컬 디스패처로 불러 꺼짐 = 기존 동작 · 켬 = 허용 목록 밖 · 덮어쓰기 거부 · 전역 더티 비교
             AnimMcpEditTests.cpp     AnimGraphMcp.Generation.Edit — 합성 리그로 op 수학(길이 · 키 대응 · 이음매 · 미러 두 번 = 원래 · 컴포넌트 축 회전)
   Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음; Montage = 몽타주·스켈레톤 슬롯 4종 · Automation = run/poll + run_anim_scenario 사전 검증 ·
                                      Skeleton = reassign_skeleton(EditorAnimUtils::RetargetAnimations 제자리) + inspect_skeleton · Sequence = set_sequence_additive ·
                                      Import = import_animation_file · Retarget = create_ik_rig · create_ik_retargeter · retarget_animations ·
-                                     Validate = validate_animation · Search = search_animations · Edit = preview/apply_animation_edits)
+                                     Validate = validate_animation · Search = search_animations · Edit = preview/apply_animation_edits · Promote = promote_animation)
 ```
 
-AI 애니 생성 Tool 통합 테스트: `Tools/mcp/anim_gen_phase1_test.py`(섹션 inspect · guard · import · rig · validate · retarget · regression · dirty, 결과 요약 `anim_gen_phase1_state.json`) · `Tools/mcp/anim_gen_phase2_test.py`(섹션 hashes · search · unit · preview · guard · upper · ready · variant · mirror · notify · appendix · regression · dirty, 결과 요약 `anim_gen_phase2_state.json`). FBX 픽스처는 `Tools/scripts/anim_gen_export_fixture.py` 가 만든다.
+AI 애니 생성 Tool 통합 테스트: `Tools/mcp/anim_gen_phase1_test.py`(섹션 inspect · guard · import · rig · validate · retarget · regression · dirty, 결과 요약 `anim_gen_phase1_state.json`) · `Tools/mcp/anim_gen_phase2_test.py`(섹션 hashes · search · unit · preview · guard · upper · ready · variant · mirror · notify · appendix · regression · dirty, 결과 요약 `anim_gen_phase2_state.json`) · `Tools/mcp/anim_gen_phase7_test.py`(섹션 hashes · plan · chain_bs · chain_montage · independent · guard · apply_mech · promote · dirty — 생성물 → 몽타주 / BlendSpace → AnimBP 복제본 연결과 `promote_animation` 실제 이동, 결과 요약 `anim_gen_phase7_state.json`). FBX 픽스처는 `Tools/scripts/anim_gen_export_fixture.py` 가 만든다.
 
 규칙: Inspector 는 쓰지 않고, Mutator 는 트랜잭션 밖에서 호출되지 않습니다. 같은 `FJsonObject` 를 두 컨테이너에 넣지 않습니다(순환 → 직렬화 무한 재귀).

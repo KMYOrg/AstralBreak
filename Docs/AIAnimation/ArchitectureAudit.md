@@ -7,7 +7,8 @@
 개정 4: 2026-10-24 — Phase 4(Blender Provider) 착수 전 엔진·Blender 소스 대조와 에디터 실측을 §14 에 기록.  
 개정 5: 2026-10-25 — Phase 5(로컬 AI · Kimodo) 설치 · 구현 · 리타깃 정렬 수정 · 통합 테스트에서 확인한 엔진 사실과 측정을 §15 에 기록.  
 개정 6: 2026-10-25 — Phase 6(외부 AI · Meshy) 공식 문서 대조 · 어댑터 구현 · 차단 통합 테스트에서 확인한 것을 §16 에 기록. 실제 유료 1건은 미실행(사용자 Free 요금제 — Meshy 출력 리그는 미측정).  
-상태: Phase 0 산출물 + Phase 1 · 2 · 4 · 5 · 6 실측 정정.  
+개정 7: 2026-10-25 — Phase 7(AnimBP 연결 · 승격) 엔진 소스 대조 · 스파이크 · 통합 테스트에서 확인한 것을 §17 에 기록. 운영 AnimBP 실제 적용은 범위 밖(사용자 결정).  
+상태: Phase 0 산출물 + Phase 1 · 2 · 4 · 5 · 6 · 7 실측 정정.  
 관련 문서: [개발 지침서](DevelopmentGuide.md) (이 감사 결과로 개정 2) · [AnimGraphMcp README](../../Plugins/AnimGraphMcp/README.md)
 
 **방법.** 코드 변경 없이 ① UE 5.7.4 엔진 소스 대조, ② 실행 중인 에디터(DebugGame, main `1f8ee47`)에서 Python 원격 실행 3회 + AnimGraphMcp 조회로 측정했다. 에디터 쪽은 **읽기 전용**이었다 — IK Rig는 임시 패키지 객체로만 만들었고 애셋 생성·저장은 0건, 더티 패키지는 측정 전후 모두 0개였다.
@@ -393,6 +394,28 @@ Meshy 공식 문서 · 약관(2026-10-25 열람, 지침서 부록 A)과 어댑�
 | Free 요금제 | 무료 크레딧으로 API 1건 | Free 요금제(월 100 크레딧)는 API 접근이 없다 — 생성 요청은 402(`INSUFFICIENT_CREDITS` 로 분류, 예약 해제 · 과금 없음). 잔액 조회는 될 수 있으나 생성은 유료 요금제만 | text-to-motion · errors · credits guide |
 | 다른 외부 후보 | Tripo 무료 API 로 대체 | Tripo3D 에는 텍스트 → 모션이 없다(리깅된 모델에 프리셋 적용만) → 모션 Provider 로 채택 안 함. 메시 생성은 애니 파이프라인 밖 별도 트랙(지침서 §14 끝) | developers.tripo3d.com |
 | 약관 · 데이터 | — | 유료 요금제 출력 소유 · 비 Enterprise 입력 · 출력 학습 사용 가능(§2.9) · 경쟁 AI 학습 금지(§2.6(xi)) · API 출력 3일 뒤 삭제(§2.5) · 지역 제한 없음. 사용자 수용(2026-10-25) | terms-of-use · privacy-policy |
+
+---
+
+## 17. Phase 7 실측 (개정 7)
+
+엔진 소스(`AssetRenameManager.cpp` · `AssetFixUpRedirectors.cpp` · `MessageDialog.cpp` · `AnimSequence.cpp`) 대조, 스파이크(rename · 복제 더티 · 복제본 시나리오), 통합 테스트(`Tools/mcp/anim_gen_phase7_test.py` — 실패 0 · 체크 85)에서 확인한 것. 운영 AnimBP 에는 쓰지 않았다(전후 SHA-256 · revision 같음).
+
+| 항목 | 가정 | 확인 | 근거 |
+| :--- | :--- | :--- | :--- |
+| rename 저장 | 사후 더티 비교로 부작용을 잡는다 | 엔진이 새 패키지 · 참조 패키지 · 리디렉터를 `PromptForCheckoutAndSave(bPromptToSave=false)` 로 **저장까지** 끝낸다 → 더티로는 안 보인다. 그래서 사전 검사(참조자 분류 · 맵 · 미저장 참조자 · 보호 · CDO) + `confirm` + 저장 이벤트(`UPackage::PackageSavedWithContextEvent`)로 저장 집합을 따로 검사 | `AssetRenameManager.cpp:1978-1995` · 스파이크 `saved_packages` |
+| rename 비용 · 결과 | — | BS 1개 0.59 ~ 0.61초. 저장 = 새 패키지(+ 참조자). 리디렉터 0 · 옛 파일은 엔진이 지움(`removed_files` 0 — 남는 경우 대비 코드만) · 내용 해시 같음. 시퀀스 승격은 참조자 BS · 몽타주까지 저장 | 스파이크 · 통합 `promote` |
+| 이미 더티인 참조자 | 남의 편집은 건드리지 않는다 | 엔진은 이미 더티인 패키지의 소프트 참조도 고치고, 하드 참조자는 로드해 저장한다 → 미저장 편집이 있는 참조자는 남의 편집까지 저장된다 → `DIRTY_PACKAGES REFERENCER_DIRTY` 로 거부(통합에서 복제본을 미저장으로 두고 재현) | `AssetRenameManager.cpp:1742-1745, 921-1090` · 통합 |
+| 리디렉터 조건 | — | 참조자가 맵(:1032) · 못 읽음(:1068) · 컬렉션 · 읽기 전용 · SCC 비로컬(:994) · 네이티브 CDO 소프트 참조(:796)일 때만 남긴다. 맵은 사전 거부, 나머지는 사후 `FixupReferencers(DeleteFixedUpRedirectors)` — 레지스트리가 로딩 중이 아니면 동기 | `AssetRenameManager.cpp` · `AssetFixUpRedirectors.cpp:534-560` |
+| CDO 모달 | — | 네이티브 클래스 CDO 가 하드 · 소프트로 가리키면 OkCancel(기본 Cancel) → 무인 모드에서 rename 중단. 하드 참조는 사전 검사로 `CDO_REFERENCED`, 소프트는 엔진이 실행 때 멈추면 `ENGINE_ABORTED`(아무것도 안 옮김). 이 프로젝트에 해당 애셋이 없어 재현하지 않았다 | `AssetRenameManager.cpp:437-468, 708-807` · `MessageDialog.cpp:172` |
+| 참조 확인 | 레지스트리 참조자가 바로 바뀐다 | 레지스트리 의존성은 디스크 기준이라 저장 직후 늦을 수 있다(7-5 실측) → 엔진이 저장한 파일을 `ScanModifiedAssetFiles` 로 다시 읽힌 뒤 `GetReferencers(dest)` ⊇ 이전 참조자(배치 안은 새 경로로 바꿔) 확인. 통합: 복제본 ABP .uasset 이 새 BS 경로를 담고 옛 경로 문자열은 없음 | 통합 `promote` |
+| 메모리 객체 dest | 레지스트리에 없으면 비었다 | `GetAssetByObjectPath(bIncludeOnlyOnDiskAssets=false)` 가 메모리 애셋도 본다 — Automation 에서 메모리에만 만든 `UCurveFloat` 가 `DEST_EXISTS` 로 잡혔다(`DEST_IN_MEMORY` 는 레지스트리가 애셋으로 안 볼 때의 대비) | `AnimGraphMcp.Generation.Promote` |
+| `ABP_Hero_Combat` 복제 더티 | 복제 · 컴파일이 ALI · 공급자 ABP 를 더티로 만들 수 있다 | `generation_guard` 로 복제하면 새로 더티 = 복제본 1개, 컴파일도 추가 더티 없음 → 복제본 검증 경로가 가드 아래에서 된다 | 스파이크 `guard.newly_dirty` |
+| 복제본 시나리오 | — | `ABP_Hero_Combat` 복제본(네이티브 부모 `AstralAnimInstance`)도 PIE 스폰 · 몽타주 재생 · 슬롯 관측이 된다. PIE 10프레임 ≈ 0.47 ~ 0.57초 — 0.23초 반동 몽타주는 5프레임 뒤 끝나 슬롯 꺼짐, `Loop → Loop` 섹션이면 활성. UpperBody(반동 루프 additive) · DefaultSlot(Kimodo 칼 4초) 둘 다 활성 | 스파이크 · 통합 |
+| 전이 시나리오 | 런타임 테스트 ABP 의 Run 상태 플레이어에 `set_asset $blendspace` | Run 상태 플레이어는 SequencePlayer 라 BlendSpace 를 못 받는다 → `remove_node` + BlendSpacePlayer(`$blendspace`) + `K2Node_VariableGet Speed` → X + StateResult 연결로 교체. 복제본 Speed 300 → `Run` · 0 → `Idle` | 통합 `chain_bs` |
+| additive 기본 | `AnimFrame 0` + 기준 시퀀스 없음 | `IsValidAdditive` 는 `AnimFrame` · `AnimScaled` 에 `RefPoseSeq` 를 요구 → 기본을 `LocalAnimFrame 0` 으로, `AnimFrame` 이면 `ref_pose_sequence`(`$asset`) 필수. 반동(원래 Mesh Space · 자기 프레임 기준) 복제본을 `LocalSpaceBase` / `LocalAnimFrame` 으로 바꿔도 유효 | `AnimSequence.cpp:2615-2640` · 통합 `chain_montage` |
+| 스모크 테스트 이름 | `<ABP>_Test` 로 충분 | 스모크 테스트 이름이 애셋 이름이고 필터가 접두 · 부분 일치라 Job 마다 같은 이름이면 옛 복제본까지 돈다 → 복제본 이름에 Job 꼬리(`_Test_<job 6자>A<시도>`) | `AnimMcpSmokeTests.cpp:62-71` · `AnimMcpAutomationRunner.cpp:138` |
+| revision 과 무변경 op | — | 이미 같은 값인 `set_property`(런타임 테스트 ABP Slot `bAlwaysUpdateSourcePose` 가 원래 true)는 revision 이 그대로다(해시는 정상 — 값이 안 바뀜). 적용 메커니즘 시험은 실제로 바뀌는 값으로 | 통합 `apply_mech` 1차 실패 → 정정 |
 
 ---
 

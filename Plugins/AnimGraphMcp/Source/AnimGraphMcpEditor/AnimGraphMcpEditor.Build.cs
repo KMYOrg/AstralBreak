@@ -46,6 +46,8 @@ public class AnimGraphMcpEditor : ModuleRules
 			"InterchangePipelines",
 			// UAnimPoseExtensions — 검증용 프레임 포즈 샘플링 (에디터 전용)
 			"AnimationBlueprintLibrary",
+			// AI 애니 생성 Phase 7 — promote_animation (IAssetTools::RenameAssets · FixupReferencers)
+			"AssetTools",
 		});
 	}
 }

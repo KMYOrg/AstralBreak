@@ -97,9 +97,29 @@ namespace AnimMcpGeneration
 			{
 				Settings.MaxRetargetAssetsPerCall = FMath::Max(1, MaxAssets);
 			}
-			UE_LOG(LogAnimGraphMcp, Log, TEXT("Generation: %d output paths, %d import roots, max %d assets per retarget, %d animation tag file(s) ([%s] in %s)"),
-				Settings.OutputPaths.Num(), Settings.ImportSourceRoots.Num(), Settings.MaxRetargetAssetsPerCall, Settings.AnimationTagFiles.Num(), ConfigSection, *GEngineIni);
+			Raw.Reset();
+			GConfig->GetArray(ConfigSection, TEXT("PromotionPaths"), Raw, GEngineIni);
+			TArray<FString> Ignored;
+			Settings.PromotionPaths = NormalizePromotionPaths(Raw, Settings.OutputPaths, &Ignored);
+			for (const FString& Entry : Ignored)
+			{
+				UE_LOG(LogAnimGraphMcp, Warning, TEXT("Ignoring [%s] PromotionPaths entry %s"), ConfigSection, *Entry);
+			}
+			UE_LOG(LogAnimGraphMcp, Log, TEXT("Generation: %d output paths, %d import roots, max %d assets per retarget, %d animation tag file(s), %d promotion path(s) ([%s] in %s)"),
+				Settings.OutputPaths.Num(), Settings.ImportSourceRoots.Num(), Settings.MaxRetargetAssetsPerCall, Settings.AnimationTagFiles.Num(),
+				Settings.PromotionPaths.Num(), ConfigSection, *GEngineIni);
 			return Settings;
+		}
+
+		FAnimMcpError MakeUnexpectedDirtyError(const TArray<FString>& Unexpected, const TArray<FString>& Allowed)
+		{
+			TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+			Details->SetArrayField(TEXT("unexpected"), ToJsonArray(Unexpected));
+			Details->SetArrayField(TEXT("allowed"), ToJsonArray(Allowed));
+			UE_LOG(LogAnimGraphMcp, Warning, TEXT("UNEXPECTED_DIRTY: %s"), *FString::Join(Unexpected, TEXT(", ")));
+			return FAnimMcpError::Make(AnimMcpErrorCodes::UnexpectedDirty,
+				FString::Printf(TEXT("%d package(s) outside [%s] GenerationOutputPaths became dirty during this call — nothing was saved (first: %s)"),
+					Unexpected.Num(), ConfigSection, *Unexpected[0]), Details);
 		}
 
 		/** FEditorFileUtils::GetDirtyContentPackages 와 같은 제외 규칙 — 단 맵도 포함하고, 그 함수처럼 패키지를 건드리는 부작용이 없다 */
@@ -149,7 +169,46 @@ namespace AnimMcpGeneration
 		Obj->SetArrayField(TEXT("import_source_roots"), ToJsonArray(Settings.ImportSourceRoots));
 		Obj->SetNumberField(TEXT("max_retarget_assets_per_call"), Settings.MaxRetargetAssetsPerCall);
 		Obj->SetArrayField(TEXT("animation_tag_files"), ToJsonArray(Settings.AnimationTagFiles));
+		Obj->SetArrayField(TEXT("promotion_paths"), ToJsonArray(Settings.PromotionPaths));
 		return Obj;
+	}
+
+	TArray<FString> NormalizePromotionPaths(const TArray<FString>& Raw, const TArray<FString>& OutputPaths, TArray<FString>* OutIgnored)
+	{
+		TArray<FString> Out;
+		for (const FString& Entry : Raw)
+		{
+			const FString Normalized = NormalizePrefix(Entry);
+			// 마운트 루트("/Game/") 자체는 "전부 허용" 이 된다 — 생성 경로와 같은 규칙
+			if (Normalized.IsEmpty() || !FPackageName::IsValidLongPackageName(Normalized.LeftChop(1)))
+			{
+				if (OutIgnored) { OutIgnored->Add(FString::Printf(TEXT("'%s' (needs a folder below a mount root, e.g. /Game/Animation/Hero/)"), *Entry)); }
+				continue;
+			}
+			const FString* Overlap = OutputPaths.FindByPredicate([&Normalized](const FString& Output)
+			{
+				return Normalized.StartsWith(Output, ESearchCase::IgnoreCase) || Output.StartsWith(Normalized, ESearchCase::IgnoreCase);
+			});
+			if (Overlap)
+			{
+				if (OutIgnored) { OutIgnored->Add(FString::Printf(TEXT("'%s' (overlaps GenerationOutputPaths '%s' — promotion moves assets out of the candidate paths)"), *Entry, **Overlap)); }
+				continue;
+			}
+			Out.AddUnique(Normalized);
+		}
+		return Out;
+	}
+
+	bool IsUnderAnyPrefix(const FString& Path, const TArray<FString>& Prefixes)
+	{
+		// 애셋 경로("/Game/A/B.B")는 패키지로, 폴더는 끝에 '/' 를 붙여 접두 비교 — "/Game/Animation/TestX" 가 "/Game/Animation/Test/" 에 걸리지 않게
+		const FString AsDir = NormalizeFolderPath(AnimMcpAssetResolver::ToPackagePath(Path)) + TEXT("/");
+		return Prefixes.ContainsByPredicate([&AsDir](const FString& Prefix) { return AsDir.StartsWith(Prefix, ESearchCase::IgnoreCase); });
+	}
+
+	bool IsPromotionPathAllowed(const FString& Path)
+	{
+		return IsUnderAnyPrefix(Path, GetSettings().PromotionPaths);
 	}
 
 	FString NormalizeFolderPath(const FString& Path)
@@ -164,16 +223,7 @@ namespace AnimMcpGeneration
 
 	bool IsOutputPathAllowed(const FString& Path)
 	{
-		// 애셋 경로("/Game/A/B.B")는 패키지로, 폴더는 끝에 '/' 를 붙여 접두 비교 — "/Game/Animation/TestX" 가 "/Game/Animation/Test/" 에 걸리지 않게
-		const FString AsDir = NormalizeFolderPath(AnimMcpAssetResolver::ToPackagePath(Path)) + TEXT("/");
-		for (const FString& Prefix : GetSettings().OutputPaths)
-		{
-			if (AsDir.StartsWith(Prefix, ESearchCase::IgnoreCase))
-			{
-				return true;
-			}
-		}
-		return false;
+		return IsUnderAnyPrefix(Path, GetSettings().OutputPaths);
 	}
 
 	bool EnsureOutputPathAllowed(const FString& Path, const TCHAR* Field, FAnimMcpError& OutError)
@@ -259,7 +309,7 @@ namespace AnimMcpGeneration
 		CollectDirty(DirtyBefore);
 	}
 
-	void FDirtyGuard::GetNewlyDirty(TArray<FString>& OutAllowed, TArray<FString>& OutUnexpected) const
+	void FDirtyGuard::GetNewlyDirty(TArray<FString>& OutAllowed, TArray<FString>& OutUnexpected, const TSet<FName>* ExtraAllowed) const
 	{
 		TSet<FName> DirtyNow;
 		CollectDirty(DirtyNow);
@@ -270,28 +320,81 @@ namespace AnimMcpGeneration
 				continue;
 			}
 			const FString PackageName = Name.ToString();
-			(IsOutputPathAllowed(PackageName) ? OutAllowed : OutUnexpected).Add(PackageName);
+			const bool bAllowed = IsOutputPathAllowed(PackageName) || (ExtraAllowed && ExtraAllowed->Contains(Name));
+			(bAllowed ? OutAllowed : OutUnexpected).Add(PackageName);
 		}
 		OutAllowed.Sort();
 		OutUnexpected.Sort();
 	}
 
-	bool FDirtyGuard::Check(FAnimMcpError& OutError) const
+	bool FDirtyGuard::Check(FAnimMcpError& OutError, const TSet<FName>* ExtraAllowed) const
 	{
 		TArray<FString> Allowed, Unexpected;
-		GetNewlyDirty(Allowed, Unexpected);
+		GetNewlyDirty(Allowed, Unexpected, ExtraAllowed);
 		if (Unexpected.Num() == 0)
 		{
 			return true;
 		}
-		TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
-		Details->SetArrayField(TEXT("unexpected"), ToJsonArray(Unexpected));
-		Details->SetArrayField(TEXT("allowed"), ToJsonArray(Allowed));
-		OutError = FAnimMcpError::Make(AnimMcpErrorCodes::UnexpectedDirty,
-			FString::Printf(TEXT("%d package(s) outside [%s] GenerationOutputPaths became dirty during this call — nothing was saved (first: %s)"),
-				Unexpected.Num(), ConfigSection, *Unexpected[0]), Details);
-		UE_LOG(LogAnimGraphMcp, Warning, TEXT("UNEXPECTED_DIRTY: %s"), *FString::Join(Unexpected, TEXT(", ")));
+		OutError = MakeUnexpectedDirtyError(Unexpected, Allowed);
 		return false;
+	}
+
+	// ---- 옵트인 생성 가드 (Phase 7) ----------------------------------------------------------------------------
+
+	FWriteGuard::FWriteGuard(const FAnimMcpRequest& Request)
+		: bEnabled(Request.GetOptionalBool(TEXT("generation_guard"), false))
+	{
+		if (bEnabled)
+		{
+			Dirty.Emplace();
+		}
+	}
+
+	bool FWriteGuard::CheckPath(const FString& Path, const TCHAR* Field, FAnimMcpError& OutError) const
+	{
+		return !bEnabled || EnsureOutputPathAllowed(Path, Field, OutError);
+	}
+
+	bool FWriteGuard::RefuseOverwrite(bool bOverwrite, FAnimMcpError& OutError) const
+	{
+		if (!bEnabled || !bOverwrite)
+		{
+			return true;
+		}
+		TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+		Details->SetStringField(TEXT("field"), TEXT("overwrite"));
+		Details->SetStringField(TEXT("reason"), TEXT("OVERWRITE_NOT_ALLOWED"));
+		OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("generation_guard never overwrites — pick another asset path (overwrite=true is refused)"), Details);
+		return false;
+	}
+
+	bool FWriteGuard::Check(FAnimMcpError& OutError)
+	{
+		if (!bEnabled)
+		{
+			return true;
+		}
+		TArray<FString> Unexpected;
+		NewlyDirty.Reset();
+		Dirty->GetNewlyDirty(NewlyDirty, Unexpected);
+		if (Unexpected.Num() == 0)
+		{
+			return true;
+		}
+		OutError = MakeUnexpectedDirtyError(Unexpected, NewlyDirty);
+		return false;
+	}
+
+	void FWriteGuard::Describe(const TSharedRef<FJsonObject>& Result) const
+	{
+		if (!bEnabled)
+		{
+			return;
+		}
+		TSharedRef<FJsonObject> Guard = AnimMcpJson::MakeObject();
+		Guard->SetBoolField(TEXT("enabled"), true);
+		Guard->SetArrayField(TEXT("newly_dirty"), ToJsonArray(NewlyDirty));
+		Result->SetObjectField(TEXT("guard"), Guard);
 	}
 
 	namespace

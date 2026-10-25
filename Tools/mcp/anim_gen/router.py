@@ -68,8 +68,6 @@ def expected_limitations(request: dict, provider, *, reuse: bool, resolved: dict
             out.append(limitation(code, f"제약 '{name}' 은 검증·보정하지 않는다(Phase 8)", "router", constraint=name))
         else:
             out.append(limitation("CONSTRAINT_UNSUPPORTED", f"제약 '{name}' 을 처리하는 Provider 가 없다", "router", constraint=name))
-    if request["integrate_anim_bp"]:
-        out.append(limitation("ANIM_BP_NOT_INTEGRATED", "AnimBP 연결은 Phase 7 — 애셋만 만든다", "router"))
     if reuse:
         out.append(limitation("REUSED_EXISTING", "대상 스켈레톤의 기존 애셋을 그대로 쓴다 — 새 애셋을 만들지 않는다", "router"))
     if request["root_motion_mode"] != "auto" and not has_edit:
@@ -182,6 +180,42 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
     raise PlanBlocked("UNSUPPORTED_REQUEST", "NOT_ROUTABLE", f"{name} is not a generation route (pipe or post-process only)")
 
 
+def _reuse_state(steps: list[dict]) -> str:
+    """앞 사슬이 새 시퀀스를 만드는가 — 'produced' | 'reused'(대상 스켈레톤의 기존 애셋 그대로) | 'unknown'(계획 때 소스를 몰라 리타깃이 조건부)."""
+    if any(s["step"] in ("edit", "import", "generate", "convert") or (s["step"] == "retarget" and not s.get("conditional")) for s in steps):
+        return "produced"
+    return "unknown" if any(s["step"] == "retarget" for s in steps) else "reused"
+
+
+def _integrate(request: dict, registry, pctx: PlanContext, steps: list[dict], risks: list[str], lims: list[dict],
+               cache: dict) -> tuple[list[dict], list[str], list[dict]]:
+    """Phase 7 — 모든 후보의 검증 뒤에 공통으로 붙는 포장(package_*) · AnimBP 연결(anim_bp_test · anim_bp_prepare) 단계.
+    integrate_anim_bp 가 거짓이면 anim_bp 단계가 없다(AnimBP 호출 0). 같은 계획 안에서는 결과를 한 번만 계산한다(후보마다 같다)."""
+    if not (request["package"] or request["anim_bp"]):
+        return steps, risks, lims
+    reuse = _reuse_state(steps)
+    key = ("package", reuse)
+    if key not in cache:
+        try:
+            cache[key] = registry.get("package").plan_steps(request, pctx, reuse) if request["package"] else ([], [], [])
+        except PlanBlocked as blocked:
+            cache[key] = blocked
+    if "anim_bp" not in cache:
+        try:
+            cache["anim_bp"] = registry.get("anim_bp").plan_steps(request, pctx) if request["anim_bp"] else ([], [], [])
+        except PlanBlocked as blocked:
+            cache["anim_bp"] = blocked
+    out_steps, out_risks, out_lims = list(steps), list(risks), list(lims)
+    for part in (cache[key], cache["anim_bp"]):
+        if isinstance(part, PlanBlocked):
+            raise part
+        s, r, lm = part
+        out_steps += [dict(x) for x in s]
+        out_risks += r
+        out_lims += lm
+    return out_steps, out_risks, _dedupe(out_lims)
+
+
 def _chain_names(steps: list[dict]) -> list[str]:
     names: list[str] = []
     for s in steps:
@@ -234,6 +268,7 @@ def build_plan(request: dict, policy: dict, registry, editor, diagnostics: list[
     order = provider_order(request["motion_category"], mode, request["provider"], motion_file=bool(request["motion_file"]))
     pctx = PlanContext(editor=editor, editor_ok=editor_ok, request=request, diagnostics=diagnostics, settings=settings, policy=policy)
     candidates, excluded = [], []
+    integration_cache: dict = {}
     for name in order:
         provider = registry.get(name)
         state = provider.state(policy)
@@ -258,6 +293,7 @@ def build_plan(request: dict, policy: dict, registry, editor, diagnostics: list[
             continue
         try:
             steps, risks, lims = _chain(name, request, registry, pctx)
+            steps, risks, lims = _integrate(request, registry, pctx, steps, risks, lims, integration_cache)
         except PlanBlocked as blocked:
             exclude(blocked.cause, blocked.reason, blocked.message, **blocked.details)
             continue
@@ -275,4 +311,6 @@ def build_plan(request: dict, policy: dict, registry, editor, diagnostics: list[
         "order": order, "fallback": explicit is None, "candidates": candidates, "excluded": excluded,
         "executable": bool(candidates), "editor_checked": editor_ok, "output_paths": output_paths,
         "final_asset": final_asset_path(request),
+        # Phase 7 — 승격 제안의 루트(ini PromotionPaths, get_editor_status). 이동은 promote_animation 을 사용자 확인 뒤에
+        "promotion_paths": ((settings or {}).get("generation") or {}).get("promotion_paths"),
     }

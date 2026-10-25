@@ -47,6 +47,7 @@ class StepResult:
     pending: dict | None = None                                   # 비동기 제출 핸들 (외부 작업 id 등)
     actual_cost_usd: float | None = None                          # Provider 가 알려 준 실제 금액 (없으면 미확정)
     actual_credits: float | None = None                           # 크레딧으로 과금하는 Provider 가 알려 준 실제 크레딧 (Phase 6 — Meshy)
+    deliverables: list[str] = dataclasses.field(default_factory=list)  # created 중 최종 결과물 (Phase 7 — 포장한 몽타주 · BlendSpace → generated_assets)
 
 
 @dataclasses.dataclass

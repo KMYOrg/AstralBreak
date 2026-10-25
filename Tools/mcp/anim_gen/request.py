@@ -41,11 +41,24 @@ REVIEW_DEFAULT_COUNT = 4
 REVIEW_MAX_ROWS = 12          # 행(시각) × 뷰 = 렌더 수 — 한 Blender 실행이 기한 안에 끝나게
 REVIEW_MAX_REFERENCES = 4
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
+# Phase 7 — 포장(package: 시퀀스 additive · 몽타주 · BlendSpace)과 AnimBP 연결(anim_bp). 출력은 output_path(허용 목록), 쓰기는 플러그인의
+# 옵트인 generation_guard 아래에서. 자리표시는 문자열 값 전체가 그것일 때만 바꾼다 — $asset = 최종 시퀀스(재사용이면 그 애셋)
+PLACEHOLDERS = ("$asset", "$montage", "$blendspace")
+PACKAGE_KEYS = ("additive", "montage", "blendspace")
+ADDITIVE_TYPES = ("LocalSpaceBase", "RotationOffsetMeshSpace")
+REF_POSE_TYPES = ("RefPose", "AnimScaled", "AnimFrame", "LocalAnimFrame")
+# AnimFrame · AnimScaled 는 기준 시퀀스가 있어야 유효하다(UAnimSequence::IsValidAdditive, AnimSequence.cpp:2627-2639) — 기본은 자기 프레임(LocalAnimFrame 0)
+ADDITIVE_DEFAULTS = {"additive_type": "LocalSpaceBase", "ref_pose_type": "LocalAnimFrame", "ref_frame_index": 0, "ref_pose_sequence": None}
+MONTAGE_DEFAULTS = {"name": None, "slot": "DefaultSlot", "blend_in": None, "blend_out": None, "sections": None}
+BLENDSPACE_DEFAULTS = {"name": None, "dimensions": 1, "axes": None, "samples": None, "aim_offset": False}
+AXIS_KEYS = {"name", "min", "max", "grid", "snap", "wrap"}
+ANIM_BP_DEFAULTS = {"asset_path": None, "operations": [], "scenario": None, "smoke": True}
+SCENARIO_KEYS = {"montage", "expect", "wait_frames", "set_variables", "mesh", "map"}
 DEFAULTS = {
     "target_mesh": None, "hero": None, "family": None, "description": "", "duration_seconds": None, "frame_rate": None,
     "loop": None, "root_motion_mode": "auto", "reference_animations": [], "search": None, "edits": None, "retarget": {},
     "constraints": {}, "generation_policy": None, "provider": "auto", "integrate_anim_bp": False, "motion_file": None,
-    "prompt": None, "generation": None, "review": None, "fix": None,
+    "prompt": None, "generation": None, "review": None, "fix": None, "package": None, "anim_bp": None,
 }
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
@@ -165,6 +178,10 @@ def normalize(raw: dict) -> tuple[dict, list[dict]]:
         raise _bad("constraints", "must be an object of flags")
     if not isinstance(req["provider"], str) or not req["provider"]:
         raise _bad("provider", "must be 'auto' or a provider name")
+
+    req["package"] = _package(req["package"], req)
+    req["anim_bp"] = _anim_bp(req["anim_bp"], req["integrate_anim_bp"])
+    _check_placeholders(req)
 
     # 명명 규칙 AS_<영웅>_<계열>_<동작> — 강제하지 않고 알린다
     expected = "_".join(t for t in ("AS", req["hero"], req["family"]) if t) + "_"
@@ -318,6 +335,188 @@ def _fix(raw) -> dict:
     if not isinstance(ops, list) or not all(isinstance(o, dict) and isinstance(o.get("op"), str) and o["op"] for o in ops):
         raise _bad("fix.ops", "must be a list of {op, ...}")
     return {"ops": ops}
+
+
+def _num(value, low: float | None = None) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and (low is None or value >= low)
+
+
+def _keys(obj, allowed, field: str) -> dict:
+    if not isinstance(obj, dict):
+        raise _bad(field, "must be an object")
+    extra = sorted(set(obj) - set(allowed))
+    if extra:
+        raise _bad(f"{field}.{extra[0]}", f"unknown key(s) {extra}", reason="UNKNOWN_FIELD", allowed=sorted(allowed))
+    return obj
+
+
+def _asset_ref(value, field: str, allowed: tuple[str, ...] = ("$asset",)) -> str:
+    """애셋 경로 또는 자리표시(allowed) — 경로는 패키지 경로로."""
+    if isinstance(value, str) and value in allowed:
+        return value
+    if not isinstance(value, str) or not value.strip().startswith("/"):
+        raise _bad(field, f"must be an asset path or one of {list(allowed)}")
+    return package_path(value)
+
+
+def montage_name(req: dict) -> str:
+    """package.montage.name 생략 = animation_name 의 AS_ → AM_ (명명 규칙 .claude/plans/anim-asset-naming.md)."""
+    name = req["animation_name"]
+    return "AM_" + (name[3:] if name.startswith("AS_") else name)
+
+
+def _package(raw, req: dict) -> dict | None:
+    """package{additive?, montage?, blendspace?} — 형식만 본다(스켈레톤 슬롯 · 샘플 존재 · 이름 충돌은 계획 단계)."""
+    if raw is None:
+        return None
+    pkg = _keys(raw, PACKAGE_KEYS, "package")
+    if not pkg:
+        raise _bad("package", f"needs at least one of {list(PACKAGE_KEYS)}", reason="MISSING_FIELD")
+    out: dict = {}
+    if pkg.get("additive") is not None:
+        add = {**ADDITIVE_DEFAULTS, **_keys(pkg["additive"], ADDITIVE_DEFAULTS, "package.additive")}
+        if add["additive_type"] not in ADDITIVE_TYPES:
+            raise _bad("package.additive.additive_type", f"must be one of {list(ADDITIVE_TYPES)}")
+        if add["ref_pose_type"] not in REF_POSE_TYPES:
+            raise _bad("package.additive.ref_pose_type", f"must be one of {list(REF_POSE_TYPES)}")
+        if not _int(add["ref_frame_index"], 0, 100000):
+            raise _bad("package.additive.ref_frame_index", "must be an integer ≥ 0")
+        if add["ref_pose_sequence"] is not None:
+            add["ref_pose_sequence"] = _asset_ref(add["ref_pose_sequence"], "package.additive.ref_pose_sequence")
+        elif add["ref_pose_type"] in ("AnimScaled", "AnimFrame"):
+            raise _bad("package.additive.ref_pose_sequence", f"ref_pose_type {add['ref_pose_type']} needs a base pose sequence ('$asset' = the sequence "
+                       "itself) — UAnimSequence::IsValidAdditive is false without one", reason="MISSING_FIELD")
+        out["additive"] = add
+    names = {req["animation_name"]: "animation_name"}
+    if pkg.get("montage") is not None:
+        mon = {**MONTAGE_DEFAULTS, **_keys(pkg["montage"], MONTAGE_DEFAULTS, "package.montage")}
+        mon["name"] = mon["name"] or montage_name(req)
+        if not isinstance(mon["name"], str) or not _NAME.match(mon["name"]):
+            raise _bad("package.montage.name", "must be an asset name (letters, digits, '_')")
+        if not isinstance(mon["slot"], str) or not _NAME.match(mon["slot"]):
+            raise _bad("package.montage.slot", "must be a slot name registered in the target skeleton (e.g. DefaultSlot, UpperBody)")
+        for key in ("blend_in", "blend_out"):
+            if mon[key] is not None and not _num(mon[key], 0):
+                raise _bad(f"package.montage.{key}", "must be seconds ≥ 0")
+        if mon["sections"] is not None:
+            secs = mon["sections"]
+            if not isinstance(secs, list) or not secs:
+                raise _bad("package.montage.sections", "must be a non-empty list of {name, start, next?}")
+            for k, s in enumerate(secs):
+                _keys(s, {"name", "start", "next"}, f"package.montage.sections[{k}]")
+                if not isinstance(s.get("name"), str) or not s["name"].strip() or not _num(s.get("start"), 0) \
+                        or (s.get("next") is not None and not isinstance(s["next"], str)):
+                    raise _bad(f"package.montage.sections[{k}]", "must be {name, start (s, ≥ 0), next? (section name; its own name = loop)}")
+        if mon["name"] in names:
+            raise _bad("package.montage.name", f"'{mon['name']}' is already the {names[mon['name']]}", reason="DUPLICATE_NAME")
+        names[mon["name"]] = "montage name"
+        out["montage"] = mon
+    if pkg.get("blendspace") is not None:
+        bs = {**BLENDSPACE_DEFAULTS, **_keys(pkg["blendspace"], BLENDSPACE_DEFAULTS, "package.blendspace")}
+        if not isinstance(bs["name"], str) or not _NAME.match(bs["name"]):
+            raise _bad("package.blendspace.name", "is required — an asset name such as BS_Vesper_Rifle_Walk1D", reason="MISSING_FIELD")
+        if bs["dimensions"] not in (1, 2) or isinstance(bs["dimensions"], bool):
+            raise _bad("package.blendspace.dimensions", "must be 1 or 2")
+        axes = bs["axes"]
+        if not isinstance(axes, list) or len(axes) != bs["dimensions"]:
+            raise _bad("package.blendspace.axes", f"must list {bs['dimensions']} axis object(s) {{name, min, max, grid?, snap?, wrap?}}")
+        for k, a in enumerate(axes):
+            _keys(a, AXIS_KEYS, f"package.blendspace.axes[{k}]")
+            if not isinstance(a.get("name"), str) or not a["name"] or not _num(a.get("min")) or not _num(a.get("max")) or a["max"] <= a["min"]:
+                raise _bad(f"package.blendspace.axes[{k}]", "must be {name, min, max (> min), grid?, snap?, wrap?}")
+        samples = bs["samples"]
+        if not isinstance(samples, list) or not samples:
+            raise _bad("package.blendspace.samples", "must be a non-empty list of {animation ('$asset' or a path), value[]}")
+        for k, s in enumerate(samples):
+            _keys(s, {"animation", "value"}, f"package.blendspace.samples[{k}]")
+            s["animation"] = _asset_ref(s.get("animation"), f"package.blendspace.samples[{k}].animation")
+            value = s.get("value")
+            if not isinstance(value, list) or len(value) != bs["dimensions"] or not all(_num(v) for v in value):
+                raise _bad(f"package.blendspace.samples[{k}].value", f"must be {bs['dimensions']} number(s)")
+            for axis, v in zip(axes, value):
+                if not axis["min"] <= v <= axis["max"]:
+                    raise _bad(f"package.blendspace.samples[{k}].value", f"{v} is outside axis '{axis['name']}' [{axis['min']}, {axis['max']}]",
+                               reason="OUT_OF_RANGE")
+        if not isinstance(bs["aim_offset"], bool):
+            raise _bad("package.blendspace.aim_offset", "must be true or false")
+        if bs["name"] in names:
+            raise _bad("package.blendspace.name", f"'{bs['name']}' is already the {names[bs['name']]}", reason="DUPLICATE_NAME")
+        out["blendspace"] = bs
+    return out
+
+
+def _anim_bp(raw, integrate: bool) -> dict | None:
+    """anim_bp{asset_path, operations[], scenario?, smoke} — integrate_anim_bp 가 참일 때만 읽는다(애셋만 요청하면 AnimBP 를 건드리지 않는다)."""
+    if not integrate:
+        if raw is not None:
+            raise _bad("anim_bp", "is given but integrate_anim_bp is false — set integrate_anim_bp: true to connect, or drop anim_bp",
+                       reason="CONFLICTING_FIELDS")
+        return None
+    if raw is None:
+        raise _bad("anim_bp", "integrate_anim_bp is true but anim_bp {asset_path, operations?, scenario?, smoke?} is missing", reason="MISSING_FIELD")
+    abp = {**ANIM_BP_DEFAULTS, **_keys(raw, ANIM_BP_DEFAULTS, "anim_bp")}
+    if not isinstance(abp["asset_path"], str) or not abp["asset_path"].startswith("/"):
+        raise _bad("anim_bp.asset_path", "is required — the Animation Blueprint to connect (anim_gen writes only a test copy)", reason="MISSING_FIELD")
+    abp["asset_path"] = package_path(abp["asset_path"])
+    ops = abp["operations"]
+    if not isinstance(ops, list) or not all(isinstance(o, dict) and isinstance(o.get("op"), str) and o["op"] for o in ops):
+        raise _bad("anim_bp.operations", "must be a list of apply_graph_operations ops {op, ...} (empty = check playback only)")
+    if not isinstance(abp["smoke"], bool):
+        raise _bad("anim_bp.smoke", "must be true or false")
+    scn = abp["scenario"]
+    if scn is not None:
+        scn = _keys(scn, SCENARIO_KEYS, "anim_bp.scenario")
+        if scn.get("montage") is not None:
+            scn["montage"] = _asset_ref(scn["montage"], "anim_bp.scenario.montage", ("$montage",))
+        if scn.get("wait_frames") is not None and not _int(scn["wait_frames"], 1, 600):
+            raise _bad("anim_bp.scenario.wait_frames", "must be an integer in [1, 600]")
+        if scn.get("expect") is not None:
+            exp = _keys(scn["expect"], {"state_machines", "slots_active"}, "anim_bp.scenario.expect")
+            if exp.get("state_machines") is not None and not isinstance(exp["state_machines"], dict):
+                raise _bad("anim_bp.scenario.expect.state_machines", "must be {machine: state}")
+            if exp.get("slots_active") is not None and not (isinstance(exp["slots_active"], list) and all(isinstance(s, str) for s in exp["slots_active"])):
+                raise _bad("anim_bp.scenario.expect.slots_active", "must be a list of slot names")
+        if scn.get("set_variables") is not None and not isinstance(scn["set_variables"], dict):
+            raise _bad("anim_bp.scenario.set_variables", "must be {variable: value}")
+        for key in ("mesh", "map"):
+            if scn.get(key) is not None:
+                scn[key] = _asset_ref(scn[key], f"anim_bp.scenario.{key}", ())
+        abp["scenario"] = scn
+    return abp
+
+
+def placeholder_uses(obj, where: str = "") -> list[tuple[str, str]]:
+    """문자열 값 전체가 '$이름' 인 곳 — (위치, 자리표시)."""
+    if isinstance(obj, str):
+        return [(where, obj)] if re.fullmatch(r"\$[A-Za-z_]+", obj) else []
+    if isinstance(obj, dict):
+        return [u for k, v in obj.items() for u in placeholder_uses(v, f"{where}.{k}" if where else k)]
+    if isinstance(obj, list):
+        return [u for i, v in enumerate(obj) for u in placeholder_uses(v, f"{where}[{i}]")]
+    return []
+
+
+def bind_placeholders(obj, bindings: dict):
+    """자리표시를 실제 경로로 — 문자열 값 전체가 자리표시일 때만(부분 문자열은 그대로)."""
+    if isinstance(obj, str):
+        return bindings.get(obj, obj)
+    if isinstance(obj, dict):
+        return {k: bind_placeholders(v, bindings) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [bind_placeholders(v, bindings) for v in obj]
+    return obj
+
+
+def _check_placeholders(req: dict) -> None:
+    """$montage · $blendspace 는 그 포장 단계가 있을 때만, 모르는 자리표시는 거부(오타가 조용히 문자열로 남지 않게)."""
+    pkg = req["package"] or {}
+    bound = {"$asset"} | ({"$montage"} if pkg.get("montage") else set()) | ({"$blendspace"} if pkg.get("blendspace") else set())
+    uses = placeholder_uses(pkg, "package") + placeholder_uses(req["anim_bp"] or {}, "anim_bp")
+    for where, name in uses:
+        if name not in PLACEHOLDERS:
+            raise _bad(where, f"unknown placeholder {name} (known: {list(PLACEHOLDERS)})", reason="UNKNOWN_PLACEHOLDER")
+        if name not in bound:
+            raise _bad(where, f"{name} needs package.{name[1:]} in the same request", reason="PLACEHOLDER_UNBOUND")
 
 
 def final_asset_path(req: dict) -> str:

@@ -5,6 +5,7 @@
 #include "Bridge/AnimMcpDispatcher.h"
 #include "Bridge/AnimMcpTypes.h"
 #include "Core/AnimMcpAssetResolver.h"
+#include "Core/AnimMcpGeneration.h"
 #include "Core/AnimMcpMontage.h"
 #include "UObject/UnrealType.h"
 
@@ -56,11 +57,13 @@ namespace AnimMcpTools
 	void RegisterSequenceTools(FAnimMcpDispatcher& Dispatcher)
 	{
 		Dispatcher.RegisterTool(TEXT("set_sequence_additive"),
-			TEXT("Set the additive settings of an AnimSequence (what the Details panel's Additive Settings does) — needed before a sequence can be an AimOffset sample (Mesh Space additive with a base pose). Params: asset_path (AnimSequence), additive_type? (None | LocalSpaceBase | RotationOffsetMeshSpace), ref_pose_type? (None | RefPose | AnimScaled | AnimFrame | LocalAnimFrame), ref_pose_sequence? (AnimSequence path on the same skeleton, or null to clear), ref_frame_index?, save? (default false). Omitted fields keep their value; identical values = unchanged. Returns the resulting settings with additive_valid."),
+			TEXT("Set the additive settings of an AnimSequence (what the Details panel's Additive Settings does) — needed before a sequence can be an AimOffset sample (Mesh Space additive with a base pose). Params: asset_path (AnimSequence), additive_type? (None | LocalSpaceBase | RotationOffsetMeshSpace), ref_pose_type? (None | RefPose | AnimScaled | AnimFrame | LocalAnimFrame), ref_pose_sequence? (AnimSequence path on the same skeleton, or null to clear), ref_frame_index?, save? (default false), generation_guard? (default false; true = the sequence must be inside [AnimGraphMcp] GenerationOutputPaths and the global dirty-package diff is checked before saving — UNEXPECTED_DIRTY; the base pose sequence is only read). Omitted fields keep their value; identical values = unchanged. Returns the resulting settings with additive_valid."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
+				AnimMcpGeneration::FWriteGuard Guard(Context.Request);
 				FString AssetPath;
 				if (!Context.Request.GetRequiredString(TEXT("asset_path"), AssetPath, OutError)) { return nullptr; }
+				if (!Guard.CheckPath(AssetPath, TEXT("asset_path"), OutError)) { return nullptr; }
 				UAnimSequence* Sequence = Cast<UAnimSequence>(AnimMcpAssetResolver::LoadAssetOfClass(AssetPath, UAnimSequence::StaticClass(), OutError));
 				if (!Sequence) { return nullptr; }
 				const bool bSave = Context.Request.GetOptionalBool(TEXT("save"), false);
@@ -158,6 +161,7 @@ namespace AnimMcpTools
 						FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
 						Sequence->PostEditChangeProperty(Event);
 					}
+					if (!Guard.Check(OutError)) { return nullptr; }
 					if (bSave)
 					{
 						bSaved = AnimMcpMontage::SaveAsset(Sequence, Context);
@@ -166,9 +170,11 @@ namespace AnimMcpTools
 				else
 				{
 					Context.AddDiagnostic(TEXT("info"), TEXT("UNCHANGED"), TEXT("Additive settings already match"));
+					if (!Guard.Check(OutError)) { return nullptr; }
 				}
 
 				TSharedRef<FJsonObject> Result = DescribeAdditive(Sequence);
+				Guard.Describe(Result);
 				TArray<TSharedPtr<FJsonValue>> ChangedValues;
 				for (const FName& Name : Changed) { ChangedValues.Add(MakeShared<FJsonValueString>(Name.ToString())); }
 				Result->SetArrayField(TEXT("changed"), ChangedValues);

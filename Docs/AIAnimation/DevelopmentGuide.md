@@ -12,7 +12,8 @@
 개정 7 보강 2: 2026-10-24 — `import_animation_file` 리샘플 경계 스냅. `bSnapToClosestFrameBoundary` 를 항상 켜서 경계에 안 맞는 길이도 임포트하고, 맞춘 트랙은 `warning LENGTH_SNAPPED` 로 알린다(§2.3 · 부록 B). 생성 잡은 단계 안 에디터 Tool 진단을 `tool` · `step` 과 함께 Job `diagnostics` 에 남긴다(§3.4).  
 개정 8: 2026-10-25 — Phase 5(로컬 AI) 구현·실측 반영. 조사 결론과 채택(NVIDIA Kimodo-SOMA-RP-v1.2, §2.4), `local_ai` Provider(전용 venv 서브프로세스 · 오프라인 · 텍스트 인코더 CPU — §4 · §6), 요청 `prompt` · `generation` · `review` · `fix` · `retarget.align_mode` · `retarget.body_clearance`(§9), 생성 BVH → `blender` 변환 사슬(§5), 리타깃 정렬 엔진 함정과 `per_bone` 정렬 · 기준 포즈 FBX 2단 임포트 · 손가락 체인 · 팔-몸통 관통 보정(§2.3 · §10 · §13), §14 Phase 5 결과.  
 개정 9: 2026-10-25 — Phase 6(외부 AI — Meshy Text-to-Motion) 공식 문서 확인 · 구현. API · 크레딧 가격 · Rate Limit · 만료 · 약관(§2.4 · 부록 A · B), `external.meshy` Provider(HTTP 어댑터 · 비동기 Job · 잔액 확인 · 요청 로그 — §4), 크레딧 × 사용자 환율 비용 추정과 장부의 크레딧(§6), 요청 `generation.options`(§9), poll 단계 실패의 환불 · 과금 반영(§3.4 · §6), §14 Phase 6.  
-상태: Phase 1 · 2 · 3 · 4 · 5 · 6 완료(§14). Phase 6 완료 기준 ① 실제 유료 1건은 **미실행으로 마감**(사용자 Meshy 계정이 Free 요금제 — API 생성은 유료 요금제만, 2026-10-25 사용자 결정). 다음 = Phase 7(AnimBP 연결) 또는 Phase 8-1(품질 — §14 Phase 8 로드맵) — 사용자 승인 후. 3D 메시 생성(Tripo)은 애니 파이프라인 밖 별도 트랙(§14 끝).  
+개정 10: 2026-10-25 — Phase 7(AnimBP 연결 · 승격) 설계 확정 · 구현 · 실측. 새 Tool `promote_animation`(엔진 AssetTools rename — 자동 저장이라 사전 검사 + `confirm`, ini `PromotionPaths`), 기존 쓰기 Tool 6개의 옵트인 `generation_guard`(기본 = 기존 동작), 요청 `package` · `anim_bp`(§9), 계획 단계 `package_*` · `anim_bp_test` · `anim_bp_prepare`(§5), `INTEGRATION_FAILED`(§7), 운영 AnimBP 적용 승인 게이트와 노티파이 순서(§12), §14 Phase 7 결과.  
+상태: Phase 1 · 2 · 3 · 4 · 5 · 6 · 7 완료(§14). Phase 6 완료 기준 ① 실제 유료 1건은 **미실행으로 마감**(사용자 Meshy 계정이 Free 요금제 — API 생성은 유료 요금제만, 2026-10-25 사용자 결정). Phase 7 은 운영 AnimBP 실제 적용을 완료 기준에서 뺐다(사용자 결정 — 미리보기 · revision · 복제본 검증까지). 다음 = Phase 8-1(품질 — §14 Phase 8 로드맵) 또는 운영 적용(§12 절차) — 사용자 승인 후. 3D 메시 생성(Tripo)은 애니 파이프라인 밖 별도 트랙(§14 끝).  
 관련 문서: [AnimGraphMcp README](../../Plugins/AnimGraphMcp/README.md) · [Phase 0 감사](ArchitectureAudit.md) · [Phase 5 로컬 모델 조사](LocalModelSurvey.md)
 
 | 항목 | 내용 |
@@ -20,6 +21,21 @@
 | 환경 | Windows 11 · UE 5.7.4 소스 빌드 · C++ · Python 3.13 · Claude Code · MCP |
 | 구조 | Multi-Provider + 규칙 기반 라우터 + 폴백 + 공통 리타깃 처리 + 기존 AnimBP MCP 연결 |
 | 기본 정책 | Free-First · 유료 API는 명시 승인 · 비파괴 · Editor 전용 |
+
+---
+
+## 개정 10 변경 요약 (Phase 7 — AnimBP 연결 · 승격)
+
+| 항목 | 개정 9 | 개정 10 (설계 확정 · 엔진 소스 대조 · 구현 · 실측) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 승격 | "AssetTools rename, 리디렉터 없음" 한 줄 | 새 Tool `promote_animation(assets[{source, dest}], dry_run, confirm, allow_referencers)` — `IAssetTools::RenameAssets` 는 새 패키지 · 참조 패키지를 **자동 저장**한다(사후 더티 비교로는 못 막음) → 사전 검사(후보 소스 · 클래스 · dest 규칙 · 참조자 · 맵 · 미저장 참조자 · 보호 · 네이티브 CDO) + `confirm`, 후보 경로 밖 참조자는 `allow_referencers` 로 명시. 사후 검증(리디렉터 0 · 옛 파일 · 내용 해시 · 참조 · 저장 집합). ini `+PromotionPaths=/Game/Animation/Hero/`(생성 경로와 겹치면 무시). 오류 `PROMOTE_FAILED` | §2.3 · §3.1 · §3.2 · §3.3 · §12 · §14 |
+| 기존 쓰기 Tool | "기존 Tool 동작은 바꾸지 않는다" | `create_anim_montage` · `set_montage_sections` · `create_blendspace` · `set_sequence_additive` · `duplicate_animation_blueprint` · `apply_graph_operations` 에 옵트인 `generation_guard`(허용 목록 · 덮어쓰기 거부 · 전역 더티 비교 · 검사 뒤 저장 — 원천은 C++ `FWriteGuard` 한 곳). **기본 false = 기존 동작 그대로**(원칙의 범위 = 기본값) | §3.1 · §3.3 |
+| 요청 | `integrate_anim_bp` → 한계 `ANIM_BP_NOT_INTEGRATED` | `package{additive?, montage?, blendspace?}` · `integrate_anim_bp: true` + `anim_bp{asset_path, operations[], scenario?, smoke}`(참인데 없으면 `MISSING_FIELD`, 거짓인데 있으면 `CONFLICTING_FIELDS`) · 자리표시 `$asset` · `$montage` · `$blendspace`. 한계 `ANIM_BP_APPLY_PENDING` · `NOTIFIES_NOT_ADDED`(`ANIM_BP_NOT_INTEGRATED` 폐지) | §9 |
+| 라우터 · 실행 | 검증에서 끝 | 모든 후보의 검증 뒤 `package_additive` · `package_montage` · `package_blendspace` · `anim_bp_test`(복제본 적용 · 컴파일 · 스모크 · 시나리오 — 비동기) · `anim_bp_prepare`(운영 AnimBP revision · 미리보기 — 읽기만). 계획 때 슬롯 등록(`SLOT_NOT_IN_SKELETON`) · ABP 스켈레톤(`SKELETON_MISMATCH`) · 운영 미리보기(`PREVIEW_INVALID`) · revision 고정 | §5 |
+| 실패 | — | 포장 · 연결 실패 = `INTEGRATION_FAILED`(폴백 없음 · 만든 시퀀스는 `generated_assets` 에 남음), 가드 오류는 그대로 중단 | §7 |
+| 운영 AnimBP | 기존 Tool 로 연결 | **anim_gen 은 운영 AnimBP 에 쓰지 않는다** — Job `anim_bp.apply_payload{asset_path, operations, expected_revision, compile}` 까지. 적용은 사용자 승인 뒤 승격 → 바인딩을 정식 경로로 → `apply_graph_operations(expected_revision)`(가드 없이). Phase 7 완료 기준에서 실제 운영 적용은 뺐다(사용자 결정) | §12 · §14 |
+| 노티파이 | — | 플러그인 = 몽타주 구조(슬롯 · 섹션 · 블렌드), 프로젝트 노티파이 = `astral-ue-montage` 스킬. 순서 = 생성 → 포장 → 확인 → 승격 → 정식 몽타주에 노티파이 → GA 지정(승인). 스킬의 "슬롯 이름 변경 · 다중 섹션 금지"는 Python API 한계였다 → 플러그인 Tool 로(스킬 문서 정정) | §12 |
+| 설계 정정 (엔진 실측) | — | ① additive 기본 = `LocalAnimFrame 0`(설계 예시 `AnimFrame` + 기준 시퀀스 없음은 `IsValidAdditive` 가 거짓 — `AnimSequence.cpp:2627-2639`) ② `ABP_McpRuntimeTest` 의 Run 상태 플레이어는 SequencePlayer 라 `set_asset $blendspace` 가 안 된다 → BlendSpacePlayer 추가 · Speed 연결 · 교체 op ③ 짧은 몽타주는 `wait_frames` 안에 끝나 슬롯이 꺼진다 → 루프 섹션 ④ 복제본 이름에 Job 꼬리(`_Test_<job>A<n>`) — 스모크 테스트 이름이 애셋 이름이라 겹치지 않게 ⑤ additive 는 제자리 편집이라 재사용 애셋에는 거부(`ADDITIVE_ON_REUSED`) | §9 · §14 |
 
 ---
 
@@ -255,6 +271,10 @@ Claude Code ─ stdio MCP ─▶ Tools/mcp/anim_graph_mcp/server.py (얇은 프�
 | 리타깃 포즈 자동 생성기 (개정 8) | `FRetargetAutoPoseGenerator::AlignPelvisBone` · 체인 접선 | `Plugins/Animation/IKRig/Source/IKRigEditor/Private/RetargetEditor/IKRetargeterPoseGenerator.cpp:107, 249, 386` | 같은 param 의 접선(유한 차분)끼리 맞춘다 — param 1 근처(뼈 1개 말단 · 머리)는 접선을 못 만들어 건너뛰고, 펠비스는 소스 척추 방향으로, 척추는 소스 곡선 접선으로 돌린다 → 대상 몸통이 소스 기준 포즈 모양(숙임 · 목 기울기)을 물려받아 모든 프레임에 붙는다 |
 | 바인드 포즈 무효 → 첫 프레임 재바인드 (개정 8) | `UInterchangeSkeletalMeshFactory` `bUseTimeZeroAsBindPose` | `Plugins/Interchange/Runtime/Source/Import/Private/Mesh/InterchangeSkeletalMeshFactory.cpp:792-808` | FBX SDK 가 바인드 포즈를 무효로 보면 "invalid bind poses … rebind using the time zero pose" — 스켈레톤 기준 포즈가 **애니 첫 프레임**이 된다. Blender 가 쓴 FBX 는 행렬이 일관인데도 계층 깊이 ≥ 10 본(SOMA 손가락 둘째 마디 아래)이 있으면 정밀도 판정(허용 0.0001 cm)으로 무효가 된다(이분 탐색 실측, CMU 깊이 ≤ 9 는 유효). 미터 단위 FBX 는 유효하지만 루트 본 스케일 100 이 남아 못 쓴다 → 기준 포즈 2프레임 FBX 로 스켈레톤을 만들고 동작은 그 스켈레톤에 애니만 임포트(§10) |
 | 메시 기준 포즈 ≠ 스켈레톤 기준 포즈 (개정 8) | `USkeletalMesh::GetRefSkeleton` · `USkeleton::GetReferenceSkeleton` | — | 메시 46개가 공유하는 Vesper 스켈레톤의 기준 포즈는 `SK_StreetDemon_F_01` 과 손가락 로컬 회전이 최대 14.13°(`index_metacarpal`) 다르다 — 리타기터 · 렌더는 **메시** 기준 포즈를 쓰므로 미매핑 손가락 비교도 대상 메시 기준이어야 한다(스켈레톤 기준이면 고친 결과도 30본 오탐) |
+| 애셋 이동 (개정 10 — 승격) | `IAssetTools::RenameAssets(TArray<FAssetRenameData>)` · `FixupReferencers` | `Source/Developer/AssetTools/Private/AssetRenameManager.cpp:138-152, 386-554, 708-807, 921-1090, 1734-2024` · `Public/IAssetTools.h:121-151, 470, 649` | 대화상자 없는 경로(`bAutoCheckout` · `bWithDialog=false`), 레지스트리 로딩 중이면 false. 네이티브 클래스 CDO 가 하드 · 소프트로 가리키면 OkCancel 모달(기본 Cancel → 중단, 소프트면 리디렉터 표시도). 리디렉터는 참조자가 맵(:1032) · 못 읽음(:1068) · 컬렉션 · 읽기 전용 · SCC 비로컬(:994)일 때만. `PerformAssetRename` 이 **이미 더티인 패키지의 소프트 참조까지 고치고** 새 패키지 · 참조 패키지 · 리디렉터를 `PromptForCheckoutAndSave(bPromptToSave=false)` 로 **자동 저장**, 리디렉터가 없으면 옛 패키지를 지운다(:2014-2023 — 아직 참조되면 파일이 남을 수 있다). 실측: BS 1개 0.6초 · 저장 = 새 패키지(+ 참조자) · 옛 파일 없음 · 리디렉터 0. `UEditorAssetSubsystem::RenameAsset` 도 같은 경로 |
+| 모달 기본값 (개정 10) | `FMessageDialog::Open` | `Source/Runtime/Core/Private/Misc/MessageDialog.cpp:172` | `FApp::IsUnattended() \|\| GIsRunningUnattendedScript` 면 DefaultValue 반환 → `promote_animation` 은 rename 호출 동안만 `TGuardValue(GIsRunningUnattendedScript, true)` |
+| additive 유효 (개정 10) | `UAnimSequence::IsValidAdditive` | `Source/Runtime/Engine/Private/Animation/AnimSequence.cpp:2615-2640` | `RefPose` · `LocalAnimFrame` 은 기준 시퀀스 없이 유효, `AnimScaled` · `AnimFrame` 은 `RefPoseSeq` 가 있어야 — 요청 `package.additive` 기본 `LocalAnimFrame 0`, `AnimFrame` 이면 `ref_pose_sequence`(`$asset` = 자기 자신) 필수 |
+| 시퀀스 내용 해시 (개정 10) | `IAnimationDataModel::GenerateGuid()` | `Source/Runtime/Engine/Classes/Animation/AnimData/IAnimationDataModel.h:380-385` | 경로와 무관한 원시 데이터 GUID — 승격 전후 같으면 같은 내용 |
 | IKRig 플러그인 | `EnabledByDefault: true` | `Plugins/Animation/IKRig/IKRig.uplugin` | 플러그인 의존 선언만 추가하면 된다 |
 
 ### 2.4 외부 Provider와 라이선스
@@ -280,11 +300,11 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
   ├─▶ anim-graph-mcp  (기존, 얇은 프록시 — Tool 하나 = 라우트 하나)
   │       └─ HTTP ─▶ AnimGraphMcpEditor (C++, 게임 스레드)
   │                   ├─ 기존: AnimBP · 몽타주 · BlendSpace · 스켈레톤 슬롯·재할당
-  │                   └─ 신규: 스켈레톤 조회 · 임포트 · IK Rig · 리타기터 · 리타깃 · 키 편집 · 검증
+  │                   └─ 신규: 스켈레톤 조회 · 임포트 · IK Rig · 리타기터 · 리타깃 · 키 편집 · 검증 · 승격(Phase 7) — 기존 쓰기 Tool 6개는 옵트인 generation_guard
   │
   └─▶ anim-gen-mcp    (신규, Phase 3 — Tools/mcp/anim_gen/)
           ├─ 정책 · 비용 장부 · 승인 · Provider 레지스트리 · 라우터 · 폴백 · Job 저장소
-          ├─ Provider: existing_motion · direct_key · blender · local_ai · external.meshy
+          ├─ Provider: existing_motion · direct_key · blender · local_ai · external.meshy · 파이프 retarget · package · anim_bp(Phase 7)
           └─ 에디터 조작은 bridge.py 로 위 플러그인 Tool 을 부른다 (HTTP 재구현 금지)
 ```
 
@@ -296,6 +316,8 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 6. **쓰기 경로 허용 목록:** 새 쓰기 Tool은 `[AnimGraphMcp] +GenerationOutputPaths=`(기본 `/Game/Animation/Generated/`, `/Game/Animation/Test/`) 밖에 애셋을 만들지 않는다(`OUTPUT_PATH_NOT_ALLOWED`). 기존 Tool과 기존 보호 목록의 동작은 바꾸지 않는다.
    - 허용 목록과 임포트 허용 루트의 **유일한 기준은 이 ini**다. `get_editor_status`가 내보내고 `anim_gen`은 그것을 읽는다(따로 두지 않는다).
    - 생성 경로는 스모크 경로(`SmokeTestPaths=/Game/Animation`) 안에 있어 생성된 몽타주도 스모크 검사를 받는다. 의도된 동작이고, 승격 전 "Slot 노드 없음" 경고는 정상이다.
+   - **옵트인 생성 가드 (개정 10):** "기존 Tool 동작은 바꾸지 않는다"의 범위는 **기본값**이다. 기존 쓰기 Tool 6개(`create_anim_montage` · `set_montage_sections` · `create_blendspace` · `set_sequence_additive` · `duplicate_animation_blueprint` · `apply_graph_operations`)는 `generation_guard: true` 일 때만 생성 Tool 과 같은 가드(허용 목록 · 덮어쓰기 거부 · 전역 더티 비교 · 검사 뒤 저장, 결과 `guard{newly_dirty[]}`)를 받는다. 기본 false 는 지금까지와 같다(`build_hero_combat.py` 등 영향 없음). anim_gen 은 포장 · 연결 단계의 모든 쓰기에 켠다 — 규칙은 C++ `AnimMcpGeneration::FWriteGuard` 한 곳에만 있다.
+   - **승격 경로 (개정 10):** `+PromotionPaths=/Game/Animation/Hero/` — `promote_animation` 이 후보를 옮길 수 있는 유일한 기준. 생성 경로와 겹치는 항목 · 마운트 루트는 경고 후 무시(`get_editor_status.generation.promotion_paths`).
 7. **원본 비파괴:** 소스 애셋은 읽기만 한다. 각 쓰기 Tool은 호출 전후 **에디터 전체의 더티 패키지 집합 차이**를 본다. 새로 더티가 된 패키지 중 허용 목록 밖이 하나라도 있으면 아무것도 저장하지 않고 `UNEXPECTED_DIRTY`(목록 포함)로 실패한다. 애셋마다 따로 검사하지 않고 한 곳에서 보므로, 모르는 부작용(예: 임포트가 스켈레톤에 커브 메타데이터를 더함)도 잡힌다.
 
 ### 3.2 결과 형식
@@ -320,7 +342,7 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 
 - 경고는 `diagnostics[]`에 둔다.
 - 요청한 작업(생성 · 검증, `save`를 요청했으면 저장까지)이 실제로 끝나기 전에는 `ok: true`를 반환하지 않는다. `save=false`(기본)면 저장되지 않은 더티 애셋이 정상 결과다.
-- 오류 코드는 기존 체계(HTTP 상태 + 코드)에 추가한다. 예: `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` · `OUTPUT_PATH_NOT_ALLOWED` · `UNEXPECTED_DIRTY` · `PROVIDER_UNAVAILABLE` · `APPROVAL_REQUIRED` · `BUDGET_EXCEEDED` · `COST_UNKNOWN` · `LICENSE_RESTRICTED`. 세부 사유는 기존 Tool처럼 `error.details.reason`에 둔다.
+- 오류 코드는 기존 체계(HTTP 상태 + 코드)에 추가한다. 예: `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` · `OUTPUT_PATH_NOT_ALLOWED` · `UNEXPECTED_DIRTY` · `PROVIDER_UNAVAILABLE` · `APPROVAL_REQUIRED` · `BUDGET_EXCEEDED` · `COST_UNKNOWN` · `LICENSE_RESTRICTED` · `PROMOTE_FAILED`(개정 10 — 플러그인, HTTP 400) · `INTEGRATION_FAILED`(개정 10 — anim_gen 포장 · 연결). 세부 사유는 기존 Tool처럼 `error.details.reason`에 둔다.
 - `limitations[]` 항목은 `{code, message, source}`다(`source` = `router` · `provider` · `direct_key` · `validation` · `fallback`). C++ Tool이 돌려주는 문자열 한계(예: 미러의 `MIRROR_CURVES_UNCHANGED`)는 `anim_gen`이 같은 모양으로 감싼다.
 
 ### 3.3 원본 Tool 목록 대응
@@ -336,8 +358,10 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 | `list_existing_motions` | 기존 `list_animation_assets`. 메타데이터 검색은 신규 `search_animations` | 2 |
 | `modify_existing_motion` · `create_animation_sequence` | 신규 `preview_animation_edits` / `apply_animation_edits` (op 사전, 기존 `apply_graph_operations`의 전체 사전 검증 패턴). 원자성은 "모든 op를 메모리 버퍼에서 끝까지 계산한 뒤에만 새 애셋을 만든다" — 항상 새 애셋이라 그래프 op 같은 보상 롤백은 없다 | 2 |
 | `generate_procedural_motion` | 별도 Tool 아님 — `direct_key` Provider 내부 | 2 |
-| `create_animation_montage` | 기존 `create_anim_montage` | — |
-| `create_animation_blendspace` | 기존 `create_blendspace` | — |
+| `create_animation_montage` | 기존 `create_anim_montage`(+ `set_montage_sections`) — 개정 10: 옵트인 `generation_guard`, anim_gen `package.montage` | 7 |
+| `create_animation_blendspace` | 기존 `create_blendspace` — 개정 10: 옵트인 `generation_guard`, anim_gen `package.blendspace` | 7 |
+| (AnimBP 연결) | 기존 `duplicate_animation_blueprint` · `apply_graph_operations` · `run_automation_tests` · `run_anim_scenario` 조합(개정 10 — 복제본에만, `generation_guard`) | 7 |
+| `promote_animation` | 신규 (C++, 개정 10) — 후보 → 정식 경로 rename, `dry_run` · `confirm` · `allow_referencers` | 7 |
 | `list_motion_providers` · `get/set_generation_policy` · `plan_motion_generation` · `estimate_generation_cost` · `generate_motion` · `get_generation_status` · `cancel_generation` | anim-gen-mcp + 신규 `approve_generation` | 3 |
 | `apply_motion_constraints` · `preview_generated_animation` | 보류 | 8 |
 | `create_animation_from_prompt` | **폐기.** 자연어 분해는 Claude Code가 하고 `plan_motion_generation`에 구조화된 요청을 넘긴다 | — |
@@ -352,6 +376,7 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
   - 전이: `QUEUED → RUNNING | WAITING_FOR_APPROVAL | CANCELLED`, `RUNNING → SUCCEEDED | FAILED | WAITING_FOR_APPROVAL | CANCELLED`, `WAITING_FOR_APPROVAL → QUEUED(승인) | CANCELLED`. 종료 3종(`SUCCEEDED` · `FAILED` · `CANCELLED`) 뒤 전이는 없다.
   - 실행 모델(Phase 3): 에디터 Provider(`existing_motion` · `direct_key` · `retarget`)는 `generate_motion` 호출 안에서 동기로 끝난다. 비동기 Provider(외부 · Blender · 로컬 AI)는 백그라운드 스레드 없이 `get_generation_status`가 poll 할 때 진행한다.
   - 로컬 서브프로세스(개정 7 — `blender`, 개정 8 — `local_ai`): `generate_motion`이 프로세스를 띄우고 `RUNNING`을 돌려준다. poll 이 끝남(report 파일)을 보면 같은 호출 안에서 다음 단계를 잇는다 — 다음도 서브프로세스면(Kimodo → Blender) 그것을 띄우고 다시 `RUNNING`, 에디터 단계면 import → retarget → 검증까지 동기로. 자식은 stdin을 막고 출력을 로그 파일로 보낸다(MCP stdio 보호), 키·토큰 이름의 환경 변수는 넘기지 않는다. 기한(`execution.subprocess_timeout_seconds`, 단계마다)을 넘기면 끝내고 `GENERATION_FAILED`(`TIMEOUT`). 서버가 다시 뜨면 프로세스 핸들이 없어 report 파일로만 판정하고, 기한까지 report가 없으면 멈추지 못한 채 `TIMEOUT`으로 적는다. 공통 부분은 `providers/subprocess_step.py`(`SubprocessProvider` — 띄우기 · report 대기 · 기한 · 종료 · 로그 꼬리)이고 Provider 는 명령 · 인자와 report 해석만 정한다.
+  - AnimBP 시나리오(개정 10 — `anim_bp_test`): 복제 · 적용 · 컴파일 · 스모크는 동기, `run_anim_scenario` 는 에디터 잡(PIE)이라 `generate_motion` 이 `RUNNING` 을 돌려주고 `get_generation_status` 의 poll 이 `poll_automation_tests` 로 잇는다(무료 비동기 단계 — 장부 없음). 기다리기 전에 만든 복제본은 Job `intermediate_assets` 에 바로 남는다(취소 · 실패해도). 취소는 PIE 잡을 멈추지 않는다(결과 무시 — 러너가 기한에 PIE 를 닫는다).
   - 프레임 렌더 비교(개정 8): `blender` 변환 단계가 `review.render` 결과(`values.review` — 프레임 PNG · 시트 · 배치 · 카메라)를 내면 Job 최상위 `review` 에도 남긴다. 뒤 단계가 실패하거나 폴백해도 지우지 않는다(무엇이 변환됐는지 보는 근거).
   - 같은 계획으로 `generate_motion`을 다시 부르면 기존 Job을 돌려준다. 실패·취소된 Job은 `retry=true`일 때만 새 Job을 만든다.
   - 저장 위치: `Saved/AnimGen/{policy.json, plans/, jobs/, approvals/, ledger.jsonl}`(`ANIM_GEN_STATE_DIR`로 바꿀 수 있다 — 테스트 격리용). 서버 프로세스 하나를 전제한다.
@@ -365,6 +390,8 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 | Provider | 하는 일 | Phase | 기본 상태 |
 | :--- | :--- | :---: | :--- |
 | `retarget` (파이프) | 공통 처리 계층 — 모든 Provider 결과가 지난다 | 1 | 활성 |
+| `package` (파이프, 개정 10) | 검증 뒤 포장 — additive · 몽타주 · BlendSpace (요청 `package`, 모든 쓰기 `generation_guard`) | 7 | 활성 |
+| `anim_bp` (파이프, 개정 10) | AnimBP 복제본 연결 · 검증 + 운영 AnimBP 미리보기 · 적용 페이로드 (요청 `integrate_anim_bp` 일 때만) | 7 | 활성 |
 | `existing_motion` | 메타데이터 인덱스로 검색 → 리타깃 → 편집 | 2 | 활성 (주 경로) |
 | `direct_key` | `IAnimationDataController`로 키 작성: 리타임 · 트림 · 미러 · 본 오프셋 · 루트 Yaw · 포즈 유지 · 구간 연결 | 2 | 활성 |
 | `blender` | `motion_file`(BVH)을 headless(`blender -b --factory-startup -P anim_gen/blender/bvh_to_fbx.py`)로 FBX로 바꿔 retarget 파이프로 넘긴다 — 더미 스킨 메시 · 대상 정면 · 바닥 맞춤 · 범위 · fps. 개정 8: 기준 포즈 2프레임 FBX 도 낸다(§10), 생성 Provider 의 BVH 도 변환한다(§5), 같은 실행에서 프레임 렌더 비교(`review.render`)와 보정 op 자리(`fix.ops` — 사전은 Phase 8 까지 비어 있다). FBX 입력·아마추어 편집은 이후 | 4 · 5 | 실행 파일(정책 `paths.blender_executable`)이 있으면 활성 |
@@ -408,6 +435,7 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 - **`motion_file` (개정 7):** 있으면 `blender`를 모드 순서 맨 앞에 둔다(요청이 소스를 준 것). 없으면 위 표 그대로이고 `blender`는 후보·제외 목록에 나오지 않는다. 사슬 = 변환(blender) → `import_animation_file`(`sample_rate` = 요청 `frame_rate`) → `retarget` → [`direct_key`] → 검증.
 - **생성 BVH (개정 8 — `local_ai`):** 생성 Provider 의 출력이 BVH 면 사슬 = 생성 → 변환(`blender`) → import → `retarget` → [`direct_key`] → 검증(`chain` 은 `local_ai` · `blender` · `retarget`). 파일이 계획 때 없으므로 변환 단계는 생성 Provider 가 아는 규약(Kimodo: cm · 정면 +Y · 관절 78 · 30 fps · 프레임 수)을 `expected` 로 고정하고(위험 `CONVERT_RESOLVED_AT_RUN`), 실행 때 그 파일로 같은 규칙을 돌려 다르면 진단 `GENERATED_BVH_UNEXPECTED` 를 남기고 잰 값으로 변환한다. 리샘플은 생성 fps 와 요청 `frame_rate` 가 다를 때만. `blender` 를 쓸 수 없으면 그 후보를 `PROVIDER_UNAVAILABLE`(`DEPENDS_ON_BLENDER`)로 제외. 리타깃 단계의 소스 골반 · 체인 · 발은 요청이 비운 것만 Provider 기본값으로 채우고 계획에 `defaults_from{provider, keys}` 로 보인다(Kimodo = SOMA 골반 `Hips` · 체인 27개 · 발 — SOMA `LeftLeg` 는 넓적다리라 자동 캐릭터라이즈를 믿지 않는다). 생성 단계의 프롬프트 · 프레임 수 · seed(없으면 계획이 골라 고정 — `SEED_PINNED`) · 모델 커밋 · 제약 파일 SHA-256 도 계획에 고정한다.
 - **외부 생성 (개정 9 — `external.meshy`):** prime(FBX) = 생성 → `import_animation_file`(요청 `frame_rate` 로 굽기) → `retarget` → 검증, swift(BVH) = 생성 → `blender` 변환(단위 · 정면 · 관절 모름 → `expected{unit: auto}` 로 실행 때 잼, 대상 정면으로 돌림) → import(2단) → `retarget` → 검증(`blender` 가 없으면 `DEPENDS_ON_BLENDER`). 리그가 문서에 없어 리타깃 소스 체인을 채우지 않는다(자동 IK Rig — 위험 `SOURCE_RIG_UNVERIFIED`), prime 은 정면을 실행 때 잰다(`FACING_UNRESOLVED_AT_PLAN`). 후보의 위험 `PROMPT_SENT_EXTERNALLY` 와 생성 단계 `inputs.request_body`(보낼 본문 그대로)를 승인 전에 보여 준다. 비용 미확인(환율 없음) 후보는 `COST_UNKNOWN` 으로 제외된다.
+- **포장 · AnimBP 연결 (개정 10 — Phase 7):** 어느 후보든 검증 뒤에 같은 단계가 붙는다(계획 안에서 한 번 계산). `package` 가 있으면 `package_additive`(`set_sequence_additive` — 새로 만든 시퀀스만; 재사용 애셋이면 `ADDITIVE_ON_REUSED` 로 막는다 · 계획 때 소스를 모르면 위험 `ADDITIVE_TARGET_RESOLVED_AT_RUN`) → `package_montage`(`create_anim_montage` → `set_montage_sections`, 슬롯이 대상 스켈레톤에 없으면 `SLOT_NOT_IN_SKELETON` — `add_skeleton_slot` 은 공유 스켈레톤 편집이라 별도 승인) → `package_blendspace`(`create_blendspace`, 고정 샘플 존재 · 스켈레톤), 출력 이름이 있으면 `ASSET_EXISTS`. `integrate_anim_bp` 가 참일 때만 `anim_bp_test`(→ `<work>/<ABP>_Test_<job>A<n>` 복제(노드 Guid 보존) → `apply_graph_operations(compile)` → 스모크 `AnimGraphMcp.Smoke.AnimBlueprint.<복제본>` (+ 몽타주면 `AnimMontage.<몽타주>`) → `run_anim_scenario`) · `anim_bp_prepare`(운영 AnimBP `get_anim_blueprint_info` → `preview_graph_operations` — 읽기만). 계획은 ABP 존재 · 스켈레톤(`SKELETON_MISMATCH`)을 보고 revision 을 고정하며, 자리표시 없는 op 는 운영 AnimBP 로 미리 본다(`PREVIEW_INVALID`), 자리표시가 있으면 위험 `ANIM_BP_OPS_RESOLVED_AT_RUN`. `integrate_anim_bp` 가 거짓이면 AnimBP 호출은 0 이다. 사슬 `chain` 끝에 `package` · `anim_bp` 가 붙는다.
 - **변환 없는 경로 (개정 8):** `existing_motion` · `direct_key` 처럼 `blender` 변환이 없는 후보는 `fix.ops` 가 있으면 `UNSUPPORTED_FIX_OP` 로 막고, `review` 에는 한계 `REVIEW_NOT_RENDERED` 를 단다.
 - **계획 단계 제외(`excluded[]`):** `PROVIDER_UNAVAILABLE`(`NOT_IMPLEMENTED` · `NOT_INSTALLED` · `DEPENDS_ON_BLENDER` 등) · `LICENSE_RESTRICTED` · `AUTHENTICATION_FAILED`(`API_KEY_MISSING`) · `APPROVAL_REQUIRED`(`POLICY_FREE_ONLY` · `PAID_API_DISABLED`) · `COST_UNKNOWN` · `UNSUPPORTED_REQUEST`(Capability 밖, 예: 최대 길이 초과 `DURATION_OVER_MAX`. 개정 8: `MISSING_INPUT`(프롬프트 없음) · `CONSTRAINT_OUT_OF_RANGE` · `DUPLICATE_FRAME` · `BAD_RAW_CONSTRAINTS` · `FILE_NOT_FOUND` · `POSTPROCESS_UNAVAILABLE` · `REVIEW_TIME_OUT_OF_RANGE` · `UNSUPPORTED_FIX_OP`). 제약 파일 · 레퍼런스 이미지가 `ImportSourceRoots` 밖이면 계획 전체가 `IMPORT_SOURCE_NOT_ALLOWED`.
 - **계획은 실행하지 않는다:** 읽기 전용 에디터 호출(`get_editor_status` · `inspect_skeleton` · `search_animations`)로 고른 소스·소스 메시를 계획에 고정해 보여 주고, 출력 경로를 ini 허용 목록으로 미리 검사한다. 에디터가 없으면 단계를 미해결로 둔 계획만 만든다.
@@ -469,6 +497,7 @@ UNSUPPORTED_REQUEST · GENERATION_FAILED · IMPORT_FAILED · RETARGET_FAILED · 
 | `VALIDATION_FAILED` · `EXPECT_*` | `VALIDATION_FAILED` | 다음 후보 |
 | `UNEXPECTED_DIRTY` · `OUTPUT_PATH_NOT_ALLOWED` · `ASSET_EXISTS` · `ASSET_PROTECTED` · `IMPORT_SOURCE_NOT_ALLOWED` | 그대로 | **중단** — 가드·요청 문제라 다른 Provider도 같다 |
 | Provider `RATE_LIMITED` | 그대로 | 같은 후보 재시도 |
+| 포장 · AnimBP 연결 단계의 실패 (개정 10) — 슬롯 · 컴파일 · 스모크 · 시나리오 · 운영 미리보기 등 | `INTEGRATION_FAILED` (`SLOT_NOT_IN_SKELETON` · `COMPILE_FAILED` · `SMOKE_FAILED` · `SMOKE_NOT_FOUND` · `SCENARIO_FAILED`(Job `error.details.observed`) · `PREVIEW_INVALID` · `ADDITIVE_INVALID` …) | **중단** — 다른 Provider 도 같은 포장 · 연결을 한다. 이미 만든 시퀀스는 `generated_assets` 에 남는다(다시 할 때는 그 애셋을 `reference_animations` 로 — 독립 실행). 이 단계의 가드 오류(`UNEXPECTED_DIRTY` 등)는 위 행대로 그대로 중단 |
 | 유료 단계: 승인 없음 · 상한 초과 · 비용 미확인 | `APPROVAL_REQUIRED` · `BUDGET_EXCEEDED` · `COST_UNKNOWN` | 뒤에 무료 후보가 있으면 그쪽, 없으면 승인 대기(`APPROVAL_REQUIRED`) 또는 `FAILED` |
 
 시도 수 = 후보 실행 횟수(재시도 포함)이고 `max_generation_attempts`를 넘지 않는다. 유료 후보는 승인의 `max_attempts`도 따른다.
@@ -534,7 +563,18 @@ UNSUPPORTED_REQUEST · GENERATION_FAILED · IMPORT_FAILED · RETARGET_FAILED · 
   "constraints": { "two_hand_weapon_grip": true, "foot_contact": true, "smooth_start_end": true },
   "generation_policy": "FREE_FIRST",
   "provider": "auto",
-  "integrate_anim_bp": false,
+  "package": {                               // 개정 10 — 있을 때만 포장 단계. 출력은 output_path, 쓰기는 generation_guard
+    "additive":   { "additive_type": "LocalSpaceBase", "ref_pose_type": "LocalAnimFrame", "ref_frame_index": 0, "ref_pose_sequence": null },
+    "montage":    { "name": null, "slot": "UpperBody", "blend_in": 0.1, "blend_out": 0.15,           // name 생략 = AS_ → AM_
+                    "sections": [{ "name": "Loop", "start": 0, "next": "Loop" }] },
+    "blendspace": { "name": "BS_Vesper_Sickle_Walk1D", "dimensions": 1, "axes": [{ "name": "Speed", "min": 0, "max": 500 }],
+                    "samples": [{ "animation": "$asset", "value": [300] }, { "animation": "/Game/…/AS_Idle", "value": [0] }], "aim_offset": false }
+  },
+  "integrate_anim_bp": false,                // 개정 10 — 참일 때만 anim_bp 를 읽는다(anim_gen 은 복제본에만 쓴다)
+  "anim_bp": { "asset_path": "/Game/Animation/Hero/ABP_Hero_Combat",
+               "operations": [{ "op": "set_asset", "node": "<guid>", "asset": "$blendspace" }],   // apply_graph_operations op 사전, 빈 목록 = 재생 확인만
+               "scenario": { "montage": "$montage", "expect": { "slots_active": ["UpperBody"] }, "wait_frames": 10 },
+               "smoke": true },
   "output_path": "/Game/Animation/Generated/Vesper",
   "motion_file": null,                       // 개정 7 — BVH 경로 또는 {path, unit, facing, range, axis_forward, axis_up}
   "prompt": "A person swings a scythe in a circle three times.",   // 개정 8 — 생성 모델이 읽는 영어 문장 (description 은 기록만)
@@ -559,7 +599,10 @@ Provider가 지원하지 않는 제약은 후처리로 해결 가능한지 따�
 | `retarget{source_mesh?, existing_source_rig?, existing_target_rig?, existing_retargeter?, source_pelvis?, source_chains?, source_facing?}` | 리타깃 파이프 입력. `source_mesh`를 생략하면 소스 스켈레톤의 프리뷰 메시를 계획에 고정해 보여 주고 위험 `SOURCE_MESH_IMPLICIT`을 단다. `source_facing`(개정 7 보강): 소스가 보는 UE 축 — `auto`(기본, 소스 기준 포즈로 잼) · `keep`(맞추지 않음) · `+X` · `−X` · `+Y` · `−Y`. 대상 정면과 다르면 계획에 위험 `FACING_DIFFERS` + 한계 `FACING_ALIGNED`(§10), 못 재면 `FACING_UNKNOWN`(맞추지 않음), 소스를 계획 때 모르면(생성 임포트 · 에디터 없음) `FACING_UNRESOLVED_AT_PLAN` 후 실행 때 잰다 |
 | `generation_policy` | 정책 모드를 요청 단위로 바꾼다. 정책이 `FREE_ONLY`면 벗어날 수 없다(`POLICY_CLAMPED`) |
 | `provider` | `auto` 또는 Provider 이름 — 이름이면 폴백을 끈다(§5) |
-| `duration_seconds` · `frame_rate` · `loop` · `constraints` · `integrate_anim_bp` | 결과와 다르면 한계로 기록: `DURATION_MISMATCH` · `FRAME_RATE_MISMATCH`(출력 fps = 주 소스, §2.3) · `LOOP_MISMATCH` · `GRIP_NOT_VALIDATED` · `FOOT_CONTACT_NOT_ENFORCED` · `CONSTRAINT_UNSUPPORTED` · `ANIM_BP_NOT_INTEGRATED`(Phase 7). 길이·fps·루프는 결과를 측정해 적는다(계획 단계 값은 예상). `loop`는 `direct_key` 결과의 `bLoop`로도 쓰인다(내장 검증 `expect`가 쓴 값을 확인) |
+| `duration_seconds` · `frame_rate` · `loop` · `constraints` | 결과와 다르면 한계로 기록: `DURATION_MISMATCH` · `FRAME_RATE_MISMATCH`(출력 fps = 주 소스, §2.3) · `LOOP_MISMATCH` · `GRIP_NOT_VALIDATED` · `FOOT_CONTACT_NOT_ENFORCED` · `CONSTRAINT_UNSUPPORTED`. 길이·fps·루프는 결과를 측정해 적는다(계획 단계 값은 예상). `loop`는 `direct_key` 결과의 `bLoop`로도 쓰인다(내장 검증 `expect`가 쓴 값을 확인). 개정 10: `ANIM_BP_NOT_INTEGRATED` 폐지 — `integrate_anim_bp` 는 아래 `anim_bp` 행 |
+| `package{additive?, montage?, blendspace?}` (개정 10) | 하나 이상. `additive{additive_type LocalSpaceBase \| RotationOffsetMeshSpace, ref_pose_type RefPose \| AnimScaled \| AnimFrame \| LocalAnimFrame (기본 LocalAnimFrame 0), ref_frame_index ≥ 0, ref_pose_sequence ('$asset' = 자기 자신 · 경로 · null)}` — `AnimFrame` · `AnimScaled` 는 기준 시퀀스 필수(§2.3), 새로 만든 시퀀스만(재사용이면 `ADDITIVE_ON_REUSED`). `montage{name? (생략 = animation_name 의 AS_ → AM_), slot (기본 DefaultSlot, 이름 형식), blend_in? · blend_out? ≥ 0, sections?[{name, start ≥ 0, next?}]}`. `blendspace{name (필수), dimensions 1 \| 2, axes[{name, min, max > min, grid?, snap?, wrap?}], samples[{animation '$asset' \| 경로, value[dimensions]}] (축 범위 밖 `OUT_OF_RANGE`), aim_offset}`. 이름은 서로 · `animation_name` 과 달라야(`DUPLICATE_NAME`). 몽타주면 한계 `NOTIFIES_NOT_ADDED` |
+| `integrate_anim_bp` · `anim_bp{asset_path, operations[], scenario?, smoke}` (개정 10) | `integrate_anim_bp` 가 참일 때만 `anim_bp` 를 읽는다 — 참인데 없으면 `MISSING_FIELD`, 거짓인데 있으면 `CONFLICTING_FIELDS`(애셋만 요청하면 AnimBP 를 건드리지 않는다). `asset_path` = 연결할 AnimBP(anim_gen 은 복제본에만 쓴다). `operations` = `apply_graph_operations` op 사전(빈 목록 = 복제본 컴파일 · 스모크 · 시나리오로 재생만 확인), 있으면 한계 `ANIM_BP_APPLY_PENDING`. `scenario{montage? ('$montage' · 경로), expect{state_machines{}, slots_active[]}, wait_frames 1 ~ 600, set_variables{}, mesh? (기본 target_mesh), map?}` = 복제본의 `run_anim_scenario`. `smoke` 기본 true |
+| 자리표시 `$asset` · `$montage` · `$blendspace` (개정 10) | 문자열 값 **전체**가 자리표시일 때만 실행 때 바꾼다(부분 문자열은 그대로). `$asset` = 최종 시퀀스(재사용이면 그 애셋), `$montage` · `$blendspace` = 그 포장 단계가 같은 요청에 있을 때만(`PLACEHOLDER_UNBOUND`), 모르는 `$이름` 은 `UNKNOWN_PLACEHOLDER` |
 | `save` | 요청에 두지 않는다 — `generate_motion(plan_id, save)` 인자 |
 | `motion_file` (개정 7) | 문자열이면 `path`. `path`: 절대 경로, ini `ImportSourceRoots` 아래만(밖이면 계획 전체가 `IMPORT_SOURCE_NOT_ALLOWED`), `.bvh`만. `unit`: `auto`(기본) · `cm` · `m` · `mm` · `inch` · 숫자(cm/파일 단위). `facing`: `auto`(대상 스켈레톤 정면에 맞춤, 기본) · `keep` · `+X` · `−X` · `+Y` · `−Y`(UE 축). `range{start, end}`(초, 굽기 범위 — 요청 `frame_rate` 가 있으면 끝을 그 rate 의 프레임 경계로 당긴다, 진단 `RANGE_ALIGNED`. 정수 fps 가 아니라 맞출 수 없으면 리샘플하지 않는다). `axis_forward`(`-Z`) · `axis_up`(`Y`) — Blender BVH 임포터와 같은 뜻. 계획이 BVH 헤더(관절 계층 — 수동 체인 제안용) · 단위 · 회전 · 범위 · fps · 파일 SHA-256 을 고정하고, 실행 때 파일이 바뀌었으면 `FILE_CHANGED`로 멈춘다 |
 | `prompt` (개정 8) | 생성 Provider(`local_ai`)가 읽는 영어 문장, 1 ~ 500자. `description` 은 기록만이고 서버는 해석하지 않는다(자연어 → 프롬프트 변환은 Claude Code). 없으면 `local_ai` 후보는 `MISSING_INPUT` 으로 제외. 길이는 `duration_seconds`(없으면 5초 — `DURATION_DEFAULTED`) → 프레임 = round(길이 × 30) + 1(최대 300 = 10초) |
@@ -616,13 +659,33 @@ FBX 파일 또는 프로젝트 안의 기존 시퀀스
 
 ---
 
-## 12. AnimBP 연결과 승격 (Phase 7)
+## 12. AnimBP 연결과 승격 (Phase 7 — 개정 10)
 
-- **기존 Tool만 쓴다:** `create_anim_montage` · `set_montage_slots` · `set_montage_sections` · `create_blendspace` · `apply_graph_operations` · `implement_anim_layer_interface` 등.
-- **애셋만 요청하면 AnimBP를 수정하지 않는다**(원본 유지).
-- **승격(`promote_animation`):** 후보 경로 → 정식 경로(`/Game/Animation/Hero/<영웅>/<계열>/<용도>/`) 이동. 사용자 확인 후 AssetTools rename으로 하고 리디렉터를 남기지 않는다(2026-10-22 애셋 정리와 같은 방식).
-- **사격 + Strafe(예시 C):** 하체 strafe, 상체 조준·레이어 블렌드, AimOffset, 왼손 IK, 조준 보정은 이미 `ABP_Hero_Combat` 계열에 있다. 생성할 것은 상체 사격 루프·반동 시퀀스이고, 연결은 기존 레이어 구조에 애셋을 끼우는 일이다.
-- 이동 로직, 락온 방향, 사격 지속 시간 같은 게임플레이 상태는 기존 C++/GAS가 기준이다(원본 유지).
+- **기존 Tool만 쓴다:** `create_anim_montage` · `set_montage_slots` · `set_montage_sections` · `create_blendspace` · `set_sequence_additive` · `duplicate_animation_blueprint` · `apply_graph_operations` · `run_automation_tests` · `run_anim_scenario`. 새 Tool 은 승격(`promote_animation`) 하나. anim_gen 의 포장 · 연결 단계는 이 Tool 들을 옵트인 `generation_guard` 로 부른다(§3.1-6).
+- **애셋만 요청하면 AnimBP를 수정하지 않는다**(원본 유지) — `integrate_anim_bp` 가 거짓이면 AnimBP 호출 0.
+- **anim_gen 은 운영 AnimBP 에 쓰지 않는다.** 복제본(`<work>/<ABP>_Test_<job>A<n>`)에서 적용 · 컴파일 · 스모크 · 시나리오 → 운영 AnimBP 는 `get_anim_blueprint_info`(revision) · `preview_graph_operations`(읽기)만 → Job `anim_bp.apply_payload{asset_path, operations, expected_revision, compile: true}`. 운영 경로는 가드가 거부하므로(`OUTPUT_PATH_NOT_ALLOWED`) 실수로도 쓰지 못한다.
+- **사격 + Strafe(예시 C):** 하체 strafe, 상체 조준·레이어 블렌드, AimOffset, 왼손 IK, 조준 보정은 이미 `ABP_Hero_Combat` 계열에 있다. 생성할 것은 상체 사격 루프·반동 시퀀스이고, 연결은 기존 레이어 구조에 애셋을 끼우는 일이다(`UpperBody` 슬롯 몽타주 — 2026-10-25 복제본에서 `slots_active[UpperBody]` 확인).
+- 이동 로직, 락온 방향, 사격 지속 시간 같은 게임플레이 상태는 기존 C++/GAS가 기준이다(원본 유지). 운영 계열은 네이티브 AnimInstance 가 매 프레임 변수를 덮어써 시나리오의 `set_variables` 로 전이를 몰 수 없다 — 전이 확인은 BP 변수 ABP(`ABP_McpRuntimeTest` 복제본), 운영 계열은 슬롯 · 진입 상태로 본다(플러그인 README 제약).
+
+**승격 (`promote_animation`)** — 후보 경로 → 정식 경로(`/Game/Animation/Hero/<영웅>/<계열 | Common>/<Locomotion | Actions>/<이름>` — `.claude/plans/anim-asset-naming.md`). 엔진 AssetTools rename(2026-10-22 애셋 정리와 같은 경로)이 새 패키지 · 참조 패키지를 **자동 저장**하므로 사전 검사 + `confirm`:
+- `dry_run` 으로 `planned[{source, dest, class, content_hash, referencers[{package, candidate, allowed}]}]` 를 보이고 → 사용자 승인 → `confirm: true`.
+- 후보 경로 안 참조자는 허용(엔진이 고치고 저장), 밖은 `allow_referencers` 로 명시해야 한다(예: 먼저 승격한 BS 가 그 샘플을 참조). 맵 · 보호 애셋 · 미저장 편집이 있는 참조자는 거부. 서로 참조하는 애셋은 한 배치로 옮기면 참조 거부가 없다.
+- 결과: 옛 경로 애셋 · 리디렉터 0 · 옛 .uasset 없음 · 내용 해시 같음 · 참조자가 새 경로 · 저장 집합 ⊆ 후보 ∪ dest ∪ allow_referencers.
+- 이름 규칙은 플러그인이 모른다 — anim_gen Job 의 `promotion{folder, assets[{source, dest}]}` 이 제안한다(idle · locomotion → Locomotion, 그 밖 Actions, hero 없으면 제안 없음). 재사용 애셋은 제안하지 않는다.
+
+**운영 AnimBP 적용 절차 (승인 게이트 — Phase 7 은 실제 적용을 하지 않았다, 사용자 결정):**
+1. anim_gen Job 이 복제본 검증 + 운영 미리보기 · revision 까지 끝낸다(운영 SHA-256 무변경).
+2. 정식 경로로 쓸 애셋이면 `promote_animation` dry_run → 사용자에게 보임 → 승인 → 실행. **운영 AnimBP 가 후보 경로를 가리키게 하지 않는다**(승격 → 운영 적용 순서). 복제본(후보 경로)의 참조는 엔진이 새 경로로 고친다.
+3. 적용 직전 다시 `get_anim_blueprint_info`(revision) + `preview_graph_operations`(페이로드의 바인딩을 정식 경로로 바꾼 op — `rebind_after_promotion`) → 사용자에게: planned 목록 · `expected_revision` · 복제본 검증 결과(컴파일 · 스모크 · 시나리오 관측).
+4. 승인 → `apply_graph_operations(운영, operations, expected_revision, compile=true, save=true)` — 가드 없이(운영 경로라 가드가 거부한다 — 의도). revision 이 바뀌었으면 `REVISION_MISMATCH` 무변경(2026-10-25 복제본에서 같은 메커니즘 확인).
+5. 검증: 컴파일 0/0 · `AnimGraphMcp.Smoke.AnimBlueprint.<이름>` · `run_anim_scenario`(운영) · 관련 `AstralBreak.*`.
+6. 되돌리기: 운영 .uasset 은 git 추적 — 사용자가 되돌린다. 스켈레톤 슬롯 등록(`add_skeleton_slot`, 스켈레톤이 `/Game/Assets/` 아래) · GA 몽타주 지정(`FireMontage` 등 데이터)은 별도 승인 사항.
+
+**노티파이와의 관계:**
+- 플러그인 = 몽타주 구조(슬롯 · 섹션 · 블렌드). 프로젝트 노티파이(`AstralAnimNotify_GameplayEvent` · `…GameplayEventWindow` · MotionWarping · PawnCollision + GameplayTag) = `astral-ue-montage` 스킬 / `Tools/lib/ab_montage.py`. 플러그인 · anim_gen 은 프로젝트 클래스를 모르므로 부르지 않는다(§3.1-4) — 몽타주를 만들면 한계 `NOTIFIES_NOT_ADDED`.
+- 순서: 생성 → 포장(플러그인) → 사람 확인 → 승격 → **정식 몽타주에** 노티파이(스킬의 `add_notify` / `add_notify_state` — `build_from_spec` 은 DefaultSlot 몽타주를 새로 만드므로 쓰지 않는다) → GA 지정(데이터, 승인). 후보는 버려질 수 있어 먼저 달지 않는다. rename 은 몽타주 안의 노티파이를 그대로 옮긴다.
+- 스킬 문서의 "슬롯 이름 변경 · 다중 섹션 금지"는 Python API 한계였다 → 플러그인 `set_montage_slots` · `set_montage_sections` 로(스킬 문서 정정 2026-10-25).
+- 이 환경은 원격 실행(UDP)이 안 돼 노티파이 단계는 Phase 7 테스트 범위 밖이다.
 
 ---
 
@@ -892,7 +955,50 @@ Phase 4 CMU 수치는 anim_gen 기본이 `per_bone` 정렬 + 관통 보정 + 2�
 
 기존 Tool 조합 + `promote_animation`.
 
-완료 기준: 생성 → 몽타주/BlendSpace → (요청 시) ABP 연결을 독립 또는 연속으로 실행한다.
+**진행 (개정 10):** 엔진 소스 대조(AssetRenameManager · MessageDialog) → 설계 초안 → 사용자 결정 3건(① 기존 쓰기 Tool 옵트인 `generation_guard` ② 승격 실제 이동 테스트 폴더 `/Game/Animation/Hero/Vesper/_P7PromoteTest/`(끝나고 목록 확인 후 휴지통) ③ **운영 AnimBP 실제 적용은 완료 기준에서 제외** — 미리보기 · revision · 복제본 검증 · 메커니즘까지) → "추천안으로 착수"(2026-10-25) → 구현 → 스파이크(rename 실측 · `ABP_Hero_Combat` 복제 더티 · 복제본 시나리오) → 통합 · 회귀.
+
+**시그니처:**
+
+```
+promote_animation(assets[{source, dest}], dry_run=false, confirm=false, allow_referencers=[])   # 플러그인 C++ — Tool 39 → 40
+<create_anim_montage | set_montage_sections | create_blendspace | set_sequence_additive | duplicate_animation_blueprint | apply_graph_operations>(…, generation_guard=false)
+plan_motion_generation(request{…, package?, integrate_anim_bp, anim_bp?})   # anim_gen — 단계 package_* · anim_bp_test · anim_bp_prepare
+```
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Plugins/AnimGraphMcp/…/Core/AnimMcpPromote.{h,cpp}` · `Tools/AnimMcpTools_Promote.cpp` | `promote_animation` — 요청 파싱 · dest 규칙(`ValidateDest`) · 내용 해시(`ContentHash`) · 참조자 분류 · 네이티브 CDO 하드 참조 사전 검사 · `RenameAssets`(unattended) · 저장 패키지 추적(`PackageSavedWithContextEvent`) · 리디렉터 fixup · 옛 파일 · 해시 · 참조(저장 파일 재스캔) · 더티 / 저장 집합 검사 |
+| `Core/AnimMcpGeneration.{h,cpp}` | `FSettings::PromotionPaths` · `NormalizePromotionPaths`(겹침 · 마운트 루트 무시) · `IsUnderAnyPrefix` · `IsPromotionPathAllowed` · `DescribeSettings.promotion_paths` · `FDirtyGuard` 추가 허용 집합 · `FWriteGuard`(옵트인 가드) |
+| `Tools/AnimMcpTools_{Montage, Assets, Sequence, Graph}.cpp` · `Core/AnimMcpOperations.{h,cpp}` | 6개 Tool 에 `generation_guard` — 핸들러 첫 줄 스냅샷 → 경로 · 덮어쓰기 → 작업 → 저장 직전 `Check` → `guard{}`. `Apply` 는 컴파일 뒤 · 저장 전 |
+| `Bridge/AnimMcpTypes.{h,cpp}` · `AnimGraphMcpEditor.Build.cs` · `AnimGraphMcpEditorModule.cpp` · `Config/DefaultEngine.ini` | `PROMOTE_FAILED`(400) · 의존 모듈 `AssetTools` · Tool 등록 · `+PromotionPaths=/Game/Animation/Hero/` |
+| `Tests/AnimMcpGenerationTests.cpp` | `AnimGraphMcp.Generation.Promote` · `.WriteGuard`(쓰기 Tool 6개를 로컬 디스패처로 — 애셋을 만들지 않는다) |
+| `Tools/mcp/anim_graph_mcp/server.py` | 6개 함수 `generation_guard: bool = False` · 새 `promote_animation` |
+| `Tools/mcp/anim_gen/providers/integrate.py` | `PackagePipe`(additive · 몽타주 · BlendSpace) · `AnimBpPipe`(복제본 검증 — 시나리오 비동기 poll · 운영 미리보기 · 적용 페이로드) · `promotion_proposal` |
+| `anim_gen/{request, router, executor, envelope, registry, service, server}.py` · `providers/base.py` · `providers.json` | 요청 `package` · `anim_bp` · 자리표시 · 단계 결합(`_integrate` — 계획 안 1회) · `StepResult.deliverables` · `INTEGRATION_FAILED`(details) · Job `package` · `anim_bp` · `promotion` · 비동기 대기 전 복제본 기록 · 파이프 2개 |
+| `anim_gen/tests/test_integrate.py` · `conftest.py` · `test_router.py` | pytest 41건 · FakeEditor 에 포장 · AnimBP · 스모크 · 시나리오 흉내 · 기존 기대값 3곳(Provider 목록 · `ANIM_BP_NOT_INTEGRATED` 폐지) |
+| `Tools/mcp/anim_gen_phase7_test.py` | 통합 — hashes · plan · chain_bs · chain_montage · independent · guard · apply_mech · promote · dirty |
+
+완료 기준 (설계 확정본 §9):
+
+1. 생성 → 몽타주/BlendSpace → (요청 시에만) AnimBP 연결을 독립 · 연속으로 실행하고, 스모크 · `run_anim_scenario` 로 재생 · 전이를 확인한다.
+2. 애셋만 요청하면 AnimBP 를 수정하지 않는다(읽지도 않는다).
+3. 승격은 원본(내용) 무변경 · 리디렉터 0 · 참조 유지.
+4. 운영 AnimBP 는 미리보기 · revision 까지 — 적용은 사용자 승인 사항(§12 절차).
+5. 회귀 없음 — pytest · Phase 1 ~ 6 통합 · `AnimGraphMcp.Smoke` · `AstralBreak.*` · Development · DebugGame 빌드 경고 0.
+
+**결과 (2026-10-25 — `anim_gen_phase7_test.py` 실패 0 · 체크 85, 56.6초):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 독립 · 연속 연결 + 재생 · 전이 | ✅ **연속 B(chain_bs)**: Vesper 걷기 `retime 1.25` → `BS_Vesper_Common_WalkFastP7`(생성물 @300 + `AS_Vesper_Rifle_Idle` @0) → `ABP_McpRuntimeTest` 복제본의 Run 상태 SequencePlayer 를 BlendSpacePlayer(`$blendspace`, X ← Speed)로 교체 → 컴파일 0/0 · 스모크 통과 · 시나리오 Speed 300 → `Run`(+ 복제본 Speed 0 → `Idle`), 잡 5.9초. **연속 C(chain_montage)**: `AS_Vesper_Rifle_Recoil` concat ×3(0.70초) → additive `LocalSpaceBase`/`LocalAnimFrame 0` · UpperBody `Loop → Loop` 몽타주 → `ABP_Hero_Combat` 복제본 `slots_active[UpperBody]` 참 · 운영 미리보기 valid, 잡 7.1초. **독립(independent)**: 유지한 Kimodo 칼 애셋 재사용(새 시퀀스 없음 · 원본 SHA-256 불변) → DefaultSlot 몽타주 → `ABP_Hero_Combat` 복제본 `slots_active[DefaultSlot]` 참, 잡 5.6초. 플러그인 Tool 직접 호출도 같은 가드(guard 섹션) |
+| 2 | 애셋만 = AnimBP 무변경 | ✅ 계획 단계에 `anim_bp_*` 없음 · 운영 revision 불변(통합) · AnimBP Tool 호출 0(pytest FakeEditor 호출 기록) |
+| 3 | 승격 원본 무변경 · 리디렉터 0 · 참조 유지 | ✅ `_P7PromoteTest/P7Run…/` 로 4개(BS → 샘플 시퀀스 → 몽타주 + 시퀀스 한 배치): 내용 해시 같음 · 리디렉터 0 · 옛 .uasset 없음(엔진이 지움 — `removed_files` 0) · 레지스트리에 옛 경로 애셋 없음 · 복제본 ABP 파일이 새 BS 경로를 담고 옛 경로는 없음 · BS 샘플 · 몽타주 세그먼트가 새 시퀀스를 가리킴 · 복제본 재컴파일 0 오류. BS 1개 0.59초. dry_run 거부 사유 10종(`MISSING_CONFIRM` · `SOURCE_NOT_CANDIDATE` · `UNSUPPORTED_CLASS` · `DEST_IS_CANDIDATE_PATH` · `OUTSIDE_PROMOTION_PATHS` · `DEST_PROTECTED` · `DEST_EXISTS` · `DEST_NOT_ASSET_PATH` · `DUPLICATE_DEST` · `REFERENCER_DIRTY`) + 후보 밖 참조자(승격한 BS → 그 샘플) 거부 → `allow_referencers` 통과. 맵 참조 · CDO 참조는 이 프로젝트에 해당 애셋이 없어 통합에서 재현하지 않았다(코드 경로 · 사유만) |
+| 4 | 운영 AnimBP = 미리보기 · revision | ✅ 운영 4개(`ABP_Hero_Combat` · `ABP_HeroLayers_Rifle` · `ABP_Hero_Base` · `ALI_HeroCombat`) · 스켈레톤 · `ABP_McpRuntimeTest` · 소스 4개 SHA-256 전후 같음 · revision 불변. 적용 페이로드 `{asset_path, operations, expected_revision, compile}` · 복제본에 낡은 `expected_revision` → `REVISION_MISMATCH` 무변경, 맞는 revision → 적용(같은 메커니즘). 가드 켜면 운영 AnimBP · 운영 시퀀스 · 운영 몽타주 쓰기 거부(`OUTPUT_PATH_NOT_ALLOWED`) |
+| 5 | 회귀 없음 | ✅ pytest **366건**(기존 325 + `test_integrate.py` 41, 기존 기대값 3곳 갱신 — Provider 목록 2 · `ANIM_BP_NOT_INTEGRATED` 폐지 1) · Automation `AnimGraphMcp.Generation` 6/6(새 `.Promote` · `.WriteGuard`) · 같은 에디터에서 `anim_gen_phase1` · `phase2` · `phase3`(Provider 수 기대값 7 → 9 갱신 후) · `phase4` · `phase5`(실제 Kimodo 2건 — 각속도 p99 비 0.954 · 루트 691.83 cm · Yaw 189.81°, 개정 8 과 같다) · `phase6`(외부 호출 0) 실패 0 · `AnimGraphMcp.Smoke` 41/41 · `AstralBreak.*` 31/31 · Development · DebugGame 빌드 코드 경고 0(UBT 의 "VS 2022 not a preferred version" 안내만) |
+
+**스파이크 실측 (2026-10-25):** rename — BS 1개 0.61초 · 저장 = 새 패키지만 · 리디렉터 0 · 옛 파일 없음 · 시퀀스 승격(참조자 BS · 몽타주)은 그 둘까지 저장. `ABP_Hero_Combat` 을 `generation_guard` 로 복제하면 새로 더티 = 복제본 1개(ALI · 공급자 ABP 무변경), 컴파일도 추가 더티 없음. 복제본 시나리오: PIE 10프레임 ≈ 0.47 ~ 0.57초 — 0.23초 반동 몽타주는 5프레임 뒤 끝나 슬롯이 꺼진다(루프 섹션이면 활성).
 
 ### Phase 8 — 품질 · 세그먼트
 
@@ -907,7 +1013,7 @@ Phase 4 CMU 수치는 anim_gen 기본이 `per_bone` 정렬 + 관통 보정 + 2�
 | 8-3 자동 보정 | 휘두르는 구간 자동 탐지(손 속도) 후 가속(`retime`) · blender `fix.ops` 사전 채우기: 발 고정 · 발 간격 좁히기(IK, 발 접지 유지) · 스무딩 | 넓은 다리 · 흐느적거림 · 발 미끄러짐 | Blender 스크립트 |
 | 8-4 무기 파지 | 손 IK 로 손을 무기 손잡이 · 소켓에 붙이기(`control_rig` — UE Control Rig 베이크, 또는 Blender IK). 무기 정보는 요청이 무기 메시 · 소켓으로 준다(§8) | 양손 무기 완성도 | 가장 무겁다 |
 
-세그먼트 생성(준비 → 베기 → 복귀를 따로 만들어 연결)과 다양한 스켈레톤은 8-1 ~ 8-4 결과를 보고 필요하면 뒤에 붙인다. Phase 7(AnimBP 연결)과의 순서는 사용자 결정.
+세그먼트 생성(준비 → 베기 → 복귀를 따로 만들어 연결)과 다양한 스켈레톤은 8-1 ~ 8-4 결과를 보고 필요하면 뒤에 붙인다. Phase 7(AnimBP 연결)은 2026-10-25 먼저 끝냈다(개정 10).
 
 **근거 — Kimodo 칼 휘두르기 시험 (2026-10-25):** "A person holds a sword with both hands, raises it over the right shoulder, slashes diagonally down to the left, then returns to a fighting stance." · 4초 · seed 20261025 · `weapon_action` · `provider: local_ai` → `/Game/Animation/Test/AIAnimation/KimodoSword1025_185815/AS_Vesper_Sword_KimodoSlash`(저장, 사용자 확인용으로 유지). 잡 98.5초(Kimodo 80초). 자동 검증 `PASSED`(121프레임 · 최대 44.6°/프레임 · 관통 0 · 손가락 경고 0). **사용자 Persona 판정: 다리가 많이 벌어지고 베기가 흐느적거린다.** 원인 측정:
 - 넓은 다리 = Kimodo 원본 동작 자체(소스 골격 렌더 시트 0.8초 큰 내디딤, 1.6 ~ 4초 넓은 자세 유지) — 리타깃은 다리 각도를 그대로 옮긴다
@@ -935,7 +1041,7 @@ Phase 4 CMU 수치는 anim_gen 기본이 `per_bone` 정렬 + 관통 보정 + 2�
 | C 커스텀 스켈레톤 | Narmaya 또는 SB ↔ `SKEL_UE5_F`, 수동 체인 폴백 포함 | 1 | 에디터 통합 |
 | D 폴백 | Mock Provider 실패 → 다른 Provider · 경로 기록 | 3 | Mock (pytest) |
 | E 비용 통제 | `FREE_ONLY` + 유료 요청 → `APPROVAL_REQUIRED`/`BUDGET_EXCEEDED`, 외부 호출 0 | 3 · 6 | Mock → 실제 어댑터 |
-| F AnimBP 연결 | 명시 요청 시에만 기존 AnimBP MCP로 연결 | 7 | 에디터 통합 |
+| F AnimBP 연결 | 명시 요청(`integrate_anim_bp` + `anim_bp`) 시에만 기존 AnimBP MCP로 연결 — 개정 10: 운영 AnimBP 는 복제본에서 적용 · 컴파일 · 스모크 · 시나리오, 운영은 revision · 미리보기 · 적용 페이로드까지(SHA-256 불변). 연속(생성 → BS → 전이 · 생성 → additive 몽타주 → 슬롯) · 독립(기존 애셋 재사용 → 몽타주 → 슬롯) · 승격(리디렉터 0 · 참조 유지) — `anim_gen_phase7_test.py` | 7 | 에디터 통합 + pytest(`test_integrate.py`) |
 | (신규) G 회귀 비교 | Tool이 만든 리타기터 결과 vs 기존 RTG 결과 | 1 | 에디터 통합 |
 
 - Mock 테스트와 실제 에디터 통합 테스트를 구분한다(원본 유지).
@@ -966,14 +1072,14 @@ Phase 4 CMU 수치는 anim_gen 기본이 `per_bone` 정렬 + 관통 보정 + 2�
 14. 게임 스레드에서 네트워크 호출·서브프로세스·대기를 하지 않는다.
 15. `anim_graph_mcp/server.py`에 로직을 넣지 않는다(프록시만).
 16. API 키를 저장소·로그·Tool 인자·Job 기록에 남기지 않는다(환경 변수만).
-17. 생성물은 허용 목록 경로에만 쓴다. 정식 경로 이동은 사용자 확인 후.
+17. 생성물은 허용 목록 경로에만 쓴다. 정식 경로 이동은 사용자 확인 후 — `promote_animation` 의 `dry_run` → 확인 → `confirm`, 대상은 ini `PromotionPaths` 안만(개정 10). 운영 AnimBP 적용도 사용자 승인 뒤 사람이 한다(anim_gen 은 복제본까지 — §12).
 18. 플러그인에 프로젝트 고유 이름·경로를 하드코딩하지 않는다.
 
 ---
 
 ## 17. Claude Code 작업 지시
 
-1. 한 번에 한 Phase만 진행한다(Phase 0 · 1 · 2 · 3 · 4 · 5 · 6 완료 — 6 의 실제 유료 1건은 미실행). 다음 Phase는 사용자 승인 후 착수한다. Phase 8 은 단위(8-1 ~ 8-4)마다 승인한다.
+1. 한 번에 한 Phase만 진행한다(Phase 0 · 1 · 2 · 3 · 4 · 5 · 6 · 7 완료 — 6 의 실제 유료 1건은 미실행, 7 의 운영 AnimBP 실제 적용은 범위 밖). 다음 Phase는 사용자 승인 후 착수한다. Phase 8 은 단위(8-1 ~ 8-4)마다 승인한다.
 2. 각 Phase는 코드 편집 전에 Tool 시그니처 · 커밋 단위 · 구현 순서를 보여 주고 **사용자 확인을 받는다.** 문서와 엔진 API가 어긋나면 문서 수정안을 함께 낸다.
 3. 에디터 확인용 애셋은 `/Game/Animation/Test/AIAnimation/`에 만들고, 끝나면 정리 목록을 보고한다.
 4. 순서: 구현 → 정적 검증(두 구성 빌드 · Python 문법) → 에디터 통합 테스트(`Tools/mcp/anim_gen_phaseN_test.py`) → 결과 기록.

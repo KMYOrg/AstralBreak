@@ -9,6 +9,7 @@ from .providers.base import Provider
 from .providers.blender import BlenderProvider
 from .providers.builtin import DirectKey, ExistingMotion, RetargetPipe
 from .providers.inactive import InactiveProvider
+from .providers.integrate import AnimBpPipe, PackagePipe
 from .providers.local_ai import KimodoProvider
 from .providers.meshy import MeshyProvider
 
@@ -20,6 +21,8 @@ IMPLEMENTATIONS = {
     "blender": BlenderProvider,
     "local_ai": KimodoProvider,
     "external.meshy": MeshyProvider,
+    "package": PackagePipe,
+    "anim_bp": AnimBpPipe,
     "control_rig": InactiveProvider,
 }
 

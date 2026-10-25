@@ -5,9 +5,11 @@
 #include "Bridge/AnimMcpDispatcher.h"
 #include "Bridge/AnimMcpTypes.h"
 #include "Core/AnimMcpAssetResolver.h"
+#include "Core/AnimMcpGeneration.h"
 #include "Core/AnimMcpMontage.h"
 
 // Phase 7-3 — 몽타주 슬롯·섹션 · 최소형 몽타주 생성 · 스켈레톤 슬롯 등록. 노티파이는 프로젝트별 Python 파이프라인(Tools/lib/ab_montage.py) 그대로.
+// AI 애니 생성 Phase 7 — create_anim_montage · set_montage_sections 의 옵트인 generation_guard (AnimMcpGeneration::FWriteGuard, 기본 꺼짐).
 namespace AnimMcpTools
 {
 	namespace
@@ -36,18 +38,22 @@ namespace AnimMcpTools
 	void RegisterMontageTools(FAnimMcpDispatcher& Dispatcher)
 	{
 		Dispatcher.RegisterTool(TEXT("create_anim_montage"),
-			TEXT("Create an AnimMontage from one AnimSequence (one slot track, one segment, a 'Default' section at 0). Params: asset_path, animation (AnimSequence path; its skeleton becomes the montage skeleton), slot? (default DefaultSlot; must be registered in the skeleton), blend_in?, blend_out? (seconds), preview_mesh?, overwrite? (default false; refused for protected assets), save? (default false). Notifies are out of scope (project pipelines add them)."),
+			TEXT("Create an AnimMontage from one AnimSequence (one slot track, one segment, a 'Default' section at 0). Params: asset_path, animation (AnimSequence path; its skeleton becomes the montage skeleton), slot? (default DefaultSlot; must be registered in the skeleton), blend_in?, blend_out? (seconds), preview_mesh?, overwrite? (default false; refused for protected assets), save? (default false), generation_guard? (default false; true = AI generation guard: asset_path inside [AnimGraphMcp] GenerationOutputPaths, overwrite refused, global dirty-package diff before saving — UNEXPECTED_DIRTY; result guard{newly_dirty[]}). Notifies are out of scope (project pipelines add them)."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
+				AnimMcpGeneration::FWriteGuard Guard(Context.Request);
 				AnimMcpMontage::FCreateParams Params;
 				if (!AnimMcpMontage::ParseCreateParams(Context.Request.Params, Params, OutError)) { return nullptr; }
+				if (!Guard.CheckPath(Params.AssetPath, TEXT("asset_path"), OutError) || !Guard.RefuseOverwrite(Params.bOverwrite, OutError)) { return nullptr; }
 				const bool bSave = Context.Request.GetOptionalBool(TEXT("save"), false);
 
 				UAnimMontage* Montage = AnimMcpMontage::CreateMontage(Params, Context, OutError);
 				if (!Montage) { return nullptr; }
+				if (!Guard.Check(OutError)) { return nullptr; }
 
 				TSharedRef<FJsonObject> Result = MontageResult(Montage, Context, bSave, /*bDirty*/ true);
 				Result->SetBoolField(TEXT("created"), true);
+				Guard.Describe(Result);
 				return Result;
 			});
 
@@ -71,9 +77,11 @@ namespace AnimMcpTools
 			});
 
 		Dispatcher.RegisterTool(TEXT("set_montage_sections"),
-			TEXT("Replace the section list of an AnimMontage. Params: asset_path, sections [{name, start (seconds), next? (section name; omit/null = stop at the section end; its own name = loop)}], save? (default false). The whole list is replaced (sorted by start); names must be unique, starts inside [0, length], next must name a section in the request. Re-applying the same list is a no-op (unchanged=true). Notifies are unaffected."),
+			TEXT("Replace the section list of an AnimMontage. Params: asset_path, sections [{name, start (seconds), next? (section name; omit/null = stop at the section end; its own name = loop)}], save? (default false), generation_guard? (default false; true = the montage must be inside [AnimGraphMcp] GenerationOutputPaths and the global dirty-package diff is checked before saving — UNEXPECTED_DIRTY). The whole list is replaced (sorted by start); names must be unique, starts inside [0, length], next must name a section in the request. Re-applying the same list is a no-op (unchanged=true). Notifies are unaffected."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
+				AnimMcpGeneration::FWriteGuard Guard(Context.Request);
+				if (!Guard.CheckPath(Context.Request.GetOptionalString(TEXT("asset_path")), TEXT("asset_path"), OutError)) { return nullptr; }
 				UAnimMontage* Montage = LoadMontage(Context, OutError);
 				if (!Montage) { return nullptr; }
 				TArray<AnimMcpMontage::FSectionSpec> Sections;
@@ -82,9 +90,11 @@ namespace AnimMcpTools
 
 				bool bUnchanged = false;
 				if (!AnimMcpMontage::SetSections(Montage, Sections, Context, OutError, bUnchanged)) { return nullptr; }
+				if (!Guard.Check(OutError)) { return nullptr; }
 
 				TSharedRef<FJsonObject> Result = MontageResult(Montage, Context, bSave, !bUnchanged);
 				Result->SetBoolField(TEXT("unchanged"), bUnchanged);
+				Guard.Describe(Result);
 				return Result;
 			});
 

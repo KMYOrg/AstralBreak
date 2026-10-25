@@ -35,6 +35,8 @@ namespace AnimMcpErrorCodes
 	inline const TCHAR* const IKRigAutoFailed        = TEXT("IKRIG_AUTO_FAILED");         // 자동 캐릭터라이즈 실패 — details.bones[] 로 수동 체인 정의
 	inline const TCHAR* const RetargetFailed         = TEXT("RETARGET_FAILED");
 	inline const TCHAR* const ValidationFailed       = TEXT("VALIDATION_FAILED");
+	// AI 애니 생성 Phase 7 — promote_animation 의 엔진 rename 실패(details.reason CDO_REFERENCED · REGISTRY_LOADING · ENGINE · REDIRECTOR_LEFT …)
+	inline const TCHAR* const PromoteFailed          = TEXT("PROMOTE_FAILED");
 	inline const TCHAR* const Internal           = TEXT("INTERNAL");
 }
 

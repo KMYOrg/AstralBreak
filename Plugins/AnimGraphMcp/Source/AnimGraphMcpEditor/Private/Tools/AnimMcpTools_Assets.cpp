@@ -17,6 +17,7 @@
 #include "Core/AnimMcpBlendSpaceFactory.h"
 #include "Core/AnimMcpBlueprintFactory.h"
 #include "Core/AnimMcpCompiler.h"
+#include "Core/AnimMcpGeneration.h"
 #include "Core/AnimMcpGraphInspector.h"
 #include "Core/AnimMcpMontage.h"
 #include "Editor.h"
@@ -191,15 +192,18 @@ namespace AnimMcpTools
 		// ---- Phase 6-3 BlendSpace ----------------------------------------------------------------------------------
 
 		Dispatcher.RegisterTool(TEXT("create_blendspace"),
-			TEXT("Create a BlendSpace (dimensions=2) or BlendSpace1D (dimensions=1) asset — or an AimOffset (aim_offset=true → AimOffsetBlendSpace/1D; samples must be Mesh Space additive, ADDITIVE_TYPE otherwise). Params: asset_path, skeleton, dimensions (1|2), axes [{name, min, max, grid?=4, snap?=false, wrap?=false}] (one per dimension), samples? [{animation (AnimSequence path), value [x] | [x, y]}], aim_offset? (default false), preview_mesh?, overwrite? (default false; refused for protected assets), save? (default false). Samples outside the axis range, at duplicate positions, on an incompatible skeleton or with mixed additive types are refused before anything is created."),
+			TEXT("Create a BlendSpace (dimensions=2) or BlendSpace1D (dimensions=1) asset — or an AimOffset (aim_offset=true → AimOffsetBlendSpace/1D; samples must be Mesh Space additive, ADDITIVE_TYPE otherwise). Params: asset_path, skeleton, dimensions (1|2), axes [{name, min, max, grid?=4, snap?=false, wrap?=false}] (one per dimension), samples? [{animation (AnimSequence path), value [x] | [x, y]}], aim_offset? (default false), preview_mesh?, overwrite? (default false; refused for protected assets), save? (default false), generation_guard? (default false; true = AI generation guard: asset_path inside [AnimGraphMcp] GenerationOutputPaths, overwrite refused, global dirty-package diff before saving — UNEXPECTED_DIRTY; result guard{newly_dirty[]}). Samples outside the axis range, at duplicate positions, on an incompatible skeleton or with mixed additive types are refused before anything is created."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
+				AnimMcpGeneration::FWriteGuard Guard(Context.Request);
 				AnimMcpBlendSpaceFactory::FCreateParams Params;
 				if (!AnimMcpBlendSpaceFactory::ParseCreateParams(Context.Request.Params, Params, OutError)) { return nullptr; }
+				if (!Guard.CheckPath(Params.AssetPath, TEXT("asset_path"), OutError) || !Guard.RefuseOverwrite(Params.bOverwrite, OutError)) { return nullptr; }
 				const bool bSave = Context.Request.GetOptionalBool(TEXT("save"), false);
 
 				UBlendSpace* BlendSpace = AnimMcpBlendSpaceFactory::CreateBlendSpace(Params, Context, OutError);
 				if (!BlendSpace) { return nullptr; }
+				if (!Guard.Check(OutError)) { return nullptr; }
 
 				bool bSaved = false;
 				if (bSave)
@@ -215,21 +219,24 @@ namespace AnimMcpTools
 				TSharedRef<FJsonObject> Result = AnimMcpBlendSpaceFactory::DescribeBlendSpace(BlendSpace);
 				Result->SetBoolField(TEXT("created"), true);
 				Result->SetBoolField(TEXT("saved"), bSaved);
+				Guard.Describe(Result);
 				return Result;
 			});
 
 		// ---- Phase 6-2 애셋 수명 ----------------------------------------------------------------------------------
 
 		Dispatcher.RegisterTool(TEXT("duplicate_animation_blueprint"),
-			TEXT("Duplicate an Animation Blueprint to a new path. Params: source_path, dest_path, overwrite? (default false; true deletes an existing dest — refused for protected assets), preserve_node_guids? (default true: node guids stay identical to the source so revisions/guids line up), save? (default false)."),
+			TEXT("Duplicate an Animation Blueprint to a new path. Params: source_path, dest_path, overwrite? (default false; true deletes an existing dest — refused for protected assets), preserve_node_guids? (default true: node guids stay identical to the source so revisions/guids line up), save? (default false), generation_guard? (default false; true = dest_path inside [AnimGraphMcp] GenerationOutputPaths, overwrite refused, global dirty-package diff before saving — UNEXPECTED_DIRTY; the source is only read)."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
+				AnimMcpGeneration::FWriteGuard Guard(Context.Request);
 				FString SourcePath, DestPath;
 				if (!Context.Request.GetRequiredString(TEXT("source_path"), SourcePath, OutError)) { return nullptr; }
 				if (!Context.Request.GetRequiredString(TEXT("dest_path"), DestPath, OutError)) { return nullptr; }
 				const bool bOverwrite = Context.Request.GetOptionalBool(TEXT("overwrite"), false);
 				const bool bPreserveGuids = Context.Request.GetOptionalBool(TEXT("preserve_node_guids"), true);
 				const bool bSave = Context.Request.GetOptionalBool(TEXT("save"), false);
+				if (!Guard.CheckPath(DestPath, TEXT("dest_path"), OutError) || !Guard.RefuseOverwrite(bOverwrite, OutError)) { return nullptr; }
 
 				UAnimBlueprint* Source = AnimMcpAssetResolver::LoadAnimBlueprint(SourcePath, OutError);
 				if (!Source) { return nullptr; }
@@ -263,6 +270,7 @@ namespace AnimMcpTools
 				const FString SourceRevision = AnimMcpGraphInspector::ComputeRevision(Source);
 				UAnimBlueprint* Duplicate = AnimMcpAssetOps::DuplicateAnimBlueprint(Source, DestObjectPath, bPreserveGuids, Context, OutError);
 				if (!Duplicate) { return nullptr; }
+				if (!Guard.Check(OutError)) { return nullptr; }
 
 				bool bSaved = false;
 				if (bSave)
@@ -281,6 +289,7 @@ namespace AnimMcpTools
 				Result->SetStringField(TEXT("source_revision"), SourceRevision);
 				Result->SetBoolField(TEXT("node_guids_preserved"), bPreserveGuids);
 				Result->SetBoolField(TEXT("saved"), bSaved);
+				Guard.Describe(Result);
 				return Result;
 			});
 

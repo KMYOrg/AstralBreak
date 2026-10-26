@@ -48,13 +48,28 @@ class KimodoProc(FakeProc):
         out = pathlib.Path(self.args["out_dir"])
         (out / "kimodo.log").write_text("Using device: cuda:0\nkimodo_run: done\n", encoding="utf-8")
         samples = []
-        for i in range(self.args["samples"]):
+        seeds = self.args.get("seeds") if self.args.get("candidates_mode") else None
+        for i in range(len(seeds) if seeds else self.args["samples"]):
             stem = out / f"{self.args['stem']}_{i:02d}"
             stem.with_suffix(".npz").write_bytes(b"npz")
             if kind != "no_bvh":
                 stem.with_suffix(".bvh").write_text(self.bvh_text or soma_bvh(self.args["frames"]), encoding="utf-8")
-            samples.append({"index": i, "npz": stem.with_suffix(".npz").as_posix(), "bvh": stem.with_suffix(".bvh").as_posix(),
-                            "frames": self.args["frames"], "root": {"root_travel_cm": 900.0, "heading_delta_deg": 179.0}})
+            sample = {"index": i, "npz": stem.with_suffix(".npz").as_posix(), "bvh": stem.with_suffix(".bvh").as_posix(),
+                      "frames": self.args["frames"], "root": {"root_travel_cm": 900.0, "heading_delta_deg": 179.0}}
+            if seeds:
+                # kimodo_run 후보 경로 — 소스 수치(1 · 2차) · 제약 추종
+                two = self.args["refine"]["passes"] == 2
+                m1 = {"version": 1, "grip": {"grip_pct": 0.0, "gap_cm": {"p50": 64.6}}, "stance": {"lateral_ratio": {"p90": 4.81}}, "swing": {"peak_cm_s": 542.8}}
+                sample.update(seed=seeds[i], metrics={"pass1": m1, **({"pass2": {**m1, "grip": {"grip_pct": 100.0, "gap_cm": {"p50": 7.6}}}} if two else {})})
+                if two:
+                    flags = self.args["refine"]["flags"]
+                    sample["pass1_npz"] = stem.with_name(stem.name + "_pass1.npz").as_posix()
+                    sample["refine"] = {"fk_check_m": 0.0, "constraints": [{"type": "end-effector", "joint_names": ["LeftHand", "RightHand"], "frames": 41}],
+                                        "follow": {"grip_target_error_cm": {"lead": {"p50": 2.5, "max": 6.4}}, "foot_hold_left_cm": {"p50": 2.6, "max": 3.0}},
+                                        **({"grip": {"target": "meet", "spacing_cm": 6.96, "stats": {"moved_cm": {"p50": 31.2}}}}
+                                           if "two_hand_weapon_grip" in flags else {}),
+                                        **({"foot": {"left": {"frames": [0, 3], "contact_pct": 86.8}}} if "foot_contact" in flags else {})}
+            samples.append(sample)
         report = {"ok": True, "samples": samples, "warnings": [], "device": {"gpu": "Fake 3080 Ti"}, "postprocess": {"applied": self.args["postprocess"]},
                   "model": {"name": self.args["model"], "commit": "abc"}, "seconds": {"total": 33.0}}
         code = 0

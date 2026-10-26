@@ -74,11 +74,26 @@ class FakeProc:
             pathlib.Path(self.args["rest_fbx"]).write_bytes(b"fbx")
             report.update(rest_fbx=self.args["rest_fbx"], rest_fbx_bytes=3)
             pathlib.Path(self.args["report"]).write_text(json.dumps(report), encoding="utf-8")
+        if kind == "ok" and self.args.get("items"):
+            # Phase 8-1 — 후보 여럿을 한 실행으로: 항목마다 FBX(+ 첫 항목 기준 포즈) · 렌더
+            items = []
+            for item in self.args["items"]:
+                pathlib.Path(item["fbx"]).write_bytes(b"fbx")
+                one = {k: report[k] for k in ("bones", "roots", "facing", "frames", "rotate_z_deg", "ground_lift_cm")}
+                one.update(fbx=item["fbx"], bvh=item["bvh"], seconds=0.5)
+                if item.get("rest_fbx"):
+                    pathlib.Path(item["rest_fbx"]).write_bytes(b"fbx")
+                    one["rest_fbx"] = item["rest_fbx"]
+                if item.get("review"):
+                    one["review"] = self._review(item["review"])
+                items.append(one)
+            report.update(items=items, review=items[0].get("review"))
+            pathlib.Path(self.args["report"]).write_text(json.dumps(report), encoding="utf-8")
         self.returncode = code
 
-    def _review(self) -> dict:
+    def _review(self, cfg: dict | None = None) -> dict:
         """review_render.py 처럼 (시각 × 뷰) PNG 와 시트를 args.review.dir 에 쓴다(내용은 가짜)."""
-        cfg = self.args["review"]
+        cfg = cfg or self.args["review"]
         out = pathlib.Path(cfg["dir"])
         out.mkdir(parents=True, exist_ok=True)
         frames = []

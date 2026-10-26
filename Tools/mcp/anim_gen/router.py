@@ -50,18 +50,21 @@ def _dedupe(items: list[dict]) -> list[dict]:
     return out
 
 
-def expected_limitations(request: dict, provider, *, reuse: bool, resolved: dict | None, has_edit: bool, preview: dict | None) -> list[dict]:
+def expected_limitations(request: dict, provider, *, reuse: bool, resolved: dict | None, has_edit: bool, preview: dict | None,
+                         handled: set[str] | frozenset = frozenset()) -> list[dict]:
+    """handled = 생성 Provider 가 직접 처리한 제약 플래그(Phase 8-1 local_ai 2차 생성) — 그 플래그의 한계는 Provider 가 대신 단다."""
     out: list[dict] = []
     category = request["motion_category"]
     if category == "weapon_action":
-        out.append(limitation("GRIP_NOT_VALIDATED", "무기 파지 오차 검증·보정은 Phase 8 — 손 위치를 사람이 확인해야 한다", "router"))
+        if "two_hand_weapon_grip" not in handled:
+            out.append(limitation("GRIP_NOT_VALIDATED", "무기 파지 오차 검증·보정은 Phase 8 — 손 위치를 사람이 확인해야 한다", "router"))
         if provider.generates:
             out.append(limitation("DRAFT_NEEDS_CLEANUP", "AI 생성 무기 동작은 초안 — 보정 전에는 정식 애셋으로 쓰지 않는다", "router"))
     if provider.name in APPROXIMATE.get(category, ()):
         out.append(limitation("NOT_NEW_MOTION", "새 전신 동작을 만들지 않고 가장 가까운 기존 모션을 쓴다", "router"))
         out.append(limitation("SEGMENTED_PLAN_SUGGESTED", "품질이 부족하면 세그먼트 방식(Phase 8)으로 나눠 만든다", "router"))
     for name, on in (request["constraints"] or {}).items():
-        if not on:
+        if not on or name in handled:
             continue
         code = CONSTRAINT_LIMITATIONS.get(name)
         if code:
@@ -167,13 +170,20 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
         if filled:
             step["inputs"]["defaults_from"] = {"provider": name, "keys": filled}
         retarget_lims = step.pop("expected_limitations", [])
+        select = first.pop("select", None)
+        if select:
+            # Phase 8-1 — 후보를 모두 리타깃 · 측정해 하나를 고른 뒤 최종 리타깃(같은 RTG)
+            sel_step, sel_risks = retarget.plan_select(request, select, step["inputs"], pctx)
+            steps.append(sel_step)
+            r = r + sel_risks
         steps.append(step)
         risks += first.pop("risks", []) + (last.pop("risks", []) if last is not first else []) + r
         if request["edits"]:
             steps.append(direct_key.plan_edit(request, None, pctx))
             risks.append("EDITS_NOT_PREVIEWED")
         steps.append(_validate_step(False))
-        lims = expected_limitations(request, provider, reuse=False, resolved=first.pop("measured", None), has_edit=bool(request["edits"]), preview=None)
+        lims = expected_limitations(request, provider, reuse=False, resolved=first.pop("measured", None), has_edit=bool(request["edits"]), preview=None,
+                                    handled=set(first.pop("handles_constraints", None) or ()))
         lims = _dedupe(lims + first.pop("expected_limitations", []) + (last.pop("expected_limitations", []) if last is not first else [])
                        + retarget_lims + no_review)
         return steps, risks, lims

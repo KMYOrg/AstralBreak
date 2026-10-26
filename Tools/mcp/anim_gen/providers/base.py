@@ -75,6 +75,7 @@ class RunContext:
     attempt: int
     policy: dict | None = None  # 실행 시점의 정책 (경로 · 타임아웃)
     state_dir: object = None    # anim_gen 상태 폴더 (Store.root) — 외부 Provider 의 요청 로그 위치. None 이면 기본(Saved/AnimGen)
+    steps: list | None = None   # 이 후보의 단계 전체 (Phase 8-1 — select 단계가 뒤 retarget 단계의 입력을 같이 쓴다)
 
 
 class Provider:

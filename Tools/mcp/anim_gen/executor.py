@@ -191,7 +191,7 @@ class Executor:
                     folder, name = (request["output_path"], self._final_name(job_id, request, attempt)) if final else (work, f"{request['animation_name']}_{kind.title()}")
                     ctx = RunContext(editor=self.editor, job_id=job_id, request=request, step=step, values=values, work_path=work,
                                      output_folder=folder, output_name=name, is_final=final, save=bool(job["save"]), attempt=attempt, policy=policy,
-                                     state_dir=self.store.root)
+                                     state_dir=self.store.root, steps=steps)
                     if provider.paid:
                         result = self._paid_step(job_id, plan, provider, ctx, j)
                         if result is None:
@@ -259,8 +259,11 @@ class Executor:
                     job[bucket].append(asset)
             job["diagnostics"] += result.diagnostics
             if "review" in result.values:
-                # 변환 단계의 프레임 렌더 비교 — 뒤 단계가 실패하거나 폴백해도 Job 에 남긴다(무엇이 변환됐는지 보는 근거)
+                # 변환 단계의 프레임 렌더 비교 — 뒤 단계가 실패하거나 폴백해도 Job 에 남긴다(무엇이 변환됐는지 보는 근거). 후보면 select 가 고른 후보 것으로
                 job["review"] = result.values["review"]
+            if "selection" in result.values:
+                # Phase 8-1 — 후보 선별 근거(후보별 수치 · 벌점 · 순위 · 고른 이유). 뒤 단계가 실패해도 남긴다
+                job["selection"] = result.values["selection"]
         self.store.update_job(job_id, mutate)
 
     def _validate(self, request: dict, values: dict) -> None:
@@ -406,7 +409,8 @@ class Executor:
         return self.store.transition(
             job_id, SUCCEEDED, f"{cand['provider']} ok", stage=None, cursor=cs, error=None, pending=None,
             reused_assets=[values["reused"]] if values.get("reused") else [], validation=values.get("validation"), limitations=lims,
-            measured=values.get("measured"), package=values.get("package"), anim_bp=values.get("anim_bp"), promotion=promotion)
+            measured=values.get("measured"), package=values.get("package"), anim_bp=values.get("anim_bp"), promotion=promotion,
+            selection=values.get("selection"))
 
     def _append(self, job_id: str, field: str, *items) -> None:
         def mutate(job):

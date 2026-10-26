@@ -261,14 +261,45 @@ class BlenderProvider(SubprocessProvider):
                 "fix": list((inputs.get("fix") or {}).get("ops") or []),
                 "review": self._review_args(inputs.get("review"), resolved, settings, out_dir / "frames", notes),
                 "package_dir": PACKAGE_DIR.as_posix()}
+        items = self._candidate_items(ctx, resolved, args, settings, out_dir, notes) if ctx.values.get("candidate_files") else None
+        if items:
+            args["items"] = [{k: v for k, v in item.items() if k not in ("index", "seed")} for item in items]
         paths["args"].write_text(json.dumps(args, ensure_ascii=False, indent=1), encoding="utf-8")
         cmd = [exe, "-b", "--factory-startup", "--python-exit-code", "3", "-P", str(SCRIPT), "--", str(paths["args"])]
         handle = self.start(cmd, out_dir, paths["log"], ctx.policy, child_env(),
                             **{name: p.as_posix() for name, p in paths.items() if name != "log"},
                             resolved={k: resolved[k] for k in ("file", "sha256", "unit", "range", "fps", "facing", "name", "sample_rate")},
                             joint_count=resolved["bvh"]["joint_count"], deferred=bool(inputs.get("from_step")), notes=notes,
-                            review_requested=args["review"] is not None)
+                            review_requested=args["review"] is not None, items=items)
         return StepResult(pending=handle)
+
+    def _candidate_items(self, ctx: RunContext, resolved: dict, args: dict, settings: dict, out_dir: pathlib.Path, notes: list[dict]) -> list[dict]:
+        """생성 후보 BVH 여럿(Phase 8-1) → 한 Blender 실행의 items. 변환 규칙은 첫 후보로 잰 값을 같이 쓴다(같은 생성기 · 같은 프레임 수) — 관절 ·
+        프레임 수가 다른 후보는 경고로 남긴다. 기준 포즈 FBX 는 첫 후보만(모두 같은 표준 T 포즈), 렌더 비교는 후보마다 frames/c<번호>/."""
+        items = []
+        for k, cand in enumerate(ctx.values["candidate_files"]):
+            path = pathlib.Path(cand["bvh"])
+            try:
+                self.check_root(path, settings)
+            except AnimGenError as err:
+                raise StepFailed(err.code, err.reason, err.message, fatal=True) from None
+            if not path.is_file():
+                raise StepFailed("GENERATION_FAILED", "NO_OUTPUT", f"candidate {cand.get('index')} BVH is missing: {path.as_posix()}")
+            if k:
+                try:
+                    info = bvh.summary(bvh.read(path))
+                except bvh.BvhError as err:
+                    raise StepFailed("UNSUPPORTED_REQUEST", "BAD_MOTION_FILE", f"{path.name}: {err.message}") from None
+                if info["joint_count"] != resolved["bvh"]["joint_count"] or info.get("frames") != resolved["bvh"].get("frames"):
+                    notes.append(diag("warning", "GENERATED_BVH_UNEXPECTED", f"{path.name}: {info['joint_count']} joints · {info.get('frames')} frames — "
+                                      f"candidate 0 has {resolved['bvh']['joint_count']} · {resolved['bvh'].get('frames')}; converted with candidate 0's values"))
+            name = "BVH_" + _NAME.sub("_", path.stem)
+            review = None
+            if args["review"]:
+                review = {**args["review"], "dir": (out_dir / "frames" / f"c{cand.get('index', k):02d}").as_posix()}
+            items.append({"index": cand.get("index", k), "seed": cand.get("seed"), "bvh": path.as_posix(), "fbx": (out_dir / f"{name}.fbx").as_posix(),
+                          "rest_fbx": (out_dir / f"{name}_Rest.fbx").as_posix() if k == 0 else None, "review": review})
+        return items
 
     def _review_args(self, review: dict | None, resolved: dict, settings: dict, frames_dir: pathlib.Path, notes: list[dict]) -> dict | None:
         """계획의 review → Blender 인자. count 는 지금 잰 길이로 다시 펼친다(생성 BVH 는 계획 때 길이가 예상값). 계획 뒤 사라진 레퍼런스는 빼고 알린다."""
@@ -326,7 +357,29 @@ class BlenderProvider(SubprocessProvider):
         for key in ("fbx",) + (("rest_fbx",) if report.get("rest_fbx") else ()):
             if not pathlib.Path(handle[key]).is_file():
                 raise StepFailed("GENERATION_FAILED", "NO_OUTPUT", f"Blender reported success but {handle[key]} is missing{self.tail(handle)}")
+        if handle.get("items"):
+            return self._items_result(handle, report)
         return self._result(handle, report)
+
+    def _items_result(self, handle: dict, report: dict) -> StepResult:
+        """후보 여럿의 변환(Phase 8-1) — 첫 후보 값은 지금처럼(file · rest_file · converted · review) + candidate_fbx[] (후보별 FBX · 변환 · 렌더)."""
+        items = report.get("items") or []
+        if len(items) != len(handle["items"]):
+            raise StepFailed("GENERATION_FAILED", "NO_OUTPUT", f"Blender converted {len(items)} of {len(handle['items'])} candidates{self.tail(handle)}")
+        result = self._result(handle, {**report, "review": items[0].get("review")})
+        cands = []
+        for planned, item in zip(handle["items"], items):
+            if not pathlib.Path(planned["fbx"]).is_file():
+                raise StepFailed("GENERATION_FAILED", "NO_OUTPUT", f"Blender reported success but {planned['fbx']} is missing{self.tail(handle)}")
+            values: dict = {}
+            if handle.get("review_requested"):
+                self._review_result(handle, item, values, [], [])
+            cands.append({"index": planned["index"], "seed": planned["seed"], "fbx": planned["fbx"], "bones": item.get("bones"),
+                          "frames": item.get("frames"), "seconds": item.get("seconds"), "review": values.get("review")})
+        result.values["candidate_fbx"] = cands
+        result.diagnostics.append(diag("info", "BLENDER_CANDIDATES_CONVERTED", f"{len(cands)} candidate BVH → FBX in one Blender run "
+                                       f"({report.get('seconds')}s)", files=[c["fbx"] for c in cands]))
+        return result
 
     def _result(self, handle: dict, report: dict) -> StepResult:
         resolved = handle["resolved"]

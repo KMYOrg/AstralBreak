@@ -229,7 +229,7 @@ class Service:
             "attempt": 0, "retry_count": 0, "cursor": None, "pending": None, "work_path": None,
             "request_summary": {k: plan["request"][k] for k in ("animation_name", "output_path", "motion_category", "description")},
             "generated_assets": [], "reused_assets": [], "intermediate_assets": [], "left_assets": [], "validation": None, "review": None,
-            "package": None, "anim_bp": None, "promotion": None,
+            "package": None, "anim_bp": None, "promotion": None, "selection": None,
             "limitations": [], "fallback_history": [], "preserved_candidates": [], "diagnostics": [],
             "cost": {"estimated_usd": 0.0, "actual_usd": None, "confirmed": True},
             "approval_id": None, "idempotency_key": None, "error": None, "result_ignored": False,

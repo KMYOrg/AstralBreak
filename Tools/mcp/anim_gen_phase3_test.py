@@ -218,6 +218,10 @@ def section_retarget() -> None:
     print(f"   source mesh {rt['inputs']['source_mesh']} ({rt['inputs']['source_mesh_source']}) · risks {cand['risks']}")
     check(cand["chain"] == ["existing_motion", "retarget"] and cand["steps"][0]["resolved"]["skeleton"] == UE4_HK, "chain existing_motion → retarget from the HK skeleton")
     check(bool(rt["inputs"]["source_mesh"]) and rt["inputs"]["ops"] == "match_existing", "source mesh pinned in the plan, ops match_existing")
+    # Phase 8-1 기대된 변화 — two_hand_weapon_grip 이면 관통은 재기만(위팔 보정이 양손을 벌리지 않게, 지침서 개정 11)
+    check(rt["inputs"]["body_clearance"] == "measure" and rt["inputs"]["body_clearance_from"] == "grip_flag"
+          and "BODY_CLEARANCE_MEASURED_FOR_GRIP" in [lim["code"] for lim in cand["expected_limitations"]],
+          "grip flag → body_clearance measure (Phase 8-1 expected change)")
     t0 = time.time()
     job = must(SERVICE.generate_motion(plan_id=plan["plan_id"], save=True), "generate retarget")
     seconds = round(time.time() - t0, 2)
@@ -229,7 +233,8 @@ def section_retarget() -> None:
     check("GRIP_NOT_VALIDATED" in [lim["code"] for lim in job["limitations"]], "weapon_action result carries GRIP_NOT_VALIDATED")
     check(exists(final) and uasset(final).is_file(), "retargeted asset saved")
     STATE["retarget"] = {"job_id": job["job_id"], "asset": final, "source_mesh": rt["inputs"]["source_mesh"], "seconds": seconds,
-                         "validation": job["validation"]["status"], "limitations": [lim["code"] for lim in job["limitations"]]}
+                         "validation": job["validation"]["status"], "limitations": [lim["code"] for lim in job["limitations"]],
+                         "body_clearance": rt["inputs"]["body_clearance"]}
 
 
 def section_reuse() -> None:

@@ -262,6 +262,9 @@ def test_local_model_settings_and_constraints_become_limitations(mz):
     lims = {lim["code"]: lim for lim in meshy_first(p)["expected_limitations"]}
     assert lims["GENERATION_SETTINGS_IGNORED"]["fields"] == ["seed", "samples"]
     assert lims["CONSTRAINT_UNSUPPORTED"]["constraint"] == "root_path" and "NOT_REPRODUCIBLE" in lims
+    # Phase 8-1 — 후보 · 2차 생성 설정도 local_ai 것이다(Meshy 는 한 건)
+    p = plan(mz, generation={"candidates": 3, "refine": {"mode": "off"}}, animation_name="AS_Vesper_Mocap_RunMeshyB")
+    assert {lim["code"]: lim for lim in meshy_first(p)["expected_limitations"]}["GENERATION_SETTINGS_IGNORED"]["fields"] == ["candidates", "refine"]
 
 
 # ---- 비용 게이트: 외부 호출 0 ----

@@ -79,6 +79,10 @@ VESPER_BONES = [_bone("root", None, (0, 0, 0)), _bone("pelvis", "root", (0, -1.4
                 _bone("thigh_l", "pelvis", (9, -1.4, 102)), _bone("calf_l", "thigh_l", (10, 0, 55)), _bone("foot_l", "calf_l", (12, -3.5, 9.5)),
                 _bone("ball_l", "foot_l", (13, 8.3, 2.5)), _bone("thigh_r", "pelvis", (-9, -1.4, 102)), _bone("calf_r", "thigh_r", (-10, 0, 55)),
                 _bone("foot_r", "calf_r", (-12, -3.5, 9.5)), _bone("ball_r", "foot_r", (-13, 8.3, 2.5))]
+# 팔 — 실제 Vesper 기준 포즈(inspect_skeleton ref_component, 2026-10-26): 어깨 관절 폭 23.96 · 위팔 24.38 · 아래팔 23.28 cm (자루 무기 간격 사상)
+for _s, _x in (("l", 1.0), ("r", -1.0)):
+    VESPER_BONES += [_bone(f"clavicle_{_s}", "pelvis", (1.76 * _x, -0.3, 146.384)), _bone(f"upperarm_{_s}", f"clavicle_{_s}", (11.982 * _x, -5.004, 145.66)),
+                     _bone(f"lowerarm_{_s}", f"upperarm_{_s}", (27.48 * _x, -6.322, 126.884)), _bone(f"hand_{_s}", f"lowerarm_{_s}", (42.557 * _x, -1.395, 109.848))]
 
 
 # SB(3ds Max Biped) 처럼 +X 를 보는 소스(왼쪽 −Y) — 정면 맞춤(리타깃 facing_yaw_deg +90) 시험용. FX 본은 z −2217cm 외톨이
@@ -135,6 +139,8 @@ class FakeEditor:
         self.smoke_missing: set[str] = set()   # 이 문자열을 품은 필터는 테스트 0개
         self.scenario_polls = 1                # 끝나기 전 poll 횟수
         self.scenario_jobs: dict[str, dict] = {}
+        # Phase 8-1 — validate_animation profile_positions · body_clearance 흉내: 애셋 이름 → {gap, stance, peak, penetration, status}
+        self.profiles: dict[str, dict] = {}
 
     # ---- 호출 ----
     def call(self, tool: str, params: dict, timeout: float | None = None) -> dict:
@@ -255,18 +261,58 @@ class FakeEditor:
         items = []
         for a in p["assets"]:
             info = self._source(a)
-            items.append({"asset": _obj(a), "status": info.get("status", "PASSED"),
-                          "numeric": {"length": info["length"], "frame_rate": info["frame_rate"], "loop": info["loop"]}})
+            prof = self.profiles.get(asset_name(a)) or {}
+            # 플러그인처럼 경고가 있으면 PASSED_WITH_WARNINGS — prof.warnings = 상대 · 구조 검사 경고, 관통은 body_clearance 하위 검사 경고
+            warnings = list(prof.get("warnings", []))
+            pen = prof.get("penetration", 0.0) if p.get("body_clearance") else 0.0
+            status = prof.get("status") or info.get("status", "PASSED")
+            if status == "PASSED" and (warnings or pen):
+                status = "PASSED_WITH_WARNINGS"
+            item = {"asset": _obj(a), "status": status, "issues": [{"level": "warning", "code": c} for c in warnings],
+                    "numeric": {"length": info["length"], "frame_rate": info["frame_rate"], "loop": info["loop"], "pelvis_height_cm": 105.0,
+                                "max_deg_per_frame": 30.0}}
+            if p.get("profile_bones"):
+                item["numeric"]["profile"] = self._profile(p["profile_bones"], prof, bool(p.get("profile_positions")))
+            if p.get("body_clearance"):
+                item["body_clearance"] = {"arms": [{"upper_arm": "upperarm_l", "frames_over_penetration_pct": pen, "frames_over_contact_pct": pen,
+                                                    "depth_max": 3.5 if pen else 0.0, "worst": {"frame": 3, "time": 0.1}},
+                                                   {"upper_arm": "upperarm_r", "frames_over_penetration_pct": 0.0, "frames_over_contact_pct": 0.0,
+                                                    "depth_max": 0.0, "worst": {"frame": 0, "time": 0.0}}],
+                                          "issues": [{"level": "warning", "code": "BODY_PENETRATION"}] if pen else []}
+            items.append(item)
         return {"assets": items}
+
+    @staticmethod
+    def _profile(bones: list[str], prof: dict, positions: bool) -> dict:
+        """10 표본(1/30 초) — 오른손목이 표본 5 에서 prof.peak cm/s 로 한 번 움직이고, 왼손목 = 오른손 + (gap, 0, 0) · 엉덩 ±9(표본 5 부터
+        prof.reach cm 아래로 — 손 속도를 바꾸지 않고 엉덩 기준 손 궤적 폭만 키운다) · 발 ±9 × stance · 위팔(어깨)은 손목 위 50 · 아래팔(팔꿈치)
+        위 25 cm(팔 길이 50 cm)."""
+        n, dt = 10, 1 / 30
+        gap, stance, peak, reach = prof.get("gap", 60.0), prof.get("stance", 5.0), prof.get("peak", 300.0), prof.get("reach", 0.0)
+        right = [[0.0, 30.0 + (peak * dt if i >= 5 else 0.0), 120.0] for i in range(n)]
+        left = [[x + gap, y, z] for x, y, z in right]
+        hip_z = [95.0 - (reach if i >= 5 else 0.0) for i in range(n)]
+        tracks = {"hand_r": right, "hand_l": left, "thigh_l": [[9.0, 0.0, z] for z in hip_z], "thigh_r": [[-9.0, 0.0, z] for z in hip_z],
+                  "foot_l": [[9.0 * stance, 0.0, 8.0]] * n, "foot_r": [[-9.0 * stance, 0.0, 8.0]] * n,
+                  "upperarm_r": [[x, y, z + 50.0] for x, y, z in right], "upperarm_l": [[x, y, z + 50.0] for x, y, z in left],
+                  "lowerarm_r": [[x, y, z + 25.0] for x, y, z in right], "lowerarm_l": [[x, y, z + 25.0] for x, y, z in left]}
+        out = {"times": [round((i + 1) * dt, 4) for i in range(n)], "frames_per_sample": 1,
+               "speed_cm_s": {b: [0.0] * n for b in bones if b in tracks}}
+        if positions:
+            out["position_cm"] = {b: tracks[b] for b in bones if b in tracks}
+        return out
 
     def _import_animation_file(self, p):
         dest = package_path(p["dest_path"])
         self._allowed(dest)
         anim_info = {"class": "AnimSequence", "length": 2.0, "frame_rate": 30.0, "loop": False, "root_motion": False}
+        if any(path.rsplit("/", 1)[0] == dest for path in self.assets):
+            # 플러그인처럼 빈 폴더에만(하위 폴더는 보지 않는다 — AnimMcpAnimImport.cpp DEST_NOT_EMPTY)
+            raise _Refuse(err("ASSET_EXISTS", f"'{dest}' already holds assets — import into an empty folder", reason="DEST_NOT_EMPTY"))
         if p.get("skeleton"):
-            # 기존 스켈레톤에 애니만 (메시 · 스켈레톤을 만들지 않는다)
+            # 기존 스켈레톤에 애니만 (메시 · 스켈레톤을 만들지 않는다). name 이 있으면 그 이름(플러그인: 기본은 파일 이름)
             skel = package_path(p["skeleton"])
-            anim = self._new(f"{dest}/Mock_Anim", **anim_info, skeleton=skel)
+            anim = self._new(f"{dest}/{p.get('name') or 'Mock_Anim'}", **anim_info, skeleton=skel)
             return {"imported": [_obj(anim)], "animations": [{"asset": _obj(anim), "skeleton": _obj(skel)}], "skeleton": _obj(skel), "mesh": None,
                     "skeleton_created": False}
         skel = self._new(f"{dest}/Mock_Skeleton", **{"class": "Skeleton"})
@@ -293,6 +339,7 @@ class FakeEditor:
         for a in p["assets"]:
             src = self._source(a)
             name = asset_name(a).replace(rule.get("replace_from", ""), rule.get("replace_to", "")) if rule.get("replace_from") else asset_name(a)
+            name = f"{rule.get('prefix', '')}{name}{rule.get('suffix', '')}"
             path = self._new(f"{package_path(p['output_path'])}/{name}", **{**src, "skeleton": target_skel})
             generated.append({"source": _obj(a), "asset": _obj(path)})
             items.append({"asset": _obj(path), "status": "PASSED_WITH_WARNINGS",

@@ -80,8 +80,10 @@ class SubprocessProvider(Provider):
     def timeout_s(policy: dict | None) -> float:
         return float(((policy or {}).get("execution") or {}).get("subprocess_timeout_seconds", DEFAULT_TIMEOUT_S))
 
-    def start(self, cmd: list[str], out_dir: pathlib.Path, log: pathlib.Path, policy: dict | None, env: dict, **handle) -> dict:
-        """자식을 띄우고 pending 핸들을 만든다. handle 에는 report · log 경로와 하위 클래스가 poll 때 쓸 값을 넣는다."""
+    def start(self, cmd: list[str], out_dir: pathlib.Path, log: pathlib.Path, policy: dict | None, env: dict, *, extra_timeout_s: float = 0.0,
+              **handle) -> dict:
+        """자식을 띄우고 pending 핸들을 만든다. handle 에는 report · log 경로와 하위 클래스가 poll 때 쓸 값을 넣는다. 기한 = 정책 + extra_timeout_s
+        (한 실행이 일을 여러 번 하는 단계 — Kimodo 후보 · 2차 생성)."""
         kwargs = {"stdin": subprocess.DEVNULL, "stderr": subprocess.STDOUT, "cwd": str(out_dir), "env": env}
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -90,7 +92,7 @@ class SubprocessProvider(Provider):
                 proc = (self._popen or launch)(cmd, stdout=out, **kwargs)
             except OSError as exc:
                 raise StepFailed("PROVIDER_UNAVAILABLE", "LAUNCH_FAILED", f"could not start {self.label}: {exc}") from None
-        timeout = self.timeout_s(policy)
+        timeout = self.timeout_s(policy) + extra_timeout_s
         started = self._clock()
         handle = {"pid": proc.pid, "started_at": started, "deadline": started + timeout, "timeout_s": timeout, "dir": out_dir.as_posix(),
                   "log": log.as_posix(), **handle}

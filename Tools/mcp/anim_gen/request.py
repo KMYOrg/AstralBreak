@@ -5,7 +5,7 @@ import copy
 import os
 import re
 
-from . import bvh
+from . import bvh, selection
 from .editor import package_path
 from .envelope import AnimGenError, diag
 
@@ -18,9 +18,10 @@ RETARGET_KEYS = {"source_mesh", "existing_source_rig", "existing_target_rig", "e
 # create_ik_retargeter align_mode — per_bone: 뼈 수 같은 체인 FK 1:1 + 본 대 본 · 체인 끝 정렬(엔진 정렬은 같은 param 끼리 짝지어
 # 관절 비율이 다르면 팔꿈치 굽힘이 덜 전달된다). match_existing 의 기본, default ops 는 정렬하지 않아 engine 만
 ALIGN_MODES = ("per_bone", "engine")
-# retarget_animations body_clearance — 대상 메시 몸(허리 · 골반 · 넓적다리)에 손 · 아래팔이 들어가는지. resolve(기본): 관통한 프레임만 어깨 둘레
+# retarget_animations body_clearance — 대상 메시 몸(허리 · 골반 · 넓적다리)에 손 · 아래팔이 들어가는지. resolve: 관통한 프레임만 어깨 둘레
 # 최소 회전으로 위팔을 고친다(소스 어깨 반폭 대비 대상 엉덩 · 옷 부피가 크면 같은 팔 각도로 손이 몸에 들어간다 — 2026-10-25 CMU → Vesper 관통
-# 프레임 49 · 73% → 0 · 0%) · measure: 검증에만 · off
+# 프레임 49 · 73% → 0 · 0%) · measure: 검증에만 · off. 요청이 비우면 계획이 정한다(Phase 8-1): two_hand_weapon_grip 이면 measure(위팔 보정이
+# 양손을 벌리지 않게 — 2026-10-26 E1: 같은 seed 에서 resolve 가 손목 간격을 p50 1.9 cm 더 벌렸다), 아니면 resolve
 BODY_CLEARANCE_MODES = ("resolve", "measure", "off")
 # Phase 4 — blender Provider 가 변환할 모션 파일
 MOTION_FILE_DEFAULTS = {"path": None, "unit": "auto", "facing": "auto", "range": None, "axis_forward": "-Z", "axis_up": "Y"}
@@ -28,7 +29,14 @@ FACINGS = ("auto", "keep", "+X", "-X", "+Y", "-Y")
 # Phase 5 — AI 생성 Provider(local_ai) 설정. prompt 는 모델이 읽는 영어 문장(description 은 기록만)
 # options: Provider 이름 → 그 Provider 만 읽는 설정(Phase 6 — {"external.meshy": {"mode": "prime" | "swift"}}). 다른 Provider 는 무시하고,
 # 값의 검사는 그 Provider 의 계획 단계가 한다(이름은 라우터가 레지스트리로 검사)
-GENERATION_DEFAULTS = {"seed": None, "samples": 1, "steps": 100, "postprocess": "auto", "pick": 0, "constraints": [], "options": {}}
+# Phase 8-1 — candidates: seed, seed+1, … 후보 수(1 ~ 6 — 1 이면 지금 단일 실행) · refine: 요청 플래그(constraints.two_hand_weapon_grip ·
+# foot_contact)를 local_ai 2차 생성 제약으로(local_ai/refine.py) · select: 후보 선별 가중치(selection.py)
+REFINE_DEFAULTS = {"mode": "auto", "grip": {"lead_hand": "right", "target": "meet", "spacing_cm": None, "target_spacing_cm": None, "from_s": None,
+                                            "to_s": None}, "keyframe_step": 3}
+SPACING_MAX_CM = 100.0
+GENERATION_DEFAULTS = {"seed": None, "samples": 1, "steps": 100, "postprocess": "auto", "pick": 0, "constraints": [], "options": {},
+                       "candidates": 1, "refine": REFINE_DEFAULTS, "select": {"weights": None}}
+MAX_CANDIDATES = 6
 CONSTRAINT_KEYS = {"root_path": ({"points"}, set()), "keep_pose": ({"npz", "times"}, {"part"}), "kimodo_raw": ({"path"}, set())}
 POSE_PARTS = ("full", "left_hand", "right_hand", "left_foot", "right_foot")
 PROMPT_MAX = 500
@@ -155,9 +163,10 @@ def normalize(raw: dict) -> tuple[dict, list[dict]]:
     if align == "per_bone" and ops != "match_existing":
         raise _bad("retarget.align_mode", "per_bone refines the auto-aligned target pose — only with ops match_existing", reason="ALIGN_MODE_WITHOUT_ALIGN")
     retarget["align_mode"] = align
-    if retarget.get("body_clearance", "resolve") not in BODY_CLEARANCE_MODES:
-        raise _bad("retarget.body_clearance", f"must be one of {list(BODY_CLEARANCE_MODES)}")
-    retarget["body_clearance"] = retarget.get("body_clearance", "resolve")
+    if retarget.get("body_clearance") is not None and retarget["body_clearance"] not in BODY_CLEARANCE_MODES:
+        raise _bad("retarget.body_clearance", f"must be one of {list(BODY_CLEARANCE_MODES)} (omit it and the plan decides: measure with "
+                   "two_hand_weapon_grip, else resolve)")
+    retarget["body_clearance"] = retarget.get("body_clearance")
     # 소스가 보는 UE 축 — auto 면 소스 스켈레톤 기준 포즈로 잰다, keep 이면 정면을 맞추지 않는다
     if retarget.get("source_facing", "auto") not in FACINGS:
         raise _bad("retarget.source_facing", f"must be one of {list(FACINGS)} (UE axes the source faces)")
@@ -252,6 +261,13 @@ def _generation(raw) -> dict:
     options = gen["options"]
     if not isinstance(options, dict) or not all(isinstance(k, str) and k and isinstance(v, dict) for k, v in options.items()):
         raise _bad("generation.options", "must be {<provider name>: {...}} — settings only that provider reads, e.g. {\"external.meshy\": {\"mode\": \"swift\"}}")
+    if not _int(gen["candidates"], 1, MAX_CANDIDATES):
+        raise _bad("generation.candidates", f"must be an integer in [1, {MAX_CANDIDATES}] — seeds seed, seed+1, … in one Kimodo run, the select step picks one")
+    if gen["candidates"] > 1 and gen["samples"] > 1:
+        raise _bad("generation.candidates", "candidates (one sample per seed) and samples (several samples of one seed) do not mix — give one",
+                   reason="CONFLICTING_FIELDS")
+    gen["refine"] = _refine(gen["refine"])
+    gen["select"] = _select(gen["select"])
     items = gen["constraints"]
     if not isinstance(items, list):
         raise _bad("generation.constraints", "must be a list of {type: root_path | keep_pose | kimodo_raw, ...}")
@@ -286,6 +302,63 @@ def _generation(raw) -> dict:
                 if c.get("part", "full") not in POSE_PARTS:
                     raise _bad(f"{where}.part", f"must be one of {list(POSE_PARTS)}")
     return gen
+
+
+def _refine(raw) -> dict:
+    """generation.refine{mode auto|off, grip{lead_hand, target meet|lead, spacing_cm | target_spacing_cm, from_s, to_s}, keyframe_step 1~10} — 형식만
+    (프레임 범위 · 간격 사상은 local_ai 계획)."""
+    if not isinstance(raw, dict):
+        raise _bad("generation.refine", "must be {mode?, grip?, keyframe_step?}")
+    extra = sorted(set(raw) - set(REFINE_DEFAULTS))
+    if extra:
+        raise _bad(f"generation.refine.{extra[0]}", f"unknown key(s) {extra}", reason="UNKNOWN_FIELD", allowed=sorted(REFINE_DEFAULTS))
+    out = {**copy.deepcopy(REFINE_DEFAULTS), **{k: v for k, v in raw.items() if k != "grip"}}
+    if out["mode"] not in ("auto", "off"):
+        raise _bad("generation.refine.mode", "must be auto (a second generation pass for the converted flags) or off (flags stay limitations)")
+    if not _int(out["keyframe_step"], 1, 10):
+        raise _bad("generation.refine.keyframe_step", "must be an integer in [1, 10] (constraint every n frames)")
+    grip = raw.get("grip") or {}
+    if not isinstance(grip, dict):
+        raise _bad("generation.refine.grip", "must be {lead_hand?, target?, spacing_cm? | target_spacing_cm?, from_s?, to_s?}")
+    extra = sorted(set(grip) - set(REFINE_DEFAULTS["grip"]))
+    if extra:
+        raise _bad(f"generation.refine.grip.{extra[0]}", f"unknown key(s) {extra}", reason="UNKNOWN_FIELD", allowed=sorted(REFINE_DEFAULTS["grip"]))
+    g = {**REFINE_DEFAULTS["grip"], **grip}
+    if g["lead_hand"] not in ("left", "right"):
+        raise _bad("generation.refine.grip.lead_hand", "must be left or right (the hand nearer the guard)")
+    if g["target"] not in ("meet", "lead"):
+        raise _bad("generation.refine.grip.target", "must be meet (move both wrists into reach, default) or lead (keep the lead hand path — comparison)")
+    # 상한 100 cm — 자루 무기(Vesper 낫: 운영 애니 양손 구간 손목 간격 50 ~ 78 cm, p50 55 ~ 66)까지. 둘 다 비우면 검 손잡이(주 손 너클 폭 + 1 cm).
+    # spacing_cm = 생성 골격(Kimodo SOMA) 간격, target_spacing_cm = 대상 메시 간격 — 계획이 간격 사상(motion_metrics.gap_map)으로 다른 쪽을 정한다
+    if g["spacing_cm"] is not None and g["target_spacing_cm"] is not None:
+        raise _bad("generation.refine.grip.target_spacing_cm", "give spacing_cm (generation skeleton) or target_spacing_cm (target mesh), not both",
+                   reason="CONFLICTING_FIELDS")
+    if g["spacing_cm"] is not None and not (_num(g["spacing_cm"]) and 0 < g["spacing_cm"] <= SPACING_MAX_CM):
+        raise _bad("generation.refine.grip.spacing_cm", f"must be null (lead knuckle width + 1 cm — a sword hilt) or a number in (0, {SPACING_MAX_CM:g}] "
+                   "(wrist-to-wrist on the generation skeleton along the pass-1 wrist line — the target mesh gets a different gap; prefer target_spacing_cm)")
+    if g["target_spacing_cm"] is not None and not (_num(g["target_spacing_cm"]) and 0 < g["target_spacing_cm"] <= SPACING_MAX_CM):
+        raise _bad("generation.refine.grip.target_spacing_cm", f"must be null or a number in (0, {SPACING_MAX_CM:g}] (wrist-to-wrist on the target mesh "
+                   "— e.g. 55 ~ 65 for a two-handed polearm like Vesper's scythe; the plan converts it to the generation spacing)")
+    for key in ("from_s", "to_s"):
+        if g[key] is not None and not _seconds(g[key]):
+            raise _bad(f"generation.refine.grip.{key}", "must be null or seconds ≥ 0 on the generated timeline")
+    if g["from_s"] is not None and g["to_s"] is not None and g["from_s"] > g["to_s"]:
+        raise _bad("generation.refine.grip.from_s", "must not be after to_s")
+    out["grip"] = g
+    return out
+
+
+def _select(raw) -> dict:
+    """generation.select{weights{grip, stance, swing, attack, clearance, breakage}} — 키 6개만, 0 이상(selection.check_weights)."""
+    if not isinstance(raw, dict) or set(raw) - {"weights"}:
+        raise _bad("generation.select", "must be {weights?{" + ", ".join(selection.WEIGHTS) + "}}")
+    weights = raw.get("weights")
+    if weights is not None:
+        try:
+            weights = selection.check_weights(weights)
+        except selection.WeightError as err:
+            raise _bad("generation.select.weights", str(err)) from None
+    return {"weights": weights}
 
 
 def _review(raw) -> dict | None:

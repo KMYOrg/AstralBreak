@@ -19,6 +19,9 @@ args.json 에 넣고, 여기서는 적용만 한다. 결과는 report.json(임�
 
 Phase 5: 범위를 정한 뒤 보정 op(args.fix — FIX_OPS, 이번엔 비어 있다)를 돌리고, FBX 를 내보낸 뒤 args.review 가 있으면 같은 실행에서
 프레임 렌더 비교를 한다(review_render.py). 렌더가 실패해도 변환은 성공이다 — report.review.ok = false 로 남긴다.
+
+Phase 8-1: args.items[{bvh, fbx, rest_fbx?, review?}] 가 있으면 생성 후보 여럿을 이 한 실행에서 차례로 변환한다(각각 clear_scene 부터 —
+단위 · 회전 · 범위 · fps 는 공통). report 는 첫 항목 값 + items[] (기준 포즈 FBX 는 첫 항목만 — 모든 후보가 같은 SOMA 표준 T 포즈).
 """
 import json
 import math
@@ -47,11 +50,15 @@ def write_json(path, data):
 
 
 def clear_scene():
-    """--factory-startup 장면의 큐브 · 카메라 · 라이트를 지운다."""
+    """--factory-startup 장면의 큐브 · 카메라 · 라이트를 지운다(후보를 이어서 변환하면 앞 항목의 아마추어 · 액션도)."""
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
     for mesh in list(bpy.data.meshes):
         bpy.data.meshes.remove(mesh)
+    for armature in list(bpy.data.armatures):
+        bpy.data.armatures.remove(armature)
+    for action in list(bpy.data.actions):
+        bpy.data.actions.remove(action)
 
 
 def import_bvh(args):
@@ -316,7 +323,16 @@ def main():
     report = {"ok": False, "blender": bpy.app.version_string, "args": argv[0]}
     t0 = time.time()
     try:
-        report.update(convert(args))
+        if args.get("items"):
+            items = []
+            for item in args["items"]:
+                t1 = time.time()
+                one = convert({**args, "rest_fbx": None, "review": None, **item})
+                items.append({**one, "bvh": item["bvh"], "seconds": round(time.time() - t1, 3)})
+            report.update({k: v for k, v in items[0].items() if k != "seconds"})
+            report["items"] = items
+        else:
+            report.update(convert(args))
         report["ok"] = True
     except ConvertError as err:
         report["error"] = {"code": err.code, "message": str(err)}

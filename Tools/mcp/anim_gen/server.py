@@ -88,10 +88,13 @@ def plan_motion_generation(request: dict) -> dict:
             source_facing? auto|keep|+X|-X|+Y|-Y (the UE axis the SOURCE faces; auto = measured from its reference pose),
             align_mode? per_bone|engine (default per_bone with ops match_existing: chains with matching bone counts copy rotations
             one-to-one and the target pose is aligned bone-to-bone and at chain ends — create_ik_retargeter align_mode; engine = the
-            engine's auto-align only, the only choice with ops default), body_clearance? resolve|measure|off (default resolve: after
-            retargeting, frames where the hands/forearms go into the target mesh's body — waist, pelvis, thighs; e.g. a source with
-            wide shoulders onto a target with wide hips or bulky clothes — get the smallest shoulder rotation that clears them, elbow and
-            hand untouched; measure = only report it in validation; retarget_animations body_clearance)}, constraints{},
+            engine's auto-align only, the only choice with ops default), body_clearance? resolve|measure|off (omitted: measure when
+            constraints.two_hand_weapon_grip — resolve pushes the arms apart and breaks a grip — else resolve: after retargeting, frames
+            where the hands/forearms go into the target mesh's body — waist, pelvis, thighs; e.g. a source with wide shoulders onto a target
+            with wide hips or bulky clothes — get the smallest shoulder rotation that clears them, elbow and hand untouched; measure = only
+            report it in validation; retarget_animations body_clearance)}, constraints{two_hand_weapon_grip?, foot_contact?, …} (flags;
+            local_ai turns two_hand_weapon_grip and foot_contact into a second generation pass with end-effector constraints — both wrists
+            on the pass-1 wrist line at the grip spacing, feet kept where pass 1 planted them — the other providers record them as limitations),
             generation_policy? (cannot escape a FREE_ONLY policy), provider ("auto" or a name — a name disables fallback),
             integrate_anim_bp, output_path (under GenerationOutputPaths), motion_file? (a .bvh path under ImportSourceRoots, or
             {path, unit auto|cm|m|mm|inch|<cm per unit>, facing auto|keep|+X|-X|+Y|-Y (UE axes; auto = the target skeleton's),
@@ -102,7 +105,19 @@ def plan_motion_generation(request: dict) -> dict:
             forward_cm, left_cm, yaw_deg? (+ = turn left)}]} character-relative to the first frame | keep_pose{npz (a previous Kimodo
             NPZ under ImportSourceRoots), times[] s, part full|left_hand|right_hand|left_foot|right_foot} (keep those poses, regenerate
             the rest) | kimodo_raw{path (Kimodo constraints.json)}, options{<provider>: {...}} (settings only that provider reads —
-            {"external.meshy": {"mode": "prime" (default, FBX, 10 credits) | "swift" (BVH via blender, 3 credits)}})},
+            {"external.meshy": {"mode": "prime" (default, FBX, 10 credits) | "swift" (BVH via blender, 3 credits)}}),
+            candidates 1-6 (local_ai: seeds seed, seed+1, … in one Kimodo run; with candidates > 1 or a converted flag a select step
+            retargets every candidate, measures wrist gap · foot spread · swing peak · hand path width · arm-body penetration · breakage ·
+            crossed wrists · hands in the head and
+            keeps the lowest score — Job selection holds every number; numbers are not a visual verdict), refine{mode auto|off,
+            grip{lead_hand right|left, target meet (move both wrists into reach, default) | lead (keep the lead hand path),
+            target_spacing_cm? (0-100, wrist-to-wrist on the TARGET mesh — a two-handed polearm such as Vesper's scythe ≈ 60; the plan
+            measures both skeletons' shoulder width and arm length and maps it to the generation gap, e.g. Vesper 60 → Kimodo ≈ 75) |
+            spacing_cm? (0-100, the same on the GENERATION skeleton — the target gets a different gap; give one of the two; both omitted =
+            a sword hilt, the lead knuckle width + 1 cm) — the grip check is then each skeleton's gap ± 13 cm × its arm-length ratio
+            (needs the editor at plan time), from_s?, to_s?}, keyframe_step 1-10 (3)} (pass 2 keeps the pass-1 wrist bend and is smoothed σ 1 frame),
+            select{weights{grip 3, stance 2, swing 2, attack 2, clearance 1, breakage 1, cross 2 (wrists crossed — grip only), head 2 (hands
+            in the head)}}},
             review?{render{times[] s on the converted clip (0 = its first
             frame) | count 1-12 (default 4, evenly spaced, first and last included), views front|side (both), reference_images[] (≤ 4
             absolute .png/.jpg under ImportSourceRoots — an extra sheet column, the same image on every row)}} (rendered by the blender

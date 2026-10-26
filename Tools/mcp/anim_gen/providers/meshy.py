@@ -25,6 +25,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import httpx
 
 from ..envelope import diag, limitation
+from ..request import REFINE_DEFAULTS
 from ..store import default_state_dir, now_iso
 from .base import PlanBlocked, PlanContext, Provider, RunContext, StepFailed, StepResult
 from .subprocess_step import import_roots
@@ -144,7 +145,8 @@ class MeshyProvider(Provider):
             pctx.diagnostics.append(diag("info", "DURATION_SNAPPED", f"Meshy takes {span['step']:g}s steps — {duration:g}s is sent as {sent:g}s"))
         gen = request["generation"]
         lims = [limitation("NOT_REPRODUCIBLE", "Meshy 는 seed 를 받지 않는다 — 같은 계획을 다시 실행해도(재시도 · 새 승인) 다른 동작이 나온다", "provider")]
-        ignored = [k for k, default in (("seed", None), ("samples", 1), ("steps", 100), ("postprocess", "auto"), ("pick", 0)) if gen[k] != default]
+        ignored = [k for k, default in (("seed", None), ("samples", 1), ("steps", 100), ("postprocess", "auto"), ("pick", 0), ("candidates", 1),
+                                        ("refine", REFINE_DEFAULTS)) if gen[k] != default]
         if ignored:
             lims.append(limitation("GENERATION_SETTINGS_IGNORED", f"generation 의 {ignored} 는 로컬 모델(local_ai) 설정이다 — Meshy 는 한 건만 만들고 이 값을 쓰지 "
                                    "않는다", "provider", fields=ignored))

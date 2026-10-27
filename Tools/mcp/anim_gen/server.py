@@ -125,8 +125,22 @@ def plan_motion_generation(request: dict) -> dict:
             the plugin's capture_animation, on every route: rows follow review.render's times when it renders (times/count then
             CONFLICTING_FIELDS), else times[] | count (default 4); views (default render's or both), mesh (default target_mesh),
             sequence{fps 15, cell_height_px 320, max_frames 150} | false (animated APNG), compare (default true — a compare.png with the
-            source-skeleton frames of the same times next to the target-mesh cells)}}, fix?{ops[{op, ...}]} (blender fix step — the op dictionary is empty in this phase, so any op excludes the
-            candidate with UNSUPPORTED_FIX_OP), package?{additive?{additive_type LocalSpaceBase|RotationOffsetMeshSpace, ref_pose_type
+            source-skeleton frames of the same times next to the target-mesh cells)}}, fix?{ops[{op, ...}] (blender convert step — on the
+            SOURCE skeleton before retargeting; routes without a BVH conversion exclude the candidate with UNSUPPORTED_FIX_OP — give a saved
+            Kimodo BVH as motion_file, it gets local_ai's SOMA retarget defaults: smooth{sigma_frames 1, bones "all", root, from_s?, to_s?} (lowers
+            the swing peak — not on by default) | stance_width{max_ratio 3.0 (TARGET-mesh foot spread ÷ hip-joint width while both feet are
+            planted — Vesper's sickle attacks end at 2.1, idle 1.9), min_ratio 1.2, max_shift_cm 25, blend_s 0.2, keep_knee_bend true (raises
+            the pelvis as much as the narrower stance needs so neither knee bends more than before)} | foot_lock{feet, contacts
+            "auto", height_ratio, speed_ratio, min_frames, blend_frames, lock_rotation} — stance_width and foot_lock are one leg solve in a
+            model of the retargeted legs (pelvis × target/source pelvis height, source bone directions, target bone lengths), so the TARGET's
+            planted feet stay put (Job fix.source = Blender report, fix.target = measured after retargeting); needs the source leg chains
+            (retarget.source_chains or provider defaults), timing?: true | {target_peak_cm_s 1200, max_rate 2.0, recovery_rate 1.5,
+            antialias 1.0 (0..1.5), swing{core_ratio 0.5, edge_ratio 0.2}, still{speed_cm_s 30, min_s 0.3, trim_head true, keep_head_s 0.2,
+            trim_tail true, keep_tail_s 0.3}} (on the TARGET sequence after retargeting, every route incl. an existing asset: finds the swing by
+            wrist speed and speeds it up with one smooth time_warp — rate ramps linearly 1 → core rate → recovery ×1.5 → 1, no speed steps,
+            antialias blurs what plays faster so fast detail does not fold into jitter — after one trim of the still head/tail; the plan shows
+            the ops for an asset already on the target; Job timing has the windows · rate profile · ops · warp · before/after; length changes
+            on purpose: TIMING_CHANGED_LENGTH)}, package?{additive?{additive_type LocalSpaceBase|RotationOffsetMeshSpace, ref_pose_type
             RefPose|AnimScaled|AnimFrame|LocalAnimFrame (default LocalAnimFrame 0), ref_frame_index, ref_pose_sequence ('$asset' = itself;
             needed by AnimFrame/AnimScaled)} (edits the new sequence in place — refused on a reused asset), montage?{name? (default
             animation_name AS_ → AM_), slot (default DefaultSlot; must already be in the skeleton), blend_in?, blend_out?, sections?[{name,

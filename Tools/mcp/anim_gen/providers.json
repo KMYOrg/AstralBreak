@@ -41,7 +41,7 @@
       "name": "direct_key",
       "role": "provider",
       "phase": 2,
-      "description": "apply_animation_edits 로 키를 직접 쓴다 — trim · retime · hold_pose · concat · mirror · offset_bone · rotate_root",
+      "description": "apply_animation_edits 로 키를 직접 쓴다 — trim · retime · time_warp · hold_pose · concat · mirror · offset_bone · rotate_root",
       "input_types": ["anim_sequence", "operations"],
       "supports_new_generation": false,
       "supports_modification": true,

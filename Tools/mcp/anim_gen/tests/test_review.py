@@ -83,15 +83,15 @@ def test_without_review_nothing_changes(bl):
     assert "REVIEW_IS_SOURCE_SKELETON" not in _codes(job["limitations"])
 
 
-# ---- fix: 자리만 ----
+# ---- fix: op 사전 (Phase 8-3 — smooth · stance_width · foot_lock, 기대된 변화: 사전이 더 이상 비어 있지 않다) ----
 def test_fix_ops_block_every_candidate(bl):
-    """op 사전이 비어 있다 — blender 도, 변환 단계가 없는 existing_motion 도 그 op 를 돌릴 곳이 없다."""
-    p = plan(bl, search={"query": "rifle aim idle"}, fix={"ops": [{"op": "foot_lock", "bones": ["LeftFoot"]}]})
+    """사전 밖 op — blender 도, 변환 단계가 없는 existing_motion 도 그 op 를 돌릴 곳이 없다."""
+    p = plan(bl, search={"query": "rifle aim idle"}, fix={"ops": [{"op": "teleport", "bones": ["LeftFoot"]}]})
     assert not p["executable"]
     excluded = _excluded(p)
     assert excluded["blender"] == ("UNSUPPORTED_REQUEST", "UNSUPPORTED_FIX_OP") == excluded["existing_motion"]
     [blender] = [e for e in p["excluded"] if e["provider"] == "blender"]
-    assert blender["ops"] == ["foot_lock"] and blender["available"] == []
+    assert blender["ops"] == ["teleport"] and blender["available"] == ["foot_lock", "smooth", "stance_width"]
     assert not [q for t, q in bl.fake.calls if t == "search_animations" and q.get("query") == "rifle aim idle"]  # 소스 검색 전에 막았다
     assert not bl.launcher.procs
 
@@ -99,8 +99,8 @@ def test_fix_ops_block_every_candidate(bl):
 def test_fix_dictionary_is_the_extension_point(bl, monkeypatch):
     """Phase 8 은 이름 → 인자 검사(Provider) + 같은 이름의 bvh_to_fbx.py 함수를 끼운다 — 계획이 통과하면 ops 가 그대로 args.json 으로 간다."""
     seen = []
-    monkeypatch.setitem(blender_mod.FIX_OPS, "foot_lock", seen.append)
-    op = {"op": "foot_lock", "bones": ["LeftFoot"]}
+    monkeypatch.setitem(blender_mod.FIX_OPS, "foot_plant", seen.append)
+    op = {"op": "foot_plant", "bones": ["LeftFoot"]}
     p, _ = generate(bl, fix={"ops": [op]})
     assert p["executable"] and p["candidates"][0]["steps"][0]["inputs"]["fix"] == {"ops": [op]} and seen == [op]
     assert bl.launcher.last.args["fix"] == [op]
@@ -200,7 +200,13 @@ def test_generated_route_renders_after_the_convert(ka):
     assert _codes(job["limitations"]).count("REVIEW_IS_SOURCE_SKELETON") == 1
 
 
-def test_generated_route_blocks_fix_ops(ka):
+def test_generated_route_carries_fix_ops(ka):
+    """생성 경로의 변환 단계도 보정 op 를 돈다(Phase 8-3 — 기대된 변화: 예전엔 사전이 비어 막았다). 사전 밖 op 는 그대로 막는다."""
     p = ai_plan(ka, provider="local_ai", fix={"ops": [{"op": "smooth"}]})
+    convert = next(s for s in p["candidates"][0]["steps"] if s["step"] == "convert")
+    assert p["executable"] and convert["inputs"]["fix"]["ops"] == [{"op": "smooth", "sigma_frames": 1.0, "bones": "all", "root": True, "from_s": None,
+                                                                   "to_s": None}]
+    assert "FIX_RESOLVED_AT_RUN" in p["candidates"][0]["risks"] and "FIX_ON_SOURCE_SKELETON" in _codes(p["candidates"][0]["expected_limitations"])
+    p = ai_plan(ka, provider="local_ai", fix={"ops": [{"op": "teleport"}]})
     assert not p["executable"] and _excluded(p)["local_ai"] == ("UNSUPPORTED_REQUEST", "UNSUPPORTED_FIX_OP")
     assert not ka.launcher.procs

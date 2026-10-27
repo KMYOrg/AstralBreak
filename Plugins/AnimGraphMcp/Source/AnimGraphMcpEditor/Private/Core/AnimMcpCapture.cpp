@@ -605,7 +605,7 @@ namespace AnimMcpCapture
 			}
 		}
 
-		// 비교 칸 — 행마다 같은 시각의 소스 골격 이미지(Blender review.render) · ImportSourceRoots 아래만
+		// 비교 칸 — 행마다 같은 시각의 소스 골격 이미지(Blender review.render) 또는 앞선 캡처(보정 전 · 후 — Phase 8-3) · ImportSourceRoots · CaptureOutputRoots 아래만
 		FString CompareLabel;
 		TArray<TArray<FString>> CompareRows;
 		{
@@ -636,7 +636,7 @@ namespace AnimMcpCapture
 							OutError = FieldError(TEXT("compare"), TEXT("compare.rows[][] must be absolute image paths"));
 							return nullptr;
 						}
-						if (!AnimMcpGeneration::ResolveImportSource(PathValue->AsString(), Absolute, OutError))
+						if (!AnimMcpGeneration::ResolveCompareImage(PathValue->AsString(), Absolute, OutError))
 						{
 							if (OutError.Details.IsValid()) { OutError.Details->SetStringField(TEXT("field"), TEXT("compare")); }
 							return nullptr;

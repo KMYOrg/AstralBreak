@@ -102,6 +102,16 @@ namespace AnimMcpAnimEditOps
 	bool Trim(FClip& Clip, double Start, double End, FReport& Report, FString& OutError);
 	/** [Start, End] 를 Rate 배 빠르게(Rate > 0) — 전체를 재샘플 */
 	bool Retime(FClip& Clip, double Start, double End, double Rate, FReport& Report, FString& OutError);
+	/** time_warp 의 antialias 상한 */
+	constexpr double MaxTimeWarpAntiAlias = 1.5;
+	/**
+	 * 전체를 매끈한 시각 사상 하나로 다시 고른다(Phase 8-3 후속 — 구간 등속 retime 조각의 속도 단차 대신). Knots[i] = (X 직전 타임라인 시각, Y 새 시각):
+	 * 첫 매듭 (0, 0), 마지막 X = 길이(반 프레임 안), X · Y 엄격 증가. 새 시각 → 원 시각은 단조 3차 Hermite — Rates(매듭의 재생 배율 = 기울기 > 0)가
+	 * 있으면 그 기울기(구간마다 Fritsch–Carlson 단조 조건 α² + β² ≤ 9), 비면 PCHIP. 새 길이 = 마지막 Y 를 프레임으로 반올림.
+	 * AntiAlias(0 ~ MaxTimeWarpAntiAlias) > 0 이면 배율 r > 1 인 키는 σ = AntiAlias·√(r² − 1) 원 프레임 가우시안으로 거른 포즈를 고른다 —
+	 * 빠르게 재생하면 원본의 빠른 꺾임이 프레임 사이 지그재그로 접히는 것(에일리어싱)을 줄인다. 이음매는 옮기기만 하고 새로 달지 않는다(C¹)
+	 */
+	bool TimeWarp(FClip& Clip, const TArray<FVector2D>& Knots, const TArray<double>& Rates, double AntiAlias, FReport& Report, FString& OutError);
 	/** At 의 포즈를 Duration 동안 정지 삽입 (At = 끝이면 연장) */
 	bool HoldPose(FClip& Clip, double At, double Duration, FReport& Report, FString& OutError);
 	/**

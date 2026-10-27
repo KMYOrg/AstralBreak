@@ -356,6 +356,152 @@ def contact_slide(track: list, contacts: list[bool], times: list[float], up: int
     return {"frames": len(v), "p95": _r(percentile(v, 0.95)), "max": _r(max(v) if v else None)}
 
 
+# Phase 8-3 — 접지 판정(다리 보정 fix.ops 의 소스 골격 · 대상 측정이 같은 정의). 기준값은 E0(2026-10-27) — 운영 Vesper 걷기 · 공격 · 대기와
+# 8-1 시험 대상의 발목 트랙: 높이 = 그 클립 최저 + 다리 × 0.04(Vesper 다리 92 cm → 3.7 cm, SOMA 85 → 3.4), 수평 속도 < 다리 × 0.25 /s(23 · 21 cm/s)
+# 가 4 프레임 이상 — 운영 대기 접지 100% · 걷기 32% · 달리기 0%, 시험 대상 85 ~ 100%.
+CONTACT_HEIGHT_RATIO = 0.04
+CONTACT_SPEED_RATIO = 0.25
+CONTACT_MIN_FRAMES = 4
+
+
+def runs(flags: list[bool], min_len: int = 1) -> list[tuple[int, int]]:
+    """연속 참 구간 [시작, 끝](포함) 중 min_len 표본 이상."""
+    out, start = [], None
+    for i, on in enumerate(list(flags) + [False]):
+        if on and start is None:
+            start = i
+        elif not on and start is not None:
+            if i - start >= min_len:
+                out.append((start, i - 1))
+            start = None
+    return out
+
+
+def detect_contacts(track: list, times: list[float], up: int, leg_cm: float, height_ratio: float = CONTACT_HEIGHT_RATIO,
+                    speed_ratio: float = CONTACT_SPEED_RATIO, min_frames: int = CONTACT_MIN_FRAMES) -> list[bool]:
+    """발목 트랙 → 표본별 접지(참 = min_frames 이상 이어진 '낮고 느림'). 속도는 앞 · 뒤 표본 중 느린 쪽(첫 표본 속도 0 문제 없이 양 끝을 판정)."""
+    n = len(track)
+    if not n:
+        return []
+    low = min(p[up] for p in track) + height_ratio * leg_cm
+    v = []
+    for i in range(n):
+        cand = []
+        for j in (i - 1, i + 1):
+            if 0 <= j < n and abs(times[j] - times[i]) > 1e-9:
+                dx, dy = _horizontal([track[j][k] - track[i][k] for k in range(3)], up)
+                cand.append(math.hypot(dx, dy) / abs(times[j] - times[i]))
+        v.append(min(cand) if cand else 0.0)
+    flags = [p[up] <= low and s <= speed_ratio * leg_cm for p, s in zip(track, v)]
+    out = [False] * n
+    for a, b in runs(flags, min_frames):
+        for i in range(a, b + 1):
+            out[i] = True
+    return out
+
+
+def leg_dims(positions: dict, bones: dict) -> dict | None:
+    """기준 포즈 위치 · 역할 본(hip_l · knee_l · foot_l …) → 엉덩 관절 폭(hip_l ↔ hip_r) · 다리 길이(엉덩 → 무릎 → 발목, 양다리 평균) — 발 간격
+    사상(stance_map)의 치수(arm_dims 와 같은 모양의 다리 판). 본 위치가 하나라도 없으면 None."""
+    roles = ("hip_l", "hip_r", "knee_l", "knee_r", "foot_l", "foot_r")
+    if not all(bones.get(r) and positions.get(bones[r]) for r in roles):
+        return None
+    p = {r: positions[bones[r]] for r in roles}
+    thigh = [_dist(p[f"hip_{s}"], p[f"knee_{s}"]) for s in ("l", "r")]
+    shin = [_dist(p[f"knee_{s}"], p[f"foot_{s}"]) for s in ("l", "r")]
+    out = {"hip_width_cm": _r(_dist(p["hip_l"], p["hip_r"])), "leg_cm": _r((sum(thigh) + sum(shin)) / 2.0),
+           "thigh_cm": _r(sum(thigh) / 2.0), "shin_cm": _r(sum(shin) / 2.0)}
+    pelvis = positions.get(bones.get("pelvis") or "")
+    if pelvis:
+        # 리타기터 Pelvis Motion op 의 이동 배율 = 대상 골반 높이 / 소스 골반 높이(PelvisMotionOp.cpp InitializeTarget) — 다리 보정의 대상 모델
+        out["pelvis_height_cm"] = _r(pelvis[2])
+    return out
+
+
+def stance_map(source: dict, target: dict) -> dict:
+    """두 골격 다리 치수(leg_dims) → 발 좌우 간격 사상 {source_hip_cm, target_hip_cm, leg_ratio}: 대상 간격 = W_t + k·(소스 간격 − W_s), k = 다리_t /
+    다리_s — gap_map(손목)과 같은 FK 리타깃 모델(본 방향 복사 · 본 길이 비). E0 확인: 검 시험 대상 소스 p50 89.4 cm → 18.2 + 1.08·(89.4 − 20.1) = 93.0
+    vs Vesper 실측 92.6 cm. 다리 보정은 프레임별 대상 모델(foot_fix.target_model)로 풀고, 이 닫힌 식은 소스 수치를 대상 쪽으로 어림할 때 쓴다."""
+    return {"source_hip_cm": source["hip_width_cm"], "target_hip_cm": target["hip_width_cm"],
+            "leg_ratio": round(target["leg_cm"] / source["leg_cm"], 4)}
+
+
+def map_stance(m: dict, lateral_cm: float, to: str = "source") -> float:
+    """발 좌우 간격 사상(stance_map) — 소스로: W_s + (d − W_t) / k, 대상으로: W_t + k·(d − W_s)."""
+    if to == "source":
+        return m["source_hip_cm"] + (lateral_cm - m["target_hip_cm"]) / m["leg_ratio"]
+    return m["target_hip_cm"] + m["leg_ratio"] * (lateral_cm - m["source_hip_cm"])
+
+
+def lateral_series(foot_l: list, foot_r: list, hip_l: list, hip_r: list, up: int) -> tuple[list[float], list[float]]:
+    """프레임별 (발 좌우 간격 cm, 엉덩 관절 수평 폭 cm) — stance 의 같은 정의(부호 없이)."""
+    lat, width = [], []
+    for fl, fr, hl, hr in zip(foot_l, foot_r, hip_l, hip_r):
+        ax, ay = _horizontal([hl[i] - hr[i] for i in range(3)], up)
+        w = math.hypot(ax, ay)
+        dx, dy = _horizontal([fl[i] - fr[i] for i in range(3)], up)
+        lat.append(abs(dx * ax + dy * ay) / w if w > 1e-6 else 0.0)
+        width.append(w)
+    return lat, width
+
+
+def knee_bend(hip: list, knee: list, ankle: list) -> dict:
+    """무릎 굽힘(°) = 넓적다리(엉덩 → 무릎)와 정강이(무릎 → 발목) 방향의 각(0 = 곧게 편 다리) — 8-3 후속: 골반 높이 그대로 발을 모으면 커진다
+    (시험 대상 Vesper p50 37 ~ 42° → 48 ~ 60°)."""
+    out = []
+    for h, k, a in zip(hip, knee, ankle):
+        u, v = [k[i] - h[i] for i in range(3)], [a[i] - k[i] for i in range(3)]
+        nu, nv = math.sqrt(sum(x * x for x in u)), math.sqrt(sum(x * x for x in v))
+        if nu > 1e-9 and nv > 1e-9:
+            out.append(math.degrees(math.acos(max(-1.0, min(1.0, sum(u[i] * v[i] for i in range(3)) / (nu * nv))))))
+    return {"p50": _r(percentile(out, 0.5), 1), "max": _r(max(out) if out else None, 1)}
+
+
+def zigzag_at_rate(tracks: list[list], times: list[float], rate: float, scale: float = 1.0) -> float | None:
+    """균일 rate 배 가속의 떨림 기대값 — 트랙마다 rate 표본 간격으로 고르게(선형) 다시 고른 뒤 zigzag 최대(시작 위상 0 · rate/2 중 큰 쪽).
+    떨림 지표는 보폭에 민감해(원본에서 네 프레임에 걸친 꺾임이 2배면 두 프레임 안 — 부호가 바뀌는 가속으로 잡힌다) '원본 × r²' 로는 잴 수 없다 →
+    시간 보정(fix.timing)의 떨림 기준(8-3 후속 — 시험 대상 원본을 보폭 2 로 잰 값 8.1 ~ 25.9 vs 보폭 1 0.56 ~ 3.42)."""
+    if len(times) < 4 or rate <= 0:
+        return None
+    dt = (times[-1] - times[0]) / (len(times) - 1)
+    best = None
+    for phase in (0.0, rate / 2.0):
+        out = []
+        for track in tracks:
+            n = len(track) - 1
+            sample, x = [], phase
+            while x <= n + 1e-9:
+                k0 = min(int(x), n)
+                k1 = min(k0 + 1, n)
+                a = x - k0
+                sample.append([track[k0][i] + (track[k1][i] - track[k0][i]) * a for i in range(3)])
+                x += rate
+            out.append(sample)
+        m = len(out[0]) if out else 0
+        if m >= 4:
+            z = zigzag(out, [times[0] + k * dt for k in range(m)], scale, edge_s=0.0)["max"]
+            best = z if best is None or (z is not None and z > best) else best
+    return best
+
+
+def legs_report(tracks: dict, times: list[float], up: int, leg_cm: float, scale: float = 1.0, contacts: dict | None = None,
+                knees: tuple[list, list] | None = None) -> dict:
+    """다리 보정 전후 비교 수치(소스 · 대상 같은 정의): 발 좌우 비 p50 · p90 · 두 발 디딘 프레임의 최대, 접지(없으면 detect_contacts) 비율 ·
+    접지 발목 수평 미끄러짐 p95(cm/s ÷ scale), 무릎 간격 최소 · 무릎 굽힘(knee_bend — knees 가 있을 때)."""
+    lat, width = lateral_series(tracks["foot_l"], tracks["foot_r"], tracks["hip_l"], tracks["hip_r"], up)
+    ratio = [d / w for d, w in zip(lat, width) if w > 1e-6]
+    if contacts is None:
+        contacts = {s: detect_contacts(tracks[f"foot_{s}"], times, up, leg_cm) for s in ("l", "r")}
+    both = [ratio[i] for i in range(min(len(ratio), len(contacts["l"]), len(contacts["r"]))) if contacts["l"][i] and contacts["r"][i]]
+    out = {"ratio": {"p50": _r(percentile(ratio, 0.5)), "p90": _r(percentile(ratio, 0.9)), "planted_max": _r(max(both) if both else None)},
+           "contact_pct": {s: _r(100.0 * sum(contacts[s]) / len(contacts[s]), 1) if contacts[s] else None for s in ("l", "r")},
+           "slide_p95": {s: contact_slide(tracks[f"foot_{s}"], contacts[s], times, up, scale)["p95"] for s in ("l", "r")}}
+    if knees:
+        out["knee_gap_min_cm"] = _r(min(_dist(a, b) for a, b in zip(*knees)) / scale) if knees[0] else None
+        out["knee_bend"] = {s: knee_bend(tracks[f"hip_{s}"], k, tracks[f"foot_{s}"]) if k else None for s, k in zip(("l", "r"), knees)}
+    return out
+
+
 def measure(tracks: dict, times: list[float], *, up: int, scale: float = 1.0, window=None, spacing_cm: float | None = None,
             tolerance_cm: float = GRIP_TOL_CM, hand_points: list[list] | None = None) -> dict:
     """역할별 위치(cm) → {grip, stance, swing, attack, jitter, wrist_bend, cross, head}. 빠진 역할의 지표는 None. spacing_cm · tolerance_cm = 이

@@ -93,6 +93,16 @@ bool FAnimMcpCaptureTest::RunTest(const FString& Parameters)
 		Error = FAnimMcpError();
 		TestFalse(TEXT("non-empty folder refused"), AnimMcpGeneration::ResolveCaptureDir(Probe, Absolute, Error));
 		TestTrue(TEXT("non-empty -> OUTPUT_DIR_NOT_EMPTY"), Error.Details.IsValid() && Error.Details->GetStringField(TEXT("reason")) == TEXT("OUTPUT_DIR_NOT_EMPTY"));
+		// 비교 칸 이미지(Phase 8-3) — 앞선 캡처 결과(캡처 루트 아래 파일)도 받는다, 없는 파일 · 두 루트 밖은 거부
+		Error = FAnimMcpError();
+		TestTrue(TEXT("compare image below the capture root allowed"), AnimMcpGeneration::ResolveCompareImage(Probe / TEXT("x.txt"), Absolute, Error));
+		TestEqual(TEXT("compare image normalized"), Absolute, Probe / TEXT("x.txt"));
+		Error = FAnimMcpError();
+		TestFalse(TEXT("missing compare image refused"), AnimMcpGeneration::ResolveCompareImage(Probe / TEXT("none.png"), Absolute, Error));
+		TestTrue(TEXT("missing -> FILE_NOT_FOUND"), Error.Details.IsValid() && Error.Details->GetStringField(TEXT("reason")) == TEXT("FILE_NOT_FOUND"));
+		Error = FAnimMcpError();
+		TestFalse(TEXT("compare image outside both roots refused"), AnimMcpGeneration::ResolveCompareImage(Root + TEXT("../outside.png"), Absolute, Error));
+		TestEqual(TEXT("outside -> IMPORT_SOURCE_NOT_ALLOWED"), Error.Code, FString(AnimMcpErrorCodes::ImportSourceNotAllowed));
 		IFileManager::Get().DeleteDirectory(*Probe, /*RequireExists*/ false, /*Tree*/ true);
 		TestFalse(TEXT("probe folder removed"), IFileManager::Get().DirectoryExists(*Probe));
 	}

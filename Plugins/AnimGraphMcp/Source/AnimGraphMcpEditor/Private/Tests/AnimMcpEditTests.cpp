@@ -202,6 +202,89 @@ bool FAnimMcpEditOpsTest::RunTest(const FString& Parameters)
 		const double SourceTravel = FVector::Dist(Base.Keys[30][0].GetLocation(), Base.Keys[15][0].GetLocation());
 		TestTrue(TEXT("rotate_root: path bends (shorter chord, same speed)"), Travel < SourceTravel - 1.0);
 	}
+
+	// ---- time_warp (Phase 8-3 후속): 항등 · 고른 2배 = retime 2.0 · Hermite 램프는 속도 단차 없음 · antialias · 거부 · 이음매 ----
+	{
+		FReport Report;
+		FString Error;
+		FClip Identity = Base;
+		TestTrue(TEXT("time_warp identity ok"), TimeWarp(Identity, { FVector2D(0, 0), FVector2D(1, 1) }, {}, 0.7, Report, Error));
+		bool bSame = Identity.NumKeys() == Base.NumKeys();
+		for (int32 Key = 0; bSame && Key < Base.NumKeys(); ++Key) { bSame &= PosesEqual(Identity.Keys[Key], Base.Keys[Key]); }
+		TestTrue(TEXT("time_warp identity: same keys (antialias does nothing at 1x)"), bSame);
+
+		FClip Double = Base;
+		FClip Retimed = Base;
+		TestTrue(TEXT("time_warp 2x ok"), TimeWarp(Double, { FVector2D(0, 0), FVector2D(1, 0.5) }, { 2.0, 2.0 }, 0.0, Report, Error));
+		TestTrue(TEXT("retime 2x ok"), Retime(Retimed, 0.0, 1.0, 2.0, Report, Error));
+		bSame = Double.NumKeys() == 16 && Retimed.NumKeys() == 16;
+		for (int32 Key = 0; bSame && Key < 16; ++Key) { bSame &= PosesEqual(Double.Keys[Key], Retimed.Keys[Key]); }
+		TestTrue(TEXT("time_warp 2x = retime 2x (16 keys, key k = original key 2k)"), bSame && PosesEqual(Double.Keys[5], Base.Keys[10]));
+		TestEqual(TEXT("time_warp: max rate"), Double.MaxRate, 2.0, 1e-6);
+		TestEqual(TEXT("time_warp: no seams"), Double.Seams.Num(), 0);
+
+		// 0..0.2s 를 배율 1 → 2 로 선형 램프(평균 1.5 → 4 프레임), 0.2..1.0s 를 2배(12 프레임) — 출력 프레임마다 원 시각 걸음이 0.25 씩만 바뀐다
+		FClip Ramp = Base;
+		TestTrue(TEXT("time_warp ramp ok"), TimeWarp(Ramp, { FVector2D(0, 0), FVector2D(0.2, 0.2 / 1.5), FVector2D(1.0, 0.2 / 1.5 + 0.4) }, { 1.0, 2.0, 2.0 }, 0.0, Report, Error));
+		TestEqual(TEXT("time_warp ramp: 17 keys"), Ramp.NumKeys(), 17);
+		double MaxStepChange = 0.0;
+		for (int32 Key = 1; Key + 1 < Ramp.NumKeys(); ++Key)
+		{
+			const double Step0 = (Ramp.Provenance[Key].Time - Ramp.Provenance[Key - 1].Time) * Fps;
+			const double Step1 = (Ramp.Provenance[Key + 1].Time - Ramp.Provenance[Key].Time) * Fps;
+			MaxStepChange = FMath::Max(MaxStepChange, FMath::Abs(Step1 - Step0));
+		}
+		TestTrue(FString::Printf(TEXT("time_warp ramp: rate changes at most 0.25 per frame (got %.3f)"), MaxStepChange), MaxStepChange <= 0.25 + 1e-3);
+		TestEqual(TEXT("time_warp ramp: core plays 2x"), (Ramp.Provenance[16].Time - Ramp.Provenance[15].Time) * Fps, 2.0, 1e-3);
+
+		// antialias — 골반에 프레임마다 ±1cm 지그재그를 얹고 1.5배: 거르면 지그재그가 크게 준다
+		FClip Jitter = Base;
+		for (int32 Key = 0; Key < Jitter.NumKeys(); ++Key)
+		{
+			Jitter.Keys[Key][1].AddToTranslation(FVector((Key % 2) ? 1.0 : -1.0, 0, 0));
+		}
+		auto Zigzag = [](const FClip& Clip)
+		{
+			// 양 끝 3 키는 뺀다 — 끝 밖을 끝 키로 접어 거른 값이 끝에서 한쪽으로 쏠린다
+			double Max = 0.0;
+			for (int32 Key = 3; Key + 3 < Clip.NumKeys(); ++Key)
+			{
+				Max = FMath::Max(Max, FMath::Abs(Clip.Keys[Key + 1][1].GetLocation().X - 2.0 * Clip.Keys[Key][1].GetLocation().X + Clip.Keys[Key - 1][1].GetLocation().X));
+			}
+			return Max;
+		};
+		FClip Plain = Jitter;
+		FClip Filtered = Jitter;
+		const TArray<FVector2D> Fast = { FVector2D(0, 0), FVector2D(1.0, 1.0 / 1.5) };
+		TestTrue(TEXT("time_warp 1.5x ok"), TimeWarp(Plain, Fast, { 1.5, 1.5 }, 0.0, Report, Error));
+		TestTrue(TEXT("time_warp 1.5x antialias ok"), TimeWarp(Filtered, Fast, { 1.5, 1.5 }, 0.7, Report, Error));
+		TestTrue(FString::Printf(TEXT("time_warp antialias: zigzag %.3f → %.3f cm"), Zigzag(Plain), Zigzag(Filtered)), Zigzag(Filtered) < 0.3 * Zigzag(Plain));
+		TestTrue(TEXT("time_warp antialias: rotations stay normalized"), Filtered.Keys[7][1].GetRotation().IsNormalized());
+
+		// 거부 — 버퍼는 그대로
+		auto Refused = [this, &Base](const TCHAR* What, const TArray<FVector2D>& Knots, const TArray<double>& Rates, double AntiAlias)
+		{
+			FClip Clip = Base;
+			FReport R;
+			FString E;
+			TestFalse(FString::Printf(TEXT("time_warp refused: %s"), What), TimeWarp(Clip, Knots, Rates, AntiAlias, R, E));
+			TestEqual(FString::Printf(TEXT("time_warp refused leaves the clip: %s"), What), Clip.NumKeys(), Base.NumKeys());
+		};
+		Refused(TEXT("one knot"), { FVector2D(0, 0) }, {}, 0.0);
+		Refused(TEXT("first knot not [0, 0]"), { FVector2D(0.1, 0), FVector2D(1, 1) }, {}, 0.0);
+		Refused(TEXT("last src short of the length"), { FVector2D(0, 0), FVector2D(0.8, 0.8) }, {}, 0.0);
+		Refused(TEXT("dst not increasing"), { FVector2D(0, 0), FVector2D(0.5, 0.5), FVector2D(1, 0.5) }, {}, 0.0);
+		Refused(TEXT("rates count"), { FVector2D(0, 0), FVector2D(1, 1) }, { 1.0 }, 0.0);
+		Refused(TEXT("rate <= 0"), { FVector2D(0, 0), FVector2D(1, 1) }, { 1.0, 0.0 }, 0.0);
+		Refused(TEXT("rates too steep (runs backwards)"), { FVector2D(0, 0), FVector2D(1, 1) }, { 4.0, 4.0 }, 0.0);
+		Refused(TEXT("antialias out of range"), { FVector2D(0, 0), FVector2D(1, 1) }, {}, 2.0);
+
+		// 이음매는 사상을 따라 옮겨진다
+		FClip Seamed = Base;
+		Seamed.Seams = { 0.5 };
+		TestTrue(TEXT("time_warp with seam ok"), TimeWarp(Seamed, { FVector2D(0, 0), FVector2D(1, 0.5) }, { 2.0, 2.0 }, 0.0, Report, Error));
+		TestTrue(TEXT("time_warp: seam 0.5 → 0.25"), Seamed.Seams.Num() == 1 && FMath::IsNearlyEqual(Seamed.Seams[0], 0.25, 1e-4));
+	}
 	return true;
 }
 

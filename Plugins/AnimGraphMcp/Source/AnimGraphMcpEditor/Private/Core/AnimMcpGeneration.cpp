@@ -315,6 +315,44 @@ namespace AnimMcpGeneration
 		return true;
 	}
 
+	bool ResolveCompareImage(const FString& File, FString& OutAbsolute, FAnimMcpError& OutError)
+	{
+		FString Path = File.TrimStartAndEnd();
+		if (!Path.IsEmpty() && !FPaths::IsRelative(Path))
+		{
+			Path = FPaths::ConvertRelativePathToFull(Path);
+			FPaths::NormalizeFilename(Path);
+			const TArray<FString>& CaptureRoots = GetSettings().CaptureOutputRoots;
+			if (CaptureRoots.ContainsByPredicate([&Path](const FString& Root) { return FPaths::IsUnderDirectory(Path, Root); }))
+			{
+				if (!IFileManager::Get().FileExists(*Path))
+				{
+					TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+					Details->SetStringField(TEXT("field"), TEXT("file"));
+					Details->SetStringField(TEXT("reason"), TEXT("FILE_NOT_FOUND"));
+					Details->SetStringField(TEXT("file"), File);
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("No file at '%s'"), *Path), Details);
+					return false;
+				}
+				OutAbsolute = Path;
+				return true;
+			}
+		}
+		if (!ResolveImportSource(File, OutAbsolute, OutError))
+		{
+			if (OutError.Code == AnimMcpErrorCodes::ImportSourceNotAllowed && OutError.Details.IsValid())
+			{
+				// 비교 칸은 앞선 캡처 결과도 받는다 — 허용 목록에 두 루트를 같이 보인다
+				TArray<FString> Allowed = GetSettings().ImportSourceRoots;
+				Allowed.Append(GetSettings().CaptureOutputRoots);
+				OutError.Details->SetArrayField(TEXT("allowed"), ToJsonArray(Allowed));
+				OutError.Message = FString::Printf(TEXT("'%s' is outside [%s] ImportSourceRoots and CaptureOutputRoots"), *Path, ConfigSection);
+			}
+			return false;
+		}
+		return true;
+	}
+
 	bool ResolveCaptureDir(const FString& Dir, FString& OutAbsolute, FAnimMcpError& OutError)
 	{
 		auto Bad = [&OutError, &Dir](const TCHAR* Reason, const FString& Message)

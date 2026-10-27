@@ -40,7 +40,7 @@ INTEGRATION_WRITE_TOOLS = {"set_sequence_additive", "create_anim_montage", "set_
 WRITE_TOOLS = {"apply_animation_edits", "retarget_animations", "import_animation_file", "create_ik_rig", "create_ik_retargeter"} | INTEGRATION_WRITE_TOOLS
 ABP_TOOLS = {"get_anim_blueprint_info", "preview_graph_operations", "duplicate_animation_blueprint", "apply_graph_operations",
              "compile_animation_blueprint", "run_anim_scenario"}
-KNOWN_OPS = {"trim", "retime", "hold_pose", "concat", "mirror", "offset_bone", "rotate_root"}
+KNOWN_OPS = {"trim", "retime", "time_warp", "hold_pose", "concat", "mirror", "offset_bone", "rotate_root"}
 COMBAT_ABP = "/Game/Animation/Hero/ABP_Hero_Combat"
 RUNTIME_ABP = "/Game/Animation/Test/ABP_McpRuntimeTest"
 WALK = f"{HERO}/Common/Locomotion/AS_Vesper_Neutral_Walk_Loop_F"
@@ -270,8 +270,15 @@ class FakeEditor:
         loop = p["loop"] if p.get("loop") is not None else src["loop"]
         length = src["length"]
         for op in p["operations"]:
+            start, end = op.get("start", 0.0), op.get("end", length)
             if op["op"] == "retime" and op.get("duration"):
                 length = op["duration"]
+            elif op["op"] == "retime":
+                length = round(length - (end - start) + (end - start) / op["rate"], 4)
+            elif op["op"] == "time_warp":
+                length = round(op["knots"][-1][1], 4)
+            elif op["op"] == "trim":
+                length = round(end - start, 4)
         path = self._new(p["asset_path"], **{"class": "AnimSequence", "skeleton": src["skeleton"], "length": length,
                                              "frame_rate": src["frame_rate"], "loop": loop, "root_motion": src["root_motion"]})
         item = {"status": "PASSED", "numeric": {"length": length, "frame_rate": src["frame_rate"], "loop": loop}}
@@ -308,6 +315,11 @@ class FakeEditor:
         """10 표본(1/30 초) — 오른손목이 표본 5 에서 prof.peak cm/s 로 한 번 움직이고, 왼손목 = 오른손 + (gap, 0, 0) · 엉덩 ±9(표본 5 부터
         prof.reach cm 아래로 — 손 속도를 바꾸지 않고 엉덩 기준 손 궤적 폭만 키운다) · 발 ±9 × stance · 위팔(어깨)은 손목 위 50 · 아래팔(팔꿈치)
         위 25 cm(팔 길이 50 cm)."""
+        if prof.get("speeds"):
+            # Phase 8-3 timing — 본별 속도 열(cm/s, 1/30 초 표본)을 그대로(위치는 쓰지 않는다)
+            n = len(next(iter(prof["speeds"].values())))
+            return {"times": [round((i + 1) / 30, 4) for i in range(n)], "frames_per_sample": 1,
+                    "speed_cm_s": {b: list(prof["speeds"].get(b, [0.0] * n)) for b in bones}}
         n, dt = 10, 1 / 30
         gap, stance, peak, reach = prof.get("gap", 60.0), prof.get("stance", 5.0), prof.get("peak", 300.0), prof.get("reach", 0.0)
         right = [[0.0, 30.0 + (peak * dt if i >= 5 else 0.0), 120.0] for i in range(n)]

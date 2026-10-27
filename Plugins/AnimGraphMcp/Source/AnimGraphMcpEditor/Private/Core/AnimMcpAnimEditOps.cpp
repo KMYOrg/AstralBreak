@@ -2,10 +2,17 @@
 
 #include "AnimationRuntime.h"
 
+#include <cmath>
+
 namespace AnimMcpAnimEditOps
 {
 	namespace
 	{
+		/** 이보다 작은 σ(키)는 거르지 않는다 — 선형 보간 그대로 */
+		constexpr double MinFilterSigma = 1e-3;
+		constexpr double InvSqrt2 = 0.70710678118654752440;
+		constexpr double InvSqrt2Pi = 0.39894228040143267794;
+
 		FTransform BlendTransform(const FTransform& A, const FTransform& B, double Alpha)
 		{
 			if (Alpha <= 0.0)
@@ -61,8 +68,87 @@ namespace AnimMcpAnimEditOps
 			}
 		}
 
-		/** OutTime → 현재 버퍼 시각으로 거꾸로 대응시켜 Frames 프레임짜리 버퍼로 다시 고른다 */
-		void Resample(FClip& Clip, int32 Frames, TFunctionRef<double(double)> InverseMap)
+		/** E[max(0, Z)], Z ~ N(Mu, Sigma²) */
+		double RampMean(double Mu, double Sigma)
+		{
+			const double Z = Mu / Sigma;
+			return Mu * 0.5 * std::erfc(-Z * InvSqrt2) + Sigma * InvSqrt2Pi * std::exp(-0.5 * Z * Z);
+		}
+
+		/**
+		 * 버퍼의 분수 키 위치를 σ 키 가우시안으로 거른 값 — 선형 보간 트랙과 가우시안의 합성곱. 키 j 의 가중치 = E[hat(T − j)], T ~ N(KeyPos, σ²)
+		 * (hat = 선형 보간의 삼각 기저, hat(t) = R(t + 1) − 2R(t) + R(t − 1) 이라 닫힌 식). 끝 밖 키는 끝 키로 접는다(Evaluate 의 끝 고정과 같다).
+		 * σ 가 작으면 Evaluate 그대로. 회전 = 가운데 포즈에 부호를 맞춘 가중 쿼터니언 평균(이웃 몇 키라 각이 작다), 출처 = 가운데 시각
+		 */
+		void EvaluateFiltered(const FClip& Clip, double KeyPos, double Sigma, TArray<FTransform>& OutPose, TArray<float>& OutCurves, FProvenance& OutProvenance)
+		{
+			Evaluate(Clip, KeyPos, OutPose, OutCurves, OutProvenance);
+			if (Sigma <= MinFilterSigma)
+			{
+				return;
+			}
+			const int32 Last = Clip.NumKeys() - 1;
+			KeyPos = FMath::Clamp(KeyPos, 0.0, static_cast<double>(Last));
+			const double Reach = 1.0 + 5.0 * Sigma;
+			const int32 First = FMath::FloorToInt32(KeyPos - Reach);
+			const int32 End = FMath::CeilToInt32(KeyPos + Reach);
+			const int32 Lo = FMath::Clamp(First, 0, Last);
+			const int32 Hi = FMath::Clamp(End, 0, Last);
+			TArray<double, TInlineAllocator<32>> Weights;
+			Weights.SetNumZeroed(Hi - Lo + 1);
+			double Total = 0.0;
+			for (int32 J = First; J <= End; ++J)
+			{
+				const double D = KeyPos - J;
+				const double W = RampMean(D + 1.0, Sigma) - 2.0 * RampMean(D, Sigma) + RampMean(D - 1.0, Sigma);
+				if (W > 0.0)
+				{
+					Weights[FMath::Clamp(J, 0, Last) - Lo] += W;
+					Total += W;
+				}
+			}
+			if (Total <= 0.0)
+			{
+				return;
+			}
+			for (int32 Bone = 0; Bone < OutPose.Num(); ++Bone)
+			{
+				const FQuat Center = OutPose[Bone].GetRotation();
+				double X = 0.0, Y = 0.0, Z = 0.0, Wq = 0.0;
+				FVector Location = FVector::ZeroVector;
+				FVector Scale = FVector::ZeroVector;
+				for (int32 K = Lo; K <= Hi; ++K)
+				{
+					const double W = Weights[K - Lo] / Total;
+					if (W <= 0.0)
+					{
+						continue;
+					}
+					const FTransform& Key = Clip.Keys[K][Bone];
+					const FQuat Q = Key.GetRotation();
+					const double Sign = (Q | Center) < 0.0 ? -W : W;
+					X += Sign * Q.X;
+					Y += Sign * Q.Y;
+					Z += Sign * Q.Z;
+					Wq += Sign * Q.W;
+					Location += W * Key.GetLocation();
+					Scale += W * Key.GetScale3D();
+				}
+				OutPose[Bone] = FTransform(FQuat(X, Y, Z, Wq).GetNormalized(), Location, Scale);
+			}
+			for (int32 Curve = 0; Curve < OutCurves.Num(); ++Curve)
+			{
+				double Value = 0.0;
+				for (int32 K = Lo; K <= Hi; ++K)
+				{
+					Value += Weights[K - Lo] / Total * Clip.CurveValues[K][Curve];
+				}
+				OutCurves[Curve] = static_cast<float>(Value);
+			}
+		}
+
+		/** OutTime → 현재 버퍼 시각으로 거꾸로 대응시켜 Frames 프레임짜리 버퍼로 다시 고른다. SigmaKeys(OutTime) > 0 이면 그 σ(키)로 거른다 */
+		void Resample(FClip& Clip, int32 Frames, TFunctionRef<double(double)> InverseMap, TFunctionRef<double(double)> SigmaKeys)
 		{
 			const double Length = Clip.Length();
 			TArray<TArray<FTransform>> Keys;
@@ -73,8 +159,9 @@ namespace AnimMcpAnimEditOps
 			Provenance.SetNum(Frames + 1);
 			for (int32 Key = 0; Key <= Frames; ++Key)
 			{
-				const double Time = FMath::Clamp(InverseMap(Key / Clip.FrameRate), 0.0, Length);
-				Evaluate(Clip, Time * Clip.FrameRate, Keys[Key], Curves[Key], Provenance[Key]);
+				const double OutTime = Key / Clip.FrameRate;
+				const double Time = FMath::Clamp(InverseMap(OutTime), 0.0, Length);
+				EvaluateFiltered(Clip, Time * Clip.FrameRate, SigmaKeys(OutTime), Keys[Key], Curves[Key], Provenance[Key]);
 			}
 			Clip.Keys = MoveTemp(Keys);
 			Clip.CurveValues = MoveTemp(Curves);
@@ -137,6 +224,93 @@ namespace AnimMcpAnimEditOps
 		{
 			return Transform.GetRotation().Rotator().Yaw;
 		}
+
+		/** time_warp 사상 — 새 시각 U → 원 시각, 구간 [Dst[i], Dst[i+1]] 마다 3차 Hermite(끝 값 Src, 끝 기울기 M = 재생 배율) */
+		struct FWarpCurve
+		{
+			TArray<double> Dst;
+			TArray<double> Src;
+			TArray<double> M;
+
+			int32 Segment(double U) const
+			{
+				int32 I = 0;
+				while (I + 2 < Dst.Num() && U > Dst[I + 1])
+				{
+					++I;
+				}
+				return I;
+			}
+
+			double Map(double U) const
+			{
+				U = FMath::Clamp(U, Dst[0], Dst.Last());
+				const int32 I = Segment(U);
+				const double H = Dst[I + 1] - Dst[I];
+				const double T = (U - Dst[I]) / H;
+				const double T2 = T * T;
+				const double T3 = T2 * T;
+				return (2.0 * T3 - 3.0 * T2 + 1.0) * Src[I] + (T3 - 2.0 * T2 + T) * H * M[I] + (-2.0 * T3 + 3.0 * T2) * Src[I + 1] + (T3 - T2) * H * M[I + 1];
+			}
+
+			double Rate(double U) const
+			{
+				U = FMath::Clamp(U, Dst[0], Dst.Last());
+				const int32 I = Segment(U);
+				const double H = Dst[I + 1] - Dst[I];
+				const double T = (U - Dst[I]) / H;
+				const double T2 = T * T;
+				return ((6.0 * T2 - 6.0 * T) * Src[I] + (3.0 * T2 - 4.0 * T + 1.0) * H * M[I] + (-6.0 * T2 + 6.0 * T) * Src[I + 1] + (3.0 * T2 - 2.0 * T) * H * M[I + 1]) / H;
+			}
+
+			/** 원 시각 → 새 시각(단조라 이분 탐색) — 이음매 옮기기 */
+			double Forward(double S) const
+			{
+				double Lo = Dst[0];
+				double Hi = Dst.Last();
+				if (S <= Src[0]) { return Lo; }
+				if (S >= Src.Last()) { return Hi; }
+				for (int32 Iter = 0; Iter < 60; ++Iter)
+				{
+					const double Mid = 0.5 * (Lo + Hi);
+					if (Map(Mid) < S) { Lo = Mid; } else { Hi = Mid; }
+				}
+				return 0.5 * (Lo + Hi);
+			}
+
+			/** PCHIP(Fritsch–Butland — 내부는 가중 조화 평균, 끝은 세 점 식에 부호 · 3배 제한) 기울기 */
+			void PchipSlopes()
+			{
+				const int32 N = Dst.Num();
+				TArray<double> H, D;
+				for (int32 I = 0; I + 1 < N; ++I)
+				{
+					H.Add(Dst[I + 1] - Dst[I]);
+					D.Add((Src[I + 1] - Src[I]) / H.Last());
+				}
+				M.SetNumZeroed(N);
+				if (N == 2)
+				{
+					M[0] = M[1] = D[0];
+					return;
+				}
+				for (int32 K = 1; K + 1 < N; ++K)
+				{
+					const double W1 = 2.0 * H[K] + H[K - 1];
+					const double W2 = H[K] + 2.0 * H[K - 1];
+					M[K] = D[K - 1] > 0.0 && D[K] > 0.0 ? (W1 + W2) / (W1 / D[K - 1] + W2 / D[K]) : 0.0;
+				}
+				auto EndSlope = [](double H0, double H1, double D0, double D1)
+				{
+					const double S = ((2.0 * H0 + H1) * D0 - H0 * D1) / (H0 + H1);
+					if (S * D0 <= 0.0) { return 0.0; }
+					if (D0 * D1 <= 0.0 && FMath::Abs(S) > 3.0 * FMath::Abs(D0)) { return 3.0 * D0; }
+					return S;
+				};
+				M[0] = EndSlope(H[0], H[1], D[0], D[1]);
+				M[N - 1] = EndSlope(H[N - 2], H[N - 3], D[N - 2], D[N - 3]);
+			}
+		};
 	}
 
 	void FRig::Finalize()
@@ -242,7 +416,7 @@ namespace AnimMcpAnimEditOps
 			if (U <= Ts) { return U; }
 			if (U <= Ts + NewSegment) { return Ts + (U - Ts) * Rate; }
 			return Te + (U - Ts - NewSegment);
-		});
+		}, [](double) { return 0.0; });
 		RemapSeams(Clip, [Ts, Te, Segment, NewSegment, Rate](double Seam)
 		{
 			if (Seam <= Ts) { return TOptional<double>(Seam); }
@@ -254,6 +428,109 @@ namespace AnimMcpAnimEditOps
 		Clip.MaxRate *= FMath::Max(1.0, Rate);
 		Report.LengthAfter = Clip.Length();
 		Report.Note = FString::Printf(TEXT("%.4fs → %.4fs (x%.3f)"), Segment, NewSegment, Rate);
+		return true;
+	}
+
+	bool TimeWarp(FClip& Clip, const TArray<FVector2D>& Knots, const TArray<double>& Rates, double AntiAlias, FReport& Report, FString& OutError)
+	{
+		const double Length = Clip.Length();
+		const double Half = 0.5 / Clip.FrameRate;
+		Report.Start = 0.0;
+		Report.End = Length;
+		Report.StartKey = 0;
+		Report.EndKey = Clip.NumKeys() - 1;
+		Report.LengthBefore = Length;
+		if (Knots.Num() < 2)
+		{
+			OutError = TEXT("time_warp needs at least two knots [[0, 0], …, [clip length, new length]]");
+			return false;
+		}
+		if (Rates.Num() != 0 && Rates.Num() != Knots.Num())
+		{
+			OutError = FString::Printf(TEXT("time_warp rates has %d value(s) for %d knot(s) — one per knot, or none for a monotone PCHIP"), Rates.Num(), Knots.Num());
+			return false;
+		}
+		if (!(AntiAlias >= 0.0 && AntiAlias <= MaxTimeWarpAntiAlias))
+		{
+			OutError = FString::Printf(TEXT("time_warp antialias must be in [0, %g] (got %g)"), MaxTimeWarpAntiAlias, AntiAlias);
+			return false;
+		}
+		if (FMath::Abs(Knots[0].X) > 1e-6 || FMath::Abs(Knots[0].Y) > 1e-6)
+		{
+			OutError = FString::Printf(TEXT("time_warp first knot must be [0, 0] (got [%.4f, %.4f]) — trim first to drop a head"), Knots[0].X, Knots[0].Y);
+			return false;
+		}
+		if (FMath::Abs(Knots.Last().X - Length) > Half)
+		{
+			OutError = FString::Printf(TEXT("time_warp last knot source time %.4fs must be the clip length %.4fs (within half a frame)"), Knots.Last().X, Length);
+			return false;
+		}
+		FWarpCurve Curve;
+		for (int32 I = 0; I < Knots.Num(); ++I)
+		{
+			Curve.Src.Add(I + 1 == Knots.Num() ? Length : Knots[I].X);
+			Curve.Dst.Add(Knots[I].Y);
+			if (I > 0 && (Curve.Src[I] <= Curve.Src[I - 1] + 1e-6 || Curve.Dst[I] <= Curve.Dst[I - 1] + 1e-6))
+			{
+				OutError = FString::Printf(TEXT("time_warp knots %d → %d must increase in both times ([%.4f, %.4f] → [%.4f, %.4f])"),
+					I - 1, I, Knots[I - 1].X, Knots[I - 1].Y, Knots[I].X, Knots[I].Y);
+				return false;
+			}
+		}
+		if (Rates.Num() == 0)
+		{
+			Curve.PchipSlopes();
+		}
+		else
+		{
+			for (int32 I = 0; I < Rates.Num(); ++I)
+			{
+				if (!(Rates[I] > 0.0) || !FMath::IsFinite(Rates[I]))
+				{
+					OutError = FString::Printf(TEXT("time_warp rates[%d] must be > 0 (got %g)"), I, Rates[I]);
+					return false;
+				}
+			}
+			Curve.M = Rates;
+			for (int32 I = 0; I + 1 < Knots.Num(); ++I)
+			{
+				// Fritsch–Carlson 충분 조건 — 넘으면 Hermite 가 구간 안에서 뒤로 간다(시간 역행)
+				const double Secant = (Curve.Src[I + 1] - Curve.Src[I]) / (Curve.Dst[I + 1] - Curve.Dst[I]);
+				const double A = Rates[I] / Secant;
+				const double B = Rates[I + 1] / Secant;
+				if (A * A + B * B > 9.0 + 1e-9)
+				{
+					OutError = FString::Printf(TEXT("time_warp rates %g, %g at knots %d, %d are too steep for that segment's average rate %.4f — the map would run backwards (need (a/s)² + (b/s)² ≤ 9)"),
+						Rates[I], Rates[I + 1], I, I + 1, Secant);
+					return false;
+				}
+			}
+		}
+
+		const double NewLength = Curve.Dst.Last();
+		const int32 Frames = FMath::Max(1, FMath::RoundToInt32(NewLength * Clip.FrameRate));
+		double MinRate = TNumericLimits<double>::Max();
+		double MaxRate = 0.0;
+		double MaxSigma = 0.0;
+		auto SigmaAt = [&Curve, AntiAlias](double U)
+		{
+			const double R = Curve.Rate(U);
+			return AntiAlias > 0.0 && R > 1.0 ? AntiAlias * FMath::Sqrt(R * R - 1.0) : 0.0;
+		};
+		for (int32 Key = 0; Key <= Frames; ++Key)
+		{
+			const double U = FMath::Min(Key / Clip.FrameRate, NewLength);
+			MinRate = FMath::Min(MinRate, Curve.Rate(U));
+			MaxRate = FMath::Max(MaxRate, Curve.Rate(U));
+			MaxSigma = FMath::Max(MaxSigma, SigmaAt(U));
+		}
+		Resample(Clip, Frames, [&Curve, NewLength](double U) { return Curve.Map(FMath::Min(U, NewLength)); },
+			[&SigmaAt, NewLength](double U) { return SigmaAt(FMath::Min(U, NewLength)); });
+		RemapSeams(Clip, [&Curve](double Seam) { return TOptional<double>(Curve.Forward(Seam)); });
+		Clip.MaxRate *= FMath::Max(1.0, MaxRate);
+		Report.LengthAfter = Clip.Length();
+		Report.Note = FString::Printf(TEXT("%d knots, rate %.3f..%.3f, antialias %.2f (sigma <= %.2f frames)%s"), Knots.Num(), MinRate, MaxRate, AntiAlias, MaxSigma,
+			FMath::IsNearlyEqual(Frames / Clip.FrameRate, NewLength, 1e-6) ? TEXT("") : TEXT(" — new length rounded to whole frames"));
 		return true;
 	}
 

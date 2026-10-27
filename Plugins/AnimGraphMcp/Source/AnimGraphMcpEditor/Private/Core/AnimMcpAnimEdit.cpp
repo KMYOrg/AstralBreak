@@ -27,6 +27,10 @@ namespace AnimMcpAnimEdit
 		TEXT("Operations (times in seconds on the timeline as it is before that op; start/end default to the whole clip; ranges snap to the nearest frame): "
 		     "trim {start?, end?} | "
 		     "retime {start?, end?, rate | duration} (rate 1.5 = that range plays 1.5x faster) | "
+		     "time_warp {knots[[src, dst], …] (src = time on the timeline before this op, dst = its new time; first [0, 0], last src = the clip length, both increasing), "
+		     "rates? (playback rate at each knot — a cubic Hermite with those slopes; omitted = monotone PCHIP), antialias? (0..1.5, default 0: where the warp plays faster "
+		     "than 1x, blur the source over sigma = antialias * sqrt(rate^2 - 1) frames before sampling, so fast detail does not fold into frame-to-frame jitter)} "
+		     "(one smooth remap of the whole clip — no seams, no speed steps; new length = the last dst rounded to frames) | "
 		     "hold_pose {at, duration} (freeze the pose at 'at'; at = end extends the clip) | "
 		     "concat {asset? (AnimSequence on the same skeleton; default the original source), start?, end? (on that asset), reverse? (false), blend? (seconds of crossfade, 0 = the segment's first key overlaps the current last key), align_root? (true: the segment's root continues from the current root position and yaw)} | "
 		     "mirror {axis? (x|y|z; default x or the table's), mirror_table? (MirrorDataTable path; default the project's Animation settings mirror rules)} — unpaired bones mirror onto themselves | "
@@ -38,7 +42,7 @@ namespace AnimMcpAnimEdit
 		/** 결과 길이 상한 — 버퍼 메모리(키 × 본) 보호 */
 		constexpr double MaxLengthSeconds = 120.0;
 
-		enum class EOpKind : uint8 { Trim, Retime, HoldPose, Concat, Mirror, OffsetBone, RotateRoot };
+		enum class EOpKind : uint8 { Trim, Retime, TimeWarp, HoldPose, Concat, Mirror, OffsetBone, RotateRoot };
 
 		struct FParsedOp
 		{
@@ -50,6 +54,10 @@ namespace AnimMcpAnimEdit
 			// retime
 			TOptional<double> Rate;
 			TOptional<double> Duration;
+			// time_warp
+			TArray<FVector2D> Knots;
+			TArray<double> KnotRates;
+			double AntiAlias = 0.0;
 			// hold_pose
 			double At = 0.0;
 			double HoldDuration = 0.0;
@@ -272,6 +280,60 @@ namespace AnimMcpAnimEdit
 				}
 				return true;
 			}
+			if (Op.Name == TEXT("time_warp"))
+			{
+				Op.Kind = EOpKind::TimeWarp;
+				if (!CheckKeys(Json, { TEXT("knots"), TEXT("rates"), TEXT("antialias") }, OutCode, OutMessage))
+				{
+					return false;
+				}
+				const TArray<TSharedPtr<FJsonValue>>* Knots = nullptr;
+				if (!Json.TryGetArrayField(TEXT("knots"), Knots) || Knots->Num() < 2)
+				{
+					OutCode = TEXT("BAD_OP");
+					OutMessage = TEXT("time_warp needs knots[[src, dst], …] with at least two pairs");
+					return false;
+				}
+				for (const TSharedPtr<FJsonValue>& KnotValue : *Knots)
+				{
+					const TArray<TSharedPtr<FJsonValue>>* Pair = nullptr;
+					if (!KnotValue.IsValid() || !KnotValue->TryGetArray(Pair) || Pair->Num() != 2
+						|| Pair->ContainsByPredicate([](const TSharedPtr<FJsonValue>& V) { return !V.IsValid() || V->Type != EJson::Number; }))
+					{
+						OutCode = TEXT("BAD_OP");
+						OutMessage = TEXT("each time_warp knot must be [src, dst] (two numbers, seconds)");
+						return false;
+					}
+					Op.Knots.Add(FVector2D((*Pair)[0]->AsNumber(), (*Pair)[1]->AsNumber()));
+				}
+				const TArray<TSharedPtr<FJsonValue>>* Rates = nullptr;
+				if (Json.TryGetArrayField(TEXT("rates"), Rates))
+				{
+					if (Rates->Num() != Knots->Num() || Rates->ContainsByPredicate([](const TSharedPtr<FJsonValue>& V) { return !V.IsValid() || V->Type != EJson::Number; }))
+					{
+						OutCode = TEXT("BAD_OP");
+						OutMessage = FString::Printf(TEXT("time_warp rates must be %d numbers — one playback rate per knot"), Knots->Num());
+						return false;
+					}
+					for (const TSharedPtr<FJsonValue>& Rate : *Rates)
+					{
+						Op.KnotRates.Add(Rate->AsNumber());
+					}
+				}
+				TOptional<double> AntiAlias;
+				if (!ReadNumber(Json, TEXT("antialias"), AntiAlias, OutCode, OutMessage))
+				{
+					return false;
+				}
+				Op.AntiAlias = AntiAlias.Get(0.0);
+				if (Op.AntiAlias < 0.0 || Op.AntiAlias > MaxTimeWarpAntiAlias)
+				{
+					OutCode = TEXT("OUT_OF_RANGE");
+					OutMessage = FString::Printf(TEXT("time_warp antialias must be in [0, %g]"), MaxTimeWarpAntiAlias);
+					return false;
+				}
+				return true;
+			}
 			if (Op.Name == TEXT("hold_pose"))
 			{
 				Op.Kind = EOpKind::HoldPose;
@@ -472,7 +534,7 @@ namespace AnimMcpAnimEdit
 				return true;
 			}
 			OutCode = TEXT("BAD_OP");
-			OutMessage = FString::Printf(TEXT("unknown op '%s' (trim, retime, hold_pose, concat, mirror, offset_bone, rotate_root)"), *Op.Name);
+			OutMessage = FString::Printf(TEXT("unknown op '%s' (trim, retime, time_warp, hold_pose, concat, mirror, offset_bone, rotate_root)"), *Op.Name);
 			return false;
 		}
 
@@ -683,6 +745,8 @@ namespace AnimMcpAnimEdit
 				}
 				return Retime(Clip, Start, End, Rate, Report, OutMessage);
 			}
+			case EOpKind::TimeWarp:
+				return TimeWarp(Clip, Op.Knots, Op.KnotRates, Op.AntiAlias, Report, OutMessage);
 			case EOpKind::HoldPose:
 				if (Op.At > Length + Half)
 				{

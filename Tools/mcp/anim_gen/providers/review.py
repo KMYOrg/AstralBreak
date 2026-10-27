@@ -62,10 +62,10 @@ class ReviewPipe(Provider):
         risks: list[str] = []
         lims = [preview_limitation()]
         convert = next((s for s in steps if s["step"] == "convert" and (s.get("inputs") or {}).get("review")), None)
-        edits = any(s["step"] == "edit" for s in steps)
+        edits = any(s["step"] in ("edit", "timing") for s in steps)
         rows_from = "render" if convert is not None and not edits else "request"
         if review.get("render") and rows_from == "request":
-            # render 가 없는 경로(재사용 · 편집) · 편집으로 시간축이 바뀐 경로 — 행은 같은 개수를 최종 클립에 고르게, 비교 칸 없음
+            # render 가 없는 경로(재사용 · 편집) · 편집 · 흐느적 보정(timing, Phase 8-3)으로 시간축이 바뀐 경로 — 행은 같은 개수를 최종 클립에 고르게, 비교 칸 없음
             risks.append("CAPTURE_ROWS_NOT_RENDER" if not edits else "CAPTURE_COMPARE_SKIPPED_EDITS")
         render = review.get("render") or {}
         # count = render 시각을 못 쓸 때(렌더 없음 · 실패 · 편집 경로)의 행 수 — 요청 count, 아니면 render 행 수

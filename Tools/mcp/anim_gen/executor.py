@@ -21,7 +21,7 @@ from .store import (CANCELLED, FAILED, QUEUED, RUNNING, SUCCEEDED, WAITING_FOR_A
 
 # 계획 시점의 길이·fps 한계는 실행 뒤 측정값으로 다시 적는다
 _MEASURED_CODES = {"DURATION_MISMATCH", "FRAME_RATE_MISMATCH"}
-_PRODUCING = ("retarget", "edit")
+_PRODUCING = ("retarget", "edit", "timing")   # timing — Phase 8-3 흐느적 보정(apply_animation_edits retime · trim)
 
 
 class _Cancelled(Exception):
@@ -231,7 +231,7 @@ class Executor:
     @staticmethod
     def _is_final(steps: list[dict], j: int, values: dict, target: str) -> bool:
         for later in steps[j + 1:]:
-            if later["step"] == "edit":
+            if later["step"] in ("edit", "timing"):
                 return False
             if later["step"] == "retarget" and not (later.get("conditional") and values.get("skeleton") == target):
                 return False
@@ -267,6 +267,13 @@ class Executor:
             if "selection" in result.values:
                 # Phase 8-1 — 후보 선별 근거(후보별 수치 · 벌점 · 순위 · 고른 이유). 뒤 단계가 실패해도 남긴다
                 job["selection"] = result.values["selection"]
+            if "timing" in result.values:
+                # Phase 8-3 — 흐느적 보정 근거(신호 · 구간 · op · warp · 전후 수치)
+                job["timing"] = result.values["timing"]
+            for key, field in (("fix_source", "source"), ("fix_target", "target")):
+                if key in result.values:
+                    # Phase 8-3 — 다리 보정: 소스 골격(Blender 보고) · 대상(리타깃 뒤 측정)
+                    job["fix"] = {**(job.get("fix") or {}), field: result.values[key]}
         self.store.update_job(job_id, mutate)
 
     def _validate(self, request: dict, values: dict) -> None:
@@ -402,6 +409,9 @@ class Executor:
         lims = [lim for lim in cand["expected_limitations"] if lim["code"] not in _MEASURED_CODES]
         lims += cs.get("limitations", [])
         lims += measured_limitations(request, values.get("measured") or {})
+        if (values.get("timing") or {}).get("applied"):
+            # 흐느적 보정이 길이를 바꿨다 — 요청 길이와 다른 것은 의도(TIMING_CHANGED_LENGTH 가 대신 적는다)
+            lims = [lim for lim in lims if lim["code"] != "DURATION_MISMATCH"]
         final = values.get("asset")
         if final and final != f"{request['output_path']}/{request['animation_name']}":
             lims.append(limitation("OUTPUT_RENAMED", f"앞선 시도가 같은 이름을 남겨 {final} 로 만들었다", "fallback", asset=final))

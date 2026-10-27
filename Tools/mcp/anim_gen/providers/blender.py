@@ -10,7 +10,12 @@ retarget 파이프의 import 단계가 받는다.
 
 프레임 렌더 비교(Phase 5 review.render): 같은 Blender 실행이 FBX 를 내보낸 뒤 (시각 × 뷰) PNG 와 비교 시트 한 장을 <시도 폴더>/frames/ 에
 쓴다(blender/review_render.py). 보이는 것은 변환된 소스 골격(기둥 더미 메시)이지 Vesper 가 아니다(REVIEW_IS_SOURCE_SKELETON).
-렌더가 실패해도 변환은 성공이다(REVIEW_NOT_RENDERED). 보정 단계(fix.ops)는 자리만 — op 사전(FIX_OPS)이 비어 있어 op 가 오면 계획에서 막는다.
+렌더가 실패해도 변환은 성공이다(REVIEW_NOT_RENDERED).
+
+보정 단계(fix.ops — Phase 8-3): 사전 · 기본값 · 순서는 anim_gen/fix_ops.py(smooth · stance_width · foot_lock), Blender 안 실행은 blender/fix_legs.py.
+리타깃 전 소스 골격에서 돈다 — 발 간격은 대상 메시 기준(max_ratio)을 두 골격 다리 치수로 소스 간격에 사상한다(대상 치수는 이 단계가 잰다). 다리 본은
+retarget 단계의 LeftLeg/RightLeg 체인 · source_feet 에서(파일이 계획 때 있으면 계획이, 없으면 실행이 정한다). SOMA77 BVH(저장된 Kimodo 결과)를
+motion_file 로 주면 local_ai 와 같은 리타깃 기본값을 채운다 — 다시 생성하지 않고 보정만 다시 할 수 있다.
 """
 from __future__ import annotations
 
@@ -18,12 +23,13 @@ import json
 import pathlib
 import re
 
-from .. import bvh
+from .. import bvh, fix_ops, soma
 from ..editor import EditorCallError
 from ..envelope import AnimGenError, diag, limitation
 from ..fallback import from_editor_error
 from ..request import MOTION_FILE_DEFAULTS
 from .base import PlanBlocked, PlanContext, RunContext, StepFailed, StepResult
+from .builtin import RetargetPipe
 from .subprocess_step import SubprocessProvider, child_env, file_sha256, import_roots, is_under
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "blender" / "bvh_to_fbx.py"
@@ -33,11 +39,19 @@ PROXY_MESH = {"min_width_cm": 0.5, "width_ratio": 0.08}
 # 렌더 비교 설정 — 셀 높이 고정, 폭은 포즈 범위 비율(최대 max_aspect 배). 범위는 전 프레임(최대 bounds_max_samples 개를 고르게).
 # 시트는 긴 변 sheet_max_px 안으로 줄인다(12행 × 뷰 2 + 레퍼런스 4 면 원래 4344 × 6222 · 10.7 MB — 프레임 PNG 는 원래 크기 그대로)
 REVIEW_RENDER = {"cell_height_px": 512, "max_aspect": 2.0, "margin": 0.08, "bounds_max_samples": 600, "sheet_max_px": 3000}
-# 보정 op 사전: 이름 → 인자 검사(계획 때, 틀리면 PlanBlocked). 실행은 bvh_to_fbx.py 의 FIX_OPS 에 같은 이름의 함수.
-# Phase 5 는 자리만 — 비어 있다(발 고정 · 스무딩 … 은 Phase 8 에서 하나씩 끼운다)
-FIX_OPS: dict = {}
+# 보정 op 사전: 이름 → 인자 검사(계획 때 — 기본값을 채운 op 를 돌려준다, 틀리면 fix_ops.FixOpError → BAD_REQUEST). 실행은 bvh_to_fbx.apply_fixes
+# (blender/fix_legs.py). Phase 8-3 — fix_ops.OPS 한 곳에서
+FIX_OPS: dict = {name: fix_ops.normalize_op for name in fix_ops.OPS}
 _NAME = re.compile(r"[^A-Za-z0-9_]")
 _TOOL = "blender -b -P anim_gen/blender/bvh_to_fbx.py"
+
+
+def fix_limitation(ops: list[dict]) -> dict:
+    names = [o["op"] for o in ops]
+    legs = [n for n in names if n in fix_ops.LEG_OPS]
+    return limitation("FIX_ON_SOURCE_SKELETON", f"보정 {names} 은 리타깃 전 소스 골격에서 했다" + (
+        " — 대상 메시의 발 위치는 다리 치수 사상(엉덩 관절 폭 · 다리 길이 비)으로 옮긴 근사다(대상 수치는 Job fix.target). 대상 쪽 정확한 접지 · 몸 관통은 8-4"
+        if legs else ""), "provider", ops=names)
 
 
 def review_limitation() -> dict:
@@ -91,11 +105,17 @@ class BlenderProvider(SubprocessProvider):
                                          f"{rng['aligned_to']:g} fps frame — keeps the source frames exact (Interchange would otherwise "
                                          "snap the length by up to half a frame, LENGTH_SNAPPED)"))
         review = self.plan_review(request, pctx.settings, rng["duration"])
-        self.check_fix(request)
-        return {"step": "convert", "provider": self.name, "tool": _TOOL, "inputs": {**mf, "review": review, "fix": request["fix"]},
-                "resolved": resolved, "risks": risks, "sample_rate": resolved["sample_rate"],
-                "expected_limitations": self.limitations(resolved) + ([review_limitation()] if review else []),
+        ops = self.check_fix(request, pctx.diagnostics)
+        step = {"step": "convert", "provider": self.name, "tool": _TOOL, "inputs": {**mf, "review": review, "fix": {"ops": ops}},
+                "resolved": resolved, "risks": risks + (["FIX_RESOLVED_AT_RUN"] if ops else []), "sample_rate": resolved["sample_rate"],
+                "expected_limitations": self.limitations(resolved) + ([review_limitation()] if review else []) + ([fix_limitation(ops)] if ops else []),
                 "measured": {"length": rng["duration"], "frame_rate": resolved["sample_rate"] or resolved["fps"]["output"]}}
+        if soma.is_soma(j["name"] for j in resolved["bvh"]["joints"]):
+            # 저장된 Kimodo 결과(SOMA77) — local_ai 와 같은 리타깃 기본값(요청이 비운 것만 라우터가 채운다 — defaults_from)
+            step["retarget_defaults"] = soma.retarget_defaults()
+            pctx.diagnostics.append(diag("info", "SOMA_BVH_DEFAULTS", f"{pathlib.Path(resolved['file']).name} is a SOMA77 skeleton — the retarget step "
+                                         "gets local_ai's SOMA pelvis · chains · feet where the request leaves them empty"))
+        return step
 
     def plan_convert_generated(self, request: dict, expected: dict, pctx: PlanContext | None = None) -> dict:
         """앞 단계(생성)가 만들 BVH 의 변환 — 파일이 아직 없으니 생성 Provider 가 아는 값만 '예상'으로 고정하고 실행 때 정한다.
@@ -108,13 +128,33 @@ class BlenderProvider(SubprocessProvider):
         sample_rate = rate if rate and expected.get("fps") and abs(rate - expected["fps"]) > 0.01 else None
         frames, fps = expected.get("frames"), expected.get("fps")
         review = self.plan_review(request, pctx.settings if pctx else None, (frames - 1) / fps if frames and fps else None)
-        self.check_fix(request)
+        ops = self.check_fix(request, pctx.diagnostics if pctx else None)
         step = {"step": "convert", "provider": self.name, "tool": _TOOL,
-                "inputs": {**mf, "path": None, "from_step": "generate", "review": review, "fix": request["fix"]},
-                "resolved": None, "expected": dict(expected), "risks": ["CONVERT_RESOLVED_AT_RUN"], "sample_rate": sample_rate}
-        if review:
-            step["expected_limitations"] = [review_limitation()]
+                "inputs": {**mf, "path": None, "from_step": "generate", "review": review, "fix": {"ops": ops}},
+                "resolved": None, "expected": dict(expected), "risks": ["CONVERT_RESOLVED_AT_RUN"] + (["FIX_RESOLVED_AT_RUN"] if ops else []),
+                "sample_rate": sample_rate}
+        lims = ([review_limitation()] if review else []) + ([fix_limitation(ops)] if ops else [])
+        if lims:
+            step["expected_limitations"] = lims
         return step
+
+    def plan_fix_legs(self, step: dict, retarget_inputs: dict, request: dict, pctx: PlanContext) -> None:
+        """다리 op 가 있으면 다리 본(retarget 체인 · 발 — 요청 또는 기본값이 채워진 뒤)과 대상 다리 치수를 계획에 싣는다. 파일이 계획 때 없으면(생성 결과)
+        본은 실행 때. 체인으로 엉덩 → 무릎 → 발목을 못 찾으면 이 후보를 막는다(FIX_LEGS_UNKNOWN)."""
+        fix = step["inputs"]["fix"]
+        if not any(o["op"] in fix_ops.LEG_OPS for o in fix["ops"]):
+            return
+        fix["legs"], fix["target_dims"] = None, None
+        if step.get("resolved"):
+            try:
+                fix["legs"] = fix_ops.legs_from(step["resolved"]["bvh"]["joints"], retarget_inputs.get("source_chains"), retarget_inputs.get("source_feet"))
+            except fix_ops.FixOpError as err:
+                raise PlanBlocked("UNSUPPORTED_REQUEST", "FIX_LEGS_UNKNOWN", err.args[1]) from None
+        if pctx.editor_ok:
+            try:
+                fix["target_dims"] = RetargetPipe.selection_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics, "convert").get("leg_dims")
+            except StepFailed as failed:
+                raise PlanBlocked(failed.cause, failed.reason, failed.message, editor_error=failed.editor_error) from None
 
     def plan_review(self, request: dict, settings: dict | None, duration: float | None) -> dict | None:
         """review.render → 렌더할 시각(초, 변환된 클립 기준) · 뷰 · 레퍼런스 이미지. count 는 지금 펼쳐 보여 주고 실행 때 잰 길이로 다시 펼친다.
@@ -136,15 +176,29 @@ class BlenderProvider(SubprocessProvider):
         return {"times": times, "count": render["count"], "views": list(render["views"]), "reference_images": refs}
 
     @staticmethod
-    def check_fix(request: dict) -> None:
-        """fix.ops 를 op 사전으로 검사 — 모르는 op 가 하나라도 있으면 이 후보를 막는다(무시하고 변환하지 않는다)."""
+    def check_fix(request: dict, diagnostics: list[dict] | None = None) -> list[dict]:
+        """fix.ops 를 op 사전으로 검사 → 기본값을 채워 정해진 순서로(smooth → 다리 풀이). 모르는 op 가 하나라도 있으면 이 후보를 막는다(무시하고 변환하지
+        않는다), 인자가 틀리면 요청 오류(BAD_REQUEST)."""
         ops = (request.get("fix") or {}).get("ops") or []
         unknown = [o["op"] for o in ops if o["op"] not in FIX_OPS]
         if unknown:
             raise PlanBlocked("UNSUPPORTED_REQUEST", "UNSUPPORTED_FIX_OP", f"fix ops {unknown} are not available — the blender fix dictionary is "
-                              f"{sorted(FIX_OPS) or 'empty in this phase (foot lock, smoothing … are Phase 8)'}", ops=unknown, available=sorted(FIX_OPS))
-        for op in ops:
-            FIX_OPS[op["op"]](op)
+                              f"{sorted(FIX_OPS)}", ops=unknown, available=sorted(FIX_OPS))
+        out = []
+        for i, op in enumerate(ops):
+            try:
+                checked = FIX_OPS[op["op"]](op)
+            except fix_ops.FixOpError as err:
+                field = err.args[0].replace("fix.ops[0]", f"fix.ops[{i}]", 1)
+                raise AnimGenError("BAD_REQUEST", f"request.{field}: {err.args[1]}", reason="BAD_FIELD", field=field) from None
+            out.append(checked if isinstance(checked, dict) else op)
+        try:
+            out, moved = fix_ops.ordered(out)
+        except fix_ops.FixOpError as err:
+            raise AnimGenError("BAD_REQUEST", f"request.{err.args[0]}: {err.args[1]}", reason="DUPLICATE_FIX_OP", field=err.args[0]) from None
+        if moved and diagnostics is not None:
+            diagnostics.append(diag("info", "FIX_OPS_REORDERED", f"fix ops run as {[o['op'] for o in out]} (smooth first, then one leg solve)"))
+        return out
 
     def resolve(self, mf: dict, request: dict, settings: dict | None, editor) -> dict:
         """BVH → 계획에 고정할 값. settings 가 없으면 루트 검사를, editor 가 없으면 대상 정면 측정을 미룬다."""
@@ -261,6 +315,8 @@ class BlenderProvider(SubprocessProvider):
                 "fix": list((inputs.get("fix") or {}).get("ops") or []),
                 "review": self._review_args(inputs.get("review"), resolved, settings, out_dir / "frames", notes),
                 "package_dir": PACKAGE_DIR.as_posix()}
+        if any(o["op"] in fix_ops.LEG_OPS for o in args["fix"]):
+            args["fix_legs"] = self._fix_legs(ctx, resolved, notes)
         items = self._candidate_items(ctx, resolved, args, settings, out_dir, notes) if ctx.values.get("candidate_files") else None
         if items:
             args["items"] = [{k: v for k, v in item.items() if k not in ("index", "seed")} for item in items]
@@ -272,6 +328,23 @@ class BlenderProvider(SubprocessProvider):
                             joint_count=resolved["bvh"]["joint_count"], deferred=bool(inputs.get("from_step")), notes=notes,
                             review_requested=args["review"] is not None, items=items)
         return StepResult(pending=handle)
+
+    @staticmethod
+    def _fix_legs(ctx: RunContext, resolved: dict, notes: list[dict]) -> dict:
+        """다리 풀이 인자 — 계획이 정한 다리 본 · 대상 치수, 없으면 지금(retarget 단계 체인 · 발 + 지금 잰 BVH 계층, 대상 스켈레톤 기준 포즈)."""
+        planned = ctx.step["inputs"].get("fix") or {}
+        legs, dims = planned.get("legs"), planned.get("target_dims")
+        if legs is None:
+            rt = next((s["inputs"] for s in ctx.steps or [] if s["step"] == "retarget"), {})
+            try:
+                legs = fix_ops.legs_from(resolved["bvh"]["joints"], rt.get("source_chains"), rt.get("source_feet"))
+            except fix_ops.FixOpError as err:
+                raise StepFailed("UNSUPPORTED_REQUEST", "FIX_LEGS_UNKNOWN", err.args[1]) from None
+        if dims is None:
+            dims = RetargetPipe.selection_bones(ctx.editor, ctx.request["target_skeleton"], notes, "convert").get("leg_dims")
+            if dims is None:
+                notes.append(diag("warning", "FIX_TARGET_DIMS_UNKNOWN", "target leg dimensions unknown — stance_width max_ratio is read on the source skeleton"))
+        return {"legs": legs, "target_dims": dims}
 
     def _candidate_items(self, ctx: RunContext, resolved: dict, args: dict, settings: dict, out_dir: pathlib.Path, notes: list[dict]) -> list[dict]:
         """생성 후보 BVH 여럿(Phase 8-1) → 한 Blender 실행의 items. 변환 규칙은 첫 후보로 잰 값을 같이 쓴다(같은 생성기 · 같은 프레임 수) — 관절 ·
@@ -395,6 +468,18 @@ class BlenderProvider(SubprocessProvider):
         if report.get("bones") != handle["joint_count"]:
             diagnostics.append(diag("warning", "BONE_COUNT_MISMATCH", f"{report.get('bones')} bones from {handle['joint_count']} BVH joints"))
         values = {"file": handle["fbx"], "converted": converted}
+        applied = (report.get("fix") or {}).get("applied") or []
+        if applied:
+            # Phase 8-3 — 소스 골격 보정 기록(Job fix.source)
+            values["fix_source"] = applied
+            legs = next((a for a in applied if a.get("op") == "legs"), None)
+            if legs:
+                raised = legs.get("pelvis_raise") or {}
+                diagnostics.append(diag("info", "FIX_LEGS_APPLIED", f"source stance ratio p90 {legs['before']['ratio']['p90']} → {legs['after']['ratio']['p90']}, "
+                                        f"planted slide p95 L/R {legs['before']['slide_p95']} → {legs['after']['slide_p95']}, IK error ≤ "
+                                        f"{legs['ik']['error_max_cm']} cm"
+                                        + (f", pelvis raised p50 {raised['space_cm']['p50']} · max {raised['space_cm']['max']} cm (keep_knee_bend)"
+                                           if raised.get("applied") else "")))
         if report.get("rest_fbx"):
             # import 단계가 이 파일로 스켈레톤 · 메시를 만들고 동작은 그 스켈레톤에 애니만 가져온다
             values["rest_file"] = handle["rest_fbx"]

@@ -21,6 +21,7 @@ import pathlib
 import secrets
 
 from .. import motion_metrics
+from ..soma import SOMA_ARMS, SOMA_CHAINS, SOMA_FEET, SOMA_PELVIS, retarget_defaults  # noqa: F401 — 다시 내보냄(통합 테스트 · pytest)
 from ..envelope import AnimGenError, diag, limitation
 from ..local_ai import constraints as kc
 from ..local_ai import refine as kr
@@ -40,39 +41,8 @@ MAX_FRAMES = 300            # 모델 카드: 최대 10초(300프레임 @ 30 fps)
 DEFAULT_DURATION_S = 5.0    # kimodo_gen 기본값
 # 실행 스크립트가 쓰는 BVH(표준 T 포즈) — 스파이크 실측: cm(키 176.4) · 정면 +Y · Root 래퍼 + SOMA77 · 30 fps
 BVH_EXPECTED = {"unit": "cm", "facing": "+Y", "joints": 78, "fps": FPS}
-SOMA_PELVIS = "Hips"
-SOMA_FEET = ["LeftFoot", "RightFoot"]
-# 생성 골격의 어깨 관절 폭 · 팔 길이(motion_metrics.arm_dims 정의) — 자루 무기 간격 사상(gap_map)의 소스 쪽. SOMA77 은 고정 골격이라 상수:
-# Kimodo BVH 표준 T 포즈 오프셋(기록 Job job_20261026_192555_f991aa kimodo_00.bvh, 2026-10-26)에서 LeftArm ↔ RightArm 32.96 cm,
-# LeftArm → LeftForeArm 28.74 + → LeftHand 27.09 · 오른팔 28.74 + 27.13(평균 55.85 — NPZ 관절 위치의 위팔 길이와 0.05 cm 안). 대상 쪽은 계획이 잰다
-SOMA_ARMS = {"shoulder_width_cm": 32.96, "arm_cm": 55.85}
 # 확산 한 번 더 할 때마다 기한에 더하는 초 — 스파이크(2026-10-26, 에디터 띄운 채) 확산 + 후처리 20 ~ 27초
 DIFFUSION_EXTRA_S = 25.0
-
-
-def _soma_hand_chains(side: str) -> list[dict]:
-    """SOMA77 손가락은 Hand{F}1(손목에서 2.9~4.0 cm, 메타카팔) → 2 · 3 · 4 → End(끝점), 엄지는 Thumb1~3 → End. 대상에 손가락 체인이
-    없으면 자동 정렬이 꺼진 op 의 퍼지 매핑을 따라 손가락을 꺾었고(2026-10-24), 자동 캐릭터라이즈는 SOMA 를 Mixamo 로 잡아 Index1~3
-    (메타카팔부터 한 마디 밀림)을 손가락으로 맞춘다. 같은 체인을 범용 제안기(create_ik_rig finger_chain_suggestion)도 낸다."""
-    chains = [{"name": f"{side}Thumb", "start": f"{side}HandThumb1", "end": f"{side}HandThumb3"}]
-    for finger in ("Index", "Middle", "Ring", "Pinky"):
-        chains += [{"name": f"{side}{finger}Metacarpal", "start": f"{side}Hand{finger}1", "end": f"{side}Hand{finger}1"},
-                   {"name": f"{side}{finger}", "start": f"{side}Hand{finger}2", "end": f"{side}Hand{finger}4"}]
-    return chains
-
-
-# Vesper 자동 IK Rig 의 표준 체인 이름(FCharacterizationStandard) — 스파이크에서 수동 체인 PASSED(각속도 p99 비 0.98). 손은 _soma_hand_chains
-SOMA_CHAINS = [
-    {"name": "Spine", "start": "Spine1", "end": "Chest"},
-    {"name": "Neck", "start": "Neck1", "end": "Neck2"},
-    {"name": "Head", "start": "Head", "end": "Head"},
-    {"name": "LeftClavicle", "start": "LeftShoulder", "end": "LeftShoulder"},
-    {"name": "LeftArm", "start": "LeftArm", "end": "LeftHand", "goal": "LeftHandIK"},
-    {"name": "RightClavicle", "start": "RightShoulder", "end": "RightShoulder"},
-    {"name": "RightArm", "start": "RightArm", "end": "RightHand", "goal": "RightHandIK"},
-    {"name": "LeftLeg", "start": "LeftLeg", "end": "LeftToeBase", "goal": "LeftFootIK"},
-    {"name": "RightLeg", "start": "RightLeg", "end": "RightToeBase", "goal": "RightFootIK"},
-] + _soma_hand_chains("Left") + _soma_hand_chains("Right")
 _RAW_MAX_BYTES = 8 << 20
 _OFFLINE_ENV = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "LOCAL_CACHE": "true", "HF_HUB_DISABLE_TELEMETRY": "1",
                 "GRADIO_ANALYTICS_ENABLED": "False", "TEXT_ENCODER_MODE": "local", "TEXT_ENCODER_DEVICE": "cpu", "TRANSFORMERS_VERBOSITY": "error"}
@@ -173,7 +143,7 @@ class KimodoProvider(SubprocessProvider):
                   "postprocess": postprocess, "constraints": specs, "constraint_files": files}
         step = {"step": "generate", "provider": self.name, "tool": "kimodo_run.py (Kimodo venv)", "inputs": inputs,
                 "output": "bvh", "bvh": dict(BVH_EXPECTED, frames=frames),
-                "retarget_defaults": {"source_pelvis": SOMA_PELVIS, "source_chains": SOMA_CHAINS, "source_feet": SOMA_FEET},
+                "retarget_defaults": retarget_defaults(),
                 "risks": risks, "expected_limitations": lims, "measured": {"length": round((frames - 1) / FPS, 4), "frame_rate": FPS}}
         if gen["candidates"] > 1 or refine["passes"] == 2:
             self._plan_candidates(step, request, refine, pctx, spacing, bones)

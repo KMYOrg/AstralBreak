@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pathlib
 
-from .. import bvh, motion_metrics, selection
+from .. import bvh, motion_metrics, selection, timing
 from ..editor import EditorCallError, asset_name, package_path
 from ..envelope import diag, limitation
 from ..fallback import from_editor_error
@@ -105,7 +105,62 @@ class ExistingMotion(Provider):
 
 
 class DirectKey(Provider):
-    """키 직접 편집 — 계획 시점에 소스가 대상 스켈레톤에 있으면 preview 로 op 를 미리 검사한다."""
+    """키 직접 편집 — 계획 시점에 소스가 대상 스켈레톤에 있으면 preview 로 op 를 미리 검사한다.
+
+    Phase 8-3 timing 단계: 리타깃 뒤(또는 대상 스켈레톤의 기존 애셋) 시퀀스를 validate_animation profile 로 재서 timing.py 가 휘두름 가속 ·
+    정지 머리/꼬리 트림 op(trim · time_warp — 매끈한 배율 곡선 + antialias, 8-3 후속)를 만들고 apply_animation_edits 로 새 애셋에 적용한다. 측정 본은
+    select 와 같은 원천(selection_bones). 소스가 계획 때 대상 스켈레톤 위에 있고 에디터가 있으면 계획이 op 를 구해 미리보기까지 한다(보이는 것이 실행되는 것)."""
+
+    TIMING_TOOL = "validate_animation(profile) → apply_animation_edits(trim · time_warp)"
+
+    @staticmethod
+    def timing_bones(bones: dict) -> dict:
+        """selection_bones → {hands: [왼 · 오른 손목], body: 전신 정지 판정 본(측정 역할 본 + 머리)}."""
+        body = sorted({bones[r] for r in motion_metrics.ROLES if bones.get(r)} | ({bones[motion_metrics.HEAD_ROLE]} if bones.get(motion_metrics.HEAD_ROLE) else set()))
+        return {"from": bones.get("from"), "hands": [bones["hand_l"], bones["hand_r"]], "body": body}
+
+    @staticmethod
+    def measure_timing(editor, asset: str, skeleton: str, inputs: dict, step: str = "timing") -> tuple[dict, dict]:
+        """대상 시퀀스 한 번 측정 → (timing.plan, timing.summary). inputs = 계획 단계 inputs(timing 설정 + bones)."""
+        bones = inputs["bones"]
+        try:
+            item = (editor.require("validate_animation", assets=[asset], skeleton=skeleton, profile_bones=bones["body"]).get("assets") or [None])[0]
+        except EditorCallError as err:
+            raise from_editor_error(step, err)
+        numeric = (item or {}).get("numeric") or {}
+        profile = numeric.get("profile")
+        if not profile or not numeric.get("frame_rate") or numeric.get("length") is None:
+            raise StepFailed("VALIDATION_FAILED", "NO_PROFILE", f"validate_animation gave no speed profile for {asset}")
+        args = {"hands": tuple(bones["hands"]), "body": bones["body"], "scale": (numeric.get("pelvis_height_cm") or 100.0) / 100.0,
+                "fps": float(numeric["frame_rate"]), "length": float(numeric["length"]), "params": inputs}
+        try:
+            return timing.plan(profile, **args), timing.summary(profile, **args)
+        except timing.TimingError as err:
+            raise StepFailed("VALIDATION_FAILED", "NO_PROFILE", f"{asset}: {err.args[1] if len(err.args) > 1 else err}") from None
+
+    def plan_timing(self, request: dict, source_on_target: str | None, pctx: PlanContext) -> dict:
+        cfg = request["fix"]["timing"]
+        step = {"step": "timing", "provider": self.name, "tool": self.TIMING_TOOL,
+                "inputs": {**cfg, "loop": request["loop"], "root_motion": root_motion_flag(request), "bones": None}, "resolved": None}
+        if not pctx.editor_ok:
+            return step
+        try:
+            step["inputs"]["bones"] = self.timing_bones(RetargetPipe.selection_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics, "timing"))
+            if source_on_target:
+                plan, before = self.measure_timing(pctx.editor, source_on_target, request["target_skeleton"], step["inputs"])
+                env = pctx.editor.call("preview_animation_edits", source=source_on_target, operations=plan["ops"], asset_path=final_asset_path(request),
+                                       loop=request["loop"], root_motion=root_motion_flag(request))
+                if not env.get("ok") or not (env.get("result") or {}).get("valid", True):
+                    err = EditorCallError("preview_animation_edits", env) if not env.get("ok") else None
+                    raise PlanBlocked("UNSUPPORTED_REQUEST", "BAD_OPERATIONS", f"preview_animation_edits rejected the timing ops {plan['ops']}"
+                                      + (f": {err.code}" if err else ""), planned=(env.get("result") or {}).get("planned"))
+                preview = env["result"].get("result") or {}
+                step["resolved"] = {**plan, "before": before,
+                                    "preview": {"length": preview.get("length"), "frame_rate": preview.get("frame_rate"), "frames": preview.get("frames"),
+                                                "seams": env["result"].get("seams"), "limitations": env["result"].get("limitations")}}
+        except StepFailed as failed:
+            raise PlanBlocked(failed.cause, failed.reason, failed.message, editor_error=failed.editor_error)
+        return step
 
     def plan_edit(self, request: dict, source_on_target: str | None, pctx: PlanContext) -> dict:
         ops = request["edits"]["operations"]
@@ -130,22 +185,61 @@ class DirectKey(Provider):
         return step
 
     def run(self, ctx: RunContext) -> StepResult:
-        editor = ctx.editor
+        if ctx.step["step"] == "timing":
+            return self._timing(ctx)
         source = ctx.values.get("asset") or ctx.values["source"]
-        out = f"{ctx.output_folder}/{ctx.output_name}"
         inputs = ctx.step["inputs"]
+        return self._apply(ctx, source, inputs["operations"], inputs, "edit")
+
+    def _apply(self, ctx: RunContext, source: str, operations: list[dict], inputs: dict, step: str) -> StepResult:
+        editor = ctx.editor
+        out = f"{ctx.output_folder}/{ctx.output_name}"
         try:
-            res = editor.require("apply_animation_edits", source=source, asset_path=out, operations=inputs["operations"],
+            res = editor.require("apply_animation_edits", source=source, asset_path=out, operations=operations,
                                  loop=inputs.get("loop"), root_motion=inputs.get("root_motion"), validate=True, save=ctx.save)
         except EditorCallError as err:
             created = [out] if err.code == "VALIDATION_FAILED" else []  # 검증 실패면 애셋은 미저장으로 남는다
-            raise from_editor_error("edit", err, created=created)
+            raise from_editor_error(step, err, created=created)
         asset = package_path(res["asset_path"])
         validation = res.get("validation")
         measured = {"length": res.get("length"), "frame_rate": res.get("frame_rate"), "frames": res.get("frames")}
         measured.update({k: v for k, v in _measured_from_validation((validation or {}).get("asset")).items() if k == "loop"})
         return StepResult(values={"asset": asset, "skeleton": ctx.request["target_skeleton"], "validation": validation, "measured": measured},
                           created=[asset], limitations=wrap_limitations(res.get("limitations"), "direct_key"))
+
+    def _timing(self, ctx: RunContext) -> StepResult:
+        """흐느적 보정(Phase 8-3) — 측정 → op(timing.plan) → apply_animation_edits → 새 애셋 다시 측정. 바꿀 것이 없어도 최종 이름의 애셋은 만든다
+        (앞 단계는 Work 이름이었다 — 항등 trim). Job timing = 신호 · 구간 · op · warp · 전후 수치."""
+        editor = ctx.editor
+        target = ctx.request["target_skeleton"]
+        source = ctx.values.get("asset") or ctx.values["source"]
+        inputs = dict(ctx.step["inputs"])
+        diagnostics: list[dict] = []
+        if not inputs.get("bones"):
+            inputs["bones"] = self.timing_bones(RetargetPipe.selection_bones(editor, target, diagnostics, "timing"))
+        plan, before = self.measure_timing(editor, source, target, inputs)
+        planned = (ctx.step.get("resolved") or {}).get("ops")
+        if planned is not None and planned != plan["ops"]:
+            diagnostics.append(diag("warning", "TIMING_CHANGED_SINCE_PLAN", f"{asset_name(source)} measures differently than at planning — running the "
+                                    "ops measured now", planned=planned, now=plan["ops"]))
+        result = self._apply(ctx, source, plan["ops"], inputs, "timing")
+        _, after = self.measure_timing(editor, result.values["asset"], target, inputs)
+        result.values["timing"] = {**plan, "source": source, "asset": result.values["asset"], "bones": inputs["bones"], "before": before, "after": after}
+        result.diagnostics = diagnostics + result.diagnostics
+        if plan["applied"]:
+            result.diagnostics.append(diag("info", "TIMING_APPLIED", f"swing peak {before['peak_cm_s']} → {after['peak_cm_s']} cm/s (core ×{plan['rate']}, "
+                                           f"recovery ×{plan['recovery_rate']}), length {before['length']} → {after['length']}s",
+                                           ops=plan["ops"]))
+            result.limitations.append(limitation(
+                "TIMING_CHANGED_LENGTH", f"흐느적 보정(fix.timing)으로 길이 {before['length']} → {after['length']}초 — 휘두름 ×{plan['rate']} · 복귀 ×"
+                f"{plan['recovery_rate']} · 정지 머리 {plan['cut']['head_s']}초 · 꼬리 {round(before['length'] - plan['cut']['tail_s'], 4)}초를 잘랐다. "
+                "요청 길이(duration_seconds)와 다른 것은 의도된 결과다", "direct_key", length_before=before["length"], length_after=after["length"],
+                rate=plan["rate"], recovery_rate=plan["recovery_rate"]))
+        else:
+            result.limitations.append(limitation(
+                "TIMING_NOT_APPLIED", f"흐느적 보정을 하지 않았다({plan['reason']}) — 휘두름 정점 {before['peak_cm_s']} cm/s, 목표 "
+                f"{inputs['target_peak_cm_s']:g}. 최종 애셋은 원래 시퀀스 그대로(항등 trim)", "direct_key", reason=plan["reason"]))
+        return result
 
 
 class RetargetPipe(Provider):
@@ -238,14 +332,14 @@ class RetargetPipe(Provider):
                 "inputs": inputs}, risks
 
     @staticmethod
-    def selection_bones(editor, skeleton: str, diagnostics: list[dict]) -> dict:
+    def selection_bones(editor, skeleton: str, diagnostics: list[dict], step: str = "select") -> dict:
         """대상 템플릿 체인의 LeftArm/RightArm 시작(어깨) · 끝(손목) · 손목의 부모(팔꿈치) · LeftLeg/RightLeg 시작(엉덩) · Head 시작(머리 — 없으면
         Neck 끝), 발은 foot_l/foot_r(없으면 다리 체인 끝). 못 찾으면 기본 이름. arm_dims = 그 어깨 · 팔꿈치 · 손목 본의 기준 포즈(ref_component)
-        치수(motion_metrics.arm_dims — 자루 무기 간격 사상의 대상 쪽, 위치가 없으면 None)."""
+        치수(motion_metrics.arm_dims — 자루 무기 간격 사상의 대상 쪽, 위치가 없으면 None). select · timing(Phase 8-3) 단계가 같은 측정 본을 쓴다."""
         try:
             info = editor.require("inspect_skeleton", skeleton=skeleton, details=True)
         except EditorCallError as err:
-            raise from_editor_error("select", err)
+            raise from_editor_error(step, err)
         chains = {c.get("name"): c for c in ((info.get("template_match") or {}).get("chains") or [])}
         parents = {b.get("name"): b.get("parent") for b in info.get("bones") or []}
         names = set(parents)
@@ -266,6 +360,13 @@ class RetargetPipe(Provider):
         out = {"from": "template_chains" if not missing else "default", **{k: v or DEFAULT_BONES[k] for k, v in found.items()}}
         rest = {b.get("name"): (b.get("ref_component") or {}).get("t") for b in info.get("bones") or []}
         out["arm_dims"] = motion_metrics.arm_dims({k: v for k, v in rest.items() if v}, out)
+        # Phase 8-3 — 다리 치수 · 골반 높이 · 기준 포즈(다리 보정의 대상 모델 foot_fix.target_model · 대상 측정 legs_on_target) · 무릎 = 발목 본의 부모
+        knees = {"knee_l": parents.get(out["foot_l"]), "knee_r": parents.get(out["foot_r"]), "pelvis": parents.get(out["hip_l"])}
+        out["leg_dims"] = motion_metrics.leg_dims({k: v for k, v in rest.items() if v}, {**out, **knees})
+        if out["leg_dims"] and rest.get(knees["pelvis"]):
+            # 대상 모델(foot_fix.target_model) — 골반 · 엉덩 관절 기준 포즈 위치(대상 엉덩 = s · 소스 골반 + 골반 회전 변화 · 이 오프셋)
+            out["leg_dims"]["rest"] = {"pelvis": rest[knees["pelvis"]], "hip_l": rest.get(out["hip_l"]), "hip_r": rest.get(out["hip_r"])}
+        out["knees"] = [knees["knee_l"], knees["knee_r"]]
         # 양손 겹침(기록) — 손 본 아래 자손(손가락 · 메타카팔)의 [부모, 자식] 쌍. 이름을 보지 않는다 — 없으면 빈 목록(지표 None)
         children: dict[str, list[str]] = {}
         for name, parent in parents.items():
@@ -468,11 +569,38 @@ class RetargetPipe(Provider):
             if validation.get("status") == "FAILED":
                 raise StepFailed("VALIDATION_FAILED", "FAILED", f"{generated[0]} fails validation against its source", created=created + generated)
         first = ((validation or {}).get("assets") or [None])[0]
-        return StepResult(values={"asset": generated[0], "skeleton": ctx.request["target_skeleton"], "validation": validation,
-                                  "measured": _measured_from_validation(first), "retargeter": retargeter, "source_mesh": source_mesh,
-                                  "facing": {k: facing.get(k) for k in ("mode", "source", "target", "yaw_deg")},
-                                  "body_clearance": clearance_items or None},
-                          created=created + generated, diagnostics=diagnostics, limitations=limitations)
+        values = {"asset": generated[0], "skeleton": ctx.request["target_skeleton"], "validation": validation,
+                  "measured": _measured_from_validation(first), "retargeter": retargeter, "source_mesh": source_mesh,
+                  "facing": {k: facing.get(k) for k in ("mode", "source", "target", "yaw_deg")}, "body_clearance": clearance_items or None}
+        if any(o.get("op") in ("stance_width", "foot_lock") for o in (ctx.request.get("fix") or {}).get("ops") or []):
+            values["fix_target"] = self.legs_on_target(editor, generated[0], ctx.request["target_skeleton"], diagnostics)
+        return StepResult(values=values, created=created + generated, diagnostics=diagnostics, limitations=limitations)
+
+    @staticmethod
+    def legs_on_target(editor, asset: str, skeleton: str, diagnostics: list[dict]) -> dict | None:
+        """다리 보정(소스 골격)의 대상 쪽 결과 — 발 좌우 비 · 두 발 디딘 최대 · 접지 미끄러짐 · 무릎 간격(motion_metrics.legs_report — 소스 보고와 같은
+        정의, 접지는 대상 발목 트랙으로 다시 판정). 측정 실패는 진단만(보정 결과물은 이미 있다)."""
+        bones = RetargetPipe.selection_bones(editor, skeleton, diagnostics, "retarget")
+        names = {"hip_l": bones["hip_l"], "hip_r": bones["hip_r"], "foot_l": bones["foot_l"], "foot_r": bones["foot_r"]}
+        knees = bones.get("knees") or [None, None]
+        try:
+            item = (editor.require("validate_animation", assets=[asset], skeleton=skeleton, profile_bones=sorted(set(names.values()) | {k for k in knees if k}),
+                                   profile_positions=True).get("assets") or [None])[0]
+        except EditorCallError as err:
+            diagnostics.append(diag("warning", "FIX_TARGET_NOT_MEASURED", f"validate_animation failed ({err.code}) — Job fix.target is empty"))
+            return None
+        numeric = (item or {}).get("numeric") or {}
+        profile = numeric.get("profile") or {}
+        pos = profile.get("position_cm") or {}
+        tracks = {role: pos.get(bone) for role, bone in names.items()}
+        dims = bones.get("leg_dims") or {}
+        if not all(tracks.values()) or not dims:
+            diagnostics.append(diag("warning", "FIX_TARGET_NOT_MEASURED", f"no hip/foot tracks or leg dimensions for {asset}"))
+            return None
+        scale = (numeric.get("pelvis_height_cm") or 100.0) / 100.0
+        knee_tracks = (pos.get(knees[0]), pos.get(knees[1])) if all(knees) and pos.get(knees[0]) and pos.get(knees[1]) else None
+        report = motion_metrics.legs_report(tracks, profile.get("times") or [], 2, dims["leg_cm"], scale, knees=knee_tracks)
+        return {"bones": {**names, "knees": knees}, "leg_dims": dims, **report}
 
     def _select(self, ctx: RunContext) -> StepResult:
         """Phase 8-1 — 후보를 모두 같은 RTG 로 리타깃(<work>/Candidates) → validate_animation(소스 대비 · profile_positions · 관통 · 손가락) 한 번 →

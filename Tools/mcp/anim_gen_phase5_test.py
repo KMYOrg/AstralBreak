@@ -254,8 +254,9 @@ def section_plan() -> None:
     e = excluded(base_request(generation={"seed": SEED, "constraints": [{"type": "root_path", "points": [{"t": 7.0, "forward_cm": 100, "left_cm": 0}]}]},
                               animation_name="AS_Vesper_Kimodo_LateP5"))
     check(e.get("reason") == "CONSTRAINT_OUT_OF_RANGE", f"constraint at 7 s of a 6 s clip → {e.get('reason')}")
-    e = excluded(base_request(fix={"ops": [{"op": "foot_lock"}]}, animation_name="AS_Vesper_Kimodo_FixP5"))
-    check(e.get("reason") == "UNSUPPORTED_FIX_OP", f"fix op (empty dictionary in Phase 5) → {e.get('reason')}")
+    # Phase 8-3 — 사전이 채워졌다(smooth · stance_width · foot_lock): 기대된 변화로 사전 밖 op 를 막는지 본다
+    e = excluded(base_request(fix={"ops": [{"op": "teleport"}]}, animation_name="AS_Vesper_Kimodo_FixP5"))
+    check(e.get("reason") == "UNSUPPORTED_FIX_OP", f"fix op outside the dictionary → {e.get('reason')}")
     outside = STATE_DIR / "outside.npz"
     env = SERVICE.plan_motion_generation(request=base_request(
         generation={"seed": SEED, "constraints": [{"type": "keep_pose", "npz": outside.as_posix(), "times": [0.0]}]}, animation_name="AS_Vesper_Kimodo_NpzP5"))

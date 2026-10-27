@@ -80,6 +80,12 @@ namespace AnimMcpGeneration
 	bool ResolveCaptureDir(const FString& Dir, FString& OutAbsolute, FAnimMcpError& OutError);
 
 	/**
+	 * capture_animation 비교 칸 이미지 검사 (Phase 8-3) — 절대 경로 · 존재 · ImportSourceRoots 또는 CaptureOutputRoots 아래(앞선 캡처 결과를 비교 칸으로 —
+	 * 보정 전 · 후 비교 시트). 루트 밖이면 IMPORT_SOURCE_NOT_ALLOWED(details.allowed 에 두 루트 목록), 나머지 오류는 ResolveImportSource 와 같다.
+	 */
+	bool ResolveCompareImage(const FString& File, FString& OutAbsolute, FAnimMcpError& OutError);
+
+	/**
 	 * 전역 더티 패키지 스냅샷 — 쓰기 Tool 은 작업 전에 만들고 끝에서 Check(또는 FinishWrite) 한다.
 	 * 대상: 루트 패키지 중 트랜지언트·스크립트·PIE·읽기 전용 루트(/Temp 등)가 아닌 것 (맵 포함).
 	 * 호출 전부터 더티였던 패키지는 비교에서 빠진다(남의 미저장 편집 — 이 호출이 더 바꿨는지는 알 수 없다).

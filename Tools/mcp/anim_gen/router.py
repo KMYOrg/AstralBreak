@@ -92,8 +92,9 @@ def _without_convert(request: dict, name: str) -> list[dict]:
     """변환 단계(blender)가 없는 경로 — 보정 op 는 돌 곳이 없어 후보를 막고, 렌더 비교는 하지 않는다는 한계를 단다."""
     ops = [o["op"] for o in request["fix"]["ops"]]
     if ops:
-        raise PlanBlocked("UNSUPPORTED_REQUEST", "UNSUPPORTED_FIX_OP", f"fix ops {ops} run in the blender convert step — the {name} route has none",
-                          ops=ops)
+        raise PlanBlocked("UNSUPPORTED_REQUEST", "UNSUPPORTED_FIX_OP", f"fix ops {ops} run on the source skeleton in the blender convert step — the {name} "
+                          "route has none (give the source BVH as motion_file — a saved Kimodo BVH gets the SOMA retarget defaults — or use fix.timing, "
+                          "which runs on the target; target-side leg fixes are Phase 8-4)", ops=ops)
     if (request["review"] or {}).get("render"):
         return [limitation("REVIEW_NOT_RENDERED", "프레임 렌더 비교(review.render)는 blender 변환 단계에서만 한다 — 이 경로는 렌더하지 않는다"
                            + (" (대상 메시 캡처 review.capture 는 한다)" if (request["review"] or {}).get("capture") else ""), "router")]
@@ -131,15 +132,24 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
             steps.append(step)
             risks += r
         preview = None
+        on_target = resolved["source"] if needs_retarget is False else None
+        timed = bool(request["fix"].get("timing"))
+        if timed:
+            # Phase 8-3 — 흐느적 보정: 소스가 대상 스켈레톤에 있으면 계획이 op 를 구해 미리본다
+            step = direct_key.plan_timing(request, on_target, pctx)
+            preview = (step.get("resolved") or {}).get("preview")
+            if step.get("resolved") is None:
+                risks.append("TIMING_RESOLVED_AT_RUN")
+            steps.append(step)
         if request["edits"]:
-            step = direct_key.plan_edit(request, resolved["source"] if needs_retarget is False else None, pctx)
+            step = direct_key.plan_edit(request, None if timed else on_target, pctx)
             preview = step.get("preview")
             if preview is None:
                 risks.append("EDITS_NOT_PREVIEWED")
             steps.append(step)
-        reuse = needs_retarget is False and not request["edits"]
+        reuse = needs_retarget is False and not request["edits"] and not timed
         steps.append(_validate_step(reuse))
-        lims = expected_limitations(request, provider, reuse=reuse, resolved=resolved, has_edit=bool(request["edits"]), preview=preview)
+        lims = expected_limitations(request, provider, reuse=reuse, resolved=resolved, has_edit=bool(request["edits"]) or timed, preview=preview)
         return steps, risks, _dedupe(lims + retarget_lims + no_review)
     converts = hasattr(provider, "plan_convert")
     if provider.generates or converts:
@@ -170,6 +180,10 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
             step["inputs"][key] = defaults[key]
         if filled:
             step["inputs"]["defaults_from"] = {"provider": name, "keys": filled}
+        convert_step = first if converts else (last if last is not first else None)
+        if convert_step is not None:
+            # Phase 8-3 — 다리 보정 op 의 다리 본은 retarget 입력(요청 · 기본값)에서 — 기본값이 채워진 지금 정한다
+            registry.get("blender").plan_fix_legs(convert_step, step["inputs"], request, pctx)
         retarget_lims = step.pop("expected_limitations", [])
         select = first.pop("select", None)
         if select:
@@ -179,12 +193,17 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
             r = r + sel_risks
         steps.append(step)
         risks += first.pop("risks", []) + (last.pop("risks", []) if last is not first else []) + r
+        timed = bool(request["fix"].get("timing"))
+        if timed:
+            # Phase 8-3 — 흐느적 보정은 리타깃 뒤 대상 시퀀스에서(생성 결과는 실행 때 잰다)
+            steps.append(direct_key.plan_timing(request, None, pctx))
+            risks.append("TIMING_RESOLVED_AT_RUN")
         if request["edits"]:
             steps.append(direct_key.plan_edit(request, None, pctx))
             risks.append("EDITS_NOT_PREVIEWED")
         steps.append(_validate_step(False))
-        lims = expected_limitations(request, provider, reuse=False, resolved=first.pop("measured", None), has_edit=bool(request["edits"]), preview=None,
-                                    handled=set(first.pop("handles_constraints", None) or ()))
+        lims = expected_limitations(request, provider, reuse=False, resolved=first.pop("measured", None), has_edit=bool(request["edits"]) or timed,
+                                    preview=None, handled=set(first.pop("handles_constraints", None) or ()))
         lims = _dedupe(lims + first.pop("expected_limitations", []) + (last.pop("expected_limitations", []) if last is not first else [])
                        + retarget_lims + no_review)
         return steps, risks, lims
@@ -193,7 +212,7 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
 
 def _reuse_state(steps: list[dict]) -> str:
     """앞 사슬이 새 시퀀스를 만드는가 — 'produced' | 'reused'(대상 스켈레톤의 기존 애셋 그대로) | 'unknown'(계획 때 소스를 몰라 리타깃이 조건부)."""
-    if any(s["step"] in ("edit", "import", "generate", "convert") or (s["step"] == "retarget" and not s.get("conditional")) for s in steps):
+    if any(s["step"] in ("edit", "timing", "import", "generate", "convert") or (s["step"] == "retarget" and not s.get("conditional")) for s in steps):
         return "produced"
     return "unknown" if any(s["step"] == "retarget" for s in steps) else "reused"
 

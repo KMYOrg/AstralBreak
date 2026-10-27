@@ -17,8 +17,9 @@ args.json 에 넣고, 여기서는 적용만 한다. 결과는 report.json(임�
 - args.rest_fbx 가 있으면 첫 프레임이 기준 포즈인 FBX 도 쓴다(export_rest_fbx) — Interchange 가 깊은 본의 바인드 포즈를 무효로 보면
   애니 첫 프레임을 기준 포즈로 삼기 때문에, 스켈레톤은 이 파일로 만든다.
 
-Phase 5: 범위를 정한 뒤 보정 op(args.fix — FIX_OPS, 이번엔 비어 있다)를 돌리고, FBX 를 내보낸 뒤 args.review 가 있으면 같은 실행에서
+Phase 5: 범위를 정한 뒤 보정 op(args.fix)를 돌리고, FBX 를 내보낸 뒤 args.review 가 있으면 같은 실행에서
 프레임 렌더 비교를 한다(review_render.py). 렌더가 실패해도 변환은 성공이다 — report.review.ok = false 로 남긴다.
+Phase 8-3: 보정 op 사전(smooth · stance_width · foot_lock — anim_gen/fix_ops.py, 실행 blender/fix_legs.py). args.fix_legs = 다리 본 · 대상 치수.
 
 Phase 8-1: args.items[{bvh, fbx, rest_fbx?, review?}] 가 있으면 생성 후보 여럿을 이 한 실행에서 차례로 변환한다(각각 clear_scene 부터 —
 단위 · 회전 · 범위 · fps 는 공통). report 는 첫 항목 값 + items[] (기준 포즈 FBX 는 첫 항목만 — 모든 후보가 같은 SOMA 표준 T 포즈).
@@ -151,19 +152,27 @@ def set_range(arm, args):
     return action
 
 
-# 보정 op 사전: 이름 → 함수(arm, op) → 적용 기록(dict). Provider 의 FIX_OPS(인자 검사)와 같은 이름을 쓴다.
-# Phase 5 는 자리만 — 비어 있다(발 고정 · 스무딩 … 은 Phase 8 에서 하나씩 끼운다)
-FIX_OPS = {}
-
-
-def apply_fixes(arm, ops):
-    """범위를 정한 액션에 보정 op 를 차례로 — 모르는 op 는 하나도 적용하지 않고 실패한다(계획이 막았어야 한다)."""
-    unknown = [op.get("op") for op in ops if op.get("op") not in FIX_OPS]
+def apply_fixes(arm, ops, legs_cfg=None):
+    """범위를 정한 액션에 보정 op(Phase 8-3 — 사전 · 기본값 · 순서는 anim_gen/fix_ops.py, 실행은 blender/fix_legs.py). 순서 고정: smooth → 다리 풀이
+    (stance_width + foot_lock 한 번). 모르는 op 는 하나도 적용하지 않고 실패한다(계획이 막았어야 한다). legs_cfg = provider 가 정한 다리 본 · 대상 치수."""
+    if not ops:
+        return []
+    from anim_gen import fix_ops
+    from anim_gen.blender import fix_legs
+    unknown = [op.get("op") for op in ops if op.get("op") not in fix_ops.OPS]
     if unknown:
-        raise ConvertError("UNSUPPORTED_FIX_OP", f"fix ops {unknown} are not in this script's dictionary {sorted(FIX_OPS)}")
-    applied = [{"op": op["op"], **(FIX_OPS[op["op"]](arm, op) or {})} for op in ops]
-    if ops:
-        refresh(arm)
+        raise ConvertError("UNSUPPORTED_FIX_OP", f"fix ops {unknown} are not in this script's dictionary {sorted(fix_ops.OPS)}")
+    applied = []
+    try:
+        for op in ops:
+            if op["op"] == "smooth":
+                applied.append(fix_legs.smooth(arm, op))
+        leg_ops = [op for op in ops if op["op"] in fix_ops.LEG_OPS]
+        if leg_ops:
+            applied.append(fix_legs.legs(arm, leg_ops, legs_cfg or {}))
+    except fix_legs.FixError as err:
+        raise ConvertError(err.code, str(err)) from None
+    refresh(arm)
     return applied
 
 
@@ -294,7 +303,7 @@ def convert(args):
     rotate(arm, float(args.get("rotate_z_deg", 0.0)))
     lift = ground(arm)
     action = set_range(arm, args)
-    fixes = apply_fixes(arm, args.get("fix") or [])
+    fixes = apply_fixes(arm, args.get("fix") or [], args.get("fix_legs"))
     mesh = proxy_mesh(arm, args)
     out = measure(arm)
     out["root_path"] = root_path(arm)

@@ -145,8 +145,8 @@ def section_mcp() -> None:
     out = asyncio.run(run())
     check(out["server"] == "anim-gen-mcp", f"server name {out['server']}")
     check(len(out["tools"]) == 9, f"9 tools: {out['tools']}")
-    # Phase 7 — 파이프 package · anim_bp 가 더해져 9개(Provider 6 + 파이프 retarget · package · anim_bp)
-    check(out["providers"].get("ok") and len(out["providers"]["result"]["providers"]) == 9, "list_motion_providers envelope ok (9 = 6 providers + 3 pipes)")
+    # Phase 7 — 파이프 package · anim_bp 가 더해져 9개, Phase 8-2 — 파이프 review 가 더해져 10개(Provider 6 + 파이프 retarget · package · anim_bp · review)
+    check(out["providers"].get("ok") and len(out["providers"]["result"]["providers"]) == 10, "list_motion_providers envelope ok (10 = 6 providers + 4 pipes)")
     plan = out["plan"]
     check(plan.get("ok") and plan["result"]["executable"], "plan_motion_generation over stdio is executable (editor reached through bridge.py)")
     STATE["mcp"] = {"tools": out["tools"], "plan_ok": plan.get("ok")}

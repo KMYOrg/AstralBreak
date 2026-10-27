@@ -155,6 +155,24 @@
       "auth_env": null
     },
     {
+      "name": "review",
+      "role": "pipe",
+      "phase": 8,
+      "description": "대상 메시 캡처 (Phase 8-2) — request.review.capture 일 때 검증 뒤 최종 시퀀스를 플러그인 capture_animation 으로 대상 메시에 입혀 찍는다(임시 프리뷰 월드 · 애셋 0). 행(시각) × 뷰(정면 · 측면 정사영) PNG · 시트 · 소스 골격 비교 시트(review.render 가 있을 때 같은 행) · 연속 프레임 → APNG. 출력 = ini CaptureOutputRoots/<job_id>/A<n>/ (Saved 밖 — 채팅에 보여 줄 수 있게). 캡처 실패는 한계 REVIEW_NOT_CAPTURED(생성 성공 유지). 판정은 사람",
+      "input_types": ["anim_sequence"],
+      "supports_new_generation": false,
+      "supports_modification": false,
+      "supports_custom_skeleton": true,
+      "output_formats": ["png", "apng"],
+      "max_duration_seconds": null,
+      "requires_gpu": false,
+      "requires_network": false,
+      "paid": false,
+      "cost_estimable": true,
+      "license": "ok",
+      "auth_env": null
+    },
+    {
       "name": "control_rig",
       "role": "provider",
       "phase": 8,

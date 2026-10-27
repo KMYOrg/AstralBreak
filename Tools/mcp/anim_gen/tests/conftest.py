@@ -10,6 +10,7 @@ test_local_ai.py 가 가짜 실행 파일 · 캐시를 준다.
 from __future__ import annotations
 
 import copy
+import math
 import pathlib
 import sys
 
@@ -103,6 +104,22 @@ def _obj(path: str) -> str:
     return f"{path}.{asset_name(path)}"
 
 
+def write_png(path: pathlib.Path, width: int, height: int, rgb: tuple[int, int, int]) -> pathlib.Path:
+    """작은 단색 RGBA PNG (표준 라이브러리) — 캡처 흉내 · APNG 시험용."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+
+    row = b"\x00" + bytes([*rgb, 255]) * width
+    data = zlib.compress(row * height)
+    path = pathlib.Path(path)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) + chunk(b"IDAT", data)
+                     + chunk(b"IEND", b""))
+    return path
+
+
 def err(code: str, message: str = "", **details) -> dict:
     return {"code": code, "message": message or code, "details": details}
 
@@ -141,6 +158,9 @@ class FakeEditor:
         self.scenario_jobs: dict[str, dict] = {}
         # Phase 8-1 — validate_animation profile_positions · body_clearance 흉내: 애셋 이름 → {gap, stance, peak, penetration, status}
         self.profiles: dict[str, dict] = {}
+        # Phase 8-2 — capture_animation 흉내: ini CaptureOutputRoots(디스크 — 테스트가 tmp_path 를 준다, 기본 비어 있음) · 남길 더티
+        self.capture_roots: list[str] = []
+        self.capture_dirty: list[str] = []
 
     # ---- 호출 ----
     def call(self, tool: str, params: dict, timeout: float | None = None) -> dict:
@@ -197,7 +217,8 @@ class FakeEditor:
     # ---- Tool ----
     def _get_editor_status(self, p):
         return {"generation": {"output_paths": self.output_paths, "import_source_roots": self.import_roots,
-                               "max_retarget_assets_per_call": 50, "promotion_paths": self.promotion_paths}, "dirty_package_count": 0}
+                               "max_retarget_assets_per_call": 50, "promotion_paths": self.promotion_paths,
+                               "capture_output_roots": self.capture_roots}, "dirty_package_count": 0}
 
     def _search_animations(self, p):
         tokens = [t for t in (p.get("query") or "").lower().replace("_", " ").split() if t]
@@ -354,6 +375,61 @@ class FakeEditor:
                                       "before": {"arms": [arm("l", 30.0), arm("r", 0.0)]}, "after": {"arms": [arm("l", 0.0), arm("r", 0.0)]}}
                                      for g in generated]
         return out
+
+    # ---- Phase 8-2 — 대상 메시 캡처 (플러그인 AnimMcpCapture 흉내 — 작은 진짜 PNG 를 쓴다) ----
+    def _capture_animation(self, p):
+        out = pathlib.Path(p["output_dir"])
+        if not any(str(out.as_posix()).startswith(r.rstrip("/") + "/") for r in self.capture_roots):
+            raise _Refuse(err("OUTPUT_PATH_NOT_ALLOWED", f"{out} is not below CaptureOutputRoots", reason="CAPTURE_ROOT", field="output_dir"))
+        if out.exists() and any(out.iterdir()):
+            raise _Refuse(err("BAD_REQUEST", f"{out} is not empty", reason="OUTPUT_DIR_NOT_EMPTY", field="output_dir"))
+        if self.capture_dirty:
+            raise _Refuse(err("UNEXPECTED_DIRTY", "capture left packages dirty", unexpected=self.capture_dirty, dir=out.as_posix()))
+        info = self._source(p["asset"])
+        if p.get("facing") not in ("+X", "-X", "+Y", "-Y"):
+            raise _Refuse(err("BAD_REQUEST", "bad facing", field="facing"))
+        length, fps = info["length"], info["frame_rate"]
+        times = p.get("times") or [round(i * length / max(1, p.get("count", 4) - 1), 4) for i in range(p.get("count", 4))]
+        views = p.get("views") or ["front", "side"]
+        out.mkdir(parents=True, exist_ok=True)
+        frames, rows = [], []
+        for r, t in enumerate(times):
+            frame = min(round(t * fps), round(length * fps))
+            rows.append({"time": t, "frame": frame, "frame_time": round(frame / fps, 4), "clamped": False, "pose_center": [0, 0, 100 + r]})
+            for v in views:
+                path = out / f"{v}_{frame:05d}.png"
+                write_png(path, 6, 8, (r * 10, 20, 30))
+                frames.append({"row": r, "time": t, "frame": frame, "frame_time": round(frame / fps, 4), "view": v, "path": path.as_posix(),
+                               "sha1": f"fake{r}{v}", "subject_px": {"x0": 1, "y0": 1, "x1": 4, "y1": 6}, "coverage_pct": 30.0, "touches_edge": False})
+        write_png(out / "sheet.png", 12, 16, (1, 2, 3))
+        compare = None
+        if p.get("compare"):
+            for row in p["compare"]["rows"]:
+                for img in row:
+                    if not pathlib.Path(img).is_file():
+                        raise _Refuse(err("BAD_REQUEST", f"no file at {img}", reason="FILE_NOT_FOUND", field="compare"))
+            write_png(out / "compare.png", 24, 16, (4, 5, 6))
+            compare = {"path": (out / "compare.png").as_posix(), "label": p["compare"].get("label", ""), "own_columns": len(views),
+                       "compare_columns": len(p["compare"]["rows"][0]), "size": [24, 16], "scale": 1.0}
+        sequence = None
+        if p.get("sequence"):
+            seq_fps = p["sequence"].get("fps", 15)
+            n = min(math.ceil(length * seq_fps - 1e-3) + 1, p["sequence"].get("max_frames", 150))  # 플러그인처럼 끝 프레임까지
+            seq_dir = out / "sequence"
+            seq_dir.mkdir()
+            paths = []
+            for k in range(n):
+                write_png(seq_dir / f"f_{k:05d}.png", 10, 4, (k % 256, 0, 0))
+                paths.append((seq_dir / f"f_{k:05d}.png").as_posix())
+            sequence = {"dir": seq_dir.as_posix(), "fps": seq_fps, "count": n, "frames": paths, "times": [round(k / seq_fps, 4) for k in range(n)],
+                        "size": [10, 4], "truncated": False, "seconds": 0.01}
+        return {"asset": _obj(p["asset"]), "mesh": _obj(p["mesh"]), "facing": p["facing"], "length": length, "frame_rate": fps,
+                "dir": out.as_posix(), "frames": frames, "sheet": (out / "sheet.png").as_posix(), "compare": compare, "sequence": sequence,
+                "layout": {"rows": rows, "columns": [{"kind": "view", "view": v, "width": 6} for v in views], "cell_height": 8, "gap": 6,
+                           "size": [12, 16], "scale": 1.0},
+                "camera": {v: {"look": [0, -1, 0], "right": [1, 0, 0], "ortho_width_cm": 200.0, "resolution": [6, 8], "cm_per_px": 0.4} for v in views},
+                "bounds": {"min": [-50, -30, 0], "max": [50, 30, 180], "frames_sampled": 10, "from": "bone_vertex_boxes"},
+                "cells_touching_edge": 0, "seconds": 0.05}
 
     # ---- Phase 7 — 포장 · 연결 (플러그인의 옵트인 generation_guard 흉내) ----
     def _guard(self, p: dict, path: str) -> dict | None:

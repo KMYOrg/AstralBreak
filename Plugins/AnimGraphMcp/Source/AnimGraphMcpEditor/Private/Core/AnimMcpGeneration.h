@@ -16,7 +16,8 @@ struct FAnimMcpRequest;
  *   MaxRetargetAssetsPerCall=20
  *   +AnimationTagFiles=Config/AnimGraphMcp/AnimationTags.json   (프로젝트 기준 상대 또는 절대 — search_animations 의 수동 태그, Phase 2)
  *   +PromotionPaths=/Game/Animation/Hero/               (패키지 경로 접두 — promote_animation 의 정식 경로 허용 목록, Phase 7)
- * 목록이 비어 있으면 쓰기·임포트·승격을 전부 거부한다(플러그인은 프로젝트 경로를 기본값으로 갖지 않는다).
+ *   +CaptureOutputRoots=Tools/mcp/results/capture/      (프로젝트 기준 상대 또는 절대 디스크 경로 — capture_animation 이 이미지를 쓰는 폴더, Phase 8-2)
+ * 목록이 비어 있으면 쓰기·임포트·승격·캡처를 전부 거부한다(플러그인은 프로젝트 경로를 기본값으로 갖지 않는다).
  * 원본 보호는 애셋별 검사가 아니라 에디터 전체의 더티 패키지 집합 차이로 본다(FDirtyGuard) — 모르는 부작용
  * (임포트가 기존 스켈레톤에 커브 메타데이터를 더하는 것 등)도 같은 한 곳에서 잡힌다.
  */
@@ -33,12 +34,14 @@ namespace AnimMcpGeneration
 		TArray<FString> AnimationTagFiles;
 		/** 승격(promote_animation) 대상 접두 — OutputPaths 와 겹치는 항목은 뺀다 (NormalizePromotionPaths) */
 		TArray<FString> PromotionPaths;
+		/** 캡처(capture_animation) 이미지 출력 루트 — ImportSourceRoots 와 같은 정규화 ("D:/Proj/Tools/mcp/results/capture/") */
+		TArray<FString> CaptureOutputRoots;
 	};
 
 	/** 첫 조회 때 1회 로드 (에디터 기동 중 ini 변경은 반영하지 않는다 — 보호 목록과 같은 규칙) */
 	const FSettings& GetSettings();
 
-	/** get_editor_status 용 {output_paths[], import_source_roots[], max_retarget_assets_per_call, animation_tag_files[], promotion_paths[]} */
+	/** get_editor_status 용 {output_paths[], import_source_roots[], max_retarget_assets_per_call, animation_tag_files[], promotion_paths[], capture_output_roots[]} */
 	TSharedRef<FJsonObject> DescribeSettings();
 
 	/**
@@ -68,6 +71,13 @@ namespace AnimMcpGeneration
 	 * 루트 검사를 존재 검사보다 먼저 한다 — 루트 밖 파일의 존재 여부를 알려 주지 않는다.
 	 */
 	bool ResolveImportSource(const FString& File, FString& OutAbsolute, FAnimMcpError& OutError);
+
+	/**
+	 * 캡처 출력 폴더 검사 (Phase 8-2) — 절대 경로 · CaptureOutputRoots 아래(루트 자체는 아님) · 없거나 빈 폴더. 통과하면 OutAbsolute 에 '/' 구분 · 끝 '/' 없는 경로.
+	 * 상대 경로는 BAD_REQUEST(RELATIVE_PATH), 루트 밖 · 루트 자체는 OUTPUT_PATH_NOT_ALLOWED(reason CAPTURE_ROOT), 파일이거나 비어 있지 않으면 BAD_REQUEST(OUTPUT_DIR_NOT_EMPTY).
+	 * 폴더를 만들지는 않는다(호출자가 쓰기 직전에).
+	 */
+	bool ResolveCaptureDir(const FString& Dir, FString& OutAbsolute, FAnimMcpError& OutError);
 
 	/**
 	 * 전역 더티 패키지 스냅샷 — 쓰기 Tool 은 작업 전에 만들고 끝에서 Check(또는 FinishWrite) 한다.

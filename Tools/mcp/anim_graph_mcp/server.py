@@ -1065,6 +1065,49 @@ def promote_animation(assets: list[dict], dry_run: bool = False, confirm: bool =
 
 
 @mcp.tool()
+def capture_animation(asset: str, mesh: str, facing: str, output_dir: str, times: list[float] | None = None, count: int | None = None,
+                      views: list[str] | None = None, label: str | None = None, sequence: dict | None = None, compare: dict | None = None,
+                      cell_height_px: int = 512, max_aspect: float = 2.0, margin: float = 0.08, bounds_max_samples: int = 600,
+                      sheet_max_px: float = 3000, supersample: int = 2, lighting: dict | None = None, max_seconds: float = 120) -> dict:
+    """Capture an AnimSequence on a target skeletal mesh as PNG images — no assets are created (judge a retarget without Persona).
+
+    Same camera/sheet rules as the anim_gen Blender source-skeleton review.render, so the sheets line up: orthographic front (from in
+    front of the body, its left on screen right) and side (from its right, front on screen right) views, framed once on the whole clip,
+    rows = times, columns = views. Show the resulting PNGs to the user — the human judges motion quality, not this tool.
+
+    Args:
+        asset: AnimSequence path.
+        mesh: SkeletalMesh compatible with the asset's skeleton (e.g. /Game/Assets/IdaFaber/Meshes/Girl/SK_StreetDemon_F_01).
+        facing: UE axis the mesh's front looks along: "+Y" | "-Y" | "+X" | "-X" (Vesper "+Y").
+        output_dir: Absolute NEW or empty folder below [AnimGraphMcp] CaptureOutputRoots (Tools/mcp/results/capture/ in this project).
+        times: Seconds on the clip for the sheet rows (1..12) — or count (1..12, default 4, first and last frame included).
+        views: Subset of ["front", "side"] (default both).
+        label: Prefix for every cell label.
+        sequence: {fps=15, cell_height_px=320, start?, end?, max_frames=150} — also write one image per time (views side by side) under
+            <output_dir>/sequence/ for an animated image; anim_gen assembles them into an APNG.
+        compare: {label?, rows: [[image, …] per sheet row]} — images under ImportSourceRoots (the Blender source-skeleton frames of the
+            same times) appended as columns into compare.png.
+        cell_height_px, max_aspect, margin, bounds_max_samples, sheet_max_px: Layout (Blender review defaults).
+        supersample: Render scale before downsizing (1..3).
+        lighting: Advanced {exposure_bias, key, fill, sky}.
+        max_seconds: Budget — the sequence stops there (warning CAPTURE_TRUNCATED).
+
+    Returns {frames[{row, time, frame, view, path, sha1, subject_px, touches_edge}], sheet, compare{path}|null, sequence{frames[], fps,
+    size, truncated}|null, layout, camera{view: {look, right, ortho_width_cm, cm_per_px}}, bounds, render, cells_touching_edge, seconds}.
+    Errors: SKELETON_MISMATCH / OUTPUT_DIR_NOT_EMPTY (BAD_REQUEST reasons), OUTPUT_PATH_NOT_ALLOWED (CAPTURE_ROOT),
+    IMPORT_SOURCE_NOT_ALLOWED (compare images), CAPTURE_FAILED (render/readback/write), UNEXPECTED_DIRTY (a capture must dirty nothing).
+    """
+    params: dict = {"asset": asset, "mesh": mesh, "facing": facing, "output_dir": output_dir, "cell_height_px": cell_height_px,
+                    "max_aspect": max_aspect, "margin": margin, "bounds_max_samples": bounds_max_samples, "sheet_max_px": sheet_max_px,
+                    "supersample": supersample, "max_seconds": max_seconds}
+    for key, value in (("times", times), ("count", count), ("views", views), ("label", label), ("sequence", sequence),
+                       ("compare", compare), ("lighting", lighting)):
+        if value is not None:
+            params[key] = value
+    return bridge.call("capture_animation", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
 def run_automation_tests(filter: str, timeout: float = 120.0, dry_run: bool = False) -> dict:
     """Run Unreal Automation tests inside the running editor (the plugin drives FAutomationTestFramework directly — no
     Session Frontend). Use it to verify Animation Blueprints after editing: filter "AnimGraphMcp.Smoke" runs the structural

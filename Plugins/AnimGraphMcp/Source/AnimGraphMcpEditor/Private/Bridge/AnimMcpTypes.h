@@ -37,6 +37,8 @@ namespace AnimMcpErrorCodes
 	inline const TCHAR* const ValidationFailed       = TEXT("VALIDATION_FAILED");
 	// AI 애니 생성 Phase 7 — promote_animation 의 엔진 rename 실패(details.reason CDO_REFERENCED · REGISTRY_LOADING · ENGINE · REDIRECTOR_LEFT …)
 	inline const TCHAR* const PromoteFailed          = TEXT("PROMOTE_FAILED");
+	// AI 애니 생성 Phase 8-2 — capture_animation 의 렌더 · 읽기 · 쓰기 실패(details.reason NO_SCENE · RENDER_TARGET · READBACK · WRITE_FAILED · IMAGE_UNREADABLE)
+	inline const TCHAR* const CaptureFailed          = TEXT("CAPTURE_FAILED");
 	inline const TCHAR* const Internal           = TEXT("INTERNAL");
 }
 

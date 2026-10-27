@@ -105,9 +105,19 @@ namespace AnimMcpGeneration
 			{
 				UE_LOG(LogAnimGraphMcp, Warning, TEXT("Ignoring [%s] PromotionPaths entry %s"), ConfigSection, *Entry);
 			}
-			UE_LOG(LogAnimGraphMcp, Log, TEXT("Generation: %d output paths, %d import roots, max %d assets per retarget, %d animation tag file(s), %d promotion path(s) ([%s] in %s)"),
+			Raw.Reset();
+			GConfig->GetArray(ConfigSection, TEXT("CaptureOutputRoots"), Raw, GEngineIni);
+			for (const FString& Entry : Raw)
+			{
+				const FString Normalized = NormalizeDirectory(Entry);
+				if (!Normalized.IsEmpty())
+				{
+					Settings.CaptureOutputRoots.AddUnique(Normalized);
+				}
+			}
+			UE_LOG(LogAnimGraphMcp, Log, TEXT("Generation: %d output paths, %d import roots, max %d assets per retarget, %d animation tag file(s), %d promotion path(s), %d capture root(s) ([%s] in %s)"),
 				Settings.OutputPaths.Num(), Settings.ImportSourceRoots.Num(), Settings.MaxRetargetAssetsPerCall, Settings.AnimationTagFiles.Num(),
-				Settings.PromotionPaths.Num(), ConfigSection, *GEngineIni);
+				Settings.PromotionPaths.Num(), Settings.CaptureOutputRoots.Num(), ConfigSection, *GEngineIni);
 			return Settings;
 		}
 
@@ -170,6 +180,7 @@ namespace AnimMcpGeneration
 		Obj->SetNumberField(TEXT("max_retarget_assets_per_call"), Settings.MaxRetargetAssetsPerCall);
 		Obj->SetArrayField(TEXT("animation_tag_files"), ToJsonArray(Settings.AnimationTagFiles));
 		Obj->SetArrayField(TEXT("promotion_paths"), ToJsonArray(Settings.PromotionPaths));
+		Obj->SetArrayField(TEXT("capture_output_roots"), ToJsonArray(Settings.CaptureOutputRoots));
 		return Obj;
 	}
 
@@ -299,6 +310,69 @@ namespace AnimMcpGeneration
 		if (!IFileManager::Get().FileExists(*Path))
 		{
 			return Bad(TEXT("FILE_NOT_FOUND"), FString::Printf(TEXT("No file at '%s'"), *Path));
+		}
+		OutAbsolute = Path;
+		return true;
+	}
+
+	bool ResolveCaptureDir(const FString& Dir, FString& OutAbsolute, FAnimMcpError& OutError)
+	{
+		auto Bad = [&OutError, &Dir](const TCHAR* Reason, const FString& Message)
+		{
+			TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+			Details->SetStringField(TEXT("field"), TEXT("output_dir"));
+			Details->SetStringField(TEXT("reason"), Reason);
+			Details->SetStringField(TEXT("output_dir"), Dir);
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, Message, Details);
+			return false;
+		};
+
+		FString Path = Dir.TrimStartAndEnd();
+		if (Path.IsEmpty())
+		{
+			return Bad(TEXT("MISSING"), TEXT("Missing or empty required string parameter 'output_dir'"));
+		}
+		if (FPaths::IsRelative(Path))
+		{
+			return Bad(TEXT("RELATIVE_PATH"), FString::Printf(TEXT("'%s' is relative — pass an absolute folder under [%s] CaptureOutputRoots"), *Path, ConfigSection));
+		}
+		Path = FPaths::ConvertRelativePathToFull(Path);
+		FPaths::NormalizeDirectoryName(Path);
+
+		// 루트 아래 하위 폴더만 — 루트 자체에 쓰면 다른 캡처와 섞인다
+		const TArray<FString>& Roots = GetSettings().CaptureOutputRoots;
+		const bool bUnderRoot = Roots.ContainsByPredicate([&Path](const FString& Root)
+		{
+			return FPaths::IsUnderDirectory(Path, Root) && !FPaths::IsSamePath(Path + TEXT("/"), Root);
+		});
+		if (!bUnderRoot)
+		{
+			TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+			Details->SetStringField(TEXT("field"), TEXT("output_dir"));
+			Details->SetStringField(TEXT("reason"), TEXT("CAPTURE_ROOT"));
+			Details->SetStringField(TEXT("output_dir"), Path);
+			Details->SetArrayField(TEXT("allowed"), ToJsonArray(Roots));
+			Details->SetStringField(TEXT("config"), FString::Printf(TEXT("[%s] CaptureOutputRoots in DefaultEngine.ini"), ConfigSection));
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::OutputPathNotAllowed,
+				Roots.Num() == 0
+					? FString::Printf(TEXT("No [%s] CaptureOutputRoots configured — captures are disabled"), ConfigSection)
+					: FString::Printf(TEXT("'%s' is not a folder below [%s] CaptureOutputRoots"), *Path, ConfigSection),
+				Details);
+			return false;
+		}
+		IFileManager& Files = IFileManager::Get();
+		if (Files.FileExists(*Path))
+		{
+			return Bad(TEXT("OUTPUT_DIR_NOT_EMPTY"), FString::Printf(TEXT("'%s' is a file — pass a new or empty folder"), *Path));
+		}
+		if (Files.DirectoryExists(*Path))
+		{
+			bool bEmpty = true;
+			Files.IterateDirectory(*Path, [&bEmpty](const TCHAR*, bool) { bEmpty = false; return false; });
+			if (!bEmpty)
+			{
+				return Bad(TEXT("OUTPUT_DIR_NOT_EMPTY"), FString::Printf(TEXT("'%s' is not empty — captures never overwrite; pass a new folder"), *Path));
+			}
 		}
 		OutAbsolute = Path;
 		return true;

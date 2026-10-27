@@ -94,8 +94,9 @@ def _without_convert(request: dict, name: str) -> list[dict]:
     if ops:
         raise PlanBlocked("UNSUPPORTED_REQUEST", "UNSUPPORTED_FIX_OP", f"fix ops {ops} run in the blender convert step — the {name} route has none",
                           ops=ops)
-    if request["review"]:
-        return [limitation("REVIEW_NOT_RENDERED", "프레임 렌더 비교(review.render)는 blender 변환 단계에서만 한다 — 이 경로는 렌더하지 않는다", "router")]
+    if (request["review"] or {}).get("render"):
+        return [limitation("REVIEW_NOT_RENDERED", "프레임 렌더 비교(review.render)는 blender 변환 단계에서만 한다 — 이 경로는 렌더하지 않는다"
+                           + (" (대상 메시 캡처 review.capture 는 한다)" if (request["review"] or {}).get("capture") else ""), "router")]
     return []
 
 
@@ -226,6 +227,15 @@ def _integrate(request: dict, registry, pctx: PlanContext, steps: list[dict], ri
     return out_steps, out_risks, _dedupe(out_lims)
 
 
+def _capture(request: dict, registry, pctx: PlanContext, steps: list[dict], risks: list[str], lims: list[dict]) -> tuple[list[dict], list[str], list[dict]]:
+    """Phase 8-2 — review.capture 면 검증 뒤(포장 · 연결 앞)에 대상 메시 캡처 단계. 모든 경로(생성 · 재사용 · 편집)에 붙는다.
+    캡처할 수 없으면(메시 없음 · 캡처 루트 없음) 단계 없이 한계 REVIEW_NOT_CAPTURED — 후보를 막지 않는다."""
+    if not (request["review"] or {}).get("capture"):
+        return steps, risks, lims
+    step, r, lm = registry.get("review").plan_capture(request, steps, pctx)
+    return (steps + [step] if step else list(steps)), risks + r, _dedupe(lims + lm)
+
+
 def _chain_names(steps: list[dict]) -> list[str]:
     names: list[str] = []
     for s in steps:
@@ -303,6 +313,7 @@ def build_plan(request: dict, policy: dict, registry, editor, diagnostics: list[
             continue
         try:
             steps, risks, lims = _chain(name, request, registry, pctx)
+            steps, risks, lims = _capture(request, registry, pctx, steps, risks, lims)
             steps, risks, lims = _integrate(request, registry, pctx, steps, risks, lims, integration_cache)
         except PlanBlocked as blocked:
             exclude(blocked.cause, blocked.reason, blocked.message, **blocked.details)

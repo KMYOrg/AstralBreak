@@ -48,6 +48,8 @@ public class AnimGraphMcpEditor : ModuleRules
 			"AnimationBlueprintLibrary",
 			// AI 애니 생성 Phase 7 — promote_animation (IAssetTools::RenameAssets · FixupReferencers)
 			"AssetTools",
+			// AI 애니 생성 Phase 8-2 — capture_animation 의 이미지 버퍼(FImage — 비교 칸 PNG 읽기 · 형식 변환)
+			"ImageCore",
 		});
 	}
 }

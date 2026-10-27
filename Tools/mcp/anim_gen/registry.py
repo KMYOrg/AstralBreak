@@ -12,6 +12,7 @@ from .providers.inactive import InactiveProvider
 from .providers.integrate import AnimBpPipe, PackagePipe
 from .providers.local_ai import KimodoProvider
 from .providers.meshy import MeshyProvider
+from .providers.review import ReviewPipe
 
 MANIFEST_FILE = pathlib.Path(__file__).with_name("providers.json")
 IMPLEMENTATIONS = {
@@ -23,6 +24,7 @@ IMPLEMENTATIONS = {
     "external.meshy": MeshyProvider,
     "package": PackagePipe,
     "anim_bp": AnimBpPipe,
+    "review": ReviewPipe,
     "control_rig": InactiveProvider,
 }
 

@@ -49,6 +49,10 @@ REVIEW_DEFAULT_COUNT = 4
 REVIEW_MAX_ROWS = 12          # 행(시각) × 뷰 = 렌더 수 — 한 Blender 실행이 기한 안에 끝나게
 REVIEW_MAX_REFERENCES = 4
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
+# Phase 8-2 — 대상 메시 캡처(review.capture → 플러그인 capture_animation). 행 = render 시각(render 가 있을 때) 또는 times | count,
+# sequence = 움직임용 연속 프레임(APNG 로 잇는다, false = 시트만), compare = render 가 있으면 소스 골격 칸을 붙인 비교 시트
+REVIEW_CAPTURE_KEYS = {"times", "count", "views", "mesh", "sequence", "compare"}
+REVIEW_SEQUENCE_DEFAULTS = {"fps": 15, "cell_height_px": 320, "max_frames": 150}
 # Phase 7 — 포장(package: 시퀀스 additive · 몽타주 · BlendSpace)과 AnimBP 연결(anim_bp). 출력은 output_path(허용 목록), 쓰기는 플러그인의
 # 옵트인 generation_guard 아래에서. 자리표시는 문자열 값 전체가 그것일 때만 바꾼다 — $asset = 최종 시퀀스(재사용이면 그 애셋)
 PLACEHOLDERS = ("$asset", "$montage", "$blendspace")
@@ -362,12 +366,75 @@ def _select(raw) -> dict:
 
 
 def _review(raw) -> dict | None:
-    """review{render{times[] | count, views[], reference_images[]}} — 형식만 본다(시각 범위 · 이미지 루트 · 존재는 blender 계획)."""
+    """review{render?{times[] | count, views[], reference_images[]}, capture?{…}} — 형식만 본다(시각 범위 · 이미지 루트 · 존재는 계획).
+    하나 이상. 빠진 쪽은 키가 없다(render 만이면 개정 8 과 같은 모양)."""
     if raw is None:
         return None
-    if not isinstance(raw, dict) or set(raw) != {"render"} or not isinstance(raw["render"], dict):
+    if not isinstance(raw, dict) or not raw or set(raw) - {"render", "capture"}:
+        raise _bad("review", "must be {render?{times[] | count, views?, reference_images?}, capture?{…}} with at least one")
+    out: dict = {}
+    if raw.get("render") is not None:
+        out["render"] = _review_render(raw["render"])
+    if raw.get("capture") not in (None, False):
+        out["capture"] = _review_capture(raw["capture"], out.get("render"))
+    if not out:
+        raise _bad("review", "needs render or capture")
+    return out
+
+
+def _review_capture(raw, render: dict | None) -> dict:
+    """review.capture — true 또는 {times? | count?, views?, mesh?, sequence?{fps, cell_height_px, max_frames} | false, compare?}.
+    render 가 있으면 행은 render 시각을 따른다(times · count 를 주면 CONFLICTING_FIELDS — 두 시트가 같은 행이어야 나란히 본다)."""
+    if raw is True:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise _bad("review.capture", "must be true or {times? | count?, views?, mesh?, sequence?, compare?}")
+    extra = sorted(set(raw) - REVIEW_CAPTURE_KEYS)
+    if extra:
+        raise _bad(f"review.capture.{extra[0]}", f"unknown key(s) {extra}", reason="UNKNOWN_FIELD", allowed=sorted(REVIEW_CAPTURE_KEYS))
+    cap = {"times": raw.get("times"), "count": raw.get("count"), "views": raw.get("views"), "mesh": raw.get("mesh"),
+           "sequence": raw.get("sequence", True), "compare": raw.get("compare", True)}
+    if cap["times"] is not None and cap["count"] is not None:
+        raise _bad("review.capture.times", "give times or count, not both", reason="CONFLICTING_FIELDS")
+    if render is not None and (cap["times"] is not None or cap["count"] is not None):
+        raise _bad("review.capture.times", "with review.render the capture rows follow the render times — leave times / count out", reason="CONFLICTING_FIELDS")
+    if cap["times"] is not None:
+        if not isinstance(cap["times"], list) or not 1 <= len(cap["times"]) <= REVIEW_MAX_ROWS or not all(_seconds(t) for t in cap["times"]):
+            raise _bad("review.capture.times", f"must be 1 to {REVIEW_MAX_ROWS} seconds (≥ 0) on the final clip (0 = its first frame)")
+        cap["times"] = [float(t) for t in cap["times"]]
+    elif render is None:
+        cap["count"] = REVIEW_DEFAULT_COUNT if cap["count"] is None else cap["count"]
+        if not _int(cap["count"], 1, REVIEW_MAX_ROWS):
+            raise _bad("review.capture.count", f"must be an integer in [1, {REVIEW_MAX_ROWS}] (evenly spaced, first and last frame included)")
+    if cap["views"] is None:
+        cap["views"] = list(render["views"]) if render is not None else list(REVIEW_VIEWS)
+    views = cap["views"]
+    if not isinstance(views, list) or not views or len(set(views)) != len(views) or not set(views) <= set(REVIEW_VIEWS):
+        raise _bad("review.capture.views", f"must be a non-empty list of distinct {list(REVIEW_VIEWS)}")
+    if cap["mesh"] is not None:
+        if not isinstance(cap["mesh"], str) or not cap["mesh"].startswith("/"):
+            raise _bad("review.capture.mesh", "must be a SkeletalMesh path (omit it to use target_mesh)")
+        cap["mesh"] = package_path(cap["mesh"])
+    seq = cap["sequence"]
+    if seq is False or seq is None:
+        cap["sequence"] = None
+    else:
+        seq = {} if seq is True else seq
+        if not isinstance(seq, dict) or set(seq) - set(REVIEW_SEQUENCE_DEFAULTS):
+            raise _bad("review.capture.sequence", f"must be true, false or {{{', '.join(REVIEW_SEQUENCE_DEFAULTS)}}}")
+        seq = {**REVIEW_SEQUENCE_DEFAULTS, **seq}
+        if not _int(seq["fps"], 1, 30) or not _int(seq["cell_height_px"], 64, 1024) or not _int(seq["max_frames"], 1, 300):
+            raise _bad("review.capture.sequence", "fps 1 ~ 30, cell_height_px 64 ~ 1024, max_frames 1 ~ 300 (integers)")
+        cap["sequence"] = seq
+    if not isinstance(cap["compare"], bool):
+        raise _bad("review.capture.compare", "must be true or false")
+    return cap
+
+
+def _review_render(render) -> dict:
+    """review.render — 개정 8 규칙 그대로(blender 변환 단계의 소스 골격 렌더)."""
+    if not isinstance(render, dict):
         raise _bad("review", "must be {render{times[] | count, views?, reference_images?}}")
-    render = raw["render"]
     extra = sorted(set(render) - set(REVIEW_RENDER_DEFAULTS))
     if extra:
         raise _bad(f"review.render.{extra[0]}", f"unknown key(s) {extra}", reason="UNKNOWN_FIELD", allowed=sorted(REVIEW_RENDER_DEFAULTS))
@@ -393,7 +460,7 @@ def _review(raw) -> dict | None:
         if not isinstance(path, str) or not os.path.isabs(path.strip()) or not path.strip().lower().endswith(IMAGE_SUFFIXES):
             raise _bad(f"review.render.reference_images[{k}]", "must be an absolute .png / .jpg path under [AnimGraphMcp] ImportSourceRoots")
     render["reference_images"] = [os.path.normpath(p.strip()).replace("\\", "/") for p in refs]
-    return {"render": render}
+    return render
 
 
 def _fix(raw) -> dict:

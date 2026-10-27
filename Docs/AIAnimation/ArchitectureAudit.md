@@ -9,7 +9,8 @@
 개정 6: 2026-10-25 — Phase 6(외부 AI · Meshy) 공식 문서 대조 · 어댑터 구현 · 차단 통합 테스트에서 확인한 것을 §16 에 기록. 실제 유료 1건은 미실행(사용자 Free 요금제 — Meshy 출력 리그는 미측정).  
 개정 7: 2026-10-25 — Phase 7(AnimBP 연결 · 승격) 엔진 소스 대조 · 스파이크 · 통합 테스트에서 확인한 것을 §17 에 기록. 운영 AnimBP 실제 적용은 범위 밖(사용자 결정).  
 개정 8: 2026-10-26 — Phase 8-1(생성 품질) 첫 실험 E1 · Kimodo 제약 · 후처리 소스 대조와 스파이크 · 통합 테스트에서 확인한 것을 §18 에 기록. C++ 변경 없음. 같은 날 보강: Persona 소견 후 수정안 A(2차 출력 스무딩) · B(손목 keep) · C(선별 보완)의 원인 · 재생성 실측 3행, 낫 기준 보정(기준 무기 · 궤적 폭 버전 3) 2행.  
-상태: Phase 0 산출물 + Phase 1 · 2 · 4 · 5 · 6 · 7 · 8-1 실측 정정.  
+개정 9: 2026-10-26 — Phase 8-2(Vesper 캡처) 엔진 소스 대조 · `-unattended` 에디터 스파이크 · 통합 테스트에서 확인한 것을 §19 에 기록(캡처 방식 · 엔진 함정 3건 · 시간 · 결정성 · 채팅 표시 경로).  
+상태: Phase 0 산출물 + Phase 1 · 2 · 4 · 5 · 6 · 7 · 8-1 · 8-2 실측 정정.  
 관련 문서: [개발 지침서](DevelopmentGuide.md) (이 감사 결과로 개정 2) · [AnimGraphMcp README](../../Plugins/AnimGraphMcp/README.md)
 
 **방법.** 코드 변경 없이 ① UE 5.7.4 엔진 소스 대조, ② 실행 중인 에디터(DebugGame, main `1f8ee47`)에서 Python 원격 실행 3회 + AnimGraphMcp 조회로 측정했다. 에디터 쪽은 **읽기 전용**이었다 — IK Rig는 임시 패키지 객체로만 만들었고 애셋 생성·저장은 0건, 더티 패키지는 측정 전후 모두 0개였다.
@@ -447,6 +448,26 @@ Meshy 공식 문서 · 약관(2026-10-25 열람, 지침서 부록 A)과 어댑�
 | 선별이 망가진 낫을 골랐다 | 파지 플래그면 비파지 관통만(검 손잡이 가정) · 꼬임 · 머리는 관통 검사가 잡는다 | 자루 무기에도 비파지 규칙이 몸 관통 71 ~ 79% 를 0 으로 뺐고, 플러그인 `body_clearance` 는 위팔-몸통 · 골반 · 넓적다리만 봐 머리 · 꼬임 지표가 없었다 → 통합이 PASS. → 요청 간격이 있으면 관통 전체(`all_polearm`) · `motion_metrics` 버전 4 `arm_cross`(엉덩 축 위 손목 좌우, 10 cm × scale 넘게) · `head_near`(손 점 ↔ 머리 본 < 10 cm × scale) · 벌점 cross · head(가중치 2). 기준 = 운영 낫 애니 4개(꼬임 0 ~ 16.3% · 머리 0% · 최소 11.0 cm · 관통 0 ~ 34.4%)가 벌점 0. margin 0 꼬임은 운영 낫 4 ~ 42% · 검 손잡이 88 ~ 100% 라 못 쓴다. 통합 `scythe` 상한(꼬임 20 · 머리 5 · 관통 40%) — 재생성 4후보 중 seed 28 만 안(선택), seed 27 은 1차부터 손이 머리 2.5 cm 까지 와 Vesper 55.8% | 측정 스크립트(운영 낫 · 기록 후보) · 통합 `scythe` · pytest `test_cross_and_head_…` |
 | 자루 무기 파지 띠 (정정 — 보강 4) | 띠 = (요청 간격 ± 13) × pelvis scale(1.052) — 리타깃이 간격을 scale 만큼 키운다 | FK 리타깃은 간격을 **× 0.79** 로 줄인다(재생성 4 seed 소스 60.1 ~ 62.7 → Vesper 48.2 ~ 49.3 cm). 띠 아래 끝 1.052 × (s − 13) > 0.79 s ⇔ s > 52 → 낫 간격은 어떻게 잡아도 Vesper 가 띠 밖(통합 FAIL 2 — 고른 후보 파지 37.5% · `GRIP_NOT_REACHED`). 원인 측정: 기준 포즈 어깨 관절 폭 SOMA 32.96 · Vesper 23.96, 팔 55.85 · 47.66 cm. 프레임별 FK 모델(대상 본 벡터 = 소스 본 벡터 × 길이 비 — 어깨 0.727 · 위팔 0.848 · 아래팔 0.859)이 Vesper 간격을 프레임마다 p50 0.2 cm 로 맞힌다 → 리타깃 모델 확인. 계획 때 쓸 수 있는 사상 비교(p50 오차): × pelvis +15 ~ +17 · 팔 비 +3 ~ +4 · 스팬 비 +1.4 ~ +2.5 · **'대상 = W_대상 + 팔 비 × (생성 − W_생성)'(파지선 ∥ 어깨선) −1.0 ~ +0.1 cm** → 채택(`motion_metrics` 버전 5 `gap_map` · `grip_spacing`, 계획이 한 번 풀어 생성 · 대상 띠가 같은 값, 새 요청 `target_spacing_cm`). 기록 재계산: Vesper 파지 4.2 ~ 37.5 → 100%(선택 seed 28 그대로). 대상 60 → 생성 75.19 재생성(`P81Run1026_205832`): Vesper 간격 p50 60.5 ~ 62.2(사상 오차 −0.9 ~ +0.2 cm) · 파지 100% · 통합 PASS. 남은 근사: 파지선이 세로에 가까우면 사상이 대상 간격을 낮게 본다(Vesper 생성 75 에서 최대 −4.3 cm), 키 프레임별 정확한 변환 · 손 부착은 8-4 | 측정 스크립트(기록 NPZ · Vesper profile) · 통합 `regrip` · `scythe` · pytest `test_gap_map_…` |
 | Kimodo 시간 | 확산 1회 ≈ 10초(10-25 기록) | 에디터를 띄운 채 확산 + 후처리 1회 9 ~ 27초(편차 큼 — 스파이크 · E1 이 느렸다), 후보(1 · 2차 합) 19 ~ 58초, 모델 적재 25 ~ 38초, torch 임포트 11 ~ 45초. 4후보 × 2차 = 한 실행 117 ~ 128초 → 기한 = 정책 300 + 25초 × (확산 − 1)(8 확산 475초)이면 여유 | 스파이크 `seconds` · E1 · E2 ② |
+
+---
+
+## 19. Phase 8-2 실측 (개정 9)
+
+대상 메시 캡처 단위(지침서 §14 Phase 8 — 8-2)에서 확인한 것. 엔진 소스(`PreviewScene.cpp` · `SceneCaptureComponent.cpp` · `SceneCaptureRendering.cpp` · `ThumbnailHelpers.cpp` · `SkeletalMeshComponent.cpp` · `SkinnedMeshComponent.cpp` · `RendererScene.cpp`) 대조, DebugGame `-unattended` 에디터에서 새 Tool `capture_animation` 스파이크 4회(시험 애셋 `KimodoSword1025_185815/AS_Vesper_Sword_KimodoSlash`), 통합 테스트(`Tools/mcp/anim_gen_phase8_2_test.py`)에서 확인했다. 캡처 전후 미저장 패키지 0 → 0, 애셋 생성 0.
+
+| 항목 | 가정 | 실측 | 근거 |
+| :--- | :--- | :--- | :--- |
+| 캡처 방식 | 썸네일 렌더러 · 하이레즈 스크린샷 · MRQ 중 하나 | 썸네일 렌더러는 원근 · 궤도 카메라 · 스켈레톤 프리뷰 메시 · 가운데 시각 고정이라 정사영 · 메시 · 시각을 못 고른다, 스크린샷은 창 · 뷰포트 상태에 기대고, MRQ 는 레벨 시퀀스 · 플러그인이 필요하다 → **임시 `FPreviewScene`(트랜지언트 월드) + `USceneCaptureComponent2D`(정사영 `OrthoWidth` — 투영 near 0 · far `UE_FLOAT_HUGE_DISTANCE/4`) + 트랜지언트 렌더 타깃 → `ReadPixels` → `FImageUtils` PNG**. 포즈 경로만 썸네일 장면(`FAnimationSequenceThumbnailScene::SetAnimation`)을 따른다 | `ThumbnailHelpers.cpp:645-709` · `SceneCaptureComponent.cpp:817-831` · `SceneCaptureRendering.cpp:511-535` |
+| `-unattended` 렌더 | 창 없는 무인 에디터에서 그려지는지 모른다 | DebugGame `-log -unattended` 에서 정상 — `CaptureScene()` 은 뷰포트 없이 `ISceneRenderBuilder` 로 즉시 렌더, `ReadPixels` 가 렌더 명령을 비운다. 첫 호출 준비(컴파일 · 스트리밍 대기 · 워밍 2회) 2.9초, 이후 0.2 ~ 0.9초 | 스파이크 1 ~ 4 |
+| 쇼 플래그 | `ShowFlags.SetX(false)` 로 끈다 | 등록(`OnRegister → UpdateShowFlags`)이 `ShowFlags` 를 아키타입 + `ShowFlagSettings` 배열로 **덮어쓴다** — 비네트가 남아 배경 구석이 어두웠고 피사체 판정이 96% 를 피사체로 셌다 → `SetShowFlagSettings`(TemporalAA · MotionBlur · Bloom · EyeAdaptation · Lumen GI/반사 · SSR · Vignette · DOF · LensFlares · Grain · Atmosphere · Cloud · VolumetricFog 끔) | `SceneCaptureComponent.cpp:264-288, 431-447` · 스파이크 1 → 2 |
+| 포즈 갱신 | `SetPosition` → `RefreshBoneTransforms` → `MarkRenderDynamicDataDirty` 면 캡처가 새 포즈를 그린다 | 본 변환은 바뀌는데(범위 계산이 전 프레임을 봄) **렌더는 첫 포즈에 머물렀다** — 틱하지 않는 프리뷰 월드에서 동적 데이터 경로가 스키닝을 갱신하지 않았다. 썸네일 장면처럼 포즈마다 `RecreateRenderState_Concurrent()` → 행마다 포즈가 바뀐다(행별 `pose_center` 로 확인) | `ThumbnailHelpers.cpp:686-695` · 스파이크 1 → 2 |
+| 범위 · 카메라 | 본 점(Blender 와 같은 규칙)이면 충분 | 메시는 본 밖으로 나온다(머리카락 · 뿔 · 신발) → LOD0 정점을 가장 큰 가중치 본의 로컬 상자로 묶어 프레임마다 옮긴다(Vesper 130 본에 정점). 정점이 없는 본(IK · 무기 · 보조)은 범위에서 뺀다. 루트 이동이 있는 칼 시험은 정면 폭 203 cm · 측면 155 cm · 높이 220 cm(0.43 cm/px) — 전 프레임 고정이라 0.8초 큰 내디딤의 이동이 보인다. 잘린 칸 0 | 스파이크 2 · 통합 `tool` · `existing` |
+| 결정성 | 무인 렌더도 프레임마다 다를 수 있다(TAA · VSM 캐시) | TAA 끔(FXAA) · 노출 고정 · 같은 에디터 세션에서 같은 입력 두 번 → 모든 칸 픽셀 SHA-1 같음 | 스파이크 2 · 3 · 통합 `tool` |
+| 비용 | 프레임마다 장면 렌더 + 읽기 | 6행 × 2뷰(2배 슈퍼샘플) 1.1초, + 15 fps 연속 61장(526 × 320) 1.7초 — 한 번 3.0초. 브리지 시간 제한 180초 · `max_seconds` 120 안 | 통합 `tool` |
+| APNG 크기 | — | 4초 · 15 fps · 61장 6.6 ~ 8.0 MB(RGBA PNG 프레임을 재압축 없이 이음 — 프레임 IHDR 이 같으면 IDAT 를 fdAT 로 그대로 쓴다) | 통합 `tool` · `existing` |
+| 행 정렬 (소스 골격과) | 같은 시각이면 같은 프레임 번호 | 행은 **시각**으로 맞는다 — 프레임 번호는 각자의 fps(CMU BVH 120 · 애셋 30): 0.9889초 = Blender 119 · 캡처 30. 캡처 시각은 애셋 프레임으로 반올림(차 ≤ 0.011초) | 통합 `chain` 1차 실패 → 시각 비교로 정정 |
+| 채팅 표시 | 결과를 Saved 아래(상태 폴더)에 두고 Read · SendUserFile 로 보인다 | 세션 권한 `Read(./Saved/**)` 거부가 **SendUserFile 에도** 걸린다(Saved 의 Blender 시트 전송 거부), Saved → 스크래치패드 복사도 자동 분류기가 막는다(토큰이 Saved 에 있다 — 우회하지 않는다) → 캡처 루트를 Saved 밖 ini `+CaptureOutputRoots=Tools/mcp/results/capture/`(gitignore 됨 · `Read(./Tools/**)` 허용)로. Saved 의 Blender 프레임은 C++ 가 읽어 비교 시트에 합성한다 | 설계 단계 실측 |
+| 소스 골격 프레임 경로 | Job 기록에서 읽는다 | 8-1 Job 기록은 TestRuns 상태 폴더(Saved)에 있다 — 통합 테스트는 이름 규칙(`<ImportSourceRoots>/Blender/<job>/A1/frames[/cNN]/<view>_<frame>.png`, Blender `frame_start = 0`)으로 경로를 만들고 C++ 가 존재를 검사한다(Job 안에서는 `values.review.frames` 를 그대로) | `bvh_to_fbx.py:145` · 통합 `existing` |
 
 ---
 

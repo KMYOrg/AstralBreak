@@ -261,6 +261,9 @@ class Executor:
             if "review" in result.values:
                 # 변환 단계의 프레임 렌더 비교 — 뒤 단계가 실패하거나 폴백해도 Job 에 남긴다(무엇이 변환됐는지 보는 근거). 후보면 select 가 고른 후보 것으로
                 job["review"] = result.values["review"]
+            if "review_capture" in result.values:
+                # Phase 8-2 — 대상 메시 캡처(시트 · 비교 시트 · APNG). 맨 위(소스 골격 렌더)는 그대로 두고 review.capture 에 둔다
+                job["review"] = {**(job.get("review") or {}), "capture": result.values["review_capture"]}
             if "selection" in result.values:
                 # Phase 8-1 — 후보 선별 근거(후보별 수치 · 벌점 · 순위 · 고른 이유). 뒤 단계가 실패해도 남긴다
                 job["selection"] = result.values["selection"]

@@ -14,7 +14,8 @@
 개정 9: 2026-10-25 — Phase 6(외부 AI — Meshy Text-to-Motion) 공식 문서 확인 · 구현. API · 크레딧 가격 · Rate Limit · 만료 · 약관(§2.4 · 부록 A · B), `external.meshy` Provider(HTTP 어댑터 · 비동기 Job · 잔액 확인 · 요청 로그 — §4), 크레딧 × 사용자 환율 비용 추정과 장부의 크레딧(§6), 요청 `generation.options`(§9), poll 단계 실패의 환불 · 과금 반영(§3.4 · §6), §14 Phase 6.  
 개정 10: 2026-10-25 — Phase 7(AnimBP 연결 · 승격) 설계 확정 · 구현 · 실측. 새 Tool `promote_animation`(엔진 AssetTools rename — 자동 저장이라 사전 검사 + `confirm`, ini `PromotionPaths`), 기존 쓰기 Tool 6개의 옵트인 `generation_guard`(기본 = 기존 동작), 요청 `package` · `anim_bp`(§9), 계획 단계 `package_*` · `anim_bp_test` · `anim_bp_prepare`(§5), `INTEGRATION_FAILED`(§7), 운영 AnimBP 적용 승인 게이트와 노티파이 순서(§12), §14 Phase 7 결과.  
 개정 11: 2026-10-26 — Phase 8-1(생성 품질) 설계 확정 · 첫 실험 E1 · Kimodo 소스 대조 · 구현 · 실측. 요청 플래그 `two_hand_weapon_grip` · `foot_contact` → `local_ai` 2차 생성 제약(§4 · §5 · §9), seed 후보 · select 단계 · 점수 선별(§5 · §7 · §13 · §14), 파지 플래그면 관통 기본 `measure`(§9 · §10), Kimodo 후처리 실측에 따른 제약 형식 정정(§14 Phase 8 · 감사 §18). 같은 날 보강: 사용자 Persona 소견 4가지 → 수정안 A(2차 출력 시간 스무딩 σ 1프레임) · B(손 회전 keep — 1차 손목 굽힘 유지) · C(선별 — 관통 이중 계산 제거 · 파지면 비파지 관통 · 궤적 폭 `attack`) 적용 · 같은 4 seed 재생성(§9 · §14 Phase 8 '수정안 A · B · C' · 감사 §18). 보강 2: 기준 무기 = Vesper 낫 — 파지 간격 상한 · 파지 판정 띠 · 손별 궤적 폭 · 양손 겹침 기록 · 낫 프롬프트 재생성(§14 Phase 8 '낫 기준 보정'). 보강 3: 낫 정정 — 팔 꼬임 · 머리 · 배 관통(§14 Phase 8 '낫 정정'). 보강 4: 파지 띠를 대상 메시 골격 치수로 · 요청 `target_spacing_cm`(§9 · §14 Phase 8 '파지 띠 정정').  
-상태: Phase 1 · 2 · 3 · 4 · 5 · 6 · 7 완료 · **Phase 8-1 구현 · 검증 + 수정안 A · B · C(2026-10-26, 사람의 Persona 재판정 대기)**(§14). Phase 6 완료 기준 ① 실제 유료 1건은 **미실행으로 마감**(사용자 Meshy 계정이 Free 요금제 — API 생성은 유료 요금제만, 2026-10-25 사용자 결정). Phase 7 은 운영 AnimBP 실제 적용을 완료 기준에서 뺐다(사용자 결정 — 미리보기 · revision · 복제본 검증까지). 다음 = 8-1 결과 Persona 판정 → 기준값 · 가중치 보정 → 8-2(Vesper 캡처) 또는 8-3 · 8-4 — 사용자 승인 후. 3D 메시 생성(Tripo)은 애니 파이프라인 밖 별도 트랙(§14 끝).  
+개정 12: 2026-10-26 — Phase 8-2(Vesper 캡처) 설계 확정 · 엔진 소스 대조 · 구현 · 실측. 새 Tool `capture_animation`(임시 프리뷰 월드 + 정사영 SceneCapture → PNG · 시트 · 소스 골격 비교 시트 · 연속 프레임 — 애셋 0 · 새 더티 0, ini `CaptureOutputRoots`, 오류 `CAPTURE_FAILED`), 요청 `review.capture` → `review` 파이프 capture 단계(모든 경로) · APNG(표준 라이브러리) · Job `review.capture`(§2.3 · §3 · §4 · §5 · §7 · §9 · §13 · §14 Phase 8 '8-2'), 채팅 표시 = Saved 밖 캡처 루트 + SendUserFile.  
+상태: Phase 1 · 2 · 3 · 4 · 5 · 6 · 7 완료 · **Phase 8-1 구현 · 검증 + 수정안 A · B · C(2026-10-26, 사람의 Persona 재판정 대기)** · **Phase 8-2 구현 · 검증(2026-10-26 — 캡처는 판정 근거, 판정은 사람)**(§14). Phase 6 완료 기준 ① 실제 유료 1건은 **미실행으로 마감**(사용자 Meshy 계정이 Free 요금제 — API 생성은 유료 요금제만, 2026-10-25 사용자 결정). Phase 7 은 운영 AnimBP 실제 적용을 완료 기준에서 뺐다(사용자 결정 — 미리보기 · revision · 복제본 검증까지). 다음 = 8-1 결과 Persona 판정 → 기준값 · 가중치 보정 → 8-2(Vesper 캡처) 또는 8-3 · 8-4 — 사용자 승인 후. 3D 메시 생성(Tripo)은 애니 파이프라인 밖 별도 트랙(§14 끝).  
 관련 문서: [AnimGraphMcp README](../../Plugins/AnimGraphMcp/README.md) · [Phase 0 감사](ArchitectureAudit.md) · [Phase 5 로컬 모델 조사](LocalModelSurvey.md)
 
 | 항목 | 내용 |
@@ -22,6 +23,17 @@
 | 환경 | Windows 11 · UE 5.7.4 소스 빌드 · C++ · Python 3.13 · Claude Code · MCP |
 | 구조 | Multi-Provider + 규칙 기반 라우터 + 폴백 + 공통 리타깃 처리 + 기존 AnimBP MCP 연결 |
 | 기본 정책 | Free-First · 유료 API는 명시 승인 · 비파괴 · Editor 전용 |
+
+---
+
+## 개정 12 변경 요약 (Phase 8-2 — Vesper 캡처)
+
+| 항목 | 개정 11 | 개정 12 (설계 확정 · 엔진 소스 대조 · 구현 · 실측) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 시각 근거 | `review.render` = 변환된 **소스 골격**(Blender), 대상 메시는 Persona 에서 사람이 연다 | 새 Tool `capture_animation`(C++, Tool 41) — 임시 `FPreviewScene` + 정사영 `SceneCapture2D` 로 시퀀스를 **대상 메시**(Vesper `SK_StreetDemon_F_01`)에 입혀 행(시각) × 뷰(정면 · 측면) PNG · 시트 · (소스 골격 이미지를 주면) 비교 시트 · 연속 프레임. 카메라 · 셀 규칙 = `review_render.py`(전 프레임 범위에 한 번 고정 · 셀 높이 512 · 폭 = 범위 비율) — 두 시트가 같은 행이라 나란히 본다. 애셋 0 · 새 더티 0(`UNEXPECTED_DIRTY`), 쓰기는 ini `+CaptureOutputRoots` 아래 새 폴더만, 오류 `CAPTURE_FAILED` | §2.3 · §3.1 · §3.2 · §3.3 · §13 |
+| 요청 · 실행 | — | `review.capture{times? \| count?, views?, mesh?, sequence?, compare?}` → 새 파이프 `review` 의 capture 단계(검증 뒤 · 포장 앞, **모든 경로** — 생성 · 재사용 · 편집). render 가 있으면 그 시각을 행으로 쓰고 소스 골격 프레임을 비교 칸으로. 연속 프레임은 anim_gen 이 **APNG** 한 장으로 잇는다(표준 라이브러리 — ffmpeg · 패키지 설치 없음). Job `review.capture{sheet, compare_sheet, animation, frames, camera, …}`. 캡처 실패는 생성 실패가 아니다(한계 `REVIEW_NOT_CAPTURED`), 한계 `REVIEW_CAPTURE_PREVIEW_ONLY` | §3.4 · §4 · §5 · §7 · §9 |
+| 채팅 표시 | — | 세션 권한 `Read(./Saved/**)` 거부가 SendUserFile 에도 걸린다(실측) → 캡처 루트는 Saved 밖 `Tools/mcp/results/capture/`(gitignore). 결과 PNG · APNG 를 SendUserFile 로 보인다 | §3.1 · §14 Phase 8 '8-2' |
+| 엔진 함정 (실측) | — | ① 쇼 플래그는 등록이 덮어쓴다 → `SetShowFlagSettings` ② 틱 없는 프리뷰 월드는 동적 데이터로 스키닝이 갱신되지 않는다 → 포즈마다 `RecreateRenderState_Concurrent`(썸네일 장면과 같은 순서) ③ 메시는 본 밖으로 나온다 → 범위 = LOD0 정점을 본 로컬 상자로 | §2.3 · 감사 §19 |
 
 ---
 
@@ -293,6 +305,8 @@ Claude Code ─ stdio MCP ─▶ Tools/mcp/anim_graph_mcp/server.py (얇은 프�
 | 모달 기본값 (개정 10) | `FMessageDialog::Open` | `Source/Runtime/Core/Private/Misc/MessageDialog.cpp:172` | `FApp::IsUnattended() \|\| GIsRunningUnattendedScript` 면 DefaultValue 반환 → `promote_animation` 은 rename 호출 동안만 `TGuardValue(GIsRunningUnattendedScript, true)` |
 | additive 유효 (개정 10) | `UAnimSequence::IsValidAdditive` | `Source/Runtime/Engine/Private/Animation/AnimSequence.cpp:2615-2640` | `RefPose` · `LocalAnimFrame` 은 기준 시퀀스 없이 유효, `AnimScaled` · `AnimFrame` 은 `RefPoseSeq` 가 있어야 — 요청 `package.additive` 기본 `LocalAnimFrame 0`, `AnimFrame` 이면 `ref_pose_sequence`(`$asset` = 자기 자신) 필수 |
 | 시퀀스 내용 해시 (개정 10) | `IAnimationDataModel::GenerateGuid()` | `Source/Runtime/Engine/Classes/Animation/AnimData/IAnimationDataModel.h:380-385` | 경로와 무관한 원시 데이터 GUID — 승격 전후 같으면 같은 내용 |
+| 대상 메시 캡처 (개정 12) | `FPreviewScene` · `USceneCaptureComponent2D::CaptureScene` · `UTextureRenderTarget2D` · `FTextureRenderTargetResource::ReadPixels` · `FImageUtils::{SaveImageByExtension, LoadImage, ImageResize}` | `Source/Runtime/Engine/Private/PreviewScene.cpp:21-95` · `…/Components/SceneCaptureComponent.cpp:817-831` · `Source/Runtime/Renderer/Private/SceneCaptureRendering.cpp:511-535` · `Engine/Public/ImageUtils.h` | 프리뷰 월드는 트랜지언트 패키지(애셋 · 더티 없음), 기본 방향광 + 스카이라이트(썸네일 환경 큐브맵 `UThumbnailManager::AmbientCubemap`), 메시 텍스처 상주. `CaptureScene()` 은 `SendAllEndOfFrameUpdates` 뒤 즉시 렌더(뷰포트 · 창 불필요 — `-unattended` 실측). 정사영 투영 = `OrthoWidth` · 높이는 렌더 타깃 비율 · near 0. `FImage` 는 ImageCore 모듈(링크에 명시 의존 필요 — 실측) |
+| 캡처 포즈 · 쇼 플래그 (개정 12) | `USkeletalMeshComponent::SetPosition` · `RefreshBoneTransforms(nullptr)` · `RecreateRenderState_Concurrent` · `USceneCaptureComponent::SetShowFlagSettings` | `Source/Editor/UnrealEd/Private/ThumbnailHelpers.cpp:645-709` · `…/Components/SceneCaptureComponent.cpp:264-288, 431-447` | 포즈 = 썸네일 장면과 같은 순서(단일 노드 `SetPosition` → 동기 평가 → **렌더 상태 재생성** — 틱 없는 프리뷰 월드에서 동적 데이터만 표시하면 스키닝이 첫 포즈에 머문다, 실측). `ShowFlags` 를 직접 바꾸면 등록이 `ShowFlagSettings` 로 되돌린다 → 설정 배열로 끈다 |
 | IKRig 플러그인 | `EnabledByDefault: true` | `Plugins/Animation/IKRig/IKRig.uplugin` | 플러그인 의존 선언만 추가하면 된다 |
 
 ### 2.4 외부 Provider와 라이선스
@@ -318,7 +332,7 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
   ├─▶ anim-graph-mcp  (기존, 얇은 프록시 — Tool 하나 = 라우트 하나)
   │       └─ HTTP ─▶ AnimGraphMcpEditor (C++, 게임 스레드)
   │                   ├─ 기존: AnimBP · 몽타주 · BlendSpace · 스켈레톤 슬롯·재할당
-  │                   └─ 신규: 스켈레톤 조회 · 임포트 · IK Rig · 리타기터 · 리타깃 · 키 편집 · 검증 · 승격(Phase 7) — 기존 쓰기 Tool 6개는 옵트인 generation_guard
+  │                   └─ 신규: 스켈레톤 조회 · 임포트 · IK Rig · 리타기터 · 리타깃 · 키 편집 · 검증 · 승격(Phase 7) · 대상 메시 캡처(Phase 8-2) — 기존 쓰기 Tool 6개는 옵트인 generation_guard
   │
   └─▶ anim-gen-mcp    (신규, Phase 3 — Tools/mcp/anim_gen/)
           ├─ 정책 · 비용 장부 · 승인 · Provider 레지스트리 · 라우터 · 폴백 · Job 저장소
@@ -336,6 +350,7 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
    - 생성 경로는 스모크 경로(`SmokeTestPaths=/Game/Animation`) 안에 있어 생성된 몽타주도 스모크 검사를 받는다. 의도된 동작이고, 승격 전 "Slot 노드 없음" 경고는 정상이다.
    - **옵트인 생성 가드 (개정 10):** "기존 Tool 동작은 바꾸지 않는다"의 범위는 **기본값**이다. 기존 쓰기 Tool 6개(`create_anim_montage` · `set_montage_sections` · `create_blendspace` · `set_sequence_additive` · `duplicate_animation_blueprint` · `apply_graph_operations`)는 `generation_guard: true` 일 때만 생성 Tool 과 같은 가드(허용 목록 · 덮어쓰기 거부 · 전역 더티 비교 · 검사 뒤 저장, 결과 `guard{newly_dirty[]}`)를 받는다. 기본 false 는 지금까지와 같다(`build_hero_combat.py` 등 영향 없음). anim_gen 은 포장 · 연결 단계의 모든 쓰기에 켠다 — 규칙은 C++ `AnimMcpGeneration::FWriteGuard` 한 곳에만 있다.
    - **승격 경로 (개정 10):** `+PromotionPaths=/Game/Animation/Hero/` — `promote_animation` 이 후보를 옮길 수 있는 유일한 기준. 생성 경로와 겹치는 항목 · 마운트 루트는 경고 후 무시(`get_editor_status.generation.promotion_paths`).
+   - **캡처 경로 (개정 12):** `+CaptureOutputRoots=Tools/mcp/results/capture/`(디스크, 프로젝트 기준 상대 또는 절대) — `capture_animation` 이 PNG 를 쓰는 유일한 기준(루트 아래 **새 · 빈 하위 폴더**만, 루트 자체는 거부). 비면 캡처를 거부한다. Saved 밖에 둔 이유: 세션 권한 `Read(./Saved/**)` 가 Read 와 SendUserFile 을 모두 막아(브리지 토큰 보호 — 우회하지 않는다) 결과를 채팅에 보일 수 없다(`get_editor_status.generation.capture_output_roots`).
 7. **원본 비파괴:** 소스 애셋은 읽기만 한다. 각 쓰기 Tool은 호출 전후 **에디터 전체의 더티 패키지 집합 차이**를 본다. 새로 더티가 된 패키지 중 허용 목록 밖이 하나라도 있으면 아무것도 저장하지 않고 `UNEXPECTED_DIRTY`(목록 포함)로 실패한다. 애셋마다 따로 검사하지 않고 한 곳에서 보므로, 모르는 부작용(예: 임포트가 스켈레톤에 커브 메타데이터를 더함)도 잡힌다.
 
 ### 3.2 결과 형식
@@ -360,7 +375,7 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 
 - 경고는 `diagnostics[]`에 둔다.
 - 요청한 작업(생성 · 검증, `save`를 요청했으면 저장까지)이 실제로 끝나기 전에는 `ok: true`를 반환하지 않는다. `save=false`(기본)면 저장되지 않은 더티 애셋이 정상 결과다.
-- 오류 코드는 기존 체계(HTTP 상태 + 코드)에 추가한다. 예: `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` · `OUTPUT_PATH_NOT_ALLOWED` · `UNEXPECTED_DIRTY` · `PROVIDER_UNAVAILABLE` · `APPROVAL_REQUIRED` · `BUDGET_EXCEEDED` · `COST_UNKNOWN` · `LICENSE_RESTRICTED` · `PROMOTE_FAILED`(개정 10 — 플러그인, HTTP 400) · `INTEGRATION_FAILED`(개정 10 — anim_gen 포장 · 연결). 세부 사유는 기존 Tool처럼 `error.details.reason`에 둔다.
+- 오류 코드는 기존 체계(HTTP 상태 + 코드)에 추가한다. 예: `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` · `OUTPUT_PATH_NOT_ALLOWED` · `UNEXPECTED_DIRTY` · `PROVIDER_UNAVAILABLE` · `APPROVAL_REQUIRED` · `BUDGET_EXCEEDED` · `COST_UNKNOWN` · `LICENSE_RESTRICTED` · `PROMOTE_FAILED`(개정 10 — 플러그인, HTTP 400) · `INTEGRATION_FAILED`(개정 10 — anim_gen 포장 · 연결) · `CAPTURE_FAILED`(개정 12 — 플러그인 캡처의 렌더 · 읽기 · 쓰기, HTTP 400). 세부 사유는 기존 Tool처럼 `error.details.reason`에 둔다.
 - `limitations[]` 항목은 `{code, message, source}`다(`source` = `router` · `provider` · `direct_key` · `validation` · `fallback`). C++ Tool이 돌려주는 문자열 한계(예: 미러의 `MIRROR_CURVES_UNCHANGED`)는 `anim_gen`이 같은 모양으로 감싼다.
 
 ### 3.3 원본 Tool 목록 대응
@@ -381,7 +396,8 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 | (AnimBP 연결) | 기존 `duplicate_animation_blueprint` · `apply_graph_operations` · `run_automation_tests` · `run_anim_scenario` 조합(개정 10 — 복제본에만, `generation_guard`) | 7 |
 | `promote_animation` | 신규 (C++, 개정 10) — 후보 → 정식 경로 rename, `dry_run` · `confirm` · `allow_referencers` | 7 |
 | `list_motion_providers` · `get/set_generation_policy` · `plan_motion_generation` · `estimate_generation_cost` · `generate_motion` · `get_generation_status` · `cancel_generation` | anim-gen-mcp + 신규 `approve_generation` | 3 |
-| `apply_motion_constraints` · `preview_generated_animation` | 보류 | 8 |
+| `apply_motion_constraints` | 보류 | 8 |
+| `preview_generated_animation` | 신규 `capture_animation` (C++, 개정 12) — 대상 메시 정사영 캡처(시트 · 비교 시트 · 연속 프레임), anim_gen `review.capture` 가 부른다 | 8-2 |
 | `create_animation_from_prompt` | **폐기.** 자연어 분해는 Claude Code가 하고 `plan_motion_generation`에 구조화된 요청을 넘긴다 | — |
 
 ### 3.4 Job
@@ -396,6 +412,7 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
   - 로컬 서브프로세스(개정 7 — `blender`, 개정 8 — `local_ai`): `generate_motion`이 프로세스를 띄우고 `RUNNING`을 돌려준다. poll 이 끝남(report 파일)을 보면 같은 호출 안에서 다음 단계를 잇는다 — 다음도 서브프로세스면(Kimodo → Blender) 그것을 띄우고 다시 `RUNNING`, 에디터 단계면 import → retarget → 검증까지 동기로. 자식은 stdin을 막고 출력을 로그 파일로 보낸다(MCP stdio 보호), 키·토큰 이름의 환경 변수는 넘기지 않는다. 기한(`execution.subprocess_timeout_seconds`, 단계마다)을 넘기면 끝내고 `GENERATION_FAILED`(`TIMEOUT`). 서버가 다시 뜨면 프로세스 핸들이 없어 report 파일로만 판정하고, 기한까지 report가 없으면 멈추지 못한 채 `TIMEOUT`으로 적는다. 공통 부분은 `providers/subprocess_step.py`(`SubprocessProvider` — 띄우기 · report 대기 · 기한 · 종료 · 로그 꼬리)이고 Provider 는 명령 · 인자와 report 해석만 정한다.
   - AnimBP 시나리오(개정 10 — `anim_bp_test`): 복제 · 적용 · 컴파일 · 스모크는 동기, `run_anim_scenario` 는 에디터 잡(PIE)이라 `generate_motion` 이 `RUNNING` 을 돌려주고 `get_generation_status` 의 poll 이 `poll_automation_tests` 로 잇는다(무료 비동기 단계 — 장부 없음). 기다리기 전에 만든 복제본은 Job `intermediate_assets` 에 바로 남는다(취소 · 실패해도). 취소는 PIE 잡을 멈추지 않는다(결과 무시 — 러너가 기한에 PIE 를 닫는다).
   - 프레임 렌더 비교(개정 8): `blender` 변환 단계가 `review.render` 결과(`values.review` — 프레임 PNG · 시트 · 배치 · 카메라)를 내면 Job 최상위 `review` 에도 남긴다. 뒤 단계가 실패하거나 폴백해도 지우지 않는다(무엇이 변환됐는지 보는 근거).
+  - 대상 메시 캡처(개정 12): capture 단계 결과(`values.review_capture`)는 Job `review.capture{ok, shows: target_mesh, mesh, facing, dir, sheet, compare_sheet, rows_from, animation{path, frames, fps, size, bytes}, frames[], sequence, camera, layout, bounds, cells_touching_edge, seconds}` — `review` 맨 위(소스 골격 렌더)는 그대로 둔다. 실패면 `{ok: false, reason, message, editor_error?}`.
   - 같은 계획으로 `generate_motion`을 다시 부르면 기존 Job을 돌려준다. 실패·취소된 Job은 `retry=true`일 때만 새 Job을 만든다.
   - 저장 위치: `Saved/AnimGen/{policy.json, plans/, jobs/, approvals/, ledger.jsonl}`(`ANIM_GEN_STATE_DIR`로 바꿀 수 있다 — 테스트 격리용). 서버 프로세스 하나를 전제한다.
 - **취소:** 취소가 Provider 실행의 즉시 중단을 뜻하지 않는다. 외부 작업은 "결과 무시"로 처리하고, 이미 발생한 비용은 장부에 남긴다. 로컬 서브프로세스(`blender` · `local_ai`)는 실제로 종료하고 Job에 `cancel_effect{stopped, pid}`를 남긴다(개정 7 · 8). `external.meshy`(개정 9)는 Meshy 에 취소가 없어 아무것도 보내지 않는다(PENDING 태스크 DELETE 는 환불되지만 처리 중앙값 15초라 쓰지 않는다) — 예약은 남는다.
@@ -410,6 +427,7 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 | `retarget` (파이프) | 공통 처리 계층 — 모든 Provider 결과가 지난다 | 1 | 활성 |
 | `package` (파이프, 개정 10) | 검증 뒤 포장 — additive · 몽타주 · BlendSpace (요청 `package`, 모든 쓰기 `generation_guard`) | 7 | 활성 |
 | `anim_bp` (파이프, 개정 10) | AnimBP 복제본 연결 · 검증 + 운영 AnimBP 미리보기 · 적용 페이로드 (요청 `integrate_anim_bp` 일 때만) | 7 | 활성 |
+| `review` (파이프, 개정 12) | 검증 뒤 최종 시퀀스를 대상 메시로 캡처(`capture_animation`) → 시트 · 비교 시트 · APNG (요청 `review.capture` 일 때만, 모든 경로) | 8 | 활성 (ini `CaptureOutputRoots` 가 있을 때 단계가 생긴다) |
 | `existing_motion` | 메타데이터 인덱스로 검색 → 리타깃 → 편집 | 2 | 활성 (주 경로) |
 | `direct_key` | `IAnimationDataController`로 키 작성: 리타임 · 트림 · 미러 · 본 오프셋 · 루트 Yaw · 포즈 유지 · 구간 연결 | 2 | 활성 |
 | `blender` | `motion_file`(BVH)을 headless(`blender -b --factory-startup -P anim_gen/blender/bvh_to_fbx.py`)로 FBX로 바꿔 retarget 파이프로 넘긴다 — 더미 스킨 메시 · 대상 정면 · 바닥 맞춤 · 범위 · fps. 개정 8: 기준 포즈 2프레임 FBX 도 낸다(§10), 생성 Provider 의 BVH 도 변환한다(§5), 같은 실행에서 프레임 렌더 비교(`review.render`)와 보정 op 자리(`fix.ops` — 사전은 Phase 8 까지 비어 있다). FBX 입력·아마추어 편집은 이후 | 4 · 5 | 실행 파일(정책 `paths.blender_executable`)이 있으면 활성 |
@@ -455,7 +473,8 @@ Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
 - **2차 생성 · 후보 선별 (개정 11 — `local_ai`, Phase 8-1):** 플래그를 바꿨거나(`generation.refine.mode` auto + `two_hand_weapon_grip` · `foot_contact` 중 하나 이상) `generation.candidates` > 1 이면 사슬 = 생성(seed 후보 N × 차수 1 · 2) → 변환(`blender` — 후보 BVH N 개를 **Blender 한 실행**으로, 기준 포즈 FBX 는 첫 후보만) → import(기준 포즈 1번 + 동작 N 개를 그 스켈레톤에 애니만) → **select**(retarget 파이프 — IK Rig · RTG 1벌로 후보 전부를 `<work>/Candidates/Cand_*` 로 리타깃 → `validate_animation`(소스 대비 · `profile_positions` · `body_clearance` · `fingers`) 한 번 → 지표 · 점수로 하나) → retarget(그 RTG 로 고른 후보만 최종 이름 — 결정적이라 잰 값 = 최종) → [`direct_key`] → 검증. `chain` 은 그대로(`local_ai` · `blender` · `retarget`). 생성 단계 계획에 seed 목록 · 2차 규칙(플래그 · Kimodo 제약 · 프레임 · 목표 · 주 손 · 간격 근거) · 기한(정책 + 25초 × (확산 횟수 − 1))을 고정해 보이고(모델을 띄우지 않는다, 목표 값은 1차 결과로 실행 때 — 위험 `REFINE_RESOLVED_AT_RUN`), select 단계에 후보 · 지표 · 가중치 · 기준 · 측정 본(대상 템플릿 체인 — 손목 · 엉덩 관절 · 발목, 못 찾으면 기본 이름 + 진단 `SELECTION_BONES_DEFAULTED`)을 고정한다. 1후보 + 플래그면 select 는 선택 없이 측정만 한다. 플래그 · 후보가 없으면 사슬 · 계획이 개정 10 과 같다.
 - **외부 생성 (개정 9 — `external.meshy`):** prime(FBX) = 생성 → `import_animation_file`(요청 `frame_rate` 로 굽기) → `retarget` → 검증, swift(BVH) = 생성 → `blender` 변환(단위 · 정면 · 관절 모름 → `expected{unit: auto}` 로 실행 때 잼, 대상 정면으로 돌림) → import(2단) → `retarget` → 검증(`blender` 가 없으면 `DEPENDS_ON_BLENDER`). 리그가 문서에 없어 리타깃 소스 체인을 채우지 않는다(자동 IK Rig — 위험 `SOURCE_RIG_UNVERIFIED`), prime 은 정면을 실행 때 잰다(`FACING_UNRESOLVED_AT_PLAN`). 후보의 위험 `PROMPT_SENT_EXTERNALLY` 와 생성 단계 `inputs.request_body`(보낼 본문 그대로)를 승인 전에 보여 준다. 비용 미확인(환율 없음) 후보는 `COST_UNKNOWN` 으로 제외된다.
 - **포장 · AnimBP 연결 (개정 10 — Phase 7):** 어느 후보든 검증 뒤에 같은 단계가 붙는다(계획 안에서 한 번 계산). `package` 가 있으면 `package_additive`(`set_sequence_additive` — 새로 만든 시퀀스만; 재사용 애셋이면 `ADDITIVE_ON_REUSED` 로 막는다 · 계획 때 소스를 모르면 위험 `ADDITIVE_TARGET_RESOLVED_AT_RUN`) → `package_montage`(`create_anim_montage` → `set_montage_sections`, 슬롯이 대상 스켈레톤에 없으면 `SLOT_NOT_IN_SKELETON` — `add_skeleton_slot` 은 공유 스켈레톤 편집이라 별도 승인) → `package_blendspace`(`create_blendspace`, 고정 샘플 존재 · 스켈레톤), 출력 이름이 있으면 `ASSET_EXISTS`. `integrate_anim_bp` 가 참일 때만 `anim_bp_test`(→ `<work>/<ABP>_Test_<job>A<n>` 복제(노드 Guid 보존) → `apply_graph_operations(compile)` → 스모크 `AnimGraphMcp.Smoke.AnimBlueprint.<복제본>` (+ 몽타주면 `AnimMontage.<몽타주>`) → `run_anim_scenario`) · `anim_bp_prepare`(운영 AnimBP `get_anim_blueprint_info` → `preview_graph_operations` — 읽기만). 계획은 ABP 존재 · 스켈레톤(`SKELETON_MISMATCH`)을 보고 revision 을 고정하며, 자리표시 없는 op 는 운영 AnimBP 로 미리 본다(`PREVIEW_INVALID`), 자리표시가 있으면 위험 `ANIM_BP_OPS_RESOLVED_AT_RUN`. `integrate_anim_bp` 가 거짓이면 AnimBP 호출은 0 이다. 사슬 `chain` 끝에 `package` · `anim_bp` 가 붙는다.
-- **변환 없는 경로 (개정 8):** `existing_motion` · `direct_key` 처럼 `blender` 변환이 없는 후보는 `fix.ops` 가 있으면 `UNSUPPORTED_FIX_OP` 로 막고, `review` 에는 한계 `REVIEW_NOT_RENDERED` 를 단다.
+- **변환 없는 경로 (개정 8):** `existing_motion` · `direct_key` 처럼 `blender` 변환이 없는 후보는 `fix.ops` 가 있으면 `UNSUPPORTED_FIX_OP` 로 막고, `review.render` 에는 한계 `REVIEW_NOT_RENDERED` 를 단다.
+- **대상 메시 캡처 (개정 12 — Phase 8-2):** `review.capture` 면 모든 후보의 검증 뒤(포장 · 연결 앞)에 `capture` 단계(파이프 `review`, Tool `capture_animation`). 계획은 대상 정면(대상 스켈레톤 기준 포즈 — retarget 의 정면 측정과 같은 원천), 메시(`review.capture.mesh` 또는 `target_mesh`), 행 규칙(`rows_from: render` = 변환 단계의 렌더 시각 · 비교 칸 / `request` = times · count), 셀 상수(blender `REVIEW_RENDER` — 소스 골격 렌더와 같은 값 하나), 출력 `<CaptureOutputRoots[0]>/<job_id>/A<n>/` 을 고정한다. 메시가 없거나 ini 캡처 루트가 비면 단계 없이 한계 `REVIEW_NOT_CAPTURED`(후보는 막지 않는다), 에디터가 없으면 정면 · 루트를 실행 때(위험 `CAPTURE_FACING_RESOLVED_AT_RUN` · `CAPTURE_ROOTS_UNCHECKED`), 변환 없는 경로에서 render 를 요청했거나 `edits` 로 시간축이 바뀌면 비교 칸 없이 자기 행(위험 `CAPTURE_ROWS_NOT_RENDER` · `CAPTURE_COMPARE_SKIPPED_EDITS`). 실행은 최종 시퀀스(재사용이면 그 애셋, 8-1 후보면 고른 후보 — 비교 칸도 그 후보의 소스 골격 프레임)를 캡처하고 연속 프레임을 APNG 로 잇는다. 사슬 `chain` 끝에 `review` 가 붙는다.
 - **계획 단계 제외(`excluded[]`):** `PROVIDER_UNAVAILABLE`(`NOT_IMPLEMENTED` · `NOT_INSTALLED` · `DEPENDS_ON_BLENDER` 등) · `LICENSE_RESTRICTED` · `AUTHENTICATION_FAILED`(`API_KEY_MISSING`) · `APPROVAL_REQUIRED`(`POLICY_FREE_ONLY` · `PAID_API_DISABLED`) · `COST_UNKNOWN` · `UNSUPPORTED_REQUEST`(Capability 밖, 예: 최대 길이 초과 `DURATION_OVER_MAX`. 개정 8: `MISSING_INPUT`(프롬프트 없음) · `CONSTRAINT_OUT_OF_RANGE` · `DUPLICATE_FRAME` · `BAD_RAW_CONSTRAINTS` · `FILE_NOT_FOUND` · `POSTPROCESS_UNAVAILABLE` · `REVIEW_TIME_OUT_OF_RANGE` · `UNSUPPORTED_FIX_OP`). 제약 파일 · 레퍼런스 이미지가 `ImportSourceRoots` 밖이면 계획 전체가 `IMPORT_SOURCE_NOT_ALLOWED`.
 - **계획은 실행하지 않는다:** 읽기 전용 에디터 호출(`get_editor_status` · `inspect_skeleton` · `search_animations`)로 고른 소스·소스 메시를 계획에 고정해 보여 주고, 출력 경로를 ini 허용 목록으로 미리 검사한다. 에디터가 없으면 단계를 미해결로 둔 계획만 만든다.
 - 중간 애셋(IK Rig · 리타기터 · 리타깃 중간본)은 `<output_path>/Work/<job_id>/`에 만들고 결과와 같은 `save`를 따른다. 지우지 않는다(정리는 사용자 확인 후).
@@ -518,6 +537,7 @@ UNSUPPORTED_REQUEST · GENERATION_FAILED · IMPORT_FAILED · RETARGET_FAILED · 
 | `UNEXPECTED_DIRTY` · `OUTPUT_PATH_NOT_ALLOWED` · `ASSET_EXISTS` · `ASSET_PROTECTED` · `IMPORT_SOURCE_NOT_ALLOWED` | 그대로 | **중단** — 가드·요청 문제라 다른 Provider도 같다 |
 | Provider `RATE_LIMITED` | 그대로 | 같은 후보 재시도 |
 | 포장 · AnimBP 연결 단계의 실패 (개정 10) — 슬롯 · 컴파일 · 스모크 · 시나리오 · 운영 미리보기 등 | `INTEGRATION_FAILED` (`SLOT_NOT_IN_SKELETON` · `COMPILE_FAILED` · `SMOKE_FAILED` · `SMOKE_NOT_FOUND` · `SCENARIO_FAILED`(Job `error.details.observed`) · `PREVIEW_INVALID` · `ADDITIVE_INVALID` …) | **중단** — 다른 Provider 도 같은 포장 · 연결을 한다. 이미 만든 시퀀스는 `generated_assets` 에 남는다(다시 할 때는 그 애셋을 `reference_animations` 로 — 독립 실행). 이 단계의 가드 오류(`UNEXPECTED_DIRTY` 등)는 위 행대로 그대로 중단 |
+| 대상 메시 캡처 단계 (개정 12) — `CAPTURE_FAILED` · 캡처 루트 · 비교 이미지 · 메시 불일치 · 정면을 못 잼 | 한계 `REVIEW_NOT_CAPTURED{reason}` (Job `review.capture.ok = false`) | **계속** — 캡처는 판정 근거라 생성 실패가 아니다(blender 렌더 실패와 같은 규칙). 연결 오류(`EDITOR_GONE` · `TIMEOUT` …)와 `UNEXPECTED_DIRTY` 는 위 행대로 중단 |
 | 유료 단계: 승인 없음 · 상한 초과 · 비용 미확인 | `APPROVAL_REQUIRED` · `BUDGET_EXCEEDED` · `COST_UNKNOWN` | 뒤에 무료 후보가 있으면 그쪽, 없으면 승인 대기(`APPROVAL_REQUIRED`) 또는 `FAILED` |
 
 시도 수 = 후보 실행 횟수(재시도 포함)이고 `max_generation_attempts`를 넘지 않는다. 유료 후보는 승인의 `max_attempts`도 따른다.
@@ -606,7 +626,8 @@ UNSUPPORTED_REQUEST · GENERATION_FAILED · IMPORT_FAILED · RETARGET_FAILED · 
                               "grip": { "lead_hand": "right", "target": "meet", "spacing_cm": null, "target_spacing_cm": null, "from_s": null, "to_s": null },  // 개정 11 보강 4 — 간격은 둘 중 하나(생성 골격 · 대상 메시)
                               "keyframe_step": 3 },
                   "select": { "weights": { "grip": 3, "stance": 2, "swing": 2, "attack": 2, "clearance": 1, "breakage": 1, "cross": 2, "head": 2 } } },  // 개정 11 — 후보 선별 가중치(attack = 수정안 C, cross · head = 낫 정정)
-  "review": { "render": { "count": 4, "views": ["front", "side"], "reference_images": [] } },  // 개정 8 — blender 변환 단계의 프레임 렌더
+  "review": { "render": { "count": 4, "views": ["front", "side"], "reference_images": [] },   // 개정 8 — blender 변환 단계의 소스 골격 렌더
+              "capture": { "views": null, "mesh": null, "sequence": { "fps": 15, "cell_height_px": 320 }, "compare": true } },  // 개정 12 — 대상 메시 캡처(행 = render 시각)
   "fix": { "ops": [] }                       // 개정 8 — blender 보정 op 자리 (사전은 Phase 8 까지 비어 있다)
 }
 ```
@@ -634,6 +655,7 @@ Provider가 지원하지 않는 제약은 후처리로 해결 가능한지 따�
 | `generation{seed?, samples=1, steps=100, postprocess=auto, pick=0, constraints[]}` (개정 8) | `seed` 0 ~ 2³¹−1(없으면 계획이 골라 고정 — `SEED_PINNED`) · `samples` 1 ~ 4(같은 seed 로 여러 샘플, 리타깃은 `pick` 번째) · `steps` 10 ~ 1000(확산 단계) · `postprocess` `auto`(설치돼 있으면 켬) · `on`(없으면 `POSTPROCESS_UNAVAILABLE`) · `off`(한계 `POSTPROCESS_OFF`) — Kimodo 발 미끄러짐 후처리(`motion_correction`). `constraints[]`: `root_path{points[{t, forward_cm, left_cm, yaw_deg?}]}` — **캐릭터 기준**(생성 첫 프레임 정면 = forward, 왼쪽 = left, yaw + = 왼쪽으로 돎) → Kimodo `root2d`(yaw 있는 점은 따로 묶어 방향 고정). `keep_pose{npz, times[], part=full\|left_hand\|right_hand\|left_foot\|right_foot}` — 이전 Kimodo 결과 NPZ 의 그 시각 포즈를 고정하고 나머지를 다시 만든다(레퍼런스 기반 다듬기). `kimodo_raw{path}` — Kimodo `constraints.json` 그대로(≤ 8 MB, 타입 · 프레임 범위 검사). 시각 → 프레임 round(t × 30), 생성 길이 밖이면 `CONSTRAINT_OUT_OF_RANGE`, 같은 프레임 두 번이면 `DUPLICATE_FRAME`. 파일은 `ImportSourceRoots` 아래만 · SHA-256 고정(실행 때 바뀌었으면 `FILE_CHANGED`). 요청 `constraints{}`(플래그)와는 별개다 |
 | `generation.options{<provider>: {...}}` · `prompt` 의 Meshy 규칙 (개정 9) | Provider 이름 → 그 Provider 만 읽는 설정(다른 Provider 는 무시). 이름이 레지스트리에 없으면 `BAD_REQUEST UNKNOWN_PROVIDER`, 값은 그 Provider 계획이 검사한다. `external.meshy`: `{mode: prime (기본, FBX · 10 크레딧) \| swift (BVH · 3 크레딧 — blender 변환 사슬)}`, 다른 키 · 값은 `BAD_OPTION`. Meshy 는 `prompt` 1 ~ 400자(넘으면 `PROMPT_TOO_LONG`), 길이를 0.5초 단위로 맞추고(`DURATION_SNAPPED` — 결과 `DURATION_MISMATCH`), 없으면 5초(`DURATION_DEFAULTED`), 2초 미만 `DURATION_TOO_SHORT` · 10초 초과 `DURATION_OVER_MAX`. 로컬 모델 설정(`seed` · `samples` · `steps` · `postprocess` · `pick`)을 기본값과 다르게 주면 한계 `GENERATION_SETTINGS_IGNORED{fields}`, 생성 제약은 종류마다 `CONSTRAINT_UNSUPPORTED`, 항상 `NOT_REPRODUCIBLE`(seed 없음) |
 | `review{render{times[] \| count, views[], reference_images[]}}` (개정 8) | `blender` 변환 단계의 프레임 렌더 비교. `times`(변환된 클립 기준 초, 0 = 첫 프레임, 1 ~ 12개) 또는 `count`(1 ~ 12, 기본 4 — 첫 · 끝 포함 고르게, 실행 때 잰 길이로 다시 펼친다). 둘 다 주면 `CONFLICTING_FIELDS`, 클립 끝을 넘는 시각은 그 후보를 `REVIEW_TIME_OUT_OF_RANGE` 로 막는다. `views` ⊆ `front` · `side`(기본 둘). `reference_images` ≤ 4, `ImportSourceRoots` 아래 .png/.jpg(시트의 모든 행에 같은 그림). 보이는 것은 변환된 **소스 골격**이다(한계 `REVIEW_IS_SOURCE_SKELETON`) |
+| `review.capture` (개정 12) | `true` 또는 `{times? \| count?, views?, mesh?, sequence?, compare?}` — 하나라도 오면 `review` 는 `{render?, capture?}`(빠진 쪽은 키가 없다 — render 만이면 개정 8 모양 그대로). render 가 있으면 행 = render 시각(capture 에 times · count 를 주면 `CONFLICTING_FIELDS` — 두 시트가 같은 행이어야 나란히 본다), 없으면 `times`(최종 클립 기준 초, 1 ~ 12) 또는 `count`(1 ~ 12, 기본 4 — 첫 · 끝 포함). `views` 기본 = render 의 뷰 또는 `front` · `side`. `mesh` 기본 `target_mesh`(없으면 단계 없이 `REVIEW_NOT_CAPTURED MISSING_MESH`). `sequence{fps 1 ~ 30 (15), cell_height_px 64 ~ 1024 (320), max_frames 1 ~ 300 (150)} \| false` — 연속 프레임 → APNG. `compare`(기본 true) — render 행이면 같은 시각의 소스 골격 프레임을 비교 칸으로(`compare.png`). 한계 `REVIEW_CAPTURE_PREVIEW_ONLY`(무기 · 옷/머리 물리 · 게임 AnimBP 레이어 없음 · 프리뷰 조명 — 판정은 사람) |
 | `fix{ops[{op, …}]}` (개정 8) | `blender` 변환 단계의 보정 op(범위를 정한 뒤 · 기둥 메시 앞). op 사전이 Phase 5 에서는 **비어 있어** op 가 하나라도 오면 모든 후보가 `UNSUPPORTED_FIX_OP`(`details.ops` · `available`) — 발 고정 · 스무딩은 Phase 8 |
 | `retarget.align_mode` · `retarget.body_clearance` (개정 8) | `align_mode`: `per_bone`(`ops: match_existing` 의 기본) · `engine`(`ops: default` 는 정렬하지 않아 `engine` 만 — `per_bone` 이면 `ALIGN_MODE_WITHOUT_ALIGN`). §10. `body_clearance`: `resolve`(관통 프레임만 위팔 보정) · `measure`(검증에만) · `off` → `retarget_animations body_clearance`. **개정 11: 비우면 계획이 정한다** — `constraints.two_hand_weapon_grip` 이 참이면 `measure`(모든 Provider — 한계 `BODY_CLEARANCE_MEASURED_FOR_GRIP`), 아니면 `resolve`(개정 10 그대로). 파지 플래그에 `resolve` 를 명시하면 그대로 + 위험 `CLEARANCE_MAY_BREAK_GRIP`. 계획 단계 `inputs.body_clearance_from: request \| default \| grip_flag`. §10 · §13 |
 | `generation.candidates` · `refine` · `select` (개정 11 — `local_ai`) | `candidates` 1 ~ 6(seed, seed+1, … — 한 Kimodo 실행, 기본 1). `samples` > 1 과 같이 주면 `BAD_REQUEST CONFLICTING_FIELDS`. `refine{mode auto \| off, grip{lead_hand right \| left, target meet \| lead, spacing_cm null \| (0, 100], target_spacing_cm null \| (0, 100], from_s?, to_s? (from ≤ to)}, keyframe_step 1 ~ 10}`(간격 둘 다 비우면 검 손잡이 = 주 손 너클 폭 + 1 cm · 판정 '≤ 20 cm × pelvis scale'. 자루 무기는 축을 따른 손목 간격 — **`target_spacing_cm` = 대상 메시 기준**(Vesper 낫 60) 또는 `spacing_cm` = 생성 골격 기준(처음 의미 그대로) 중 하나, 둘 다면 `CONFLICTING_FIELDS`. 개정 11 보강 4: 계획이 두 골격 기준 포즈의 어깨 관절 폭 · 팔 길이로 간격 사상(대상 = W_대상 + k × (생성 − W_생성), k = 팔 길이 비 — `motion_metrics.gap_map`)을 풀어 생성 간격(generate 규칙 · 소스 띠 '생성 간격 ± 13 cm')과 대상 띠('대상 간격 ± 13 × k cm' — select)를 한 값으로 정한다. 대상 팔을 재야 하므로 에디터 없이 계획하면 `PROVIDER_UNAVAILABLE EDITOR`, 대상 어깨 · 팔꿈치 · 손목 기준 위치가 없으면 `TARGET_ARMS_UNKNOWN`, 생성 골격 두 팔이 닿지 않는 간격이면 `GRIP_SPACING_OUT_OF_RANGE`, 한계 `GRIP_SPACING_MAPPED`) — auto 면 바꿀 플래그가 있을 때 2차 생성(§5 · §14 Phase 8), 파지 구간이 생성 길이 밖이면 `CONSTRAINT_OUT_OF_RANGE`, 2차 생성 + `samples` > 1 은 `UNSUPPORTED_REQUEST REFINE_WITH_SAMPLES`. `foot_contact` 를 바꾸면 후처리 `auto` 를 켠다(명시 `off` · 미설치면 한계 `FOOT_CONTACT_WITHOUT_POSTPROCESS`). `select{weights{grip, stance, swing, attack, clearance, breakage}}` — 키 6개만 · 0 이상(`selection.py`, attack 은 수정안 C — §14 Phase 8). 2차 생성은 1차 손목 굽힘을 지키고(keep) 출력을 σ 1프레임 스무딩한다(계획 `refine.smooth_sigma_frames` — 수정안 A · B). Meshy 는 기본값과 다르면 `GENERATION_SETTINGS_IGNORED.fields` 에 `candidates` · `refine` |
@@ -729,7 +751,7 @@ FBX 파일 또는 프로젝트 안의 기존 시퀀스
 | 손가락 (개정 8) | `fingers: true \| {ik_rig?, retargeter?, mesh?}` → `fingers{hands[{side, fingers[{chain, mapped, mcp, pip}], order_broken_pct}], unmapped[], thresholds, issues[]}`. 손 기준틀(손목 → 손가락 첫 마디 평균, 검지 − 새끼) 위의 MCP · PIP 굽힘(손바닥 쪽 +). 경고 `FINGER_UNMAPPED_NOT_REFERENCE`(소스 체인 없는 손가락이 **대상 메시** 기준 포즈에서 벗어남 — 꺾인 리타깃 포즈가 모든 프레임에 탄다) · `FINGER_BEND_REVERSED` · `FINGER_OVERBENT` · `FINGER_ORDER_BROKEN`(손끝 검지 → 새끼 순서가 깨진 프레임 비율). `retarget_animations` 는 기본으로 그 리타기터 매핑으로 검사하고 경고면 진단 `FINGER_WARNINGS`. Vesper 원본 57개 경고 0 | 5 |
 | 팔-몸통 관통 (개정 8) | `body_clearance: true \| {mesh, ik_rig, upper_arms, body_bones, include_secondary, contact_cm, penetration_cm}` → `body_clearance{arms[{upper_arm, frames_over_contact_pct, frames_over_penetration_pct, depth_p50/p95/max, worst{frame, time, arm_bone, body_bone}}], body{…}, issues[]}`. 관통(기본 깊이 > 2 cm × 펠비스 높이 / 100 — Vesper 2.1 cm, 접촉 1 cm × 같은 배율)이면 경고 `BODY_PENETRATION`. 보정은 §10 | 5 |
 | 제약 | 양손 파지 오차 · 무기 궤적 이상. **개정 11(8-1 구현 — `anim_gen/motion_metrics.py`, Kimodo 소스와 Vesper 결과에 같은 정의):** `validate_animation profile_positions` 의 손목 · 엉덩 관절 · 발목 위치로 — 손목 간격(프레임별) · `grip_pct` = 간격 ≤ 20 cm × scale(scale = 펠비스 높이 / 100, 플러그인 관통 · `CLEARANCE_GRIP_CHANGED` 와 같은 기준) 프레임 %, 발 좌우 간격 비 = 발 간격의 엉덩 축 성분 / 엉덩 관절 폭(프레임별 — 몸이 돌아도 좌우만) p50 · p90, 앞뒤 보폭 / 다리 길이(기록), 휘두름 정점 = 빠른 손목 최대 속도 / scale · 시각 · 동작 구간 비율, 비파지 관통 상한 = min(100 − grip_pct, 관통 %) · 최악 프레임이 파지 프레임인가(검증기가 프레임별 관통을 내지 않아 C++ 없이 상한으로). 선별 점수는 `selection.py`(§14 Phase 8). 무기 궤적은 8-4(무기 메시 · 소켓) | 8 |
-| 시각 | 항상 `needs_review[]`에 남긴다(사람이 Persona/PIE에서 확인). 개정 8: `review.render` 가 변환된 **소스 골격**(본마다 기둥, 좌 파랑 · 우 빨강 · 머리 앞 초록 코 · 루트 호박색 막대 · 바닥 띠)을 정면 · 측면 정사영으로 그린 프레임 PNG 와 시트(행 = 시각, 열 = 뷰 + 레퍼런스)를 낸다(Blender Workbench, 카메라는 전 프레임 범위에 고정 — 이동이 보인다). Vesper 프리뷰 캡처는 Phase 8 | 1 · 5 · 8 |
+| 시각 | 항상 `needs_review[]`에 남긴다(사람이 Persona/PIE에서 확인). 개정 8: `review.render` 가 변환된 **소스 골격**(본마다 기둥, 좌 파랑 · 우 빨강 · 머리 앞 초록 코 · 루트 호박색 막대 · 바닥 띠)을 정면 · 측면 정사영으로 그린 프레임 PNG 와 시트(행 = 시각, 열 = 뷰 + 레퍼런스)를 낸다(Blender Workbench, 카메라는 전 프레임 범위에 고정 — 이동이 보인다). **개정 12(8-2):** `capture_animation` 이 같은 카메라 · 셀 규칙으로 **대상 메시**(Vesper)를 찍은 시트 · 소스 골격 비교 시트(같은 시각 행) · APNG 를 낸다 — Persona 를 열지 않고 채팅에서 본다(SendUserFile). 캡처는 근거이고 판정은 사람이다(§16-9). 칸마다 피사체 픽셀 범위(`subject_px` · `touches_edge` — 잘림 점검)와 행마다 포즈 중심(`pose_center` — 포즈가 바뀌는지)을 기록한다 | 1 · 5 · 8 |
 
 - 절대 임계값을 쓰지 않는 이유: 정상 공격 모션의 각속도 p99가 약 2,000°/s(손가락 최대 3,762°/s)이고, 높이 기준 발 미끄러짐은 정상 Walk 루프에서도 수백 cm/s로 튄다(감사 §5.2). 검증 계산은 C++에서 한다.
 - 상태: `PASSED` · `PASSED_WITH_WARNINGS` · `NEEDS_REVIEW` · `FAILED`. 구조 검증 통과가 동작 품질을 뜻하지 않는다(원본 유지).
@@ -1037,7 +1059,7 @@ plan_motion_generation(request{…, package?, integrate_anim_bp, anim_bp?})   # 
 | 단위 | 내용 | 겨냥하는 문제 | 무게 |
 | :--- | :--- | :--- | :--- |
 | 8-1 생성 품질 (개정 11 — 구현 · 검증, 아래) | 요청 제약 플래그(`two_hand_weapon_grip` · `foot_contact`)를 생성 제약(Kimodo 손 · 발 end-effector · `root_path`)으로 자동 변환 · seed 별 후보 여러 개 생성 · 수치 자동 선별(양손 간격 · 발 간격 · 휘두르는 손 속도 정점 · 관통 · 깨짐 — `validate_animation profile_positions` 측정) · 팔-몸통 관통 보정이 양손 파지를 깨지 않게(양손 무기면 보조 손 팔 보정 제한 또는 측정만) | 처음부터 덜 틀린 동작 | Python 위주 |
-| 8-2 Vesper 캡처 | 리타깃 결과를 **대상 메시 모습**으로 찍은 프레임 시트 · 짧은 영상(지금 `review.render` 는 변환된 소스 골격) — Persona 를 열지 않고 채팅에서 판정 | "보고 말하기" 단계의 근거 | C++ 조금(에디터 캡처) |
+| 8-2 Vesper 캡처 (개정 12 — 구현 · 검증, 아래) | 리타깃 결과를 **대상 메시 모습**으로 찍은 프레임 시트 · 짧은 영상(지금 `review.render` 는 변환된 소스 골격) — Persona 를 열지 않고 채팅에서 판정 | "보고 말하기" 단계의 근거 | C++ 조금(에디터 캡처) |
 | 8-3 자동 보정 | 휘두르는 구간 자동 탐지(손 속도) 후 가속(`retime`) · blender `fix.ops` 사전 채우기: 발 고정 · 발 간격 좁히기(IK, 발 접지 유지) · 스무딩 | 넓은 다리 · 흐느적거림 · 발 미끄러짐 | Blender 스크립트 |
 | 8-4 대상 쪽 보정 — 몸 전체 관통 · 무기 파지 (범위 보강 2026-10-26 밤, 사용자 제안 — 아래 근거) | 리타깃이 끝난 **대상(Vesper) 애니 위에서** 한 풀이로: ① 몸 전체 자기 관통 — 특정 부위(손-손잡이 · 팔-몸통)만이 아니라 손 · 아래팔 · 위팔 ↔ 머리 · 목 · 몸통 · 가슴 · 골반 · 넓적다리(필요하면 다리끼리 · 양손끼리)를 대상 메시 기준으로 밀어낸다 ② 무기 파지 — 손 IK 로 손을 무기 손잡이 · 소켓에 붙인다(무기 정보는 요청이 무기 메시 · 소켓으로 준다, §8). 파지 · 발 접지 · 원래 동작을 제약으로 함께 지킨다(부위별로 차례로 고치면 서로 깬다 — E1: 위팔만 돌린 `resolve` 가 양손을 벌렸다). 수단 `control_rig`(UE Control Rig 베이크) 또는 Blender IK — 지금 Blender `fix.ops` 자리는 리타깃 **전** 소스 골격이라 대상 체형에서 커지는 관통을 못 본다(Vesper FBX 입력이 필요). 측정은 지금 지표(`body_clearance` · `head_near` · `arm_cross` · `hand_contact`)를 한 원천으로 넓혀 쓴다. 생성 애니만이 아니라 기존 Vesper 애니에도 쓸 수 있다. 착수 때 설계에서 ① · ② 를 나눌지 정한다 | 몸 관통 · 머리 관통 · 양손 무기 완성도 | 가장 무겁다 |
 
@@ -1394,6 +1416,75 @@ margin 0(조금이라도 뒤바뀜)은 운영 낫도 4 ~ 42%(낫 베기는 원�
 
 **Persona 확인 목록 (파지 띠 정정):** 선택 `/Game/Animation/Test/AIAnimation/P81Run1026_205832/AS_Vesper_Sickle_KimodoSlashPick`(seed 20261028 — Vesper 손목 간격 p50 62.2 cm) · 2위 `…/P81Run1026_205832/Work/job_20261026_205840_56d522/A1/Candidates/Cand_BVH_kimodo_02`(seed 20261027 — 머리 5.8%, 최소 2.1 cm) · 3위 `…/Cand_BVH_kimodo_00`(seed 20261025 — 관통 65%) · 비교(직전 선택, 생성 간격 60 · Vesper 간격 49 cm) `/Game/Animation/Test/AIAnimation/P81Run1026_192547/AS_Vesper_Sickle_KimodoSlashPick`(seed 20261028) · 운영 `/Game/Animation/Hero/Vesper/Sickle/Actions/AS_Vesper_Sickle_Attack3`(양손 구간 간격 p50 63.3 cm).
 
+#### 8-2 Vesper 캡처 (개정 12 — 2026-10-26 구현 · 검증)
+
+**진행:** 설계 초안(캡처 방식 비교 · Tool 시그니처 · anim_gen 연결 · 출력 · 표시 · 테스트 · 커밋 단위 — 공유 노트 `phase8-2-design.md`) → 사용자 "추천안으로 착수"(결정: 캡처 루트 `Tools/mcp/results/capture/` · 움직임은 APNG 만 — MP4 는 Blender 4.4 내장 FFmpeg 로 필요하면 후속) → C++ Tool · 두 구성 빌드 → `-unattended` 에디터 스파이크 4회(엔진 함정 3건 정정 — 감사 §19) → anim_gen 연결 · pytest → 통합 · 회귀.
+
+**방식:** 임시 `FPreviewScene`(트랜지언트) 안에 스켈레탈 메시(단일 노드 — `SetPosition` → `RefreshBoneTransforms` → `RecreateRenderState`) · 무광 배경판 · 바닥 판(엔진 `LevelColorationUnlitMaterial` 동적 인스턴스) · 카메라 왼쪽 위 주광(그림자) + 보조광 + 썸네일 환경 큐브맵, `USceneCaptureComponent2D` 정사영 · `FinalColorLDR` · ShowOnly 목록 · Lumen · SSR · TAA(→ FXAA) · 모션 블러 · 블룸 · 자동 노출 · DOF · 비네트 끔 · 노출 고정 · 2배 슈퍼샘플 → 읽기 → 줄임 → PNG. 썸네일 렌더러(원근 · 프리뷰 메시 · 가운데 시각 고정) · 하이레즈 스크린샷(창 의존) · Movie Render Queue(레벨 시퀀스 · 플러그인)는 기각.
+
+**시그니처:**
+
+```jsonc
+capture_animation(asset, mesh, facing ("+Y"|"-Y"|"+X"|"-X"), output_dir (CaptureOutputRoots 아래 새 · 빈 폴더),
+  times?[] | count? (1 ~ 12, 기본 4), views? (front · side), label?,
+  cell_height_px 512, max_aspect 2, margin 0.08, bounds_max_samples 600, sheet_max_px 3000, supersample 2,   // 앞 5개 = blender REVIEW_RENDER
+  sequence? {fps 15, cell_height_px 320, start?, end?, max_frames 150} | null,
+  compare? {label?, rows[[이미지 …] 행마다]} (ImportSourceRoots 아래), lighting? {exposure_bias, key, fill, sky}, max_seconds 120)
+→ {asset, mesh, facing, length, frame_rate, frames_total, dir, frames[{row, time, frame, frame_time, view, path, sha1, subject_px, coverage_pct, touches_edge}],
+   sheet, compare{path, label, own_columns, compare_columns, size, scale} | null, sequence{dir, fps, count, frames[], times[], size, truncated, seconds} | null,
+   layout{rows[{time, frame, frame_time, clamped, pose_center}], columns[], cell_height, gap, size, scale},
+   camera{view: {look, right, ortho_width_cm, ortho_height_cm, resolution, cm_per_px}}, bounds{min, max, frames_sampled, from, boxed_bones}, render{…}, cells_touching_edge, seconds}
+// 오류: BAD_REQUEST(SKELETON_MISMATCH · OUTPUT_DIR_NOT_EMPTY · RELATIVE_PATH · CONFLICTING_FIELDS …) · OUTPUT_PATH_NOT_ALLOWED(CAPTURE_ROOT) · IMPORT_SOURCE_NOT_ALLOWED ·
+//       ASSET_NOT_FOUND · CAPTURE_FAILED(NO_SCENE · RENDER_TARGET · READBACK · WRITE_FAILED · IMAGE_UNREADABLE · NO_POSE) · UNEXPECTED_DIRTY(새 더티 하나라도 — 파일은 남음, details.dir)
+// 경고: CAPTURE_TRUNCATED(max_seconds) · CAPTURE_SUBJECT_AT_EDGE(잘린 칸)
+// anim_gen: request.review.capture → 계획 단계 capture{asset "$asset", mesh, facing, rows_from render|request, times, count, views, sequence, compare, label, layout, dir}
+//           → Job review.capture{ok, shows target_mesh, sheet, compare_sheet, animation{path, frames, fps, delay, size, bytes}, frames, sequence, camera, layout, bounds, rows_from, …}
+```
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Plugins/AnimGraphMcp/…/Core/AnimMcpCapture.{h,cpp}` | 장면 · 범위(LOD0 정점 → 본 로컬 상자, 정점 없는 본 제외) · 카메라 맞춤(`FitView` = `review_render.py frame_view`) · 셀 렌더 · 라벨(`FCanvas`) · 시트 · 비교 시트 · 연속 프레임 · 피사체 범위 · 가드 |
+| `…/Tools/AnimMcpTools_Capture.cpp` · `AnimMcpTools.h` · 모듈 등록 | Tool `capture_animation`(41번째) |
+| `…/Core/AnimMcpGeneration.{h,cpp}` · `Bridge/AnimMcpTypes.{h,cpp}` · `AnimGraphMcpEditor.Build.cs` | ini `CaptureOutputRoots` · `ResolveCaptureDir` · `get_editor_status.generation.capture_output_roots` · 오류 `CAPTURE_FAILED` · ImageCore 의존 |
+| `…/Tests/AnimMcpCaptureTests.cpp` | Automation `AnimGraphMcp.Generation.Capture` — 카메라 맞춤 · 시트 축소 · 시각 펼치기 · 샘플 프레임(Blender 수식 손 계산값) · 출력 폴더 규칙 |
+| `Config/DefaultEngine.ini` | `+CaptureOutputRoots=Tools/mcp/results/capture/` |
+| `Tools/mcp/anim_graph_mcp/server.py` | 프록시 함수 `capture_animation` |
+| `Tools/mcp/anim_gen/apng.py` | APNG 조립(재압축 없이 IDAT → fdAT, CRC · 순번) · 검사 |
+| `Tools/mcp/anim_gen/providers/review.py` · `providers.json` · `registry.py` · `router.py` · `executor.py` · `request.py` · `server.py` | 파이프 `review` · capture 단계 · Job `review.capture` · 요청 `review.capture` · Tool 설명 |
+| `tests/test_capture.py` · `conftest.py` · `test_router.py` | pytest 37건(APNG · 요청 · 계획 · 실행 · blender 경로 비교 칸) · FakeEditor 캡처 흉내(작은 진짜 PNG) · Provider 목록에 `review`(기대된 변화) |
+| `Tools/mcp/anim_gen_phase8_2_test.py` | 통합 — hashes · automation · tool · guard · existing · chain · dirty |
+
+**8-2 완료 기준:**
+
+1. 캡처 Tool — 대상 메시를 시각 × 뷰 정사영(전 프레임 고정 카메라) PNG · 시트로, 애셋 0 · 새 더티 0 · 원본 SHA-256 불변 · 같은 입력 = 같은 픽셀, `-unattended` 에디터에서 동작.
+2. 소스 골격과 나란히 — `review.render` 와 같은 행 · 열 · 셀 규칙, render 가 있으면 비교 시트.
+3. 움직임 — 프레임 연속 이미지 + APNG(설치 없음).
+4. anim_gen 연결 — 모든 경로 capture 단계 · Job `review.capture` · 캡처 실패는 한계만.
+5. 채팅 표시 — 시험 대상 3건 시트 · 비교 시트 · APNG 를 SendUserFile 로 보고에 첨부.
+6. 회귀 없음 — pytest · Phase 1 ~ 7 · 8-1 통합 실패 0 · 두 구성 빌드 경고 0.
+7. 사람 판정 — 캡처는 근거일 뿐 품질 합격이 아니다(§16-9).
+
+**결과 (2026-10-26 — `anim_gen_phase8_2_test.py` 전 섹션 PASS):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 캡처 Tool | ✅ DebugGame `-unattended` 에디터에서 칼 시험 4초 클립 6행 × 2뷰 1.1초(+ 15 fps 61장 1.7초 — 한 번 3.0초, 첫 호출 준비 0.9 ~ 2.9초) · 미저장 0 → 0 · Content 변경 0(캡처) · 시험 대상 3개 · 스켈레톤 · 메시 SHA-256 불변 · 같은 입력 두 번 = 모든 칸 SHA-1 같음 · 잘린 칸 0 · 행마다 포즈 다름(`pose_center`). 거부(루트 밖 · 루트 자체 · 상대 · 비지 않음 · 루트 밖 비교 이미지 · 잘못된 정면 · times + count · 없는 애셋)는 파일 · 더티 0. Automation `AnimGraphMcp.Generation.Capture` 통과 |
+| 2 | 소스 골격과 나란히 | ✅ 정면(몸 왼쪽 = 화면 오른쪽) · 측면(정면 = 화면 오른쪽) 축 · 셀 512 · 폭 비율 · 바닥 띠가 Blender 와 같다. 비교 시트(행 = 같은 시각, 열 = Vesper 정면 · 측면 + 소스 골격 정면 · 측면) — 시험 대상 3건 + chain Job. 행은 시각으로 맞는다(프레임 번호는 각 fps — CMU 120 · 애셋 30, 캡처 시각 차 ≤ 0.011초) |
+| 3 | 움직임 | ✅ 연속 프레임(뷰를 나란히 526 × 320) → APNG 61장 · 6.6 ~ 8.0 MB(4초 · 15 fps) — 설치 없음 |
+| 4 | anim_gen 연결 | ✅ pytest 37건(재사용 · 편집 · blender 경로, 루트 없음 = 단계 없음, 에디터 없음 = 실행 때, 포장 앞, 실패 = 한계 · Job SUCCEEDED, `UNEXPECTED_DIRTY` = 중단, 렌더 실패 = count 행). 통합 chain: CMU 01_01 0 ~ 3초 BVH → blender(render 4) → 리타깃 → capture — Job 15초 SUCCEEDED · `review` 맨 위 = 소스 골격 · `review.capture` = 같은 행 8칸 · 비교 시트 · APNG 46장 · 출력 `CaptureOutputRoots/<job>/A1` |
+| 5 | 채팅 표시 | ✅ Saved 밖 캡처 루트의 비교 시트 · APNG(시험 대상 3건 · 6파일)를 SendUserFile 로 전달(같은 경로가 Saved 아래면 거부 — 설계 단계 실측). APNG 가 채팅 미리보기에서 움직이는지는 사용자 눈 확인 |
+| 6 | 회귀 없음 | ✅ pytest **479건**(기존 442 + `test_capture.py` 37 — 기존 기대값 변경 1: Provider 목록에 파이프 `review`). Development · DebugGame 빌드 코드 경고 0(툴체인 버전 안내만). 통합 `anim_gen_phase1_test.py` · `phase2` · `phase4` · `phase6` · `phase7`(Tool 수 검사 `== 40` → `≥ 40` — 기대된 변화) · `phase3`(Provider 수 9 → 10 — 기대된 변화) · `phase5`(실제 Kimodo) PASS · `phase8_1` 전 섹션 실행에서 plan 1건만 FAIL — 기본 섹션 순서가 exp1(실행 폴더에 애셋을 만듦) → plan(실행 폴더가 없어야 함)이라 생기는 테스트 순서 문제(8-2 와 무관), `--only hashes,plan,dirty` 단독 PASS. 첫 회귀 시도에서 Phase 5 도중 에디터가 종료 코드 3 으로 내려갔다(같은 에디터로 Phase 1 ~ 7 · 캡처를 연달아 돈 뒤 — 크래시 로그는 Saved 라 세션이 못 읽음), 새 에디터로 다시 돌려 PASS |
+| 7 | 사람 판정 | ⏳ 캡처 결과(아래)를 보고 — 캡처가 나왔다고 품질 합격이 아니다 |
+
+**시험 대상 캡처(통합 `existing` — 실행 `P82Run1026_232446`, 출력 `Tools/mcp/results/capture/P82Run1026_232446/<이름>/{sheet.png, compare.png, animation.png}`):** `kimodo_sword_1025`(기준 칼 시험) · `p81_sword_pick`(8-1 수정안 뒤 검 선택 seed 20261025) · `p81_scythe_pick`(8-1 파지 띠 정정 뒤 낫 선택 seed 20261028). 비교 칸 = 그 애셋을 만든 Job 의 Blender 소스 골격 프레임.
+
+**읽는 법 · 한계:**
+- 캡처는 시퀀스를 메시에 그대로 입힌 프리뷰다 — 무기가 없고(8-4), 옷 · 머리카락 물리가 돌지 않으며(천 시뮬레이션 끔 — 스키닝 그대로), 게임 AnimBP 레이어(왼손 IK · 조준 보정 · 레이어 블렌드)가 없고, 조명은 프리뷰 조명이다. 게임 화면과 다를 수 있다.
+- 카메라는 전 프레임 범위에 고정이라 루트 이동이 큰 클립은 캐릭터가 작게 보인다(칼 시험 0.43 cm/px).
+- APNG 는 크다(4초 6.6 ~ 8.0 MB) — 필요하면 `sequence.fps` · `cell_height_px` 를 낮춘다. MP4 는 후속(Blender 내장 FFmpeg).
+
 ### 별도 트랙 — 3D 메시(에셋) 생성 (개정 9 메모)
 
 애니 파이프라인(이 지침서의 Phase 1 ~ 8) 밖의 별도 작업으로 둔다 — **애니 자동화 뒤**에 착수(사용자 결정 2026-10-25). Phase 6(외부 AI **애니메이션**)에 넣지 않는 이유: 완료 기준이 모션(`AS_` · 리타깃 · 검증)이고, 요청 스키마(대상 스켈레톤 · 동작 분류 · 애니 이름)와 맞지 않으며, 메시 임포트는 재질 · 텍스처가 핵심이라 지금 `import_animation_file`(리타깃 소스용 — 재질 · 텍스처를 끈다)과 다른 경로가 필요하다.
@@ -1415,6 +1506,7 @@ margin 0(조금이라도 뒤바뀜)은 운영 낫도 4 ~ 42%(낫 베기는 원�
 | E 비용 통제 | `FREE_ONLY` + 유료 요청 → `APPROVAL_REQUIRED`/`BUDGET_EXCEEDED`, 외부 호출 0 | 3 · 6 | Mock → 실제 어댑터 |
 | F AnimBP 연결 | 명시 요청(`integrate_anim_bp` + `anim_bp`) 시에만 기존 AnimBP MCP로 연결 — 개정 10: 운영 AnimBP 는 복제본에서 적용 · 컴파일 · 스모크 · 시나리오, 운영은 revision · 미리보기 · 적용 페이로드까지(SHA-256 불변). 연속(생성 → BS → 전이 · 생성 → additive 몽타주 → 슬롯) · 독립(기존 애셋 재사용 → 몽타주 → 슬롯) · 승격(리디렉터 0 · 참조 유지) — `anim_gen_phase7_test.py` | 7 | 에디터 통합 + pytest(`test_integrate.py`) |
 | (신규) G 회귀 비교 | Tool이 만든 리타기터 결과 vs 기존 RTG 결과 | 1 | 에디터 통합 |
+| (신규) I 대상 메시 캡처 (개정 12) | 기존 애셋(칼 시험 · 8-1 검 · 낫 선택)을 Vesper 로 캡처 + 소스 골격 비교 시트 · APNG · 가드(루트 · 폴더 · 이미지 · 더티 0) · BVH → blender render → 리타깃 → capture Job — `anim_gen_phase8_2_test.py` | 8 | 에디터 통합 + pytest(`test_capture.py`) + Automation(`AnimGraphMcp.Generation.Capture`) |
 | (신규) H 생성 품질 (개정 11) | 양손 칼 베기 프롬프트 + `two_hand_weapon_grip` · `foot_contact` → 2차 생성(meet · lead) · seed 후보 4개 선별 · 같은 seed measure vs resolve(E1) · 프롬프트만 바꿈(E3) — `anim_gen_phase8_1_test.py` | 8 | 실제 Kimodo · Blender · 에디터 + pytest(`test_refine.py` · `test_select.py`) |
 
 - Mock 테스트와 실제 에디터 통합 테스트를 구분한다(원본 유지).
@@ -1434,7 +1526,7 @@ margin 0(조금이라도 뒤바뀜)은 운영 낫도 4 ~ 42%(낫 베기는 원�
 6. 무료 폴백이 원 요청과 같은 품질을 보장한다고 주장하지 않는다.
 7. 특정 AI Provider를 필수 의존성으로 만들지 않는다.
 8. 스켈레톤 정보만으로 무기 제약을 다 파악할 수 있다고 가정하지 않는다.
-9. 애셋 생성 성공과 시각 품질 검증 성공을 혼동하지 않는다. 개정 11: **선별은 수치, 판정은 사람** — 후보 선별(select)은 근거(Job `selection` 의 원 수치 · 벌점 · 순위)와 함께 보이고 한계 `SELECTED_BY_NUMBERS` 를 단다. 수치 기준 통과를 품질 합격으로 보고하지 않는다.
+9. 애셋 생성 성공과 시각 품질 검증 성공을 혼동하지 않는다. 개정 11: **선별은 수치, 판정은 사람** — 후보 선별(select)은 근거(Job `selection` 의 원 수치 · 벌점 · 순위)와 함께 보이고 한계 `SELECTED_BY_NUMBERS` 를 단다. 수치 기준 통과를 품질 합격으로 보고하지 않는다. 개정 12: 대상 메시 캡처(`review.capture`)는 판정의 **근거**다 — 캡처가 나왔다는 것을 품질 합격으로 보고하지 않고, 한계 `REVIEW_CAPTURE_PREVIEW_ONLY`(무기 · 물리 · AnimBP 레이어 없음)를 함께 보인다.
 10. 에디터 전용 제작 기능을 런타임 모듈에 넣지 않는다.
 11. 외부 서비스에 캐릭터 데이터나 애셋을 보낼 때는 그 서비스의 데이터 정책을 확인한다.
 12. 미완성 기능이나 Mock 동작을 실제 구현 완료로 보고하지 않는다.
@@ -1452,7 +1544,7 @@ margin 0(조금이라도 뒤바뀜)은 운영 낫도 4 ~ 42%(낫 베기는 원�
 
 ## 17. Claude Code 작업 지시
 
-1. 한 번에 한 Phase만 진행한다(Phase 0 · 1 · 2 · 3 · 4 · 5 · 6 · 7 완료 — 6 의 실제 유료 1건은 미실행, 7 의 운영 AnimBP 실제 적용은 범위 밖. 8-1 구현 · 검증 + 수정안 A · B · C 2026-10-26 — 사람 재판정 대기). 다음 Phase는 사용자 승인 후 착수한다. Phase 8 은 단위(8-1 ~ 8-4)마다 승인한다.
+1. 한 번에 한 Phase만 진행한다(Phase 0 · 1 · 2 · 3 · 4 · 5 · 6 · 7 완료 — 6 의 실제 유료 1건은 미실행, 7 의 운영 AnimBP 실제 적용은 범위 밖. 8-1 구현 · 검증 + 수정안 A · B · C 2026-10-26 — 사람 재판정 대기, 8-2 구현 · 검증 2026-10-26 — 캡처 결과는 사람 판정 대기). 다음 Phase는 사용자 승인 후 착수한다. Phase 8 은 단위(8-1 ~ 8-4)마다 승인한다.
 2. 각 Phase는 코드 편집 전에 Tool 시그니처 · 커밋 단위 · 구현 순서를 보여 주고 **사용자 확인을 받는다.** 문서와 엔진 API가 어긋나면 문서 수정안을 함께 낸다.
 3. 에디터 확인용 애셋은 `/Game/Animation/Test/AIAnimation/`에 만들고, 끝나면 정리 목록을 보고한다.
 4. 순서: 구현 → 정적 검증(두 구성 빌드 · Python 문법) → 에디터 통합 테스트(`Tools/mcp/anim_gen_phaseN_test.py`) → 결과 기록.
@@ -1500,4 +1592,6 @@ margin 0(조금이라도 뒤바뀜)은 운영 낫도 4 ~ 42%(낫 베기는 원�
 | Phase 8-1 결과의 사람 판정 · 기준 보정 (개정 11) | 수치 선별(§14 Phase 8 표)까지 확인 — **Persona 눈 확인은 사용자**. 소견 4가지 중 ①②③ 은 수정안 A · B · C 로 수치가 바뀌었다(재판정 대기), ④ 흐느적은 D(요청) · 8-3. 남은 보정 후보: 발 좌우 비 기준(2.5 · 폭 5.0) · 궤적 폭 하한(1.0) · 가중치 · `meet`/`lead` 기본값(수치는 `meet`) · 1차부터 꺾인 손목(seed 27 — 손목 상한). 원 수치는 Job `selection` 에 있어 다시 계산할 수 있다 |
 | 2차 생성의 손 방향 · 손가락 · 무기 · 관통 (개정 11) | 손목 위치만 맞춘다(`GRIP_POSITION_ONLY`) — 손 회전은 1차 손목 굽힘 유지(수정안 B — 처음 규칙의 보조 손 '손목 → 중지 끝' 맞춤은 손목을 96 ~ 116° 꺾었다), 양손을 손잡이에 나란히 맞추지 않는다, 손가락은 고정 포즈. FK 리타깃은 양손 상대 위치를 보존하지 않는다(SOMA 어깨 반폭 17.3 vs Vesper 12.0 cm — Vesper 에서 간격 p50 5.2 ~ 6.6 cm 로 소스 7.2 ~ 8.1 보다 가깝다). 모은 팔의 몸 관통(72 ~ 84%)은 C안 — 모두 8-4. 8-4 는 머리 · 가슴 · 배를 포함한 몸 전체 관통 보정으로 범위를 보강했다(2026-10-26 밤, §14 Phase 8 '8-4 범위 보강 근거') |
 | 2차 생성이 목표를 얼마나 따르는지 (개정 11) | 이 프롬프트 · seed 4개에서 목표 손목 오차 p50 1.8 ~ 2.5 · 최대 6.4 cm, 접지 발 ± 3.4 cm. 다른 동작(걷기 · 회전 · 큰 이동)과 `lead` 처럼 팔 밖 목표는 따르지 않을 수 있다(E2' 소스 파지 21.5%) — 동작 종류별 실측 남음. 비파지 프레임 관통의 프레임별 측정(C++)은 상한이 0% 라 필요 없었다(필요해지면 후속) |
+| 대상 메시 캡처와 게임 화면의 차이 (개정 12) | 캡처는 시퀀스를 메시에 그대로 입힌 프리뷰다 — 무기 없음(8-4) · 옷 · 머리 물리 없음(천 시뮬레이션 끔) · 게임 AnimBP 레이어(왼손 IK · 조준 보정 · 레이어 블렌드) 없음 · 프리뷰 조명. 판정은 캡처로 하고, 게임 안 모습이 필요하면 PIE · 운영 ABP 복제본 시나리오(Phase 7)로 본다. 무기를 붙여 찍는 것은 8-4(무기 메시 · 소켓)와 함께 |
+| APNG 의 채팅 표시 · 영상 (개정 12) | APNG(4초 · 15 fps 6.6 ~ 8.0 MB)가 채팅 미리보기에서 움직이는지는 사용자 눈 확인 — 움직이지 않으면 첫 프레임 정지 그림이고 시트 · 비교 시트가 근거다. MP4 는 Blender 4.4 에 들어 있는 FFmpeg(`avcodec-60.dll`)로 설치 없이 만들 수 있다 — 필요하면 후속(Blender 단계 하나 추가) |
 | 몸통 대비 팔 벌림 (개정 8) | 위팔은 월드로 소스에 맞추고 몸통은 대상 중립(⓪)이라 몸통 기준 팔 벌림이 소스와 ±2.6°(CMU) 다르다 — 후속 후보: 팔 리타깃 포즈 정렬을 몸통 기준틀 상대로. 미수정 |

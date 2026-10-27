@@ -120,8 +120,12 @@ def plan_motion_generation(request: dict) -> dict:
             in the head)}}},
             review?{render{times[] s on the converted clip (0 = its first
             frame) | count 1-12 (default 4, evenly spaced, first and last included), views front|side (both), reference_images[] (≤ 4
-            absolute .png/.jpg under ImportSourceRoots — an extra sheet column, the same image on every row)}} (rendered by the blender
-            convert step only), fix?{ops[{op, ...}]} (blender fix step — the op dictionary is empty in this phase, so any op excludes the
+            absolute .png/.jpg under ImportSourceRoots — an extra sheet column, the same image on every row)} (the converted SOURCE
+            skeleton, rendered by the blender convert step only), capture?{…} | true (Phase 8-2 — the final sequence on the TARGET mesh via
+            the plugin's capture_animation, on every route: rows follow review.render's times when it renders (times/count then
+            CONFLICTING_FIELDS), else times[] | count (default 4); views (default render's or both), mesh (default target_mesh),
+            sequence{fps 15, cell_height_px 320, max_frames 150} | false (animated APNG), compare (default true — a compare.png with the
+            source-skeleton frames of the same times next to the target-mesh cells)}}, fix?{ops[{op, ...}]} (blender fix step — the op dictionary is empty in this phase, so any op excludes the
             candidate with UNSUPPORTED_FIX_OP), package?{additive?{additive_type LocalSpaceBase|RotationOffsetMeshSpace, ref_pose_type
             RefPose|AnimScaled|AnimFrame|LocalAnimFrame (default LocalAnimFrame 0), ref_frame_index, ref_pose_sequence ('$asset' = itself;
             needed by AnimFrame/AnimScaled)} (edits the new sequence in place — refused on a reused asset), montage?{name? (default
@@ -147,6 +151,11 @@ def plan_motion_generation(request: dict) -> dict:
     (reuse one with motion_file, or its NPZ in keep_pose). Blender and local_ai jobs return RUNNING; poll get_generation_status
     until they finish. With review.render the blender step also writes front/side orthographic PNGs per time and one comparison
     sheet (rows = times, columns = views + reference images) — Read them from job.review{frames[{time, frame, view, path}], sheet}.
+    With review.capture a capture step after validation (before package / anim_bp) photographs the final sequence on the target mesh
+    in a transient preview world (no assets; same camera and cell rules as the source-skeleton render) under ini CaptureOutputRoots
+    (outside Saved/ so the images can be shown in chat) — job.review.capture{sheet, compare_sheet, animation (APNG), frames[], camera}.
+    Limitation REVIEW_CAPTURE_PREVIEW_ONLY (no weapon, cloth/hair physics or AnimBP layers — a human judges); a failed capture is
+    REVIEW_NOT_CAPTURED, never a generation failure. No CaptureOutputRoots → no capture step (REVIEW_NOT_CAPTURED CAPTURE_ROOTS_EMPTY).
     An external.meshy plan (paid — Meshy Text-to-Motion, 2-10 s in 0.5 s steps, prompt ≤ 400 characters) pins the exact body it will
     send (steps[0].inputs.request_body{prompt, duration, mode} — only text leaves the machine) and the estimate (estimated_credits ×
     policy external.meshy.usd_per_credit); show both to the user before approve_generation. It runs only inside an approved paid step:
@@ -205,7 +214,8 @@ def generate_motion(plan_id: str, save: bool = False, retry: bool = False) -> di
     ok=true only when the job SUCCEEDED (or RUNNING for an asynchronous provider — poll get_generation_status). Waiting for approval →
     APPROVAL_REQUIRED (error.details.job); failure → the last cause (error.details.job.fallback_history). The job holds job_id, status,
     provider, chain, generated_assets[], reused_assets[], intermediate_assets[] (<output_path>/Work/<job_id>/), validation,
-    review (blender frame renders + sheet when requested), limitations[] (what is missing versus the request — always present for
+    review (blender frame renders + sheet when requested; review.capture = the target-mesh capture — sheet, compare_sheet, animation
+    APNG: show these files to the user), limitations[] (what is missing versus the request — always present for
     a fallback result), fallback_history[], cost, events[],
     diagnostics[] (including the editor tools' own warnings, each with tool and step — e.g. LENGTH_SNAPPED from the import step),
     package{additive, montage, blendspace} (packaged assets are in generated_assets), anim_bp{target, test_copy (intermediate),

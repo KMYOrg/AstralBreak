@@ -38,13 +38,14 @@ bAutoStart=True            ; 에디터 기동 시 리스너 시작. 콘솔 AnimG
 MaxRetargetAssetsPerCall=50                         ; retarget_animations 요청당 애셋 수 상한(입력 + 동반 참조). 실측 20개 리타깃·검증·저장 3초
 +AnimationTagFiles=Config/AnimGraphMcp/AnimationTags.json  ; search_animations 수동 태그 JSON (프로젝트 기준 상대 또는 절대)
 +PromotionPaths=/Game/Characters/                    ; promote_animation 이 후보를 옮길 수 있는 정식 경로 (패키지 경로 접두, 생성 경로와 겹치면 무시)
++CaptureOutputRoots=Tools/mcp/results/capture/       ; capture_animation 이 PNG 를 쓰는 디스크 폴더 (프로젝트 기준 상대 또는 절대 — 그 아래 새 · 빈 하위 폴더만)
 ```
 
 (UE ini 는 줄 끝 `;` 주석을 값으로 읽습니다 — 위 주석은 설명용이고 실제 ini 에서는 주석을 따로 줄에 둡니다.)
 
 보호 목록은 **파괴 연산만** 막습니다(`delete_animation_blueprint`, `create/duplicate_animation_blueprint` 의 `overwrite`, 그리고 `promote_animation` 의 dest · 엔진이 고쳐 저장할 참조자). 조회·편집·저장은 막지 않습니다.
 
-생성 경로 설정은 출력·임포트 경로의 **유일한 기준**입니다. 목록이 비어 있으면 생성 Tool 은 아무 데도 쓰지 않고 임포트도 받지 않습니다. 생성 Tool 은 호출 전후 에디터 전체의 더티 패키지 집합을 비교해, 허용 목록 밖 패키지가 새로 더티가 되면 아무것도 저장하지 않고 `UNEXPECTED_DIRTY` 로 실패합니다. `get_editor_status.generation` 이 정규화된 값(`output_paths[]` · 절대 경로 `import_source_roots[]` · `max_retarget_assets_per_call` · `animation_tag_files[]` · `promotion_paths[]`)을 돌려줍니다.
+생성 경로 설정은 출력·임포트 경로의 **유일한 기준**입니다. 목록이 비어 있으면 생성 Tool 은 아무 데도 쓰지 않고 임포트도 받지 않습니다. 생성 Tool 은 호출 전후 에디터 전체의 더티 패키지 집합을 비교해, 허용 목록 밖 패키지가 새로 더티가 되면 아무것도 저장하지 않고 `UNEXPECTED_DIRTY` 로 실패합니다. `get_editor_status.generation` 이 정규화된 값(`output_paths[]` · 절대 경로 `import_source_roots[]` · `max_retarget_assets_per_call` · `animation_tag_files[]` · `promotion_paths[]` · 절대 경로 `capture_output_roots[]`)을 돌려줍니다.
 
 **옵트인 생성 가드 `generation_guard`** — 기존 쓰기 Tool 6개(`create_anim_montage` · `set_montage_sections` · `create_blendspace` · `set_sequence_additive` · `duplicate_animation_blueprint` · `apply_graph_operations`)는 `generation_guard: true` 를 주면 생성 Tool 과 같은 가드를 받습니다: 쓰는 애셋(`asset_path` · `dest_path`)이 `GenerationOutputPaths` 안(`OUTPUT_PATH_NOT_ALLOWED`) · `overwrite=true` 거부(`BAD_REQUEST` reason `OVERWRITE_NOT_ALLOWED`) · 호출 전후 전역 더티 비교(`UNEXPECTED_DIRTY` — 검사는 저장 전에, 실패면 저장 안 함, `apply_graph_operations` 는 컴파일 뒤 · 저장 전) · 결과에 `guard{enabled, newly_dirty[]}`. **기본 false = 지금까지와 같은 동작**(경로 검사 없음, 결과에 `guard` 없음) — 프로젝트 스크립트(`build_hero_combat.py` 등)는 영향이 없습니다. 운영 AnimBP 처럼 허용 목록 밖 애셋은 가드를 켜면 거부되는 것이 의도입니다(복제본에서 검증 → 운영 적용은 사람이 가드 없이).
 
@@ -63,7 +64,7 @@ MaxRetargetAssetsPerCall=50                         ; retarget_animations 요청
 - `diagnostics[]` 는 성공 응답에도 붙는 경고(`{level, code, message}`).
 - 긴 작업은 동기입니다(에디터 프레임을 잡습니다). 클라이언트 타임아웃은 기본 60초, 컴파일을 포함하면 180초를 권장합니다.
 
-## Tool (40개)
+## Tool (41개)
 
 Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
@@ -125,6 +126,12 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | Tool | 입력 | 하는 일 |
 | :--- | :--- | :--- |
 | `promote_animation` | `assets[{source, dest}], dry_run=false, confirm=false, allow_referencers=[]` | 후보(`GenerationOutputPaths` 안) → 정식 경로(`PromotionPaths` 안) 이동 — `IAssetTools::RenameAssets`(대화상자 없는 경로) 한 번, 호출 동안만 `GIsRunningUnattendedScript`(모달은 기본값). **엔진이 새 패키지 · 참조 패키지를 자동 저장**하므로(사후 더티 비교로는 못 막는다) 사전 검사 + `confirm`(dry_run 이 아니면 필수 — `MISSING_CONFIRM`). source: 존재 · 후보 경로(`SOURCE_NOT_CANDIDATE`) · AnimSequence · AnimMontage · AnimComposite · BlendSpace(1D · AimOffset)만(`UNSUPPORTED_CLASS`) · 리디렉터 아님. dest: 전체 애셋 경로(`DEST_NOT_ASSET_PATH`) · 후보 경로 밖(`DEST_IS_CANDIDATE_PATH`) · `PromotionPaths` 안(`OUTSIDE_PROMOTION_PATHS`) · 보호 목록 아님(`ASSET_PROTECTED DEST_PROTECTED`) · 없음 — 레지스트리 · 리디렉터 · 디스크 파일 · 메모리 객체(`ASSET_EXISTS`) · 배치 안 중복 없음(`DUPLICATE_DEST`). 참조자(레지스트리 + 메모리, 배치 안 제외): 후보 경로 안 = 허용(엔진이 고치고 저장) · 밖 = `allow_referencers` 에 있어야(`ASSET_REFERENCED REFERENCED_OUTSIDE_CANDIDATES`, details.referencers[]) · 맵(`REFERENCED_BY_MAP` — 엔진이 리디렉터를 남긴다) · 보호 애셋(`REFERENCER_PROTECTED`) · 미저장 편집이 있는 패키지(`DIRTY_PACKAGES REFERENCER_DIRTY` — 엔진이 남의 편집까지 저장한다)는 거부. 네이티브 클래스 CDO 가 가리키면 `PROMOTE_FAILED CDO_REFERENCED`(엔진이 OkCancel 모달 기본 Cancel 로 멈춘다). 사후 검증: 옛 경로 애셋 · 리디렉터 없음(남으면 `FixupReferencers` + 삭제, 그래도 남으면 `REDIRECTOR_LEFT`) · 옛 .uasset 없음(엔진이 못 지운 빈 파일은 지우고 `removed_files[]`) · dest 존재 · 같은 클래스 · 내용 해시 같음(시퀀스 = 데이터 모델 GUID + additive · 루프 · 루트 모션, 그 밖 = 경로를 뺀 구조 요약 — 다르면 경고 `CONTENT_CHANGED`) · 저장된 참조자를 레지스트리에 다시 읽혀 dest 를 가리키는지(`REFERENCES_NOT_UPDATED`) · 엔진이 더티로 만들거나 저장한 패키지가 후보 ∪ dest ∪ allow_referencers 안인지(`UNEXPECTED_DIRTY` details.unexpected_saved — 이미 옮겼으므로 되돌리지 않고 알린다). 응답 `{dry_run, planned[{source, dest, class, content_hash, referencers[{package, candidate, allowed}]}], moved[{source, dest, class, content_hash, same_content}], fixed_referencers[], saved_packages[], redirectors, removed_files[]}`. 실측(2026-10-25): BS 1개 0.6초 · 리디렉터 0 · 옛 파일은 엔진이 지움. 이름 규칙은 모른다 — dest 는 호출자(anim_gen Job 의 `promotion` 제안)가 준다 |
+
+**AI 애니 생성 — 대상 메시 캡처 (1개, Phase 8-2).** 애셋을 만들지 않고(임시 프리뷰 월드 — 호출 전후 새 더티가 하나라도 있으면 `UNEXPECTED_DIRTY`) `CaptureOutputRoots` 아래 새 폴더에 PNG 만 씁니다.
+
+| Tool | 입력 | 하는 일 |
+| :--- | :--- | :--- |
+| `capture_animation` | `asset, mesh, facing(+X\|-X\|+Y\|-Y), output_dir, times?[] \| count?(1 ~ 12, 기본 4), views?(front · side), label?, cell_height_px=512, max_aspect=2, margin=0.08, bounds_max_samples=600, sheet_max_px=3000, supersample=2, sequence?{fps=15, cell_height_px=320, start?, end?, max_frames=150}, compare?{label?, rows[[이미지 …]]}, lighting?{exposure_bias, key, fill, sky}, max_seconds=120` | 시퀀스를 **대상 메시**에 입혀 Persona 없이 판정할 이미지를 만든다. 장면 = 임시 `FPreviewScene` + 스켈레탈 메시(단일 노드 — `SetPosition` → `RefreshBoneTransforms` → 렌더 상태 재생성, 천 시뮬레이션 끔) + 무광 배경판 · 바닥 판 + 카메라 왼쪽 위 주광(그림자) · 보조광 · 썸네일 환경 큐브맵, `SceneCapture2D` 정사영 `FinalColorLDR`(Lumen · SSR · TAA → FXAA · 모션 블러 · 블룸 · 자동 노출 · DOF · 비네트 끔, 노출 고정, 2배 슈퍼샘플). 카메라 = 정면(몸 앞에서 — 몸 왼쪽이 화면 오른쪽) · 측면(몸 오른쪽에서 — 정면이 화면 오른쪽), **전 프레임 범위에 한 번 맞춰 고정**(LOD0 정점을 가장 큰 가중치 본의 로컬 상자로 묶어 프레임마다 옮긴 범위, 바닥 z = 0 항상 보임), 셀 높이 고정 · 폭 = 범위 비율 — anim_gen Blender 소스 골격 렌더(`review_render.py`)와 같은 규칙이라 두 시트가 나란히 맞는다. 출력: `<view>_<frame>.png`(칸마다 라벨) · `sheet.png`(행 = 시각, 열 = 뷰) · `compare` 를 주면 `compare.png`(행마다 그 이미지들을 뒤 칸으로 — `ImportSourceRoots` 아래만) · `sequence` 면 `sequence/f_<n>.png`(뷰를 나란히 — anim_gen 이 APNG 로 잇는다). 결과 `{frames[{row, time, frame, frame_time, view, path, sha1, subject_px, coverage_pct, touches_edge}], sheet, compare, sequence, layout{rows[{…, pose_center}], …}, camera{view: {look, right, ortho_width_cm, cm_per_px, …}}, bounds, render, cells_touching_edge, seconds}`. 거부: 메시가 애니 스켈레톤과 비호환(`BAD_REQUEST SKELETON_MISMATCH`) · 출력 폴더가 루트 밖 · 루트 자체(`OUTPUT_PATH_NOT_ALLOWED CAPTURE_ROOT`) · 비어 있지 않음(`BAD_REQUEST OUTPUT_DIR_NOT_EMPTY`) · 상대 경로 · times + count(`CONFLICTING_FIELDS`). 렌더 · 읽기 · 쓰기 실패 `CAPTURE_FAILED`, `max_seconds` 를 넘으면 연속 프레임을 자르고 경고 `CAPTURE_TRUNCATED`, 잘린 칸이 있으면 경고 `CAPTURE_SUBJECT_AT_EDGE`. 실측(2026-10-26, DebugGame `-unattended`): 4초 클립 6행 × 2뷰 1.1초 + 61장 1.7초 · 같은 입력 = 같은 픽셀 · 더티 0. 무기 · 옷/머리 물리 · AnimBP 레이어가 없는 프리뷰다 — 사람이 판정한다 |
 
 키 편집 op (시간은 초, 각 op 직전 타임라인 기준, 구간은 가장 가까운 프레임으로):
 
@@ -204,7 +211,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 | HTTP | 코드 |
 | :---: | :--- |
-| 400 | `BAD_REQUEST`(`details.reason`/`field` — 생성 가드의 덮어쓰기 거부는 `OVERWRITE_NOT_ALLOWED`) · `CONNECTION_REJECTED` · `PROPERTY_NOT_ALLOWED` · `COMPILE_FAILED` · `SAVE_FAILED` · `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` · `PROMOTE_FAILED`(`promote_animation` — reason `CDO_REFERENCED` · `REGISTRY_LOADING` · `ENGINE_ABORTED` · `ENGINE` · `REDIRECTOR_LEFT` · `OLD_FILE_LEFT` · `DEST_MISSING` · `REFERENCES_NOT_UPDATED`, details.moved 에 이미 옮긴 것) |
+| 400 | `BAD_REQUEST`(`details.reason`/`field` — 생성 가드의 덮어쓰기 거부는 `OVERWRITE_NOT_ALLOWED`) · `CONNECTION_REJECTED` · `PROPERTY_NOT_ALLOWED` · `COMPILE_FAILED` · `SAVE_FAILED` · `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` · `PROMOTE_FAILED`(`promote_animation` — reason `CDO_REFERENCED` · `REGISTRY_LOADING` · `ENGINE_ABORTED` · `ENGINE` · `REDIRECTOR_LEFT` · `OLD_FILE_LEFT` · `DEST_MISSING` · `REFERENCES_NOT_UPDATED`, details.moved 에 이미 옮긴 것) · `CAPTURE_FAILED`(`capture_animation` — reason `NO_SCENE` · `RENDER_TARGET` · `READBACK` · `WRITE_FAILED` · `IMAGE_UNREADABLE` · `NO_POSE`) |
 | 401 | `UNAUTHORIZED` |
 | 403 | `ASSET_PROTECTED` · `OUTPUT_PATH_NOT_ALLOWED` · `IMPORT_SOURCE_NOT_ALLOWED` |
 | 404 | `TOOL_NOT_FOUND` · `ASSET_NOT_FOUND` · `GRAPH_NOT_FOUND` · `NODE_NOT_FOUND` · `PIN_NOT_FOUND` |
@@ -274,6 +281,7 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpGeneration       AI 애니 생성 공통 가드: [AnimGraphMcp] 생성 · 승격 경로 설정 · 출력/임포트 경로 검사 · 전역 더티 집합 비교(FDirtyGuard, 추가 허용 집합) ·
                                     새 애셋 객체 · 복제본(덮어쓰기 없음) · FinishWrite(검사 → 저장) · 기존 쓰기 Tool 의 옵트인 FWriteGuard(generation_guard)
             AnimMcpPromote          promote_animation — 사전 검사(경로 · 클래스 · 참조자 · 맵 · 더티 · 보호 · CDO) → RenameAssets → 사후 검증(리디렉터 · 파일 · 해시 · 참조 · 저장)
+            AnimMcpCapture          capture_animation — 임시 프리뷰 월드 · 범위(정점 상자) · 정사영 맞춤(FitView) · 셀 렌더 · 라벨 · 시트 · 비교 시트 · 연속 프레임 · 가드
             AnimMcpSkeletonInspector  스켈레톤 조회 · 기준 포즈 비교 · 템플릿 캐릭터라이즈(트랜지언트 IK Rig)
             AnimMcpAnimImport       Interchange FBX 임포트(파이프라인 트랜지언트 복제·안전 설정)
             AnimMcpRetargetAssets   IK Rig · 리타기터 생성(에디터 자동 리타깃 레시피) · 조회
@@ -288,12 +296,14 @@ Source/AnimGraphMcpEditor/Private/
                                      .Promote — 승격 경로 정규화(겹침 · 마운트 루트) · dest 규칙(후보 · 밖 · 보호 · 메모리 객체) · confirm · 후보 아닌 소스 · FDirtyGuard 추가 허용 집합 ·
                                      .WriteGuard — 쓰기 Tool 6개를 로컬 디스패처로 불러 꺼짐 = 기존 동작 · 켬 = 허용 목록 밖 · 덮어쓰기 거부 · 전역 더티 비교
             AnimMcpEditTests.cpp     AnimGraphMcp.Generation.Edit — 합성 리그로 op 수학(길이 · 키 대응 · 이음매 · 미러 두 번 = 원래 · 컴포넌트 축 회전)
+            AnimMcpCaptureTests.cpp  AnimGraphMcp.Generation.Capture — 카메라 맞춤 · 시트 축소 · 시각 펼치기 · 샘플 프레임(Blender 수식과 같은 값) · 캡처 출력 폴더 규칙
   Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음; Montage = 몽타주·스켈레톤 슬롯 4종 · Automation = run/poll + run_anim_scenario 사전 검증 ·
                                      Skeleton = reassign_skeleton(EditorAnimUtils::RetargetAnimations 제자리) + inspect_skeleton · Sequence = set_sequence_additive ·
                                      Import = import_animation_file · Retarget = create_ik_rig · create_ik_retargeter · retarget_animations ·
-                                     Validate = validate_animation · Search = search_animations · Edit = preview/apply_animation_edits · Promote = promote_animation)
+                                     Validate = validate_animation · Search = search_animations · Edit = preview/apply_animation_edits · Promote = promote_animation ·
+                                     Capture = capture_animation)
 ```
 
-AI 애니 생성 Tool 통합 테스트: `Tools/mcp/anim_gen_phase1_test.py`(섹션 inspect · guard · import · rig · validate · retarget · regression · dirty, 결과 요약 `anim_gen_phase1_state.json`) · `Tools/mcp/anim_gen_phase2_test.py`(섹션 hashes · search · unit · preview · guard · upper · ready · variant · mirror · notify · appendix · regression · dirty, 결과 요약 `anim_gen_phase2_state.json`) · `Tools/mcp/anim_gen_phase7_test.py`(섹션 hashes · plan · chain_bs · chain_montage · independent · guard · apply_mech · promote · dirty — 생성물 → 몽타주 / BlendSpace → AnimBP 복제본 연결과 `promote_animation` 실제 이동, 결과 요약 `anim_gen_phase7_state.json`). FBX 픽스처는 `Tools/scripts/anim_gen_export_fixture.py` 가 만든다.
+AI 애니 생성 Tool 통합 테스트: `Tools/mcp/anim_gen_phase1_test.py`(섹션 inspect · guard · import · rig · validate · retarget · regression · dirty, 결과 요약 `anim_gen_phase1_state.json`) · `Tools/mcp/anim_gen_phase2_test.py`(섹션 hashes · search · unit · preview · guard · upper · ready · variant · mirror · notify · appendix · regression · dirty, 결과 요약 `anim_gen_phase2_state.json`) · `Tools/mcp/anim_gen_phase7_test.py`(섹션 hashes · plan · chain_bs · chain_montage · independent · guard · apply_mech · promote · dirty — 생성물 → 몽타주 / BlendSpace → AnimBP 복제본 연결과 `promote_animation` 실제 이동, 결과 요약 `anim_gen_phase7_state.json`) · `Tools/mcp/anim_gen_phase8_2_test.py`(섹션 hashes · automation · tool · guard · existing · chain · dirty — `capture_animation` 직접 · 가드 · 기존 애셋과 소스 골격 비교 시트 · anim_gen Job, 결과 요약 `anim_gen_phase8_2_state.json`). FBX 픽스처는 `Tools/scripts/anim_gen_export_fixture.py` 가 만든다.
 
 규칙: Inspector 는 쓰지 않고, Mutator 는 트랜잭션 밖에서 호출되지 않습니다. 같은 `FJsonObject` 를 두 컨테이너에 넣지 않습니다(순환 → 직렬화 무한 재귀).

@@ -208,7 +208,8 @@ def section_hashes() -> None:
     STATE["content_before"] = content_changes()
     STATE["dirty_before"] = dirty_count()
     st = must(editor("get_editor_status"), "status")
-    check("promote_animation" in {t["name"] for t in st["tools"]} and len(st["tools"]) == 40, f"40 tools incl. promote_animation ({len(st['tools'])})")
+    # Phase 7 은 40개였다 — 뒤 Phase 가 Tool 을 더한다(8-2 capture_animation → 41)
+    check("promote_animation" in {t["name"] for t in st["tools"]} and len(st["tools"]) >= 40, f"≥ 40 tools incl. promote_animation ({len(st['tools'])})")
     check(st["generation"].get("promotion_paths") == ["/Game/Animation/Hero/"], f"promotion_paths {st['generation'].get('promotion_paths')}")
     print(f"   {len(HASHED)} files hashed · revisions {STATE['revisions']} · Content changes before {len(STATE['content_before'])} · dirty {STATE['dirty_before']}")
 

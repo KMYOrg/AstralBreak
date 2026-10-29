@@ -15,11 +15,13 @@
   지도     —지도마다 기준 본(몸통 = t 칸별 펠비스 · 척추 마디, 넓적다리 = 넓적다리, 머리 = 목 뿌리 · 머리, 손 = 손목, 아래팔 = 팔꿈치)에 붙어 강체로
              따라간다: 풀이 포즈의 점을 T원래(기준 본) · T풀이(기준 본)⁻¹ 로 되돌려 원래 지도에 묻는다. 기준 본이 안 움직이면 C++ 규칙 그대로.
   한 프레임 — 감쇠 GN(LM, μ 0.1 시작) ≤ 12 회 · 한 걸음 ≤ 8°(상한을 넘는 관절은 그 걸음만 상한까지), 후보 점 = 깊이 > −(margin + 3 cm).
-             목표가 있는 프레임은 두 번 푼다: x_T(목표 · keep · 충실도) → x(전부).
-  시간     — 관통 몫 Δ = x − x_T 만 가중 매끈화 스플라인(spline — 하드 잔차로 푼 프레임 가중 SPLINE_ACTIVE_WEIGHT · 그 밖 SPLINE_QUIET_WEIGHT,
-             2차 차분 벌점, 보정 구간 ± 2·폭 밖 0) → x_T + S(Δ). 원본이 루프(validate numeric.loop — C++ bLoop)면 순환(끝 프레임 = 첫 프레임 —
-             스플라인 · 재검사 받침이 감아 돌고 첫 · 끝 델타가 같다). 목표 몫은 완급(목표 자체를 smoothstep 으로 0 → 1)이라 매끈화하지 않는다(목표 구간 밖 변화 0), 목표 구간 안은
-             그 프레임 Δ 를 그대로 섞는다(목표가 관통에 막힌 되돌림이 이웃으로 번지지 않게).
+  시간     — 관통 몫 Δ 만 가중 매끈화 스플라인(spline — 하드 잔차로 푼 프레임 가중 SPLINE_ACTIVE_WEIGHT · 그 밖 SPLINE_QUIET_WEIGHT,
+             2차 차분 벌점, 보정 구간 ± 2·폭 밖 0) → S(Δ). 원본이 루프(validate numeric.loop — C++ bLoop)면 순환(끝 프레임 = 첫 프레임 —
+             스플라인 · 재검사 받침이 감아 돌고 첫 · 끝 델타가 같다).
+  지시 목표 — (가) 목표 없는 풀이(base — 목표 없는 Job 과 같은 코드 · 입력)를 먼저 끝내고, 완급 > 0 블록(구간 ± ease)만 base 를 출발점 · 기준으로
+             다시 푼다: 블록 밖 = base 그대로(구간 ± ease 밖 변화 0). 블록 안은 두 번 — x_T(목표 · keep · 충실도) → x(전부), 관통 몫 Δ = x − x_T 는
+             완급 ρ 만큼 그 프레임 값 · 나머지는 블록 안 스플라인(spline_block — 앞뒤 0 고정). 목표는 완급(목표 자체를
+             smootherstep 으로 0 → 1)이라 매끈화하지 않는다.
   재검사   — 하드 잔차가 남은 프레임만 그 값에서 다시(두 팔 함께) → 증분(± 1 프레임 받침)을 같은 스플라인(바깥 가중만
              SPLINE_RECHECK_QUIET_WEIGHT)으로 더한다(passes + EXTRA_PASSES).
              위반 프레임만 매끈화 없이 고치는 처음 판(보조 팔 따라가기 · 마무리)은 이웃과 끊겨 떨림을 만들었다(띠 정정 zigzag 1.05 → 4.7) — 남는 작은
@@ -287,6 +289,13 @@ def _smoothstep(x: float) -> float:
     return x * x * (3.0 - 2.0 * x)
 
 
+def _smootherstep(x: float) -> float:
+    """지시 목표 완급 — 양끝 가속도 0(C2): smoothstep 은 완급 끝에서 가속이 갑자기 0 이 되어 블록 끝 변화가 컸다(오프라인 T1 2.82 → 1.57 cm ·
+    T2 0.85 → 0.47, T1 목표 오차 p95 1.05 → 0.90 cm)."""
+    x = min(max(x, 0.0), 1.0)
+    return x * x * x * (x * (6.0 * x - 15.0) + 10.0)
+
+
 def _slerp(a, b, s: float):
     d = sum(x * y for x, y in zip(a, b))
     if d < 0.0:
@@ -335,6 +344,8 @@ SPLINE_QUIET_WEIGHT = 10.0    # 보정이 필요 없는 프레임(증분 0)의 �
 SPLINE_RECHECK_QUIET_WEIGHT = 1.0   # 재검사 증분을 이을 때의 같은 가중 — 재검사는 남은 1 ~ 3 프레임 위반의 작은 증분이라 10 이면 절반쯤 묽어져 패스가
                                     # 끝나도 못 풀었다(오프라인 걷기 손 → 넓적다리 1.7% · 4.44 cm · 달리기 1.3% · 2.47 cm → 1 이면 0, 손목 p50 +0.9 cm)
 SPLINE_LOOP_PAD = 8.0         # 루프 순환 — 앞뒤로 감아 붙이는 길이(폭의 배). 꼬리 감쇠 e^(−8/√2) ≈ 0.4% 라 감아 붙인 끝의 영향이 남지 않는다
+SPLINE_PIN_FRAMES = 2         # 지시 목표 블록 앞뒤에 붙이는 0 고정 프레임 — 2차 차분 벌점이 세 프레임을 묶으므로 둘이면 블록 밖(증분 0)과 위치 · 기울기가 이어진다
+SPLINE_PIN_WEIGHT = 1e6       # 그 고정 프레임의 자료 가중 — λ(폭 6 → 1296)보다 충분히 커 사실상 0 에 묶는다
 
 
 def spline(series: list, active: list[bool], radius: int, loop: bool = False, quiet: float | None = None) -> list:
@@ -364,8 +375,26 @@ def spline(series: list, active: list[bool], radius: int, loop: bool = False, qu
     return _spline_line(series, active, radius, quiet)
 
 
-def _spline_line(series: list, active: list[bool], radius: int, quiet: float | None) -> list:
-    """spline 의 열린 열 풀이(포락선 포함)."""
+def spline_block(series: list, active: list[bool], radius: int, pin_before: bool, pin_after: bool, quiet: float | None = None,
+                 whole_loop: bool = False) -> list:
+    """지시 목표 블록 안의 매끈화 — 블록 앞(pin_before) · 뒤(pin_after)에 SPLINE_PIN_FRAMES 프레임의 0 을 고정 가중으로 붙여 풀고 블록만 쓴다 →
+    블록 밖(목표 없는 해 — 증분 0)과 위치 · 기울기가 이어지고 꼬리가 블록 밖으로 새지 않는다(구간 ± ease 밖 변화 0). 블록이 루프 원 전체면
+    (whole_loop — 붙일 블록 밖이 없다) 순환 spline."""
+    n = len(series)
+    if radius <= 0 or n == 0:
+        return [tuple(v) for v in series]
+    if whole_loop:
+        return spline(list(series) + [series[0]], list(active) + [active[0]], radius, True, quiet)[:n]
+    a, b = (SPLINE_PIN_FRAMES if pin_before else 0), (SPLINE_PIN_FRAMES if pin_after else 0)
+    if n + a + b < 3:
+        return [tuple(v) for v in series]
+    zero = (0.0, 0.0, 0.0)
+    padded = [zero] * a + [tuple(v) for v in series] + [zero] * b
+    return _spline_line(padded, [False] * a + list(active) + [False] * b, radius, quiet, [True] * a + [False] * n + [True] * b)[a:a + n]
+
+
+def _spline_line(series: list, active: list[bool], radius: int, quiet: float | None, fixed: list[bool] | None = None) -> list:
+    """spline 의 열린 열 풀이(포락선 포함). fixed — 그 프레임 자료 가중을 SPLINE_PIN_WEIGHT 로(spline_block 의 0 고정)."""
     n = len(series)
     quiet = SPLINE_QUIET_WEIGHT if quiet is None else quiet
     near = [None] * n
@@ -382,6 +411,8 @@ def _spline_line(series: list, active: list[bool], radius: int, quiet: float | N
     env = [0.0 if d is None else 1.0 if d <= width else _smoothstep(1.0 - (d - width) / width) for d in near]
     lam = float(width) ** 4
     weight = [SPLINE_ACTIVE_WEIGHT if a else quiet for a in active]
+    if fixed is not None:
+        weight = [SPLINE_PIN_WEIGHT if x else w for w, x in zip(weight, fixed)]
     base = [[0.0] * 5 for _ in range(n)]   # base[i][k] = A(i, i + k − 2)
     for i in range(n):
         base[i][2] = weight[i]
@@ -658,37 +689,47 @@ def resolve_targets(rig: Rig, targets: list[dict], events: dict | None, joints: 
             if fa <= f <= fb:
                 ramp[f] = 1.0
             elif f < fa:
-                ramp[f] = _smoothstep((f - (fa - ease - 1)) / (ease + 1))
+                ramp[f] = _smootherstep((f - (fa - ease - 1)) / (ease + 1))
             else:
-                ramp[f] = _smoothstep(((fb + ease + 1) - f) / (ease + 1))
+                ramp[f] = _smootherstep(((fb + ease + 1) - f) / (ease + 1))
         kind, side, bone, dof = _effector(rig, t)
         item.update(window_s=[round(a, 4), round(b, 4)], frames=[fa, fb], ease_frames=ease, ramp=ramp, kind=kind, side=side, bone=bone,
                     bone_name=model.bones[bone], dof=dof)
-        pos, rot = t["position"], t["rotation"]
-        item["pos"], item["rot"], item["away"] = {}, {}, None
+        pos = t["position"]
+        item["away"] = None
         if pos and "away_from" in pos:
             center = _away_bone(rig, pos["away_from"])
             item["away"] = {"bone": center, "min_cm": float(pos["min_cm"])}
-        for f in range(n):
-            s = ramp[f]
-            if s <= 0.0:
-                continue
-            frame = rig.body_frame(f)
-            p0, q0 = model.poses[f][bone][1], model.poses[f][bone][0]
-            if pos and "offset_cm" in pos:
-                off = _body_vec(frame, pos["offset_cm"]) if pos["space"] == "body" else tuple(pos["offset_cm"])
-                item["pos"][f] = _add(p0, _scale(off, s))
-            elif pos and "absolute_cm" in pos:
-                full = _add(frame[0], _body_vec(frame, pos["absolute_cm"])) if pos["space"] == "body" else tuple(pos["absolute_cm"])
-                item["pos"][f] = _add(p0, _scale(_sub(full, p0), s))
-            if rot:
-                if rot["space"] == "body":
-                    full = bm.qnormalize(bm.qmul(_body_rot(frame, rot["offset_deg"]), q0))
-                else:
-                    full = bm.qnormalize(bm.qmul(q0, qexp(tuple(math.radians(v) for v in rot["offset_deg"]))))
-                item["rot"][f] = _slerp(q0, full, s)
+        _target_poses(rig, item, model.poses)
         out.append(item)
     return out
+
+
+def _target_poses(rig: Rig, item: dict, poses: list) -> None:
+    """완급 > 0 프레임마다 목표 위치 · 회전 — 오프셋 기준 = poses 의 본(resolve_targets = 원본, 풀이 = 목표 없는 해 — Solver._solve_targets).
+    item["pos"] · item["rot"] 을 새 사전으로 바꾼다(호출 쪽 사전을 건드리지 않는다)."""
+    t, bone, ramp = item["spec"], item["bone"], item["ramp"]
+    pos, rot = t["position"], t["rotation"]
+    out_pos, out_rot = {}, {}
+    for f in range(len(ramp)):
+        s = ramp[f]
+        if s <= 0.0:
+            continue
+        frame = rig.body_frame(f)
+        p0, q0 = poses[f][bone][1], poses[f][bone][0]
+        if pos and "offset_cm" in pos:
+            off = _body_vec(frame, pos["offset_cm"]) if pos["space"] == "body" else tuple(pos["offset_cm"])
+            out_pos[f] = _add(p0, _scale(off, s))
+        elif pos and "absolute_cm" in pos:
+            full = _add(frame[0], _body_vec(frame, pos["absolute_cm"])) if pos["space"] == "body" else tuple(pos["absolute_cm"])
+            out_pos[f] = _add(p0, _scale(_sub(full, p0), s))
+        if rot:
+            if rot["space"] == "body":
+                full = bm.qnormalize(bm.qmul(_body_rot(frame, rot["offset_deg"]), q0))
+            else:
+                full = bm.qnormalize(bm.qmul(q0, qexp(tuple(math.radians(v) for v in rot["offset_deg"]))))
+            out_rot[f] = _slerp(q0, full, s)
+    item["pos"], item["rot"] = out_pos, out_rot
 
 
 def _window_s(t: dict, events: dict | None) -> tuple[float, float]:
@@ -779,7 +820,8 @@ class Solver:
                      "wrist": math.radians(j["wrist_deg"]), "pelvis_cm": j["pelvis_cm"], "pelvis": math.radians(j["pelvis_deg"])}
         rig = self.rig
         self.grip = grip or {"weights": [0.0] * rig.frames, "lead": "r", "off": "l", "frames": []}
-        self.targets = [t for t in (targets or []) if not t.get("skipped")]
+        # 얕은 사본 — 풀이가 목표의 완급(루프 감아 돎) · 목표 자세(목표 없는 해 기준)를 새 값으로 바꾼다(호출 쪽 목록은 그대로)
+        self.targets = [dict(t) for t in (targets or []) if not t.get("skipped")]
         self.hands = bool(cfg["clearance"]["hands"]) and all(m in model.maps for m in HAND_MAPS)
         self.upper_mode = cfg["clearance"]["upper_arm"]
         # 관절 종류 · 상한 — 목표 사슬은 상한을 마디 수로 나눈다(합 ≤ 상한)
@@ -827,10 +869,11 @@ class Solver:
         self.keep_rel = {}
         for f in range(rig.frames):
             if g["weights"][f] > 0.0:
-                pose = model.poses[f]
-                lw, ow = pose[rig.arms[self.lead]["wrist"]], pose[rig.arms[self.off]["wrist"]]
-                palm = bm.transform_point(ow, self.palm_local)
-                self.keep_rel[f] = (bm.qrot(bm.qconj(lw[0]), _sub(palm, lw[1])), bm.qnormalize(bm.qmul(bm.qconj(lw[0]), ow[0])))
+                self.keep_rel[f] = self._keep_of(model.poses[f])
+        self.keep_orig = self.keep_rel   # keep_report 는 늘 원본 관계로 잰다(목표 블록은 keep_rel 을 목표 없는 해의 관계로 바꾼다)
+        # 목표 블록의 기준(_solve_targets) — 관통 바닥{(f, 점, 지도): 목표 없는 해의 깊이} · away 거리의 기준 자세. 목표 없는 풀이는 비어 있음 · 원본
+        self.floor: dict = {}
+        self.ref_poses = model.poses
         self.orig_upper_depth: dict = {}
         self.stats = {"frame_solves": 0, "evaluations": 0, "clamped": {}}
 
@@ -847,6 +890,25 @@ class Solver:
         c = _scale(acc, 1.0 / len(pts))
         q, t, _ = pose[wrist]
         return bm.qrot(bm.qconj(q), _sub(c, t))
+
+    def _keep_of(self, pose) -> tuple:
+        """보조 손바닥 점 · 회전의 주 손목 기준 상대 변환(keep 기준)."""
+        lw, ow = pose[self.rig.arms[self.lead]["wrist"]], pose[self.rig.arms[self.off]["wrist"]]
+        palm = bm.transform_point(ow, self.palm_local)
+        return bm.qrot(bm.qconj(lw[0]), _sub(palm, lw[1])), bm.qnormalize(bm.qmul(bm.qconj(lw[0]), ow[0]))
+
+    def _limit(self, f: int, i: int, name: str, upper: bool) -> float:
+        """팔 점 i 가 지도 name 에서 허용되는 깊이 — 위팔 = 원래 깊이(안 깊어짐) · 손끼리 = 맞닿음 · 몸 = body_allow, 목표 블록이면 목표 없는 해의
+        깊이(floor)보다 얕게 요구하지 않는다(목표는 관통을 base 보다 깊게 만들지 못하고, base 에 남은 한계는 다시 풀지 않는다)."""
+        if upper:
+            lim = max(self.orig_upper_depth.get((f, i, name), self.body_allow[name]), self.body_allow[name])
+        elif name in HAND_MAPS:
+            lim = self.hand_contact   # 손끼리는 맞닿음(≤ contact_cm)까지 정상 — 파지한 두 손을 떼지 않는다
+        else:
+            lim = self.body_allow[name]
+        if self.floor:
+            lim = max(lim, self.floor.get((f, i, name), lim))
+        return lim
 
     # ---- 프레임별 자유도 ----
     def _joints(self, f: int, only: set | None = None) -> list:
@@ -1013,12 +1075,7 @@ class Solver:
                     if hit is None:
                         continue
                     d, nrm, anc, t_bin = hit
-                    if upper:
-                        r = d - max(self.orig_upper_depth.get((f, i, name), self.body_allow[name]), self.body_allow[name])
-                    elif name in HAND_MAPS:
-                        r = d - self.hand_contact   # 손끼리는 맞닿음(≤ contact_cm)까지 정상 — 파지한 두 손을 떼지 않는다
-                    else:
-                        r = d - self.body_allow[name]
+                    r = d - self._limit(f, i, name, upper)
                     if r <= 0.0:
                         continue
                     info["clear"].append((i, name, d, t_bin, r))
@@ -1085,7 +1142,7 @@ class Solver:
                     rows3(e, [_scale(x, ROT_CM) for x in self._jac_rot(b, dofs)] if jac else None, w2)
                 if t["away"]:
                     c = pose[t["away"]["bone"]][1]
-                    d0 = _norm(_sub(model.poses[f][b][1], model.poses[f][t["away"]["bone"]][1]))
+                    d0 = _norm(_sub(self.ref_poses[f][b][1], self.ref_poses[f][t["away"]["bone"]][1]))
                     want = d0 + s * max(0.0, t["away"]["min_cm"] - d0)
                     v = _sub(pb[1], c)
                     dist = _norm(v)
@@ -1159,7 +1216,14 @@ class Solver:
         return rig.fk(f, state["rot"], state["trans"], over), info
 
     # ---- 한 프레임 ----
-    def _clamp(self, f: int, state: dict) -> None:
+    def _clamp(self, f: int, state: dict, count: bool = True) -> None:
+        """관절 상한 · 팔꿈치 굽힘 범위로 자른다 — count 면 잘린 관절을 stats.clamped 에 센다(JOINT_LIMIT 판정)."""
+        if not count:
+            saved = self.stats["clamped"]
+            self.stats["clamped"] = {}
+            self._clamp(f, state)
+            self.stats["clamped"] = saved
+            return
         for b, v in list(state["rot"].items()):
             kind = self.kind.get(b)
             if kind == "elbow":
@@ -1305,37 +1369,48 @@ class Solver:
 
     def run(self, log=None) -> dict:
         t0 = time.time()
-        rig, n = self.rig, self.rig.frames
+        if not self.targets:
+            state, passes = self._solve_states()
+            region = None
+        else:
+            # (가) 목표 없는 풀이(목표 없는 Job 과 같은 코드 · 입력 — cfg 는 targets 키만 다르고 풀이는 그 키를 읽지 않는다) → 완급 > 0 블록만 다시
+            base_solver = Solver(self.model, self.cfg, grip=self.grip, loop=self.loop)
+            base, passes = base_solver._solve_states()
+            state, region = self._solve_targets(base, [base_solver.pose(f, s)[0] for f, s in enumerate(base)])
+            for key in ("frame_solves", "evaluations"):
+                self.stats[key] += base_solver.stats[key]
+            for b, c in base_solver.stats["clamped"].items():
+                self.stats["clamped"][b] = self.stats["clamped"].get(b, 0) + c
+        if log:
+            log(f"body_fit: {self.rig.frames} frames · passes {passes} · {self.stats['frame_solves']} frame solves · {round(time.time() - t0, 1)} s"
+                + (f" · target blocks {region['blocks']} (passes {region['passes']})" if region else ""))
+        out = self._result(state, passes, time.time() - t0)
+        if region:
+            out["region"] = region
+        return out
+
+    def _solve_states(self) -> tuple[list, int]:
+        """목표 없는 풀이 — 프레임별 상태 · 패스 수."""
+        n = self.rig.frames
         zero = {"rot": {}, "trans": {}}
         radius = int(round(self.cfg["smooth_s"] * self.model.fps))
         cand = [self._candidates(f, self.model.poses[f]) for f in range(n)]
         base_anchor = [self._anchor_of(f, zero) for f in range(n)]
-        targeted = [any(t["ramp"][f] > 0.0 for t in self.targets) for f in range(n)]
-        # ---- 1 회: x_T(목표 · keep · 충실도) → x(전부) ----
-        x_t, x_full, active = [], [], []
-        prev_t = prev_full = None
+        # ---- 1 회: 위반 프레임만 풀이(앞 프레임 해에서 시작 — 이어진 위반 구간이 한 해를 따라간다) ----
+        x_full, active = [], []
+        prev_full = None
         for f in range(n):
-            if targeted[f]:
-                st, ev = self.solve_frame(f, prev_t or zero, {**base_anchor[f], "prev": prev_t}, {"keep", "lead", "wrist", "fid", "targets", "reach"}, cand[f])
-                prev_t = st
-            else:
-                st, prev_t = zero, None
-            x_t.append(st)
-            if targeted[f]:
-                # 목표가 손을 옮긴 곳의 점도 후보로(원래 포즈에서는 멀었던 점)
-                cand[f] = sorted(set(cand[f]) | set(self._candidates(f, self.pose(f, st)[0])))
-            need = self._violations(f, st, cand[f])
+            need = self._violations(f, zero, cand[f])
             if need["clear"] or need["keep"]:
-                start = prev_full if prev_full is not None else st
+                start = prev_full if prev_full is not None else zero
                 sf, _ = self.solve_frame(f, start, {**base_anchor[f], "prev": prev_full}, {"clear", "upper", "keep", "lead", "wrist", "fid", "targets", "reach"},
                                          cand[f])
                 prev_full = sf
             else:
-                sf, prev_full = st, None
+                sf, prev_full = zero, None
             x_full.append(sf)
-            active.append(sf is not st)
-        rho = [max((t["ramp"][f] for t in self.targets), default=0.0) for f in range(n)]
-        state = self._combine(x_t, [self._diff(a, b) for a, b in zip(x_full, x_t)], radius, rho, active, SPLINE_QUIET_WEIGHT)
+            active.append(sf is not zero)
+        state = self._combine([zero] * n, [self._diff(a, zero) for a in x_full], radius, active, SPLINE_QUIET_WEIGHT)
         passes = 1
         # ---- 재검사: 남은 하드 잔차가 있는 프레임만 그 값에서 다시(두 팔 함께 — 짝이 맞는다) → 증분도 스플라인으로 이어 붙인다 ----
         # (처음 판의 '보조 팔 따라가기' · '매끈화 없는 마무리'는 위반 프레임만 골라 다시 풀어 이웃과 끊겼다 — 띠 정정 떨림 1.05 → 4.7)
@@ -1362,10 +1437,174 @@ class Solver:
                     if not again[g] and self._size(incs[f]) > self._size(incs[g]):
                         incs[g] = incs[f]
                         active[g] = True
-            state = self._combine(state, incs, radius, rho, active, SPLINE_RECHECK_QUIET_WEIGHT)
-        if log:
-            log(f"body_fit: {n} frames · passes {passes} · {self.stats['frame_solves']} frame solves · {round(time.time() - t0, 1)} s")
-        return self._result(state, passes, time.time() - t0)
+            state = self._combine(state, incs, radius, active, SPLINE_RECHECK_QUIET_WEIGHT)
+        return state, passes
+
+    # ---- (가) 지시 목표 블록 ----
+    def _solve_targets(self, base: list, base_poses: list) -> tuple[list, dict]:
+        """목표 없는 해 base 를 그대로 두고 완급 > 0 블록만 다시 푼다 — 블록 밖 = base 복사(본 델타가 목표 없는 Job 과 같다 → 구간 ± ease 밖 변화 0).
+        블록 안의 기준 = base: 목표 오프셋(_target_poses) · 충실도(관절 · 손목 · 주 손 — anchor = base 상태 · 자세) · keep 상대 변환 · 관통 바닥
+        (_limit — max(허용, base 깊이)) · away 거리. 완급이 0 으로 갈수록 해가 base 로 수렴해 이음매가 이어진다(블록 앞뒤는 spline_block 의 0 고정).
+        x_T 는 base + 앞 프레임 목표 증분 × 완급 비에서, 관통 몫 x 는 앞 프레임의 관통 증분을 x_T 위에 이어 시작한다(블록 첫 프레임은 둘 다 base) — 지난 판은 앞 프레임
+        해로 시작하는 한 줄 사슬이 구간 끝의 다른 상태에서 출발해 구간 뒤 전체가 다른 국소 해로 갔다(T3 f47 23 cm · T4 머리 관통 10.6 cm). 관통 몫
+        Δ = x − x_T 는 _combine_block(ρ 섞기 · 블록 안 스플라인). 재검사도 블록 프레임만. → (상태, region 요약)."""
+        n = self.rig.frames
+        radius = int(round(self.cfg["smooth_s"] * self.model.fps))
+        if self.loop:
+            for t in self.targets:
+                t["ramp"] = self._wrap_ramp(t)
+        for t in self.targets:
+            _target_poses(self.rig, t, base_poses)
+        self.ref_poses = base_poses
+        blocks = self._blocks()
+        frames = [f for blk, _, _ in blocks for f in blk]
+        anchor = {f: {"rot": dict(base[f]["rot"]), "trans": dict(base[f]["trans"]), "pose": base_poses[f]} for f in frames}
+        # 기준 바꾸기 — keep 상대 변환 · 관통 바닥(원래 위팔 깊이를 먼저 채운다)
+        self.keep_rel = dict(self.keep_orig)
+        cand = {}
+        for f in frames:
+            if f in self.keep_orig:
+                self.keep_rel[f] = self._keep_of(base_poses[f])
+            cand[f] = sorted(set(self._candidates(f, self.model.poses[f])) | set(self._candidates(f, base_poses[f])))
+        self.floor = {}
+        for f in frames:
+            pose = base_poses[f]
+            for i in self.arm_points:
+                pt = self.points[i]
+                p = self.model.skin(pose, pt)
+                for name in self._maps_for(pt["side"]):
+                    hit = self.probe(name, f, p, pose)
+                    if hit is not None and hit[0] > self._limit(f, i, name, pt["part"] == "upper_arm"):
+                        self.floor[(f, i, name)] = hit[0]
+        state = [self._copy(s) for s in base]
+        fam_t = {"keep", "lead", "wrist", "fid", "targets", "reach"}
+        fam = {"clear", "upper", "keep", "lead", "wrist", "fid", "targets", "reach"}
+        solves0 = self.stats["frame_solves"]
+        # ---- 1 회: 블록마다 x_T(목표 · keep · 충실도) → 위반이면 x(전부) — 관통 몫 사슬 = 앞 프레임 증분을 x_T 위에 ----
+        # x_T 는 base + 앞 프레임 목표 증분 × 완급 비(ρ_f / ρ_f−1)에서 시작하고 시간 연속 항을 두지 않는다 — 관통 활성 집합이 없어 프레임마다 다른 해로
+        # 뛰지 않는다. 앞 프레임 증분 그대로 시작하면 LM(≤ 12 회)이 base 쪽으로 다 돌아오지 못하고, 시간 연속 항은 앞 프레임 증분 쪽으로 당겨, 완급이
+        # 줄어도 증분이 남았다(T4 f13 완급 0.10 에 4.98 cm · 비용 2270 — base 시작이면 1.39 cm · 102, 합성 블록 끝 2.79 → 1.22 cm). base 에서만 시작하면
+        # 유지 구간의 목표가 관절 상한에 걸린 다른 국소 해로 갔다(합성 목표 오차 0.34 → 1.38 cm). 시간 연속은 관통 몫(x)에만
+        rho = [max((t["ramp"][f] for t in self.targets), default=0.0) for f in range(n)]
+        for blk, pin_a, pin_b in blocks:
+            x_t, incs, active = [], [], []
+            d_t = d_full = None
+            for k, f in enumerate(blk):
+                start = base[f]
+                if d_t is not None:
+                    start = self._plus(base[f], self._scaled(d_t, rho[f] / rho[blk[k - 1]]))
+                    self._clamp(f, start, count=False)
+                st, _ = self.solve_frame(f, start, {**anchor[f], "prev": None}, fam_t, cand[f])
+                d_t = self._diff(st, base[f])
+                # 목표가 손을 옮긴 곳의 점도 후보로(원래 · base 자세에서는 멀었던 점)
+                cand[f] = sorted(set(cand[f]) | set(self._candidates(f, self.pose(f, st)[0])))
+                need = self._violations(f, st, cand[f])
+                if need["clear"] or need["keep"]:
+                    carried = None
+                    if d_full is not None:
+                        carried = self._plus(st, d_full)
+                        self._clamp(f, carried, count=False)
+                    sf, _ = self.solve_frame(f, carried or st, {**anchor[f], "prev": carried}, fam, cand[f])
+                    d_full = self._diff(sf, st)
+                else:
+                    sf, d_full = st, None
+                x_t.append(st)
+                incs.append(self._diff(sf, st))
+                active.append(sf is not st)
+            for f, s in zip(blk, self._combine_block(blk, x_t, incs, radius, active, SPLINE_QUIET_WEIGHT, pin_a, pin_b)):
+                state[f] = s
+        if self.loop:
+            state[-1] = self._copy(state[0])
+        # ---- 재검사: 블록 프레임만(증분도 블록 안 스플라인 · ±1 받침도 블록 안) ----
+        passes = 1
+        for _ in range(self.cfg["passes"] - 1 + EXTRA_PASSES):
+            any_again = False
+            for blk, pin_a, pin_b in blocks:
+                incs, again = [], []
+                for f in blk:
+                    cand[f] = sorted(set(cand[f]) | set(self._candidates(f, self.pose(f, state[f])[0])))
+                    v = self._violations(f, state[f], cand[f])
+                    again.append(bool(v["clear"] or v["keep"]))
+                    if again[-1]:
+                        sf, _ = self.solve_frame(f, state[f], {**self._anchor_of(f, state[f]), "prev": self._prev_state(state, f)}, fam, cand[f])
+                        incs.append(self._diff(sf, state[f]))
+                    else:
+                        incs.append({"rot": {}, "trans": {}})
+                if not any(again):
+                    continue
+                any_again = True
+                active = list(again)
+                for k in [k for k in range(len(blk)) if again[k]]:
+                    for g in (k - 1, k + 1):
+                        if 0 <= g < len(blk) and not again[g] and self._size(incs[k]) > self._size(incs[g]):
+                            incs[g] = incs[k]
+                            active[g] = True
+                for f, s in zip(blk, self._combine_block(blk, [state[f] for f in blk], incs, radius, active, SPLINE_RECHECK_QUIET_WEIGHT, pin_a, pin_b)):
+                    state[f] = s
+            if not any_again:
+                break
+            passes += 1
+            if self.loop:
+                state[-1] = self._copy(state[0])
+        return state, {"blocks": [[blk[0], blk[-1]] for blk, _, _ in blocks], "passes": passes, "frame_solves": self.stats["frame_solves"] - solves0}
+
+    def _wrap_ramp(self, t: dict) -> list:
+        """루프 원본 — 완급을 감아 돈다(첫 프레임 근처 목표의 ease 가 끝 프레임 쪽으로, 끝 프레임 = 첫 프레임). resolve_targets 의 같은 smootherstep."""
+        n = self.rig.frames
+        m = n - 1
+        fa, fb = t["frames"]
+        ease = t["ease_frames"]
+        ramp = [0.0] * n
+        for k in range(fa - ease, fb + ease + 1):
+            if fa <= k <= fb:
+                v = 1.0
+            elif k < fa:
+                v = _smootherstep((k - (fa - ease - 1)) / (ease + 1))
+            else:
+                v = _smootherstep(((fb + ease + 1) - k) / (ease + 1))
+            ramp[k % m] = max(ramp[k % m], v)
+        ramp[n - 1] = ramp[0]
+        return ramp
+
+    def _blocks(self) -> list:
+        """완급 > 0 인 이어진 프레임 묶음 → [(프레임(시간 순), 앞에 블록 밖 프레임이 있나, 뒤에 있나)]. 루프면 끝 프레임(= 첫)을 빼고 감아 돈다."""
+        n = self.rig.frames
+        m = n - 1 if self.loop else n
+        on = [any(t["ramp"][f] > 0.0 for t in self.targets) for f in range(m)]
+        if not any(on):
+            return []
+        if all(on):
+            return [(list(range(m)), False, False)]
+        runs, f = [], 0
+        while f < m:
+            if on[f]:
+                a = f
+                while f < m and on[f]:
+                    f += 1
+                runs.append(list(range(a, f)))
+            else:
+                f += 1
+        if self.loop and len(runs) > 1 and on[0] and on[m - 1]:
+            runs[0] = runs.pop() + runs[0]
+        return [(r, True, True) if self.loop else (r, r[0] > 0, r[-1] < n - 1) for r in runs]
+
+    def _prev_state(self, state: list, f: int):
+        """앞 프레임 상태(시간 연속 기준) — 루프면 0 의 앞 = n−2."""
+        if f:
+            return state[f - 1]
+        return state[self.rig.frames - 2] if self.loop else None
+
+    @staticmethod
+    def _scaled(d: dict, k: float) -> dict:
+        return {key: {j: _scale(v, k) for j, v in d[key].items()} for key in ("rot", "trans")}
+
+    @staticmethod
+    def _plus(a: dict, d: dict | None) -> dict:
+        out = Solver._copy(a)
+        for key in ("rot", "trans"):
+            for j, v in (d or {}).get(key, {}).items():
+                out[key][j] = _add(out[key].get(j, (0.0, 0.0, 0.0)), v)
+        return out
 
     def _neighbors(self, f: int, n: int) -> list:
         """±1 프레임 — 루프면 감아 돈다(끝 프레임 = 첫 프레임: 0 · n−1 의 이웃 = n−2 · 1)."""
@@ -1391,24 +1630,42 @@ class Solver:
                     out[key][j] = d
         return out
 
-    def _combine(self, base: list, incs: list, radius: int, rho: list, active: list[bool], quiet: float) -> list:
-        """base + 증분 — 목표 구간 밖은 매끈화 S((1 − ρ)·증분), 안(완급 ρ)은 그 프레임 증분 그대로: (1 − ρ)·S + ρ·증분(목표가 관통에 막힌 구간의
-        되돌림(T4)이 이웃으로 번지지 않는다). S = 관절 · 성분별 가중 매끈화 스플라인(spline — active = 하드 잔차로 푼 프레임). 끝에 상한.
-        루프면 스플라인이 순환이고 끝 프레임 = 첫 프레임 상태(같은 시점 — 목표가 끝 프레임에만 걸려도 첫 프레임 쪽 해를 쓴다)."""
+    def _combine(self, base: list, incs: list, radius: int, active: list[bool], quiet: float) -> list:
+        """base + S(증분) — S = 관절 · 성분별 가중 매끈화 스플라인(spline — active = 하드 잔차로 푼 프레임). 끝에 상한.
+        루프면 스플라인이 순환이고 끝 프레임 = 첫 프레임 상태(같은 시점)."""
         n = len(base)
         out = [self._copy(s) for s in base]
         joints = {(key, j) for d in incs for key in ("rot", "trans") for j in d[key]}
         for key, j in joints:
-            raw = [d[key].get(j, (0.0, 0.0, 0.0)) for d in incs]
-            sm = spline([_scale(v, 1.0 - rho[f]) for f, v in enumerate(raw)], active, radius, self.loop, quiet)
+            sm = spline([d[key].get(j, (0.0, 0.0, 0.0)) for d in incs], active, radius, self.loop, quiet)
             for f in range(n):
-                v = _add(_scale(sm[f], 1.0 - rho[f]), _scale(raw[f], rho[f]))
+                v = sm[f]
                 if _norm(v) > 1e-12:
                     out[f][key][j] = _add(out[f][key].get(j, (0.0, 0.0, 0.0)), v)
         for f in range(n):
             self._clamp(f, out[f])
         if self.loop:
             out[-1] = self._copy(out[0])
+        return out
+
+    def _combine_block(self, frames: list, base: list, incs: list, radius: int, active: list[bool], quiet: float, pin_a: bool, pin_b: bool) -> list:
+        """목표 블록의 base + 증분 — 완급 ρ 만큼 그 프레임 증분, 나머지는 블록 안 매끈화: (1 − ρ)·S_E((1 − ρ)·증분) + ρ·증분. S_E = spline_block
+        (블록 앞뒤 0 고정 — 블록 밖으로 새지 않는다). 전부 S_E 로 이으면 짧은 블록 가장자리(완급 0.5 근처)의 재검사 증분이 0 고정에 눌려 관통이 남았다
+        (합성 몸 쪽 목표 2.0 cm > 맞닿음 0.95 — ρ 섞기는 1.03). 그 프레임 몫도 반경 2 로 약하게 이으면 오프라인 T4 떨림은 1.82 → 1.21 이었지만 짧은
+        블록에서 막힌 목표의 되돌림이 번져 완급 프레임 관통 0.6 cm 가 남아(합성) 쓰지 않는다. 끝에 상한. → 블록 프레임 상태 목록."""
+        rho = [max((t["ramp"][f] for t in self.targets), default=0.0) for f in frames]
+        out = [self._copy(s) for s in base]
+        whole = self.loop and len(frames) == self.rig.frames - 1
+        joints = {(key, j) for d in incs for key in ("rot", "trans") for j in d[key]}
+        for key, j in joints:
+            raw = [d[key].get(j, (0.0, 0.0, 0.0)) for d in incs]
+            sm = spline_block([_scale(v, 1.0 - rho[k]) for k, v in enumerate(raw)], active, radius, pin_a, pin_b, quiet, whole)
+            for k in range(len(frames)):
+                v = _add(_scale(sm[k], 1.0 - rho[k]), _scale(raw[k], rho[k]))
+                if _norm(v) > 1e-12:
+                    out[k][key][j] = _add(out[k][key].get(j, (0.0, 0.0, 0.0)), v)
+        for k, f in enumerate(frames):
+            self._clamp(f, out[k])
         return out
 
     # ---- 결과 ----
@@ -1467,7 +1724,7 @@ class Solver:
     def keep_report(self, poses: list) -> dict:
         rig = self.rig
         pos, deg = [], []
-        for f, (rel_p, rel_q) in self.keep_rel.items():
+        for f, (rel_p, rel_q) in self.keep_orig.items():
             if self.grip["weights"][f] < 1.0:
                 continue
             lw, ow = poses[f][rig.arms[self.lead]["wrist"]], poses[f][rig.arms[self.off]["wrist"]]

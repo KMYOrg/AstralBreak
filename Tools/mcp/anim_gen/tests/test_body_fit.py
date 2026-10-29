@@ -314,3 +314,101 @@ def test_unknown_effector_is_a_request_error():
     with pytest.raises(bf.BodyFitError) as exc:
         bf.resolve_targets(bf.Rig(model), cfg["targets"], None, cfg["joints"])
     assert exc.value.reason == "UNKNOWN_EFFECTOR"
+
+
+# ---- (가) 목표 블록 — 목표 없는 해 위에서 완급 > 0 프레임만 ----
+def with_and_without(frames, cfg, loop=False):
+    """같은 모델 · 같은 cfg(targets 만 다름)로 목표 있는 풀이와 없는 풀이(= 목표 없는 Job)."""
+    model, res, _ = solve(frames, cfg, loop=loop)
+    _, base, _ = solve(frames, {**cfg, "targets": []}, loop=loop)
+    return model, res, base
+
+
+def moved_from(res: dict, base: dict, f: int) -> float:
+    return max(bm._norm(bm._sub(a[1], b[1])) for a, b in zip(res["poses"][f], base["poses"][f]))
+
+
+# 왼팔이 f7 ~ 32 내내 몸통에 들어가는 동작(목표 없는 풀이가 구간 앞뒤로 쭉 고친다) + 그 한가운데 왼손 목표 — 지난 판은 사슬 · 매끈화가 구간 밖까지 바꿨다
+LONG_INTO = dict(n=40, lo=12, hi=27, ramp=5)
+
+
+def test_target_leaves_the_no_target_solve_outside_its_ramp():
+    cfg = target(effector="hand_l", at={"window": [0.6, 0.7]}, position={"offset_cm": [6, 0, 4]})
+    model, res, base = with_and_without(fx.bump({}, fx.into_body(18.0), **LONG_INTO), cfg)
+    assert res["region"]["blocks"] == [[15, 24]] and base["deltas"]["frames_changed"] == 40
+    outside = [f for f in range(40) if not 15 <= f <= 24]
+    assert all(res["state"][f] == base["state"][f] and res["poses"][f] == base["poses"][f] for f in outside)
+    rows = lambda r: {b["bone"]: b["rotation_deg"] for b in r["deltas"]["bones"]}  # noqa: E731
+    a, b = rows(res), rows(base)
+    assert all(a[k][f] == b[k][f] for k in b for f in outside)
+    assert res["targets"][0]["reached"] and max(moved_from(res, base, f) for f in range(18, 22)) > 4.0
+
+
+def test_target_block_joins_the_no_target_solve_smoothly():
+    # 블록 첫 · 끝 프레임의 변화는 완급(smootherstep — ease 3 이면 0.10)만큼 — 이음매에서 목표 없는 해로 이어진다
+    cfg = target(effector="hand_l", at={"window": [0.6, 0.7]}, position={"offset_cm": [6, 0, 4]})
+    model, res, base = with_and_without(fx.bump({}, fx.into_body(18.0), **LONG_INTO), cfg)
+    d = [moved_from(res, base, f) for f in range(40)]
+    peak = max(d)
+    assert d[14] == 0.0 and d[25] == 0.0 and d[15] <= 0.2 * peak and d[24] <= 0.2 * peak
+    assert all(d[f] <= d[f + 1] + 0.3 for f in range(15, 18)) and all(d[f] >= d[f + 1] - 0.3 for f in range(21, 24))
+
+
+def test_target_chain_starts_from_the_no_target_state(monkeypatch):
+    # 블록 첫 프레임의 목표 풀이(x_T)는 목표 없는 해(그 프레임 상태)에서 출발하고, x_T 는 시간 연속 항이 없다 — 지난 판은 앞 프레임 해로 시작하는 한 줄
+    # 사슬이 구간 끝의 다른 상태에서 출발해 뒤쪽 전체가 다른 국소 해로 갔다(T3 · T4)
+    cfg = target(effector="hand_l", at={"window": [0.6, 0.7]}, position={"offset_cm": [6, 0, 4]})
+    frames = fx.bump({}, fx.into_body(18.0), **LONG_INTO)
+    _, base, _ = solve(frames, {**cfg, "targets": []})
+    calls = []
+    real = bf.Solver.solve_frame
+
+    def spy(self, f, start, anchor, families, points, only=None):
+        if self.targets and "clear" not in families:
+            calls.append((f, bf.Solver._copy(start), anchor.get("prev")))
+        return real(self, f, start, anchor, families, points, only)
+
+    monkeypatch.setattr(bf.Solver, "solve_frame", spy)
+    solve(frames, cfg)
+    assert [c[0] for c in calls] == list(range(15, 25)) and base["state"][15]["rot"]
+    assert calls[0][1] == base["state"][15] and all(prev is None for _, _, prev in calls)
+
+
+def test_target_block_does_not_resolve_what_the_no_target_solve_left():
+    # 관절 상한 0 이라 목표 없는 풀이가 관통을 못 푼 동작 — 목표 블록은 그 깊이를 바닥으로 삼는다(목표가 더 깊게 만들지 못하고, 남은 한계를 다시 풀지 않는다)
+    raw = {"joints": {"clavicle_deg": 0.0, "upper_arm_deg": 0.0, "elbow_deg": 0.0},
+           "targets": [{"id": "t", "effector": "spine_05", "at": {"window": [0.4, 0.5]}, "ease_s": 0.1, "rotation": {"offset_deg": [0, 3, 0]}}]}
+    frames = fx.bump({}, fx.into_body(18.0))
+    model = bm.BodyModel(fx.make_model(frames))
+    cfg = bf.normalize(raw)
+    rig = bf.Rig(model)
+    grip = bf.grip_weights(rig, cfg["grip"], model.scale)
+    s = bf.Solver(model, cfg, grip=grip, targets=bf.resolve_targets(rig, cfg["targets"], None, cfg["joints"]))
+    res = s.run()
+    plain = bf.Solver(model, {**cfg, "targets": []}, grip=grip)
+    base, _ = plain._solve_states()
+    block = range(res["region"]["blocks"][0][0], res["region"]["blocks"][0][1] + 1)
+    assert s.floor and all(plain._violations(f, base[f], plain.arm_points)["clear"] for f in block)
+    assert not any(s._violations(f, base[f], s.arm_points)["clear"] for f in block)
+
+
+def test_loop_target_at_the_seam_wraps_around():
+    # 루프(끝 프레임 = 첫 프레임) · 관통이 이음매를 걸친 동작 + 첫 프레임 목표 — 완급이 끝 쪽으로 감아 돌아 블록 = f27 ~ 29 · 0 ~ 5, 첫 = 끝,
+    # 블록 밖은 목표 없는 루프 풀이 그대로
+    n = 31
+    frames = [fx.blend({}, fx.into_body(18.0), max(0.0, 1.0 - min((f - 28) % 30, (28 - f) % 30) / 5.0)) for f in range(n)]
+    cfg = target(effector="hand_r", at={"window": [0.0, 0.05]}, position={"offset_cm": [5, 0, 0]})
+    model, res, base = with_and_without(frames, cfg, loop=True)
+    assert res["region"]["blocks"] == [[27, 5]] and res["loop"] == {"on": True, "seam_deg": 0.0} and res["state"][0] == res["state"][-1]
+    assert all(res["state"][f] == base["state"][f] for f in range(6, 27))
+    assert moved_from(res, base, 29) > 0.1 and moved_from(res, base, 0) > moved_from(res, base, 28)
+
+
+def test_spline_block_is_pinned_to_zero_outside():
+    # 블록 앞뒤 0 고정 — 블록 끝 값이 고정 없는 열보다 작고(0 쪽으로 이어진다), 고정이 없는 쪽(클립 시작)은 그대로 풀린다
+    series, active = [(0.0, 0.0, 1.0)] * 10, [True] * 10
+    pinned = bf.spline_block(series, active, 4, True, True)
+    free = bf.spline_block(series, active, 4, False, False)
+    assert pinned[0][2] < 0.5 * free[0][2] and pinned[-1][2] < 0.5 * free[-1][2] and pinned[5][2] > pinned[0][2]
+    half = bf.spline_block(series, active, 4, False, True)
+    assert half[0][2] == pytest.approx(free[0][2], abs=0.2) and half[-1][2] < 0.5 * free[-1][2]

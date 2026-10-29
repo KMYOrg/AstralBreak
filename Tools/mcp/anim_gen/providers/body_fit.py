@@ -276,6 +276,8 @@ class BodyFitPipe(Provider):
                                 "outside_max": round(max((m for f, m in enumerate(solved["moved_cm"]) if not any(abs(f - c) <= 2 * radius for c in changed)),
                                                          default=0.0), 3)},
             "passes": solved["passes"], "stats": solved["stats"], "targets": solved["targets"],
+            # 지시 목표 블록(완급 > 0 — 그 밖은 목표 없는 해 그대로) · 블록 재검사 패스 · 블록 풀이 수. 목표 없으면 None
+            "target_region": solved.get("region"),
             # 루프 이음매 — 풀이의 첫 · 끝 델타 차(°, 루프면 0) · C++ 첫 · 끝 포즈 차(전 → 후)
             "loop": {"source": loop, "seam_deg": solved["loop"]["seam_deg"],
                      "boundary_max_deg": [before.get("loop_boundary_max_deg"), after.get("loop_boundary_max_deg")]},

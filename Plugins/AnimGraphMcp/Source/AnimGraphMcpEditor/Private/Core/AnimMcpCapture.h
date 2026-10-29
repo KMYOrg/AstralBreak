@@ -21,6 +21,11 @@ struct FAnimMcpError;
  *   USceneCaptureComponent2D(정사영, FinalColorLDR, ShowOnly) → 트랜지언트 렌더 타깃 → 픽셀 → PNG. Lumen · 반사 · TAA · 모션 블러 · 블룸 ·
  *   자동 노출을 끄고 노출을 고정해 같은 입력이면 같은 픽셀을 노린다(supersample 배로 그린 뒤 줄여 계단 완화).
  *   애셋을 만들지 않는다 — 호출 전후 전역 더티 집합이 같아야 한다(새 더티가 있으면 UNEXPECTED_DIRTY). 파일은 CaptureOutputRoots 아래 새 폴더에만.
+ *
+ * 부착물 (attachments — Phase 8-4a): 무기 같은 메시(스켈레탈 = 기준 포즈 · 스태틱)를 소켓 또는 본에 붙여 함께 찍는다 —
+ *   AttachToComponent(KeepRelative) + 상대 변환 = offset. 소켓 자식 변환은 포즈 평가가 갱신하고(USkeletalMeshComponent::FinalizeAnimationUpdate —
+ *   PhysAnim.cpp:468-485) 포즈마다 UpdateComponentToWorld 로 한 번 더 맞춘 뒤 렌더 상태를 다시 만든다. 범위(카메라)에 부착물 정점 상자도 넣는다.
+ *   게임 무기 배치(소켓 × 계열 AttachTransform × 변형 AttachOffset)는 호출자가 offset 하나로 합성해 준다 — 플러그인은 장비 데이터를 모른다.
  */
 namespace AnimMcpCapture
 {
@@ -71,6 +76,9 @@ namespace AnimMcpCapture
 
 	/** 범위 샘플 프레임 — 상한 Cap 개를 고르게 + 끝 + Extra, 정렬 · 중복 없음 (review_render.py sample_frames) */
 	TArray<int32> SampleFrames(int32 First, int32 Last, int32 Cap, const TArray<int32>& Extra);
+
+	/** attachments[].offset {location?[x,y,z], rotation?[pitch, yaw, roll], scale?[x,y,z]} → 상대 변환. 형식 오류면 false + 이유 */
+	bool ParseOffset(const TSharedPtr<FJsonObject>& Object, FTransform& Out, FString& OutWhy);
 
 	/** capture_animation 본체 — 인자 해석 · 장면 · 범위 · 행 캡처 · 시트 · 비교 시트 · 연속 프레임 · 가드 */
 	TSharedPtr<FJsonObject> Capture(FAnimMcpContext& Context, FAnimMcpError& OutError);

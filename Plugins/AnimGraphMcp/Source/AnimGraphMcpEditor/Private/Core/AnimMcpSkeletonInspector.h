@@ -34,9 +34,17 @@ namespace AnimMcpSkeletonInspector
 		USkeleton* CompareTo = nullptr;
 		/** 손가락 체인 제안(AnimMcpFingerChains::Suggest — 손은 메시 템플릿 체인의 팔 짝, 없으면 위상)을 finger_chain_suggestion 으로 — 측정이 아닌 제안이라 요청할 때만 */
 		bool bSuggestFingerChains = false;
+		/** 메시 기하(geometry{bounds, centroid, principal_axes, slices, per_bone}) — 무기 손잡이 축 근거(Phase 8-4a). 측정값이지만 무거워서 요청할 때만 */
+		bool bGeometry = false;
 	};
 
 	TSharedRef<FJsonObject> Inspect(const FInspectParams& Params);
+
+	/**
+	 * 메시 LOD0 정점(기준 포즈 컴포넌트 공간)의 범위 · 평균 · 주축 3개(분산 큰 순 — 축 · 평균 기준 범위 · 길이) · 첫 주축을 24 칸으로 자른 단면
+	 * (칸마다 정점 수 · 둘째 · 셋째 축 폭 — 손잡이 = 가는 구간) · 가장 큰 가중치 본별 정점 수 · 범위. 메시가 없으면 {skipped_reason}
+	 */
+	TSharedRef<FJsonObject> DescribeGeometry(const USkeletalMesh* Mesh);
 
 	/** [{name, parent}] (raw 본, 인덱스 순) — create_ik_rig 의 IKRIG_AUTO_FAILED details.bones[] 와 같은 모양 */
 	TArray<TSharedPtr<FJsonValue>> DescribeBones(const FReferenceSkeleton& RefSkeleton, bool bDetails);

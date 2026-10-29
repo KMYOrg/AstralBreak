@@ -276,10 +276,12 @@ def test_list_motion_providers_reports_state_without_key_values(service, monkeyp
     env = service.list_motion_providers()
     assert env["ok"] and "sk-SENTINEL-LIST" not in str(env)
     providers = {p["name"]: p for p in env["result"]["providers"]}
+    # Phase 8-4b — control_rig 비활성 자리 → body_fit 파이프(기대된 변화 — Provider 수 10 그대로)
     assert set(providers) == {"retarget", "existing_motion", "direct_key", "blender", "local_ai", "external.meshy", "package", "anim_bp", "review",
-                              "control_rig"}
+                              "body_fit"}
     assert providers["package"]["role"] == providers["anim_bp"]["role"] == "pipe"  # Phase 7 — 포장 · AnimBP 연결 파이프
     assert providers["review"]["role"] == "pipe" and providers["review"]["state"]["available"]  # Phase 8-2 — 대상 메시 캡처 파이프
+    assert providers["body_fit"]["role"] == "pipe" and providers["body_fit"]["state"]["available"]  # Phase 8-4b — 몸 전체 한 풀이 파이프
     assert providers["external.meshy"]["state"]["auth"] == {"env": "MESHY_API_KEY", "present": True}
     # Phase 6: 구현 · 키 있음 → 사용 가능(유료 차단은 정책 · 승인 게이트의 몫). 크레딧은 공식 가격, 돈 값은 정책이 비어 미확인
     assert providers["external.meshy"]["pricing"] == "unconfirmed"
@@ -287,13 +289,12 @@ def test_list_motion_providers_reports_state_without_key_values(service, monkeyp
     assert meshy["state"]["implemented"] and meshy["state"]["available"] and meshy["capabilities"]["license"] == "ok"
     assert meshy["capabilities"]["pricing"]["credits"] == {"prime": 10, "swift": 3} and meshy["capabilities"]["max_duration_seconds"] == 10
     assert providers["retarget"]["role"] == "pipe" and providers["existing_motion"]["state"]["available"]
-    assert providers["control_rig"]["state"]["unavailable_reason"]["reason"] == "NOT_IMPLEMENTED"
     # Phase 4 · 5: 구현됐지만 정책의 실행 파일이 없다(conftest 가 없는 경로를 준다)
     for name in ("blender", "local_ai"):
         assert providers[name]["state"]["implemented"] and providers[name]["state"]["unavailable_reason"]["reason"] == "NOT_INSTALLED"
     assert providers["local_ai"]["capabilities"]["license"] == "ok" and providers["local_ai"]["capabilities"]["max_duration_seconds"] == 10
     assert {p["name"] for p in service.list_motion_providers(include_inactive=False)["result"]["providers"]} == {
-        "retarget", "existing_motion", "direct_key", "external.meshy", "package", "anim_bp", "review"}
+        "retarget", "existing_motion", "direct_key", "external.meshy", "package", "anim_bp", "review", "body_fit"}
     monkeypatch.delenv("MESHY_API_KEY")
     meshy = {p["name"]: p for p in service.list_motion_providers()["result"]["providers"]}["external.meshy"]
     assert meshy["state"]["unavailable_reason"] == {"cause": "AUTHENTICATION_FAILED", "reason": "API_KEY_MISSING"}

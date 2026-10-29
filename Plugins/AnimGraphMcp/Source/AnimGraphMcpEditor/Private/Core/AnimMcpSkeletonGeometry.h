@@ -74,4 +74,10 @@ namespace AnimMcpSkeletonGeometry
 
 	/** 기준 포즈 정면(수평 단위 벡터) — 발 영역 수평 벡터 합. 발 영역 선분이 없거나 합이 0 이면 false */
 	bool FeetFacing(const FTree& Tree, FVector& OutFacing);
+
+	/**
+	 * 점 구름의 주축 (inspect_skeleton geometry — Phase 8-4a, 무기 손잡이 축 근거) — 평균 · 공분산 고윳값(큰 순) · 단위 고유벡터(대칭 3×3 야코비,
+	 * 부호 = 절댓값이 가장 큰 성분이 +). 점이 없으면 false
+	 */
+	bool PrincipalAxes(const TArray<FVector>& Points, FVector& OutCentroid, FVector (&OutAxes)[3], double (&OutVariance)[3]);
 }

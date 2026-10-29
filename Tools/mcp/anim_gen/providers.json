@@ -173,10 +173,10 @@
       "auth_env": null
     },
     {
-      "name": "control_rig",
-      "role": "provider",
+      "name": "body_fit",
+      "role": "pipe",
       "phase": 8,
-      "description": "손·무기 파지, 발 고정 같은 제약 보정 베이크 (Phase 8)",
+      "description": "몸 전체 한 풀이 (Phase 8-4b) — request.fix.body 일 때 리타깃 · 흐느적 보정 뒤 대상 시퀀스(또는 같은 스켈레톤의 기존 애니)를 플러그인 validate_animation body_clearance{parts all, hands, model} 로 재고(대상 메시 반경 지도 · 포즈 — 한 원천), anim_gen/body_fit.py(순수 Python 감쇠 가우스-뉴턴)가 팔(+ 지시 목표 구간 척추 · 목 · 골반 · 다리 IK) 관절 델타를 한 번에 푼다: 손 · 아래팔 ↔ 몸통 · 넓적다리 · 머리목 · 반대 손 관통 · 양손 파지 keep · 위팔 '안 깊어짐' · 발 pin · 지시 목표(targets[] — 사건 · 몸 기준틀 · 완급 · soft/hard). apply_animation_edits bone_deltas 로 새 애셋을 쓰고 같은 측정으로 다시 잰다(모델 예측 vs C++ 실측 — Job fix.body). 리타깃 관통 기본은 measure 로 바뀐다(보정 원천 하나). control_rig 비활성 자리를 대신한다",
       "input_types": ["anim_sequence"],
       "supports_new_generation": false,
       "supports_modification": true,

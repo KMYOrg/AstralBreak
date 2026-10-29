@@ -5,7 +5,7 @@ import copy
 import os
 import re
 
-from . import bvh, selection, timing
+from . import body_fit, bvh, selection, timing
 from .editor import package_path
 from .envelope import AnimGenError, diag
 
@@ -464,15 +464,16 @@ def _review_render(render) -> dict:
 
 
 def _fix(raw) -> dict:
-    """fix{ops[{op, ...}], timing?} — ops = blender 변환 단계의 보정 op(형식만 본다 — 지원 여부는 blender 계획의 op 사전).
-    timing(Phase 8-3) = 리타깃 뒤 대상 시퀀스의 흐느적 보정(timing.py — 휘두름 가속 · 정지 머리/꼬리 트림), 기본값을 채운다. 꺼져 있으면 키가 없다
-    (켜지 않은 요청의 계획은 개정 12 와 같다)."""
+    """fix{ops[{op, ...}], timing?, body?} — ops = blender 변환 단계의 보정 op(형식만 본다 — 지원 여부는 blender 계획의 op 사전).
+    timing(Phase 8-3) = 리타깃 뒤 대상 시퀀스의 흐느적 보정(timing.py — 휘두름 가속 · 정지 머리/꼬리 트림), 기본값을 채운다.
+    body(Phase 8-4b) = 리타깃 · timing 뒤 대상 시퀀스의 몸 전체 한 풀이(body_fit.py — 관통 · 파지 keep · 지시 목표 targets[]). 자연어 지시를 목표로
+    바꾸는 것은 Claude Code — 여기는 구조만 본다. 꺼져 있으면 키가 없다(켜지 않은 요청의 계획은 앞 개정과 같다)."""
     fix = {} if raw is None else raw
     if not isinstance(fix, dict):
-        raise _bad("fix", "must be {ops[], timing?}")
-    extra = sorted(set(fix) - {"ops", "timing"})
+        raise _bad("fix", "must be {ops[], timing?, body?}")
+    extra = sorted(set(fix) - {"ops", "timing", "body"})
     if extra:
-        raise _bad(f"fix.{extra[0]}", f"unknown key(s) {extra}", reason="UNKNOWN_FIELD", allowed=["ops", "timing"])
+        raise _bad(f"fix.{extra[0]}", f"unknown key(s) {extra}", reason="UNKNOWN_FIELD", allowed=["ops", "timing", "body"])
     ops = fix.get("ops", [])
     if not isinstance(ops, list) or not all(isinstance(o, dict) and isinstance(o.get("op"), str) and o["op"] for o in ops):
         raise _bad("fix.ops", "must be a list of {op, ...}")
@@ -480,7 +481,11 @@ def _fix(raw) -> dict:
         timing_cfg = timing.normalize(fix.get("timing"))
     except timing.TimingError as err:
         raise _bad(err.args[0], err.args[1]) from None
-    return {"ops": ops, **({"timing": timing_cfg} if timing_cfg else {})}
+    try:
+        body_cfg = body_fit.normalize(fix.get("body"))
+    except body_fit.BodyFitError as err:
+        raise _bad(err.field, err.message, reason=err.reason) from None
+    return {"ops": ops, **({"timing": timing_cfg} if timing_cfg else {}), **({"body": body_cfg} if body_cfg else {})}
 
 
 def _num(value, low: float | None = None) -> bool:

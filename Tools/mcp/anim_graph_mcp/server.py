@@ -613,7 +613,7 @@ def reassign_skeleton(skeleton: str, assets: list[str] | None = None, from_skele
 
 @mcp.tool()
 def inspect_skeleton(skeleton: str | None = None, skeletal_mesh: str | None = None, details: bool = False,
-                     compare_to: str | None = None, suggest_finger_chains: bool = False) -> dict:
+                     compare_to: str | None = None, suggest_finger_chains: bool = False, geometry: bool = False) -> dict:
     """Read-only facts about a Skeleton for animation generation / IK retargeting (measured values only, nothing guessed).
 
     Args:
@@ -625,6 +625,9 @@ def inspect_skeleton(skeleton: str | None = None, skeletal_mesh: str | None = No
         suggest_finger_chains: Also return finger_chain_suggestion — standard finger chains ({Side}Thumb, {Side}{Finger},
             {Side}{Finger}Metacarpal) found by geometry, not names, the same proposal create_ik_rig makes (a proposal, so only on
             request). The template's finger chains are compared: differs[] shows a template that matched the fingers one joint off.
+        geometry: Also return geometry{bounds, centroid, principal_axes[{axis, extent_cm, length_cm, std_cm}], slices{items[{from_cm,
+            to_cm, vertices, width_cm, center_cm}]}, per_bone[]} of the mesh's LOD0 vertices in its reference pose — e.g. the long
+            axis of a weapon mesh and its thin (handle) part, for a grip segment (Phase 8-4a).
 
     Returns skeleton_path, meshes[], animation_count, bone_count, root_bone, bones[{name, parent}], virtual_bones[], mesh +
     mesh_source (argument | skeleton_preview | first_registered | none), sockets[{name, bone, owner, asset}], slot_groups[],
@@ -638,6 +641,8 @@ def inspect_skeleton(skeleton: str | None = None, skeletal_mesh: str | None = No
     params: dict = {"details": details}
     if suggest_finger_chains:
         params["suggest_finger_chains"] = True
+    if geometry:
+        params["geometry"] = True
     if skeleton:
         params["skeleton"] = skeleton
     if skeletal_mesh:
@@ -842,7 +847,7 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
                        checks: list[str] | None = None, thresholds: dict | None = None, feet: list[str] | None = None,
                        pelvis: str | None = None, source_feet: list[str] | None = None, source_pelvis: str | None = None,
                        expect: dict | None = None, seams: list[float] | None = None, profile_bones: list[str] | None = None,
-                       profile_positions: bool = False, body_clearance: bool | dict | None = None,
+                       profile_positions: bool = False, profile_rotations: bool = False, body_clearance: bool | dict | None = None,
                        fingers: bool | dict | None = None) -> dict:
     """Measure AnimSequences (read-only): structure, obvious breakage, comparison with a source, and whether a request was met.
 
@@ -863,6 +868,8 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
         profile_bones: Bones whose per-frame speed (cm/s) is returned in numeric.profile — use it to find strike windows.
         profile_positions: Also return numeric.profile.position_cm{bone: [[x, y, z]]} (component space, same times) — e.g. the
             plane a hand moves in, to compare a retarget with its source.
+        profile_rotations: Also return numeric.profile.rotations{bone: [[x, y, z, w]]} — component-space quaternions at the same
+            times as position_cm (Phase 8-4a).
         body_clearance: true or {mesh?, ik_rig?, upper_arms?[2], body_bones?[], include_secondary?, contact_cm?, penetration_cm?} —
             how deep the hands/forearms go into the body (waist, pelvis, thighs) of the target MESH, from its LOD0 skinned
             vertices per frame. mesh defaults to the skeleton's preview mesh; arms/legs/spine come from ik_rig chains (default: the
@@ -871,6 +878,15 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
             penetration_cm (2) default × pelvis reference height / 100 cm. Result body_clearance{arms[{upper_arm,
             frames_over_contact_pct, frames_over_penetration_pct, depth_p50/p95/max, worst{frame, time, arm_bone, body_bone},
             body_bones_hit[]}], body{core_roots[], secondary_branches[]}, …}; a depth over penetration_cm → warning BODY_PENETRATION.
+            Opt-in (Phase 8-4a — without them the result is unchanged): parts "all" → parts{pairs[{side l|r, arm_part hand|forearm|
+            upper_arm, body_part pelvis|belly|chest|thigh_l|thigh_r|head_neck, frames_over_contact_pct, frames_over_penetration_pct,
+            depth_p50/p95/max, located_pct, gap_min_cm, first_contact_time, worst}], …} + warning BODY_PENETRATION_PARTS; legs true →
+            parts.legs.pairs (thigh/calf vs the other leg) + LEG_PENETRATION; hands true (Phase 8-4b) → parts.hands{pairs[{side,
+            arm_part hand|forearm|upper_arm, body_part hand_<other>|forearm_<other>, …}], tip_local_cm, …} — each arm's hand map (wrist →
+            hand tip) and forearm map (elbow → wrist) from its own points, probed by the other arm (touching up to contact_cm is a
+            normal grip) + HAND_PENETRATION, also in per_frame / model (maps hand_l/r · forearm_l/r); per_frame true →
+            per_frame.series[{…, depth[] signed cm}]; model true | {stride} → model{bones, roles, poses (b64 f32), points (every
+            measured point with influences), maps (b64 i16 radius per frame), …} for the Python body solver (anim_gen/body_model.py).
         fingers: true or {ik_rig?, retargeter?, mesh?} — finger sanity of a retarget result, hands/fingers found by geometry (the
             create_ik_rig finger topology; ik_rig default = the retargeter's target rig, else the preview mesh template, else
             topology; mesh = whose reference pose counts, default the retargeter's target preview mesh). Per frame: a finger bone
@@ -891,7 +907,7 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
     for key, value in (("sources", sources), ("skeleton", skeleton), ("checks", checks), ("thresholds", thresholds), ("feet", feet),
                        ("pelvis", pelvis), ("source_feet", source_feet), ("source_pelvis", source_pelvis), ("expect", expect),
                        ("seams", seams), ("profile_bones", profile_bones), ("profile_positions", profile_positions),
-                       ("body_clearance", body_clearance), ("fingers", fingers)):
+                       ("profile_rotations", profile_rotations), ("body_clearance", body_clearance), ("fingers", fingers)):
         if value:
             params[key] = value
     return bridge.call("validate_animation", params, timeout=bridge.COMPILE_TIMEOUT)
@@ -953,7 +969,10 @@ def preview_animation_edits(source: str, operations: list[dict], asset_path: str
         · concat {asset? (same skeleton; default the original source), start?, end? (on that asset), reverse?, blend? (s),
           align_root? (true)} · mirror {axis? (x|y|z), mirror_table?} · offset_bone {targets[{bone, rotation?{pitch, yaw, roll},
           translation?[x, y, z]}], space? (component|local), start?, end?, blend_in? (0.2), blend_out? (0.2)}
-        · rotate_root {yaw, start?, end?, ease? (smooth|linear)}.
+        · rotate_root {yaw, start?, end?, ease? (smooth|linear)}
+        · bone_deltas {space? ("parent"), bones[{bone, rotation_deg? [[x, y, z] per key — rotation vector, degrees, parent space:
+          new local = delta · original, the joint stays], translation_cm? [[x, y, z] per key]}]} (one entry per key of the clip at this
+          op, exact [0, 0, 0] keys untouched — e.g. a solver's result, Phase 8-4a).
     """
     params: dict = {"source": source, "operations": operations}
     for key, value in (("asset_path", asset_path), ("loop", loop), ("root_motion", root_motion)):
@@ -988,7 +1007,10 @@ def apply_animation_edits(source: str, asset_path: str, operations: list[dict], 
         · concat {asset? (same skeleton; default the original source), start?, end? (on that asset), reverse?, blend? (s),
           align_root? (true)} · mirror {axis? (x|y|z), mirror_table?} · offset_bone {targets[{bone, rotation?{pitch, yaw, roll},
           translation?[x, y, z]}], space? (component|local), start?, end?, blend_in? (0.2), blend_out? (0.2)}
-        · rotate_root {yaw, start?, end?, ease? (smooth|linear)}.
+        · rotate_root {yaw, start?, end?, ease? (smooth|linear)}
+        · bone_deltas {space? ("parent"), bones[{bone, rotation_deg? [[x, y, z] per key — rotation vector, degrees, parent space:
+          new local = delta · original, the joint stays], translation_cm? [[x, y, z] per key]}]} (one entry per key of the clip at this
+          op, exact [0, 0, 0] keys untouched — e.g. a solver's result, Phase 8-4a).
     """
     params: dict = {"source": source, "asset_path": asset_path, "operations": operations, "validate": validate, "save": save}
     for key, value in (("loop", loop), ("root_motion", root_motion), ("thresholds", thresholds)):
@@ -1068,7 +1090,8 @@ def promote_animation(assets: list[dict], dry_run: bool = False, confirm: bool =
 def capture_animation(asset: str, mesh: str, facing: str, output_dir: str, times: list[float] | None = None, count: int | None = None,
                       views: list[str] | None = None, label: str | None = None, sequence: dict | None = None, compare: dict | None = None,
                       cell_height_px: int = 512, max_aspect: float = 2.0, margin: float = 0.08, bounds_max_samples: int = 600,
-                      sheet_max_px: float = 3000, supersample: int = 2, lighting: dict | None = None, max_seconds: float = 120) -> dict:
+                      sheet_max_px: float = 3000, supersample: int = 2, lighting: dict | None = None, max_seconds: float = 120,
+                      attachments: list[dict] | None = None) -> dict:
     """Capture an AnimSequence on a target skeletal mesh as PNG images — no assets are created (judge a retarget without Persona).
 
     Same camera/sheet rules as the anim_gen Blender source-skeleton review.render, so the sheets line up: orthographic front (from in
@@ -1090,10 +1113,14 @@ def capture_animation(asset: str, mesh: str, facing: str, output_dir: str, times
         cell_height_px, max_aspect, margin, bounds_max_samples, sheet_max_px: Layout (Blender review defaults).
         supersample: Render scale before downsizing (1..3).
         lighting: Advanced {exposure_bias, key, fill, sky}.
+        attachments: [{mesh (SkeletalMesh in its reference pose or StaticMesh), socket | bone (one, on the captured mesh/skeleton),
+            offset? {location, rotation [pitch, yaw, roll], scale} relative to it}] ≤ 4 — e.g. a weapon (compose the game's attach
+            transforms into one offset); rendered and included in the framing (Phase 8-4a).
         max_seconds: Budget — the sequence stops there (warning CAPTURE_TRUNCATED).
 
     Returns {frames[{row, time, frame, view, path, sha1, subject_px, touches_edge}], sheet, compare{path}|null, sequence{frames[], fps,
-    size, truncated}|null, layout, camera{view: {look, right, ortho_width_cm, cm_per_px}}, bounds, render, cells_touching_edge, seconds}.
+    size, truncated}|null, layout, camera{view: {look, right, ortho_width_cm, cm_per_px}}, bounds, attachments[], render, cells_touching_edge,
+    seconds}.
     Errors: SKELETON_MISMATCH / OUTPUT_DIR_NOT_EMPTY (BAD_REQUEST reasons), OUTPUT_PATH_NOT_ALLOWED (CAPTURE_ROOT),
     IMPORT_SOURCE_NOT_ALLOWED (compare images), CAPTURE_FAILED (render/readback/write), UNEXPECTED_DIRTY (a capture must dirty nothing).
     """
@@ -1101,7 +1128,7 @@ def capture_animation(asset: str, mesh: str, facing: str, output_dir: str, times
                     "max_aspect": max_aspect, "margin": margin, "bounds_max_samples": bounds_max_samples, "sheet_max_px": sheet_max_px,
                     "supersample": supersample, "max_seconds": max_seconds}
     for key, value in (("times", times), ("count", count), ("views", views), ("label", label), ("sequence", sequence),
-                       ("compare", compare), ("lighting", lighting)):
+                       ("compare", compare), ("lighting", lighting), ("attachments", attachments)):
         if value is not None:
             params[key] = value
     return bridge.call("capture_animation", params, timeout=bridge.COMPILE_TIMEOUT)

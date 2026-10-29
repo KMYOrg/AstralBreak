@@ -25,6 +25,7 @@ from __future__ import annotations
 import copy
 import math
 
+from . import motion_metrics as mm
 from .local_ai import refine
 
 VERSION = 2
@@ -163,6 +164,36 @@ def detect(sig: dict, params: dict, frames: int) -> dict:
         out["head"] = [0, spans[h - 1][1]]
     if t < n:
         out["tail"] = [spans[t][0], frames]
+    return out
+
+
+POINT_EVENTS = ("swing_start", "swing_peak", "swing_end", "still_start", "still_end")
+WINDOW_EVENTS = ("swing", "both_planted")
+BOTH_PLANTED_MIN_SAMPLES = 3
+
+
+def events(profile: dict, *, hands: tuple[str, str], body: list[str], feet: tuple[str, str], scale: float, fps: float, length: float,
+           leg_cm: float, up: int = 2, params: dict | None = None) -> dict:
+    """사건(초) — Phase 8-4b 지시 목표(fix.body.targets[].at)와 E0 가 쓰는 한 원천. 휘두름 = signals → detect(흐느적 보정과 같은 신호 · 규칙):
+    swing_start · swing_peak · swing_end(휘두름이 없으면 None), still_end = 처음부터 이어진 정지(머리)의 끝 · still_start = 끝까지 이어진 정지(꼬리)의
+    시작(없으면 None), 구간 swing · both_planted[] = 두 발목이 모두 접지(motion_metrics.detect_contacts)인 표본 구간(BOTH_PLANTED_MIN_SAMPLES 이상)."""
+    params = params or normalize(True)
+    frames = int(round(length * fps))
+    det = detect(signals(profile, hands, body, scale, fps), params, frames)
+    sec = lambda f: round(f / fps, ROUND)  # noqa: E731
+    swing = det.get("swing")
+    out = {"swing_start": sec(swing[0]) if swing else None,
+           "swing_peak": sec(det["peak"]["time_frame"]) if swing and det.get("peak") else None,
+           "swing_end": sec(swing[1]) if swing else None,
+           "still_end": sec(det["head"][1]) if det.get("head") else None,
+           "still_start": sec(det["tail"][0]) if det.get("tail") else None,
+           "swing": [sec(swing[0]), sec(swing[1])] if swing else None,
+           "peak_cm_s": (det.get("peak") or {}).get("cm_s"), "reason": det.get("reason"), "both_planted": []}
+    pos, times = profile.get("position_cm") or {}, profile.get("times") or []
+    if all(pos.get(b) for b in feet) and times:
+        contacts = [mm.detect_contacts(pos[b], times, up, leg_cm) for b in feet]
+        both = mm.runs([a and c for a, c in zip(*contacts)], BOTH_PLANTED_MIN_SAMPLES)
+        out["both_planted"] = [[round(times[a], ROUND), round(times[c], ROUND)] for a, c in both]
     return out
 
 

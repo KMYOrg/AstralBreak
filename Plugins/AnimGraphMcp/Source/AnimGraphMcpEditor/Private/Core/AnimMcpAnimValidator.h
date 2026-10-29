@@ -26,7 +26,7 @@ struct FAnimMcpError;
  *   요청 충족 (Phase 2 — 지침서 §13) — expect{length, loop, root_yaw_delta} 불일치 → EXPECT_* 오류(FAILED).
  *            seams(이음매 시각)의 프레임 간 회전 변화가 주변 창 중앙값의 seam_ratio_max 배를 넘으면 경고 SEAM_JUMP
  *   측정   — profile_bones: 프레임별 컴포넌트 공간 선속도(cm/s) — 타격 구간 같은 시간 범위를 고르는 데 쓴다.
- *            profile_positions 면 같은 시각의 위치(cm)도 — 리타깃 정면 맞춤 전후의 동작 평면 비교
+ *            profile_positions 면 같은 시각의 위치(cm)도 — 리타깃 정면 맞춤 전후의 동작 평면 비교, profile_rotations 면 같은 시각의 회전도
  *   제약   — body_clearance: 손 · 아래팔이 대상 메시의 몸(허리 · 골반 · 넓적다리)을 뚫는 깊이 · 프레임 비율(AnimMcpBodyClearance) → 경고 BODY_PENETRATION
  *   손가락 — fingers: 매핑 안 된 손가락은 기준 포즈 유지 · 매핑된 손가락은 손바닥 쪽 굽힘 · 끝 순서(AnimMcpFingerChains::Check) → 경고 FINGER_*
  *   시각   — 항상 needs_review[] 에 남긴다. 상태는 자동 검사 결과다(PASSED · PASSED_WITH_WARNINGS · NEEDS_REVIEW · FAILED).
@@ -89,6 +89,8 @@ namespace AnimMcpAnimValidator
 		TArray<FName> ProfileBones;
 		/** profile 에 같은 시각의 컴포넌트 공간 위치(cm)도 낸다 — 손 궤적 같은 동작 평면 비교용 */
 		bool bProfilePositions = false;
+		/** profile 에 같은 시각의 컴포넌트 공간 회전(쿼터니언 [x, y, z, w])도 낸다 — 지시 목표 · 샘플 전이 · 무기 공간(Phase 8-4a) */
+		bool bProfileRotations = false;
 		/**
 		 * 한 프레임 회전 튐의 "물려받은" 기준값(°). 설정되면 소스 샘플 대신 이 값으로 ROTATION_JUMP_INHERITED 를 판정한다 —
 		 * apply_animation_edits 가 소스 최대 × 최대 재생 속도를 넘긴다(빠르게 만든 정상 동작이 절대 규칙에 걸리지 않게)

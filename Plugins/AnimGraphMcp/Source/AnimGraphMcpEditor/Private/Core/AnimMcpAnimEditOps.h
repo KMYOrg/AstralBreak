@@ -93,6 +93,19 @@ namespace AnimMcpAnimEditOps
 		FVector Translation = FVector::ZeroVector;
 	};
 
+	/**
+	 * 본 하나의 프레임별 델타 (bone_deltas — Phase 8-4a). 키마다 부모 공간 회전 벡터(축 × 각°)와 이동(cm) — 배열은 비었거나 키 수와 같다.
+	 * 새 로컬 회전 = Q(Δ) · 원래(관절 위치 그대로 — 부모 공간에서 그 관절 둘레로), 새 로컬 이동 = 원래 + Δ. 정확히 0 인 키는 손대지 않는다
+	 */
+	struct FBoneDelta
+	{
+		int32 Bone = INDEX_NONE;
+		TArray<FVector> RotationDeg;
+		TArray<FVector> Translation;
+	};
+	/** bone_deltas 회전 벡터 크기 상한 (°) */
+	constexpr double MaxBoneDeltaDeg = 180.0;
+
 	/** 소스 [Start, End] 를 OutRate 의 키로 고른다 (bReverse 면 End → Start). End 는 키 간격에 맞춰 가장 가까운 키로 */
 	void Sample(const FRig& Rig, const FSource& Source, int32 SourceIndex, double OutRate, double Start, double End, bool bReverse, FClip& Out);
 
@@ -128,6 +141,11 @@ namespace AnimMcpAnimEditOps
 	bool OffsetBones(const FRig& Rig, FClip& Clip, TArray<FBoneOffset> Targets, bool bComponentSpace, double Start, double End, double BlendIn, double BlendOut, FReport& Report, FString& OutError);
 	/** [Start, End] 동안 루트 Yaw 0 → Yaw (bSmooth 면 smoothstep), 이후 유지. 루트 이동 증분도 그 시점의 Yaw 로 돌려 다시 쌓는다 */
 	bool RotateRoot(FClip& Clip, double Yaw, double Start, double End, bool bSmooth, FReport& Report, FString& OutError);
+	/**
+	 * 키마다 본 로컬 델타(FBoneDelta) — 배열 길이가 키 수가 아니면 실패(버퍼 그대로). 0 이 아닌 키가 있는 본만 Animated 로 바꾼다.
+	 * 이음매를 달지 않는다(키마다 매끈함은 호출자 몫 — 내장 검증의 한 프레임 회전 규칙이 튐을 잡는다)
+	 */
+	bool BoneDeltas(FClip& Clip, const TArray<FBoneDelta>& Deltas, FReport& Report, FString& OutError);
 
 	/** 이름 규칙으로 미러 짝 — 짝이 없거나 서로 가리키지 않으면 자기 자신 */
 	TArray<int32> MirrorPairs(const FRig& Rig, TFunctionRef<FName(FName)> MirrorName);

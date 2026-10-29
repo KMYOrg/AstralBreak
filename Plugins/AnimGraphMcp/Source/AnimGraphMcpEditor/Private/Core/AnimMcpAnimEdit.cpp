@@ -35,14 +35,17 @@ namespace AnimMcpAnimEdit
 		     "concat {asset? (AnimSequence on the same skeleton; default the original source), start?, end? (on that asset), reverse? (false), blend? (seconds of crossfade, 0 = the segment's first key overlaps the current last key), align_root? (true: the segment's root continues from the current root position and yaw)} | "
 		     "mirror {axis? (x|y|z; default x or the table's), mirror_table? (MirrorDataTable path; default the project's Animation settings mirror rules)} — unpaired bones mirror onto themselves | "
 		     "offset_bone {targets[{bone, rotation?{pitch, yaw, roll}, translation?[x,y,z]}], space? (component: rotate about component axes at the bone, children follow; local: bone axes / parent-space move), start?, end?, blend_in? (0.2), blend_out? (0.2)} | "
-		     "rotate_root {yaw, start?, end?, ease? (smooth|linear)} (root yaw ramps 0 → yaw over the range and stays; root motion after the start turns with it).");
+		     "rotate_root {yaw, start?, end?, ease? (smooth|linear)} (root yaw ramps 0 → yaw over the range and stays; root motion after the start turns with it) | "
+		     "bone_deltas {space? ('parent' — the only value), bones[{bone, rotation_deg? [[x, y, z] per key — rotation vector (axis × degrees) in the parent bone's space: "
+		     "new local rotation = delta · original, the joint stays], translation_cm? [[x, y, z] per key — added to the local (parent-space) translation]}]} "
+		     "(per-key deltas, e.g. from a solver; each array has exactly one entry per key of the clip at this op; an exact [0, 0, 0] key is left untouched; |delta| ≤ 180°).");
 
 	namespace
 	{
 		/** 결과 길이 상한 — 버퍼 메모리(키 × 본) 보호 */
 		constexpr double MaxLengthSeconds = 120.0;
 
-		enum class EOpKind : uint8 { Trim, Retime, TimeWarp, HoldPose, Concat, Mirror, OffsetBone, RotateRoot };
+		enum class EOpKind : uint8 { Trim, Retime, TimeWarp, HoldPose, Concat, Mirror, OffsetBone, RotateRoot, BoneDeltas };
 
 		struct FParsedOp
 		{
@@ -77,6 +80,8 @@ namespace AnimMcpAnimEdit
 			// rotate_root
 			double Yaw = 0.0;
 			bool bSmooth = true;
+			// bone_deltas
+			TArray<FBoneDelta> Deltas;
 		};
 
 		/** 노티파이·싱크 마커 이동 결과 */
@@ -533,8 +538,108 @@ namespace AnimMcpAnimEdit
 				}
 				return true;
 			}
+			if (Op.Name == TEXT("bone_deltas"))
+			{
+				Op.Kind = EOpKind::BoneDeltas;
+				if (!CheckKeys(Json, { TEXT("space"), TEXT("bones") }, OutCode, OutMessage))
+				{
+					return false;
+				}
+				FString Space;
+				if (Json.TryGetStringField(TEXT("space"), Space) && Space != TEXT("parent"))
+				{
+					OutCode = TEXT("BAD_OP");
+					OutMessage = FString::Printf(TEXT("space must be 'parent' (deltas rotate in the parent bone's space about the joint — got '%s')"), *Space);
+					return false;
+				}
+				const TArray<TSharedPtr<FJsonValue>>* Bones = nullptr;
+				if (!Json.TryGetArrayField(TEXT("bones"), Bones) || Bones->Num() == 0)
+				{
+					OutCode = TEXT("BAD_OP");
+					OutMessage = TEXT("bone_deltas needs bones[{bone, rotation_deg?[[x,y,z] per key], translation_cm?[[x,y,z] per key]}]");
+					return false;
+				}
+				// [[x, y, z] …] — 유한 수 3개씩. null 이면 없음
+				auto ReadSeries = [&OutCode, &OutMessage](const FJsonObject& Target, const TCHAR* Key, const FString& Bone, TArray<FVector>& Out) -> bool
+				{
+					const TSharedPtr<FJsonValue> Value = Target.TryGetField(Key);
+					if (!Value.IsValid() || Value->Type == EJson::Null)
+					{
+						return true;
+					}
+					const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+					if (!Value->TryGetArray(Rows))
+					{
+						OutCode = TEXT("BAD_OP");
+						OutMessage = FString::Printf(TEXT("'%s' %s must be [[x, y, z] …] (one per key) or null"), *Bone, Key);
+						return false;
+					}
+					Out.Reserve(Rows->Num());
+					for (const TSharedPtr<FJsonValue>& Row : *Rows)
+					{
+						const TArray<TSharedPtr<FJsonValue>>* Xyz = nullptr;
+						if (!Row.IsValid() || !Row->TryGetArray(Xyz) || Xyz->Num() != 3
+							|| Xyz->ContainsByPredicate([](const TSharedPtr<FJsonValue>& V) { return !V.IsValid() || V->Type != EJson::Number || !FMath::IsFinite(V->AsNumber()); }))
+						{
+							OutCode = TEXT("BAD_OP");
+							OutMessage = FString::Printf(TEXT("'%s' %s entries must be [x, y, z] (three finite numbers)"), *Bone, Key);
+							return false;
+						}
+						Out.Add(FVector((*Xyz)[0]->AsNumber(), (*Xyz)[1]->AsNumber(), (*Xyz)[2]->AsNumber()));
+					}
+					return true;
+				};
+				for (const TSharedPtr<FJsonValue>& BoneValue : *Bones)
+				{
+					const TSharedPtr<FJsonObject>* TargetPtr = nullptr;
+					FString Bone;
+					if (!BoneValue.IsValid() || !BoneValue->TryGetObject(TargetPtr) || !(*TargetPtr)->TryGetStringField(TEXT("bone"), Bone))
+					{
+						OutCode = TEXT("BAD_OP");
+						OutMessage = TEXT("each bones[] entry needs 'bone'");
+						return false;
+					}
+					const FJsonObject& Target = **TargetPtr;
+					if (!CheckKeys(Target, { TEXT("bone"), TEXT("rotation_deg"), TEXT("translation_cm") }, OutCode, OutMessage))
+					{
+						return false;
+					}
+					FBoneDelta Delta;
+					Delta.Bone = State.Rig.Find(FName(*Bone));
+					if (Delta.Bone == INDEX_NONE)
+					{
+						OutCode = TEXT("BONE_NOT_FOUND");
+						OutMessage = FString::Printf(TEXT("bone '%s' is not in skeleton '%s'"), *Bone, *GetPathNameSafe(State.Skeleton));
+						return false;
+					}
+					if (Op.Deltas.ContainsByPredicate([&Delta](const FBoneDelta& Other) { return Other.Bone == Delta.Bone; }))
+					{
+						OutCode = TEXT("BAD_OP");
+						OutMessage = FString::Printf(TEXT("bone '%s' is listed twice"), *Bone);
+						return false;
+					}
+					if (!ReadSeries(Target, TEXT("rotation_deg"), Bone, Delta.RotationDeg) || !ReadSeries(Target, TEXT("translation_cm"), Bone, Delta.Translation))
+					{
+						return false;
+					}
+					if (Delta.RotationDeg.Num() == 0 && Delta.Translation.Num() == 0)
+					{
+						OutCode = TEXT("BAD_OP");
+						OutMessage = FString::Printf(TEXT("bone '%s' needs rotation_deg and/or translation_cm"), *Bone);
+						return false;
+					}
+					if (Delta.RotationDeg.ContainsByPredicate([](const FVector& R) { return R.Size() > MaxBoneDeltaDeg; }))
+					{
+						OutCode = TEXT("OUT_OF_RANGE");
+						OutMessage = FString::Printf(TEXT("bone '%s' rotation_deg has a rotation over %.0f° (degrees, not radians?)"), *Bone, MaxBoneDeltaDeg);
+						return false;
+					}
+					Op.Deltas.Add(MoveTemp(Delta));
+				}
+				return true;
+			}
 			OutCode = TEXT("BAD_OP");
-			OutMessage = FString::Printf(TEXT("unknown op '%s' (trim, retime, time_warp, hold_pose, concat, mirror, offset_bone, rotate_root)"), *Op.Name);
+			OutMessage = FString::Printf(TEXT("unknown op '%s' (trim, retime, time_warp, hold_pose, concat, mirror, offset_bone, rotate_root, bone_deltas)"), *Op.Name);
 			return false;
 		}
 
@@ -831,6 +936,24 @@ namespace AnimMcpAnimEdit
 				return CheckRange(Start, End, Length) && OffsetBones(State.Rig, Clip, Op.Targets, Op.bComponentSpace, Start, End, Op.BlendIn, Op.BlendOut, Report, OutMessage);
 			case EOpKind::RotateRoot:
 				return CheckRange(Start, End, Length) && RotateRoot(Clip, Op.Yaw, Start, End, Op.bSmooth, Report, OutMessage);
+			case EOpKind::BoneDeltas:
+			{
+				// 키 수는 앞 op 들이 만든 버퍼 기준 — 맞지 않으면 그 본 이름과 함께 거부(버퍼 그대로)
+				OutCode = TEXT("BAD_OP");
+				for (const FBoneDelta& Delta : Op.Deltas)
+				{
+					for (const TArray<FVector>* Series : { &Delta.RotationDeg, &Delta.Translation })
+					{
+						if (Series->Num() > 0 && Series->Num() != Clip.NumKeys())
+						{
+							OutMessage = FString::Printf(TEXT("bone '%s' has %d %s entries — the clip has %d keys at this op (one entry per key)"), *State.Rig.Bones[Delta.Bone].ToString(),
+								Series->Num(), Series == &Delta.RotationDeg ? TEXT("rotation_deg") : TEXT("translation_cm"), Clip.NumKeys());
+							return false;
+						}
+					}
+				}
+				return BoneDeltas(Clip, Op.Deltas, Report, OutMessage);
+			}
 			}
 			return false;
 		}

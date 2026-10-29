@@ -7,6 +7,7 @@ import pathlib
 from .envelope import AnimGenError
 from .providers.base import Provider
 from .providers.blender import BlenderProvider
+from .providers.body_fit import BodyFitPipe
 from .providers.builtin import DirectKey, ExistingMotion, RetargetPipe
 from .providers.inactive import InactiveProvider
 from .providers.integrate import AnimBpPipe, PackagePipe
@@ -25,7 +26,7 @@ IMPLEMENTATIONS = {
     "package": PackagePipe,
     "anim_bp": AnimBpPipe,
     "review": ReviewPipe,
-    "control_rig": InactiveProvider,
+    "body_fit": BodyFitPipe,
 }
 
 

@@ -21,6 +21,26 @@ bool FAnimMcpCaptureTest::RunTest(const FString& Parameters)
 {
 	using namespace AnimMcpCapture;
 
+	// ---- 부착물 offset (Phase 8-4a): {location, rotation [pitch, yaw, roll], scale} → 상대 변환, 빈 값 = 항등, 모르는 키 · 0 스케일 · 형식 오류 거부 ----
+	{
+		FTransform X;
+		FString Why;
+		TestTrue(TEXT("offset: null = identity"), ParseOffset(nullptr, X, Why) && X.Equals(FTransform::Identity));
+		TSharedRef<FJsonObject> Obj = AnimMcpJson::MakeObject();
+		Obj->SetArrayField(TEXT("location"), { MakeShared<FJsonValueNumber>(-8.5), MakeShared<FJsonValueNumber>(4.0), MakeShared<FJsonValueNumber>(56.0) });
+		Obj->SetArrayField(TEXT("rotation"), { MakeShared<FJsonValueNumber>(10.0), MakeShared<FJsonValueNumber>(20.0), MakeShared<FJsonValueNumber>(30.0) });
+		TestTrue(TEXT("offset: parsed"), ParseOffset(Obj, X, Why));
+		TestTrue(TEXT("offset: location · rotation(pitch, yaw, roll) · default scale"), X.Equals(FTransform(FRotator(10.0, 20.0, 30.0).Quaternion(), FVector(-8.5, 4.0, 56.0)), 1e-6));
+		Obj->SetArrayField(TEXT("scale"), { MakeShared<FJsonValueNumber>(0.0), MakeShared<FJsonValueNumber>(1.0), MakeShared<FJsonValueNumber>(1.0) });
+		TestFalse(TEXT("offset: zero scale refused"), ParseOffset(Obj, X, Why));
+		TSharedRef<FJsonObject> Bad = AnimMcpJson::MakeObject();
+		Bad->SetArrayField(TEXT("translation"), { MakeShared<FJsonValueNumber>(1.0), MakeShared<FJsonValueNumber>(1.0), MakeShared<FJsonValueNumber>(1.0) });
+		TestFalse(TEXT("offset: unknown key refused"), ParseOffset(Bad, X, Why));
+		TSharedRef<FJsonObject> Short = AnimMcpJson::MakeObject();
+		Short->SetArrayField(TEXT("location"), { MakeShared<FJsonValueNumber>(1.0), MakeShared<FJsonValueNumber>(1.0) });
+		TestFalse(TEXT("offset: two numbers refused"), ParseOffset(Short, X, Why));
+	}
+
 	// ---- 카메라 맞춤: 좁은 범위 = 폭 하한(1/max_aspect) · 세로 기준, 넓은 범위 = 비율대로 · 가로 기준, 바닥 z = 0 포함 ----
 	{
 		FRange Range;

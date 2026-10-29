@@ -247,8 +247,11 @@ namespace AnimMcpAnimValidator
 			return M;
 		}
 
-		/** 프레임별 선속도 (cm/s) — 최대 MaxSamples 개 구간으로 묶어 구간 최대값 (타격 정점이 묶음에 묻히지 않게). bPositions 면 구간 끝 프레임의 위치 (cm) */
-		TSharedRef<FJsonObject> ProfileJson(const FSampled& S, const TArray<FName>& ProfileBones, bool bPositions, FIssues& Issues)
+		/**
+		 * 프레임별 선속도 (cm/s) — 최대 MaxSamples 개 구간으로 묶어 구간 최대값 (타격 정점이 묶음에 묻히지 않게). bPositions 면 구간 끝 프레임의 위치 (cm),
+		 * bRotations 면 같은 구간 끝 프레임의 컴포넌트 공간 회전 [x, y, z, w] (정규화 — 부호는 엔진 값 그대로)
+		 */
+		TSharedRef<FJsonObject> ProfileJson(const FSampled& S, const TArray<FName>& ProfileBones, bool bPositions, bool bRotations, FIssues& Issues)
 		{
 			constexpr int32 MaxSamples = 240;
 			const double Dt = S.FrameRate > 0.0 ? 1.0 / S.FrameRate : 1.0 / 30.0;
@@ -265,6 +268,7 @@ namespace AnimMcpAnimValidator
 			Obj->SetNumberField(TEXT("frames_per_sample"), PerBucket);
 			TSharedRef<FJsonObject> Bones = AnimMcpJson::MakeObject();
 			TSharedRef<FJsonObject> Positions = AnimMcpJson::MakeObject();
+			TSharedRef<FJsonObject> Rotations = AnimMcpJson::MakeObject();
 			for (const FName& Bone : ProfileBones)
 			{
 				const int32 Index = FindBone(S.Bones, Bone);
@@ -275,6 +279,7 @@ namespace AnimMcpAnimValidator
 				}
 				TArray<TSharedPtr<FJsonValue>> Speeds;
 				TArray<TSharedPtr<FJsonValue>> Points;
+				TArray<TSharedPtr<FJsonValue>> Quats;
 				for (int32 Start = 0; Start < Steps; Start += PerBucket)
 				{
 					double Max = 0.0;
@@ -290,17 +295,32 @@ namespace AnimMcpAnimValidator
 						Points.Add(MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{ MakeShared<FJsonValueNumber>(AnimMcpStats::Round(P.X, 2)),
 							MakeShared<FJsonValueNumber>(AnimMcpStats::Round(P.Y, 2)), MakeShared<FJsonValueNumber>(AnimMcpStats::Round(P.Z, 2)) }));
 					}
+					if (bRotations)
+					{
+						const FQuat Q = S.Component[End][Index].GetRotation().GetNormalized();
+						Quats.Add(MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{ MakeShared<FJsonValueNumber>(AnimMcpStats::Round(Q.X, 6)),
+							MakeShared<FJsonValueNumber>(AnimMcpStats::Round(Q.Y, 6)), MakeShared<FJsonValueNumber>(AnimMcpStats::Round(Q.Z, 6)),
+							MakeShared<FJsonValueNumber>(AnimMcpStats::Round(Q.W, 6)) }));
+					}
 				}
 				Bones->SetArrayField(S.Bones[Index].ToString(), Speeds);
 				if (bPositions)
 				{
 					Positions->SetArrayField(S.Bones[Index].ToString(), Points);
 				}
+				if (bRotations)
+				{
+					Rotations->SetArrayField(S.Bones[Index].ToString(), Quats);
+				}
 			}
 			Obj->SetObjectField(TEXT("speed_cm_s"), Bones);
 			if (bPositions)
 			{
 				Obj->SetObjectField(TEXT("position_cm"), Positions);
+			}
+			if (bRotations)
+			{
+				Obj->SetObjectField(TEXT("rotations"), Rotations);
 			}
 			return Obj;
 		}
@@ -689,7 +709,7 @@ namespace AnimMcpAnimValidator
 				TSharedRef<FJsonObject> Numeric = NumericJson(A, MA);
 				if (Options.ProfileBones.Num() > 0)
 				{
-					Numeric->SetObjectField(TEXT("profile"), ProfileJson(A, Options.ProfileBones, Options.bProfilePositions, Structural));
+					Numeric->SetObjectField(TEXT("profile"), ProfileJson(A, Options.ProfileBones, Options.bProfilePositions, Options.bProfileRotations, Structural));
 				}
 				Result->SetObjectField(TEXT("numeric"), Numeric);
 			}

@@ -45,6 +45,25 @@ def _measured_from_validation(item: dict | None) -> dict:
     return {k: numeric.get(k) for k in ("length", "frame_rate", "frames", "loop") if k in numeric}
 
 
+def apply_edits(ctx: RunContext, source: str, operations: list[dict], inputs: dict, step: str, source_name: str) -> StepResult:
+    """apply_animation_edits 로 새 애셋(ctx.output_folder/output_name) — 편집(direct_key) · 흐느적 보정(timing) · 한 풀이(body_fit, Phase 8-4b)가
+    같은 쓰기 규칙(가드 · 내장 검증 · 검증 실패면 미저장 애셋을 created 로)을 쓴다."""
+    editor = ctx.editor
+    out = f"{ctx.output_folder}/{ctx.output_name}"
+    try:
+        res = editor.require("apply_animation_edits", source=source, asset_path=out, operations=operations,
+                             loop=inputs.get("loop"), root_motion=inputs.get("root_motion"), validate=True, save=ctx.save)
+    except EditorCallError as err:
+        created = [out] if err.code == "VALIDATION_FAILED" else []  # 검증 실패면 애셋은 미저장으로 남는다
+        raise from_editor_error(step, err, created=created)
+    asset = package_path(res["asset_path"])
+    validation = res.get("validation")
+    measured = {"length": res.get("length"), "frame_rate": res.get("frame_rate"), "frames": res.get("frames")}
+    measured.update({k: v for k, v in _measured_from_validation((validation or {}).get("asset")).items() if k == "loop"})
+    return StepResult(values={"asset": asset, "skeleton": ctx.request["target_skeleton"], "validation": validation, "measured": measured},
+                      created=[asset], limitations=wrap_limitations(res.get("limitations"), source_name))
+
+
 class ExistingMotion(Provider):
     """프로젝트 안의 기존 모션 — 계획 시점에 소스를 골라 고정한다(보이는 것이 실행되는 것)."""
 
@@ -192,20 +211,7 @@ class DirectKey(Provider):
         return self._apply(ctx, source, inputs["operations"], inputs, "edit")
 
     def _apply(self, ctx: RunContext, source: str, operations: list[dict], inputs: dict, step: str) -> StepResult:
-        editor = ctx.editor
-        out = f"{ctx.output_folder}/{ctx.output_name}"
-        try:
-            res = editor.require("apply_animation_edits", source=source, asset_path=out, operations=operations,
-                                 loop=inputs.get("loop"), root_motion=inputs.get("root_motion"), validate=True, save=ctx.save)
-        except EditorCallError as err:
-            created = [out] if err.code == "VALIDATION_FAILED" else []  # 검증 실패면 애셋은 미저장으로 남는다
-            raise from_editor_error(step, err, created=created)
-        asset = package_path(res["asset_path"])
-        validation = res.get("validation")
-        measured = {"length": res.get("length"), "frame_rate": res.get("frame_rate"), "frames": res.get("frames")}
-        measured.update({k: v for k, v in _measured_from_validation((validation or {}).get("asset")).items() if k == "loop"})
-        return StepResult(values={"asset": asset, "skeleton": ctx.request["target_skeleton"], "validation": validation, "measured": measured},
-                          created=[asset], limitations=wrap_limitations(res.get("limitations"), "direct_key"))
+        return apply_edits(ctx, source, operations, inputs, step, "direct_key")
 
     def _timing(self, ctx: RunContext) -> StepResult:
         """흐느적 보정(Phase 8-3) — 측정 → op(timing.plan) → apply_animation_edits → 새 애셋 다시 측정. 바꿀 것이 없어도 최종 이름의 애셋은 만든다
@@ -294,14 +300,23 @@ class RetargetPipe(Provider):
 
     @staticmethod
     def body_clearance(request: dict, risks: list[str]) -> tuple[str, str, list[dict]]:
-        """팔-몸통 관통 처리 → (모드, 근거, 예상 한계). 요청이 정했으면 그대로(request), 비웠으면 two_hand_weapon_grip 이면 measure(grip_flag — 모든
-        Provider: 위팔 보정이 양손을 벌리지 않게, 2026-10-26 E1), 아니면 resolve(default — 개정 10 그대로). 파지 플래그에 resolve 를 명시하면 위험."""
+        """팔-몸통 관통 처리 → (모드, 근거, 예상 한계). 요청이 정했으면 그대로(request), 비웠으면 fix.body(auto)면 measure(body_fit — Phase 8-4b:
+        뒤 한 풀이가 고친다), two_hand_weapon_grip 이면 measure(grip_flag — 모든 Provider: 위팔 보정이 양손을 벌리지 않게, 2026-10-26 E1), 아니면
+        resolve(default — 개정 10 그대로). 파지 플래그 · fix.body 에 resolve 를 명시하면 위험."""
         mode = request["retarget"].get("body_clearance")
         grip = bool((request["constraints"] or {}).get("two_hand_weapon_grip"))
+        body_fit = bool(((request.get("fix") or {}).get("body") or {}).get("mode") == "auto")
         if mode is not None:
             if grip and mode == "resolve":
                 risks.append("CLEARANCE_MAY_BREAK_GRIP")
+            if body_fit and mode == "resolve":
+                risks.append("CLEARANCE_DOUBLE_FIX")
             return mode, "request", []
+        if body_fit:
+            # Phase 8-4b — 관통 보정 원천은 하나: 리타깃은 재기만 하고 body_fit 이 몸 전체 · 파지 · 발을 함께 푼다
+            return "measure", "body_fit", [limitation(
+                "CLEARANCE_BY_BODY_FIT", "관통 보정은 리타깃 뒤 한 풀이(fix.body — body_fit 단계)가 한다 — 리타깃 body_clearance 는 재기만(measure). 위팔만 "
+                "돌리는 resolve 와 겹치면 같은 관통을 두 번 고친다", "retarget")]
         if grip:
             return "measure", "grip_flag", [limitation(
                 "BODY_CLEARANCE_MEASURED_FOR_GRIP", "양손 파지 요청이라 팔-몸통 관통을 재기만 하고 위팔을 고치지 않았다(resolve 는 관통 프레임마다 위팔을 바깥으로 "

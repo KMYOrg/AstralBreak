@@ -21,7 +21,12 @@ from .store import (CANCELLED, FAILED, QUEUED, RUNNING, SUCCEEDED, WAITING_FOR_A
 
 # 계획 시점의 길이·fps 한계는 실행 뒤 측정값으로 다시 적는다
 _MEASURED_CODES = {"DURATION_MISMATCH", "FRAME_RATE_MISMATCH"}
-_PRODUCING = ("retarget", "edit", "timing")   # timing — Phase 8-3 흐느적 보정(apply_animation_edits retime · trim)
+_PRODUCING = ("retarget", "edit", "timing", "body_fit")   # timing — Phase 8-3 흐느적 보정, body_fit — 8-4b 한 풀이(mode auto 일 때만)
+
+
+def _produces(step: dict) -> bool:
+    """새 시퀀스를 만드는 단계인가 — body_fit 은 mode measure 면 재기만 한다(inputs.produces)."""
+    return step["step"] in _PRODUCING and (step["step"] != "body_fit" or bool((step.get("inputs") or {}).get("produces")))
 
 
 class _Cancelled(Exception):
@@ -187,7 +192,7 @@ class Executor:
                     pass  # 계획 시점에 몰랐던 소스가 대상 스켈레톤에 있었다 — 리타깃 불필요
                 else:
                     provider = self.registry.get(step["provider"])
-                    final = kind in _PRODUCING and self._is_final(steps, j, values, target)
+                    final = _produces(step) and self._is_final(steps, j, values, target)
                     folder, name = (request["output_path"], self._final_name(job_id, request, attempt)) if final else (work, f"{request['animation_name']}_{kind.title()}")
                     ctx = RunContext(editor=self.editor, job_id=job_id, request=request, step=step, values=values, work_path=work,
                                      output_folder=folder, output_name=name, is_final=final, save=bool(job["save"]), attempt=attempt, policy=policy,
@@ -231,7 +236,7 @@ class Executor:
     @staticmethod
     def _is_final(steps: list[dict], j: int, values: dict, target: str) -> bool:
         for later in steps[j + 1:]:
-            if later["step"] in ("edit", "timing"):
+            if later["step"] in ("edit", "timing") or (later["step"] == "body_fit" and _produces(later)):
                 return False
             if later["step"] == "retarget" and not (later.get("conditional") and values.get("skeleton") == target):
                 return False
@@ -270,9 +275,9 @@ class Executor:
             if "timing" in result.values:
                 # Phase 8-3 — 흐느적 보정 근거(신호 · 구간 · op · warp · 전후 수치)
                 job["timing"] = result.values["timing"]
-            for key, field in (("fix_source", "source"), ("fix_target", "target")):
+            for key, field in (("fix_source", "source"), ("fix_target", "target"), ("body_fit", "body")):
                 if key in result.values:
-                    # Phase 8-3 — 다리 보정: 소스 골격(Blender 보고) · 대상(리타깃 뒤 측정)
+                    # Phase 8-3 — 다리 보정: 소스 골격(Blender 보고) · 대상(리타깃 뒤 측정). 8-4b — 한 풀이(전 · 예측 · 후 · 목표 · 한계 근거)
                     job["fix"] = {**(job.get("fix") or {}), field: result.values[key]}
         self.store.update_job(job_id, mutate)
 

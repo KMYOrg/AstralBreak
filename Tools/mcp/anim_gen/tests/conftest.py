@@ -18,7 +18,9 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
+import model_fixture  # noqa: E402
 from anim_gen import policy as policy_mod  # noqa: E402
+from anim_gen.body_model import BodyModel, pair_stats  # noqa: E402
 from anim_gen.editor import EditorClient, asset_name, is_under, package_path  # noqa: E402
 from anim_gen.providers.base import Provider, StepFailed, StepResult  # noqa: E402
 from anim_gen.registry import Registry  # noqa: E402
@@ -40,7 +42,7 @@ INTEGRATION_WRITE_TOOLS = {"set_sequence_additive", "create_anim_montage", "set_
 WRITE_TOOLS = {"apply_animation_edits", "retarget_animations", "import_animation_file", "create_ik_rig", "create_ik_retargeter"} | INTEGRATION_WRITE_TOOLS
 ABP_TOOLS = {"get_anim_blueprint_info", "preview_graph_operations", "duplicate_animation_blueprint", "apply_graph_operations",
              "compile_animation_blueprint", "run_anim_scenario"}
-KNOWN_OPS = {"trim", "retime", "time_warp", "hold_pose", "concat", "mirror", "offset_bone", "rotate_root"}
+KNOWN_OPS = {"trim", "retime", "time_warp", "hold_pose", "concat", "mirror", "offset_bone", "rotate_root", "bone_deltas"}
 COMBAT_ABP = "/Game/Animation/Hero/ABP_Hero_Combat"
 RUNTIME_ABP = "/Game/Animation/Test/ABP_McpRuntimeTest"
 WALK = f"{HERO}/Common/Locomotion/AS_Vesper_Neutral_Walk_Loop_F"
@@ -269,8 +271,15 @@ class FakeEditor:
             raise _Refuse(err("BAD_REQUEST", "One or more operations failed; nothing was created", planned=planned))
         loop = p["loop"] if p.get("loop") is not None else src["loop"]
         length = src["length"]
-        for op in p["operations"]:
+        for i, op in enumerate(p["operations"]):
             start, end = op.get("start", 0.0), op.get("end", length)
+            if op["op"] == "bone_deltas":
+                # Phase 8-4a — 배열 길이 = 그 op 직전 버퍼의 키 수(플러그인처럼 BAD_OP 이면 아무것도 만들지 않는다)
+                keys = int(round(length * src["frame_rate"])) + 1
+                short = [b["bone"] for b in op.get("bones") or [] for k in ("rotation_deg", "translation_cm") if b.get(k) is not None and len(b[k]) != keys]
+                if short or not op.get("bones"):
+                    planned[i] = {"index": i, "op": op["op"], "ok": False, "error": {"code": "BAD_OP", "message": f"bone(s) {short} need {keys} entries (one per key)"}}
+                    raise _Refuse(err("BAD_REQUEST", "One or more operations failed; nothing was created", planned=planned))
             if op["op"] == "retime" and op.get("duration"):
                 length = op["duration"]
             elif op["op"] == "retime":
@@ -300,18 +309,33 @@ class FakeEditor:
                     "numeric": {"length": info["length"], "frame_rate": info["frame_rate"], "loop": info["loop"], "pelvis_height_cm": 105.0,
                                 "max_deg_per_frame": 30.0}}
             if p.get("profile_bones"):
-                item["numeric"]["profile"] = self._profile(p["profile_bones"], prof, bool(p.get("profile_positions")))
+                item["numeric"]["profile"] = self._profile(p["profile_bones"], prof, bool(p.get("profile_positions")), bool(p.get("profile_rotations")))
             if p.get("body_clearance"):
                 item["body_clearance"] = {"arms": [{"upper_arm": "upperarm_l", "frames_over_penetration_pct": pen, "frames_over_contact_pct": pen,
                                                     "depth_max": 3.5 if pen else 0.0, "worst": {"frame": 3, "time": 0.1}},
                                                    {"upper_arm": "upperarm_r", "frames_over_penetration_pct": 0.0, "frames_over_contact_pct": 0.0,
                                                     "depth_max": 0.0, "worst": {"frame": 0, "time": 0.0}}],
                                           "issues": [{"level": "warning", "code": "BODY_PENETRATION"}] if pen else []}
+                spec = p["body_clearance"] if isinstance(p["body_clearance"], dict) else {}
+                if spec.get("parts") == "all" or spec.get("legs") or spec.get("per_frame") or spec.get("model") or spec.get("hands"):
+                    # Phase 8-4a — 부위 쌍 · 프레임 깊이 · 몸 모델 흉내: 합성 모델(model_fixture)을 body_model 로 재서 C++ 와 같은 모양으로.
+                    # 8-4b hands — 손끼리 쌍은 parts.hands.pairs 로 따로(이 합성 모델엔 손 지도가 없어 빈 목록)
+                    model = model_fixture.make_model()
+                    series = BodyModel(model).series()
+                    pairs = [{"side": s, "arm_part": a, "body_part": b, **pair_stats(v, model["contact_cm"], model["penetration_cm"])} for (s, a, b), v in series.items()]
+                    is_hand = lambda pr: pr["body_part"].startswith(("hand_", "forearm_"))  # noqa: E731
+                    item["body_clearance"]["parts"] = {"pairs": [pr for pr in pairs if not is_hand(pr)]}
+                    if spec.get("hands"):
+                        item["body_clearance"]["parts"]["hands"] = {"pairs": [pr for pr in pairs if is_hand(pr)]}
+                    if spec.get("per_frame"):
+                        item["body_clearance"]["per_frame"] = model_fixture.per_frame_from(model, series)
+                    if spec.get("model"):
+                        item["body_clearance"]["model"] = model
             items.append(item)
         return {"assets": items}
 
     @staticmethod
-    def _profile(bones: list[str], prof: dict, positions: bool) -> dict:
+    def _profile(bones: list[str], prof: dict, positions: bool, rotations: bool = False) -> dict:
         """10 표본(1/30 초) — 오른손목이 표본 5 에서 prof.peak cm/s 로 한 번 움직이고, 왼손목 = 오른손 + (gap, 0, 0) · 엉덩 ±9(표본 5 부터
         prof.reach cm 아래로 — 손 속도를 바꾸지 않고 엉덩 기준 손 궤적 폭만 키운다) · 발 ±9 × stance · 위팔(어깨)은 손목 위 50 · 아래팔(팔꿈치)
         위 25 cm(팔 길이 50 cm)."""
@@ -333,6 +357,9 @@ class FakeEditor:
                "speed_cm_s": {b: [0.0] * n for b in bones if b in tracks}}
         if positions:
             out["position_cm"] = {b: tracks[b] for b in bones if b in tracks}
+        if rotations:
+            # Phase 8-4a profile_rotations — 같은 표본의 컴포넌트 공간 쿼터니언(흉내는 항등)
+            out["rotations"] = {b: [[0.0, 0.0, 0.0, 1.0]] * n for b in bones if b in tracks}
         return out
 
     def _import_animation_file(self, p):

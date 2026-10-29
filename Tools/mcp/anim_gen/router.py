@@ -101,6 +101,18 @@ def _without_convert(request: dict, name: str) -> list[dict]:
     return []
 
 
+def _plan_body(request: dict, registry, pctx: PlanContext, on_target: str | None, steps: list[dict], risks: list[str]) -> tuple[list[dict], bool]:
+    """Phase 8-4b — fix.body 면 timing 뒤 · edit 앞에 body_fit 단계(모든 경로). on_target = 계획 때 대상 스켈레톤 위에 있는 소스(기존 애셋 — 목표를
+    풀어 미리 보인다). → (예상 한계, 새 애셋을 만드는가)."""
+    cfg = request["fix"].get("body")
+    if not cfg:
+        return [], False
+    step, r, lims = registry.get("body_fit").plan_body(request, on_target, pctx)
+    steps.append(step)
+    risks += r
+    return lims, bool(step["inputs"].get("produces"))
+
+
 def _validate_step(reuse: bool) -> dict:
     return {"step": "validate", "provider": "validation",
             "tool": "validate_animation" if reuse else "validation of the producing step (retarget_animations / apply_animation_edits)"}
@@ -141,16 +153,17 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
             if step.get("resolved") is None:
                 risks.append("TIMING_RESOLVED_AT_RUN")
             steps.append(step)
+        body_lims, fitted = _plan_body(request, registry, pctx, None if timed else on_target, steps, risks)
         if request["edits"]:
-            step = direct_key.plan_edit(request, None if timed else on_target, pctx)
+            step = direct_key.plan_edit(request, None if (timed or fitted) else on_target, pctx)
             preview = step.get("preview")
             if preview is None:
                 risks.append("EDITS_NOT_PREVIEWED")
             steps.append(step)
-        reuse = needs_retarget is False and not request["edits"] and not timed
+        reuse = needs_retarget is False and not request["edits"] and not timed and not fitted
         steps.append(_validate_step(reuse))
-        lims = expected_limitations(request, provider, reuse=reuse, resolved=resolved, has_edit=bool(request["edits"]) or timed, preview=preview)
-        return steps, risks, _dedupe(lims + retarget_lims + no_review)
+        lims = expected_limitations(request, provider, reuse=reuse, resolved=resolved, has_edit=bool(request["edits"]) or timed or fitted, preview=preview)
+        return steps, risks, _dedupe(lims + retarget_lims + no_review + body_lims)
     converts = hasattr(provider, "plan_convert")
     if provider.generates or converts:
         # 생성(AI) 또는 파일 변환(blender) → FBX → import → retarget 파이프
@@ -198,21 +211,23 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
             # Phase 8-3 — 흐느적 보정은 리타깃 뒤 대상 시퀀스에서(생성 결과는 실행 때 잰다)
             steps.append(direct_key.plan_timing(request, None, pctx))
             risks.append("TIMING_RESOLVED_AT_RUN")
+        body_lims, fitted = _plan_body(request, registry, pctx, None, steps, risks)
         if request["edits"]:
             steps.append(direct_key.plan_edit(request, None, pctx))
             risks.append("EDITS_NOT_PREVIEWED")
         steps.append(_validate_step(False))
-        lims = expected_limitations(request, provider, reuse=False, resolved=first.pop("measured", None), has_edit=bool(request["edits"]) or timed,
+        lims = expected_limitations(request, provider, reuse=False, resolved=first.pop("measured", None), has_edit=bool(request["edits"]) or timed or fitted,
                                     preview=None, handled=set(first.pop("handles_constraints", None) or ()))
         lims = _dedupe(lims + first.pop("expected_limitations", []) + (last.pop("expected_limitations", []) if last is not first else [])
-                       + retarget_lims + no_review)
+                       + retarget_lims + no_review + body_lims)
         return steps, risks, lims
     raise PlanBlocked("UNSUPPORTED_REQUEST", "NOT_ROUTABLE", f"{name} is not a generation route (pipe or post-process only)")
 
 
 def _reuse_state(steps: list[dict]) -> str:
     """앞 사슬이 새 시퀀스를 만드는가 — 'produced' | 'reused'(대상 스켈레톤의 기존 애셋 그대로) | 'unknown'(계획 때 소스를 몰라 리타깃이 조건부)."""
-    if any(s["step"] in ("edit", "timing", "import", "generate", "convert") or (s["step"] == "retarget" and not s.get("conditional")) for s in steps):
+    if any(s["step"] in ("edit", "timing", "import", "generate", "convert") or (s["step"] == "retarget" and not s.get("conditional"))
+           or (s["step"] == "body_fit" and (s.get("inputs") or {}).get("produces")) for s in steps):
         return "produced"
     return "unknown" if any(s["step"] == "retarget" for s in steps) else "reused"
 

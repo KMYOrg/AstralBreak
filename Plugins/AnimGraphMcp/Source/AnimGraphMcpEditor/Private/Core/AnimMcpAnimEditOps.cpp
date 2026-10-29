@@ -797,6 +797,54 @@ namespace AnimMcpAnimEditOps
 		return true;
 	}
 
+	bool BoneDeltas(FClip& Clip, const TArray<FBoneDelta>& Deltas, FReport& Report, FString& OutError)
+	{
+		const int32 Keys = Clip.NumKeys();
+		for (const FBoneDelta& Delta : Deltas)
+		{
+			if ((Delta.RotationDeg.Num() > 0 && Delta.RotationDeg.Num() != Keys) || (Delta.Translation.Num() > 0 && Delta.Translation.Num() != Keys))
+			{
+				OutError = FString::Printf(TEXT("bone #%d: rotation_deg has %d and translation_cm %d entries — the clip has %d keys at this op (one per key)"),
+					Delta.Bone, Delta.RotationDeg.Num(), Delta.Translation.Num(), Keys);
+				return false;
+			}
+		}
+		int32 Changed = 0;
+		for (const FBoneDelta& Delta : Deltas)
+		{
+			bool bAny = false;
+			for (int32 Key = 0; Key < Keys; ++Key)
+			{
+				FTransform& Local = Clip.Keys[Key][Delta.Bone];
+				const FVector R = Delta.RotationDeg.Num() > 0 ? Delta.RotationDeg[Key] : FVector::ZeroVector;
+				const FVector T = Delta.Translation.Num() > 0 ? Delta.Translation[Key] : FVector::ZeroVector;
+				if (R.X != 0.0 || R.Y != 0.0 || R.Z != 0.0)
+				{
+					const double Deg = R.Size();
+					Local.SetRotation((FQuat(R / Deg, FMath::DegreesToRadians(Deg)) * Local.GetRotation()).GetNormalized());
+					bAny = true;
+				}
+				if (T.X != 0.0 || T.Y != 0.0 || T.Z != 0.0)
+				{
+					Local.AddToTranslation(T);
+					bAny = true;
+				}
+				Changed += (R.X != 0.0 || R.Y != 0.0 || R.Z != 0.0 || T.X != 0.0 || T.Y != 0.0 || T.Z != 0.0) ? 1 : 0;
+			}
+			if (bAny)
+			{
+				Clip.Animated[Delta.Bone] = true;
+			}
+		}
+		Report.Start = 0.0;
+		Report.End = Clip.Length();
+		Report.StartKey = 0;
+		Report.EndKey = FMath::Max(0, Keys - 1);
+		Report.LengthBefore = Report.LengthAfter = Clip.Length();
+		Report.Note = FString::Printf(TEXT("%d bone(s), %d bone-key(s) changed"), Deltas.Num(), Changed);
+		return true;
+	}
+
 	bool RotateRoot(FClip& Clip, double Yaw, double Start, double End, bool bSmooth, FReport& Report, FString& OutError)
 	{
 		if (!SnapRange(Clip, Start, End, TEXT("rotate_root"), Report, OutError))

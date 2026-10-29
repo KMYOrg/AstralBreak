@@ -39,6 +39,21 @@ struct FAnimMcpError;
  *   시간: 크기 기준 팽창(±0.13초) → 가우시안(σ = 반경/2) — 팽창 반경 ≥ 블러 반경이라 같은 방향이면 보정량이 줄지 않는다. 다시 검사해 남은 관통은
  *   그 프레임 원래 값에 더하고 다시 부드럽게(최대 3회). 상한 max_deg 를 넘으면 자르고 경고 BODY_CLEARANCE_LIMIT. 위팔 트랙만 쓴다.
  *   두 손목이 20 cm × scale 안인데 보정이 둘의 상대 위치를 1 cm × scale 넘게 바꾸면 경고 CLEARANCE_GRIP_CHANGED(양손 파지를 풀지는 않는다 — v1).
+ *
+ * 부위 쌍 (Phase 8-4a — 옵트인, 주지 않으면 위 결과 그대로): 팔 부위(손 = 손목 본과 자손 · 아래팔 = 팔꿈치 본과 트위스트 · 위팔 = 위팔 본과 트위스트,
+ *   어깨 관절에서 위팔 길이 × 0.4 안은 뺀다 — 몸통에 붙은 삼각근) × 몸 부위(몸통 칸 pelvis · belly · chest = 몸통 축 t 를 기준 포즈 척추 마디
+ *   (펠비스 위 첫째 · 둘째)의 t 로 나눈 것 — 본 → 자식 구간의 스킨 가중치 영역과 같다 · 넓적다리 좌우 · head_neck = 새 축(중앙선 체인의 가장 낮은 본
+ *   → 머리 꼭대기 — 기준 포즈에서 축선 5 cm × scale 안 머리 정점의 최대 투영(정수리 — 뿔 · 큰 머리카락 끝 제외, 축 근처 정점이 없으면 머리 정점
+ *   전체의 최대 투영), 지도는 t −0.1 ~ 1.0(정수리 위 뿔 줄기는 밖), 3마디+ 가지(머리카락 본)는 뺀다)). 쌍마다 프레임 깊이 = 그 팔 부위 점이 그 몸 부위 지도에서 가장
+ *   깊은 값(같은 반경 지도 · 이웃 규칙). legs = 넓적다리 · 종아리 점 ↔ 반대 다리 넓적다리(t ≥ 0.2 칸 — 사타구니 쪽은 서 있기만 해도 닿는다) · 종아리
+ *   (무릎 → 발목, 새 축). per_frame = 쌍별 프레임 깊이(부호 있음 — 음수는 틈). model = Python 풀이(anim_gen/body_model.py)용 몸 모델 — 측정이 쓰는
+ *   점 전부(기준 위치 · 영향 본 · 가중치) · 프레임별 포즈(측정과 같은 메시 기준 샘플) · 프레임별 반경 지도(int16 0.01 cm · float32 축, base64).
+ *   좌우 이름(l · r)은 이름 없이 정면 기하(발 영역)로 정한다.
+ *
+ * 손끼리 (Phase 8-4b — 옵트인 hands): 팔마다 반경 지도 둘 — 손(손목 → 손 끝, 손 끝 = 기준 포즈 손 점의 무게중심 방향 최대 투영 · 손목 로컬로 따라간다) ·
+ *   아래팔(팔꿈치 → 손목). 지도 점 = 그 팔의 손 · 아래팔 측정 점(몸 지도와 같은 FRadialAxis 규칙). 반대 팔의 손 · 아래팔 · 위팔 점이 묻는다 → 12 쌍
+ *   (body_part hand_<반대> · forearm_<반대>). 두 손을 모아 쥐면 맞닿음(contact_cm)까지는 정상, 관통(penetration_cm) 넘으면 경고 HAND_PENETRATION.
+ *   (Vesper 검 선택 f0 — 사용자 Persona 에서 손끼리 통과, 8-4a 측정에는 없던 자리.) 쥔 주먹은 축 둘레 별 모양에 가깝지만 오목한 손바닥 면은 바깥 면으로 메운다.
  */
 namespace AnimMcpBodyClearance
 {
@@ -54,10 +69,21 @@ namespace AnimMcpBodyClearance
 		bool bIncludeSecondary = false;
 		TOptional<double> ContactCm;
 		TOptional<double> PenetrationCm;
+		/** Phase 8-4a 옵트인 — parts "all"(부위 쌍 · 경고 BODY_PENETRATION_PARTS) · legs(다리끼리 · LEG_PENETRATION) · per_frame · model{stride} */
+		bool bAllParts = false;
+		bool bLegs = false;
+		bool bPerFrame = false;
+		bool bModel = false;
+		int32 ModelStride = 1;
+		/** Phase 8-4b 옵트인 — 손끼리(parts.hands · 경고 HAND_PENETRATION · per_frame · model 지도 hand_l/r · forearm_l/r) */
+		bool bHands = false;
+
+		bool NeedsParts() const { return bAllParts || bLegs || bPerFrame || bModel || bHands; }
 	};
 
 	/**
-	 * body_clearance 인자 — true 또는 {mesh?, ik_rig?, upper_arms?[], body_bones?[], include_secondary?, contact_cm?, penetration_cm?}.
+	 * body_clearance 인자 — true 또는 {mesh?, ik_rig?, upper_arms?[], body_bones?[], include_secondary?, contact_cm?, penetration_cm?,
+	 * parts? ("arms" | "all"), legs?, hands?, per_frame?, model? (true | {stride 1..10})}.
 	 * ExtraKeys 는 호출자가 따로 읽는 키(오류로 보지 않는다). 형식 오류 · 못 읽는 애셋은 BAD_REQUEST / ASSET_NOT_FOUND
 	 */
 	bool ParseSpec(const TSharedPtr<FJsonValue>& Value, const TCHAR* Field, const TArray<FString>& ExtraKeys, FSpec& Out, bool& bOutEnabled, FAnimMcpError& OutError);
@@ -65,8 +91,10 @@ namespace AnimMcpBodyClearance
 	/**
 	 * 측정. {mesh, chains_from, scale, contact_cm, penetration_cm, arms[{upper_arm, elbow, points, frames_over_contact_pct, frames_over_penetration_pct,
 	 * depth_p50, depth_p95, depth_max, worst{frame, time, arm_bone, body_bone}, body_bones_hit[{bone, frames}]}], body{core_roots[], core_points,
-	 * secondary_branches[], secondary_points}, secondary_arms[]?(include_secondary), issues[], seconds} | {skipped_reason, issues[]}.
-	 * bOutWarning = 경고(BODY_PENETRATION) 있음
+	 * secondary_branches[], secondary_points}, secondary_arms[]?(include_secondary), parts?{…, legs?{…}, hands?{hand_bins, forearm_bins, t_range{hand, forearm},
+	 * tip_local_cm{l, r}, points{"l.hand" …}, pairs[]}}, per_frame?{…}, model?{…}, issues[], seconds}
+	 * | {skipped_reason, issues[]}. parts · per_frame · model 은 Spec 이 요청할 때만(NeedsParts) — 그 밖의 필드 · 값은 요청과 무관하게 같다.
+	 * bOutWarning = 경고(BODY_PENETRATION · parts all 이면 BODY_PENETRATION_PARTS · legs 면 LEG_PENETRATION · hands 면 HAND_PENETRATION) 있음
 	 */
 	TSharedRef<FJsonObject> Measure(const UAnimSequence* Sequence, const FSpec& Spec, bool& bOutWarning);
 
@@ -87,7 +115,7 @@ namespace AnimMcpBodyClearance
 
 	/**
 	 * retarget_animations body_clearance — "off" | "measure" | "resolve" | {mode? (기본 resolve), margin_cm?, max_deg?, + ParseSpec 키}.
-	 * 없으면 Off
+	 * 없으면 Off. per_frame · model 은 validate_animation 전용(BAD_REQUEST)
 	 */
 	bool ParseMode(const TSharedPtr<FJsonValue>& Value, const TCHAR* Field, EMode& OutMode, FSpec& OutSpec, FResolveOptions& OutOptions, FAnimMcpError& OutError);
 
@@ -105,4 +133,60 @@ namespace AnimMcpBodyClearance
 
 	/** 회전 벡터 열 — 크기 기준 팽창(±Radius 키) → 성분별 가우시안(σ = Radius / 2, ±Radius 절단) */
 	TArray<FVector> SmoothRotationVectors(const TArray<FVector>& Vectors, int32 Radius);
+
+	/** 반경 지도 각도 칸 수(10°) */
+	constexpr int32 AngleBins = 36;
+
+	/**
+	 * 축 하나의 반경 지도 — 축 A → A + Dir · Length 둘레를 (축 위치 t × 각도) 칸으로 나눠 칸마다 몸 정점의 최대 반경과 그 정점(Who).
+	 * 각도 기준 = 축에 수직인 X(Lateral 을 축에 직교화) · Y = Dir × X. anim_gen/body_model.py 가 같은 규칙으로 읽는다(Locate · Radius)
+	 */
+	struct FRadialAxis
+	{
+		bool bValid = false;
+		FVector A = FVector::ZeroVector;
+		FVector Dir = FVector::ZeroVector;
+		double Length = 0.0;
+		FVector X = FVector::ZeroVector;
+		FVector Y = FVector::ZeroVector;
+		double TMin = 0.0, TMax = 1.0;
+		int32 TBins = 1;
+		TArray<double> MaxRadius;
+		TArray<int32> Who;
+
+		void Init(const FVector& InA, const FVector& InB, const FVector& Lateral, double InTMin, double InTMax, int32 InTBins);
+		/** 점의 (t 칸, 각도 칸, 축 위 가장 가까운 점에서의 반경 벡터) — 축이 없거나 t 가 범위 밖이면 false */
+		bool Locate(const FVector& P, int32& OutT, int32& OutAngle, FVector& OutRadial) const;
+		void Add(const FVector& P, int32 Index);
+		/** 칸 반경 — 빈 칸이면 이웃 3x3 의 최대(각도는 감아 돈다, t 는 자른다). 없으면 −1 */
+		double Radius(int32 T, int32 Angle, int32& OutWho) const;
+		/** t 칸 가운데의 t */
+		double BinCenter(int32 T) const { return TMin + (T + 0.5) / TBins * (TMax - TMin); }
+	};
+
+	/**
+	 * 손끼리(8-4b) — 한 팔의 반경 지도 둘: 손(손목 → 손 끝, t −0.15 ~ 1.05 · 12 칸) · 아래팔(팔꿈치 → 손목, t −0.1 ~ 1.05 · 14 칸).
+	 * Init 뒤 그 팔의 손 점은 Hand, 아래팔 점은 Forearm 에 Add — 반대 팔의 점이 Locate · Radius 로 묻는다(몸 지도와 같은 규칙)
+	 */
+	struct FArmAxes
+	{
+		FRadialAxis Hand;
+		FRadialAxis Forearm;
+
+		void Init(const FVector& Elbow, const FVector& Wrist, const FVector& HandTip, const FVector& Lateral);
+	};
+
+	/**
+	 * 손 끝(컴포넌트 공간) — 손목에서 손 점 무게중심 방향으로 가장 멀리 나간 투영(손가락 끝). 무게중심이 손목과 거의 겹치면 아래팔 방향(팔꿈치 → 손목).
+	 * 손 점이 없으면 손목 그대로(축 없음)
+	 */
+	FVector HandTip(const TArray<FVector>& HandPoints, const FVector& Elbow, const FVector& Wrist);
+
+	/** 몸통 축 위치 t → 칸 이름 — pelvis(t < BellyT) · belly(t < ChestT) · chest */
+	const TCHAR* TorsoPart(double T, double BellyT, double ChestT);
+
+	/** 모델 내보내기 — int16 LE(값 / Unit 반올림 · ±32767 로 자름, 값 < 0 = 빈 칸 −32768) · float32 LE 를 base64 로 */
+	constexpr int16 EmptyRadiusI16 = -32768;
+	FString EncodeI16(const TArray<double>& Values, double Unit);
+	FString EncodeF32(const TArray<double>& Values);
 }

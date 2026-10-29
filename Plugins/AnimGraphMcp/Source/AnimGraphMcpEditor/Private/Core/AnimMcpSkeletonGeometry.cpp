@@ -1,6 +1,7 @@
 #include "AnimMcpSkeletonGeometry.h"
 
 #include "Algo/Reverse.h"
+#include "Algo/Sort.h"
 #include "AnimMcpSkeletonInspector.h"
 #include "Engine/SkeletalMesh.h"
 #include "ReferenceSkeleton.h"
@@ -256,6 +257,85 @@ namespace AnimMcpSkeletonGeometry
 			return false;
 		}
 		OutFacing = Sum.GetSafeNormal2D();
+		return true;
+	}
+
+	bool PrincipalAxes(const TArray<FVector>& Points, FVector& OutCentroid, FVector (&OutAxes)[3], double (&OutVariance)[3])
+	{
+		if (Points.Num() == 0)
+		{
+			return false;
+		}
+		OutCentroid = FVector::ZeroVector;
+		for (const FVector& P : Points) { OutCentroid += P; }
+		OutCentroid /= Points.Num();
+		double C[3][3] = {};
+		for (const FVector& P : Points)
+		{
+			const FVector D = P - OutCentroid;
+			for (int32 i = 0; i < 3; ++i)
+			{
+				for (int32 j = 0; j < 3; ++j) { C[i][j] += D[i] * D[j]; }
+			}
+		}
+		for (int32 i = 0; i < 3; ++i)
+		{
+			for (int32 j = 0; j < 3; ++j) { C[i][j] /= Points.Num(); }
+		}
+		// 순환 야코비 — 비대각 원소를 하나씩 0 으로(대칭 3×3 은 몇 번이면 수렴)
+		double V[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+		for (int32 Sweep = 0; Sweep < 50; ++Sweep)
+		{
+			const double Off = FMath::Abs(C[0][1]) + FMath::Abs(C[0][2]) + FMath::Abs(C[1][2]);
+			if (Off < 1e-12 * (FMath::Abs(C[0][0]) + FMath::Abs(C[1][1]) + FMath::Abs(C[2][2]) + 1e-30))
+			{
+				break;
+			}
+			for (int32 p = 0; p < 2; ++p)
+			{
+				for (int32 q = p + 1; q < 3; ++q)
+				{
+					if (FMath::Abs(C[p][q]) < 1e-300)
+					{
+						continue;
+					}
+					const double Theta = (C[q][q] - C[p][p]) / (2.0 * C[p][q]);
+					const double T = (Theta >= 0.0 ? 1.0 : -1.0) / (FMath::Abs(Theta) + FMath::Sqrt(Theta * Theta + 1.0));
+					const double Cos = 1.0 / FMath::Sqrt(T * T + 1.0);
+					const double Sin = T * Cos;
+					for (int32 k = 0; k < 3; ++k)
+					{
+						const double Ckp = C[k][p], Ckq = C[k][q];
+						C[k][p] = Cos * Ckp - Sin * Ckq;
+						C[k][q] = Sin * Ckp + Cos * Ckq;
+					}
+					for (int32 k = 0; k < 3; ++k)
+					{
+						const double Cpk = C[p][k], Cqk = C[q][k];
+						C[p][k] = Cos * Cpk - Sin * Cqk;
+						C[q][k] = Sin * Cpk + Cos * Cqk;
+					}
+					for (int32 k = 0; k < 3; ++k)
+					{
+						const double Vkp = V[k][p], Vkq = V[k][q];
+						V[k][p] = Cos * Vkp - Sin * Vkq;
+						V[k][q] = Sin * Vkp + Cos * Vkq;
+					}
+				}
+			}
+		}
+		int32 Order[3] = { 0, 1, 2 };
+		Algo::Sort(Order, [&C](int32 A, int32 B) { return C[A][A] > C[B][B]; });
+		for (int32 i = 0; i < 3; ++i)
+		{
+			const int32 k = Order[i];
+			FVector Axis(V[0][k], V[1][k], V[2][k]);
+			Axis.Normalize();
+			const int32 Big = FMath::Abs(Axis.X) >= FMath::Abs(Axis.Y) && FMath::Abs(Axis.X) >= FMath::Abs(Axis.Z) ? 0 : FMath::Abs(Axis.Y) >= FMath::Abs(Axis.Z) ? 1 : 2;
+			if (Axis[Big] < 0.0) { Axis = -Axis; }
+			OutAxes[i] = Axis;
+			OutVariance[i] = FMath::Max(0.0, C[k][k]);
+		}
 		return true;
 	}
 }

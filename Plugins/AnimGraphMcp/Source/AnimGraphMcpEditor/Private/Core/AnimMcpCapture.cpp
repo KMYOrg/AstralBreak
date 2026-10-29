@@ -322,11 +322,48 @@ namespace AnimMcpCapture
 			int32 SeqHeight = 0;
 		};
 
+		/** 부착물 하나 — 인자(메시 · 소켓 또는 본 · 상대 변환)와 장면 컴포넌트 · 메시 로컬 정점 상자 */
+		struct FAttachment
+		{
+			FString MeshPath;
+			UObject* Asset = nullptr;
+			FName Socket;
+			FName Bone;
+			FTransform Offset = FTransform::Identity;
+			UPrimitiveComponent* Component = nullptr;
+			FBox LocalBox = FBox(ForceInit);
+		};
+		constexpr int32 MaxAttachments = 4;
+
+		/** 부착 메시의 컴포넌트 공간 정점 상자 — 스켈레탈은 LOD0 정점(기준 포즈), 스태틱은 메시 범위 */
+		FBox AttachmentBox(const UObject* Asset)
+		{
+			FBox Box(ForceInit);
+			if (const USkeletalMesh* Skeletal = Cast<USkeletalMesh>(Asset))
+			{
+				if (const FSkeletalMeshModel* Model = Skeletal->GetImportedModel(); Model && Model->LODModels.Num() > 0)
+				{
+					for (const FSkelMeshSection& Section : Model->LODModels[0].Sections)
+					{
+						if (Section.bDisabled) { continue; }
+						for (const FSoftSkinVertex& Vertex : Section.SoftVertices) { Box += FVector(Vertex.Position); }
+					}
+				}
+				if (!Box.IsValid) { Box = Skeletal->GetBounds().GetBox(); }
+			}
+			else if (const UStaticMesh* Static = Cast<UStaticMesh>(Asset))
+			{
+				Box = Static->GetBoundingBox();
+			}
+			return Box;
+		}
+
 		/** 캡처 장면 — 임시 프리뷰 월드와 그 안 컴포넌트 · 렌더 타깃(모두 트랜지언트) */
 		struct FRig
 		{
 			TUniquePtr<FPreviewScene> Scene;
 			USkeletalMeshComponent* Skel = nullptr;
+			TArray<FAttachment> Attachments;
 			UStaticMeshComponent* Backdrop = nullptr;
 			UStaticMeshComponent* Floor = nullptr;
 			UDirectionalLightComponent* Fill = nullptr;
@@ -409,6 +446,42 @@ namespace AnimMcpCapture
 		{
 			return FString::Printf(TEXT("%.2f"), Value);
 		}
+	}
+
+	bool ParseOffset(const TSharedPtr<FJsonObject>& Object, FTransform& Out, FString& OutWhy)
+	{
+		Out = FTransform::Identity;
+		if (!Object.IsValid())
+		{
+			return true;
+		}
+		FVector Values[3] = { FVector::ZeroVector, FVector::ZeroVector, FVector::OneVector };
+		const TCHAR* Keys[3] = { TEXT("location"), TEXT("rotation"), TEXT("scale") };
+		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Object->Values)
+		{
+			int32 Which = INDEX_NONE;
+			for (int32 k = 0; k < 3; ++k) { if (Pair.Key == Keys[k]) { Which = k; } }
+			if (Which == INDEX_NONE)
+			{
+				OutWhy = FString::Printf(TEXT("offset.%s is unknown (location, rotation [pitch, yaw, roll], scale)"), *Pair.Key);
+				return false;
+			}
+			const TArray<TSharedPtr<FJsonValue>>* Array = nullptr;
+			if (!Pair.Value.IsValid() || !Pair.Value->TryGetArray(Array) || Array->Num() != 3
+				|| Array->ContainsByPredicate([](const TSharedPtr<FJsonValue>& V) { return !V.IsValid() || V->Type != EJson::Number || !FMath::IsFinite(V->AsNumber()); }))
+			{
+				OutWhy = FString::Printf(TEXT("offset.%s must be three finite numbers"), Keys[Which]);
+				return false;
+			}
+			Values[Which] = FVector((*Array)[0]->AsNumber(), (*Array)[1]->AsNumber(), (*Array)[2]->AsNumber());
+		}
+		if (Values[2].GetAbsMin() < 1e-4)
+		{
+			OutWhy = TEXT("offset.scale must not be zero");
+			return false;
+		}
+		Out = FTransform(FRotator(Values[1].X, Values[1].Y, Values[1].Z).Quaternion(), Values[0], Values[2]);
+		return true;
 	}
 
 	FViewFit FitView(const FRange& Range, double Margin, int32 CellHeight, double MaxAspect)
@@ -652,6 +725,65 @@ namespace AnimMcpCapture
 			}
 		}
 
+		// 부착물 (Phase 8-4a) — [{mesh, socket | bone, offset?}] ≤ MaxAttachments. 소켓 · 본 존재는 메시를 읽은 뒤에
+		TArray<FAttachment> Attachments;
+		if (Present(Params, TEXT("attachments")))
+		{
+			const TArray<TSharedPtr<FJsonValue>>* Array = nullptr;
+			if (!Params->TryGetArrayField(TEXT("attachments"), Array) || Array->Num() > MaxAttachments)
+			{
+				OutError = FieldError(TEXT("attachments"), FString::Printf(TEXT("attachments must be a list of at most %d {mesh, socket | bone, offset?}"), MaxAttachments));
+				return nullptr;
+			}
+			for (const TSharedPtr<FJsonValue>& Item : *Array)
+			{
+				const TSharedPtr<FJsonObject>* Obj = nullptr;
+				if (!Item.IsValid() || !Item->TryGetObject(Obj))
+				{
+					OutError = FieldError(TEXT("attachments"), TEXT("each attachment must be {mesh, socket | bone, offset?}"));
+					return nullptr;
+				}
+				for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Obj)->Values)
+				{
+					if (Pair.Key != TEXT("mesh") && Pair.Key != TEXT("socket") && Pair.Key != TEXT("bone") && Pair.Key != TEXT("offset"))
+					{
+						OutError = FieldError(TEXT("attachments"), FString::Printf(TEXT("attachments[].%s is unknown (mesh, socket, bone, offset)"), *Pair.Key));
+						return nullptr;
+					}
+				}
+				FAttachment& A = Attachments.AddDefaulted_GetRef();
+				FString Socket, Bone;
+				(*Obj)->TryGetStringField(TEXT("socket"), Socket);
+				(*Obj)->TryGetStringField(TEXT("bone"), Bone);
+				if (!(*Obj)->TryGetStringField(TEXT("mesh"), A.MeshPath) || A.MeshPath.IsEmpty() || Socket.IsEmpty() == Bone.IsEmpty())
+				{
+					OutError = FieldError(TEXT("attachments"), TEXT("each attachment needs mesh and exactly one of socket or bone"), Socket.IsEmpty() == Bone.IsEmpty() && !Socket.IsEmpty() ? TEXT("CONFLICTING_FIELDS") : TEXT("BAD_FIELD"));
+					return nullptr;
+				}
+				A.Socket = Socket.IsEmpty() ? NAME_None : FName(*Socket);
+				A.Bone = Bone.IsEmpty() ? NAME_None : FName(*Bone);
+				const TSharedPtr<FJsonObject>* Offset = nullptr;
+				FString Why;
+				if ((*Obj)->HasField(TEXT("offset")) && !(*Obj)->TryGetObjectField(TEXT("offset"), Offset))
+				{
+					OutError = FieldError(TEXT("attachments"), TEXT("attachments[].offset must be {location?, rotation?, scale?}"));
+					return nullptr;
+				}
+				if (!ParseOffset(Offset ? *Offset : nullptr, A.Offset, Why))
+				{
+					OutError = FieldError(TEXT("attachments"), FString::Printf(TEXT("attachments[] %s"), *Why));
+					return nullptr;
+				}
+				A.Asset = AnimMcpAssetResolver::LoadAssetOfClass(A.MeshPath, UObject::StaticClass(), OutError);
+				if (!A.Asset) { return nullptr; }
+				if (!Cast<USkeletalMesh>(A.Asset) && !Cast<UStaticMesh>(A.Asset))
+				{
+					OutError = FieldError(TEXT("attachments"), FString::Printf(TEXT("'%s' is a %s — attachments take a SkeletalMesh or StaticMesh"), *A.MeshPath, *A.Asset->GetClass()->GetName()), TEXT("NOT_A_MESH"));
+					return nullptr;
+				}
+			}
+		}
+
 		// ---- 애셋 · 폴더 ----
 		UObject* AssetObject = AnimMcpAssetResolver::LoadAssetOfClass(AssetPath, UAnimSequence::StaticClass(), OutError);
 		if (!AssetObject) { return nullptr; }
@@ -666,6 +798,20 @@ namespace AnimMcpCapture
 				*Mesh->GetPathName(), Skeleton ? *Skeleton->GetPathName() : TEXT("(none)")), TEXT("SKELETON_MISMATCH"));
 			OutError.Details->SetField(TEXT("skeleton"), AnimMcpJson::ObjectPathOrNull(Skeleton));
 			return nullptr;
+		}
+		for (const FAttachment& A : Attachments)
+		{
+			// FindSocket = 메시 소켓 → 스켈레톤 소켓
+			if (!A.Socket.IsNone() && !Mesh->FindSocket(A.Socket))
+			{
+				OutError = FieldError(TEXT("attachments"), FString::Printf(TEXT("socket '%s' is not on '%s' or its skeleton"), *A.Socket.ToString(), *Mesh->GetName()), TEXT("SOCKET_NOT_FOUND"));
+				return nullptr;
+			}
+			if (!A.Bone.IsNone() && Mesh->GetRefSkeleton().FindBoneIndex(A.Bone) == INDEX_NONE)
+			{
+				OutError = FieldError(TEXT("attachments"), FString::Printf(TEXT("bone '%s' is not in '%s'"), *A.Bone.ToString(), *Mesh->GetName()), TEXT("BONE_NOT_FOUND"));
+				return nullptr;
+			}
 		}
 		FString Dir;
 		if (!AnimMcpGeneration::ResolveCaptureDir(DirRaw, Dir, OutError)) { return nullptr; }
@@ -718,6 +864,34 @@ namespace AnimMcpCapture
 		Rig.Skel->SetAnimation(Sequence);
 		Rig.Skel->Stop();
 
+		// 부착물 — 소켓 · 본에 붙인 트랜지언트 컴포넌트(스켈레탈은 기준 포즈 그대로)
+		for (FAttachment& A : Attachments)
+		{
+			UPrimitiveComponent* Component = nullptr;
+			if (USkeletalMesh* Skeletal = Cast<USkeletalMesh>(A.Asset))
+			{
+				USkeletalMeshComponent* Comp = NewObject<USkeletalMeshComponent>(GetTransientPackage(), NAME_None, RF_Transient);
+				Comp->SetSkeletalMesh(Skeletal);
+				Comp->SetForcedLOD(1);
+				Comp->bDisableClothSimulation = true;
+				Component = Comp;
+			}
+			else
+			{
+				UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(GetTransientPackage(), NAME_None, RF_Transient);
+				Comp->SetStaticMesh(Cast<UStaticMesh>(A.Asset));
+				Component = Comp;
+			}
+			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Component->SetBoundsScale(4.0f);
+			Rig.Scene->AddComponent(Component, FTransform::Identity);
+			Component->AttachToComponent(Rig.Skel, FAttachmentTransformRules::KeepRelativeTransform, A.Socket.IsNone() ? A.Bone : A.Socket);
+			Component->SetRelativeTransform(A.Offset);
+			A.Component = Component;
+			A.LocalBox = AttachmentBox(A.Asset);
+		}
+		Rig.Attachments = Attachments;
+
 		UStaticMesh* Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
 		UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
 		UMaterial* Unlit = GEngine ? GEngine->LevelColorationUnlitMaterial.Get() : nullptr;
@@ -758,6 +932,7 @@ namespace AnimMcpCapture
 		Rig.Capture->ShowOnlyComponent(Rig.Skel);
 		Rig.Capture->ShowOnlyComponent(Rig.Backdrop);
 		Rig.Capture->ShowOnlyComponent(Rig.Floor);
+		for (const FAttachment& A : Rig.Attachments) { Rig.Capture->ShowOnlyComponent(A.Component); }
 		{
 			// ShowFlags 를 직접 바꾸면 등록(OnRegister → UpdateShowFlags)이 설정 배열로 되돌린다 — 설정 배열로 준다(2026-10-26 실측: 비네트가 남았다)
 			TArray<FEngineShowFlagsSetting> Flags;
@@ -792,9 +967,15 @@ namespace AnimMcpCapture
 			Rig.Skel->SetPosition(static_cast<float>(Time), false);
 			Rig.Skel->RefreshBoneTransforms(nullptr);
 			Rig.Skel->UpdateBounds();
+			// 부착물은 소켓 · 본의 새 변환을 따라간다 — 포즈 평가의 자식 갱신에 기대지 않고 한 번 더 맞춘다
+			for (const FAttachment& A : Rig.Attachments)
+			{
+				A.Component->UpdateComponentToWorld();
+			}
 			if (bRender)
 			{
 				Rig.Skel->RecreateRenderState_Concurrent();
+				for (const FAttachment& A : Rig.Attachments) { A.Component->RecreateRenderState_Concurrent(); }
 			}
 		};
 
@@ -822,13 +1003,24 @@ namespace AnimMcpCapture
 		{
 			Pose(Frame / Fps, false);
 			const TArray<FTransform>& Space = Rig.Skel->GetComponentSpaceTransforms();
+			auto AddPoint = [&World, &Views](const FVector& P)
+			{
+				World += P;
+				for (FView& View : Views) { View.Range.Add(FVector::DotProduct(P, View.Right), P.Z, FVector::DotProduct(P, View.Look)); }
+			};
+			// 부착물 정점 상자 꼭짓점(무기 끝이 화면 밖으로 나가지 않게)
+			for (const FAttachment& A : Rig.Attachments)
+			{
+				if (!A.LocalBox.IsValid) { continue; }
+				const FTransform& X = A.Component->GetComponentTransform();
+				for (int32 Corner = 0; Corner < 8; ++Corner)
+				{
+					AddPoint(X.TransformPosition(FVector((Corner & 1) ? A.LocalBox.Max.X : A.LocalBox.Min.X, (Corner & 2) ? A.LocalBox.Max.Y : A.LocalBox.Min.Y,
+						(Corner & 4) ? A.LocalBox.Max.Z : A.LocalBox.Min.Z)));
+				}
+			}
 			for (int32 Bone = 0; Bone < Space.Num(); ++Bone)
 			{
-				auto AddPoint = [&World, &Views](const FVector& P)
-				{
-					World += P;
-					for (FView& View : Views) { View.Range.Add(FVector::DotProduct(P, View.Right), P.Z, FVector::DotProduct(P, View.Look)); }
-				};
 				// 정점이 묶이지 않은 본(IK · 무기 · 루트 보조 본)은 메시 밖에 있을 수 있다 — 범위는 스킨된 본의 정점 상자만(없으면 본 위치)
 				if (BoxedBones == 0)
 				{
@@ -1155,9 +1347,32 @@ namespace AnimMcpCapture
 			Bounds->SetArrayField(TEXT("min"), VectorJson(World.Min));
 			Bounds->SetArrayField(TEXT("max"), VectorJson(World.Max));
 			Bounds->SetNumberField(TEXT("frames_sampled"), BoundFrames.Num());
-			Bounds->SetStringField(TEXT("from"), TEXT("bone_vertex_boxes"));
+			Bounds->SetStringField(TEXT("from"), Rig.Attachments.Num() > 0 ? TEXT("bone_vertex_boxes + attachment boxes") : TEXT("bone_vertex_boxes"));
 			Bounds->SetNumberField(TEXT("boxed_bones"), BoxedBones);
 			Result->SetObjectField(TEXT("bounds"), Bounds);
+		}
+		{
+			TArray<TSharedPtr<FJsonValue>> AttachmentsJson;
+			for (const FAttachment& A : Rig.Attachments)
+			{
+				TSharedRef<FJsonObject> Item = AnimMcpJson::MakeObject();
+				Item->SetStringField(TEXT("mesh"), A.Asset->GetPathName());
+				Item->SetStringField(TEXT("class"), A.Asset->GetClass()->GetName());
+				Item->SetField(TEXT("socket"), AnimMcpJson::StringOrNull(A.Socket.IsNone() ? FString() : A.Socket.ToString()));
+				Item->SetField(TEXT("bone"), AnimMcpJson::StringOrNull(A.Bone.IsNone() ? FString() : A.Bone.ToString()));
+				TSharedRef<FJsonObject> Offset = AnimMcpJson::MakeObject();
+				const FRotator R = A.Offset.GetRotation().Rotator();
+				Offset->SetArrayField(TEXT("location"), VectorJson(A.Offset.GetLocation()));
+				Offset->SetArrayField(TEXT("rotation"), VectorJson(FVector(R.Pitch, R.Yaw, R.Roll)));
+				Offset->SetArrayField(TEXT("scale"), VectorJson(A.Offset.GetScale3D()));
+				Item->SetObjectField(TEXT("offset"), Offset);
+				TSharedRef<FJsonObject> Box = AnimMcpJson::MakeObject();
+				Box->SetArrayField(TEXT("min"), VectorJson(A.LocalBox.IsValid ? A.LocalBox.Min : FVector::ZeroVector));
+				Box->SetArrayField(TEXT("max"), VectorJson(A.LocalBox.IsValid ? A.LocalBox.Max : FVector::ZeroVector));
+				Item->SetObjectField(TEXT("local_bounds_cm"), Box);
+				AttachmentsJson.Add(MakeShared<FJsonValueObject>(Item));
+			}
+			Result->SetArrayField(TEXT("attachments"), AttachmentsJson);
 		}
 		{
 			TSharedRef<FJsonObject> Render = AnimMcpJson::MakeObject();

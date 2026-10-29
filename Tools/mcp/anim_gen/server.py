@@ -140,7 +140,19 @@ def plan_motion_generation(request: dict) -> dict:
             wrist speed and speeds it up with one smooth time_warp — rate ramps linearly 1 → core rate → recovery ×1.5 → 1, no speed steps,
             antialias blurs what plays faster so fast detail does not fold into jitter — after one trim of the still head/tail; the plan shows
             the ops for an asset already on the target; Job timing has the windows · rate profile · ops · warp · before/after; length changes
-            on purpose: TIMING_CHANGED_LENGTH)}, package?{additive?{additive_type LocalSpaceBase|RotationOffsetMeshSpace, ref_pose_type
+            on purpose: TIMING_CHANGED_LENGTH), body?: true | {mode auto|measure, clearance{margin_cm 0.5, allow_contact true (torso ·
+            thighs may touch up to contact_cm; head/neck and false keep margin_cm), hands true, upper_arm no_worse, secondary record, legs false},
+            grip{mode auto|keep|off, lead_hand right, window [a, b]?, spacing_cm?, tolerance_cm?}, joints{clavicle_deg
+            10, upper_arm_deg 45, elbow_deg 60, wrist_deg 30, spine_deg_for_targets 20, neck_deg_for_targets 20, pelvis_cm 15, pelvis_deg 10},
+            targets[{id, note (the user's words), effector hand_l|hand_r|head|pelvis|foot_l|foot_r|bone, at{event swing_start|swing_peak|swing_end|
+            still_start|still_end|swing|both_planted, offset_s, index} | {time} | {window}, hold_s, position{offset_cm [forward, left, up],
+            space body|component} | {absolute_cm, space} | {away_from, min_cm}, rotation{offset_deg [pitch, yaw, roll], space body|local}, ease_s
+            0.15, weight 1, priority soft|hard}], weights{clearance 10, grip 10, pins 10, targets 5, lead_hand 3, fidelity 1}, smooth_s 0.13,
+            passes 3} (Phase 8-4b — one solve on the TARGET sequence after retarget · timing, every route incl. an existing Vesper asset → a new
+            asset: hands/forearms out of torso · thighs · head/neck · the other hand, two-hand grip kept, upper arms no deeper, targets you translate
+            from the user's words (the server never parses language — show the plan's resolved targets and get a yes); retarget body_clearance
+            defaults to measure; Job fix.body has before · predicted · after (C++) · targets · remains · loop (source numeric.loop — a loop source is fitted as a cycle, seam_deg 0); limitations BODY_FIT_APPROXIMATE ·
+            BODY_PENETRATION_REMAINS · GRIP_RELAXED · TARGET_NOT_REACHED{blocked_by})}, package?{additive?{additive_type LocalSpaceBase|RotationOffsetMeshSpace, ref_pose_type
             RefPose|AnimScaled|AnimFrame|LocalAnimFrame (default LocalAnimFrame 0), ref_frame_index, ref_pose_sequence ('$asset' = itself;
             needed by AnimFrame/AnimScaled)} (edits the new sequence in place — refused on a reused asset), montage?{name? (default
             animation_name AS_ → AM_), slot (default DefaultSlot; must already be in the skeleton), blend_in?, blend_out?, sections?[{name,

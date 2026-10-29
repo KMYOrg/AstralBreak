@@ -13,6 +13,8 @@
 #include "Engine/SkeletalMeshSocket.h"
 #include "Misc/PackageName.h"
 #include "ReferenceSkeleton.h"
+#include "Rendering/SkeletalMeshLODModel.h"
+#include "Rendering/SkeletalMeshModel.h"
 #include "Retargeter/IKRetargeter.h"
 #include "Rig/IKRigDefinition.h"
 #include "RigEditor/IKRigAutoCharacterizer.h"
@@ -434,6 +436,148 @@ namespace AnimMcpSkeletonInspector
 		{
 			Result->SetObjectField(TEXT("compare"), Compare(Skeleton, Params.CompareTo));
 		}
+		if (Params.bGeometry)
+		{
+			Result->SetObjectField(TEXT("geometry"), DescribeGeometry(Mesh));
+		}
 		return Result;
+	}
+
+	TSharedRef<FJsonObject> DescribeGeometry(const USkeletalMesh* Mesh)
+	{
+		constexpr int32 Slices = 24;
+		TSharedRef<FJsonObject> Obj = AnimMcpJson::MakeObject();
+		const FSkeletalMeshModel* Model = Mesh ? Mesh->GetImportedModel() : nullptr;
+		if (!Model || Model->LODModels.Num() == 0)
+		{
+			Obj->SetStringField(TEXT("skipped_reason"), Mesh ? TEXT("NO_IMPORTED_MODEL") : TEXT("NO_MESH"));
+			return Obj;
+		}
+		TArray<FVector> Points;
+		TArray<int32> Dominants;
+		for (const FSkelMeshSection& Section : Model->LODModels[0].Sections)
+		{
+			if (Section.bDisabled)
+			{
+				continue;
+			}
+			for (const FSoftSkinVertex& Vertex : Section.SoftVertices)
+			{
+				int32 Dominant = INDEX_NONE;
+				uint16 Best = 0;
+				for (int32 k = 0; k < MAX_TOTAL_INFLUENCES; ++k)
+				{
+					if (Vertex.InfluenceWeights[k] > Best && Section.BoneMap.IsValidIndex(Vertex.InfluenceBones[k]))
+					{
+						Best = Vertex.InfluenceWeights[k];
+						Dominant = Section.BoneMap[Vertex.InfluenceBones[k]];
+					}
+				}
+				Points.Add(FVector(Vertex.Position));
+				Dominants.Add(Dominant);
+			}
+		}
+		FVector Centroid;
+		FVector Axes[3];
+		double Variance[3];
+		if (!AnimMcpSkeletonGeometry::PrincipalAxes(Points, Centroid, Axes, Variance))
+		{
+			Obj->SetStringField(TEXT("skipped_reason"), TEXT("NO_VERTICES"));
+			return Obj;
+		}
+		Obj->SetStringField(TEXT("mesh"), Mesh->GetPathName());
+		Obj->SetNumberField(TEXT("vertices"), Points.Num());
+		Obj->SetStringField(TEXT("space"), TEXT("mesh reference pose, component space (cm)"));
+		FBox Box(Points);
+		TSharedRef<FJsonObject> Bounds = AnimMcpJson::MakeObject();
+		Bounds->SetField(TEXT("min"), VectorJson(Box.Min));
+		Bounds->SetField(TEXT("max"), VectorJson(Box.Max));
+		Bounds->SetField(TEXT("size"), VectorJson(Box.GetSize()));
+		Obj->SetObjectField(TEXT("bounds"), Bounds);
+		Obj->SetField(TEXT("centroid"), VectorJson(Centroid));
+		double Lo[3], Hi[3];
+		for (int32 a = 0; a < 3; ++a)
+		{
+			Lo[a] = TNumericLimits<double>::Max();
+			Hi[a] = TNumericLimits<double>::Lowest();
+			for (const FVector& P : Points)
+			{
+				const double U = FVector::DotProduct(P - Centroid, Axes[a]);
+				Lo[a] = FMath::Min(Lo[a], U);
+				Hi[a] = FMath::Max(Hi[a], U);
+			}
+		}
+		TArray<TSharedPtr<FJsonValue>> AxesOut;
+		for (int32 a = 0; a < 3; ++a)
+		{
+			TSharedRef<FJsonObject> Item = AnimMcpJson::MakeObject();
+			Item->SetArrayField(TEXT("axis"), TArray<TSharedPtr<FJsonValue>>{ MakeShared<FJsonValueNumber>(AnimMcpStats::Round(Axes[a].X, 5)),
+				MakeShared<FJsonValueNumber>(AnimMcpStats::Round(Axes[a].Y, 5)), MakeShared<FJsonValueNumber>(AnimMcpStats::Round(Axes[a].Z, 5)) });
+			Item->SetArrayField(TEXT("extent_cm"), TArray<TSharedPtr<FJsonValue>>{ MakeShared<FJsonValueNumber>(AnimMcpStats::Round(Lo[a])), MakeShared<FJsonValueNumber>(AnimMcpStats::Round(Hi[a])) });
+			Item->SetNumberField(TEXT("length_cm"), AnimMcpStats::Round(Hi[a] - Lo[a]));
+			Item->SetNumberField(TEXT("std_cm"), AnimMcpStats::Round(FMath::Sqrt(Variance[a])));
+			AxesOut.Add(MakeShared<FJsonValueObject>(Item));
+		}
+		Obj->SetArrayField(TEXT("principal_axes"), AxesOut);
+		// 첫 주축 단면 — 칸마다 정점 수와 둘째 · 셋째 축 방향 폭(손잡이 = 가늘고 정점이 적은 구간)
+		const double Step = FMath::Max(1e-6, (Hi[0] - Lo[0]) / Slices);
+		TArray<int32> Counts;
+		TArray<FVector2D> Min2, Max2;
+		Counts.Init(0, Slices);
+		Min2.Init(FVector2D(TNumericLimits<double>::Max()), Slices);
+		Max2.Init(FVector2D(TNumericLimits<double>::Lowest()), Slices);
+		for (const FVector& P : Points)
+		{
+			const FVector D = P - Centroid;
+			const int32 S = FMath::Clamp(FMath::FloorToInt32((FVector::DotProduct(D, Axes[0]) - Lo[0]) / Step), 0, Slices - 1);
+			const FVector2D Q(FVector::DotProduct(D, Axes[1]), FVector::DotProduct(D, Axes[2]));
+			++Counts[S];
+			Min2[S] = FVector2D(FMath::Min(Min2[S].X, Q.X), FMath::Min(Min2[S].Y, Q.Y));
+			Max2[S] = FVector2D(FMath::Max(Max2[S].X, Q.X), FMath::Max(Max2[S].Y, Q.Y));
+		}
+		TArray<TSharedPtr<FJsonValue>> SlicesOut;
+		for (int32 S = 0; S < Slices; ++S)
+		{
+			TSharedRef<FJsonObject> Item = AnimMcpJson::MakeObject();
+			Item->SetNumberField(TEXT("from_cm"), AnimMcpStats::Round(Lo[0] + S * Step));
+			Item->SetNumberField(TEXT("to_cm"), AnimMcpStats::Round(Lo[0] + (S + 1) * Step));
+			Item->SetNumberField(TEXT("vertices"), Counts[S]);
+			const bool bAny = Counts[S] > 0;
+			Item->SetArrayField(TEXT("width_cm"), TArray<TSharedPtr<FJsonValue>>{ MakeShared<FJsonValueNumber>(bAny ? AnimMcpStats::Round(Max2[S].X - Min2[S].X) : 0.0),
+				MakeShared<FJsonValueNumber>(bAny ? AnimMcpStats::Round(Max2[S].Y - Min2[S].Y) : 0.0) });
+			Item->SetArrayField(TEXT("center_cm"), TArray<TSharedPtr<FJsonValue>>{ MakeShared<FJsonValueNumber>(bAny ? AnimMcpStats::Round((Max2[S].X + Min2[S].X) / 2.0) : 0.0),
+				MakeShared<FJsonValueNumber>(bAny ? AnimMcpStats::Round((Max2[S].Y + Min2[S].Y) / 2.0) : 0.0) });
+			SlicesOut.Add(MakeShared<FJsonValueObject>(Item));
+		}
+		TSharedRef<FJsonObject> SlicesObj = AnimMcpJson::MakeObject();
+		SlicesObj->SetNumberField(TEXT("axis"), 0);
+		SlicesObj->SetNumberField(TEXT("count"), Slices);
+		SlicesObj->SetStringField(TEXT("note"), TEXT("from/to along principal_axes[0] from the centroid; width/center along axes 1 and 2"));
+		SlicesObj->SetArrayField(TEXT("items"), SlicesOut);
+		Obj->SetObjectField(TEXT("slices"), SlicesObj);
+		// 본별 — 가장 큰 가중치로 묶인 정점
+		const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
+		TMap<int32, FBox> PerBone;
+		TMap<int32, int32> PerBoneCount;
+		for (int32 i = 0; i < Points.Num(); ++i)
+		{
+			PerBone.FindOrAdd(Dominants[i], FBox(ForceInit)) += Points[i];
+			++PerBoneCount.FindOrAdd(Dominants[i]);
+		}
+		TArray<int32> BoneKeys;
+		PerBone.GetKeys(BoneKeys);
+		BoneKeys.Sort();
+		TArray<TSharedPtr<FJsonValue>> PerBoneOut;
+		for (const int32 Bone : BoneKeys)
+		{
+			TSharedRef<FJsonObject> Item = AnimMcpJson::MakeObject();
+			Item->SetField(TEXT("bone"), NameOrNull(Bone == INDEX_NONE ? NAME_None : Ref.GetBoneName(Bone)));
+			Item->SetNumberField(TEXT("vertices"), PerBoneCount[Bone]);
+			Item->SetField(TEXT("min"), VectorJson(PerBone[Bone].Min));
+			Item->SetField(TEXT("max"), VectorJson(PerBone[Bone].Max));
+			PerBoneOut.Add(MakeShared<FJsonValueObject>(Item));
+		}
+		Obj->SetArrayField(TEXT("per_bone"), PerBoneOut);
+		return Obj;
 	}
 }

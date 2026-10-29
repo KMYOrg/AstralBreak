@@ -285,6 +285,68 @@ bool FAnimMcpEditOpsTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("time_warp with seam ok"), TimeWarp(Seamed, { FVector2D(0, 0), FVector2D(1, 0.5) }, { 2.0, 2.0 }, 0.0, Report, Error));
 		TestTrue(TEXT("time_warp: seam 0.5 → 0.25"), Seamed.Seams.Num() == 1 && FMath::IsNearlyEqual(Seamed.Seams[0], 0.25, 1e-4));
 	}
+
+	// ---- bone_deltas (Phase 8-4a): 0 = 버퍼 비트 그대로 · 한 본 = 그 본과 자손만 · 관절 위치 그대로 · 이동 · 키 수 불일치 거부 ----
+	{
+		auto Same = [](const FClip& A, const FClip& B)
+		{
+			for (int32 Key = 0; Key < A.NumKeys(); ++Key)
+			{
+				for (int32 Bone = 0; Bone < A.Keys[Key].Num(); ++Bone)
+				{
+					if (FMemory::Memcmp(&A.Keys[Key][Bone], &B.Keys[Key][Bone], sizeof(FTransform)) != 0) { return false; }
+				}
+			}
+			return A.Animated == B.Animated;
+		};
+		FReport Report;
+		FString Error;
+		{
+			FClip Clip = Base;
+			FBoneDelta Zero;
+			Zero.Bone = 2;
+			Zero.RotationDeg.Init(FVector::ZeroVector, Clip.NumKeys());
+			Zero.Translation.Init(FVector::ZeroVector, Clip.NumKeys());
+			TestTrue(TEXT("bone_deltas zero ok"), BoneDeltas(Clip, { Zero }, Report, Error));
+			TestTrue(TEXT("bone_deltas zero: keys bit-identical, untracked bone stays untracked"), Same(Clip, Base));
+		}
+		{
+			FClip Clip = Base;
+			FBoneDelta Spine;
+			Spine.Bone = 2;   // spine_01 (트랙 없음) — 자식 upperarm_l · upperarm_r 가 따라온다
+			Spine.RotationDeg.Init(FVector::ZeroVector, Clip.NumKeys());
+			Spine.RotationDeg[10] = FVector(0.0, 0.0, 30.0);
+			TestTrue(TEXT("bone_deltas one bone ok"), BoneDeltas(Clip, { Spine }, Report, Error));
+			TArray<FTransform> After, Before;
+			ToComponent(Rig, Clip.Keys[10], After);
+			ToComponent(Rig, Base.Keys[10], Before);
+			TestTrue(TEXT("bone_deltas: parents unchanged"), After[0].Equals(Before[0], 1e-9) && After[1].Equals(Before[1], 1e-9));
+			TestTrue(TEXT("bone_deltas: the joint stays"), After[2].GetLocation().Equals(Before[2].GetLocation(), 1e-6));
+			TestTrue(TEXT("bone_deltas: the bone and its children turn"), !After[2].GetRotation().Equals(Before[2].GetRotation(), 1e-3)
+				&& !After[3].GetLocation().Equals(Before[3].GetLocation(), 1e-3) && !After[4].GetLocation().Equals(Before[4].GetLocation(), 1e-3));
+			const FQuat Expected = FQuat(FVector::UpVector, FMath::DegreesToRadians(30.0)) * Base.Keys[10][2].GetRotation();
+			TestTrue(TEXT("bone_deltas: new local = delta · original (parent space)"), Clip.Keys[10][2].GetRotation().Equals(Expected, 1e-6));
+			TestTrue(TEXT("bone_deltas: other keys untouched"), FMemory::Memcmp(&Clip.Keys[9][2], &Base.Keys[9][2], sizeof(FTransform)) == 0);
+			TestTrue(TEXT("bone_deltas: changed bone becomes animated"), static_cast<bool>(Clip.Animated[2]));
+		}
+		{
+			FClip Clip = Base;
+			FBoneDelta Pelvis;
+			Pelvis.Bone = 1;
+			Pelvis.Translation.Init(FVector::ZeroVector, Clip.NumKeys());
+			Pelvis.Translation[0] = FVector(0.0, 0.0, -5.0);
+			TestTrue(TEXT("bone_deltas translation ok"), BoneDeltas(Clip, { Pelvis }, Report, Error));
+			TestTrue(TEXT("bone_deltas: local translation + delta"), Clip.Keys[0][1].GetLocation().Equals(Base.Keys[0][1].GetLocation() + FVector(0.0, 0.0, -5.0), 1e-9));
+		}
+		{
+			FClip Clip = Base;
+			FBoneDelta Short;
+			Short.Bone = 3;
+			Short.RotationDeg.Init(FVector(1.0, 0.0, 0.0), Clip.NumKeys() - 1);
+			TestFalse(TEXT("bone_deltas: key count mismatch refused"), BoneDeltas(Clip, { Short }, Report, Error));
+			TestTrue(TEXT("bone_deltas: refused leaves the clip"), Same(Clip, Base));
+		}
+	}
 	return true;
 }
 

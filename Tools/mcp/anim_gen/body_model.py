@@ -163,8 +163,8 @@ class RadialMap:
     def bin_center(self, t_bin: int) -> float:
         return self.t_min + (t_bin + 0.5) / self.t_bins * (self.t_max - self.t_min)
 
-    def locate(self, f: int, p) -> tuple[int, int, float] | None:
-        """(t 칸, 각도 칸, 축까지 거리) — 축이 없거나 t 가 범위 밖이면 None."""
+    def locate(self, f: int, p, x=None) -> tuple[int, int, float] | None:
+        """(t 칸, 각도 칸, 축까지 거리) — 축이 없거나 t 가 범위 밖이면 None. x = 각도 0 방향(축에 수직 단위 — 없으면 그 프레임의 원래 축 x)."""
         ax = self.axes[f]
         length = ax["length"]
         if length <= 0.0:
@@ -176,7 +176,8 @@ class RadialMap:
             return None
         radial = _sub(rel, _scale(ax["dir"], along))
         t_bin = min(max(int(math.floor((t - self.t_min) / (self.t_max - self.t_min) * self.t_bins)), 0), self.t_bins - 1)
-        angle = math.atan2(_dot(radial, ax["y"]), _dot(radial, ax["x"]))
+        xx, yy = (ax["x"], ax["y"]) if x is None else (x, _cross(ax["dir"], x))
+        angle = math.atan2(_dot(radial, yy), _dot(radial, xx))
         a_bin = min(max(int(math.floor((angle + math.pi) / (2.0 * math.pi) * self.angle_bins)), 0), self.angle_bins - 1)
         return t_bin, a_bin, _norm(radial)
 
@@ -197,9 +198,9 @@ class RadialMap:
                     best = v
         return best
 
-    def depth(self, f: int, p, min_t: float | None = None) -> tuple[float, int] | None:
-        """(부호 있는 깊이 cm, t 칸) — 칸 가운데 t < min_t · 빈 칸(이웃도)이면 None."""
-        loc = self.locate(f, p)
+    def depth(self, f: int, p, min_t: float | None = None, x=None) -> tuple[float, int] | None:
+        """(부호 있는 깊이 cm, t 칸) — 칸 가운데 t < min_t · 빈 칸(이웃도)이면 None. x = locate 의 각도 0 방향."""
+        loc = self.locate(f, p, x)
         if loc is None:
             return None
         t_bin, a_bin, dist = loc

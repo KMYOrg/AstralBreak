@@ -1,4 +1,16 @@
-"""Phase 8-4b — 대상(리타깃이 끝난 Vesper) 애니 위의 한 풀이: 몸 전체 관통 · 양손 파지 keep · 발 pin · 지시 목표 (순수 Python — numpy 없음).
+"""Phase 8-4b · 8-4c — 대상(리타깃이 끝난 Vesper) 애니 위의 한 풀이: 몸 전체 관통 · 양손 파지(keep · 무기 weapon) · 발 pin · 지시 목표
+(순수 Python — numpy 없음).
+
+  무기(8-4c) — 요청 weapon(weapon.py 가 메시 사실로 푼 값 → WeaponRig): 무기 = 주 손(부착 본)의 강체. weapon 모드는 keep 대신 보조 손바닥 점 →
+             목표 점(원래 손바닥 → 손잡이 선분 위 가장 가까운 점 — 미끄러짐, smootherstep(무기 파지 가중) 보간 · 잔차는 가득 가중 — 8-4c 후속) · 보조 손
+             회전(무기 공간 ± 허용각, 없으면 원래 상대 회전) · 보조 손목 굽힘 ≤ max(원래 최대, wrist_bend_max_deg)(관통 층) — keep 과 같은 층, 주 손 방향
+             충실도는 keep 층(무기 방향). 손끼리 관통은 하드 그대로(보조 손이 미끄러져 피한다). 매끈화 · 재검사 뒤 파지 구간 전체를 보조 팔만으로
+             마무리(_snap_weapon — 스플라인이 묽힌 손잡이 거리를 되돌린다).
+  손목 굽힘 — 파지 프레임(손목을 여는 프레임) 보조 손목 굽힘 ≤ 원래 + BEND_KEEP_TOL_DEG(관통 층 hinge — 8-4c 후속, keep 이 팔 보정을 손목에 떠넘겨 원본보다
+             꺾이지 않게). 본 풀이에는 두지 않고 본 풀이 뒤 보조 손목만 다듬는다(_finish_wrist — 2차: 본 풀이에 걸면 팔 보정 경로가 바뀌어 매끈화 뒤
+             재검사가 못 따라갔다). 손가락 뿌리 = 대상 메시 손가락 체인 제안 {Side}Middle 시작(fingers), 없으면 끈다.
+             weapon_tip 목표 = 부착 본의 강체 점. 무기-몸 관통은 기록만(weapon_body — 무기 기록 점 ↔ 같은 몸 지도). 무기가 없으면 이 경로는 쉰다.
+             무기 파지는 원래 보조 손이 손잡이 근처(WEAPON_NEAR_CM × scale)인 구간만 — 먼 띠 프레임은 keep(사용자 결정 '가' — grip_weights).
 
 원천은 C++ 몸 모델 하나(validate_animation body_clearance{parts all, hands, model} — body_model.py 가 읽는다). 이 모듈은 그 모델의 포즈를
 관절 회전 델타(부모 공간 회전 벡터 — apply_animation_edits bone_deltas 와 같은 뜻)로 바꿔 가며 같은 반경 지도에 다시 묻는다:
@@ -44,7 +56,7 @@ VERSION = 1
 DEFAULTS = {
     "mode": "auto",
     "clearance": {"margin_cm": 0.5, "allow_contact": True, "hands": True, "upper_arm": "no_worse", "secondary": "record", "legs": False},
-    "grip": {"mode": "auto", "lead_hand": "right", "window": None, "spacing_cm": None, "tolerance_cm": None},
+    "grip": {"mode": "auto", "lead_hand": "right", "window": None, "spacing_cm": None, "tolerance_cm": None, "blend_s": None, "wrist_bend_max_deg": None},
     "joints": {"clavicle_deg": 10.0, "upper_arm_deg": 45.0, "elbow_deg": 60.0, "wrist_deg": 30.0, "spine_deg": 0.0, "spine_deg_for_targets": 20.0,
                "neck_deg_for_targets": 20.0, "pelvis_cm": 15.0, "pelvis_deg": 10.0},
     "targets": [],
@@ -54,7 +66,7 @@ DEFAULTS = {
 }
 TARGET_KEYS = {"id", "note", "effector", "at", "hold_s", "position", "rotation", "ease_s", "weight", "priority"}
 TARGET_DEFAULTS = {"note": None, "hold_s": 0.0, "position": None, "rotation": None, "ease_s": 0.15, "weight": 1.0, "priority": "soft"}
-EFFECTORS = ("hand_l", "hand_r", "foot_l", "foot_r", "head", "pelvis")
+EFFECTORS = ("hand_l", "hand_r", "foot_l", "foot_r", "head", "pelvis", "weapon_tip")
 _ID = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 # 층 배율 — weights 값에 곱한다(잔차 가중 = (값 × 층)²). 하드 목표 > 관통 · 늘어남 > keep > 소프트 목표 > 소프트(주 손 · 손목 위치) — 기본 weights 로
 # 위 층이 아래 층보다 √가중 3 배 이상(하드 목표 5 × 1000 : 관통 10 × 30 : keep 10 × 10 : 소프트 목표 5 × 10 : 소프트 ≤ 3). 관절 변화 충실도는 cm 가 아니라
@@ -83,6 +95,23 @@ BEND_MIN, BEND_MAX = math.radians(2.0), math.radians(155.0)
 STRAIGHT_RAD = math.radians(10.0)      # 이보다 펴진 프레임의 경첩 축은 굽힌 프레임 평균(위팔 로컬)
 REACH = 0.995            # 엉덩 → 발목 ≤ 다리 길이 × 이 비(늘어남 금지)
 GRIP_BLEND_S = 0.1       # 파지 프레임 경계 블렌드(keep 가중 smoothstep)
+# weapon 모드(8-4c)의 경계 블렌드 — 보조 손을 원래 자리에서 손잡이로 옮기므로(keep 은 원래 관계라 옮김이 작다) 이음매가 튀지 않게 keep 의 두 배
+GRIP_BLEND_WEAPON_S = 0.2
+# weapon 파지를 거는 거리(원래 보조 손바닥 점 ↔ 손잡이, × scale) — 사용자 결정 '가'(2026-10-29): 무기를 오른손 소켓 · 운영 offset 으로 붙이면 생성 낫
+# 애니의 왼손은 자루에서 p50 30 ~ 43 cm(두 손 선 ∠ 자루 ≈ 60° — 오른손 방향이 운영과 다르다)라 붙이는 것은 보정이 아니라 재배치 → 이미 가까운
+# 프레임만 붙이고 먼 프레임은 keep + 한계 GRIP_NOT_APPLICABLE(원인은 생성 쪽 후속). 운영 낫 Attack2 는 E0 선분에서 p50 11.7 · p5 2.7 cm
+WEAPON_NEAR_CM = 15.0
+# 손잡이에서 주 손 자리를 뺀 폭(± 이 값 × scale, 선분 위) — 결정 ③(손끼리 하드 · 보조 손이 미끄러져 피한다): E0 선분이 주 손 자리(선분 위 ≈ 14 cm)를
+# 지나가 보조 손을 투영점으로 끌면 손끼리 관통에 막혀 7 cm 가 남고 떨렸다(운영 Attack2 오프라인 — zigzag 8.2 → 23). 자리를 빼면 가까운 조각 끝으로 간다
+WEAPON_LEAD_CLEAR_CM = 7.0
+WEAPON_TOL_CM = 0.5      # 재검사 대상이 되는 무기 파지 오차(손바닥 점 ↔ 손잡이 × 가중 — cm × scale) · 회전 · 손목 굽힘 초과(°) — 기준 1(p95 1 cm) 의 절반
+WEAPON_TOL_DEG, BEND_TOL_DEG = 2.0, 1.0
+# keep 파지 프레임 보조 손목 굽힘 허용(원래 굽힘 위 °) — 원래보다 더 굽히지 않는다(8-4c 후속, 사용자 Persona 2026-10-29): 손목을 여는 파지 프레임에서
+# keep(주 손 기준 상대 회전)이 팔을 옮긴 만큼을 보조 손목이 떠안아 원본보다 더 꺾였다(낫 정정 8-4b 실측 원본 91.1 → 102.1°, 띠 정정 f72 +1 ~ +3°)
+BEND_KEEP_TOL_DEG = 2.0
+# 본 풀이 잔차 묶음 — 관통 · 위팔 · keep · 무기 파지 · 주 손 · 손목 위치 · 관절 충실도 · 지시 목표 · 다리 늘어남. 손목 굽힘 상한(bend)은 본 풀이 뒤
+# 다듬기(_snap_weapon · _finish_wrist)에만 둔다(8-4c 후속 2차 — _finish_wrist 주석)
+FAMILIES = frozenset({"clear", "upper", "keep", "weapon", "lead", "wrist", "fid", "targets", "reach"})
 GRIP_MIN_FRAMES = 3
 GRIP_GAP_FRAMES = 2      # 띠 밖으로 잠깐(≤ 이 프레임) 나간 것은 파지로 이어 본다
 HAND_MAPS = ("hand_l", "hand_r", "forearm_l", "forearm_r")
@@ -151,8 +180,9 @@ def normalize(raw) -> dict | None:
         raise BodyFitError("fix.body.clearance.upper_arm", "must be no_worse | off (upper-arm pairs are kept no deeper than before, not targeted)")
     if c["secondary"] not in ("record", "off"):
         raise BodyFitError("fix.body.clearance.secondary", "must be record | off (secondary branches — coat flaps — are measured, never constrained)")
-    if g["mode"] not in ("auto", "keep", "off"):
-        raise BodyFitError("fix.body.grip.mode", "must be auto | keep | off (weapon grip is Phase 8-4c)")
+    if g["mode"] not in ("auto", "weapon", "keep", "off"):
+        raise BodyFitError("fix.body.grip.mode", "must be auto | weapon | keep | off (auto = keep inside the grip band — the weapon grip is opt-in: "
+                           "weapon, with the request weapon's grip for the other hand)")
     if g["lead_hand"] not in ("left", "right"):
         raise BodyFitError("fix.body.grip.lead_hand", "must be left | right")
     if g["window"] is not None and not (isinstance(g["window"], list) and len(g["window"]) == 2 and all(_num(v, 0.0, 600.0) for v in g["window"])
@@ -161,6 +191,10 @@ def normalize(raw) -> dict | None:
     for key, hi in (("spacing_cm", 200.0), ("tolerance_cm", 100.0)):
         if g[key] is not None and not (_num(g[key], 0.0, hi) and g[key] > 0):
             raise BodyFitError(f"fix.body.grip.{key}", f"must be null or a number in (0, {hi:g}] cm")
+    if g["blend_s"] is not None and not _num(g["blend_s"], 0.0, 1.0):
+        raise BodyFitError("fix.body.grip.blend_s", "must be null (keep 0.1 · weapon 0.2 s) or a number in [0, 1] seconds")
+    if g["wrist_bend_max_deg"] is not None and not _num(g["wrist_bend_max_deg"], 0.0, 180.0):
+        raise BodyFitError("fix.body.grip.wrist_bend_max_deg", "must be null or a number in [0, 180] — the off-hand wrist bend cap is max(this, the clip's own max)")
     for key, hi in (("clavicle_deg", 30.0), ("upper_arm_deg", 90.0), ("elbow_deg", 120.0), ("wrist_deg", 60.0), ("spine_deg", 30.0),
                     ("spine_deg_for_targets", 45.0), ("neck_deg_for_targets", 45.0), ("pelvis_cm", 40.0), ("pelvis_deg", 30.0)):
         if not _num(j[key], 0.0, hi):
@@ -616,9 +650,40 @@ def _body_rot(frame: tuple, deg) -> tuple:
 
 
 # ---- 파지 ----
-def grip_weights(rig: Rig, cfg: dict, scale: float) -> dict:
+def _flag_weights(flags: list[bool], fps: float, blend_s: float) -> tuple[list[float], list]:
+    """프레임 깃발 → 가중(0 ~ 1) · 구간 — 짧은 빈틈(≤ GRIP_GAP_FRAMES) 잇기 · GRIP_MIN_FRAMES 이상 · 경계 smoothstep 블렌드."""
+    n = len(flags)
+    flags = list(flags)
+    # 짧은 빈틈 잇기
+    for f in range(n):
+        if not flags[f]:
+            a = f
+            while a < n and not flags[a]:
+                a += 1
+            if 0 < f and a < n and a - f <= GRIP_GAP_FRAMES:
+                for k in range(f, a):
+                    flags[k] = True
+    runs = mm.runs(flags, GRIP_MIN_FRAMES)
+    blend = max(1, int(round(blend_s * fps)))
+    w = [0.0] * n
+    for a, b in runs:
+        for f in range(a, b + 1):
+            w[f] = 1.0
+        for k in range(1, blend + 1):
+            s = _smoothstep(1.0 - k / (blend + 1))
+            if a - k >= 0:
+                w[a - k] = max(w[a - k], s)
+            if b + k < n:
+                w[b + k] = max(w[b + k], s)
+    return w, runs
+
+
+def grip_weights(rig: Rig, cfg: dict, scale: float, weapon: WeaponRig | None = None) -> dict:
     """keep 가중(프레임별 0 ~ 1) — 손목 간격이 띠(motion_metrics.grip_band) 안인 구간(짧은 빈틈은 이어 보고 GRIP_MIN_FRAMES 이상) + 경계 smoothstep.
-    window(초)가 있으면 그 안만. mode off → 전부 0."""
+    window(초)가 있으면 그 안만. mode off → 전부 0.
+    weapon 모드(8-4c — weapon 에 보조 손 grip): 무기 파지 구간 = 원래 보조 손바닥 점이 손잡이에서 WEAPON_NEAR_CM × scale 안인 프레임(window 안 — 양손
+    간격 띠는 보지 않는다: 띠는 무기 기하가 없을 때 '같은 무기를 쥠'의 대리이고, 운영 낫처럼 손이 가까운 파지는 띠 밖이다) → weapon_weights(블렌드
+    0.2초), keep_weights = 띠 가중 − 무기 가중(손이 먼 띠 프레임은 keep 그대로), weights = 둘의 큰 쪽(자유도 · 주 손 충실도)."""
     model = rig.model
     n = rig.frames
     lead = "r" if cfg["lead_hand"] == "right" else "l"
@@ -630,41 +695,207 @@ def grip_weights(rig: Rig, cfg: dict, scale: float) -> dict:
     out["band_cm"] = [round(lo, 2), round(hi, 2)]
     wl, wr = rig.arms["l"]["wrist"], rig.arms["r"]["wrist"]
     fps = model.fps
-    flags = []
+    flags, inside = [], []
     for f in range(n):
         gap = _norm(_sub(model.poses[f][wl][1], model.poses[f][wr][1]))
         t = model.times[f]
-        inside = cfg["window"] is None or cfg["window"][0] - 1e-6 <= t <= cfg["window"][1] + 1e-6
-        flags.append(inside and lo <= gap <= hi)
-    # 짧은 빈틈 잇기
-    for f in range(n):
-        if not flags[f]:
-            a = f
-            while a < n and not flags[a]:
-                a += 1
-            if 0 < f and a < n and a - f <= GRIP_GAP_FRAMES:
-                for k in range(f, a):
-                    flags[k] = True
-    runs = mm.runs(flags, GRIP_MIN_FRAMES)
-    blend = max(1, int(round(GRIP_BLEND_S * fps)))
-    w = out["weights"]
-    for a, b in runs:
-        for f in range(a, b + 1):
-            w[f] = 1.0
-        for k in range(1, blend + 1):
-            s = _smoothstep(1.0 - k / (blend + 1))
-            if a - k >= 0:
-                w[a - k] = max(w[a - k], s)
-            if b + k < n:
-                w[b + k] = max(w[b + k], s)
+        inside.append(cfg["window"] is None or cfg["window"][0] - 1e-6 <= t <= cfg["window"][1] + 1e-6)
+        flags.append(inside[f] and lo <= gap <= hi)
+    blend_s = cfg.get("blend_s")
+    w, runs = _flag_weights(flags, fps, GRIP_BLEND_S if blend_s is None else blend_s)
+    out["weights"] = w
     out["frames"] = [f for f in range(n) if w[f] >= 1.0]
     out["runs_s"] = [[round(model.times[a], 4), round(model.times[b], 4)] for a, b in runs]
+    if cfg["mode"] == "weapon" and weapon is not None and weapon.active:
+        near_cm = WEAPON_NEAR_CM * scale
+        dist = [weapon.grip_state(f, model.poses[f])["dist"] for f in range(n)]
+        ww, wruns = _flag_weights([inside[f] and dist[f] <= near_cm for f in range(n)], fps, GRIP_BLEND_WEAPON_S if blend_s is None else blend_s)
+        out.update(keep_weights=[max(0.0, a - b) for a, b in zip(w, ww)], weapon_weights=ww, weights=[max(a, b) for a, b in zip(w, ww)],
+                   weapon_frames=[f for f in range(n) if ww[f] >= 1.0], weapon_runs_s=[[round(model.times[a], 4), round(model.times[b], 4)] for a, b in wruns],
+                   near_cm=round(near_cm, 2), band_far_frames=sum(1 for f in range(n) if w[f] >= 1.0 and ww[f] <= 0.0),
+                   dist_cm={"p50": round(bm.percentile(dist, 50.0), 2), "p5": round(bm.percentile(dist, 5.0), 2)})
     return out
 
 
+def grip_mode(cfg: dict, weapon: dict | None) -> str:
+    """요청 fix.body.grip.mode + 요청 weapon(weapon.normalize) → 풀이가 쓰는 모드. **무기 파지는 옵트인**(사용자 결정 2026-10-29): auto 는 무기가
+    있어도 keep(보조 손 grip 이 있으면 손잡이 거리 · 두 손 선 각도만 기록 — 한계 GRIP_NOT_APPLICABLE), 무기가 없으면 auto(지금처럼 띠 안 keep).
+    근거: 낫을 운영 부착(오른손 소켓 · offset)으로 붙이면 생성 낫 애니의 왼손은 자루에서 p50 30 ~ 43 cm(두 손 선 ∠ 자루 ≈ 60°), 운영 낫 왼손은 자루를
+    쥐지 않고 빠르게 지나가 붙이면 동작이 망가졌다(Attack2 오프라인 거리 p95 13.8 → 7.0 cm · zigzag 8.2 → 19). weapon 은 요청이 줄 때만 —
+    보조 손 grip 이 없거나 런타임 IK 면 BodyFitError(WEAPON_GRIP_UNKNOWN)."""
+    mode = cfg["mode"]
+    g = next((x for x in (weapon or {}).get("grips") or [] if x["hand"] != (weapon or {}).get("lead_hand")), None)
+    if mode == "weapon" and (g is None or g["runtime_ik"]):
+        raise BodyFitError("fix.body.grip.mode", "weapon needs request weapon.grips with the other hand's segment | socket | sockets (not runtime_ik)",
+                           "WEAPON_GRIP_UNKNOWN")
+    if mode == "auto" and g is not None:
+        return "keep"
+    return mode
+
+
+# ---- 무기 (8-4c) ----
+class WeaponRig:
+    """요청 weapon 을 풀어 둔 값(weapon.resolve) → 몸 모델 위의 강체 무기: 부착 본(주 손목 또는 그 자손)에 붙은 무기 메시 공간 → 본 공간 변환 ·
+    손잡이 선분 · 보조 손 회전 목표(본 공간 — 요청 회전이 없으면 프레임마다 원래 상대 회전) · 손바닥 점(보조 손목 로컬, 프레임별 — 손가락 로컬은
+    풀이가 바꾸지 않는다) · 쥠 축(기록) · 손목 굽힘 상한 · 무기 끝 · 기록 점. grip 은 보조 손 grip 이 있으면(런타임 IK 아님) 늘 풀어 두고, 제약은
+    weapon 모드(active)일 때만 — 그 밖은 손잡이 거리 · 두 손 선 기록 · 무기 끝 · 무기-몸 기록만."""
+
+    def __init__(self, rig: Rig, resolved: dict, *, mode: str, wrist_bend_max_deg: float | None = None):
+        model = rig.model
+        self.resolved = resolved
+        self.bone = model.index.get(resolved["bone"])
+        if self.bone is None:
+            raise BodyFitError("weapon.attach", f"the attach bone {resolved['bone']} is not in the body model", "WEAPON_ATTACH_UNKNOWN")
+        lead = resolved["lead"]
+        if rig.arms[lead]["wrist"] not in rig.anc_set[self.bone]:
+            raise BodyFitError("weapon.attach", f"the attach bone {resolved['bone']} is not the {lead} wrist or below it", "WEAPON_ATTACH_UNKNOWN")
+        self.lead = lead
+        q, t, s = resolved["local"]
+        self.local = (tuple(q), tuple(t), tuple(s))
+        self.tip_local = bm.transform_point(self.local, resolved["tip"]) if resolved.get("tip") else None
+        self.points = [(bm.transform_point(self.local, p["p"]), float(p["r"]), p["part"]) for p in resolved.get("points") or []]
+        self.grip = None
+        g = resolved.get("grip")
+        if g is not None and not g["runtime_ik"] and resolved.get("hand"):
+            self.grip = self._grip(rig, g, resolved.get("hand") or {}, wrist_bend_max_deg)
+        # 파지 제약은 weapon 모드만(옵트인) — 그 밖은 손잡이 거리 · 두 손 선을 기록만
+        self.active = mode == "weapon" and self.grip is not None
+
+    def _grip(self, rig: Rig, g: dict, hand: dict, bend_max: float | None) -> dict:
+        model = rig.model
+        side = g["hand"]
+        arm = rig.arms[side]
+        wrist, elbow = arm["wrist"], arm["elbow"]
+        middle = model.index.get(hand.get("middle") or "")
+        if middle is None or wrist not in rig.anc_set[middle]:
+            raise BodyFitError(f"weapon.grips.{side}", f"the middle finger root {hand.get('middle')} is not below the {side} wrist in the body model",
+                               "WEAPON_GRIP_UNKNOWN")
+        a, b = tuple(g["from"]), tuple(g["to"])
+        d = _sub(b, a)
+        dir_w = _scale(d, 1.0 / _norm(d)) if _norm(d) > 1e-6 else None
+        rot_w = tuple(g["rotation"]) if g.get("rotation") else None
+        # 손바닥 점(손목 로컬) — 프레임별 손목 · 가운데 손가락 뿌리 중점. 회전 목표 — 요청 회전이 없으면 프레임마다 원래 상대 회전(부착 본 기준 —
+        # 사용자 결정 '가': 운영 낫 왼손은 자루를 감아 쥐지 않아(쥠 축 ∠ 자루 p50 52° · 무기 공간 회전 퍼짐 p50 51°) 한 회전으로 맞출 근거가 없다)
+        # 원래 손바닥 점(부착 본 공간, 프레임별) — 블렌드 프레임 목표의 출발점(무기 강체로 따라간다 — grip_state)
+        palm, rot_f, palm_bone = [], [], []
+        for f in range(rig.frames):
+            pose = model.poses[f]
+            mid = _scale(_add(pose[wrist][1], pose[middle][1]), 0.5)
+            palm.append(bm.qrot(bm.qconj(pose[wrist][0]), _sub(mid, pose[wrist][1])))
+            rot_f.append(bm.qnormalize(bm.qmul(bm.qconj(pose[self.bone][0]), pose[wrist][0])))
+            palm_bone.append(bm.qrot(bm.qconj(pose[self.bone][0]), _sub(mid, pose[self.bone][1])))
+        # 쥠 축(보조 손 로컬 — 기록만) — 검지 → 새끼 뿌리(0 번 프레임, 앞 방향에 직교), 손가락 체인이 없으면 요청 회전에서 손잡이가 놓이는 손 로컬 방향
+        axis = None
+        idx_b, pin_b = model.index.get(hand.get("index") or ""), model.index.get(hand.get("pinky") or "")
+        if dir_w is not None and idx_b is not None and pin_b is not None:
+            pose = model.poses[0]
+            fwd = _unit(_sub(pose[middle][1], pose[wrist][1]))
+            lat = _sub(pose[idx_b][1], pose[pin_b][1])
+            lat = _unit(_sub(lat, _scale(fwd, _dot(lat, fwd))))
+            axis = bm.qrot(bm.qconj(pose[wrist][0]), lat)
+        elif dir_w is not None and rot_w is not None:
+            axis = bm.qrot(bm.qconj(rot_w), dir_w)
+        bend0 = [self.bend(model.poses[f], elbow, wrist, middle) for f in range(rig.frames)]
+        cap = max(max(bend0), math.radians(bend_max) if bend_max is not None else 0.0)
+        # 손잡이 조각 — 선분에서 주 손 자리(주 손목의 선분 위 투영 ± WEAPON_LEAD_CLEAR_CM × scale, 0 번 프레임 — 무기는 주 손의 강체라 거의 일정)를 뺀다
+        sa, sb = bm.transform_point(self.local, a), bm.transform_point(self.local, b)
+        pieces = [(0.0, 1.0)]
+        zone = None
+        length = _norm(_sub(sb, sa))
+        if length > 1e-6:
+            lead_local = bm.qrot(bm.qconj(model.poses[0][self.bone][0]), _sub(model.poses[0][rig.arms[self.lead]["wrist"]][1], model.poses[0][self.bone][1]))
+            u = _dot(_sub(lead_local, sa), _sub(sb, sa)) / (length * length)
+            hw = WEAPON_LEAD_CLEAR_CM * model.scale / length
+            cut = [(lo, hi) for lo, hi in ((0.0, min(1.0, u - hw)), (max(0.0, u + hw), 1.0)) if hi - lo > 1e-6]
+            if cut and hw > 0.0 and cut != [(0.0, 1.0)]:
+                pieces, zone = cut, (u - hw, u + hw, hw)
+        # 프레임별 조각 · 주 손 자리 통과 비(8-4c 후속) — 원래 손바닥의 선분 위 투영으로 고른다. 원래 손이 주 손 자리를 건너가는 동안(운영 Attack2 f59 ~ f61
+        # — 투영 11.5 → 19.1 cm, 자리 8.4 ~ 23.1) 가장 가까운 조각 끝은 한 프레임에 자리 폭(14.7 cm)을 건너뛰어 손이 반대 손을 꿰뚫거나 순간 이동했다
+        # (오프라인 떨림 8.2 → 21.8) → 그 건너는 구간(자리 안 연속 프레임 중 조각이 바뀌는 것)만 통과 비 = smootherstep(1 − 자리 끝에서 든 깊이 / 반폭),
+        # 목표 보간이 이 비만큼 원래 손바닥 쪽으로(grip_state). 한쪽에 머무는 자리 안 프레임(두 손이 가까운 파지)은 그대로 조각 끝으로 끈다
+        l2 = length * length
+        s0 = [_dot(_sub(palm_bone[f], sa), _sub(sb, sa)) / l2 if l2 > 1e-12 else 0.0 for f in range(rig.frames)]
+        piece_f = [min(range(len(pieces)), key=lambda k: max(pieces[k][0] - x, 0.0, x - pieces[k][1])) for x in s0]
+        pass_f = [1.0] * rig.frames
+        inside = [zone is not None and zone[0] < x < zone[1] for x in s0]
+        f = 0
+        while f < rig.frames:
+            if not inside[f]:
+                f += 1
+                continue
+            a0 = f
+            while f < rig.frames and inside[f]:
+                f += 1
+            if len({piece_f[k] for k in range(a0, f)}) > 1:
+                for k in range(a0, f):
+                    pass_f[k] = _smootherstep(1.0 - min(s0[k] - zone[0], zone[1] - s0[k]) / zone[2])
+        # 통과 비를 시간으로 넓힌다(± GRIP_BLEND_WEAPON_S — 떨어진 만큼 smootherstep 으로 묽힌 최솟값, 8-4c 후속 2차): 위치만 본 비는 원래 손이 자리를
+        # 2 ~ 3 프레임에 건너는 동안 목표를 손잡이 → 원래 손 → 손잡이로 바꿔 팔이 튀었다(운영 Attack2 옵트인 f58 ~ f64 — 손목 걸음 f63 6.5 · 팔꿈치 7.1 cm,
+        # 원본 0.5 · 1.2). 넓히면 블렌드와 같은 폭으로 드나든다(오프라인 — 구간 파지 p95 1.28 → 0.88 · 최대 7.8 → 1.08 cm, 떨림 = 원본)
+        b = max(1, int(round(GRIP_BLEND_WEAPON_S * model.fps)))
+        dip = [1.0 - x for x in pass_f]
+        pass_f = [1.0 - max([dip[k] * _smootherstep(1.0 - abs(f - k) / (b + 1)) for k in range(max(0, f - b), min(rig.frames, f + b + 1)) if dip[k] > 0.0] or [0.0])
+                  for f in range(rig.frames)]
+        return {"side": side, "wrist": wrist, "elbow": elbow, "middle": middle, "seg": (sa, sb), "pieces": pieces, "zone": zone, "piece_f": piece_f, "pass_f": pass_f,
+                "seg_w": (a, b), "dir": bm.qrot(self.local[0], dir_w) if dir_w is not None else None,
+                "rot": bm.qnormalize(bm.qmul(self.local[0], rot_w)) if rot_w is not None else None, "rot_f": rot_f, "axis": axis,
+                "tol": math.radians(g["tol_deg"]), "palm": palm, "palm_bone": palm_bone, "bend0": bend0, "cap": cap, "form": g.get("form")}
+
+    @staticmethod
+    def bend(pose, elbow: int, wrist: int, middle: int) -> float:
+        """손목 굽힘(rad) — 아래팔(팔꿈치 → 손목) vs 손(손목 → 가운데 손가락 뿌리), motion_metrics.wrist_bend 와 같은 정의."""
+        u = _unit(_sub(pose[wrist][1], pose[elbow][1]))
+        h = _unit(_sub(pose[middle][1], pose[wrist][1]))
+        return math.atan2(_norm(_cross(h, u)), _dot(u, h))
+
+    def frame(self, pose) -> tuple:
+        """그 포즈의 무기 메시 변환(컴포넌트)."""
+        return bm.compose(self.local, pose[self.bone])
+
+    def grip_state(self, f: int, pose, blend: float = 1.0) -> dict:
+        """그 포즈의 파지 상태 — 손바닥 점 · 손잡이 위 가장 가까운 점(미끄러짐 s 0 ~ 1) · 거리 · 목표 점 · 목표 오차 · 회전 오차(rad, 허용각 전 — 요청
+        회전 또는 원래 상대 회전) · 쥠 축 각(기록) · 손목 굽힘 · 두 손 선(보조 손바닥 점 − 주 손목) ∠ 손잡이.
+        blend(0 ~ 1 — 풀이는 smootherstep(무기 파지 가중)) × 주 손 자리 통과 비(pass_f) — 목표 점 = 원래 손바닥 점(부착 본 공간 — 무기 강체로 따라간다)
+        → 손잡이 위 가장 가까운 점 보간, 요청 회전도 원래 상대 회전 → 요청 회전 slerp(8-4b 지시 목표 완급과 같은 방식). 1 이면 목표 = 가장 가까운 점.
+        조각은 원래 손바닥 투영이 고른 것(piece_f) 안에서만 미끄러진다 — 주 손 자리를 건너뛰지 않는다."""
+        g = self.grip
+        W, O = pose[self.bone], pose[g["wrist"]]
+        palm = bm.transform_point(O, g["palm"][f])
+        a, b = bm.transform_point(W, g["seg"][0]), bm.transform_point(W, g["seg"][1])
+        ab = _sub(b, a)
+        l2 = _dot(ab, ab)
+        s0 = _dot(_sub(palm, a), ab) / l2 if l2 > 1e-12 else 0.0
+        lo, hi = g["pieces"][g["piece_f"][f]]
+        s = min(hi, max(lo, s0))
+        c = _add(a, _scale(ab, s))
+        k = blend * g["pass_f"][f]
+        target = c if k >= 1.0 else _add(_scale(bm.transform_point(W, g["palm_bone"][f]), 1.0 - k), _scale(c, k))
+        out = {"palm": palm, "closest": c, "s": s, "along_cm": s * math.sqrt(l2), "dist": _norm(_sub(palm, c)), "target": target,
+               "err": _norm(_sub(palm, target)), "blend": k, "axis": None, "hands_line": None, "bend": self.bend(pose, g["elbow"], g["wrist"], g["middle"]),
+               "rel": self.target_rel(f, k)}
+        out["rot"] = _norm(qlog(bm.qmul(O[0], bm.qconj(bm.qmul(W[0], out["rel"])))))
+        if g["dir"] is not None:
+            t_w = bm.qrot(W[0], g["dir"])
+            if g["axis"] is not None:
+                a_w = bm.qrot(O[0], g["axis"])
+                out["axis"] = math.atan2(_norm(_cross(a_w, t_w)), abs(_dot(a_w, t_w)))
+            v = _sub(palm, pose[self.bone][1])
+            if _norm(v) > 1e-6:
+                out["hands_line"] = math.atan2(_norm(_cross(v, t_w)), abs(_dot(v, t_w)))
+        return out
+
+    def target_rel(self, f: int, blend: float = 1.0):
+        """보조 손 회전 목표(부착 본 기준) — 요청 회전(블렌드 프레임은 원래 상대 회전에서 slerp), 없으면 그 프레임의 원래 상대 회전."""
+        g = self.grip
+        if g["rot"] is None:
+            return g["rot_f"][f]
+        return g["rot"] if blend >= 1.0 else _slerp(g["rot_f"][f], g["rot"], blend)
+
+
 # ---- 지시 목표 ----
-def resolve_targets(rig: Rig, targets: list[dict], events: dict | None, joints: dict) -> list[dict]:
-    """targets[] → 프레임 구간 · 완급 · 본 · 자유도 · 프레임별 목표(위치 · 회전). 사건을 못 찾거나 클립 밖이면 skipped{reason}."""
+def resolve_targets(rig: Rig, targets: list[dict], events: dict | None, joints: dict, weapon: WeaponRig | None = None) -> list[dict]:
+    """targets[] → 프레임 구간 · 완급 · 본 · 자유도 · 프레임별 목표(위치 · 회전). 사건을 못 찾거나 클립 밖이면 skipped{reason}.
+    weapon_tip(8-4c) = 무기 끝 점(요청 weapon.tip — 부착 본의 강체 점 point_local)."""
     model = rig.model
     fps, n = model.fps, rig.frames
     out = []
@@ -692,9 +923,11 @@ def resolve_targets(rig: Rig, targets: list[dict], events: dict | None, joints: 
                 ramp[f] = _smootherstep((f - (fa - ease - 1)) / (ease + 1))
             else:
                 ramp[f] = _smootherstep(((fb + ease + 1) - f) / (ease + 1))
-        kind, side, bone, dof = _effector(rig, t)
+        kind, side, bone, dof = _effector(rig, t, weapon)
         item.update(window_s=[round(a, 4), round(b, 4)], frames=[fa, fb], ease_frames=ease, ramp=ramp, kind=kind, side=side, bone=bone,
                     bone_name=model.bones[bone], dof=dof)
+        if t["effector"] == "weapon_tip":
+            item["point_local"] = weapon.tip_local
         pos = t["position"]
         item["away"] = None
         if pos and "away_from" in pos:
@@ -716,7 +949,7 @@ def _target_poses(rig: Rig, item: dict, poses: list) -> None:
         if s <= 0.0:
             continue
         frame = rig.body_frame(f)
-        p0, q0 = poses[f][bone][1], poses[f][bone][0]
+        p0, q0 = _target_point(item, poses[f]), poses[f][bone][0]
         if pos and "offset_cm" in pos:
             off = _body_vec(frame, pos["offset_cm"]) if pos["space"] == "body" else tuple(pos["offset_cm"])
             out_pos[f] = _add(p0, _scale(off, s))
@@ -730,6 +963,12 @@ def _target_poses(rig: Rig, item: dict, poses: list) -> None:
                 full = bm.qnormalize(bm.qmul(q0, qexp(tuple(math.radians(v) for v in rot["offset_deg"]))))
             out_rot[f] = _slerp(q0, full, s)
     item["pos"], item["rot"] = out_pos, out_rot
+
+
+def _target_point(t: dict, pose):
+    """목표의 위치 점 — 본 원점, weapon_tip 이면 부착 본의 강체 점(무기 끝)."""
+    local = t.get("point_local")
+    return bm.transform_point(pose[t["bone"]], local) if local is not None else pose[t["bone"]][1]
 
 
 def _window_s(t: dict, events: dict | None) -> tuple[float, float]:
@@ -753,10 +992,15 @@ def _window_s(t: dict, events: dict | None) -> tuple[float, float]:
     return float(ev) + off, float(ev) + off + hold
 
 
-def _effector(rig: Rig, t: dict) -> tuple[str, str | None, int, list]:
-    """→ (종류, 쪽, 본, 자유도 [(관절, 종류)]). 종류 arm · spine · neck · pelvis · foot."""
+def _effector(rig: Rig, t: dict, weapon: WeaponRig | None = None) -> tuple[str, str | None, int, list]:
+    """→ (종류, 쪽, 본, 자유도 [(관절, 종류)]). 종류 arm · spine · neck · pelvis · foot. weapon_tip = 주 손 팔(무기는 주 손의 강체)."""
     model, name = rig.model, t["effector"]
     rot = t["rotation"] is not None
+    if name == "weapon_tip":
+        if weapon is None or weapon.tip_local is None:
+            raise BodyFitError(f"targets.{t['id']}.effector", "weapon_tip needs the request weapon with tip {socket} | {point_cm}", "WEAPON_TIP_UNKNOWN")
+        wrist = rig.arms[weapon.lead]["wrist"]
+        return "arm", weapon.lead, weapon.bone, [(wrist, "wrist")] if rot else []
     if name in ("hand_l", "hand_r"):
         side = name[-1]
         dof = [(rig.arms[side]["wrist"], "wrist")] if rot else []
@@ -802,9 +1046,14 @@ def _away_bone(rig: Rig, name: str) -> int:
 class Solver:
     """한 풀이 — 프레임별 감쇠 GN · 관통 몫 매끈화 · 재검사 · 보조 팔 다듬기."""
 
-    def __init__(self, model: bm.BodyModel, cfg: dict, *, grip: dict | None = None, targets: list[dict] | None = None, loop: bool = False):
+    def __init__(self, model: bm.BodyModel, cfg: dict, *, grip: dict | None = None, targets: list[dict] | None = None, loop: bool = False,
+                 weapon: WeaponRig | None = None, fingers: dict | None = None):
         self.model = model
+        self.fingers = fingers
         self.rig = Rig(model)
+        # 무기(8-4c) — weapon 모드면 파지 = 손잡이 선분 · 무기 공간 회전(keep 대신), 아니면 무기 끝 목표 · 기록만
+        self.weapon = weapon
+        self.wgrip = weapon.grip if weapon is not None and weapon.active else None
         self.cfg = cfg
         self.scale = model.scale
         self.loop = bool(loop) and self.rig.frames > 3   # 원본 루프(validate numeric.loop) — 시간 처리를 순환으로(끝 프레임 = 첫 프레임)
@@ -866,13 +1115,19 @@ class Solver:
         g = self.grip
         self.lead, self.off = g["lead"], g["off"]
         self.palm_local = self._palm_local(self.off)
+        # keep · 무기 파지 가중 — weapon 모드면 grip_weights 가 나눠 준다(keep = 띠 − 무기 파지), 아니면 keep = 파지 가중 그대로 · 무기 0
+        self.keep_w = g.get("keep_weights") or g["weights"]
+        self.weapon_w = g.get("weapon_weights") if self.wgrip is not None and g.get("weapon_weights") else [0.0] * rig.frames
+        self.weapon_s = [_smootherstep(w) for w in self.weapon_w]   # 무기 파지 목표 보간(grip_state blend)
+        self.bend_rig, self.bend_cap = self._bend_caps()
         self.keep_rel = {}
         for f in range(rig.frames):
-            if g["weights"][f] > 0.0:
+            if self.keep_w[f] > 0.0:
                 self.keep_rel[f] = self._keep_of(model.poses[f])
         self.keep_orig = self.keep_rel   # keep_report 는 늘 원본 관계로 잰다(목표 블록은 keep_rel 을 목표 없는 해의 관계로 바꾼다)
         # 목표 블록의 기준(_solve_targets) — 관통 바닥{(f, 점, 지도): 목표 없는 해의 깊이} · away 거리의 기준 자세. 목표 없는 풀이는 비어 있음 · 원본
         self.floor: dict = {}
+        self.live_lateral = False   # probe 의 각도 0 방향을 그 자세의 어깨로(C++ 와 같은 칸 나눔 — _finish_wrist 동안만)
         self.ref_poses = model.poses
         self.orig_upper_depth: dict = {}
         self.stats = {"frame_solves": 0, "evaluations": 0, "clamped": {}}
@@ -890,6 +1145,42 @@ class Solver:
         c = _scale(acc, 1.0 / len(pts))
         q, t, _ = pose[wrist]
         return bm.qrot(bm.qconj(q), _sub(c, t))
+
+    def _bend_rig(self, side: str, weapon: bool) -> dict | None:
+        """그 손의 손목 굽힘 상한(프레임별 rad | None — 파지 가중 > 0 프레임(손목을 여는 프레임 — _joints)만). 손가락 뿌리 = 대상 메시 손가락 체인 제안
+        {Side}Middle 시작(fingers — 이름 추측 없음, 보조 손은 없으면 무기 grip 의 것, 없으면 None — 끈다). keep = 프레임별 원래 굽힘 + BEND_KEEP_TOL_DEG,
+        weapon(보조 손 · 무기 파지 프레임) = WeaponRig cap(max(원래 최대, wrist_bend_max_deg)) — 블렌드 프레임은 smootherstep(무기 가중)으로 잇는다."""
+        rig, model = self.rig, self.model
+        n = rig.frames
+        arm = rig.arms[side]
+        name = (self.fingers or {}).get(side)
+        if not name and weapon:
+            name = model.bones[self.wgrip["middle"]]
+        middle = model.index.get(name or "")
+        if middle is None or middle == arm["wrist"] or arm["wrist"] not in rig.anc_set[middle]:
+            return None
+        br = {"side": side, "wrist": arm["wrist"], "elbow": arm["elbow"], "middle": middle, "middle_name": model.bones[middle],
+              "bend0": [WeaponRig.bend(model.poses[f], arm["elbow"], arm["wrist"], middle) for f in range(n)]}
+        tol = math.radians(BEND_KEEP_TOL_DEG)
+        caps = []
+        for f in range(n):
+            if self.grip["weights"][f] <= 0.0:
+                caps.append(None)
+                continue
+            cap = br["bend0"][f] + tol
+            if weapon and self.weapon_w[f] > 0.0:
+                cap = (1.0 - self.weapon_s[f]) * cap + self.weapon_s[f] * self.wgrip["cap"]
+            caps.append(cap)
+        br["caps"] = caps
+        return br
+
+    def _bend_caps(self) -> tuple[dict | None, list]:
+        """보조 손목 굽힘 상한 — self.bends(경첩을 거는 손 리그 목록), 반환 = (보조 손 리그 | None, 프레임별 상한). 주 손목은 기록만(bend_report) —
+        두 손목에 걸어 보니(오프라인 낫 s27) keep 이 9.1 → 20.7 cm 로 풀리고 머리 관통이 늘었다."""
+        off = self.wgrip["side"] if self.wgrip is not None else self.off
+        br = self._bend_rig(off, self.wgrip is not None)
+        self.bends = [br] if br is not None else []
+        return br, (br["caps"] if br else [None] * self.rig.frames)
 
     def _keep_of(self, pose) -> tuple:
         """보조 손바닥 점 · 회전의 주 손목 기준 상대 변환(keep 기준)."""
@@ -986,7 +1277,7 @@ class Solver:
             orig = self.model.poses[f][anchor]
             q = _rel_point(orig, pose[anchor], p)
             back = bm.qmul(pose[anchor][0], bm.qconj(orig[0]))
-        hit = mp.depth(f, q, min_t)
+        hit = mp.depth(f, q, min_t, self._lateral_x(mp, f, pose, back) if self.live_lateral else None)
         if hit is None:
             return None
         ax = mp.axes[f]
@@ -996,6 +1287,17 @@ class Solver:
         if back is not None:
             n = bm.qrot(back, n)
         return hit[0], n, anchor, hit[1]
+
+    def _lateral_x(self, mp, f: int, pose, back):
+        """C++ 와 같은 지도 각도 0 방향 — 그 자세의 어깨(upperarm_l − upperarm_r, 기준 본이 움직였으면 원래 자리로 되돌린 방향)를 축에 수직으로. 원래
+        자세면 저장된 축 x 와 같다(실제 모델 8 지도 차 ≤ 1e-6). 모델 지도는 원래 축을 기준 본 강체로 따라가므로 쇄골을 옮긴 프레임은 C++ 칸 나눔과
+        1 ~ 2° 어긋난다 — 칸 경계 점은 반경이 크게 다른 칸에 든다(s25 f55 검지 — 모델 −2.13 · C++ +2.81 cm). 반경은 모델 지도의 같은 번호 칸."""
+        lat = _sub(pose[self.rig.arms["l"]["upper"]][1], pose[self.rig.arms["r"]["upper"]][1])
+        if back is not None:
+            lat = bm.qrot(bm.qconj(back), lat)
+        d = mp.axes[f]["dir"]
+        lat = _sub(lat, _scale(d, _dot(lat, d)))
+        return _unit(lat) if _norm(lat) > 1e-9 else None
 
     def _maps_for(self, side: str) -> list:
         """팔 점이 묻는 지도 — 몸통 · 넓적다리 · 머리목 · (hands 면) 반대 팔 손 · 아래팔."""
@@ -1029,7 +1331,7 @@ class Solver:
         return [w if (kind == "r" and b in self.rig.anc_set[bone]) else (0.0, 0.0, 0.0) for b, kind, _, w in dofs]
 
     def evaluate(self, f: int, state: dict, anchor: dict, families: set, points: list, joints: list, jac: bool = True) -> dict:
-        """cost · 정규 방정식(H, g) · 진단. families ⊂ {clear, upper, keep, lead, wrist, fid, targets, reach}."""
+        """cost · 정규 방정식(H, g) · 진단. families ⊂ FAMILIES ∪ {bend}."""
         rig, model = self.rig, self.model
         pose, leg_info = self.pose(f, state)
         dofs = self._dofs(f, joints, state, pose) if jac else []
@@ -1089,14 +1391,15 @@ class Solver:
                     row(r, grad, wu if upper else wc)
         # 파지 keep — 보조 손바닥 점 · 회전의 주 손목 기준 상대 변환
         wk = self.grip["weights"][f]
-        if "keep" in families and wk > 0.0 and f in self.keep_rel:
+        wkk, ww = self.keep_w[f], self.weapon_w[f]   # weapon 모드면 keep = 띠 − 무기 파지(손이 먼 띠 프레임), 아니면 wkk == wk
+        if "keep" in families and wkk > 0.0 and f in self.keep_rel:
             lw_b, ow_b = rig.arms[self.lead]["wrist"], rig.arms[self.off]["wrist"]
             rel_p, rel_q = self.keep_rel[f]
             lw, ow = pose[lw_b], pose[ow_b]
             palm = bm.transform_point(ow, self.palm_local)
             tgt = _add(bm.qrot(lw[0], rel_p), lw[1])
             e_rot = _scale(qlog(bm.qmul(ow[0], bm.qconj(bm.qmul(lw[0], rel_q)))), ROT_CM)
-            w2 = (self.w["grip"] * TIER["grip"] * wk) ** 2
+            w2 = (self.w["grip"] * TIER["grip"] * wkk) ** 2
             info["keep"] = {"pos_cm": _norm(_sub(palm, tgt)), "deg": math.degrees(_norm(e_rot) / ROT_CM)}
             if jac:
                 ja, jb = self._jac_rigid(ow_b, palm, dofs, pose), self._jac_rigid(lw_b, tgt, dofs, pose)
@@ -1106,6 +1409,48 @@ class Solver:
             else:
                 rows3(_sub(palm, tgt), None, w2)
                 rows3(e_rot, None, w2)
+        # 무기 파지(weapon 모드 — 8-4c, 무기 파지 가중 > 0 — 원래 손이 손잡이 근처인 구간) — 보조 손바닥 점 → 목표 점(원래 손바닥 → 손잡이 선분 위 가장
+        # 가까운 점을 smootherstep(가중) 보간 — 미끄러짐, 그 점의 움직임은 무기 강체로) · 보조 손 회전(요청 회전 또는 원래 상대 회전 — 허용각 밖만).
+        # 잔차는 가득 가중 — 가중만 줄이던 처음 판은 블렌드 끝(가중 0.05)에도 손잡이 잔차가 충실도를 이겨 원래 손이 떠난 뒤까지 손을 손잡이에 붙였다
+        # (운영 Attack2 옵트인 f68 — 원래 손바닥 ↔ 자루 18.7 cm 에 결과 5.9, 손목 간격 35.9 → 5.4, 손끼리 −27 → +5.8 cm — 사용자 Persona '손 겹침')
+        wg = self.wgrip
+        if "weapon" in families and wg is not None and ww > 0.0:
+            wb, ob = self.weapon.bone, wg["wrist"]
+            st = self.weapon.grip_state(f, pose, self.weapon_s[f])
+            w2 = (self.w["grip"] * TIER["grip"]) ** 2
+            info["weapon"] = {"pos_cm": st["err"], "rot_deg": 0.0, "bend_deg": 0.0}
+            e = _sub(st["palm"], st["target"])
+            rows3(e, [_sub(x, y) for x, y in zip(self._jac_rigid(ob, st["palm"], dofs, pose), self._jac_rigid(wb, st["target"], dofs, pose))] if jac else None, w2)
+            jr = [_sub(x, y) for x, y in zip(self._jac_rot(ob, dofs), self._jac_rot(wb, dofs))] if jac else None
+            if st["rot"] > wg["tol"]:
+                ev = qlog(bm.qmul(pose[ob][0], bm.qconj(bm.qmul(pose[wb][0], st["rel"]))))
+                u = _scale(ev, 1.0 / st["rot"])
+                info["weapon"]["rot_deg"] = math.degrees(st["rot"] - wg["tol"])
+                row((st["rot"] - wg["tol"]) * ROT_CM, [ROT_CM * _dot(u, x) for x in jr] if jac else None, w2)
+            # 보조 손목 굽힘 ≤ 무기 상한 max(원래 최대, wrist_bend_max_deg)(관통과 같은 층 — c1, 본 풀이에도 둔다): 요청 회전을 손목이 다 떠안으면
+            # 마무리(_snap_weapon) 한 번으로는 팔로 못 옮긴다(합성 상한 0° — 손목 1.9°, 쥠 축 p95 16.2°). 원래 + 2° 상한(bend)은 다듬기에만
+            if st["bend"] > wg["cap"]:
+                u = _unit(_sub(pose[ob][1], pose[wg["elbow"]][1]))
+                h = _unit(_sub(pose[wg["middle"]][1], pose[ob][1]))
+                m = _unit(_cross(h, u))
+                info["weapon"]["bend_deg"] = math.degrees(st["bend"] - wg["cap"])
+                jb = [_sub(x, y) for x, y in zip(self._jac_rot(ob, dofs), self._jac_rot(wg["elbow"], dofs))] if jac else None
+                row((st["bend"] - wg["cap"]) * ROT_CM, [-ROT_CM * _dot(m, x) for x in jb] if jac else None, (self.w["clearance"] * TIER["clearance"]) ** 2)
+        # 보조 손목 굽힘 상한(파지 프레임 — 손목을 여는 프레임, 관통과 같은 층 hinge — 꺾임을 만들지 않는다, 다듬기 단계만): keep = 프레임별 원래 굽힘 +
+        # BEND_KEEP_TOL_DEG(원래보다 더 굽히지 않음), 무기 파지 = max(원래 최대, wrist_bend_max_deg) — 블렌드 프레임은 둘을 smootherstep(가중)으로 잇는다(bend_caps)
+        for br in self.bends if "bend" in families else ():
+            cap = br["caps"][f]
+            if cap is None:
+                continue
+            ob, eb, mb = br["wrist"], br["elbow"], br["middle"]
+            bend = WeaponRig.bend(pose, eb, ob, mb)
+            info["bend_deg"] = max(info.get("bend_deg", 0.0), math.degrees(bend - cap))
+            if bend > cap:
+                u = _unit(_sub(pose[ob][1], pose[eb][1]))
+                h = _unit(_sub(pose[mb][1], pose[ob][1]))
+                m = _unit(_cross(h, u))
+                jb = [_sub(x, y) for x, y in zip(self._jac_rot(ob, dofs), self._jac_rot(eb, dofs))] if jac else None
+                row((bend - cap) * ROT_CM, [-ROT_CM * _dot(m, x) for x in jb] if jac else None, (self.w["clearance"] * TIER["clearance"]) ** 2)
         # 주 손 충실도(파지 프레임) · 손목 위치 충실도(모든 프레임) — 어깨 바탕 본(쇄골의 부모 — 척추 끝) 기준 상대 변환이라 골반 · 척추 목표가
         # 몸을 옮기면 손은 따라간다(팔 모양 충실도)
         apose = anchor.get("pose") if ("lead" in families or "wrist" in families) else None
@@ -1119,7 +1464,10 @@ class Solver:
                 q_tgt = bm.qmul(pb[0], bm.qmul(bm.qconj(ab[0]), aw[0]))
                 e_rot = _scale(qlog(bm.qmul(pw[0], bm.qconj(q_tgt))), ROT_CM)
                 rows3(_sub(pw[1], tgt), jpos, w2)
-                rows3(e_rot, [_scale(_sub(x, y), ROT_CM) for x, y in zip(self._jac_rot(wb, dofs), self._jac_rot(base, dofs))] if jac else None, w2)
+                # weapon 모드면 주 손 방향 = 무기 방향(무기는 주 손의 강체 — 돌면 휘두름 궤적이 바뀐다) → 파지와 같은 층 · 같은 가중(grip). lead_hand 가중
+                # 으로 층만 올리면(√30) 보조 손 회전 잔차(√100)를 무기가 반쯤 떠안아 합성에서 무기가 5.2° 돌았다
+                w2r = max(w2, (self.w["grip"] * TIER["grip"] * ww) ** 2) if self.wgrip is not None else w2
+                rows3(e_rot, [_scale(_sub(x, y), ROT_CM) for x, y in zip(self._jac_rot(wb, dofs), self._jac_rot(base, dofs))] if jac else None, w2r)
             if "wrist" in families:
                 rows3(_sub(pw[1], tgt), jpos, (self.w["fidelity"] * TIER["soft"]) ** 2)
         # 지시 목표 — 완급(목표 자체를 0 → 1) · 위치 · 회전 · 떨어뜨리기
@@ -1131,26 +1479,27 @@ class Solver:
                 w2 = (self.w["targets"] * t["weight"] * (TIER["hard_target"] if t["priority"] == "hard" else TIER["target"])) ** 2
                 b = t["bone"]
                 pb = pose[b]
+                pt = _target_point(t, pose)
                 err = {}
                 if f in t["pos"]:
-                    e = _sub(pb[1], t["pos"][f])
+                    e = _sub(pt, t["pos"][f])
                     err["pos_cm"] = _norm(e)
-                    rows3(e, self._jac_rigid(b, pb[1], dofs, pose) if jac else None, w2)
+                    rows3(e, self._jac_rigid(b, pt, dofs, pose) if jac else None, w2)
                 if f in t["rot"]:
                     e = _scale(qlog(bm.qmul(pb[0], bm.qconj(t["rot"][f]))), ROT_CM)
                     err["deg"] = math.degrees(_norm(e) / ROT_CM)
                     rows3(e, [_scale(x, ROT_CM) for x in self._jac_rot(b, dofs)] if jac else None, w2)
                 if t["away"]:
                     c = pose[t["away"]["bone"]][1]
-                    d0 = _norm(_sub(self.ref_poses[f][b][1], self.ref_poses[f][t["away"]["bone"]][1]))
+                    d0 = _norm(_sub(_target_point(t, self.ref_poses[f]), self.ref_poses[f][t["away"]["bone"]][1]))
                     want = d0 + s * max(0.0, t["away"]["min_cm"] - d0)
-                    v = _sub(pb[1], c)
+                    v = _sub(pt, c)
                     dist = _norm(v)
                     err["away_cm"] = max(0.0, want - dist)
                     if want - dist > 0.0:
                         u = _unit(v)
                         if jac:
-                            ja, jb = self._jac_rigid(b, pb[1], dofs, pose), self._jac_rigid(t["away"]["bone"], c, dofs, pose)
+                            ja, jb = self._jac_rigid(b, pt, dofs, pose), self._jac_rigid(t["away"]["bone"], c, dofs, pose)
                             row(want - dist, [-_dot(u, _sub(x, y)) for x, y in zip(ja, jb)], w2)
                         else:
                             row(want - dist, None, w2)
@@ -1360,12 +1709,15 @@ class Solver:
         return out
 
     def _violations(self, f: int, state: dict, points: list) -> dict:
-        """다시 풀 위반 — 손 · 아래팔 관통 · keep. 위팔 '안 깊어짐'은 풀 때만 함께 맞추고 위반으로 세지 않는다(TIER upper 주석)."""
-        ev = self.evaluate(f, state, {"rot": {}, "trans": {}}, {"clear", "keep"}, points, self._joints(f), jac=False)
+        """다시 풀 위반 — 손 · 아래팔 관통 · keep · 무기 파지(weapon 모드 — 손잡이 거리 × 가중 · 회전 초과 · 무기 상한 넘은 손목 굽힘). 위팔 '안 깊어짐'은
+        풀 때만 함께 맞추고 위반으로 세지 않는다(TIER upper 주석). 원래 + 2° 손목 상한은 본 풀이 뒤 다듬기라 여기 없다(_finish_wrist)."""
+        ev = self.evaluate(f, state, {"rot": {}, "trans": {}}, {"clear", "keep", "weapon"}, points, self._joints(f), jac=False)
         clear = [c for c in ev["info"]["clear"] if c[4] > TOL_CM]
         keep = ev["info"]["keep"]
         bad_keep = bool(keep and (keep["pos_cm"] > KEEP_TOL_CM * self.scale or keep["deg"] > KEEP_TOL_DEG))
-        return {"clear": clear, "keep": bad_keep, "keep_err": keep}
+        wi = ev["info"].get("weapon")
+        bad_weapon = bool(wi and (wi["pos_cm"] > WEAPON_TOL_CM * self.scale or wi["rot_deg"] > WEAPON_TOL_DEG or wi["bend_deg"] > BEND_TOL_DEG))
+        return {"clear": clear, "keep": bad_keep, "keep_err": keep, "weapon": bad_weapon, "any": bool(clear or bad_keep or bad_weapon)}
 
     def run(self, log=None) -> dict:
         t0 = time.time()
@@ -1374,7 +1726,7 @@ class Solver:
             region = None
         else:
             # (가) 목표 없는 풀이(목표 없는 Job 과 같은 코드 · 입력 — cfg 는 targets 키만 다르고 풀이는 그 키를 읽지 않는다) → 완급 > 0 블록만 다시
-            base_solver = Solver(self.model, self.cfg, grip=self.grip, loop=self.loop)
+            base_solver = Solver(self.model, self.cfg, grip=self.grip, loop=self.loop, weapon=self.weapon, fingers=self.fingers)
             base, passes = base_solver._solve_states()
             state, region = self._solve_targets(base, [base_solver.pose(f, s)[0] for f, s in enumerate(base)])
             for key in ("frame_solves", "evaluations"):
@@ -1401,10 +1753,9 @@ class Solver:
         prev_full = None
         for f in range(n):
             need = self._violations(f, zero, cand[f])
-            if need["clear"] or need["keep"]:
+            if need["any"]:
                 start = prev_full if prev_full is not None else zero
-                sf, _ = self.solve_frame(f, start, {**base_anchor[f], "prev": prev_full}, {"clear", "upper", "keep", "lead", "wrist", "fid", "targets", "reach"},
-                                         cand[f])
+                sf, _ = self.solve_frame(f, start, {**base_anchor[f], "prev": prev_full}, FAMILIES, cand[f])
                 prev_full = sf
             else:
                 sf, prev_full = zero, None
@@ -1419,11 +1770,10 @@ class Solver:
             incs, again = [], []
             for f in range(n):
                 v = self._violations(f, state[f], cand[f])
-                again.append(bool(v["clear"] or v["keep"]))
+                again.append(v["any"])
                 if again[-1]:
                     prev = state[f - 1] if f else (state[n - 2] if self.loop else None)
-                    sf, _ = self.solve_frame(f, state[f], {**self._anchor_of(f, state[f]), "prev": prev},
-                                             {"clear", "upper", "keep", "lead", "wrist", "fid", "targets", "reach"}, cand[f])
+                    sf, _ = self.solve_frame(f, state[f], {**self._anchor_of(f, state[f]), "prev": prev}, FAMILIES, cand[f])
                     incs.append(self._diff(sf, state[f]))
                 else:
                     incs.append({"rot": {}, "trans": {}})
@@ -1438,7 +1788,90 @@ class Solver:
                         incs[g] = incs[f]
                         active[g] = True
             state = self._combine(state, incs, radius, active, SPLINE_RECHECK_QUIET_WEIGHT)
-        return state, passes
+        return self._finish_wrist(self._snap_weapon(state)), passes
+
+    def _snap_weapon(self, state: list, blocks: list | None = None) -> list:
+        """weapon 모드 마무리(8-4c) — 매끈화 · 재검사 뒤 파지 프레임(가중 > 0) 전부를 보조 팔(쇄골 · 위팔 · 팔꿈치 · 손목)만으로 다시 푼다(관통 · 위팔 ·
+        무기 파지 · 손목 위치 · 관절 충실도 — 기준 = 매끈화한 상태, 시간 연속 = 앞 프레임 마무리). 관절 델타 스플라인은 비선형 파지(손바닥 ↔ 손잡이)를
+        묽혀 0.4 ~ 1.2 cm 를 남겼다(합성 — 프레임 풀이는 0.02) — 위반 프레임만이 아니라 구간 전체를 같은 규칙으로 이어 고치므로 8-4b 의 '위반 프레임만
+        마무리'(띠 정정 zigzag 1.05 → 4.7)처럼 끊기지 않는다(합성 최대 1.15 → 0.011 cm · zigzag 0.44 → 0.03). 무기 · 주 손은 그대로. blocks = 목표 블록
+        프레임 목록들(그 프레임만 — 밖은 목표 없는 해 그대로), 없으면 전체."""
+        wg = self.wgrip
+        if wg is None:
+            return state
+        arm = self.rig.arms[wg["side"]]
+        only = {arm[k] for k in ("clavicle", "upper", "elbow", "wrist") if arm[k] is not None}
+        fam = {"clear", "upper", "weapon", "keep", "bend", "wrist", "fid"}   # keep = 블렌드 프레임의 keep 몫(무기 파지 가중과 나눠 가진다)
+        out = list(state)
+        for run in (blocks if blocks is not None else [range(self.rig.frames - 1 if self.loop else self.rig.frames)]):
+            prev = carried = None
+            for f in run:
+                if self.weapon_w[f] <= 0.0:
+                    prev = carried = None
+                    continue
+                cand = sorted(set(self._candidates(f, self.model.poses[f])) | set(self._candidates(f, self.pose(f, state[f])[0])))
+                anchor = {**self._anchor_of(f, state[f]), "prev": prev}
+                out[f], ev = self.solve_frame(f, state[f], anchor, fam, cand, only=only)
+                # 둘째 출발점 = 앞 프레임 마무리 증분을 이어 받은 상태(비용이 낮은 쪽) — 매끈화가 빠른 블렌드 아웃(원래 손이 0.2 초에 7 → 43 cm 떠남)과
+                # 주 손 자리 통과를 이웃과 섞어 손이 반대 손을 꿰뚫은 채 들어오면 그 자리에서 시작한 풀이는 양쪽 바깥 방향이 엇갈려 갇혔다(운영 Attack2
+                # 옵트인 오프라인 — f61 · f62 손끼리 4.75 · 5.38 → 4.31 · 1.78 cm, 구간 파지 p95 3.36 → 1.28 cm, 떨림 8.16 → 8.88(원래 8.16))
+                if carried is not None:
+                    start = self._plus(state[f], carried)
+                    self._clamp(f, start, count=False)
+                    alt, ev2 = self.solve_frame(f, start, anchor, fam, cand, only=only)
+                    if ev2["cost"] < ev["cost"]:
+                        out[f] = alt
+                carried = self._diff(out[f], state[f])
+                prev = out[f]
+        if self.loop:
+            out[-1] = self._copy(out[0])
+        return out
+
+    def _finish_wrist(self, state: list, blocks: list | None = None) -> list:
+        """보조 손목 다듬기(8-4c 후속 2차) — 본 풀이(매끈화 · 재검사 · 무기 마무리) 뒤 손목 굽힘 상한이 있는 파지 프레임 전부를 보조 손목만으로 다시
+        푼다(관통 · 손목 굽힘 상한 · 관절 충실도 — 기준 = 그 상태, 시간 연속 = 앞 프레임 다듬기 증분 — 위반 프레임만이 아니라 구간 전체라 끊기지 않는다.
+        _snap_weapon 처럼 앞 프레임 상태 자체를 기준으로 하면 keep 이 없는 다듬기는 손목 회전을 앞 프레임 쪽으로 늦춰, 상한이 안 걸린 s27 에서도 keep
+        회전이 12.2 → 21.2° 로 풀렸다). 상한을 본 풀이 잔차에 걸던 1차 판은 팔 보정 경로를 바꿔 매끈화 뒤 재검사가 못 따라갔다(통합 — 낫 정정 머리목
+        0 → 1.7% · 2.88 cm, s27 주 손목 59.8 → 66.6°, 운영 Attack2 꼬임 7.4 → 13.7%, T5 무기 끝 p95 2.04 → 2.45 cm) — 손목만 돌리면 팔 · 주 손은 본 풀이
+        해 그대로다(오프라인 실제 모델 — 다듬기 전 = 8-4b 값, 주 손 · 보조 팔꿈치 이동 0).
+        - 관통은 그 상태보다 깊어지지 않게만(쌍 단위 바닥 _floor_at(pair) — 손목만 돌린 손이 몸 · 머리로 다시 들지 않게, 남은 얕은 관통을 손목 하나로
+          그 프레임만 풀지 않게). 바닥이 없으면 s25 f55 머리 1.76 cm 를 손목을 14° 펴서 빼 떨림 2.17 → 6.06, 점마다 바닥이면 낫 정정 f48 · f51 이 갇히거나
+          (굽힘 +6.1°) 머리 근처에서 상한보다 4° 더 펴 떨림 1.99 → 2.75. 관통을 빼면 s25 머리 1.76 → 2.71 cm 로 새로 든다.
+        - 다듬기 동안 지도 각도 칸은 C++ 처럼 그 자세의 어깨로 나눈다(live_lateral — _lateral_x). 본 풀이가 쇄골을 옮긴 프레임은 원래 축과 1 ~ 2° 어긋나,
+          원래 축으로 다듬으면 칸 경계의 손가락 점을 모델은 얕다(−2.13) · C++ 는 깊다(+2.81 cm)고 봤다(s25 f55 — 통합 0.8% · 2.81, 이 규칙이면 0% · 1.50).
+          본 풀이는 원래 축 그대로(8-4b 해).
+        - keep 은 두지 않는다 — 같은 손목을 상한과 반대로 당겨 상한이 안 맞았다(keep 을 두면 낫 정정 +3.6° · 최대 94.6(원본 91.1), s25 +3.3°). 빼면
+          +2.1 · +2.1° 이고 대가는 keep 회전(낫 정정 최대 2.6 → 10.9° · s25 2.7 → 7.2° — c2_keep 은 8-4b 부터 알려진 미달)이다.
+        무기 파지 프레임(가중 > 0)은 _snap_weapon 이 보조 팔 전체로 이미 상한까지 풀었다 — 건너뛰고 시간 연속만 잇는다. blocks = 목표 블록 프레임
+        목록들(_snap_weapon 과 같다)."""
+        br = self.bend_rig
+        if br is None:
+            return state
+        only = {br["wrist"]}
+        fam = {"clear", "bend", "fid"}
+        n = self.rig.frames
+        out = list(state)
+        floor0, self.floor = self.floor, dict(self.floor)
+        self.live_lateral = True
+        for run in (blocks if blocks is not None else [range(n - 1 if self.loop else n)]):
+            carried = None
+            for f in run:
+                if self.bend_cap[f] is None:
+                    carried = None
+                    continue
+                if self.weapon_w[f] > 0.0:
+                    carried = self._diff(out[f], state[f])
+                    continue
+                pose = self.pose(f, state[f])[0]
+                cand = sorted(set(self._candidates(f, self.model.poses[f])) | set(self._candidates(f, pose)))
+                self._floor_at(f, pose, pair=True)
+                prev = self._plus(state[f], carried) if carried is not None else None
+                out[f], _ = self.solve_frame(f, state[f], {**self._anchor_of(f, state[f]), "prev": prev}, fam, cand, only=only)
+                carried = self._diff(out[f], state[f])
+        self.floor, self.live_lateral = floor0, False
+        if self.loop:
+            out[-1] = self._copy(out[0])
+        return out
 
     # ---- (가) 지시 목표 블록 ----
     def _solve_targets(self, base: list, base_poses: list) -> tuple[list, dict]:
@@ -1468,17 +1901,10 @@ class Solver:
             cand[f] = sorted(set(self._candidates(f, self.model.poses[f])) | set(self._candidates(f, base_poses[f])))
         self.floor = {}
         for f in frames:
-            pose = base_poses[f]
-            for i in self.arm_points:
-                pt = self.points[i]
-                p = self.model.skin(pose, pt)
-                for name in self._maps_for(pt["side"]):
-                    hit = self.probe(name, f, p, pose)
-                    if hit is not None and hit[0] > self._limit(f, i, name, pt["part"] == "upper_arm"):
-                        self.floor[(f, i, name)] = hit[0]
+            self._floor_at(f, base_poses[f])
         state = [self._copy(s) for s in base]
-        fam_t = {"keep", "lead", "wrist", "fid", "targets", "reach"}
-        fam = {"clear", "upper", "keep", "lead", "wrist", "fid", "targets", "reach"}
+        fam_t = FAMILIES - {"clear", "upper"}
+        fam = FAMILIES
         solves0 = self.stats["frame_solves"]
         # ---- 1 회: 블록마다 x_T(목표 · keep · 충실도) → 위반이면 x(전부) — 관통 몫 사슬 = 앞 프레임 증분을 x_T 위에 ----
         # x_T 는 base + 앞 프레임 목표 증분 × 완급 비(ρ_f / ρ_f−1)에서 시작하고 시간 연속 항을 두지 않는다 — 관통 활성 집합이 없어 프레임마다 다른 해로
@@ -1499,7 +1925,7 @@ class Solver:
                 # 목표가 손을 옮긴 곳의 점도 후보로(원래 · base 자세에서는 멀었던 점)
                 cand[f] = sorted(set(cand[f]) | set(self._candidates(f, self.pose(f, st)[0])))
                 need = self._violations(f, st, cand[f])
-                if need["clear"] or need["keep"]:
+                if need["any"]:
                     carried = None
                     if d_full is not None:
                         carried = self._plus(st, d_full)
@@ -1524,7 +1950,7 @@ class Solver:
                 for f in blk:
                     cand[f] = sorted(set(cand[f]) | set(self._candidates(f, self.pose(f, state[f])[0])))
                     v = self._violations(f, state[f], cand[f])
-                    again.append(bool(v["clear"] or v["keep"]))
+                    again.append(v["any"])
                     if again[-1]:
                         sf, _ = self.solve_frame(f, state[f], {**self._anchor_of(f, state[f]), "prev": self._prev_state(state, f)}, fam, cand[f])
                         incs.append(self._diff(sf, state[f]))
@@ -1546,7 +1972,32 @@ class Solver:
             passes += 1
             if self.loop:
                 state[-1] = self._copy(state[0])
+        frames_of = [blk for blk, _, _ in blocks]
+        state = self._finish_wrist(self._snap_weapon(state, frames_of), frames_of)
         return state, {"blocks": [[blk[0], blk[-1]] for blk, _, _ in blocks], "passes": passes, "frame_solves": self.stats["frame_solves"] - solves0}
+
+    def _floor_at(self, f: int, pose, pair: bool = False) -> None:
+        """관통 바닥 — 그 자세에서 허용(_limit)보다 깊은 (f, 팔 점, 지도)의 깊이를 floor 에 둔다(그보다 얕게 요구하지 않는다 — 그 자세에 남은 한계는
+        다시 풀지 않는다). pair = 점마다 대신 쌍(쪽 · 부위 · 지도 — 보고 쌍과 같은 묶음)의 최대 깊이를 그 쌍의 모든 점에: 쌍별 깊이가 그 자세보다
+        깊어지지 않는다는 같은 보장이지만 점 하나가 제 깊이에 걸려 손 전체를 더 돌리지 않는다(_finish_wrist)."""
+        deep = {}
+        for i in self.arm_points:
+            pt = self.points[i]
+            p = self.model.skin(pose, pt)
+            for name in self._maps_for(pt["side"]):
+                hit = self.probe(name, f, p, pose)
+                if hit is not None and hit[0] > self._limit(f, i, name, pt["part"] == "upper_arm"):
+                    if pair:
+                        key = (pt["side"], pt["part"], name)
+                        deep[key] = max(deep.get(key, hit[0]), hit[0])
+                    else:
+                        self.floor[(f, i, name)] = hit[0]
+        for i in self.arm_points if deep else ():
+            pt = self.points[i]
+            for name in self._maps_for(pt["side"]):
+                d = deep.get((pt["side"], pt["part"], name))
+                if d is not None and d > self.floor.get((f, i, name), -math.inf):
+                    self.floor[(f, i, name)] = d
 
     def _wrap_ramp(self, t: dict) -> list:
         """루프 원본 — 완급을 감아 돈다(첫 프레임 근처 목표의 ease 가 끝 프레임 쪽으로, 끝 프레임 = 첫 프레임). resolve_targets 의 같은 smootherstep."""
@@ -1716,16 +2167,86 @@ class Solver:
         keep = self.keep_report(poses)
         targets = self.target_report(poses, state)
         predicted = measure(model, poses, self)
-        return {"version": VERSION, "frames": n, "poses": poses, "state": state, "deltas": deltas, "moved_cm": moved, "changed_frames": changed,
-                "keep": keep, "targets": targets, "predicted": predicted, "legs": legs, "passes": passes,
-                "loop": {"on": self.loop, "seam_deg": round(seam, 3)},
-                "seconds": round(seconds, 2), "stats": {k: v for k, v in self.stats.items() if k != "clamped"}}
+        out = {"version": VERSION, "frames": n, "poses": poses, "state": state, "deltas": deltas, "moved_cm": moved, "changed_frames": changed,
+               "keep": keep, "wrist_bend": self.bend_report(poses), "targets": targets, "predicted": predicted, "legs": legs, "passes": passes,
+               "loop": {"on": self.loop, "seam_deg": round(seam, 3)},
+               "seconds": round(seconds, 2), "stats": {k: v for k, v in self.stats.items() if k != "clamped"}}
+        if self.weapon is not None:
+            # 무기(8-4c) — 파지 오차(전 = 원본 포즈 · 후) · 무기-몸 관통 기록(모델 지도 — 제약 아님)
+            out["weapon"] = {"grip": {"before": self.weapon_report(model.poses), "after": self.weapon_report(poses)} if self.weapon.grip else None,
+                             "body": {"before": weapon_body(self, model.poses), "after": weapon_body(self, poses)}}
+        return out
+
+    def weapon_report(self, poses: list) -> dict:
+        """weapon 모드 파지 오차 — 무기 파지 프레임(가중 1 · 주 손 자리 밖) 손바닥 점 ↔ 손잡이 선분 거리 · 미끄러짐 위치(선분 시작에서 cm) · 회전 오차
+        (요청 회전 또는 원래 상대 회전) · 쥠 축 ↔ 손잡이 각(부호 무관 — 기록) · 보조 손목 굽힘(°, 상한과 함께) · 블렌드 프레임(0 < 가중 < 1)과 주 손 자리
+        통과 프레임(가중 1 · 원래 손바닥 투영이 주 손 자리 안)의 목표 점(원래 손바닥 → 손잡이 보간 — 풀이와 같은 목표) 오차 · 모든 프레임의 손잡이
+        거리 · 두 손 선 ∠ 손잡이(기록)."""
+        wg = self.weapon.grip
+        dist, along, rot, axis, bend, dist_all, hands, blend, passing = [], [], [], [], [], [], [], [], []
+        for f in range(self.rig.frames):
+            st = self.weapon.grip_state(f, poses[f])
+            bend.append(math.degrees(st["bend"]))
+            dist_all.append(st["dist"])
+            if st["hands_line"] is not None:
+                hands.append(math.degrees(st["hands_line"]))
+            if 0.0 < self.weapon_w[f] < 1.0:
+                blend.append(self.weapon.grip_state(f, poses[f], self.weapon_s[f])["err"])
+            elif self.weapon_w[f] >= 1.0 and wg["pass_f"][f] < 1.0:
+                passing.append(st["err"])
+                continue
+            if self.weapon_w[f] < 1.0:
+                continue
+            dist.append(st["dist"])
+            along.append(st["along_cm"])
+            rot.append(math.degrees(st["rot"]))
+            if st["axis"] is not None:
+                axis.append(math.degrees(st["axis"]))
+        p95 = lambda xs: round(bm.percentile(xs, 95.0), 3) if xs else None  # noqa: E731
+        mx = lambda xs: round(max(xs), 3) if xs else None  # noqa: E731
+        return {"frames": len(dist), "dist_cm_p95": p95(dist), "dist_cm_max": mx(dist), "along_cm": [round(min(along), 2), round(max(along), 2)] if along else None,
+                "rot_deg_p95": p95(rot), "rot_deg_max": mx(rot), "axis_deg_p95": p95(axis), "axis_deg_max": mx(axis),
+                "wrist_bend_deg_max": mx(bend), "wrist_bend_cap_deg": round(math.degrees(wg["cap"]), 3), "rotation_tol_deg": round(math.degrees(wg["tol"]), 3),
+                "rotation_target": "request" if wg["rot"] is not None else "original_relative", "active": self.wgrip is not None,
+                "blend": {"frames": len(blend), "target_err_cm_p95": p95(blend), "target_err_cm_max": mx(blend)},
+                "lead_pass": {"frames": len(passing), "target_err_cm_max": mx(passing),
+                              "zone_cm": [round(x * _norm(_sub(*wg["seg"])), 2) for x in wg["zone"][:2]] if wg["zone"] else None},
+                "all_frames": {"dist_cm_p50": round(bm.percentile(dist_all, 50.0), 2), "dist_cm_p5": round(bm.percentile(dist_all, 5.0), 2),
+                               "hands_line_deg_p50": round(bm.percentile(hands, 50.0), 2) if hands else None}}
+
+    def bend_report(self, poses: list) -> dict:
+        """보조 손목 굽힘 상한 기록 — 상한이 있는 프레임(파지 — 손목을 연다)의 원래 대비 굽힘 증가(°) · 상한 넘은 프레임(> BEND_TOL_DEG) · 모든 프레임의
+        원래 대비 증가 최대(매끈화 꼬리 포함) · 굽힘 최대(전 · 후). 주 손은 손가락 뿌리가 있으면 기록만. 손가락 뿌리가 없으면 {on: False}."""
+        br = self.bend_rig
+        if br is None:
+            return {"on": False, "reason": "no {Side}Middle finger chain on the target mesh (or the weapon grip) — the off-hand wrist bend cap is off"}
+        n = self.rig.frames
+        r3 = lambda x: round(x, 3) if x is not None else None  # noqa: E731
+        inc, inc_all, after, over = [], [], [], 0
+        for f in range(n):
+            b = WeaponRig.bend(poses[f], br["elbow"], br["wrist"], br["middle"])
+            after.append(b)
+            inc_all.append(math.degrees(b - br["bend0"][f]))
+            if self.bend_cap[f] is not None:
+                inc.append(inc_all[-1])
+                over += math.degrees(b - self.bend_cap[f]) > BEND_TOL_DEG
+        out = {"on": True, "side": br["side"], "middle": br["middle_name"], "tol_deg": BEND_KEEP_TOL_DEG, "frames": len(inc),
+               "increase_deg_max": r3(max(inc)) if inc else None, "increase_deg_p95": r3(bm.percentile(inc, 95.0)) if inc else None, "over_cap_frames": over,
+               "all_frames_increase_deg_max": r3(max(inc_all)), "bend_deg_max": [r3(math.degrees(max(br["bend0"]))), r3(math.degrees(max(after)))]}
+        lead = self.rig.side_of(br["side"])
+        arm = self.rig.arms[lead]
+        mid = self.model.index.get((self.fingers or {}).get(lead) or "")
+        if mid is not None and arm["wrist"] in self.rig.anc_set[mid] and mid != arm["wrist"]:
+            d = [math.degrees(WeaponRig.bend(poses[f], arm["elbow"], arm["wrist"], mid) - WeaponRig.bend(self.model.poses[f], arm["elbow"], arm["wrist"], mid))
+                 for f in range(n) if self.bend_cap[f] is not None]
+            out["lead"] = {"side": lead, "increase_deg_max": r3(max(d)) if d else None}
+        return out
 
     def keep_report(self, poses: list) -> dict:
         rig = self.rig
         pos, deg = [], []
         for f, (rel_p, rel_q) in self.keep_orig.items():
-            if self.grip["weights"][f] < 1.0:
+            if self.keep_w[f] < 1.0:
                 continue
             lw, ow = poses[f][rig.arms[self.lead]["wrist"]], poses[f][rig.arms[self.off]["wrist"]]
             palm = bm.transform_point(ow, self.palm_local)
@@ -1743,16 +2264,17 @@ class Solver:
             pos_err, rot_err, away_err, bad = [], [], [], []
             for f in range(fa, fb + 1):
                 pb = poses[f][t["bone"]]
+                pt = _target_point(t, poses[f])
                 e = {}
                 if f in t["pos"]:
-                    e["pos"] = _norm(_sub(pb[1], t["pos"][f]))
+                    e["pos"] = _norm(_sub(pt, t["pos"][f]))
                     pos_err.append(e["pos"])
                 if f in t["rot"]:
                     e["deg"] = math.degrees(_norm(qlog(bm.qmul(pb[0], bm.qconj(t["rot"][f])))))
                     rot_err.append(e["deg"])
                 if t["away"]:
                     c = poses[f][t["away"]["bone"]][1]
-                    e["away"] = max(0.0, t["away"]["min_cm"] - _norm(_sub(pb[1], c)))
+                    e["away"] = max(0.0, t["away"]["min_cm"] - _norm(_sub(pt, c)))
                     away_err.append(e["away"])
                 if e.get("pos", 0.0) > tol_cm or e.get("deg", 0.0) > tol_deg or e.get("away", 0.0) > tol_cm:
                     bad.append(f)
@@ -1808,9 +2330,46 @@ def measure(model: bm.BodyModel, poses: list | None = None, solver: Solver | Non
     return {"series": series, "pairs": pairs}
 
 
-def solve(model: bm.BodyModel, cfg: dict, *, grip: dict | None = None, targets: list[dict] | None = None, loop: bool = False, log=None) -> dict:
-    """한 풀이 — 모델 · 정규화한 fix.body · 파지(grip_weights) · 풀린 목표(resolve_targets) · 원본 루프 여부 → Solver.run 결과."""
-    return Solver(model, cfg, grip=grip, targets=targets, loop=loop).run(log=log)
+WEAPON_BODY_MAPS = ("torso", "thigh_l", "thigh_r", "head_neck")
+
+
+def weapon_body(solver: Solver, poses: list) -> dict | None:
+    """무기-몸 관통 기록(8-4c — 제약 아님): 무기 기록 점(weapon.record_points — 자루 선 + 반경 · 날 단면 격자)을 프레임마다 무기 강체로 옮겨 몸 지도
+    (몸통 칸 · 넓적다리 · 머리목 — 풀이와 같은 probe)에 묻는다. 깊이 = 지도 깊이 + 점 반경. → {pairs{"부위|몸 부위": stats}, worst{…}, points, approx} | None."""
+    wp = solver.weapon
+    if wp is None or not wp.points:
+        return None
+    model = solver.model
+    names = [m for m in WEAPON_BODY_MAPS if m in solver.maps]
+    series: dict = {}
+    worst = None
+    n = len(model.frames)
+    for f in range(n):
+        W = poses[f][wp.bone]
+        best: dict = {}
+        for p_local, r, part in wp.points:
+            p = bm.transform_point(W, p_local)
+            for name in names:
+                hit = solver.probe(name, f, p, poses[f])
+                if hit is None:
+                    continue
+                key = (part, solver.body_part(name, hit[3]))
+                d = hit[0] + r
+                if key not in best or d > best[key]:
+                    best[key] = d
+                if worst is None or d > worst["depth_cm"]:
+                    worst = {"depth_cm": round(d, 2), "frame": f, "time": round(model.times[f], 4), "part": part, "body": key[1]}
+        for key in set(series) | set(best):
+            series.setdefault(key, [None] * f).append(best.get(key))
+    pairs = {"|".join(k): bm.pair_stats(v, model.contact_cm, model.penetration_cm) for k, v in sorted(series.items())}
+    return {"pairs": pairs, "worst": worst, "points": len(wp.points), "approx": "geometry slices (handle line + radius, head slices as filled boxes)"}
+
+
+def solve(model: bm.BodyModel, cfg: dict, *, grip: dict | None = None, targets: list[dict] | None = None, loop: bool = False, weapon: WeaponRig | None = None,
+          fingers: dict | None = None, log=None) -> dict:
+    """한 풀이 — 모델 · 정규화한 fix.body · 파지(grip_weights) · 풀린 목표(resolve_targets) · 원본 루프 여부 · 무기(WeaponRig, 8-4c) · 손가락 뿌리
+    (fingers{side: 대상 메시 손가락 체인 제안 {Side}Middle 시작 — 보조 손목 굽힘 상한, 없으면 그 제약을 끈다) → Solver.run 결과."""
+    return Solver(model, cfg, grip=grip, targets=targets, loop=loop, weapon=weapon, fingers=fingers).run(log=log)
 
 
 def bone_deltas_op(result: dict) -> dict | None:

@@ -142,9 +142,11 @@ def plan_motion_generation(request: dict) -> dict:
             the ops for an asset already on the target; Job timing has the windows · rate profile · ops · warp · before/after; length changes
             on purpose: TIMING_CHANGED_LENGTH), body?: true | {mode auto|measure, clearance{margin_cm 0.5, allow_contact true (torso ·
             thighs may touch up to contact_cm; head/neck and false keep margin_cm), hands true, upper_arm no_worse, secondary record, legs false},
-            grip{mode auto|keep|off, lead_hand right, window [a, b]?, spacing_cm?, tolerance_cm?}, joints{clavicle_deg
+            grip{mode auto|weapon|keep|off (auto = keep; weapon = opt-in grip on the request weapon's handle), lead_hand right, window [a, b]?,
+            spacing_cm?, tolerance_cm?, blend_s? (keep 0.1 · weapon 0.2), wrist_bend_max_deg? (off-hand wrist bend cap = max(this, the clip's max))},
+            joints{clavicle_deg
             10, upper_arm_deg 45, elbow_deg 60, wrist_deg 30, spine_deg_for_targets 20, neck_deg_for_targets 20, pelvis_cm 15, pelvis_deg 10},
-            targets[{id, note (the user's words), effector hand_l|hand_r|head|pelvis|foot_l|foot_r|bone, at{event swing_start|swing_peak|swing_end|
+            targets[{id, note (the user's words), effector hand_l|hand_r|head|pelvis|foot_l|foot_r|weapon_tip (needs weapon.tip)|bone, at{event swing_start|swing_peak|swing_end|
             still_start|still_end|swing|both_planted, offset_s, index} | {time} | {window}, hold_s, position{offset_cm [forward, left, up],
             space body|component} | {absolute_cm, space} | {away_from, min_cm}, rotation{offset_deg [pitch, yaw, roll], space body|local}, ease_s
             0.15, weight 1, priority soft|hard}], weights{clearance 10, grip 10, pins 10, targets 5, lead_hand 3, fidelity 1}, smooth_s 0.13,
@@ -152,7 +154,13 @@ def plan_motion_generation(request: dict) -> dict:
             asset: hands/forearms out of torso · thighs · head/neck · the other hand, two-hand grip kept, upper arms no deeper, targets you translate
             from the user's words (the server never parses language — show the plan's resolved targets and get a yes); retarget body_clearance
             defaults to measure; Job fix.body has before · predicted · after (C++) · targets · remains · loop (source numeric.loop — a loop source is fitted as a cycle, seam_deg 0); limitations BODY_FIT_APPROXIMATE ·
-            BODY_PENETRATION_REMAINS · GRIP_RELAXED · TARGET_NOT_REACHED{blocked_by})}, package?{additive?{additive_type LocalSpaceBase|RotationOffsetMeshSpace, ref_pose_type
+            BODY_PENETRATION_REMAINS · GRIP_RELAXED · TARGET_NOT_REACHED{blocked_by} · GRIP_NOT_REACHED · GRIP_NOT_APPLICABLE · GRIP_RUNTIME_IK · WEAPON_BODY_RECORDED)},
+            weapon?{mesh, attach{socket | bone, offset{location, rotation[p, y, r], scale}} (= DA AttachSocket · AttachOffset ∘ AttachTransform — YOU read
+            the equipment data; nothing here reads it), lead_hand right, grips[{hand, segment{from, to} | socket | sockets[a, b] (weapon mesh
+            space cm), rotation [x,y,z,w]? (the hand in weapon space), rotation_tol_deg 10, runtime_ik false (true = a runtime IK such as the
+            rifle LeftHandGripSocket drives that hand → keep + GRIP_RUNTIME_IK)}], tip{socket} | {point_cm}?} (Phase 8-4c — opt-in fix.body grip mode weapon:
+            off-hand palm (wrist · middle finger root) on the handle segment, sliding allowed, the weapon rigid on the lead hand; sockets and
+            finger chains are read from the meshes; review.capture attaches it; Job fix.body grip.weapon · weapon · weapon_body), package?{additive?{additive_type LocalSpaceBase|RotationOffsetMeshSpace, ref_pose_type
             RefPose|AnimScaled|AnimFrame|LocalAnimFrame (default LocalAnimFrame 0), ref_frame_index, ref_pose_sequence ('$asset' = itself;
             needed by AnimFrame/AnimScaled)} (edits the new sequence in place — refused on a reused asset), montage?{name? (default
             animation_name AS_ → AM_), slot (default DefaultSlot; must already be in the skeleton), blend_in?, blend_out?, sections?[{name,

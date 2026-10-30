@@ -5,7 +5,7 @@ import copy
 import os
 import re
 
-from . import body_fit, bvh, selection, timing
+from . import body_fit, bvh, selection, timing, weapon as weapon_req
 from .editor import package_path
 from .envelope import AnimGenError, diag
 
@@ -71,6 +71,8 @@ DEFAULTS = {
     "loop": None, "root_motion_mode": "auto", "reference_animations": [], "search": None, "edits": None, "retarget": {},
     "constraints": {}, "generation_policy": None, "provider": "auto", "integrate_anim_bp": False, "motion_file": None,
     "prompt": None, "generation": None, "review": None, "fix": None, "package": None, "anim_bp": None,
+    # Phase 8-4c — 손에 든 무기(weapon.py). 장비 데이터는 Claude Code 가 읽어 넣는다(플러그인 · anim_gen 은 읽지 않는다 — §8)
+    "weapon": None,
 }
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
@@ -186,6 +188,7 @@ def normalize(raw: dict) -> tuple[dict, list[dict]]:
     req["generation"] = _generation(req["generation"])
     req["review"] = _review(req["review"])
     req["fix"] = _fix(req["fix"])
+    req["weapon"] = _weapon(req["weapon"], req["fix"], raw.get("fix"))
 
     if not isinstance(req["constraints"], dict):
         raise _bad("constraints", "must be an object of flags")
@@ -486,6 +489,23 @@ def _fix(raw) -> dict:
     except body_fit.BodyFitError as err:
         raise _bad(err.field, err.message, reason=err.reason) from None
     return {"ops": ops, **({"timing": timing_cfg} if timing_cfg else {}), **({"body": body_cfg} if body_cfg else {})}
+
+
+def _weapon(raw, fix: dict, raw_fix) -> dict | None:
+    """weapon(Phase 8-4c) — 형식만 본다(소켓 · 손가락 체인이 메시에 있는지는 계획 · 실행이 플러그인으로). fix.body 가 있으면 파지 주 손을 무기의
+    lead_hand 로 맞춘다(요청이 fix.body.grip.lead_hand 를 따로 주고 다르면 CONFLICTING_FIELDS)."""
+    try:
+        weapon = weapon_req.normalize(raw)
+    except weapon_req.WeaponError as err:
+        raise _bad(err.field, err.message, reason=err.reason) from None
+    body = fix.get("body")
+    if weapon and body:
+        given = (((raw_fix or {}).get("body") or {}) if isinstance((raw_fix or {}).get("body"), dict) else {}).get("grip") or {}
+        if isinstance(given, dict) and given.get("lead_hand") not in (None, weapon["lead_hand"]):
+            raise _bad("fix.body.grip.lead_hand", f"differs from weapon.lead_hand {weapon['lead_hand']} — the weapon is held by its lead hand",
+                       reason="CONFLICTING_FIELDS")
+        body["grip"]["lead_hand"] = weapon["lead_hand"]
+    return weapon
 
 
 def _num(value, low: float | None = None) -> bool:

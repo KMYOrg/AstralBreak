@@ -47,7 +47,7 @@ def test_normalize_defaults_and_off():
     ({"clearance": {"margin_cm": 9}}, "fix.body.clearance.margin_cm", "BAD_FIELD"),
     ({"clearance": {"upper_arm": "target"}}, "fix.body.clearance.upper_arm", "BAD_FIELD"),
     ({"clearance": {"allow_contact": "yes"}}, "fix.body.clearance.allow_contact", "BAD_FIELD"),
-    ({"grip": {"mode": "weapon"}}, "fix.body.grip.mode", "BAD_FIELD"),
+    ({"grip": {"mode": "glue"}}, "fix.body.grip.mode", "BAD_FIELD"),   # 8-4c — weapon 은 이제 받는다(기대된 변화)
     ({"grip": {"window": [2, 1]}}, "fix.body.grip.window", "BAD_FIELD"),
     ({"joints": {"spine_deg": 5}}, "fix.body.joints.spine_deg", "NOT_SUPPORTED"),
     ({"passes": 0}, "fix.body.passes", "BAD_FIELD"),
@@ -195,6 +195,68 @@ def test_two_hand_grip_moves_both_arms_and_keeps_the_grip():
     keep = res["keep"]
     assert keep["pos_cm_max"] <= model.scale and keep["deg_max"] <= 5.0   # 기준 2 = 1 cm × scale · 5°
     assert bone_deg(res, "upperarm_r") > 1.0 and bone_deg(res, "upperarm_l") > 1.0   # 두 팔이 함께(§10 C안)
+
+
+FINGERS = {"l": "middle_01_l", "r": "middle_01_r"}   # 손가락 체인 제안 {Side}Middle 시작(파이프는 inspect_skeleton 에서 받는다)
+
+
+def test_off_wrist_bend_cap_is_a_clearance_hinge_in_grip_frames_only():
+    # 8-4c 후속(사용자 Persona — keep 파지 프레임 보조 손목이 원본보다 더 굽음): 손목을 여는 파지 프레임만 상한 = 원래 굽힘 + BEND_KEEP_TOL_DEG,
+    # 넘은 만큼 관통 층 잔차. 2차 — 본 풀이 가족 · 재검사 위반에는 없다(본 풀이 뒤 보조 손목 다듬기만). 손가락 뿌리가 없으면 끈다
+    frames = [fx.grip_front() for _ in range(5)] + [{} for _ in range(5)]
+    model = bm.BodyModel(fx.make_model(frames))
+    cfg = bf.normalize(True)
+    grip = bf.grip_weights(bf.Rig(model), cfg["grip"], model.scale)
+    s = bf.Solver(model, cfg, grip=grip, fingers=FINGERS)
+    assert s.bend_rig["side"] == "l" and s.bend_rig["middle_name"] == "middle_01_l" and s.bend_rig["bend0"][0] == pytest.approx(0.0, abs=1e-6)
+    assert s.bend_cap[0] == pytest.approx(math.radians(bf.BEND_KEEP_TOL_DEG), abs=1e-5) and s.bend_cap[9] is None
+    state = {"rot": {model.index["hand_l"]: (math.radians(10.0), 0.0, 0.0)}, "trans": {}}
+    ev = s.evaluate(0, state, {"rot": {}, "trans": {}}, {"bend"}, [], s._joints(0))
+    assert ev["info"]["bend_deg"] == pytest.approx(10.0 - bf.BEND_KEEP_TOL_DEG, abs=1e-3)
+    assert ev["cost"] == pytest.approx((10.0 * bf.TIER["clearance"] * math.radians(10.0 - bf.BEND_KEEP_TOL_DEG) * bf.ROT_CM) ** 2, rel=1e-4)
+    assert "bend" not in bf.FAMILIES and "bend" not in s._violations(0, state, [])
+    off = bf.Solver(model, cfg, grip=grip)
+    assert off.bend_rig is None and off._finish_wrist([state]) == [state] and bf.solve(model, cfg, grip=grip)["wrist_bend"]["on"] is False
+
+
+def test_finish_probes_with_the_live_shoulder_axis_like_cpp():
+    # 8-4c 후속 2차 — C++ 는 지도 각도 0 방향을 편집된 자세의 어깨(upperarm_l − upperarm_r)에서 다시 잡는다(쇄골을 옮긴 프레임은 칸 나눔이 1 ~ 2°
+    # 어긋나 s25 f55 검지가 다른 칸에 들었다). 원래 자세면 저장된 축과 같고, 어깨가 움직이면 달라진다 — 다듬기 동안만 이 규칙으로 묻는다
+    frames = [fx.grip_front() for _ in range(5)]
+    model = bm.BodyModel(fx.make_model(frames))
+    s = bf.Solver(model, bf.normalize(True), fingers=FINGERS)
+    for name, mp in model.maps.items():
+        x = s._lateral_x(mp, 0, model.poses[0], None)
+        assert x is not None and bm._norm(bm._sub(x, mp.axes[0]["x"])) <= 1e-5, name
+    state = {"rot": {model.index["clavicle_l"]: (0.0, 0.0, math.radians(10.0))}, "trans": {}}
+    moved = s.pose(0, state)[0]
+    assert bm._norm(bm._sub(s._lateral_x(model.maps["torso"], 0, moved, None), model.maps["torso"].axes[0]["x"])) > 1e-3
+    s.run()
+    assert s.live_lateral is False and s.floor == {}
+
+
+def test_keep_grip_does_not_bend_the_off_wrist_past_the_original(monkeypatch):
+    # 왼 위팔이 배 속으로 드는 파지(keep) — 상한이 없으면 keep(주 손 기준 상대 회전)이 팔을 옮긴 만큼을 보조 손목이 떠안아 2.3° 더 굽는다. 허용 0° 로
+    # 좁혀 보면 원래 굽힘 위로 거의 안 간다. 2차 — 본 풀이 뒤 보조 손목만 다듬는다: 관통은 그대로, 팔꿈치 · 손목 위치 · 주 손은 상한 없는 풀이와 같고,
+    # keep 은 편 만큼까지만 풀린다(다듬기는 keep 을 두지 않는다 — 같은 손목을 상한과 반대로 당긴다)
+    monkeypatch.setattr(bf, "BEND_KEEP_TOL_DEG", 0.0)
+    frames = fx.bump(fx.grip_close(), fx.grip_close({"upperarm_l": (-30.0, 0.0, 35.0)}))
+    model = bm.BodyModel(fx.make_model(frames))
+    cfg = bf.normalize(True)
+    grip = bf.grip_weights(bf.Rig(model), cfg["grip"], model.scale)
+    free, capped = (bf.solve(model, cfg, grip=grip, fingers=f) for f in (None, FINGERS))
+    ix = model.index
+
+    def inc(res):
+        return max(math.degrees(bf.WeaponRig.bend(res["poses"][f], ix["lowerarm_l"], ix["hand_l"], ix["middle_01_l"])
+                                - bf.WeaponRig.bend(model.poses[f], ix["lowerarm_l"], ix["hand_l"], ix["middle_01_l"])) for f in range(len(frames)))
+    assert inc(free) >= 2.0 and inc(capped) <= bf.BEND_TOL_DEG
+    wb = capped["wrist_bend"]
+    assert wb["on"] and wb["frames"] == len(frames) and wb["over_cap_frames"] == 0 and wb["increase_deg_max"] == pytest.approx(inc(capped), abs=1e-3)
+    assert worst(capped["predicted"]["pairs"]) <= worst(free["predicted"]["pairs"]) + 0.1
+    moved = max(bm._norm(bm._sub(a[ix[b]][1], c[ix[b]][1])) for a, c in zip(free["poses"], capped["poses"]) for b in ("lowerarm_l", "hand_l", "hand_r"))
+    assert moved <= 1e-6
+    assert capped["keep"]["deg_max"] <= free["keep"]["deg_max"] + inc(free) - inc(capped) + 0.5 and capped["keep"]["pos_cm_max"] <= free["keep"]["pos_cm_max"] + 0.5
 
 
 def test_hands_passing_through_each_other_are_separated():

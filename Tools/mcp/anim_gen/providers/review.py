@@ -7,13 +7,15 @@
 - 연속 프레임은 여기서 APNG 한 장으로 잇는다(apng.py — 표준 라이브러리, 설치 없음).
 - 캡처 실패(CAPTURE_FAILED · 설정 · 이미지 경로)는 생성 실패가 아니다 — 한계 REVIEW_NOT_CAPTURED 만 남긴다(blender 렌더 실패와 같은 규칙).
   가드(UNEXPECTED_DIRTY)와 에디터 연결 오류는 §7 대로 중단.
-- 보이는 것은 시퀀스를 메시에 그대로 입힌 프리뷰다 — 무기 · 옷/머리 물리 · 게임 AnimBP 레이어가 없다(REVIEW_CAPTURE_PREVIEW_ONLY). 판정은 사람.
+- 보이는 것은 시퀀스를 메시에 그대로 입힌 프리뷰다 — 옷/머리 물리 · 게임 AnimBP 레이어가 없다(REVIEW_CAPTURE_PREVIEW_ONLY). 요청 weapon(Phase 8-4c)이
+  있으면 그 무기를 부착 소켓 · offset 그대로 붙여 찍는다(attachments — 런타임 왼손 IK 는 없다). 판정은 사람.
 """
 from __future__ import annotations
 
 import pathlib
 
 from .. import apng
+from .. import weapon as weapon_mod
 from ..editor import EditorCallError
 from ..envelope import EDITOR_TRANSPORT_CODES, diag, limitation
 from ..fallback import from_editor_error
@@ -28,7 +30,11 @@ _FATAL = EDITOR_TRANSPORT_CODES | {"UNEXPECTED_DIRTY"}
 LAYOUT_KEYS = ("cell_height_px", "max_aspect", "margin", "bounds_max_samples", "sheet_max_px")
 
 
-def preview_limitation() -> dict:
+def preview_limitation(weapon: bool = False) -> dict:
+    if weapon:
+        return limitation("REVIEW_CAPTURE_PREVIEW_ONLY", "대상 메시 캡처(review.capture)는 시퀀스를 메시에 그대로 입힌 프리뷰다 — 무기는 요청 weapon 의 부착 소켓 · "
+                          "offset 그대로 붙였지만 옷/머리 물리 · 게임 AnimBP 레이어(런타임 왼손 IK · 조준)가 없고 조명은 프리뷰 조명이다. 동작 품질 판정은 사람"
+                          "(캡처는 근거)", "review")
     return limitation("REVIEW_CAPTURE_PREVIEW_ONLY", "대상 메시 캡처(review.capture)는 시퀀스를 메시에 그대로 입힌 프리뷰다 — 무기 · 옷/머리 물리 · 게임 AnimBP "
                       "레이어(왼손 IK · 조준)가 없고 조명은 프리뷰 조명이다. 동작 품질 판정은 사람(캡처는 근거)", "review")
 
@@ -60,7 +66,7 @@ class ReviewPipe(Provider):
         if roots is not None and not roots:
             return None, [], [not_captured("CAPTURE_ROOTS_EMPTY", "ini [AnimGraphMcp] CaptureOutputRoots 가 비어 캡처하지 않는다(플러그인이 쓸 폴더가 없다)")]
         risks: list[str] = []
-        lims = [preview_limitation()]
+        lims = [preview_limitation(bool(request.get("weapon")))]
         convert = next((s for s in steps if s["step"] == "convert" and (s.get("inputs") or {}).get("review")), None)
         edits = any(s["step"] in ("edit", "timing") for s in steps)
         rows_from = "render" if convert is not None and not edits else "request"
@@ -74,6 +80,9 @@ class ReviewPipe(Provider):
                   "times": cap["times"], "count": count, "sequence": dict(cap["sequence"]) if cap["sequence"] else None,
                   "compare": bool(cap["compare"] and rows_from == "render"), "label": request.get("hero") or "target",
                   "layout": {k: REVIEW_RENDER[k] for k in LAYOUT_KEYS}, "dir": "<capture_root>/<job_id>/A<attempt>"}
+        if request.get("weapon"):
+            # Phase 8-4c — 요청 무기를 부착해 찍는다(capture_animation attachments — 부착 소켓 · offset 은 요청 그대로)
+            inputs["attachments"] = [weapon_mod.attachment(request["weapon"])]
         facing = None
         if pctx.editor_ok:
             try:
@@ -139,6 +148,8 @@ class ReviewPipe(Provider):
             params["count"] = inputs.get("count") or 4
         if inputs.get("sequence"):
             params["sequence"] = dict(inputs["sequence"])
+        if inputs.get("attachments"):
+            params["attachments"] = [dict(a) for a in inputs["attachments"]]
         try:
             res = editor.require(TOOL, **params)
         except EditorCallError as err:
@@ -167,4 +178,4 @@ class ReviewPipe(Provider):
         notes.append(diag("info", "REVIEW_CAPTURED", f"{len(res.get('frames') or [])} frame image(s) of {asset} on {res.get('mesh')} in {res.get('seconds')}s — "
                           f"show these to the user (the human judges): {', '.join(paths)}", sheet=capture["sheet"], compare=capture["compare_sheet"],
                           animation=(animation or {}).get("path")))
-        return StepResult(values={"review_capture": capture}, limitations=[preview_limitation()], diagnostics=notes)
+        return StepResult(values={"review_capture": capture}, limitations=[preview_limitation(bool(inputs.get("attachments")))], diagnostics=notes)

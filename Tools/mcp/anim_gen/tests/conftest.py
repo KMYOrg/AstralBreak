@@ -163,6 +163,8 @@ class FakeEditor:
         # Phase 8-2 — capture_animation 흉내: ini CaptureOutputRoots(디스크 — 테스트가 tmp_path 를 준다, 기본 비어 있음) · 남길 더티
         self.capture_roots: list[str] = []
         self.capture_dirty: list[str] = []
+        # Phase 8-4c — inspect_skeleton skeletal_mesh 흉내: 메시 경로 → 결과(sockets · bones · finger_chain_suggestion · geometry)
+        self.mesh_inspect: dict[str, dict] = {}
 
     # ---- 호출 ----
     def call(self, tool: str, params: dict, timeout: float | None = None) -> dict:
@@ -243,6 +245,11 @@ class FakeEditor:
         return {"total": len(items), "returned": min(len(items), limit), "truncated": len(items) > limit, "items": items[:limit]}
 
     def _inspect_skeleton(self, p):
+        mesh_path = package_path(p["skeletal_mesh"]) if p.get("skeletal_mesh") else None
+        if mesh_path in self.mesh_inspect:
+            return copy.deepcopy(self.mesh_inspect[mesh_path])
+        if not p.get("skeleton"):
+            p = {**p, "skeleton": next((s for s, m in self.meshes.items() if m == mesh_path), "")}
         mesh = self.meshes.get(package_path(p["skeleton"]))
         bones = self.bones.get(package_path(p["skeleton"]), [])
         if not p.get("details"):

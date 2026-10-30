@@ -198,3 +198,128 @@ def test_nothing_to_fix_still_makes_the_final_asset(service, fake, body):
     assert job["status"] == "SUCCEEDED" and job["generated_assets"] == [f"{OUT}/AS_Vesper_Sickle_GripTest_Fit"]
     assert [p for t, p in fake.calls if t == "apply_animation_edits"][0]["operations"] == [{"op": "trim"}]
     assert "BODY_FIT_NOT_APPLIED" in [lm["code"] for lm in job["limitations"]]
+
+
+def test_plan_reads_the_finger_roots_for_the_off_wrist_bend_cap(service, fake, body):
+    # 8-4c 후속 — 무기 없는 Job 도 대상 메시 손가락 체인 제안({Side}Middle 시작 — 이름 추측 없음)을 계획에서 받아 파지 프레임 보조 손목 상한에 쓴다
+    chains = [{"name": n, "start": s, "end": s} for n, s in (("LeftMiddle", "middle_01_l"), ("RightMiddle", "middle_01_r"))]
+    fake.mesh_inspect[VESPER_MESH] = {"finger_chain_suggestion": {"chains": chains}}
+    p = plan_of(service)
+    step = next(s for s in p["candidates"][0]["steps"] if s["step"] == "body_fit")
+    assert step["inputs"]["fingers"] == {"l": "middle_01_l", "r": "middle_01_r"}
+    assert any(q.get("skeletal_mesh") == VESPER_MESH and q.get("suggest_finger_chains") for t, q in fake.calls if t == "inspect_skeleton")
+    job = service.generate_motion(plan_id=p["plan_id"], save=False)["result"]
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    wb = job["fix"]["body"]["grip"]["wrist_bend"]
+    assert wb["on"] and wb["middle"] == "middle_01_l" and wb["frames"] == 30 and wb["over_cap_frames"] == 0
+    assert wb["increase_deg_max"] <= wb["tol_deg"] + 1.0 and "GRIP_WRIST_BEND_OFF" not in [d["code"] for d in job["diagnostics"]]
+    # 체인이 없으면 그 제약을 끈다(경고 진단 · 기록)
+    fake.mesh_inspect[VESPER_MESH] = {"finger_chain_suggestion": {"chains": []}}
+    job = run(service, animation_name="AS_Vesper_Sickle_GripTest_FitNoFingers")
+    rec = job["fix"]["body"]
+    assert job["status"] == "SUCCEEDED" and rec["grip"]["fingers"] == {} and rec["grip"]["wrist_bend"]["on"] is False
+    assert "GRIP_WRIST_BEND_OFF" in [d["code"] for d in job["diagnostics"]]
+
+
+# ---- 무기(8-4c) ----
+WEAPON_MESH = "/Game/Equipment/Weapon/Mesh/SKM_Test_Sickle"
+
+
+def weapon_setup(fake, runtime_ik: bool = False) -> dict:
+    """대상 메시(부착 소켓 · 손가락 체인) · 무기 메시(소켓 · 기하) inspect 흉내 + 요청 weapon — 손잡이 = 0 번 프레임 왼 손바닥 점에서 3 cm 옆 ±6 cm,
+    회전 = 0 번 프레임 왼손의 무기 공간 회전(무기 = hand_r 항등 부착)."""
+    model = bm.BodyModel(fx.make_model(FRAMES))
+    p0 = model.poses[0]
+    hr, hl, ml = (model.index[b] for b in ("hand_r", "hand_l", "middle_01_l"))
+    palm = bm.qrot(bm.qconj(p0[hr][0]), bm._sub(bm._scale(bm._add(p0[hl][1], p0[ml][1]), 0.5), p0[hr][1]))
+    rot = bm.qmul(bm.qconj(p0[hr][0]), p0[hl][0])
+    fake.mesh_inspect[VESPER_MESH] = {"sockets": [{"name": "WeaponHandR", "bone": "hand_r", "owner": "skeleton", "location": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0]}],
+                                      "finger_chain_suggestion": {"chains": [{"name": "LeftMiddle", "start": "middle_01_l", "end": "middle_01_l"}]}}
+    fake.mesh_inspect[WEAPON_MESH] = {"sockets": [{"name": "TraceEnd", "bone": "Root", "owner": "mesh", "location": [0.0, 0.0, -40.0], "rotation": [0.0, 0.0, 0.0]},
+                                                  {"name": "LeftHandIK", "bone": "Root", "owner": "mesh", "location": list(palm), "rotation": [0.0, 0.0, 0.0]}],
+                                      "bones": [{"name": "Root", "ref_component": {"t": [0.0, 0.0, 0.0], "r": [0.0, 0.0, 0.0]}}]}
+    a, b = bm._add(palm, (-6.0, 3.0, 0.0)), bm._add(palm, (6.0, 3.0, 0.0))
+    grip = {"hand": "left", "socket": "LeftHandIK", "runtime_ik": True} if runtime_ik else \
+        {"hand": "left", "segment": {"from": list(a), "to": list(b)}, "rotation": list(rot)}
+    return {"mesh": WEAPON_MESH, "attach": {"socket": "WeaponHandR"}, "grips": [grip], "tip": {"socket": "TraceEnd"}}
+
+
+def test_weapon_plan_resolves_the_mesh_facts_and_the_capture_attaches_it(service, fake, body, tmp_path):
+    fake.capture_roots = [tmp_path.as_posix()]
+    weapon = weapon_setup(fake)
+    p = plan_of(service, weapon=weapon, review={"capture": True}, fix={"body": {"grip": {"mode": "weapon"}}})
+    cand = p["candidates"][0]
+    step = next(s for s in cand["steps"] if s["step"] == "body_fit")
+    res = step["inputs"]["weapon_resolved"]
+    assert step["inputs"]["grip_mode"] == "weapon" and res["bone"] == "hand_r" and res["hand"]["middle"] == "middle_01_l" and res["tip"] == [0.0, 0.0, -40.0]
+    assert res["grip"]["form"] == "segment" and "WEAPON_RESOLVED_AT_RUN" not in cand["risks"]
+    cap = next(s for s in cand["steps"] if s["step"] == "capture")
+    assert cap["inputs"]["attachments"] == [{"mesh": WEAPON_MESH, "socket": "WeaponHandR", "offset": {"location": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0],
+                                                                                                      "scale": [1.0, 1.0, 1.0]}}]
+    calls = [q for t, q in fake.calls if t == "inspect_skeleton" and q.get("skeletal_mesh")]
+    assert {q["skeletal_mesh"] for q in calls} == {VESPER_MESH, WEAPON_MESH} and any(q.get("suggest_finger_chains") for q in calls) and not fake.writes
+
+
+def test_weapon_job_grips_the_handle_and_records_the_weapon(service, fake, body):
+    job = run(service, weapon=weapon_setup(fake), fix={"body": {"grip": {"mode": "weapon"}}})
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    rec = job["fix"]["body"]
+    grip = rec["grip"]["weapon"]
+    assert rec["grip"]["mode"] == "weapon" and rec["grip"]["keep"]["frames"] == 0 and grip["before"]["dist_cm_max"] >= 2.5
+    # 회전은 허용각 10° 를 조금 넘을 수 있다 — 합성 손은 곧아 손목 굽힘 상한 = 0°, 손 · 아래팔이 배를 뚫는 동작이라 관통이 앞선다(기준 1 축 15°)
+    assert grip["after"]["dist_cm_p95"] <= 1.0 and grip["after"]["dist_cm_max"] <= 2.0 and grip["after"]["axis_deg_p95"] <= 15.0
+    assert rec["weapon"]["mesh"] == WEAPON_MESH and rec["weapon"]["tip_from"] == "socket TraceEnd" and rec["weapon_body"] == {"before": None, "after": None}   # 기하 없음 → 기록 없음
+    codes = [lm["code"] for lm in job["limitations"]]
+    assert "GRIP_NOT_REACHED" not in codes and "GRIP_RELAXED" not in codes and "GRIP_RUNTIME_IK" not in codes
+
+
+def test_runtime_ik_weapon_keeps_the_relation_with_a_limitation(service, fake, body):
+    p = plan_of(service, weapon=weapon_setup(fake, runtime_ik=True))
+    cand = p["candidates"][0]
+    assert next(s for s in cand["steps"] if s["step"] == "body_fit")["inputs"]["grip_mode"] == "keep"
+    assert "GRIP_RUNTIME_IK" in [lm["code"] for lm in cand["expected_limitations"]]
+    job = service.generate_motion(plan_id=p["plan_id"], save=False)["result"]
+    assert job["status"] == "SUCCEEDED" and job["fix"]["body"]["grip"]["mode"] == "keep" and job["fix"]["body"]["grip"]["keep"]["frames"] == 30
+    assert "GRIP_RUNTIME_IK" in [lm["code"] for lm in job["limitations"]]
+
+
+def test_weapon_errors_block_the_plan(service, fake, body):
+    weapon = weapon_setup(fake)
+    p = plan_of(service, weapon={**weapon, "attach": {"socket": "Nope"}})
+    assert not p["candidates"] and p["excluded"][0]["cause"] == "UNSUPPORTED_REQUEST" and p["excluded"][0]["reason"] == "WEAPON_ATTACH_UNKNOWN"
+    tip = {"id": "tip", "effector": "weapon_tip", "at": {"time": 0.3}, "position": {"offset_cm": [5, 0, 0]}}
+    p = plan_of(service, weapon={**weapon, "tip": None}, fix={"body": {"targets": [tip]}})
+    assert not p["candidates"] and p["excluded"][0]["cause"] == "BAD_REQUEST" and p["excluded"][0]["reason"] == "WEAPON_TIP_UNKNOWN"
+    p = plan_of(service, fix={"body": {"grip": {"mode": "weapon"}}})
+    assert not p["candidates"] and p["excluded"][0]["reason"] == "WEAPON_GRIP_UNKNOWN"
+    env = service.plan_motion_generation(request=body_request(weapon=weapon, fix={"body": {"grip": {"lead_hand": "left"}}}))
+    assert not env["ok"] and env["error"]["details"]["reason"] == "CONFLICTING_FIELDS"
+
+
+def test_far_weapon_grip_falls_back_to_keep_with_a_limitation(service, fake, body):
+    weapon = weapon_setup(fake)
+    g = weapon["grips"][0]
+    weapon["grips"] = [{**g, "segment": {"from": bm._add(g["segment"]["from"], (0.0, 40.0, 0.0)), "to": bm._add(g["segment"]["to"], (0.0, 40.0, 0.0))}}]
+    weapon["grips"][0]["segment"] = {k: list(v) for k, v in weapon["grips"][0]["segment"].items()}
+    job = run(service, weapon=weapon, fix={"body": {"grip": {"mode": "weapon"}}})
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    rec = job["fix"]["body"]
+    assert rec["grip"]["mode"] == "weapon" and rec["grip"]["weapon_frames"] == 0 and rec["grip"]["band_far_frames"] == 30 and rec["grip"]["keep"]["frames"] == 30
+    lim = next(lm for lm in job["limitations"] if lm["code"] == "GRIP_NOT_APPLICABLE")
+    assert lim["reason"] == "OFF_HAND_FAR" and lim["frames"] == 30 and lim["dist_cm"]["p50"] >= 30.0
+
+
+def test_weapon_without_opt_in_keeps_and_only_records(service, fake, body):
+    # auto 는 무기가 있어도 keep — 풀이는 무기 없는 Job 과 같고 손잡이 관계 · 무기 끝만 기록(GRIP_NOT_APPLICABLE OPT_IN). 두 Job 은 같은 대상 메시
+    # 사실(손가락 체인 — 보조 손목 굽힘 상한)을 본다
+    weapon = weapon_setup(fake)
+    plain = run(service)
+    job = run(service, weapon=weapon, animation_name="AS_Vesper_Sickle_GripTest_FitW")
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    rec = job["fix"]["body"]
+    assert rec["grip"]["mode"] == "keep" and rec["grip"]["weapon"]["after"]["active"] is False and rec["grip"]["weapon"]["after"]["frames"] == 0
+    assert rec["grip"]["weapon"]["before"]["all_frames"]["dist_cm_p50"] >= 2.5
+    ops = [p_["operations"] for t, p_ in fake.calls if t == "apply_animation_edits"]
+    assert ops[0] == ops[1]   # 같은 bone_deltas
+    lim = next(lm for lm in job["limitations"] if lm["code"] == "GRIP_NOT_APPLICABLE")
+    assert lim["reason"] == "OPT_IN" and plain["fix"]["body"]["grip"]["mode"] == "auto"

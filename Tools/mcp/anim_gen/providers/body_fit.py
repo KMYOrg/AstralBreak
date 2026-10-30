@@ -14,6 +14,7 @@ import copy
 import time
 
 from .. import body_fit, motion_metrics, timing
+from .. import weapon as weapon_mod
 from ..body_model import BodyModel, ModelError
 from ..editor import EditorCallError
 from ..envelope import diag, limitation
@@ -34,6 +35,16 @@ def approximate_limitation() -> dict:
                       "잰 관통을 푼다. 옷 · 머리카락 물리 · 코트 자락(기록만)은 모른다 — 판정은 사람(전후 캡처)", "body_fit")
 
 
+def runtime_ik_limitation(hand: str) -> dict:
+    return limitation("GRIP_RUNTIME_IK", f"{hand} 손은 게임에서 런타임 IK(무기 액터 LeftHandGripSocket — ABP TwoBoneIK)가 무기 소켓으로 덮는다 — 애니의 파지는 "
+                      "원래 관계(keep)만 지킨다(weapon 모드 아님)", "body_fit", hand=hand)
+
+
+def weapon_error_cause(reason: str) -> str:
+    """무기 · 목표 오류의 cause — 요청이 빠뜨린 것(무기 끝 · 효과기)은 BAD_REQUEST, 메시에 없는 것(소켓 · 손가락 체인)은 UNSUPPORTED_REQUEST."""
+    return "BAD_REQUEST" if reason in ("UNKNOWN_EFFECTOR", "WEAPON_TIP_UNKNOWN") else "UNSUPPORTED_REQUEST"
+
+
 class BodyFitPipe(Provider):
     """fix.body → body_fit 단계."""
 
@@ -46,21 +57,79 @@ class BodyFitPipe(Provider):
         produces = cfg["mode"] == "auto"
         inputs = {**copy.deepcopy(cfg), "mesh": request["target_mesh"], "loop": request["loop"], "root_motion": root_motion_flag(request),
                   "bones": None, "produces": produces}
+        # 무기(8-4c) — 파지 모드는 요청 grip.mode + 요청 weapon 으로 정한다(무기가 없으면 지금 그대로)
+        weapon = request.get("weapon")
+        try:
+            inputs["grip_mode"] = body_fit.grip_mode(cfg["grip"], weapon)
+            if any(t["effector"] == "weapon_tip" for t in cfg["targets"]) and not (weapon and weapon.get("tip")):
+                raise body_fit.BodyFitError("fix.body.targets", "weapon_tip needs the request weapon with tip {socket} | {point_cm}", "WEAPON_TIP_UNKNOWN")
+        except body_fit.BodyFitError as err:
+            raise PlanBlocked(weapon_error_cause(err.reason), err.reason, f"{err.field}: {err.message}", field=err.field)
+        lims = [approximate_limitation()]
+        if weapon:
+            inputs["weapon"] = copy.deepcopy(weapon)
+            inputs["weapon_resolved"] = None
+            g = weapon_mod.off_grip(weapon)
+            if g is not None and g["runtime_ik"]:
+                lims.append(runtime_ik_limitation(g["hand"]))
+        # 손가락 뿌리(8-4c 후속 — 파지 프레임 보조 손목 굽힘 상한): 대상 메시 손가락 체인 제안의 {Side}Middle 시작. None = 아직 안 풂(실행 때), {} = 체인 없음(끈다)
+        inputs["fingers"] = None
         step = {"step": "body_fit", "provider": self.name, "tool": TOOL, "inputs": inputs, "resolved": None}
         risks = ["BODY_FIT_RESOLVED_AT_RUN"] if produces else []
         if pctx.editor_ok:
             try:
                 inputs["bones"] = RetargetPipe.selection_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics, "body_fit")
+                target_info = self.inspect_target(pctx.editor, request) if self.needs_target_info(inputs) else None
+                if target_info is not None:
+                    inputs["fingers"] = weapon_mod.finger_roots(target_info)
+                if weapon:
+                    inputs["weapon_resolved"] = self.resolve_weapon(pctx.editor, request, target_info=target_info)
                 if source_on_target:
                     step["resolved"] = self.preview(pctx.editor, source_on_target, request, inputs)
             except StepFailed as failed:
                 raise PlanBlocked(failed.cause, failed.reason, failed.message, editor_error=failed.editor_error)
             except body_fit.BodyFitError as err:
-                cause = "BAD_REQUEST" if err.reason == "UNKNOWN_EFFECTOR" else "UNSUPPORTED_REQUEST"
-                raise PlanBlocked(cause, err.reason, f"fix.body: {err.field}: {err.message}", field=err.field)
+                raise PlanBlocked(weapon_error_cause(err.reason), err.reason, f"fix.body: {err.field}: {err.message}", field=err.field)
+        if weapon and inputs["weapon_resolved"] is None:
+            risks.append("WEAPON_RESOLVED_AT_RUN")
         if cfg["targets"] and step["resolved"] is None:
             risks.append("TARGETS_RESOLVED_AT_RUN")
-        return step, risks, [approximate_limitation()]
+        return step, risks, lims
+
+    @staticmethod
+    def needs_target_info(inputs: dict) -> bool:
+        """대상 메시 inspect 가 필요한가 — 무기를 풀거나(소켓 · 손가락 체인) 파지 프레임 보조 손목 굽힘 상한(손가락 뿌리)을 둘 때(애셋을 만들고 파지가 켜짐)."""
+        return bool(inputs.get("weapon")) or (inputs["produces"] and (inputs.get("grip_mode") or inputs["grip"]["mode"]) != "off")
+
+    @staticmethod
+    def inspect_target(editor, request: dict, step: str = "body_fit") -> dict:
+        """대상 메시 inspect_skeleton(details · suggest_finger_chains — 동기, 폴링 없음) — 부착 소켓 · 손가락 체인 제안."""
+        try:
+            return editor.require("inspect_skeleton", skeletal_mesh=request["target_mesh"], details=True, suggest_finger_chains=True)
+        except EditorCallError as err:
+            raise from_editor_error(step, err)
+
+    @classmethod
+    def resolve_weapon(cls, editor, request: dict, step: str = "body_fit", target_info: dict | None = None) -> dict:
+        """요청 weapon 을 메시 사실로 푼다 — 대상 메시(부착 소켓 · 손가락 체인 제안 — target_info 가 없으면 inspect) · 무기 메시(소켓 · 기하)
+        inspect_skeleton(동기 — 폴링 없음). 소켓 · 체인이 없으면 BodyFitError(WEAPON_* — 후보를 막는다)."""
+        weapon = request["weapon"]
+        target = target_info if target_info is not None else cls.inspect_target(editor, request, step)
+        try:
+            info = editor.require("inspect_skeleton", skeletal_mesh=weapon["mesh"], details=True, geometry=True)
+        except EditorCallError as err:
+            raise from_editor_error(step, err)
+        try:
+            return weapon_mod.resolve(weapon, target, info)
+        except weapon_mod.WeaponError as err:
+            raise body_fit.BodyFitError(err.field, err.message, err.reason) from None
+
+    @staticmethod
+    def weapon_rig(rig, inputs: dict) -> body_fit.WeaponRig | None:
+        resolved = inputs.get("weapon_resolved")
+        if not resolved:
+            return None
+        return body_fit.WeaponRig(rig, resolved, mode=inputs["grip_mode"], wrist_bend_max_deg=inputs["grip"]["wrist_bend_max_deg"])
 
     def preview(self, editor, source: str, request: dict, inputs: dict) -> dict:
         """기존 애셋(대상 스켈레톤) — 계획 때 재서 보인다: 전 수치 · 사건(초) · 목표를 풀어(사건 → 프레임 · 부위 → 본 · 몸 기준틀 오프셋 → 목표 위치).
@@ -72,7 +141,7 @@ class BodyFitPipe(Provider):
             model = self.model_of(bc)
             rig = body_fit.Rig(model)
             out["events"] = self.events(item, inputs["bones"])
-            targets = body_fit.resolve_targets(rig, inputs["targets"], out["events"], inputs["joints"])
+            targets = body_fit.resolve_targets(rig, inputs["targets"], out["events"], inputs["joints"], self.weapon_rig(rig, inputs))
             for t in targets:
                 if t.get("skipped"):
                     raise body_fit.BodyFitError(f"targets.{t['id']}.at", t["skipped"]["message"], t["skipped"]["reason"])
@@ -88,7 +157,7 @@ class BodyFitPipe(Provider):
                "window_s": t["window_s"], "frames": t["frames"], "ease_frames": t["ease_frames"], "dof": sorted({model.bones[b] for b, _ in t["dof"]}),
                "position": None, "rotation": spec.get("rotation")}
         if mid in t["pos"]:
-            out["position"] = {**spec["position"], "at_frame": mid, "from_cm": [round(v, 2) for v in model.poses[mid][t["bone"]][1]],
+            out["position"] = {**spec["position"], "at_frame": mid, "from_cm": [round(v, 2) for v in body_fit._target_point(t, model.poses[mid])],
                                "to_cm": [round(v, 2) for v in t["pos"][mid]]}
         elif t.get("away"):
             out["position"] = {**spec["position"], "from_bone": model.bones[t["away"]["bone"]]}
@@ -226,18 +295,34 @@ class BodyFitPipe(Provider):
         model = self.model_of(bc)
         rig = body_fit.Rig(model)
         events = self.events(before_item, inputs["bones"])
-        grip = body_fit.grip_weights(rig, inputs["grip"], model.scale)
+        # 무기(8-4c) · 손가락 뿌리(보조 손목 굽힘 상한) — 계획 때 못 풀었으면(에디터 없음) 여기서 메시 사실로 푼다
+        mode = inputs.get("grip_mode") or inputs["grip"]["mode"]
         try:
-            targets = body_fit.resolve_targets(rig, inputs["targets"], events, inputs["joints"])
+            need_weapon = bool(inputs.get("weapon")) and not inputs.get("weapon_resolved")
+            if need_weapon or (inputs.get("fingers") is None and self.needs_target_info(inputs)):
+                target_info = self.inspect_target(editor, request)
+                if inputs.get("fingers") is None:
+                    inputs["fingers"] = weapon_mod.finger_roots(target_info)
+                if need_weapon:
+                    inputs["weapon_resolved"] = self.resolve_weapon(editor, request, target_info=target_info)
+            wrig = self.weapon_rig(rig, {**inputs, "grip_mode": mode})
+        except body_fit.BodyFitError as err:
+            raise StepFailed(weapon_error_cause(err.reason), err.reason, f"{err.field}: {err.message}", fatal=True) from None
+        grip = body_fit.grip_weights(rig, {**inputs["grip"], "mode": mode}, model.scale, wrig)
+        try:
+            targets = body_fit.resolve_targets(rig, inputs["targets"], events, inputs["joints"], wrig)
         except body_fit.BodyFitError as err:
             raise StepFailed("BAD_REQUEST", err.reason, f"fix.body {err.field}: {err.message}", fatal=True) from None
         limitations = [approximate_limitation()]
+        g = weapon_mod.off_grip(inputs.get("weapon"))
+        if g is not None and g["runtime_ik"]:
+            limitations.append(runtime_ik_limitation(g["hand"]))
         for t in targets:
             if t.get("skipped"):
                 limitations.append(limitation("TARGET_NOT_REACHED", f"지시 목표 '{t['id']}' 를 건너뛰었다 — {t['skipped']['message']}", "body_fit", id=t["id"],
                                               reason=t["skipped"]["reason"], blocked_by=[]))
         t1 = time.time()
-        solved = body_fit.solve(model, inputs, grip=grip, targets=targets, loop=loop)
+        solved = body_fit.solve(model, inputs, grip=grip, targets=targets, loop=loop, weapon=wrig, fingers=inputs.get("fingers"))
         seconds["solve"] = round(time.time() - t1, 2)
         op = body_fit.bone_deltas_op(solved)
         t2 = time.time()
@@ -268,7 +353,7 @@ class BodyFitPipe(Provider):
                       "seconds": model.raw.get("seconds"), "bytes": model.raw.get("b64_bytes")},
             "events": events,
             "grip": {"mode": grip["mode"], "lead": grip["lead"], "band_cm": grip["band_cm"], "runs_s": grip["runs_s"], "frames": len(grip["frames"]),
-                     "keep": solved["keep"]},
+                     "keep": solved["keep"], "wrist_bend": solved["wrist_bend"], "fingers": inputs.get("fingers")},
             "predicted": {"pairs": {k: v for k, v in predicted.items() if v["depth_max"] > 0}},
             "predicted_vs_after": {"pairs": compare, "ok": all(c["ok"] for c in compare.values())},
             "deltas": {k: v for k, v in solved["deltas"].items() if k != "bones"} | {"bones": [b["bone"] for b in solved["deltas"]["bones"]]},
@@ -282,6 +367,15 @@ class BodyFitPipe(Provider):
             "loop": {"source": loop, "seam_deg": solved["loop"]["seam_deg"],
                      "boundary_max_deg": [before.get("loop_boundary_max_deg"), after.get("loop_boundary_max_deg")]},
         })
+        if wrig is not None:
+            # 무기(8-4c) — 푼 값(무기 메시 공간) · 파지 오차(전 · 후 — 모델) · 무기-몸 관통 기록(모델 지도, 제약 아님)
+            res = inputs["weapon_resolved"]
+            record["weapon"] = {k: res.get(k) for k in ("mesh", "bone", "socket", "socket_rel", "offset", "lead", "grip", "tip", "tip_from", "hand", "handle")}
+            record["weapon"]["points"] = len(res.get("points") or [])
+            record["grip"]["weapon"] = solved["weapon"]["grip"]
+            record["grip"].update({k: grip.get(k) for k in ("weapon_runs_s", "near_cm", "band_far_frames", "dist_cm")})
+            record["grip"]["weapon_frames"] = len(grip.get("weapon_frames") or [])
+            record["weapon_body"] = solved["weapon"]["body"]
         # ---- 한계 ----
         remains = self.remains(after, predicted, solved)
         record["remains"] = remains
@@ -294,6 +388,35 @@ class BodyFitPipe(Provider):
             limitations.append(limitation("GRIP_RELAXED", f"파지 프레임의 보조 손 상대 위치가 최대 {keep['pos_cm_max']} cm · {keep['deg_max']}° 바뀌었다(p95 "
                                           f"{keep['pos_cm_p95']} cm · {keep['deg_p95']}°) — 관통(손끼리 포함)이 keep 보다 앞서고, 시간 매끈화가 두 팔 짝을 조금 "
                                           "어긋나게 한다", "body_fit", keep=keep))
+        bend = solved["wrist_bend"]
+        if not bend["on"] and grip["frames"]:
+            diagnostics.append(diag("warn", "GRIP_WRIST_BEND_OFF", f"파지 프레임 {len(grip['frames'])} 개 — 대상 메시 손가락 체인 제안에 {{Side}}Middle 이 없어 보조 손목 "
+                                    "'원래보다 더 굽히지 않음' 상한을 껐다(fingers " + str(inputs.get("fingers")) + ")"))
+        wg = ((solved.get("weapon") or {}).get("grip") or {}).get("after")
+        if wg and wg["frames"] and ((wg["dist_cm_p95"] or 0.0) > model.scale or (wg["dist_cm_max"] or 0.0) > 2.0 * model.scale):
+            limitations.append(limitation("GRIP_NOT_REACHED", f"무기 파지 — 보조 손바닥 점 ↔ 손잡이 p95 {wg['dist_cm_p95']} / 최대 {wg['dist_cm_max']} cm "
+                                          f"(기준 1 · 2 cm × scale) — 관통 · 손목 굽힘 상한 · 관절 상한이 앞선다(쥠 축 p95 {wg['axis_deg_p95']}° 는 기록)", "body_fit",
+                                          grip=wg))
+        if wrig is not None and wrig.grip is not None and not wrig.active:
+            # 무기 파지는 옵트인 — auto 는 keep(띠 안), 손잡이 거리 · 두 손 선 각도만 기록
+            allf = ((((solved.get("weapon") or {}).get("grip") or {}).get("before")) or {}).get("all_frames") or {}
+            limitations.append(limitation("GRIP_NOT_APPLICABLE", f"무기 파지는 옵트인(fix.body.grip.mode: weapon) — 이 Job 은 {grip['mode']} 로 풀고 손잡이 관계만 쟀다: 보조 "
+                                          f"손바닥 점 ↔ 손잡이 p50 {allf.get('dist_cm_p50')} cm · 두 손 선 ∠ 손잡이 p50 {allf.get('hands_line_deg_p50')}°(무기 부착 방향과 "
+                                          "동작의 주 손 방향이 어긋나면 크다 — 생성 쪽 후속)", "body_fit", reason="OPT_IN", dist_cm_p50=allf.get("dist_cm_p50"),
+                                          hands_line_deg_p50=allf.get("hands_line_deg_p50")))
+        if grip.get("band_far_frames"):
+            far = ((solved.get("weapon") or {}).get("grip") or {}).get("before") or {}
+            allf = far.get("all_frames") or {}
+            limitations.append(limitation("GRIP_NOT_APPLICABLE", f"무기 파지 — 파지 띠 프레임 {grip['band_far_frames']} 개는 보조 손이 손잡이에서 멀어(원래 거리 p50 "
+                                          f"{allf.get('dist_cm_p50')} cm > {grip['near_cm']} cm) 붙이지 않고 keep 했다(붙이면 보정이 아니라 재배치). 두 손 선 ∠ 손잡이 p50 "
+                                          f"{allf.get('hands_line_deg_p50')}° — 무기 부착(소켓 · offset) 방향과 동작의 주 손 방향이 어긋난다 → 생성 쪽 후속", "body_fit",
+                                          reason="OFF_HAND_FAR", frames=grip["band_far_frames"], dist_cm=grip.get("dist_cm"),
+                                          hands_line_deg_p50=allf.get("hands_line_deg_p50")))
+        wb = ((solved.get("weapon") or {}).get("body") or {}).get("after")
+        if wb and any(p["frames_over_penetration_pct"] > 0 for p in wb["pairs"].values()):
+            limitations.append(limitation("WEAPON_BODY_RECORDED", "무기-몸 관통(무기 기하 단면 근사 ↔ 몸 지도)은 재기만 했다(제약 아님 — 날 단면은 상자로 채워 "
+                                          f"과대일 수 있다), 최악 {wb['worst']}", "body_fit",
+                                          pairs={k: v for k, v in wb["pairs"].items() if v["frames_over_penetration_pct"] > 0}))
         for t in solved["targets"]:
             if not t["reached"]:
                 limitations.append(limitation("TARGET_NOT_REACHED", f"지시 목표 '{t['id']}' 오차 p95 {t['achieved']['error_cm_p95']} cm · "

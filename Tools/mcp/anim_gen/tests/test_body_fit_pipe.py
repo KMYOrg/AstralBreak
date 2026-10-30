@@ -10,8 +10,9 @@ import pytest
 import body_fit_fixture as fx
 from anim_gen import body_model as bm
 from anim_gen.editor import package_path
-from conftest import HERO, OUT, VESPER, VESPER_MESH, request
+from conftest import HERO, KATANA, OUT, VESPER, VESPER_MESH, request
 from test_blender import bl, plan as bl_plan  # noqa: F401 — bl 는 픽스처
+from test_pose_from import INFO
 
 ASSET = f"{HERO}/Sickle/Actions/AS_Vesper_Sickle_GripTest"
 FRAMES = fx.bump(fx.grip_front(), fx.grip_close())   # 30 프레임 — 파지 · 두 아래팔 관통
@@ -323,3 +324,88 @@ def test_weapon_without_opt_in_keeps_and_only_records(service, fake, body):
     assert ops[0] == ops[1]   # 같은 bone_deltas
     lim = next(lm for lm in job["limitations"] if lm["code"] == "GRIP_NOT_APPLICABLE")
     assert lim["reason"] == "OPT_IN" and plain["fix"]["body"]["grip"]["mode"] == "auto"
+
+
+# ---- 8-4c c2 — 샘플 전이(pose_from) ----
+SAMPLE_ASSET = f"{HERO}/Sickle/Actions/AS_Vesper_Sickle_SampleTest"
+
+
+@pytest.fixture
+def samples(fake, body, monkeypatch):
+    """같은 스켈레톤 샘플(왼 손가락을 굽힌 같은 파지 자세) · 대상 메시 inspect(템플릿 체인 · 손 트리) · validate 의 스켈레톤 검사(플러그인처럼
+    다른 스켈레톤이면 structural SKELETON_MISMATCH · skeleton 필드)."""
+    fake.assets[SAMPLE_ASSET] = {"class": "AnimSequence", "skeleton": VESPER, "length": round(29 / 30, 4), "frame_rate": 30.0, "loop": False, "root_motion": False}
+    body[SAMPLE_ASSET] = fx.make_model([fx.grip_front({"middle_01_l": (0.0, 40.0, 0.0)}) for _ in range(30)])
+    fake.mesh_inspect[VESPER_MESH] = INFO
+    validate = fake._validate_animation
+
+    def with_skeleton(p):
+        out = validate(p)
+        for item in out["assets"]:
+            skel = fake._source(item["asset"])["skeleton"]
+            item["skeleton"] = skel
+            if p.get("skeleton") and package_path(p["skeleton"]) != skel:
+                item.setdefault("structural", []).append({"level": "error", "code": "SKELETON_MISMATCH"})
+            if p.get("fingers"):
+                item["fingers"] = {"issues": []}
+        return out
+    monkeypatch.setattr(fake, "_validate_animation", with_skeleton)
+    return body
+
+
+def pf(**kw) -> dict:
+    base = {"id": "s1", "note": "왼손을 쥔 모양으로", "asset": SAMPLE_ASSET, "bones": "fingers_l", "mode": "pose", "source": {"time": 0.5},
+            "target": {"window": [0.0, 0.9]}, "weight": 1.0}
+    base.update(kw)
+    return base
+
+
+def test_pose_from_plan_resolves_the_bundle_and_previews_the_sample(service, fake, samples):
+    p = plan_of(service, fix={"body": {"pose_from": [pf()]}})
+    cand = p["candidates"][0]
+    step = cand["steps"][1]
+    item = step["inputs"]["pose_from"][0]
+    assert item["resolved_bones"] == ["middle_01_l"] and item["resolved_presets"] == {"fingers_l": ["middle_01_l"]}
+    prev = step["resolved"]["pose_from"][0]
+    assert prev["frames"] == [0, 27] and prev["source_s"] == [0.5, 0.5] and prev["alignment"][0]["error_frames"] <= 1.0 and prev["bones"] == ["middle_01_l"]
+    assert "POSE_FROM_RESOLVED_AT_RUN" not in cand["risks"] and not fake.writes
+    sample_calls = [p_ for t, p_ in fake.calls if t == "validate_animation" and p_["assets"] == [SAMPLE_ASSET]]
+    assert sample_calls and all(package_path(c["skeleton"]) == VESPER and not c.get("body_clearance") for c in sample_calls)
+
+
+def test_pose_from_sample_on_another_skeleton_blocks_the_plan(service, fake, samples):
+    p = plan_of(service, fix={"body": {"pose_from": [pf(asset=KATANA)]}})
+    ex = p["excluded"][0]
+    assert not p["candidates"] and ex["reason"] == "SAMPLE_SKELETON_MISMATCH" and ex["cause"] == "UNSUPPORTED_REQUEST"
+
+
+def test_pose_from_unknown_bone_and_missing_event_block_the_plan(service, fake, samples):
+    p = plan_of(service, fix={"body": {"pose_from": [pf(bones=["tail_01"])]}})
+    assert not p["candidates"] and p["excluded"][0]["reason"] == "UNKNOWN_BONE" and p["excluded"][0]["cause"] == "BAD_REQUEST"
+    p = plan_of(service, fix={"body": {"pose_from": [pf(target={"event": "still_start"})]}})
+    assert not p["candidates"] and p["excluded"][0]["reason"] in ("EVENT_NOT_FOUND", "TARGET_OUT_OF_RANGE")
+
+
+def test_pose_from_job_copies_the_fingers_and_records_the_transfer(service, fake, samples):
+    job = run(service, fix={"body": {"pose_from": [pf()]}}, animation_name="AS_Vesper_Sickle_GripTest_FitS1")
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    rec = job["fix"]["body"]
+    r = rec["pose_from"][0]
+    assert r["id"] == "s1" and r["bones"] == ["middle_01_l"] and r["frames"] == [0, 27] and r["achieved"]["deg_max"] < 1e-3 and r["partial"] == []
+    assert r["fingers"]["bones"] == 1 and rec["fingers"]["warnings"] == {"before": [], "after": []} and rec["seconds"]["samples"] >= 0.0
+    op = next(p_ for t, p_ in fake.calls if t == "apply_animation_edits")["operations"][0]
+    finger = next(b for b in op["bones"] if b["bone"] == "middle_01_l")
+    assert all(abs(finger["rotation_deg"][f][1] - 40.0) < 1e-3 for f in range(0, 28))
+    finger_calls = [p_ for t, p_ in fake.calls if t == "validate_animation" and p_.get("fingers")]
+    assert len(finger_calls) == 2 and all(c["fingers"] == {"mesh": VESPER_MESH} for c in finger_calls)
+    sample_model_calls = [p_ for t, p_ in fake.calls if t == "validate_animation" and p_["assets"] == [SAMPLE_ASSET] and (p_.get("body_clearance") or {}).get("model")]
+    assert len(sample_model_calls) == 1 and not any(lm["code"] == "POSE_FROM_PARTIAL" for lm in job["limitations"])
+
+
+def test_pose_from_blocked_bones_are_a_limitation(service, fake, samples):
+    # 샘플 왼팔이 오른손과 떨어진 자세 — 파지 keep 이 이겨 막힌 본을 POSE_FROM_PARTIAL 로
+    samples[SAMPLE_ASSET] = fx.make_model([fx.grip_front({"upperarm_l": (60.0, 0.0, 0.0)}) for _ in range(30)])
+    job = run(service, fix={"body": {"pose_from": [pf(bones="arm_l", target={"window": [0.3, 0.6]})]}}, animation_name="AS_Vesper_Sickle_GripTest_FitS3")
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    lim = next(lm for lm in job["limitations"] if lm["code"] == "POSE_FROM_PARTIAL")
+    assert lim["id"] == "s1" and "grip" in lim["blocked_by"] and lim["bones"]

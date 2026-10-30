@@ -28,6 +28,11 @@
                라이플 런타임 IK keep + GRIP_RUNTIME_IK. 지난 실행 state 의 clearance · existing 보정본과 비교한다
   (8-4c 후속 — judge c4_off_wrist(파지 프레임 보조 손목 굽힘 최대 ≤ 전 + 허용 + 0.5 — keep · auto), 옵트인 c1_blend_out(window 끝 + 0.2 s 손끼리
    새 겹침 없음) · '후 | 지난 실행' 캡처. 손목 상한이 keep Job 을 바꾸므로 clearance · existing 을 grip 보다 **앞 실행**에서 — grip 은 previous() 를 읽는다)
+  (8-4c c2 — 샘플 전이 pose_from)
+  samples    — S1 ~ S3(설계 §6 — 띠 정정 ← Attack3 손가락 · 낫 정정 ← Attack1 척추 · 목머리 pose / 두 팔 motion) Job — 기준 5 · 7(C++ 몸 모델: 묶음 블렌드 ·
+               묶음 밖 · 구간 밖 = 샘플 없는 같은 대상 Fit(state clearance — 앞 실행) · 사건 정렬 · 손가락 = 샘플 · 손가락 경고 · POSE_FROM_PARTIAL) · 8-4b
+               기준 1 ~ 3(관통 · keep · 발 — 요청한 동작 변화(휘두름 · 궤적 폭 · 손목)는 기록만) · SEAM_JUMP · 계획 미리보기 · 다른 스켈레톤 샘플 거부 ·
+               '후 | 샘플 없음' 캡처(낫 부착)
   dirty      — (맨 뒤) 해시 불변 · 미저장 수 그대로 · Content/ 변경은 실행 폴더뿐
 요약은 Tools/mcp/anim_gen_phase8_4_state.json. 수치 · 캡처는 판정 근거일 뿐 — 품질 합격은 사람이 본다(§16-9). 못 맞춘 기준 중 인계 노트에 미리 적어 둔
 것(KNOWN_MISSES — 이유와 함께)은 [known] 으로 찍고 state known_misses 에 남긴다(실패 수에는 넣지 않는다 — 보고에 따로).
@@ -52,6 +57,7 @@ STATE_DIR = ROOT / "Saved" / "AnimGen" / "TestRuns" / f"P84Run{STAMP}"
 os.environ["ANIM_GEN_STATE_DIR"] = str(STATE_DIR)
 
 from anim_gen import apng, timing  # noqa: E402
+from anim_gen import body_fit as bfit  # noqa: E402
 from anim_gen import body_model as bmod  # noqa: E402
 from anim_gen import weapon as weapon_mod  # noqa: E402
 from anim_gen import motion_metrics as mm  # noqa: E402
@@ -676,7 +682,11 @@ KNOWN_MISSES = {
     ("*", "c2_keep"): "keep 최대 1.4 ~ 1.9 cm(p95 0.7 ~ 1.1) — 관통(손끼리 포함)이 keep 보다 앞서고 시간 매끈화가 두 팔 짝을 조금 어긋나게 한다 → GRIP_RELAXED(인계 §5)",
     ("scythe_regrip", "c5"): "띠 정정 프로브에서 예측 vs 실측 한 쌍 어긋남(인계 §5 — 이번 실행이 쌍을 찍는다)",
     **{("scythe_s27", c): _S27 for c in ("c1_body", "c1_head", "c1_head_near", "c1_hands", "c2_keep", "c4_swing", "c4_width", "c4_zigzag", "c5")},
+    # 8-4c c2 — 실행 전 오프라인(인계 phase8-4c2-handover.md §2): 덮은 두 팔(Attack1 복귀)의 두 손 관계가 파지 keep 과 맞지 않아 블록 시작 ease 의 한 프레임(f77)에
+    # 왼손이 튄다 — 실제 모델 2.33(원래 1.28), ease 0.3 s 는 휘두름 안으로 들어가 10.4 로 더 나쁘다
+    ("scythe_pick/S3", "c4_zigzag"): "덮은 두 팔이 파지 keep 과 맞지 않아 블록 시작 한 프레임(f77) 튐 — 오프라인 2.33(인계 c2 §2)",
 }
+RECORD_ONLY: dict[str, set] = {}   # crit 키 → 판정하지 않고 기록만 할 기준(8-4c c2 샘플 전이 — 요청한 동작 변화)
 # 사용자 Persona 소견 자리(8-4a 보고 §5-1) — 이름 → [(소견, 프레임들, 쌍 키들)] · 위팔 쌍은 기록만
 _HEAD = [(s, "hand", "head_neck") for s in "lr"]
 PERSONA = {
@@ -739,9 +749,14 @@ def run_job(req: dict, what: str) -> dict:
 
 
 def crit(key: str, name: str, ok: bool, msg: str) -> bool:
-    """기준 하나 — 실패여도 인계 노트에 미리 적어 둔 위험(KNOWN_MISSES — 같은 대상의 지시 목표 Job 포함)이면 [known]."""
+    """기준 하나 — 실패여도 인계 노트에 미리 적어 둔 위험(KNOWN_MISSES — 같은 대상의 지시 목표 Job 포함)이면 [known]. RECORD_ONLY[key] 의 기준은 요청한
+    변화라 판정하지 않고 [rec ] 로 기록만(8-4c c2 — 샘플 전이가 바꾸는 휘두름 · 궤적 폭 · 손목 굽힘)."""
+    if name in RECORD_ONLY.get(key, ()):
+        STATE.setdefault("criteria", {}).setdefault(key, {})[name] = "record"
+        print(f"[rec ] {key} {name}: {msg}")
+        return ok
     base = key.split("/")[0]
-    known = KNOWN_MISSES.get((base, name)) or KNOWN_MISSES.get(("*", name))
+    known = KNOWN_MISSES.get((key, name)) or KNOWN_MISSES.get((base, name)) or KNOWN_MISSES.get(("*", name))
     STATE.setdefault("criteria", {}).setdefault(key, {})[name] = "ok" if ok else "known" if known else "fail"
     if ok or not known:
         return check(ok, f"{key} {name}: {msg}")
@@ -1359,6 +1374,173 @@ def section_grip() -> None:
     guarded("rifle", rifle)
 
 
+# ---- 8-4c c2 — 샘플 전이(pose_from) · 손가락 쥔 모양 ----
+# 다른 스켈레톤 샘플(UE4 마네킹 — 읽기만, 계획이 SAMPLE_SKELETON_MISMATCH 로 막는다)
+MISMATCH_SAMPLE = "/Game/Assets/CombatMasterAnimBundle/Animations/DSAS_V2/Mannequin_UE4/InPlace/Attack/Anim_SAS_V2_ComboAttack01_IP"
+POSE_TOL_DEG, FINGER_TOL_DEG, OUTSIDE_CM, ALIGN_FRAMES = 0.5, 0.05, 0.1, 1.0
+# 판정하지 않고 기록만 — 샘플 전이가 요청대로 바꾸는 동작(휘두름 · 궤적 폭 · 꼬임, 팔 묶음이면 손목 굽힘도)
+SAMPLE_RECORD_ONLY = {"c4_swing", "c4_width", "c4_cross"}
+SAMPLE_ARM_RECORD_ONLY = {"c4_wrist", "c4_off_wrist"}
+ARM_PRESETS = ("arm_l", "arm_r", "upper_body")
+
+
+def sample_specs() -> dict:
+    """설계 §6 S1 ~ S3 — Claude Code 가 자연어 지시를 바꾼 꼴(서버는 해석하지 않는다). S1 샘플 시각 = E0 Attack3 왼손 자루 구간 가운데(state
+    e0.grip_region — 없으면 0.125 s), 대상 = 파지 띠 전체(띠 정정은 클립 전체가 띠)."""
+    runs = ((((previous().get("e0") or {}).get("grip_region") or {}).get("Attack3") or {}).get("runs_s")) or [[0.1, 0.15]]
+    t = round((runs[0][0] + runs[0][1]) / 2.0, 4)
+    return {
+        "S1": ("scythe_regrip", {"id": "s1_grip_fingers", "note": "왼손을 낫 쥔 모양으로", "asset": OP_SICKLE["Attack3"], "bones": "fingers_l", "mode": "pose",
+                                 "source": {"time": t}, "target": {"window": ["start", "end"]}, "weight": 1.0}),
+        "S2": ("scythe_pick", {"id": "s2_upper_twist", "note": "Attack1 처럼 타격 순간 상체를", "asset": OP_SICKLE["Attack1"], "bones": ["spine", "neck_head"],
+                               "mode": "pose", "source": {"event": "swing_peak"}, "target": {"event": "swing_peak"}, "hold_s": 0.2, "ease_s": 0.15, "weight": 0.5}),
+        "S3": ("scythe_pick", {"id": "s3_return", "note": "복귀를 Attack1 처럼", "asset": OP_SICKLE["Attack1"], "bones": ["arm_l", "arm_r"], "mode": "motion",
+                               "source": {"window": ["swing_end", "end"]}, "target": {"window": ["swing_end", "end"]}, "ease_s": 0.15, "weight": 0.5}),
+    }
+
+
+def body_model_of(asset: str):
+    return bmod.BodyModel(measure(asset, model=True)["body_clearance"]["model"])
+
+
+def local_rot(model, f: int, bone: str):
+    b = model.index[bone]
+    p = model.parents[b]
+    return model.poses[f][b][0] if p < 0 else bmod.relative(model.poses[f][b], model.poses[f][p])[0]
+
+
+def rot_deg(a, b) -> float:
+    return bmod._norm(bmod.to_rotvec_deg(bmod.qmul(a, bmod.qconj(b))))
+
+
+def judge_sample(key: str, spec: dict, r: dict, base_fit: str) -> dict:
+    """설계 §5 8-4c 기준 5 · 7 — C++ 실측(결과 · 샘플 없는 같은 대상 Fit · 샘플 애셋의 몸 모델): 구간(완급 1) 프레임 묶음 본 로컬 = slerp(샘플 없는 Fit,
+    샘플(사상 시각), weight)(막히지 않은 본 ≤ 0.5°) · 묶음도 그 자손도 아닌 본 위치 = 샘플 없는 Fit(모든 프레임 ≤ 0.1 cm) · 구간 ± ease 밖 전신 = 샘플
+    없는 Fit · 사건 정렬 ≤ 1 프레임 · 손가락 묶음 = 샘플 ≤ 0.05° · 손가락 경고 0 · 막힌 본은 POSE_FROM_PARTIAL(한계와 Job 보고가 같은 본)."""
+    rec = r["rec"]
+    pf = (rec.get("pose_from") or [{}])[0]
+    out = {"pose_from": pf, "fingers": rec.get("fingers")}
+    if not check(pf.get("id") == spec["id"] and not pf.get("skipped") and bool(pf.get("frames")),
+                 f"{key}: Job fix.body.pose_from[0] {pf.get('id')} frames {pf.get('frames')} (skipped {pf.get('skipped')})"):
+        return out
+    res_m, base_m, smp_m = body_model_of(rec["asset"]), body_model_of(base_fit), body_model_of(spec["asset"])
+    fps, n = res_m.fps, len(res_m.frames)
+    fa, fb = pf["frames"]
+    ease = pf["ease_frames"]
+    anchors = [(a["target_s"], a["source_s"], a["anchor"]) for a in pf["alignment"]]
+    blocked = {row["bone"] for row in pf.get("partial") or []}
+    pbones = [b for b in pf["bones"] if b in res_m.index and b in smp_m.index and b in base_m.index]
+    pairs = [(res_m.index[b], smp_m.index[b]) for b in pbones]
+    cache, worst = {}, {}
+    for f in range(fa, fb + 1):
+        sl = bfit._sample_local(smp_m, bfit._map_time(anchors, f / fps), pairs, cache)
+        for b in pbones:
+            want = bfit._slerp(local_rot(base_m, f, b), sl[res_m.index[b]], pf["weight"])
+            worst[b] = max(worst.get(b, 0.0), rot_deg(local_rot(res_m, f, b), want))
+    free = {b: d for b, d in worst.items() if b not in blocked}
+    top = sorted(((b, round(d, 2)) for b, d in worst.items()), key=lambda x: -x[1])[:4]
+    crit(key, "c7_blend", bool(free) and max(free.values()) <= POSE_TOL_DEG,
+         f"bundle local = slerp(no-sample Fit, sample, {pf['weight']}) in frames {fa} ~ {fb} — unblocked max {round(max(free.values()), 3) if free else None}° "
+         f"(≤ {POSE_TOL_DEG}) over {len(free)}/{len(pbones)} bones · blocked {sorted(blocked)} · worst {top}")
+    bundle = {res_m.index[b] for b in pbones}
+    hands = [res_m.index[h] for h in (bones()["hand_l"], bones()["hand_r"]) if h in res_m.index]
+    finger = [b for b in pbones if any(under_of(res_m, res_m.index[b], h) for h in hands)]
+    outside = [res_m.bones[i] for i in range(len(res_m.bones))
+               if i not in bundle and not any(under_of(res_m, i, a) for a in bundle) and res_m.bones[i] in base_m.index]
+    dist = lambda f, nm: bmod._norm(bmod._sub(res_m.poses[f][res_m.index[nm]][1], base_m.poses[f][base_m.index[nm]][1]))  # noqa: E731
+    out_b = max((dist(f, nm) for f in range(n) for nm in outside), default=0.0)
+    out_w = max((dist(f, nm) for f in range(n) if not fa - ease <= f <= fb + ease for nm in res_m.bones if nm in base_m.index), default=0.0)
+    crit(key, "c7_outside_bundle", out_b <= OUTSIDE_CM, f"bones neither in the bundle nor below it ({len(outside)}) vs the no-sample Fit — max {out_b:.4f} cm (≤ {OUTSIDE_CM})")
+    crit(key, "c7_outside_window", out_w <= OUTSIDE_CM, f"whole body outside window ± ease [{fa - ease}, {fb + ease}] vs the no-sample Fit — max {out_w:.4f} cm (≤ {OUTSIDE_CM})")
+    al = max((a["error_frames"] for a in pf["alignment"]), default=None)
+    crit(key, "c7_align", al is not None and al <= ALIGN_FRAMES, f"event alignment {[(a['anchor'], a['target_s'], a['source_s'], a['error_frames']) for a in pf['alignment']]} "
+                                                                  f"(≤ {ALIGN_FRAMES} frame)")
+    if finger:
+        fmax = max(worst[b] for b in finger)
+        warn = ((rec.get("fingers") or {}).get("warnings") or {})
+        crit(key, "c5_fingers", fmax <= FINGER_TOL_DEG and not warn.get("after"),
+             f"{len(finger)} finger bones = sample (weight {pf['weight']}) max {fmax:.4f}° (≤ {FINGER_TOL_DEG}) · finger warnings {warn.get('before')} → {warn.get('after')} (0)")
+        out["finger_max_deg"] = round(fmax, 4)
+    lim = [x for x in r["job"].get("limitations") or [] if x["code"] == "POSE_FROM_PARTIAL"]
+    check(bool(blocked) == bool(lim) and (not lim or set(lim[0].get("bones") or []) >= blocked),
+          f"{key}: POSE_FROM_PARTIAL {[(x.get('bones'), x.get('blocked_by')) for x in lim]} ↔ Job partial {sorted(blocked)} · blocked_by {pf.get('blocked_by')}")
+    out.update(blend_worst_deg={b: round(d, 4) for b, d in worst.items()}, unblocked_max_deg=round(max(free.values()), 4) if free else None,
+               outside_bundle_cm=round(out_b, 4), outside_window_cm=round(out_w, 4), alignment_max_frames=al, finger_bones=finger, partial_limitations=lim)
+    return out
+
+
+def under_of(model, i: int, a: int) -> bool:
+    """본 i 가 a 의 자손인가."""
+    p = model.parents[i]
+    while p >= 0:
+        if p == a:
+            return True
+        p = model.parents[p]
+    return False
+
+
+def sample_job(name: str, key: str, spec: dict, base: str, out: dict) -> None:
+    r = run_fit(key, fit_body(key, pose_from=[spec]), name, "P84c")
+    if not r:
+        return
+    rec = r["rec"]
+    ck = f"{key}/{name}"
+    names = [spec["bones"]] if isinstance(spec["bones"], str) else spec["bones"]
+    RECORD_ONLY[ck] = SAMPLE_RECORD_ONLY | (SAMPLE_ARM_RECORD_ONLY if any(n in ARM_PRESETS for n in names) else set())
+    judged = judge(ck, rec, r["bf"], r["af"])
+    judged.update(judge_sample(ck, spec, r, base))
+    pf = judged.get("pose_from") or {}
+    num = r["af"]["numeric"]
+    fps, length = num["frame_rate"], num["length"]
+    if pf.get("frames"):
+        fa, fb = pf["frames"]
+        ease = pf["ease_frames"]
+        seams = sorted({round(min(max(f, 0), int(round(length * fps))) / fps, 4) for f in (fa - ease, fa, fb, fb + ease)} - {0.0, round(length, 4)})
+        jumps = []
+        if seams:
+            val = must(editor("validate_animation", assets=[rec["asset"]], skeleton=VESPER, seams=seams), f"seams {name}")["assets"][0]
+            jumps = [i for i in (val.get("request") or {}).get("issues") or [] if i.get("code") == "SEAM_JUMP"]
+        crit(ck, "c7_seam", not jumps, f"window/ease boundaries — SEAM_JUMP 0 at {seams} s ({len(jumps)})")
+        judged["seams"] = {"times": seams, "jumps": jumps}
+    summary = fit_summary(r, judged)
+    summary.update(spec=spec, no_sample_fit=base, fingers=rec.get("fingers"))
+    summary["capture"] = capture_pair(name, base, rec["asset"], length, True, before_label="no sample")
+    out[name] = summary
+
+
+def section_samples() -> None:
+    print("== samples (8-4c c2): pose_from S1 ~ S3 — bundle blend · outside the bundle/window = the no-sample Fit · event alignment · finger copy · "
+          "hard constraints win (POSE_FROM_PARTIAL) · plan preview · another-skeleton sample refused")
+    out = STATE.setdefault("samples", {})
+    clear = STATE.get("clearance") or previous().get("clearance") or {}
+    specs = sample_specs()
+
+    def plans():
+        before, content = dirty_count(), content_changes()
+        key, spec = specs["S2"]
+        p = must(SERVICE.plan_motion_generation(request=fit_request(key, "PlanS2", fit_body(key, pose_from=[spec]), "P84c")), "plan S2")
+        cand = (p["candidates"] or [{}])[0]
+        step = next((s for s in cand.get("steps") or [] if s["step"] == "body_fit"), {})
+        prev = ((step.get("resolved") or {}).get("pose_from") or [{}])[0]
+        item = ((step.get("inputs") or {}).get("pose_from") or [{}])[0]
+        check(bool(p["candidates"]) and bool(prev.get("frames")) and bool(item.get("resolved_bones")) and "POSE_FROM_RESOLVED_AT_RUN" not in cand.get("risks", []),
+              f"S2 resolved at plan: bones {item.get('resolved_bones')} · target {prev.get('window_s')} s frames {prev.get('frames')} ease {prev.get('ease_frames')} · "
+              f"source {prev.get('source_s')} s · alignment {prev.get('alignment')} · risks {cand.get('risks')}")
+        bad = {**spec, "id": "s_mismatch", "asset": MISMATCH_SAMPLE}
+        p2 = must(SERVICE.plan_motion_generation(request=fit_request(key, "PlanMismatch", fit_body(key, pose_from=[bad]), "P84c")), "plan mismatch")
+        ex = (p2["excluded"] or [{}])[0]
+        check(not p2["candidates"] and ex.get("reason") == "SAMPLE_SKELETON_MISMATCH" and ex.get("cause") == "UNSUPPORTED_REQUEST",
+              f"another-skeleton sample refused at plan: {ex.get('cause')} / {ex.get('reason')} — {(ex.get('message') or '')[:160]}")
+        check(dirty_count() == before and content_changes() == content, f"sample plans made nothing (dirty {before} · Content unchanged)")
+        out["plan"] = {"s2": {"resolved": prev, "bones": item.get("resolved_bones"), "presets": item.get("resolved_presets"), "risks": cand.get("risks")},
+                       "mismatch": {"cause": ex.get("cause"), "reason": ex.get("reason"), "message": ex.get("message")}}
+    guarded("samples_plan", plans)
+    for name, (key, spec) in specs.items():
+        base = (clear.get(key) or {}).get("asset")
+        if check(bool(base), f"{name}: no-sample Fit of {key} exists (run --only clearance first)"):
+            guarded(name, lambda name=name, key=key, spec=spec, base=base: sample_job(name, key, spec, base, out))
+
+
 def section_dirty() -> None:
     print("== hashes · content · dirty (after)")
     if "hashes" in STATE:
@@ -1376,7 +1558,7 @@ def section_dirty() -> None:
 
 SECTIONS = {"hashes": section_hashes, "baseline": section_baseline, "automation": section_automation, "model": section_model, "e0": section_e0,
             "plan": section_plan, "clearance": section_clearance, "targets": section_targets, "existing": section_existing, "grip": section_grip,
-            "dirty": section_dirty}
+            "samples": section_samples, "dirty": section_dirty}
 
 
 def finish() -> int:

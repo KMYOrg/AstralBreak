@@ -28,6 +28,8 @@ TOOL = ("validate_animation(profile · body_clearance{parts all, hands, model}) 
 ARM_TARGET_PARTS = ("hand", "forearm")      # 관통 목표 쌍(정정 ① — 위팔 쌍은 '전보다 나빠지지 않음'만)
 STILL_BODY = ("hip_l", "hip_r", "foot_l", "foot_r", "elbow_l", "elbow_r", "shoulder_l", "shoulder_r")
 PREDICT_PCT_TOL, PREDICT_P95_TOL_CM = 1.0, 0.3   # 기준 5 — 모델 예측 vs C++ 실측
+POSE_TOL_TEXT = f"{body_fit.POSE_FROM_TOL_DEG}°"
+FINGER_WARNINGS = ("FINGER_BEND_REVERSED", "FINGER_OVERBENT", "FINGER_ORDER_BROKEN")   # validate_animation fingers 경고(8-4c c2 — 손가락 묶음 전 · 후)
 
 
 def approximate_limitation() -> dict:
@@ -41,8 +43,25 @@ def runtime_ik_limitation(hand: str) -> dict:
 
 
 def weapon_error_cause(reason: str) -> str:
-    """무기 · 목표 오류의 cause — 요청이 빠뜨린 것(무기 끝 · 효과기)은 BAD_REQUEST, 메시에 없는 것(소켓 · 손가락 체인)은 UNSUPPORTED_REQUEST."""
-    return "BAD_REQUEST" if reason in ("UNKNOWN_EFFECTOR", "WEAPON_TIP_UNKNOWN") else "UNSUPPORTED_REQUEST"
+    """무기 · 목표 · 샘플 전이 오류의 cause — 요청이 잘못 준 것(무기 끝 · 효과기 · 묶음 본 · 다리 묶음)은 BAD_REQUEST, 메시 · 샘플에 없는 것(소켓 ·
+    손가락 체인 · 템플릿 체인 · 사건 · 다른 스켈레톤 샘플)은 UNSUPPORTED_REQUEST."""
+    return "BAD_REQUEST" if reason in ("UNKNOWN_EFFECTOR", "WEAPON_TIP_UNKNOWN", "UNKNOWN_BONE", "NOT_SUPPORTED") else "UNSUPPORTED_REQUEST"
+
+
+def pose_from_partial(item: dict) -> dict | None:
+    """샘플 전이 한 항목의 한계 — 건너뜀(사건 · 클립 밖) · 덮은 자세에서 벗어난 본(막은 것) · 몸 모델에 없는 본. 없으면 None."""
+    if item.get("skipped"):
+        sk = item["skipped"]
+        return limitation("POSE_FROM_PARTIAL", f"샘플 전이 '{item['id']}' 를 건너뛰었다 — {sk['message']}", "body_fit", id=item["id"], reason=sk["reason"],
+                          bones="all", blocked_by=[])
+    bones = [r["bone"] for r in item.get("partial") or []]
+    if not bones and not item.get("missing"):
+        return None
+    rows = ", ".join(f"{r['bone']} {r['deg_max']}°({'/'.join(r['blocked_by'])})" for r in (item.get("partial") or [])[:6])
+    miss = f" · 몸 모델에 없는 본 {item['missing']}" if item.get("missing") else ""
+    return limitation("POSE_FROM_PARTIAL", f"샘플 전이 '{item['id']}' — 덮은 자세에서 {POSE_TOL_TEXT} 넘게 벗어난 본 {len(bones)} 개 {rows}{miss}"
+                      " — 관통 · 파지 · 관절 상한이 샘플보다 앞선다", "body_fit", id=item["id"], bones=bones + list(item.get("missing") or []),
+                      blocked_by=item.get("blocked_by") or [], missing=item.get("missing") or [])
 
 
 class BodyFitPipe(Provider):
@@ -74,6 +93,9 @@ class BodyFitPipe(Provider):
                 lims.append(runtime_ik_limitation(g["hand"]))
         # 손가락 뿌리(8-4c 후속 — 파지 프레임 보조 손목 굽힘 상한): 대상 메시 손가락 체인 제안의 {Side}Middle 시작. None = 아직 안 풂(실행 때), {} = 체인 없음(끈다)
         inputs["fingers"] = None
+        # 샘플 전이(8-4c c2) — 항목마다 resolved_bones · resolved_presets(대상 메시 템플릿 체인 · 손 트리 — 에디터가 있으면 계획 때, 없으면 실행 때)
+        for p in inputs["pose_from"]:
+            p["resolved_bones"] = p["resolved_presets"] = None
         step = {"step": "body_fit", "provider": self.name, "tool": TOOL, "inputs": inputs, "resolved": None}
         risks = ["BODY_FIT_RESOLVED_AT_RUN"] if produces else []
         if pctx.editor_ok:
@@ -84,8 +106,12 @@ class BodyFitPipe(Provider):
                     inputs["fingers"] = weapon_mod.finger_roots(target_info)
                 if weapon:
                     inputs["weapon_resolved"] = self.resolve_weapon(pctx.editor, request, target_info=target_info)
+                samples = {}
+                if produces and inputs["pose_from"]:
+                    self.resolve_bundles(inputs, target_info)
+                    samples = {a: self.sample_of(pctx.editor, a, request, inputs, model=False) for a in dict.fromkeys(p["asset"] for p in inputs["pose_from"])}
                 if source_on_target:
-                    step["resolved"] = self.preview(pctx.editor, source_on_target, request, inputs)
+                    step["resolved"] = self.preview(pctx.editor, source_on_target, request, inputs, samples)
             except StepFailed as failed:
                 raise PlanBlocked(failed.cause, failed.reason, failed.message, editor_error=failed.editor_error)
             except body_fit.BodyFitError as err:
@@ -94,12 +120,50 @@ class BodyFitPipe(Provider):
             risks.append("WEAPON_RESOLVED_AT_RUN")
         if cfg["targets"] and step["resolved"] is None:
             risks.append("TARGETS_RESOLVED_AT_RUN")
+        if produces and cfg["pose_from"] and step["resolved"] is None:
+            risks.append("POSE_FROM_RESOLVED_AT_RUN")
         return step, risks, lims
 
     @staticmethod
+    def resolve_bundles(inputs: dict, target_info: dict) -> None:
+        """샘플 전이 묶음을 본 이름으로(body_fit.bundle_bones — 대상 메시 inspect 하나) — 항목마다 resolved_bones · resolved_presets."""
+        for i, p in enumerate(inputs["pose_from"]):
+            try:
+                res = body_fit.bundle_bones(p["bones"], target_info)
+            except body_fit.BodyFitError as err:
+                raise body_fit.BodyFitError(f"pose_from[{i}].bones", err.message, err.reason) from None
+            p["resolved_bones"], p["resolved_presets"] = res["bones"], res["presets"]
+
+    def sample_of(self, editor, asset: str, request: dict, inputs: dict, *, model: bool, step: str = "body_fit") -> dict:
+        """샘플 애셋(8-4c c2) — validate_animation(대상 스켈레톤 기대 · profile, model 이면 body_clearance{대상 메시, model}) → {asset, skeleton, events,
+        length_s, fps, model?}. 스켈레톤이 대상과 다르면 BodyFitError(SAMPLE_SKELETON_MISMATCH — 다른 스켈레톤 샘플은 먼저 리타깃, 결정 G)."""
+        params = {"assets": [asset], "skeleton": request["target_skeleton"], "profile_bones": self.profile_bones(inputs["bones"]), "profile_positions": True}
+        if model:
+            params["body_clearance"] = self.spec(inputs, model=True)
+        try:
+            res = editor.require("validate_animation", **params)
+        except EditorCallError as err:
+            raise from_editor_error(step, err)
+        item = (res.get("assets") or [None])[0] or {}
+        if any(i.get("code") == "SKELETON_MISMATCH" for i in item.get("structural") or []):
+            raise body_fit.BodyFitError("pose_from.asset", f"sample {asset} is on {item.get('skeleton')}, not the target skeleton {request['target_skeleton']} — "
+                                        "retarget it first (Phase 8-4 decision G: same-skeleton samples only)", "SAMPLE_SKELETON_MISMATCH")
+        num = item.get("numeric") or {}
+        out = {"asset": asset, "skeleton": item.get("skeleton"), "events": self.events(item, inputs["bones"]), "length_s": num.get("length"),
+               "fps": num.get("frame_rate")}
+        if model:
+            bc = item.get("body_clearance") or {}
+            if bc.get("skipped_reason") or not bc.get("model"):
+                raise StepFailed("VALIDATION_FAILED", "BODY_NOT_MEASURED", f"sample body model of {asset} not measured ({bc.get('skipped_reason')})")
+            out["model"] = self.model_of(bc)
+        return out
+
+    @staticmethod
     def needs_target_info(inputs: dict) -> bool:
-        """대상 메시 inspect 가 필요한가 — 무기를 풀거나(소켓 · 손가락 체인) 파지 프레임 보조 손목 굽힘 상한(손가락 뿌리)을 둘 때(애셋을 만들고 파지가 켜짐)."""
-        return bool(inputs.get("weapon")) or (inputs["produces"] and (inputs.get("grip_mode") or inputs["grip"]["mode"]) != "off")
+        """대상 메시 inspect 가 필요한가 — 무기를 풀거나(소켓 · 손가락 체인) 파지 프레임 보조 손목 굽힘 상한(손가락 뿌리)을 둘 때(애셋을 만들고 파지가 켜짐) ·
+        샘플 전이 묶음을 풀 때(템플릿 체인 · 손 트리)."""
+        return bool(inputs.get("weapon")) or (inputs["produces"] and ((inputs.get("grip_mode") or inputs["grip"]["mode"]) != "off"
+                                                                      or bool(inputs.get("pose_from"))))
 
     @staticmethod
     def inspect_target(editor, request: dict, step: str = "body_fit") -> dict:
@@ -131,9 +195,10 @@ class BodyFitPipe(Provider):
             return None
         return body_fit.WeaponRig(rig, resolved, mode=inputs["grip_mode"], wrist_bend_max_deg=inputs["grip"]["wrist_bend_max_deg"])
 
-    def preview(self, editor, source: str, request: dict, inputs: dict) -> dict:
-        """기존 애셋(대상 스켈레톤) — 계획 때 재서 보인다: 전 수치 · 사건(초) · 목표를 풀어(사건 → 프레임 · 부위 → 본 · 몸 기준틀 오프셋 → 목표 위치).
-        사건을 못 찾거나 클립 밖이면 BodyFitError(EVENT_NOT_FOUND · TARGET_OUT_OF_RANGE) — 후보를 막는다."""
+    def preview(self, editor, source: str, request: dict, inputs: dict, samples: dict | None = None) -> dict:
+        """기존 애셋(대상 스켈레톤) — 계획 때 재서 보인다: 전 수치 · 사건(초) · 목표를 풀어(사건 → 프레임 · 부위 → 본 · 몸 기준틀 오프셋 → 목표 위치) ·
+        샘플 전이를 풀어(대상 · 샘플 사건 → 초 · 프레임 · 사상 앵커 · 정렬 차, 프리셋 → 본). 사건을 못 찾거나 클립 밖이면 BodyFitError(EVENT_NOT_FOUND ·
+        TARGET_OUT_OF_RANGE) — 후보를 막는다."""
         item = self.measure(editor, source, request, inputs, model=bool(inputs["targets"]))
         bc = item.get("body_clearance") or {}
         out = {"source": source, "before": self.summary(item, inputs), "events": None, "targets": []}
@@ -146,6 +211,21 @@ class BodyFitPipe(Provider):
                 if t.get("skipped"):
                     raise body_fit.BodyFitError(f"targets.{t['id']}.at", t["skipped"]["message"], t["skipped"]["reason"])
                 out["targets"].append(self.target_preview(model, t))
+        if samples:
+            num = item.get("numeric") or {}
+            out["events"] = out["events"] or self.events(item, inputs["bones"])
+            out["pose_from"] = []
+            for p in inputs["pose_from"]:
+                s = samples[p["asset"]]
+                try:
+                    spans = body_fit.pose_from_spans(p, out["events"], float(num["length"]), float(num["frame_rate"]), s["events"], float(s["length_s"]),
+                                                     float(s["fps"]))
+                except body_fit.BodyFitError as err:
+                    raise body_fit.BodyFitError(f"pose_from.{p['id']}.{err.field}", err.message, err.reason) from None
+                out["pose_from"].append({"id": p["id"], "note": p.get("note"), "asset": p["asset"], "mode": p["mode"], "weight": p["weight"],
+                                         "bones": p["resolved_bones"], "presets": sorted(p["resolved_presets"] or {}),
+                                         "sample_events": {k: s["events"].get(k) for k in timing.POINT_EVENTS},
+                                         **{k: v for k, v in spans.items() if k != "anchors"}})
         return out
 
     @staticmethod
@@ -188,10 +268,12 @@ class BodyFitPipe(Provider):
         return sorted(set(RetargetPipe.profile_bones(bones)) | set(knees))
 
     def measure(self, editor, asset: str, request: dict, inputs: dict, *, model: bool = False, per_frame: bool = False,
-                ik_rig: str | None = None, step: str = "body_fit") -> dict:
+                ik_rig: str | None = None, step: str = "body_fit", fingers: bool = False) -> dict:
+        """validate_animation 한 번(profile · body_clearance parts). fingers = 손가락 경고도(8-4c c2 — 손가락 묶음 샘플 전이, 대상 메시 기준 포즈와 비교)."""
+        extra = {"fingers": {"mesh": request["target_mesh"]}} if fingers else {}
         try:
             res = editor.require("validate_animation", assets=[asset], skeleton=request["target_skeleton"], profile_bones=self.profile_bones(inputs["bones"]),
-                                 profile_positions=True, body_clearance=self.spec(inputs, model=model, per_frame=per_frame, ik_rig=ik_rig))
+                                 profile_positions=True, body_clearance=self.spec(inputs, model=model, per_frame=per_frame, ik_rig=ik_rig), **extra)
         except EditorCallError as err:
             raise from_editor_error(step, err)
         item = (res.get("assets") or [None])[0]
@@ -280,7 +362,9 @@ class BodyFitPipe(Provider):
         if not inputs.get("bones"):
             inputs["bones"] = RetargetPipe.selection_bones(editor, request["target_skeleton"], diagnostics, "body_fit")
         ik_rig = ctx.values.get("target_rig")
-        before_item = self.measure(editor, source, request, inputs, model=inputs["produces"], per_frame=False, ik_rig=ik_rig)
+        # 샘플 전이에 손가락 묶음이 있으면 손가락 경고도 전 · 후로 잰다(기준 5 — 경고 0)
+        finger_check = inputs["produces"] and any(n.startswith("fingers_") for p in inputs.get("pose_from") or [] for n in p["bones"])
+        before_item = self.measure(editor, source, request, inputs, model=inputs["produces"], per_frame=False, ik_rig=ik_rig, fingers=finger_check)
         before = self.summary(before_item, inputs)
         contacts = before.pop("_contacts", None)
         seconds = {"measure": round(time.time() - t0, 2)}
@@ -297,15 +381,26 @@ class BodyFitPipe(Provider):
         events = self.events(before_item, inputs["bones"])
         # 무기(8-4c) · 손가락 뿌리(보조 손목 굽힘 상한) — 계획 때 못 풀었으면(에디터 없음) 여기서 메시 사실로 푼다
         mode = inputs.get("grip_mode") or inputs["grip"]["mode"]
+        pose_from = copy.deepcopy(inputs.get("pose_from") or [])
+        pf_items: list = []
         try:
             need_weapon = bool(inputs.get("weapon")) and not inputs.get("weapon_resolved")
-            if need_weapon or (inputs.get("fingers") is None and self.needs_target_info(inputs)):
+            need_bundles = any(p.get("resolved_bones") is None for p in pose_from)
+            if need_weapon or need_bundles or (inputs.get("fingers") is None and self.needs_target_info(inputs)):
                 target_info = self.inspect_target(editor, request)
                 if inputs.get("fingers") is None:
                     inputs["fingers"] = weapon_mod.finger_roots(target_info)
                 if need_weapon:
                     inputs["weapon_resolved"] = self.resolve_weapon(editor, request, target_info=target_info)
+                if need_bundles:
+                    self.resolve_bundles({"pose_from": pose_from}, target_info)
             wrig = self.weapon_rig(rig, {**inputs, "grip_mode": mode})
+            if pose_from:
+                # 샘플 전이(8-4c c2) — 샘플마다 같은 측정(대상 메시 몸 모델 · 사건 — 한 원천) → 구간 · 묶음 본 · 프레임별 샘플 로컬
+                t_s = time.time()
+                samples = {a: self.sample_of(editor, a, request, inputs, model=True) for a in dict.fromkeys(p["asset"] for p in pose_from)}
+                seconds["samples"] = round(time.time() - t_s, 2)
+                pf_items = body_fit.resolve_pose_from(rig, pose_from, events, samples)
         except body_fit.BodyFitError as err:
             raise StepFailed(weapon_error_cause(err.reason), err.reason, f"{err.field}: {err.message}", fatal=True) from None
         grip = body_fit.grip_weights(rig, {**inputs["grip"], "mode": mode}, model.scale, wrig)
@@ -322,7 +417,7 @@ class BodyFitPipe(Provider):
                 limitations.append(limitation("TARGET_NOT_REACHED", f"지시 목표 '{t['id']}' 를 건너뛰었다 — {t['skipped']['message']}", "body_fit", id=t["id"],
                                               reason=t["skipped"]["reason"], blocked_by=[]))
         t1 = time.time()
-        solved = body_fit.solve(model, inputs, grip=grip, targets=targets, loop=loop, weapon=wrig, fingers=inputs.get("fingers"))
+        solved = body_fit.solve(model, inputs, grip=grip, targets=targets, loop=loop, weapon=wrig, fingers=inputs.get("fingers"), pose_from=pf_items)
         seconds["solve"] = round(time.time() - t1, 2)
         op = body_fit.bone_deltas_op(solved)
         t2 = time.time()
@@ -330,7 +425,7 @@ class BodyFitPipe(Provider):
         seconds["write"] = round(time.time() - t2, 2)
         asset = result.values["asset"]
         t3 = time.time()
-        after_item = self.measure(editor, asset, request, inputs, ik_rig=ik_rig)
+        after_item = self.measure(editor, asset, request, inputs, ik_rig=ik_rig, fingers=finger_check)
         after = self.summary(after_item, inputs, contacts)
         after.pop("_contacts", None)
         seconds["verify"] = round(time.time() - t3, 2)
@@ -361,6 +456,8 @@ class BodyFitPipe(Provider):
                                 "outside_max": round(max((m for f, m in enumerate(solved["moved_cm"]) if not any(abs(f - c) <= 2 * radius for c in changed)),
                                                          default=0.0), 3)},
             "passes": solved["passes"], "stats": solved["stats"], "targets": solved["targets"],
+            # 샘플 전이(8-4c c2) — 항목마다 풀린 묶음 · 구간 · 정렬 · 덮은 자세 대비 각 · 막힌 본(건너뛴 항목은 skipped). 없으면 []
+            "pose_from": self.pose_from_record(pf_items, solved.get("pose_from") or []),
             # 지시 목표 블록(완급 > 0 — 그 밖은 목표 없는 해 그대로) · 블록 재검사 패스 · 블록 풀이 수. 목표 없으면 None
             "target_region": solved.get("region"),
             # 루프 이음매 — 풀이의 첫 · 끝 델타 차(°, 루프면 0) · C++ 첫 · 끝 포즈 차(전 → 후)
@@ -417,6 +514,18 @@ class BodyFitPipe(Provider):
             limitations.append(limitation("WEAPON_BODY_RECORDED", "무기-몸 관통(무기 기하 단면 근사 ↔ 몸 지도)은 재기만 했다(제약 아님 — 날 단면은 상자로 채워 "
                                           f"과대일 수 있다), 최악 {wb['worst']}", "body_fit",
                                           pairs={k: v for k, v in wb["pairs"].items() if v["frames_over_penetration_pct"] > 0}))
+        for item in record["pose_from"]:
+            lim = pose_from_partial(item)
+            if lim:
+                limitations.append(lim)
+        if finger_check:
+            codes = {name: sorted({i.get("code") for i in ((it.get("fingers") or {}).get("issues") or []) if i.get("code") in FINGER_WARNINGS})
+                     for name, it in (("before", before_item), ("after", after_item))}
+            record["fingers"] = {"warnings": codes, "skipped_reason": (after_item.get("fingers") or {}).get("skipped_reason")}
+            new = sorted(set(codes["after"]) - set(codes["before"]))
+            if codes["after"]:
+                diagnostics.append(diag("warn", "POSE_FROM_FINGER_WARNINGS", f"손가락 묶음 샘플 전이 뒤 손가락 경고 {codes['after']}(전 {codes['before']}, 새 {new}) — "
+                                        "validate_animation fingers(대상 메시 기준 포즈 비교)"))
         for t in solved["targets"]:
             if not t["reached"]:
                 limitations.append(limitation("TARGET_NOT_REACHED", f"지시 목표 '{t['id']}' 오차 p95 {t['achieved']['error_cm_p95']} cm · "
@@ -434,6 +543,18 @@ class BodyFitPipe(Provider):
                                 f"{solved['deltas']['frames_changed']} frames (≤ {solved['deltas']['deg_max']}°), {seconds}"))
         result.diagnostics = diagnostics + result.diagnostics
         return result
+
+    @staticmethod
+    def pose_from_record(items: list, report: list) -> list:
+        """Job fix.body.pose_from — 요청 순서대로 풀이 보고(pose_from_report), 건너뛴 항목은 {id, note, asset, mode, bones(이름), skipped}."""
+        done = {r["id"]: r for r in report}
+        out = []
+        for p in items:
+            if p.get("skipped"):
+                out.append({"id": p["id"], "note": p.get("note"), "asset": p["asset"], "mode": p["mode"], "bones": p.get("bone_names"), "skipped": p["skipped"]})
+            elif p["id"] in done:
+                out.append(done[p["id"]])
+        return out
 
     @staticmethod
     def remains(after: dict, predicted: dict, solved: dict) -> list[dict]:

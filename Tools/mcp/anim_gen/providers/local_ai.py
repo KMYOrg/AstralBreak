@@ -25,6 +25,7 @@ from ..soma import SOMA_ARMS, SOMA_CHAINS, SOMA_FEET, SOMA_PELVIS, retarget_defa
 from ..envelope import AnimGenError, diag, limitation
 from ..local_ai import constraints as kc
 from ..local_ai import refine as kr
+from . import key_pose as key_pose_step
 from .base import PlanBlocked, PlanContext, RunContext, StepFailed, StepResult
 from .builtin import RetargetPipe
 from .subprocess_step import SubprocessProvider, child_env, file_sha256, import_roots, is_under
@@ -120,6 +121,14 @@ class KimodoProvider(SubprocessProvider):
             files = self._pin_constraint_files(specs, pctx.settings, frames)
         except kc.ConstraintError as err:
             raise PlanBlocked("UNSUPPORTED_REQUEST", err.reason, err.message, **err.details) from None
+        # Phase 9-3 — 대상 애셋 키 포즈: 생성 앞 key_pose 단계(역리타깃 → 제약 파일). pass1 배치면 같은 seed 로 한 번 더 만든다
+        key_specs = [s for s in specs if s["kind"] == "key_pose"]
+        key_step = None
+        if key_specs:
+            key_step, key_risks, key_lims = key_pose_step.plan(request, key_specs, pctx, python)
+            if any(s["placement"] == "pass1" for s in key_specs) and gen["samples"] > 1:
+                raise PlanBlocked("UNSUPPORTED_REQUEST", "KEY_POSE_WITH_SAMPLES", "key poses placed on pass 1 regenerate the same seed (one sample) — "
+                                  "use generation.candidates instead of samples, or placement origin")
         seed = gen["seed"]
         if seed is None:
             seed = secrets.randbelow(2 ** 31)
@@ -154,13 +163,33 @@ class KimodoProvider(SubprocessProvider):
                   "postprocess": postprocess, "constraints": specs, "constraint_files": files}
         if seg_plan:
             self._plan_segments(inputs, segs, seg_plan, gen["transition_frames"], lims)
+        if key_step:
+            inputs["key_pose"] = self._plan_key_pose(inputs, key_specs, seg_plan)
+            risks += key_risks
+            lims += key_lims
         step = {"step": "generate", "provider": self.name, "tool": "kimodo_run.py (Kimodo venv)", "inputs": inputs,
                 "output": "bvh", "bvh": dict(BVH_EXPECTED, frames=frames),
                 "retarget_defaults": retarget_defaults(),
                 "risks": risks, "expected_limitations": lims, "measured": {"length": round((frames - 1) / FPS, 4), "frame_rate": FPS}}
+        if key_step:
+            step["pre_steps"] = [key_step]   # 라우터가 생성 앞에 둔다
         if gen["candidates"] > 1 or refine["passes"] == 2:
             self._plan_candidates(step, request, refine, pctx, spacing, bones)
         return step
+
+    @staticmethod
+    def _plan_key_pose(inputs: dict, key_specs: list[dict], seg_plan: dict | None) -> dict:
+        """Phase 9-3 — 계획에 키 포즈 항목(생성 프레임 · 배치)과 패스 수. pass1 배치가 있으면 1차(키 없이) 뒤 같은 seed 2차 — 확산 한 번(× 세그먼트)
+        만큼 기한을 늘린다(후보 계획이 있으면 그쪽이 다시 센다)."""
+        pass1 = [s["source"] for s in key_specs if s["placement"] == "pass1"]
+        # 키 둘레 떨림(확산 쪽 키 조건 — 8-1 수정안 A 와 같은 원인, 9-3 실측: 성긴 전신 키 3개에서 Vesper 손 속도 톱니) → 최종 출력에 같은 σ 스무딩
+        # (사용자 결정 2026-11-01). 파지 · 발 2차가 이미 스무딩하면 한 번만
+        out = {"from_step": "key_pose", "passes": 2 if pass1 else 1, "pass1_items": pass1, "smooth_sigma_frames": kr.SMOOTH_SIGMA_FRAMES,
+               "items": [{"source": s["source"], "asset": s["asset"], "part": s["part"], "frames": s["frame_indices"], "placement": s["placement"]}
+                         for s in key_specs]}
+        if pass1:
+            inputs["timeout_extra_s"] = inputs.get("timeout_extra_s", 0.0) + DIFFUSION_EXTRA_S * max(1, len((seg_plan or {}).get("frames") or []))
+        return out
 
     @staticmethod
     def _plan_segments(inputs: dict, segs: list[dict], seg_plan: dict, transition: int, lims: list[dict]) -> None:
@@ -211,8 +240,9 @@ class KimodoProvider(SubprocessProvider):
         spacing · bones = _grip_spacing 결과 — select 가 같은 대상 띠 · 측정 본을 쓴다(대상을 다시 재지 않는다)."""
         gen, inputs = request["generation"], step["inputs"]
         seeds = [inputs["seed"] + i for i in range(gen["candidates"])]
-        # Phase 9-2 — 세그먼트마다 확산을 따로 돈다(Kimodo _multiprompt)
-        diffusions = len(seeds) * refine["passes"] * max(1, len(inputs.get("segments") or []))
+        # Phase 9-2 — 세그먼트마다 확산을 따로 돈다(Kimodo _multiprompt). 9-3 — pass1 배치 키는 파지 · 발 2차가 없어도 2 패스
+        passes = max(refine["passes"], (inputs.get("key_pose") or {}).get("passes", 1))
+        diffusions = len(seeds) * passes * max(1, len(inputs.get("segments") or []))
         extra = DIFFUSION_EXTRA_S * (diffusions - 1)
         grip_rule = next((r for r in refine["rules"] if r["flag"] == "two_hand_weapon_grip"), None)
         window = [grip_rule["frames"]["from"] / FPS, grip_rule["frames"]["to"] / FPS] if grip_rule else None
@@ -309,6 +339,15 @@ class KimodoProvider(SubprocessProvider):
             # Phase 9-2 — 프롬프트 · 프레임 목록(Kimodo multi_prompt) · 전이 프레임 · 경계(소스 이음매 수치)
             args.update(prompts=[s["prompt"] for s in inputs["segments"]], segment_frames=[s["frames"] for s in inputs["segments"]],
                         transition_frames=inputs["transition_frames"], boundaries_s=inputs["boundaries_s"])
+        if inputs.get("key_pose"):
+            # Phase 9-3 — 앞 key_pose 단계의 제약 파일(실행 때 생긴다 — 그 단계가 적은 SHA-256 으로 확인)
+            rec = ctx.values.get("key_pose") or {}
+            path = pathlib.Path(rec.get("file") or "")
+            if not rec.get("file") or not path.is_file() or file_sha256(path) != rec.get("sha256"):
+                raise StepFailed("GENERATION_FAILED", "KEY_POSE_FILE_MISSING", f"the key_pose step left no (or a changed) constraint file: {rec.get('file')}",
+                                 fatal=True)
+            args["key_pose_file"] = path.as_posix()
+            args["key_pose_smooth"] = inputs["key_pose"].get("smooth_sigma_frames")
         args_path.write_text(json.dumps(args, ensure_ascii=False, indent=1), encoding="utf-8")
         cmd = [str(python), "-I", str(RUNNER), str(args_path)]
         env = child_env({**_OFFLINE_ENV, "HF_HUB_CACHE": str(cache)})
@@ -346,7 +385,25 @@ class KimodoProvider(SubprocessProvider):
             generated["segments"] = report["segments"]
             for g, s in zip(generated["samples"], samples):
                 g["segments"] = s.get("segments")
+        if report.get("key_pose"):
+            self._key_pose_result(generated, report, samples, diagnostics)
         return StepResult(values={"file": picked["bvh"], "generated": generated}, diagnostics=diagnostics)
+
+    @staticmethod
+    def _key_pose_result(generated: dict, report: dict, samples: list[dict], diagnostics: list[dict]) -> None:
+        """Phase 9-3 — 키 포즈 배치 · 추종 기록(샘플 · 후보마다) + 진단 한 줄(첫 샘플)."""
+        generated["key_pose"] = report["key_pose"]
+        rows = generated.get("candidates") or generated["samples"]
+        for g, s in zip(rows, samples):
+            g["key_pose"] = s.get("key_pose")
+            if s.get("pass1_npz"):
+                g["pass1_npz"] = s["pass1_npz"]
+        first = (samples[0].get("key_pose") or {}).get("follow") or []
+        if first:
+            diagnostics.append(diag("info", "KEY_POSE_FOLLOWED", "; ".join(
+                f"{r.get('part', r['type'])} × {r['keys']}: position p50 {(r.get('position_cm') or {}).get('p50')} · max {(r.get('position_cm') or {}).get('max')} cm"
+                + (f", rotation max {r['rotation_deg']['max']}°" if r.get("rotation_deg") else "") + f", jitter p95 {r.get('jitter_p95')}"
+                for r in first) + " (sample 0)"))
 
     def _candidates_result(self, report: dict, samples: list[dict], handle: dict) -> StepResult:
         """seed 후보(Phase 8-1) — 모든 후보 BVH 를 다음 단계(blender 한 실행으로 변환 → select)로. 소스 수치 · 제약 추종은 generated.candidates 에."""
@@ -385,5 +442,7 @@ class KimodoProvider(SubprocessProvider):
                      "candidates": cands, "refine_flags": flags}
         if report.get("segments"):
             generated["segments"] = report["segments"]
+        if report.get("key_pose"):
+            self._key_pose_result(generated, report, samples, diagnostics)
         files = [{k: s.get(k) for k in ("index", "seed", "bvh", "npz")} for s in samples]
         return StepResult(values={"file": samples[0]["bvh"], "candidate_files": files, "generated": generated}, diagnostics=diagnostics)

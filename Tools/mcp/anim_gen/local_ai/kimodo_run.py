@@ -15,6 +15,10 @@ Phase 8-1 후보 · 2차 생성(args.candidates_mode): seeds 마다 seed_everyth
 풀어 refine.py 로 자동 제약(양손 · 발 일반 end-effector · root2d)을 만들고 같은 seed 로 2차(요청 + 자동) → 계획의 smooth_sigma_frames 로 2차
 출력 시간 스무딩(로컬 회전 · 루트 → 77 관절 FK)] → 후보 하나. 모델은 한 번만 적재한다. 후보마다 소스 수치(motion_metrics — 1 · 2차, 스무딩 전
 2차도)와 제약 추종(목표 손목 · 접지 발 위치 차)을 report 에 남긴다. NPZ · BVH · 소스 수치는 스무딩 뒤 값이다.
+
+Phase 9-3 키 포즈(args.key_pose_file — 생성 앞 key_pose 단계가 대상 애셋을 SOMA 로 되돌려 만든 관절 회전 · 엉덩 위치): origin 배치 항목은 1차부터
+제약, pass1 배치 항목은 1차(키 없이)의 그 프레임 엉덩 xz · 방향에 두고 같은 seed 로 2차(파지 · 발 2차가 있으면 그 2차에 함께). 키 추종(관절 위치 ·
+손발 회전) · 키 둘레 떨림을 report 에 남긴다(anim_gen/key_pose.py — 배치 · 지표는 순수 Python).
 """
 import json
 import os
@@ -47,15 +51,122 @@ def model_commit(repo):
         return None
 
 
-def build_constraints(specs, skeleton, frames):
-    """Provider 명세 → Kimodo 제약 dict 목록 → load_constraints_lst (SOMA 77 ↔ 30 변환은 Kimodo 로더가 한다)."""
+def names77_of(skeleton):
+    """SOMA77 관절 이름 순서 — 모델 골격이 SOMA30 이면 그 77 판(키 포즈 local_joints_rot 의 관절 축)."""
+    return list((skeleton.somaskel77 if hasattr(skeleton, "somaskel77") else skeleton).bone_order_names)
+
+
+def with_smooth_root(item):
+    """키마다 바닥 루트(smooth_xz) — 원천 엉덩 궤적(hips_track)을 Kimodo 와 같은 매끈화(get_smooth_root_pos, 엉덩에서 6 cm 여유)로. 키 제약은 그 프레임의
+    바닥 루트도 묶는다 — 비우면 Kimodo 가 엉덩 xz 로 채워 그 프레임만 바닥 루트 = 엉덩(이웃은 몇 cm 떨어짐)이 되어 경로가 꺾인다."""
+    track = item.get("hips_track") or {}
+    if not track.get("m"):
+        return list(item["keys"])
+    import torch
+    from kimodo.motion_rep.smooth_root import get_smooth_root_pos
+    smooth = get_smooth_root_pos(torch.tensor(track["m"], dtype=torch.float32)).cpu().numpy()
+    out = []
+    for k in item["keys"]:
+        i = k["source_frame"] - track["first"]
+        out.append({**k, "smooth_xz": [float(smooth[i, 0]), float(smooth[i, 2])]} if 0 <= i < len(smooth) else dict(k))
+    return out
+
+
+def key_pose_items(specs, key_pose, skeleton):
+    """Phase 9-3 — key_pose 명세 + key_pose 단계 파일 → (origin 배치 Kimodo dict 목록, 배치 기록, pass1 에 둘 (명세, 파일 항목)). 파일의 관절 회전은
+    SOMA77 이름별 — 모델 골격의 77 순서로 다시 줄 세운다(빠진 관절이 있으면 멈춘다)."""
+    from anim_gen import key_pose as kp
+    names77 = names77_of(skeleton)
+    missing = sorted(set(names77) - set(key_pose.get("joints") or []))
+    if missing:
+        raise RunError("KEY_POSE_JOINTS_MISSING", f"key_pose file has no rotations for {missing[:8]} — not a SOMA77 profile")
+    by_source = {item["source"]: item for item in key_pose.get("items") or []}
+    items, records, deferred = [], [], []
+    for spec in specs:
+        item = by_source.get(spec["source"])
+        if item is None or len(item["keys"]) != len(spec["frame_indices"]):
+            raise RunError("BAD_CONSTRAINT", f"{spec['source']}: key_pose file has no matching item ({len((item or {}).get('keys') or [])} keys, "
+                           f"planned {len(spec['frame_indices'])})")
+        item = {**item, "keys": with_smooth_root(item)}
+        if spec["placement"] == "origin":
+            placed, rec = kp.place(item["keys"], None)
+            items.append(kp.constraint(spec["part"], placed, names77))
+            records.append({"source": spec["source"], "part": spec["part"], "placement": "origin", **rec})
+        else:
+            deferred.append((spec, item))
+    return items, records, deferred
+
+
+def place_on_pass1(deferred, single1, skeleton):
+    """pass1 배치 — 1차(같은 seed · 키 없이)의 그 키 프레임 엉덩 xz · 방향(Kimodo heading 식)에 항목의 첫 키를 둔다."""
+    from anim_gen import key_pose as kp
+    names77 = names77_of(skeleton)
+    posed = single1["posed_joints"]
+    hips, left, right = names77.index(kp.HIPS), names77.index(kp.LEFT_HIP), names77.index(kp.RIGHT_HIP)
+    items, records = [], []
+    for spec, item in deferred:
+        f = min(spec["frame_indices"])
+        # 기준점 = 1차의 그 프레임 바닥 루트(키에 바닥 루트가 있을 때 — kp.place 와 같은 기준) 또는 엉덩 xz
+        smooth = all(k.get("smooth_xz") for k in item["keys"]) and "smooth_root_pos" in single1
+        xz = [float(single1["smooth_root_pos"][f, 0]), float(single1["smooth_root_pos"][f, 2])] if smooth else [float(posed[f, hips, 0]), float(posed[f, hips, 2])]
+        target = {"xz": xz, "heading_rad": kp.heading(posed[f, left].tolist(), posed[f, right].tolist())}
+        placed, rec = kp.place(item["keys"], target)
+        items.append(kp.constraint(spec["part"], placed, names77))
+        records.append({"source": spec["source"], "part": spec["part"], "placement": "pass1", **rec,
+                        "target": {"xz_m": [round(x, 4) for x in target["xz"]], "heading_deg": round(target["heading_rad"] * 57.29577951308232, 2)}})
+    return items, records
+
+
+def key_follow(single, placed_items, parts, skeleton, device, pass1=None):
+    """키 포즈 추종(cm · °) — 제약 프레임에서 생성 관절 위치 ↔ 제약 자세 FK(77, 같은 골격) · 손발 end-effector 는 전역 회전 차, 키 둘레 ± 10 프레임
+    떨림(지그재그 p95 — 8-1 지표와 같은 정의), 2 패스면 같은 창의 1차 떨림(기준). parts = 항목마다 요청 part(full · right_hand …)."""
+    import numpy as np
+    import torch
+    from anim_gen import key_pose as kp
+    from kimodo.geometry import axis_angle_to_matrix
+    names77 = names77_of(skeleton)
+    skel77 = skeleton.somaskel77 if hasattr(skeleton, "somaskel77") else skeleton
+    posed = single["posed_joints"]
+    out = []
+    for item, part in zip(placed_items, parts):
+        frames = item["frame_indices"]
+        local = axis_angle_to_matrix(torch.tensor(item["local_joints_rot"], dtype=torch.float32, device=device))
+        g, p, _ = skel77.fk(local, torch.tensor(item["root_positions"], dtype=torch.float32, device=device))
+        g, p = g.cpu().numpy(), p.cpu().numpy()
+        joints = [names77.index(n) for n in kp.PART_JOINTS[part]]
+        pos = [float(np.linalg.norm(posed[f, j] - p[k, j]) * 100.0) for k, f in enumerate(frames) for j in joints]
+        rec = {"part": part, "type": item["type"], "frames": frames, "keys": len(frames), "position_cm": kp.spread(pos)}
+        rjoints = [names77.index(n) for n in kp.PART_ROTATIONS.get(part, [])]
+        if rjoints:
+            rel = [g[k, j].T @ single["global_rot_mats"][f, j] for k, f in enumerate(frames) for j in rjoints]
+            rec["rotation_deg"] = kp.spread([float(np.degrees(np.arccos(np.clip((np.trace(m) - 1.0) / 2.0, -1.0, 1.0)))) for m in rel])
+        body = [names77.index(n) for n in kp.BODY_JOINTS]
+        rec["jitter_p95"] = kp.key_jitter([(posed[:, j] * 100.0).tolist() for j in body], frames)
+        if pass1 is not None:
+            rec["jitter_pass1_p95"] = kp.key_jitter([(pass1["posed_joints"][:, j] * 100.0).tolist() for j in body], frames)
+        out.append(rec)
+    return out
+
+
+def build_constraints(specs, skeleton, frames, key_pose=None):
+    """Provider 명세 → Kimodo 제약 dict 목록 → load_constraints_lst (SOMA 77 ↔ 30 변환은 Kimodo 로더가 한다). Phase 9-3 key_pose: origin 배치 항목은
+    여기서 dict 로, pass1 항목은 (명세, 파일 항목)으로 돌려준다(1차 뒤 place_on_pass1). → (제약 목록, 수, dict 목록, key_pose 기록)."""
     import numpy as np
     import torch
     from kimodo.constraints import load_constraints_lst
     from kimodo.geometry import matrix_to_axis_angle
 
     items = []
+    keys = {"records": [], "deferred": [], "placed": []}
+    key_specs = [s for s in specs if s["kind"] == "key_pose"]
+    if key_specs:
+        if key_pose is None:
+            raise RunError("BAD_CONSTRAINT", "key_pose constraints planned but the key_pose step left no file")
+        placed, keys["records"], keys["deferred"] = key_pose_items(key_specs, key_pose, skeleton)
+        keys["placed"] = placed
     for spec in specs:
+        if spec["kind"] == "key_pose":
+            continue
         if spec["kind"] == "kimodo":
             items += spec["items"]
         elif spec["kind"] == "raw":
@@ -74,10 +185,12 @@ def build_constraints(specs, skeleton, frames):
                           "root_positions": data["root_positions"][idx].tolist(), "smooth_root_2d": data["smooth_root_pos"][idx][:, [0, 2]].tolist()})
         else:
             raise RunError("BAD_CONSTRAINT", f"unknown constraint kind {spec['kind']!r}")
-    for item in items:
-        if max(item["frame_indices"]) >= frames:
-            raise RunError("CONSTRAINT_OUT_OF_RANGE", f"a {item['type']} constraint uses frame {max(item['frame_indices'])} of {frames}")
-    return (load_constraints_lst(items, skeleton) if items else []), len(items), items
+    items += keys["placed"]
+    for item in items + [kp_item for _, kp_item in keys["deferred"]]:
+        frame_list = item["frame_indices"] if "frame_indices" in item else [k["frame"] for k in item["keys"]]
+        if max(frame_list) >= frames:
+            raise RunError("CONSTRAINT_OUT_OF_RANGE", f"a {item['type']} constraint uses frame {max(frame_list)} of {frames}")
+    return (load_constraints_lst(items, skeleton) if items else []), len(items), items, keys
 
 
 # SOMA77 → motion_metrics 역할(손목 · 엉덩 관절 · 발목 · 어깨 · 팔꿈치 · 중지 첫 마디 · 머리). SOMA 의 LeftLeg 는 넓적다리 = 엉덩 관절 위치,
@@ -295,6 +408,7 @@ def run(args, report):
     t0 = time.time()
     import torch
     from kimodo import load_model
+    from kimodo.constraints import load_constraints_lst
     from kimodo.exports.bvh import motion_to_bvh
     from kimodo.exports.motion_io import save_kimodo_npz
     from kimodo.skeleton import SOMASkeleton30, global_rots_to_local_rots
@@ -316,8 +430,12 @@ def run(args, report):
     if abs(float(model.fps) - args["fps"]) > 1e-6:
         raise RunError("FPS_MISMATCH", f"model fps {model.fps} != planned {args['fps']}")
     t2 = time.time()
-    constraint_lst, n_constraints, requested_items = build_constraints(args["constraints"], model.skeleton, args["frames"])
+    key_pose = json.loads(pathlib.Path(args["key_pose_file"]).read_text(encoding="utf-8")) if args.get("key_pose_file") else None
+    constraint_lst, n_constraints, requested_items, keys = build_constraints(args["constraints"], model.skeleton, args["frames"], key_pose)
     report["constraints"] = n_constraints
+    if key_pose is not None:
+        # Phase 9-3 — origin 배치는 지금(1차부터), pass1 배치는 1차 뒤 2차에서
+        report["key_pose"] = {"file": args["key_pose_file"], "origin": keys["records"], "pass1_items": [s["source"] for s, _ in keys["deferred"]]}
 
     skeleton = model.skeleton
     if isinstance(skeleton, SOMASkeleton30):
@@ -366,18 +484,48 @@ def run(args, report):
         return {"npz": stem.with_suffix(".npz").as_posix(), "bvh": stem.with_suffix(".bvh").as_posix(), "frames": int(single["posed_joints"].shape[0]),
                 "root": stats}
 
+    def key_sets(single1):
+        """pass1 배치 키 → (Kimodo 제약 집합, dict, 배치 기록). 배치할 키가 없으면 빈 값."""
+        if not keys["deferred"]:
+            return [], [], []
+        dicts, recs = place_on_pass1(keys["deferred"], single1, skeleton)
+        return load_constraints_lst(dicts, model.skeleton), dicts, recs
+
+    def key_record(single, placed, recs, pass1=None):
+        records = keys["records"] + recs
+        return {"placements": records, "follow": key_follow(single, keys["placed"] + placed, [r["part"] for r in records], skeleton, device, pass1)}
+
     gen_seconds = []
     if not args.get("candidates_mode"):
         # 개정 10 그대로 — seed 하나 · samples 개 샘플
         t = time.time()
         output = generate(args["seed"], constraint_lst)
+        first, placed, recs = None, [], []
+        if keys["deferred"]:
+            # Phase 9-3 — pass1 배치 키: 키 없이 만든 1차의 루트 · 방향에 두고 같은 seed 로 2차(샘플 1 — 계획이 막는다)
+            if args["samples"] != 1:
+                raise RunError("KEY_POSE_WITH_SAMPLES", "key poses placed on pass 1 generate one sample — plan with generation.samples 1")
+            first = pick(output, 0)
+            save_kimodo_npz(str((out_dir / f"{args['stem']}_00_pass1.npz")), first)
+            sets, placed, recs = key_sets(first)
+            output = generate(args["seed"], list(constraint_lst) + sets)
         gen_seconds.append(round(time.time() - t, 2))
         n = int(output["posed_joints"].shape[0])
+        key_sigma = args.get("key_pose_smooth") if key_pose is not None else None
         for i in range(n):
             single = pick(output, i)
+            ksmooth = None
+            if key_sigma:
+                # Phase 9-3 — 키 둘레 떨림 → 8-1 수정안 A 와 같은 σ 스무딩(계획 값)
+                single, ksmooth = smooth_output(single, skeleton, key_sigma, device)
             entry = {"index": i, **export(single, out_dir / f"{args['stem']}_{i:02d}")}
             if boundaries:
                 entry["segments"] = seams(single)
+            if key_pose is not None:
+                entry["key_pose"] = key_record(single, placed, recs, first)
+                entry["key_pose"]["smooth"] = ksmooth
+                if first is not None:
+                    entry["pass1_npz"] = (out_dir / f"{args['stem']}_00_pass1.npz").as_posix()
             report["samples"].append(entry)
     else:
         # Phase 8-1 — seed 마다 후보 하나(1차 → [자동 제약 → 2차])
@@ -395,10 +543,12 @@ def run(args, report):
             first = pick(generate(seed, constraint_lst), 0)
             entry = {"index": ci, "seed": seed, "metrics": {"pass1": measure(first)}}
             final = first
+            placed, recs = [], []
             if refine_cfg["passes"] == 2:
                 save_kimodo_npz(str(stem.with_name(stem.name + "_pass1.npz")), first)
-                auto, info = refine_constraints(first, model, requested_items, refine_cfg, device)
-                second = pick(generate(seed, list(constraint_lst) + auto), 0)
+                sets, placed, recs = key_sets(first)
+                auto, info = refine_constraints(first, model, requested_items + placed, refine_cfg, device)
+                second = pick(generate(seed, list(constraint_lst) + sets + auto), 0)
                 sigma = refine_cfg.get("smooth_sigma_frames")
                 if sigma:
                     entry["metrics"]["pass2_unsmoothed"] = measure(second)
@@ -408,6 +558,24 @@ def run(args, report):
                 entry["refine"] = info
                 entry["pass1_npz"] = stem.with_name(stem.name + "_pass1.npz").as_posix()
                 final = second
+            elif keys["deferred"]:
+                # Phase 9-3 — 키만 2 패스(파지 · 발 자동 제약 없음): 1차 루트 · 방향에 키를 두고 같은 seed 2차, 스무딩 없음
+                save_kimodo_npz(str(stem.with_name(stem.name + "_pass1.npz")), first)
+                sets, placed, recs = key_sets(first)
+                final = pick(generate(seed, list(constraint_lst) + sets), 0)
+                entry["metrics"]["pass2"] = measure(final)
+                entry["pass1_npz"] = stem.with_name(stem.name + "_pass1.npz").as_posix()
+            if key_pose is not None:
+                two_pass = final is not first
+                ksmooth = None
+                key_sigma = args.get("key_pose_smooth")
+                if key_sigma and not (refine_cfg["passes"] == 2 and refine_cfg.get("smooth_sigma_frames")):
+                    # Phase 9-3 — 키 둘레 떨림 → σ 스무딩(파지 · 발 2차가 이미 스무딩했으면 한 번만)
+                    entry["metrics"]["key_unsmoothed"] = measure(final)
+                    final, ksmooth = smooth_output(final, skeleton, key_sigma, device)
+                    entry["metrics"]["key_smoothed"] = measure(final)
+                entry["key_pose"] = key_record(final, placed, recs, first if two_pass else None)
+                entry["key_pose"]["smooth"] = ksmooth
             if boundaries:
                 entry["segments"] = seams(final)
                 if final is not first:

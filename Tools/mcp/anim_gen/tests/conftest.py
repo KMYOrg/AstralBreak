@@ -138,6 +138,7 @@ class FakeEditor:
         self.import_roots = ["Saved/AnimGen/Import/"]
         self.meshes = {VESPER: VESPER_MESH, UE4: UE4_MESH, SB: SB_MESH}
         self.bones = {VESPER: VESPER_BONES, UE4: VESPER_BONES, SB: SB_BONES}
+        self.default_bones: list[dict] = []   # 그 밖의 스켈레톤(임포트한 Mock_Skeleton 등) — Phase 9-3 테스트가 SOMA 본을 준다
         self.auto_rig_fail: set[str] = set()
         self.assets: dict[str, dict] = {
             AIM_IDLE: {"class": "AnimSequence", "skeleton": VESPER, "length": 1.3333, "frame_rate": 30.0, "loop": True, "root_motion": False},
@@ -251,7 +252,7 @@ class FakeEditor:
         if not p.get("skeleton"):
             p = {**p, "skeleton": next((s for s, m in self.meshes.items() if m == mesh_path), "")}
         mesh = self.meshes.get(package_path(p["skeleton"]))
-        bones = self.bones.get(package_path(p["skeleton"]), [])
+        bones = self.bones.get(package_path(p["skeleton"]), self.default_bones)
         if not p.get("details"):
             bones = [{"name": b["name"], "parent": b["parent"]} for b in bones]
         return {"skeleton_path": _obj(p["skeleton"]), "mesh": _obj(mesh) if mesh else None, "mesh_source": "skeleton_preview" if mesh else "none",
@@ -315,6 +316,8 @@ class FakeEditor:
             item = {"asset": _obj(a), "status": status, "issues": [{"level": "warning", "code": c} for c in warnings],
                     "numeric": {"length": info["length"], "frame_rate": info["frame_rate"], "loop": info["loop"], "pelvis_height_cm": 105.0,
                                 "max_deg_per_frame": 30.0}}
+            if info.get("skeleton"):
+                item["skeleton"] = _obj(info["skeleton"])
             if p.get("profile_bones"):
                 item["numeric"]["profile"] = self._profile(p["profile_bones"], prof, bool(p.get("profile_positions")), bool(p.get("profile_rotations")))
             if p.get("seams"):
@@ -351,6 +354,15 @@ class FakeEditor:
         """10 표본(1/30 초) — 오른손목이 표본 5 에서 prof.peak cm/s 로 한 번 움직이고, 왼손목 = 오른손 + (gap, 0, 0) · 엉덩 ±9(표본 5 부터
         prof.reach cm 아래로 — 손 속도를 바꾸지 않고 엉덩 기준 손 궤적 폭만 키운다) · 발 ±9 × stance · 위팔(어깨)은 손목 위 50 · 아래팔(팔꿈치)
         위 25 cm(팔 길이 50 cm)."""
+        if prof.get("tracks"):
+            # Phase 9-3 key_pose — 본별 {pos, rot} 열(표본 = 프레임 1 부터)을 그대로
+            n = len(next(iter(prof["tracks"].values()))["pos"])
+            out = {"times": [round((i + 1) / 30, 4) for i in range(n)], "frames_per_sample": 1, "speed_cm_s": {b: [0.0] * n for b in bones}}
+            if positions:
+                out["position_cm"] = {b: prof["tracks"][b]["pos"] for b in bones if b in prof["tracks"]}
+            if rotations:
+                out["rotations"] = {b: prof["tracks"][b]["rot"] for b in bones if b in prof["tracks"]}
+            return out
         if prof.get("speeds"):
             # Phase 8-3 timing — 본별 속도 열(cm/s, 1/30 초 표본)을 그대로(위치는 쓰지 않는다)
             n = len(next(iter(prof["speeds"].values())))

@@ -7,6 +7,9 @@
 - keep_pose{npz, times[], part} → 이전 Kimodo 결과(NPZ)의 그 시각 포즈를 고정하고 나머지만 다시 만든다(레퍼런스 기반 반복 다듬기).
   part = full(fullbody) · left_hand · right_hand · left_foot · right_foot (Kimodo end-effector). 실행 스크립트가 NPZ 에서 꺼낸다.
 - kimodo_raw{path} → Kimodo constraints.json(웹 데모 · --save_example_dir 형식)을 그대로.
+- key_pose{asset, times[], at[], part, placement} (Phase 9-3) → 대상 애셋의 그 시각 자세를 생성 시각 at 에 고정. 자세(역리타깃 · 변환)는 생성 앞
+  key_pose 단계가 실행 때 파일로 만들고(anim_gen/key_pose.py), 배치(origin · pass1)는 실행 스크립트가 한다. auto = 가장 이른 키가 생성 프레임 0 이면
+  origin(원점 · 정면 +Z), 아니면 pass1(같은 seed 를 키 없이 만든 1차의 그 프레임 엉덩 xz · 방향).
 
 시각 → 프레임 = round(t × fps). 생성 길이(frames) 밖이면 거부한다.
 """
@@ -14,7 +17,9 @@ from __future__ import annotations
 
 import math
 
-KINDS = ("root_path", "keep_pose", "kimodo_raw")
+from .. import key_pose
+
+KINDS = ("root_path", "keep_pose", "kimodo_raw", "key_pose")
 PARTS = {"full": "fullbody", "left_hand": "left-hand", "right_hand": "right-hand", "left_foot": "left-foot", "right_foot": "right-foot"}
 RAW_TYPES = {"root2d", "fullbody", "end-effector", "left-hand", "right-hand", "left-foot", "right-foot"}
 
@@ -83,6 +88,19 @@ def convert(constraints: list[dict], fps: float, frames: int) -> list[dict]:
         elif c["type"] == "keep_pose":
             idx = sorted({frame_of(t, fps, frames, f"{where}.times") for t in c["times"]})
             out.append({"kind": "keep_pose", "source": where, "npz": c["npz"], "type": PARTS[c.get("part", "full")], "frame_indices": idx})
+        elif c["type"] == "key_pose":
+            pairs = sorted(((frame_of(at, fps, frames, f"{where}.at"), t) for t, at in zip(c["times"], c["at"])), key=lambda p: p[0])
+            idx = [f for f, _ in pairs]
+            dup = sorted({f for f in idx if idx.count(f) > 1})
+            if dup:
+                raise ConstraintError("DUPLICATE_FRAME", f"{where}.at: generated frame(s) {dup} appear twice", frame=dup[0])
+            placement = c.get("placement", "auto")
+            if placement == "auto":
+                placement = "origin" if idx[0] == 0 else "pass1"
+            part = c.get("part", "full")
+            kind, names = key_pose.KIMODO_PART[part]
+            out.append({"kind": "key_pose", "source": where, "asset": c["asset"], "part": part, "type": kind, **({"joint_names": names} if names else {}),
+                        "times": [t for _, t in pairs], "frame_indices": idx, "placement": placement, "placement_requested": c.get("placement", "auto")})
         else:
             out.append({"kind": "raw", "source": where, "path": c["path"]})
     return out

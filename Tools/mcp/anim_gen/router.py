@@ -172,7 +172,8 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
     if provider.generates or converts:
         # 생성(AI) 또는 파일 변환(blender) → FBX → import → retarget 파이프
         first = provider.plan_convert(request, pctx) if converts else provider.plan_generate(request, pctx)
-        steps = [first]
+        # Phase 9-3 — 생성 앞 단계(key_pose: 대상 애셋 키 포즈 → 역리타깃 → 제약 파일). 없으면 키도 없다(계획 비트 같음)
+        steps = list(first.pop("pre_steps", None) or []) + [first]
         last = first
         if first.pop("output", None) == "bvh":
             # 생성 결과가 BVH(local_ai) — Phase 4 blender 변환을 잇는다(대상 정면 · 바닥 · 더미 스킨 메시). 파일은 실행 때 생긴다

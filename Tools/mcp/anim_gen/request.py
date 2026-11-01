@@ -37,8 +37,10 @@ SPACING_MAX_CM = 100.0
 GENERATION_DEFAULTS = {"seed": None, "samples": 1, "steps": 100, "postprocess": "auto", "pick": 0, "constraints": [], "options": {},
                        "candidates": 1, "refine": REFINE_DEFAULTS, "select": {"weights": None}}
 MAX_CANDIDATES = 6
-CONSTRAINT_KEYS = {"root_path": ({"points"}, set()), "keep_pose": ({"npz", "times"}, {"part"}), "kimodo_raw": ({"path"}, set())}
+CONSTRAINT_KEYS = {"root_path": ({"points"}, set()), "keep_pose": ({"npz", "times"}, {"part"}), "kimodo_raw": ({"path"}, set()),
+                   "key_pose": ({"asset", "times"}, {"at", "part", "placement"})}   # Phase 9-3 — 대상 애셋 자세 → 역리타깃 키
 POSE_PARTS = ("full", "left_hand", "right_hand", "left_foot", "right_foot")
+KEY_POSE_PLACEMENTS = ("auto", "origin", "pass1")
 PROMPT_MAX = 500
 # 후처리로 다루는 제약 → 한계 코드. 그 밖의 참 제약은 CONSTRAINT_UNSUPPORTED
 CONSTRAINT_LIMITATIONS = {"two_hand_weapon_grip": "GRIP_NOT_VALIDATED", "foot_contact": "FOOT_CONTACT_NOT_ENFORCED"}
@@ -334,7 +336,7 @@ def _generation(raw) -> dict:
     gen["select"] = _select(gen["select"])
     items = gen["constraints"]
     if not isinstance(items, list):
-        raise _bad("generation.constraints", "must be a list of {type: root_path | keep_pose | kimodo_raw, ...}")
+        raise _bad("generation.constraints", "must be a list of {type: root_path | keep_pose | kimodo_raw | key_pose, ...}")
     for k, c in enumerate(items):
         where = f"generation.constraints[{k}]"
         if not isinstance(c, dict) or c.get("type") not in CONSTRAINT_KEYS:
@@ -353,6 +355,23 @@ def _generation(raw) -> dict:
                       and (p.get("yaw_deg") is None or (isinstance(p["yaw_deg"], (int, float)) and not isinstance(p["yaw_deg"], bool))))
                 if not ok:
                     raise _bad(f"{where}.points[{j}]", "must be {t (s, ≥ 0), forward_cm, left_cm, yaw_deg? (+ = turn left)} — character-relative")
+        elif c["type"] == "key_pose":
+            # Phase 9-3 — 원천은 대상 스켈레톤 애셋(times = 원천 초 · at = 생성 타임라인 초, 생략 = times). 빈 값은 기본값을 채운다
+            if not isinstance(c["asset"], str) or not c["asset"].startswith("/Game/"):
+                raise _bad(f"{where}.asset", "must be a /Game/... AnimSequence on the target skeleton")
+            c["asset"] = c["asset"].split(".", 1)[0]
+            if not isinstance(c["times"], list) or not c["times"] or not all(_seconds(t) for t in c["times"]):
+                raise _bad(f"{where}.times", "must be a non-empty list of seconds (≥ 0) on the source asset")
+            at = c.get("at")
+            if at is not None and (not isinstance(at, list) or len(at) != len(c["times"]) or not all(_seconds(t) for t in at)):
+                raise _bad(f"{where}.at", "must be a list of seconds (≥ 0) on the generated timeline, one per times entry")
+            c["at"] = list(at if at is not None else c["times"])
+            c["part"] = c.get("part", "full")
+            if c["part"] not in POSE_PARTS:
+                raise _bad(f"{where}.part", f"must be one of {list(POSE_PARTS)}")
+            c["placement"] = c.get("placement", "auto")
+            if c["placement"] not in KEY_POSE_PLACEMENTS:
+                raise _bad(f"{where}.placement", f"must be one of {list(KEY_POSE_PLACEMENTS)}")
         else:
             key = "npz" if c["type"] == "keep_pose" else "path"
             suffix = ".npz" if key == "npz" else ".json"

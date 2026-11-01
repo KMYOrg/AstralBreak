@@ -3,6 +3,7 @@
 - retarget (파이프): import_animation_file · create_ik_rig · create_ik_retargeter(match_existing) · retarget_animations
   Phase 8-1: select 단계 — 생성 후보(seed 별)를 모두 같은 RTG 로 리타깃 · validate_animation(profile_positions · body_clearance)으로 재서
   점수(selection.py)로 하나를 고르고, 최종 리타깃은 그 RTG 로 고른 후보만(결정적 — 잰 값 = 최종)
+  Phase 9-3: key_pose 단계 — 생성 앞, 대상 애셋을 SOMA 로 되돌려 Kimodo 키 포즈 제약 파일(providers/key_pose.py)
 - existing_motion: search_animations(또는 명시 참조)로 소스를 고른다
 - direct_key: apply_animation_edits (op 사전은 Phase 2 그대로)
 쓰기는 모두 플러그인 가드(허용 목록 · 전역 더티 · 덮어쓰기 없음) 아래에서 일어난다. 여기서는 순서와 이름만 정한다.
@@ -590,6 +591,10 @@ class RetargetPipe(Provider):
         kind = ctx.step["step"]
         if kind == "seams":
             return self._seams(ctx)
+        if kind == "key_pose":
+            # Phase 9-3 — 생성 앞 역리타깃(대상 → SOMA) · 키 포즈 제약 파일 (blender 를 쓰므로 그 모듈에서)
+            from . import key_pose
+            return key_pose.run(ctx)
         return self._import(ctx) if kind == "import" else self._select(ctx) if kind == "select" else self._retarget(ctx)
 
     def _import(self, ctx: RunContext) -> StepResult:

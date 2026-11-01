@@ -275,6 +275,9 @@ class Executor:
             if "timing" in result.values:
                 # Phase 8-3 — 흐느적 보정 근거(신호 · 구간 · op · warp · 전후 수치)
                 job["timing"] = result.values["timing"]
+            if "key_pose" in result.values:
+                # Phase 9-3 — 키 포즈 역리타깃 · 제약 파일 기록(배치 · 추종은 generated.candidates[].key_pose)
+                job["key_pose"] = result.values["key_pose"]
             if "segments" in result.values:
                 # Phase 9-2 — 세그먼트 경계(생성 · 최종 타임라인) · 이음매 수치 · 몽타주 섹션
                 job["segments"] = result.values["segments"]

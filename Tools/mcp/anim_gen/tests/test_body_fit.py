@@ -34,8 +34,10 @@ def bone_deg(res: dict, bone: str) -> float:
 # ---- 요청 ----
 def test_normalize_defaults_and_off():
     cfg = bf.normalize(True)
-    assert cfg["mode"] == "auto" and cfg["clearance"] == {"margin_cm": 0.5, "allow_contact": True, "hands": True, "upper_arm": "no_worse", "secondary": "record",
-                                                          "legs": False}
+    # 8-4d 기대된 변화 — clearance.mode(auto | off) · legs(pins · swing_path · soft_knee) 기본값, 8-4f — upper_arm cap · upper_cap_cm 4
+    assert cfg["mode"] == "auto" and cfg["clearance"] == {"mode": "auto", "margin_cm": 0.5, "allow_contact": True, "hands": True, "upper_arm": "cap",
+                                                          "upper_cap_cm": 4.0, "secondary": "record", "legs": False}
+    assert cfg["legs"] == {"pins": "auto", "swing_path": "auto", "soft_knee": {"start": 0.97, "softness": 0.03}}
     assert cfg["grip"]["mode"] == "auto" and cfg["joints"]["clavicle_deg"] == 10.0 and cfg["joints"]["spine_deg"] == 0.0 and cfg["targets"] == []
     assert bf.normalize(None) is None and bf.normalize(False) is None and bf.normalize({"mode": "off"}) is None
     t = bf.normalize({"targets": [{"id": "a", "effector": "hand_r", "at": {"event": "swing_end"}, "position": {"offset_cm": [0, 0, -15]}}]})["targets"][0]
@@ -474,3 +476,68 @@ def test_spline_block_is_pinned_to_zero_outside():
     assert pinned[0][2] < 0.5 * free[0][2] and pinned[-1][2] < 0.5 * free[-1][2] and pinned[5][2] > pinned[0][2]
     half = bf.spline_block(series, active, 4, False, True)
     assert half[0][2] == pytest.approx(free[0][2], abs=0.2) and half[-1][2] < 0.5 * free[-1][2]
+
+
+# ---- 머리목 마무리 (8-4d) ----
+def _head_frames(inside: set, deep: bool = False) -> list[dict]:
+    """오른손이 inside 프레임에서만 머리 속 — 얕게(위팔 (0, −70, 0) · 팔꿈치 −105°: 2.9 cm — 관통 판정 1.9 와 마무리 상한 3.8 사이) 또는 deep
+    (위팔 (0, −60, 0) · 팔꿈치 −120°: 손 5.5 · 아래팔 6.5 cm), 그 밖은 팔꿈치 −90°(머리 밖)."""
+    upper, inner = (-60.0, -120.0) if deep else (-70.0, -105.0)
+    return [{"upperarm_r": (0.0, upper, 0.0), "lowerarm_r": (0.0, inner if f in inside else -90.0, 0.0)} for f in range(30)]
+
+
+def _head_depth(solver, f: int, state: dict) -> float:
+    d = solver._pair_depths(f, solver.pose(f, state)[0])
+    return max((v for k, v in d.items() if k[0] == "r" and k[2] == "head_neck"), default=-99.0)
+
+
+def test_head_finish_takes_the_frame_value_and_a_tapered_neighbor_share():
+    # 매끈화 · 재검사가 묽힌 꼴(상태 0 — 원래 자세: f15 만 손이 머리 속) → 그 프레임만 프레임 풀이 값, ±1 이웃은 증분 × HEAD_FINISH_NEIGHBOR, 그 밖 그대로
+    model = bm.BodyModel(fx.make_model(_head_frames({15})))
+    cfg = bf.normalize(True)
+    rig = bf.Rig(model)
+    solver = bf.Solver(model, cfg, grip=bf.grip_weights(rig, cfg["grip"], model.scale))
+    zero = [{"rot": {}, "trans": {}} for _ in range(30)]
+    assert model.penetration_cm < _head_depth(solver, 15, zero[15]) <= bf.HEAD_FINISH_MAX_CM * model.scale
+    out = solver._finish_head(zero)
+    assert solver.stats["head_finished"] == [15] and _head_depth(solver, 15, out[15]) <= model.contact_cm
+    inc = out[15]["rot"]
+    assert inc
+    for g in (14, 16):
+        for b, v in inc.items():
+            assert out[g]["rot"].get(b, (0.0, 0.0, 0.0)) == pytest.approx(tuple(bf.HEAD_FINISH_NEIGHBOR * x for x in v), abs=1e-9)
+        assert _head_depth(solver, g, out[g]) <= model.contact_cm
+    assert all(out[f] is zero[f] for f in range(30) if f not in (14, 15, 16))
+
+
+def test_head_finish_leaves_a_clean_state_alone_and_respects_clearance_off():
+    model = bm.BodyModel(fx.make_model(_head_frames(set())))
+    cfg = bf.normalize(True)
+    rig = bf.Rig(model)
+    solver = bf.Solver(model, cfg, grip=bf.grip_weights(rig, cfg["grip"], model.scale))
+    zero = [{"rot": {}, "trans": {}} for _ in range(30)]
+    assert solver._finish_head(zero) == zero and "head_finished" not in solver.stats
+    # clearance off — 머리 속이어도 팔은 그대로(재기만)
+    model = bm.BodyModel(fx.make_model(_head_frames({15})))
+    cfg = bf.normalize({"clearance": {"mode": "off"}})
+    solver = bf.Solver(model, cfg, grip=bf.grip_weights(bf.Rig(model), cfg["grip"], model.scale))
+    assert solver._finish_head(zero) == zero
+
+
+def test_head_finish_skips_long_or_deep_runs():
+    # 네 프레임 이어진 깊은 관통(s27 꼴) · 한 프레임이어도 상한보다 깊은 관통 — 한 프레임씩 빼면 동작을 찢으므로 건너뛰고 기록만
+    zero = [{"rot": {}, "trans": {}} for _ in range(30)]
+    for inside, deep in (({14, 15, 16, 17}, False), ({15}, True)):
+        model = bm.BodyModel(fx.make_model(_head_frames(inside, deep)))
+        cfg = bf.normalize(True)
+        solver = bf.Solver(model, cfg, grip=bf.grip_weights(bf.Rig(model), cfg["grip"], model.scale))
+        assert solver._finish_head(zero) == zero and "head_finished" not in solver.stats
+        run = solver.stats["head_finish_skipped"][0]
+        assert run[:2] == [min(inside), max(inside)] and run[2] > model.penetration_cm
+
+
+def test_solve_clears_a_one_frame_head_hit():
+    # 한 프레임만 머리 속(빠른 휘두름의 꺾이는 자리 흉내) — 매끈화 · 재검사 뒤 마무리까지 하면 머리목 관통 0
+    model, res, _ = solve(_head_frames({15}))
+    pr = res["predicted"]["pairs"]
+    assert max(v["depth_max"] for k, v in pr.items() if k.endswith("head_neck") and k.split("|")[1] in ("hand", "forearm")) <= model.contact_cm

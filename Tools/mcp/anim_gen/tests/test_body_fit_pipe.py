@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 import body_fit_fixture as fx
+from anim_gen import body_fit
 from anim_gen import body_model as bm
 from anim_gen.editor import package_path
 from conftest import HERO, KATANA, OUT, VESPER, VESPER_MESH, request
@@ -220,6 +221,72 @@ def test_plan_reads_the_finger_roots_for_the_off_wrist_bend_cap(service, fake, b
     rec = job["fix"]["body"]
     assert job["status"] == "SUCCEEDED" and rec["grip"]["fingers"] == {} and rec["grip"]["wrist_bend"]["on"] is False
     assert "GRIP_WRIST_BEND_OFF" in [d["code"] for d in job["diagnostics"]]
+
+
+# ---- 다리(8-4d) ----
+def test_swing_path_auto_is_off_on_the_existing_asset_and_on_with_leg_fix_ops(service, body, bl):
+    step = next(s for s in plan_of(service)["candidates"][0]["steps"] if s["step"] == "body_fit")
+    assert step["inputs"]["legs_swing"]["mode"] == "auto" and not step["inputs"]["legs_swing"]["on"]
+    step = next(s for s in plan_of(service, fix={"body": {"legs": {"swing_path": "on"}}})["candidates"][0]["steps"] if s["step"] == "body_fit")
+    assert step["inputs"]["legs_swing"] == {"mode": "on", "on": True, "reason": "requested on"}
+    # 생성 경로 — 같은 Job 의 fix.ops 다리 보정(소스 쪽 블렌드가 꺾임을 만든다)이면 auto = 켬
+    from test_fix_legs import CMU_LEGS
+    p = bl_plan(bl, retarget={"source_chains": CMU_LEGS}, fix={"ops": [{"op": "stance_width"}, {"op": "foot_lock"}], "body": True})
+    assert p["candidates"], p["excluded"]
+    step = next(s for s in p["candidates"][0]["steps"] if s["step"] == "body_fit")
+    assert step["inputs"]["legs_swing"]["on"] and step["inputs"]["legs_swing"]["reason"] == "fix.ops ['foot_lock', 'stance_width']"
+
+
+def test_smooth_speed_auto_follows_fix_timing_and_the_job_records_it(service, fake, body):
+    # 8-4e — auto 는 같은 Job 이 fix.timing 을 돌릴 때만 켠다(기존 애셋 · 원 속도는 고정 폭), on 은 요청 그대로
+    step = next(s for s in plan_of(service)["candidates"][0]["steps"] if s["step"] == "body_fit")
+    assert step["inputs"]["smooth_fast"] == {"mode": "auto", "on": False, "reason": "no fix.timing — ask smooth_speed on"}
+    step = next(s for s in plan_of(service, fix={"timing": True, "body": True})["candidates"][0]["steps"] if s["step"] == "body_fit")
+    assert step["inputs"]["smooth_fast"] == {"mode": "auto", "on": True, "reason": "fix.timing"}
+    job = run(service, fix={"body": {"smooth_speed": "on"}})
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    rec = job["fix"]["body"]["smooth_speed"]
+    assert rec["mode"] == "on" and rec["on"] and rec["frames"] > 0 and rec["k_min"] >= 0.5   # grip_front → grip_close 는 손이 빠르다
+    off = run(service, animation_name="AS_Vesper_Sickle_GripTest_Fit2")["fix"]["body"]["smooth_speed"]
+    assert not off["on"] and off["frames"] == 0
+
+
+def test_upper_arm_cap_runs_by_default_and_the_job_records_it(service, fake, body):
+    # 8-4f — 위팔이 가슴 앞을 가로질러 상한(4 cm × scale)보다 깊다 → 팔꿈치 궤도 마무리, no_worse 면 돌지 않는다
+    import test_body_fit_upper as up
+    frames = fx.bump({}, up.cross_chest(), n=24, lo=8, hi=15, ramp=5)
+    fake.assets[ASSET]["length"] = round((len(frames) - 1) / 30, 4)
+    body[ASSET] = fx.make_model(frames)
+    job = run(service)
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    rec = job["fix"]["body"]["upper_arm"]
+    assert rec["mode"] == "cap" and rec["cap_cm"] == 4.0 and rec["frames"] > 0 and rec["deg_max"] > 0.0
+    # 이 시험 Job 은 손가락 체인 제안이 없어(fingers None) 손목 굽힘을 못 잰다 → 각 ≤ UPPER_FINISH_WRIST_DEG, 다 못 뺀 프레임은 한계로
+    assert rec["deg_max"] <= body_fit.UPPER_FINISH_WRIST_DEG and rec["blocked"] > 0
+    lim = next(lm for lm in job["limitations"] if lm["code"] == "UPPER_ARM_REMAINS")
+    assert lim["frames"] == rec["blocked"] and lim["remain_cm_max"] == rec["remain_cm_max"] > 0.0
+    nw = run(service, fix={"body": {"clearance": {"upper_arm": "no_worse"}}}, animation_name="AS_Vesper_Sickle_GripTest_Fit2")["fix"]["body"]["upper_arm"]
+    assert nw["mode"] == "no_worse" and nw["frames"] == 0
+
+
+def test_legs_only_job_rewrites_the_swing_and_records_it(service, fake, body):
+    import test_body_fit_legs as legs
+    frames = legs.step_frames()
+    fake.assets[ASSET]["length"] = round((len(frames) - 1) / 30, 4)
+    body[ASSET] = fx.make_model(frames)
+    job = run(service, fix={"body": {"clearance": {"mode": "off"}, "grip": {"mode": "off"}, "legs": {"swing_path": "on"}}})
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    bones = [p for t, p in fake.calls if t == "apply_animation_edits"][0]["operations"][0]["bones"]
+    assert {b["bone"] for b in bones} == {"thigh_l", "calf_l", "foot_l"}
+    rec = job["fix"]["body"]["legs"]
+    assert rec["swing_path"]["on"] and rec["clearance_mode"] == "off" and rec["soft_knee"] == {"start": 0.97, "softness": 0.03}
+    w = rec["windows"][0]
+    assert w["side"] == "l" and w["zigzag_model"][1] < w["zigzag_model"][0] and rec["frames"] and rec["skipped"] == []
+    lim = next(lm for lm in job["limitations"] if lm["code"] == "LEGS_PATH_REDESIGNED")
+    assert lim["windows"] == 1 and lim["frames"] == len(rec["frames"])
+    # 접지 프레임은 델타 0(원래 키 그대로)
+    contact = [f for f in range(len(frames)) if f not in rec["frames"]]
+    assert all(b["rotation_deg"][f] == [0.0, 0.0, 0.0] for b in bones for f in contact)
 
 
 # ---- 무기(8-4c) ----

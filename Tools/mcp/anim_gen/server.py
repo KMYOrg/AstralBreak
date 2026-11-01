@@ -140,8 +140,14 @@ def plan_motion_generation(request: dict) -> dict:
             wrist speed and speeds it up with one smooth time_warp — rate ramps linearly 1 → core rate → recovery ×1.5 → 1, no speed steps,
             antialias blurs what plays faster so fast detail does not fold into jitter — after one trim of the still head/tail; the plan shows
             the ops for an asset already on the target; Job timing has the windows · rate profile · ops · warp · before/after; length changes
-            on purpose: TIMING_CHANGED_LENGTH), body?: true | {mode auto|measure, clearance{margin_cm 0.5, allow_contact true (torso ·
-            thighs may touch up to contact_cm; head/neck and false keep margin_cm), hands true, upper_arm no_worse, secondary record, legs false},
+            on purpose: TIMING_CHANGED_LENGTH), body?: true | {mode auto|measure, clearance{mode auto|off (off = arms measured only — a legs-only
+            fix), margin_cm 0.5, allow_contact true (torso · thighs may touch up to contact_cm; head/neck and false keep margin_cm), hands true,
+            upper_arm cap|no_worse|off (8-4f — cap = after the solve, swing the elbow out around the shoulder-wrist line, hands fixed, where an upper
+            arm sinks deeper than upper_cap_cm 4 × scale into torso · thighs · head; no_worse = only kept no deeper; Job fix.body upper_arm{frames, deg_max,
+            elbow_cm_max, blocked}; UPPER_ARM_REMAINS), secondary record, legs false}, legs{pins auto (contact frames of the target ankle never move), swing_path auto|on|off
+            (auto = on when this job's fix.ops has stance_width · foot_lock — their blends kink the swing; an existing asset asks on), soft_knee
+            {start 0.97, softness 0.03} | null} (Phase 8-4d — swing windows rewritten in the same solve: ankle targets by knee · ankle jerk + fidelity;
+            Job fix.body legs{swing_path, windows, frames, knee_bend}; LEGS_PATH_REDESIGNED · LEG_PATH_SKIPPED),
             grip{mode auto|weapon|keep|off (auto = keep; weapon = opt-in grip on the request weapon's handle), lead_hand right, window [a, b]?,
             spacing_cm?, tolerance_cm?, blend_s? (keep 0.1 · weapon 0.2), wrist_bend_max_deg? (off-hand wrist bend cap = max(this, the clip's max))},
             joints{clavicle_deg
@@ -150,11 +156,12 @@ def plan_motion_generation(request: dict) -> dict:
             still_start|still_end|swing|both_planted, offset_s, index} | {time} | {window}, hold_s, position{offset_cm [forward, left, up],
             space body|component} | {absolute_cm, space} | {away_from, min_cm}, rotation{offset_deg [pitch, yaw, roll], space body|local}, ease_s
             0.15, weight 1, priority soft|hard}], weights{clearance 10, grip 10, pins 10, targets 5, lead_hand 3, fidelity 1}, smooth_s 0.13,
-            passes 3} (Phase 8-4b — one solve on the TARGET sequence after retarget · timing, every route incl. an existing Vesper asset → a new
+            smooth_speed auto|on|off (8-4e — on narrows the smoothing where the hands move fast; auto = on when the job runs fix.timing; off = one
+            width), passes 3} (Phase 8-4b — one solve on the TARGET sequence after retarget · timing, every route incl. an existing Vesper asset → a new
             asset: hands/forearms out of torso · thighs · head/neck · the other hand, two-hand grip kept, upper arms no deeper, targets you translate
             from the user's words (the server never parses language — show the plan's resolved targets and get a yes); retarget body_clearance
             defaults to measure; Job fix.body has before · predicted · after (C++) · targets · remains · loop (source numeric.loop — a loop source is fitted as a cycle, seam_deg 0); limitations BODY_FIT_APPROXIMATE ·
-            BODY_PENETRATION_REMAINS · GRIP_RELAXED · TARGET_NOT_REACHED{blocked_by} · GRIP_NOT_REACHED · GRIP_NOT_APPLICABLE · GRIP_RUNTIME_IK · WEAPON_BODY_RECORDED)},
+            BODY_PENETRATION_REMAINS · UPPER_ARM_REMAINS · GRIP_RELAXED · TARGET_NOT_REACHED{blocked_by} · GRIP_NOT_REACHED · GRIP_NOT_APPLICABLE · GRIP_RUNTIME_IK · WEAPON_BODY_RECORDED)},
             weapon?{mesh, attach{socket | bone, offset{location, rotation[p, y, r], scale}} (= DA AttachSocket · AttachOffset ∘ AttachTransform — YOU read
             the equipment data; nothing here reads it), lead_hand right, grips[{hand, segment{from, to} | socket | sockets[a, b] (weapon mesh
             space cm), rotation [x,y,z,w]? (the hand in weapon space), rotation_tol_deg 10, runtime_ik false (true = a runtime IK such as the

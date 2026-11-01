@@ -2,8 +2,9 @@
 
 리타깃 · 흐느적 보정(timing) 뒤 대상 시퀀스(또는 같은 스켈레톤의 기존 Vesper 애니)를:
   ① 플러그인 validate_animation(profile · body_clearance{parts all, hands, model}) 로 잰다 — 몸 모델(대상 메시 스킨 · 반경 지도 · 포즈)의 한 원천.
-  ② anim_gen/body_fit.py(순수 Python)가 관통(손 · 아래팔 ↔ 몸통 · 넓적다리 · 머리목 · 반대 손) · 파지 keep · 위팔 '안 깊어짐' · 지시 목표를 한 풀이로
-     → 본별 부모 공간 회전 델타. 원본이 루프(① 측정의 numeric.loop)면 시간 처리를 순환으로(첫 · 끝 델타가 같다).
+  ② anim_gen/body_fit.py(순수 Python)가 관통(손 · 아래팔 ↔ 몸통 · 넓적다리 · 머리목 · 반대 손) · 파지 keep · 위팔 '안 깊어짐' · 지시 목표 · 다리
+     공중 경로(8-4d — swing_path, 접지 pin)를 한 풀이로 → 본별 부모 공간 회전 델타. 원본이 루프(① 측정의 numeric.loop)면 시간 처리를 순환으로
+     (첫 · 끝 델타가 같다).
   ③ apply_animation_edits bone_deltas 로 새 애셋(원본은 그대로 — 재사용 경로도 새 애셋).
   ④ 같은 측정으로 다시 잰다 — 모델 예측과 C++ 실측을 Job fix.body 에 함께 남긴다.
 측정 · 판정 기준은 C++ 하나(Python 은 그 모델을 읽어 푼다). 수치는 판정 근거이고 품질 합격은 사람이 본다(§16-9).
@@ -76,6 +77,10 @@ class BodyFitPipe(Provider):
         produces = cfg["mode"] == "auto"
         inputs = {**copy.deepcopy(cfg), "mesh": request["target_mesh"], "loop": request["loop"], "root_motion": root_motion_flag(request),
                   "bones": None, "produces": produces}
+        # 다리 공중 경로(8-4d) — auto 는 이 Job 의 fix.ops 에 다리 op(stance_width · foot_lock)가 있을 때만 켠다(계획에 이유와 함께 보인다)
+        inputs["legs_swing"] = body_fit.swing_mode(cfg["legs"], request["fix"].get("ops"))
+        # 빠른 구간 매끈화(8-4e) — auto 는 이 Job 이 fix.timing 을 돌릴 때만 켠다
+        inputs["smooth_fast"] = body_fit.smooth_mode(cfg["smooth_speed"], request["fix"].get("timing"))
         # 무기(8-4c) — 파지 모드는 요청 grip.mode + 요청 weapon 으로 정한다(무기가 없으면 지금 그대로)
         weapon = request.get("weapon")
         try:
@@ -344,8 +349,12 @@ class BodyFitPipe(Provider):
             leg_cm = (bones.get("leg_dims") or {}).get("leg_cm") or 90.0
             if contacts is None:
                 contacts = {s: motion_metrics.detect_contacts(legs[f"foot_{s}"], times, 2, leg_cm) for s in ("l", "r")}
-            rep = motion_metrics.legs_report(legs, times, 2, leg_cm, scale, contacts=contacts)
+            knees = bones.get("knees") or [None, None]
+            knee_tracks = (pos.get(knees[0]), pos.get(knees[1])) if all(knees) and pos.get(knees[0]) and pos.get(knees[1]) else None
+            rep = motion_metrics.legs_report(legs, times, 2, leg_cm, scale, contacts=contacts, knees=knee_tracks)
             out["feet"] = {"planted_ratio_max": rep["ratio"]["planted_max"], "slide_p95": rep["slide_p95"]}
+            if knee_tracks:
+                out["feet"]["knee_bend"] = rep["knee_bend"]   # 8-4d — 다리 기준 '무릎 굽힘 p50 ≤ 원본 + 5°'
             out["_contacts"] = contacts
         secondary = bc.get("secondary_arms")
         if secondary:
@@ -416,8 +425,18 @@ class BodyFitPipe(Provider):
             if t.get("skipped"):
                 limitations.append(limitation("TARGET_NOT_REACHED", f"지시 목표 '{t['id']}' 를 건너뛰었다 — {t['skipped']['message']}", "body_fit", id=t["id"],
                                               reason=t["skipped"]["reason"], blocked_by=[]))
+        # 다리 공중 경로(8-4d) — 켜졌으면 접지(대상 발목 — summary 와 같은 정의 · leg_cm) 사이 구간의 발목 목표를 먼저 짠다(팔 상태와 무관 — 골반 고정)
+        legs_cfg = inputs.get("legs") or copy.deepcopy(body_fit.DEFAULTS["legs"])
+        swing = inputs.get("legs_swing") or body_fit.swing_mode(legs_cfg, [])
+        leg_path = None
+        if swing["on"]:
+            t_l = time.time()
+            leg_path = body_fit.swing_paths(rig, legs_cfg, loop=loop, leg_cm=(inputs["bones"].get("leg_dims") or {}).get("leg_cm"))
+            seconds["legs"] = round(time.time() - t_l, 2)
+        smooth = inputs.get("smooth_fast") or body_fit.smooth_mode(inputs.get("smooth_speed", "auto"), None)
         t1 = time.time()
-        solved = body_fit.solve(model, inputs, grip=grip, targets=targets, loop=loop, weapon=wrig, fingers=inputs.get("fingers"), pose_from=pf_items)
+        solved = body_fit.solve(model, inputs, grip=grip, targets=targets, loop=loop, weapon=wrig, fingers=inputs.get("fingers"), pose_from=pf_items,
+                                leg_path=leg_path, smooth_fast=smooth["on"])
         seconds["solve"] = round(time.time() - t1, 2)
         op = body_fit.bone_deltas_op(solved)
         t2 = time.time()
@@ -463,7 +482,26 @@ class BodyFitPipe(Provider):
             # 루프 이음매 — 풀이의 첫 · 끝 델타 차(°, 루프면 0) · C++ 첫 · 끝 포즈 차(전 → 후)
             "loop": {"source": loop, "seam_deg": solved["loop"]["seam_deg"],
                      "boundary_max_deg": [before.get("loop_boundary_max_deg"), after.get("loop_boundary_max_deg")]},
+            # 다리(8-4d) — 공중 경로 켬 여부 · 이유 · 소프트 무릎 · 구간별 모델 수치(없으면 windows 빈 목록) · 무릎 굽힘 전후(C++ 프로필)
+            "legs": {"pins": legs_cfg["pins"], "swing_path": swing, "soft_knee": legs_cfg["soft_knee"], "clearance_mode": inputs["clearance"].get("mode", "auto"),
+                     **(solved.get("leg_path") or {"windows": [], "skipped": [], "frames": []}),
+                     "knee_bend": {"before": (before.get("feet") or {}).get("knee_bend"), "after": (after.get("feet") or {}).get("knee_bend")}},
+            # 빠른 구간 매끈화(8-4e) — 켬 여부 · 이유 · 폭을 줄인 프레임 수 · 최소 배율(켰어도 손이 기준보다 느리면 frames 0)
+            "smooth_speed": {**smooth, **(solved["stats"].get("smooth_fast") or {"frames": 0, "k_min": 1.0})},
+            # 위팔 마무리(8-4f) — 방식 · 상한(cm, × scale 전) · 팔꿈치를 돌린 프레임 수 · 최대 각 · 팔꿈치 이동 · 상한까지 못 뺀 프레임 수와 그 남은 깊이(모델)
+            "upper_arm": self.upper_record(inputs["clearance"], solved["stats"].get("upper_finish")),
         })
+        lp = solved.get("leg_path") or {}
+        if lp.get("windows"):
+            w = lp["windows"]
+            zz = [x["zigzag_model"] for x in w if x["zigzag_model"][0] is not None]
+            limitations.append(limitation("LEGS_PATH_REDESIGNED", f"공중 발 경로 {len(w)} 구간({len(lp['frames'])} 프레임)을 다시 짰다 — 접지 프레임은 원래 키 그대로, "
+                                          f"발목 이동 최대 {max(x['ankle_moved_cm_max'] for x in w)} cm"
+                                          + (f", 모델 무릎 · 발목 떨림 최대 {max(z[0] for z in zz)} → {max(z[1] for z in zz)}" if zz else "")
+                                          + " — 발이 지나는 길이 바뀐다(판정은 사람 — 옆 모습 캡처)", "body_fit", windows=len(w), frames=len(lp["frames"])))
+        for s in lp.get("skipped") or []:
+            limitations.append(limitation("LEG_PATH_SKIPPED", f"공중 경로를 다시 짜지 않은 다리 {s.get('side') or '양쪽'} — {s['reason']}"
+                                          " (맞출 접지 경계가 없다)", "body_fit", side=s.get("side"), reason=s["reason"]))
         if wrig is not None:
             # 무기(8-4c) — 푼 값(무기 메시 공간) · 파지 오차(전 · 후 — 모델) · 무기-몸 관통 기록(모델 지도, 제약 아님)
             res = inputs["weapon_resolved"]
@@ -480,6 +518,11 @@ class BodyFitPipe(Provider):
             limitations.append(limitation("BODY_PENETRATION_REMAINS", "보정 뒤에도 관통(깊이 > penetration_cm)이 남은 쌍 — "
                                           + ", ".join(f"{r['pair']} {r['pen_pct']}% · {r['depth_max']} cm ({r['reason']})" for r in remains[:6]), "body_fit",
                                           pairs=remains))
+        up = record["upper_arm"]
+        if up["blocked"]:
+            limitations.append(limitation("UPPER_ARM_REMAINS", f"위팔 ↔ 몸 깊이가 상한({up['cap_cm']} cm × scale)을 넘는 프레임 {up['blocked']} 개를 다 못 뺐다(남은 "
+                                          f"최대 {up['remain_cm_max']} cm — 모델) — 팔꿈치 궤도 회전이 손 · 아래팔 관통 · 손목 굽힘 허용(원래 + "
+                                          f"{body_fit.UPPER_FINISH_WRIST_DEG}°)에 막혔다", "body_fit", frames=up["blocked"], remain_cm_max=up["remain_cm_max"]))
         keep = solved["keep"]
         if keep["frames"] and (keep["pos_cm_max"] or 0.0) > model.scale:
             limitations.append(limitation("GRIP_RELAXED", f"파지 프레임의 보조 손 상대 위치가 최대 {keep['pos_cm_max']} cm · {keep['deg_max']}° 바뀌었다(p95 "
@@ -555,6 +598,14 @@ class BodyFitPipe(Provider):
             elif p["id"] in done:
                 out.append(done[p["id"]])
         return out
+
+    @staticmethod
+    def upper_record(clearance: dict, stats: dict | None) -> dict:
+        """위팔 마무리 기록 — 켠 방식(cap 만 돈다) · 상한 · 돌린 프레임 수 · 최대 각 · 팔꿈치 이동 · 막힌 프레임 수 · 남은 깊이(모델)."""
+        s = stats or {}
+        return {"mode": clearance.get("upper_arm", "cap"), "cap_cm": clearance.get("upper_cap_cm", body_fit.DEFAULTS["clearance"]["upper_cap_cm"]),
+                "frames": len(s.get("frames") or []), "deg_max": s.get("deg_max", 0.0), "elbow_cm_max": s.get("elbow_cm_max", 0.0),
+                "blocked": len(s.get("blocked") or []), "remain_cm_max": s.get("remain_cm_max", 0.0)}
 
     @staticmethod
     def remains(after: dict, predicted: dict, solved: dict) -> list[dict]:

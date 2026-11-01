@@ -173,6 +173,7 @@ class ReviewPipe(Provider):
             "animation": animation, "frames": res.get("frames"), "sequence": {k: seq.get(k) for k in ("dir", "fps", "count", "size", "truncated")} if seq else None,
             "camera": res.get("camera"), "layout": res.get("layout"), "bounds": res.get("bounds"),
             "cells_touching_edge": res.get("cells_touching_edge"), "seconds": res.get("seconds"),
+            "attachments": res.get("attachments") or [],   # 8-4d — 붙여 찍은 무기(요청 weapon — C++ 결과 그대로, 없으면 [])
         }
         paths = [p for p in (capture["compare_sheet"], capture["sheet"], (animation or {}).get("path")) if p]
         notes.append(diag("info", "REVIEW_CAPTURED", f"{len(res.get('frames') or [])} frame image(s) of {asset} on {res.get('mesh')} in {res.get('seconds')}s — "

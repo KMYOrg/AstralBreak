@@ -30,6 +30,10 @@ Saved/AnimGen/TestRuns/P81Run<시각>/ 에 격리한다. 기준 = Kimodo 칼 휘
            정정(2026-10-26 밤 — 지난 실행은 손 뒤바뀜 85 ~ 93 % · 머리 박힘 · 몸 관통 75 % 를 PASS 로 넘겼다): 고른 후보(Vesper · 소스 2차)의
            꼬임 · 손-머리 근접 · 관통이 운영 낫 애니 기준 상한(SCYTHE_LIMITS) 안이어야 하고, 운영 애니 자신도 그 상한 안이어야 한다(상한이 과하지 않다).
            2차 목표가 1차보다 손을 더 뒤바꾸지 않는지(refine 통계)도 본다
+  rescore — (애셋 0 — Phase 9-1) 기록 Job 4건(검 수정 전 c49a83 · 검 선택 c0f5be · 낫 정정 f991aa · 낫 띠 정정 56d522)을 지금 측정(지표 버전 6 —
+           손목 꺾임 · 메시 머리목 깊은 관통 · 자루 기록)으로 다시 재 옛 점수(v5 — 8 지표 · 옛 가중치)와 새 점수를 후보별로 나란히(원 수치 · 벌점 ·
+           순위 · 선택 변화 · 근거), 운영 낫 4개의 새 벌점 0, 같은 기록 = 같은 선택. scythe 는 요청 weapon(운영 낫 부착)으로 자루를 기록한다.
+           생성 섹션의 seed 는 --seed(기본 20261025 — Kimodo 는 결정적이라 같은 seed 면 기록과 같은 후보)
   e3     — (선택) 프롬프트만 바꿈("…feet shoulder-width apart") · 플래그 없이 같은 seed — 넓은 다리가 프롬프트 탓인지 발 좌우 비로
   dirty  — (맨 뒤) 해시 불변 · 미저장 수 그대로 · Content/ 변경은 이번 실행 폴더뿐
 요약은 Tools/mcp/anim_gen_phase8_1_state.json(섹션 단위로 덮어쓴다 — 앞 실행의 다른 섹션은 남는다).
@@ -54,6 +58,7 @@ STATE_DIR = ROOT / "Saved" / "AnimGen" / "TestRuns" / f"P81Run{STAMP}"
 os.environ["ANIM_GEN_STATE_DIR"] = str(STATE_DIR)
 
 from anim_gen import motion_metrics, selection  # noqa: E402
+from anim_gen import weapon as weapon_mod  # noqa: E402
 from anim_gen.editor import EditorClient  # noqa: E402
 from anim_gen.providers import local_ai  # noqa: E402
 from anim_gen.providers.builtin import RetargetPipe  # noqa: E402
@@ -96,6 +101,12 @@ SCYTHE_TARGET_SPACING_CM = 60.0
 SCYTHE_JOB_RUN, SCYTHE_JOB = "P81Run1026_192547", "job_20261026_192555_f991aa"   # 낫 정정 기록(생성 간격 60 · 버전 4 띠 FAIL 2) — regrip
 MAP_TOLERANCE_CM = 3.0   # 간격 사상이 Vesper 손목 간격 p50 을 이만큼 안으로 맞혀야 한다(기록 오차 ≤ 1.1 cm, 파지선이 세로로 서면 생성 75 에서 최대 4.3)
 SICKLE_REFS = [f"/Game/Animation/Hero/Vesper/Sickle/Actions/AS_Vesper_Sickle_{n}" for n in ("Attack1", "Attack2", "Attack3", "Finisher1")]
+WEAPON_MESH = "/Game/Equipment/Weapon/Mesh/SKM_Hero_Sickle"
+# Phase 9-1 rescore — 기록 Job(Persona 판정 대상 · 수정 전 비교)을 지금 측정으로 다시 재 옛 점수(v5 가중치 · 8 지표)와 새 점수를 나란히
+RECORDS = [("P81Run1026_154722", "job_20261026_154723_c49a83", "sword_before_fix"), ("P81Run1026_180733", "job_20261026_180741_c0f5be", "sword_pick"),
+           ("P81Run1026_192547", "job_20261026_192555_f991aa", "sickle_fix"), ("P81Run1026_205832", "job_20261026_205840_56d522", "sickle_band")]
+OLD_WEIGHTS = {"grip": 3.0, "stance": 2.0, "swing": 2.0, "attack": 2.0, "clearance": 1.0, "breakage": 1.0, "cross": 2.0, "head": 2.0}
+NEW_METRICS = ("wrist", "head_deep", "handle")
 # 낫 결과 상한(운영 낫 애니 4개 Vesper 측정 2026-10-26 밤: 꼬임 0 ~ 16.3 % · 머리 10 cm 안 0 % · 관통 0 ~ 34.4 %) — 꼬임 · 머리는 선별 벌점이 시작되는
 # 값(selection.THRESHOLDS — 단일 원천), 관통은 운영 최대 + 5 % 반올림
 SCYTHE_LIMITS = {"cross_pct": selection.THRESHOLDS["cross_pct_base"], "head_pct": selection.THRESHOLDS["head_pct_base"], "penetration_pct": 40.0}
@@ -367,8 +378,11 @@ def section_plan() -> None:
           == {"hand_l": "hand_l", "hand_r": "hand_r", "hip_l": "thigh_l", "hip_r": "thigh_r", "foot_l": "foot_l", "foot_r": "foot_r",
               "shoulder_l": "upperarm_l", "shoulder_r": "upperarm_r", "elbow_l": "lowerarm_l", "elbow_r": "lowerarm_r"},
           f"selection bones (from {bones['from']}) = Vesper wrists · hip joints · ankles · shoulders (arm chain start) · elbows (wrist parent)")
-    check({"attack", "cross", "head"} <= set(s["select"]["inputs"]["weights"]) and s["select"]["inputs"]["metric_version"] == 5,
-          "select weights include attack (hand path width) · cross (wrists crossed) · head (hands in the head) · metric version 5")
+    check({"attack", "cross", "head", "wrist", "head_deep", "handle"} <= set(s["select"]["inputs"]["weights"]) and s["select"]["inputs"]["metric_version"] == 6,
+          "select weights include attack (hand path width) · cross (wrists crossed) · head (hands in the head) · wrist · head_deep · handle "
+          f"(9-1) · metric version 6 — weights {s['select']['inputs']['weights']}")
+    check(bones.get("finger_l") == "middle_01_l" and bones.get("finger_r") == "middle_01_r" and s["select"]["inputs"]["lead_hand"] == "right",
+          f"9-1: middle finger roots from the mesh's finger chain suggestion {bones.get('finger_l')} · {bones.get('finger_r')} (wrist bend, support = left)")
     check(bones.get("head") == "head", f"head bone from the template Head chain: {bones.get('head')}")
     check(bones.get("arm_dims") == {"shoulder_width_cm": 23.96, "arm_cm": 47.66} and s["select"]["inputs"]["grip_spacing"] is None,
           f"target arm dims from the reference pose (shoulder joints · upper + fore arm) {bones.get('arm_dims')} · no polearm band for a sword hilt")
@@ -426,7 +440,11 @@ def vesper_metrics(m: dict) -> dict:
             "cross_pct": (m.get("cross") or {}).get("crossed_pct"), "swapped_pct": (m.get("cross") or {}).get("swapped_pct"),
             "cross_depth_max": ((m.get("cross") or {}).get("depth_cm") or {}).get("max"),
             "head_pct": (m.get("head") or {}).get("near_pct"), "head_min_cm": (m.get("head") or {}).get("min_cm"),
-            "arm": (m.get("clearance") or {}).get("arm"), "depth_max": (m.get("clearance") or {}).get("depth_max")}
+            "arm": (m.get("clearance") or {}).get("arm"), "depth_max": (m.get("clearance") or {}).get("depth_max"),
+            # Phase 9-1 — 손목 꺾임(파지 프레임 보조 손목 > 60°) · 메시 머리목 깊은 관통 · 자루 ↔ 보조 손(기록)
+            "wrist": {k: (m.get("wrist") or {}).get(k) for k in ("mode", "over_pct", "p50", "max")} if m.get("wrist") else None,
+            "head_deep": {k: (m.get("head_deep") or {}).get(k) for k in ("deep_pct", "pen_pct", "max_cm", "runs")} if m.get("head_deep") else None,
+            "handle": {k: (m.get("handle") or {}).get(k) for k in ("grip_frames_pct", "grip_dist_p50", "grip_angle_p50", "all_dist_p50")} if m.get("handle") else None}
 
 
 def candidate_table(sel: dict, generated: dict) -> list[dict]:
@@ -484,6 +502,7 @@ def print_table(rows: list[dict]) -> None:
               f"source p1 {s['head_pct_pass1']} → p2 {s['head_pct']} (min {s['head_min_cm']}) · Vesper {v['head_pct']} (min {v['head_min_cm']}) | "
               f"pen {v['penetration_pct']}% ({v['arm']}, depth {v['depth_max']}) · basis {r['clearance_basis']} | targets axis {s['target_axis_from']} · "
               f"crossed {s['target_crossed_pct']} · moved {s['target_moved_cm']}")
+        print(f"        9-1: wrist {v['wrist']} · head_deep {v['head_deep']} · handle {v['handle']}")
 
 
 def vesper_wrists(assets: list[str]) -> dict:
@@ -606,19 +625,21 @@ def section_recompute() -> None:
     diags: list[dict] = []
     client = EditorClient()
     bones = {**RetargetPipe.selection_bones(client, VESPER, diags), "from": "template_chains"}
+    bones.update(RetargetPipe.select_hands(client, {}, VESPER_MESH_01, diags)[0])   # 9-1 손목 꺾임 — 중지 뿌리
     for d in diags:
         print(f"   diag[{d['level']}] {d['code']}: {d['message'][:200]}")
     cands = sorted(osel["candidates"], key=lambda c: c["index"])
     params = {"assets": [c["asset"] for c in cands], "sources": [c["source"] for c in cands], "skeleton": VESPER,
               "profile_bones": RetargetPipe.profile_bones(bones), "profile_positions": True, "fingers": {"retargeter": osel["retargeter"]},
-              "source_pelvis": local_ai.SOMA_PELVIS, "source_feet": local_ai.SOMA_FEET, "body_clearance": {"mesh": VESPER_MESH_01, "ik_rig": ik_target}}
+              "source_pelvis": local_ai.SOMA_PELVIS, "source_feet": local_ai.SOMA_FEET,
+              "body_clearance": {"mesh": VESPER_MESH_01, "ik_rig": ik_target, "parts": "all", "per_frame": True}}
     before = dirty_count()
     items = must(editor("validate_animation", **params), "validate recorded candidates")["assets"]
     plan_file = ROOT / "Saved" / "AnimGen" / "TestRuns" / OLD_SELECT_RUN / "plans" / f"{old['plan_id']}.json"
     old_plan = json.loads(plan_file.read_text(encoding="utf-8"))
     window = next(s for s in old_plan["candidates"][0]["steps"] if s["step"] == "select")["inputs"]["grip_window_s"]
     rows = [{"index": c["index"], "seed": c["seed"], "source": c["source"], "asset": c["asset"], "status": item.get("status", "PASSED"),
-             "metrics": RetargetPipe.candidate_metrics(item, bones, window, None)} for c, item in zip(cands, items)]
+             "metrics": RetargetPipe.candidate_metrics(item, bones, window, None, support="l")} for c, item in zip(cands, items)]
     ranked = selection.rank(rows, None, grip_on=True, swing_on=True)
     wrists = vesper_wrists([c["asset"] for c in cands])
     table = []
@@ -631,6 +652,7 @@ def section_recompute() -> None:
               f"swing {v['swing_peak']} · stance {v['stance_p90']} · pen {v['penetration_pct']} (non-grip ≤ {v['non_grip_penetration_pct_max']}) · "
               f"jitter {v['jitter']} · bend L {v['bend']['l']} · cross {v['cross_pct']} · head {v['head_pct']} · scored warnings {v['scored_warnings']} · "
               f"all {v['warnings']}")
+        print(f"        9-1 wrist {v['wrist']} · head_deep {v['head_deep']}")
         print(f"        penalties {c['penalties']}")
     print(f"   picked {ranked['picked']}")
     check(ranked["picked"]["seed"] == 20261025, f"new score picks seed {ranked['picked']['seed']} from the recorded candidates (was {osel['picked']['seed']}; "
@@ -653,15 +675,17 @@ def steady_gap(gap: list[float]) -> list[float]:
     return best
 
 
-def sickle_reference(bones: dict, ik_target: str | None, grip: dict) -> dict:
+def sickle_reference(bones: dict, ik_target: str | None, grip: dict, weapon: dict | None = None) -> dict:
     """Vesper 운영 낫 애니 — 같은 측정(candidate_metrics · 계획의 대상 띠)으로 손목 간격 · 양손 구간 · 궤적 폭 · 손 겹침 · 꼬임 · 머리 근접 · 관통(비교
-    기준 — 관통은 이 실행의 대상 리그 · 메시로)."""
-    params = {"assets": SICKLE_REFS, "skeleton": VESPER, "profile_bones": RetargetPipe.profile_bones(bones), "profile_positions": True}
-    params.update({"body_clearance": {"mesh": VESPER_MESH_01, "ik_rig": ik_target}} if ik_target else {"checks": ["numeric"]})
+    기준 — 관통은 이 실행의 대상 리그 · 메시로). Phase 9-1 — 손목 꺾임(보조 = 왼손) · 메시 머리목 깊은 관통 · 자루 기록과 그 벌점(운영 기준선 0)."""
+    params = {"assets": SICKLE_REFS, "skeleton": VESPER, "profile_bones": RetargetPipe.profile_bones(bones), "profile_positions": True,
+              "profile_rotations": bool(weapon)}
+    params.update({"body_clearance": {"mesh": VESPER_MESH_01, "ik_rig": ik_target, "parts": "all", "per_frame": True}} if ik_target else {"checks": ["numeric"]})
     items = must(editor("validate_animation", **params), "validate sickle references")["assets"]
     out = {}
     for asset, item in zip(SICKLE_REFS, items):
-        m = RetargetPipe.candidate_metrics(item, bones, None, None, grip["target_cm"], grip["tolerance_cm"]["target"])
+        m = RetargetPipe.candidate_metrics(item, bones, None, None, grip["target_cm"], grip["tolerance_cm"]["target"], support="l", weapon=weapon)
+        pen = selection.penalties(m, item.get("status", "PASSED"), best_swing=None, grip_on=True, swing_on=False)
         pos = item["numeric"]["profile"]["position_cm"]
         gap = [norm(sub(a, b)) for a, b in zip(pos[bones["hand_l"]], pos[bones["hand_r"]])]
         steady = steady_gap(gap)
@@ -672,8 +696,31 @@ def sickle_reference(bones: dict, ik_target: str | None, grip: dict) -> dict:
                                         "grip_band_pct": (m.get("grip") or {}).get("grip_pct"), "width": v["width"], "width_mid": v["width_mid"],
                                         "raise": v["raise"], "swing_peak": v["swing_peak"], "hand_contact": v["hand_contact"],
                                         "cross_pct": v["cross_pct"], "swapped_pct": v["swapped_pct"], "head_pct": v["head_pct"], "head_min_cm": v["head_min_cm"],
-                                        "penetration_pct": v["penetration_pct"], "status": item.get("status")}
+                                        "penetration_pct": v["penetration_pct"], "status": item.get("status"),
+                                        "wrist": v["wrist"], "head_deep": v["head_deep"], "handle": v["handle"],
+                                        "penalty_wrist": pen["wrist"], "penalty_head_deep": pen["head_deep"], "penalty_handle": pen["handle"]}
     return out
+
+
+def sickle_weapon_request() -> dict:
+    """Vesper 낫 요청 weapon — 부착 = DA_WD_Sickle1(AttachOffset · AttachTransform 항등 — 8-4 E0 p84_weapon_attach.json) · 소켓 WeaponHandR, 보조 손
+    = 8-4 E0 제안 선분(anim_gen_phase8_4_state.json). 9-1 선별 기록 handle(자루 ↔ 왼손)이 쓴다."""
+    att = json.loads((ROOT / "Tools" / "mcp" / "results" / "p84_weapon_attach.json").read_text(encoding="utf-8"))
+    ident = att["family"]["actors_to_spawn"][0]["attach_transform"]
+    check(ident["location"] == [0.0, 0.0, 0.0] and ident["quat_xyzw"][3] == 1.0 and ident["scale"] == [1.0, 1.0, 1.0],
+          "sickle AttachTransform is identity — the request offset is AttachOffset alone")
+    ao = att["definition"]["attach_offset"]
+    seg = json.loads((ROOT / "Tools" / "mcp" / "anim_gen_phase8_4_state.json").read_text(encoding="utf-8"))["e0"]["grip_proposal"]["segment"]
+    return {"mesh": WEAPON_MESH, "attach": {"socket": att["socket"]["name"], "offset": {"location": ao["location"], "rotation": ao["rotation_pyr"], "scale": ao["scale"]}},
+            "lead_hand": "right", "grips": [{"hand": "left", "segment": {"from": seg["from"], "to": seg["to"]}}]}
+
+
+def check_operating_baseline(ref: dict) -> None:
+    """완료 기준 3(9-1) — 새 지표(손목 꺾임 · 메시 머리목 깊은 관통)가 운영 낫 애니에서 벌점 0."""
+    for name, v in ref.items():
+        check(v["penalty_wrist"] == 0.0 and v["penalty_head_deep"] == 0.0,
+              f"operating {name}: new penalties wrist {v['penalty_wrist']} ({v['wrist']}) · head_deep {v['penalty_head_deep']} ({(v['head_deep'] or {}).get('deep_pct')}%) "
+              f"are 0 · handle record {v['handle']}")
 
 
 def within_limits(v: dict) -> list[str]:
@@ -728,6 +775,8 @@ def section_regrip() -> None:
     ik_target = f"{work}/IK_Target" if f"{work}/IK_Target" in old["intermediate_assets"] else None
     diags: list[dict] = []
     bones = {**RetargetPipe.selection_bones(EditorClient(), VESPER, diags), "from": "template_chains"}
+    hands, weapon = RetargetPipe.select_hands(EditorClient(), {"weapon": weapon_mod.normalize(sickle_weapon_request())}, VESPER_MESH_01, diags)   # 9-1
+    bones.update(hands)
     for d in diags:
         print(f"   diag[{d['level']}] {d['code']}: {d['message'][:200]}")
     grip = motion_metrics.grip_spacing(motion_metrics.gap_map(local_ai.SOMA_ARMS, bones["arm_dims"]), source_cm=inputs["grip_spacing_cm"])
@@ -736,13 +785,15 @@ def section_regrip() -> None:
     cands = sorted(osel["candidates"], key=lambda c: c["index"])
     params = {"assets": [c["asset"] for c in cands], "sources": [c["source"] for c in cands], "skeleton": VESPER,
               "profile_bones": RetargetPipe.profile_bones(bones), "profile_positions": True, "fingers": {"retargeter": osel["retargeter"]},
-              "source_pelvis": local_ai.SOMA_PELVIS, "source_feet": local_ai.SOMA_FEET, "body_clearance": {"mesh": VESPER_MESH_01, "ik_rig": ik_target}}
+              "source_pelvis": local_ai.SOMA_PELVIS, "source_feet": local_ai.SOMA_FEET,
+              "body_clearance": {"mesh": VESPER_MESH_01, "ik_rig": ik_target, "parts": "all", "per_frame": True}, "profile_rotations": bool(weapon)}
     before = dirty_count()
     items = must(editor("validate_animation", **params), "validate recorded scythe candidates")["assets"]
     rows = [{"index": c["index"], "seed": c["seed"], "source": c["source"], "asset": c["asset"], "status": item.get("status", "PASSED"),
-             "metrics": RetargetPipe.candidate_metrics(item, bones, inputs["grip_window_s"], None, grip["target_cm"], grip["tolerance_cm"]["target"])}
+             "metrics": RetargetPipe.candidate_metrics(item, bones, inputs["grip_window_s"], None, grip["target_cm"], grip["tolerance_cm"]["target"],
+                                                       support="l", weapon=weapon)}
             for c, item in zip(cands, items)]
-    ranked = selection.rank(rows, osel["weights"], grip_on=True, swing_on=True)
+    ranked = selection.rank(rows, None, grip_on=True, swing_on=True)   # 9-1 — 지금 기본 가중치(기록 가중치 8 개가 아니라)
     table = candidate_table({**ranked, "candidates": sorted(ranked["candidates"], key=lambda c: c["index"])}, old["cursor"]["values"]["generated"])
     mapped = {m["index"]: m for m in map_rows(table, grip)}
     for x, o in zip(table, cands):
@@ -767,10 +818,93 @@ def section_regrip() -> None:
                        "picked": ranked["picked"], "old_picked": osel["picked"], "weights": ranked["weights"], "table": table}
 
 
+def remeasure(run: str, job_id: str, bones: dict, weapon: dict | None) -> tuple[dict, list[dict]]:
+    """기록 Job 의 후보를 지금 제품 측정(candidate_metrics — 지표 버전 6, body_clearance parts · per_frame)으로 다시 잰다. 자루 무기 기록이면(계획의
+    grip_spacing · 버전 4 grip_spacing_cm) 그 대상 띠 · weapon 기록. 기록 Job 은 모두 양손 파지 · 주 손 right(보조 = 왼손)."""
+    base = ROOT / "Saved" / "AnimGen" / "TestRuns" / run
+    old = json.loads((base / "jobs" / f"{job_id}.json").read_text(encoding="utf-8"))
+    plan = json.loads((base / "plans" / f"{old['plan_id']}.json").read_text(encoding="utf-8"))
+    inputs = next(s for s in plan["candidates"][0]["steps"] if s["step"] == "select")["inputs"]
+    osel = old["selection"]
+    work = old["work_path"]
+    ik_target = f"{work}/IK_Target" if f"{work}/IK_Target" in old["intermediate_assets"] else None
+    if inputs.get("grip_spacing"):
+        center, tol = inputs["grip_spacing"]["target_cm"], inputs["grip_spacing"]["tolerance_cm"]["target"]
+    elif inputs.get("grip_spacing_cm"):   # 버전 4 계획(생성 간격 60) — 버전 5 띠로(regrip 과 같다)
+        g = motion_metrics.grip_spacing(motion_metrics.gap_map(local_ai.SOMA_ARMS, bones["arm_dims"]), source_cm=inputs["grip_spacing_cm"])
+        center, tol = g["target_cm"], g["tolerance_cm"]["target"]
+    else:
+        center, tol = None, motion_metrics.GRIP_TOL_CM
+    use_weapon = weapon if center else None
+    cands = sorted(osel["candidates"], key=lambda c: c["index"])
+    params = {"assets": [c["asset"] for c in cands], "sources": [c["source"] for c in cands], "skeleton": VESPER,
+              "profile_bones": RetargetPipe.profile_bones(bones), "profile_positions": True, "profile_rotations": bool(use_weapon),
+              "fingers": {"retargeter": osel["retargeter"]}, "source_pelvis": local_ai.SOMA_PELVIS, "source_feet": local_ai.SOMA_FEET,
+              "body_clearance": {"mesh": VESPER_MESH_01, "ik_rig": ik_target, "parts": "all", "per_frame": True}}
+    items = must(editor("validate_animation", **params), f"validate recorded {job_id}")["assets"]
+    rows = [{"index": c["index"], "seed": c["seed"], "source": c["source"], "asset": c["asset"], "status": item.get("status", "PASSED"),
+             "metrics": RetargetPipe.candidate_metrics(item, bones, inputs.get("grip_window_s"), None, center, tol, support="l", weapon=use_weapon)}
+            for c, item in zip(cands, items)]
+    return {"old": old, "inputs": inputs, "band": [center, tol], "ik_target": ik_target}, rows
+
+
+def section_rescore() -> None:
+    print("== rescore — recorded Jobs (Persona targets · before-fix) re-measured (metric version 6): v5 score (8 metrics · old weights) vs 9-1 score (no assets)")
+    diags: list[dict] = []
+    client = EditorClient()
+    bones = {**RetargetPipe.selection_bones(client, VESPER, diags), "from": "template_chains"}
+    hands, weapon = RetargetPipe.select_hands(client, {"weapon": weapon_mod.normalize(sickle_weapon_request())}, VESPER_MESH_01, diags)
+    bones.update(hands)
+    for d in diags:
+        print(f"   diag[{d['level']}] {d['code']}: {d['message'][:200]}")
+    check(bool(hands.get("finger_l") and hands.get("finger_r") and weapon and weapon.get("handle")),
+          f"finger roots {hands} from the mesh's finger chain suggestion · sickle handle line {(weapon or {}).get('handle')}")
+    before = dirty_count()
+    out, ik_any = {}, None
+    for run, job_id, label in RECORDS:
+        rec, rows = remeasure(run, job_id, bones, weapon)
+        ik_any = ik_any or rec["ik_target"]
+        new = selection.rank(rows, None, grip_on=True, swing_on=True)
+        legacy = selection.rank([{**r, "metrics": {k: v for k, v in r["metrics"].items() if k not in NEW_METRICS}} for r in rows], OLD_WEIGHTS,
+                                grip_on=True, swing_on=True)
+        again = selection.rank([{k: c[k] for k in ("index", "seed", "status", "metrics")} for c in new["candidates"]], new["weights"], grip_on=True, swing_on=True)
+        check(again["picked"] == new["picked"], f"{label}: recomputing the new record picks the same ({new['picked']['seed']})")
+        recorded = {c["index"]: c for c in rec["old"]["selection"]["candidates"]}
+        lb = {c["index"]: c for c in legacy["candidates"]}
+        table = []
+        print(f"   -- {label} {job_id} (band {rec['band']})")
+        for c in sorted(new["candidates"], key=lambda c: c["index"]):
+            v = vesper_metrics(c["metrics"])
+            o = lb[c["index"]]
+            table.append({"index": c["index"], "seed": c["seed"], "status": c["status"], "rank": c["rank"], "score": c["score"], "penalties": c["penalties"],
+                          "v5": {"rank": o["rank"], "score": o["score"], "penalties": o["penalties"]},
+                          "recorded": {"rank": recorded[c["index"]]["rank"], "score": recorded[c["index"]]["score"]}, "vesper": v})
+            print(f"   #{c['index']} seed {c['seed']} rank v5 {o['rank']} ({o['score']}) → 9-1 {c['rank']} ({c['score']}) [recorded {recorded[c['index']]['rank']}] · "
+                  f"stance {v['stance_p90']} · swing {v['swing_peak']} · width {v['width']} · pen {v['penetration_pct']} · cross {v['cross_pct']} · "
+                  f"head {v['head_pct']} (min {v['head_min_cm']}) · wrist {v['wrist']} · head_deep {(v['head_deep'] or {}).get('deep_pct')} "
+                  f"(runs {(v['head_deep'] or {}).get('runs')}) · handle {v['handle']}")
+            print(f"        penalties 9-1 {c['penalties']}")
+        changed = new["picked"]["seed"] != legacy["picked"]["seed"]
+        print(f"   {label}: picked v5 seed {legacy['picked']['seed']} → 9-1 seed {new['picked']['seed']} ({'CHANGED' if changed else 'same'}) — "
+              f"{new['picked']['reason']}")
+        out[label] = {"job_id": job_id, "band": rec["band"], "v5_picked": legacy["picked"], "picked": new["picked"], "changed": changed,
+                      "recorded_picked": rec["old"]["selection"]["picked"], "weights": new["weights"], "table": table}
+    grip = motion_metrics.grip_spacing(motion_metrics.gap_map(local_ai.SOMA_ARMS, bones["arm_dims"]), target_cm=SCYTHE_TARGET_SPACING_CM)
+    ref = sickle_reference(bones, ik_any, grip, weapon)
+    for name, v in ref.items():
+        print(f"   ref {name}: wrist {v['wrist']} · head_deep {v['head_deep']} · handle {v['handle']} · penalties {v['penalty_wrist']} / {v['penalty_head_deep']} / "
+              f"{v['penalty_handle']}")
+    check_operating_baseline(ref)
+    check(dirty_count() == before, "measuring the recorded candidates left the dirty count unchanged")
+    STATE["rescore"] = {"records": out, "reference": ref, "bones_hands": hands, "weapon": weapon, "thresholds": dict(selection.THRESHOLDS)}
+
+
 def section_scythe() -> None:
     print(f"== scythe — Vesper's weapon basis: '{SCYTHE_PROMPT[:60]}…' · target spacing {SCYTHE_TARGET_SPACING_CM:g} cm · 4 candidates (seeds 20261025 ~ 28)")
+    # 9-1 — 요청 weapon(운영 낫 부착)으로 select 가 자루 ↔ 왼손을 기록한다(가중 0)
     r = run_refine("scythe", "AS_Vesper_Sickle_KimodoSlashPick", flagged(candidates=4, refine={"grip": {"target_spacing_cm": SCYTHE_TARGET_SPACING_CM}}),
-                   prompt=SCYTHE_PROMPT, family="Sickle", description="양손으로 낫을 들어 대각선으로 베고 전투 자세로 돌아온다 (Kimodo 시험 — 낫 기준)")
+                   prompt=SCYTHE_PROMPT, family="Sickle", description="양손으로 낫을 들어 대각선으로 베고 전투 자세로 돌아온다 (Kimodo 시험 — 낫 기준)",
+                   weapon=sickle_weapon_request())
     if not r:
         return
     s = steps_of(r["plan"]["candidates"][0])
@@ -817,11 +951,15 @@ def section_scythe() -> None:
         check(mp["error_cm"] is not None and abs(mp["error_cm"]) <= MAP_TOLERANCE_CM,
               f"#{mp['index']} gap map predicts the Vesper wrist gap p50 within {MAP_TOLERANCE_CM:g} cm ({mp['predicted_p50']} vs {mp['vesper_p50']})")
     picked = next(x for x in rows if x["index"] == sel["picked"]["index"])
-    ref = sickle_reference(sel["bones"], r["assets"]["ik_target"], grip)
+    check(bool(sel.get("weapon")) and all((x["vesper"]["handle"] or {}).get("grip_dist_p50") is not None for x in rows),
+          f"9-1: the scythe Job records the handle ↔ left palm for every candidate (weapon {(sel.get('weapon') or {}).get('bone')}, weight "
+          f"{sel['weights'].get('handle')})")
+    ref = sickle_reference(sel["bones"], r["assets"]["ik_target"], grip, sel.get("weapon"))
     for name, v in ref.items():
         print(f"   ref {name}: {v}")
         over = within_limits(v)
         check(not over, f"operating {name} is within the scythe limits {SCYTHE_LIMITS} (the limits are not too strict) {over}")
+    check_operating_baseline(ref)
     steady = [v["steady_gap"][1] for v in ref.values() if v["steady_gap"]]
     pv = picked["vesper"]
     check(pv["grip_pct"] is not None and pv["grip_pct"] >= GRIP_REACHED_PCT, f"picked: Vesper wrist gap within the band {pv['band']} on {pv['grip_pct']}% "
@@ -885,14 +1023,19 @@ def section_dirty() -> None:
 
 
 SECTIONS = {"hashes": section_hashes, "exp1": section_exp1, "plan": section_plan, "refine": section_refine, "lead": section_lead,
-            "select": section_select, "recompute": section_recompute, "regrip": section_regrip, "scythe": section_scythe, "e3": section_e3,
+            "select": section_select, "recompute": section_recompute, "regrip": section_regrip, "rescore": section_rescore, "scythe": section_scythe,
+            "e3": section_e3,
             "dirty": section_dirty}
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", default=",".join(SECTIONS), help="comma separated: " + ",".join(SECTIONS))
+    ap.add_argument("--seed", type=int, default=SEED, help=f"first seed of the generation sections (default {SEED} — Kimodo is deterministic, the same "
+                    "seeds give the recorded candidates)")
     args = ap.parse_args()
+    globals()["SEED"] = args.seed
+    STATE["seed"] = args.seed
     t0 = time.time()
     names = [n.strip() for n in args.only.split(",")]
     for name in names:

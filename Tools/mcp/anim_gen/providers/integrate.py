@@ -171,9 +171,16 @@ class PackagePipe(Provider):
             except EditorCallError as err:
                 raise _failed(kind, err)
             montage = package_path(res["asset_path"])
-            if inputs.get("sections"):
+            sections = inputs.get("sections")
+            if sections == "segments":
+                # Phase 9-2 — 이음매 단계가 최종 타임라인으로 옮긴 세그먼트 경계(Job segments.sections)
+                sections = (values.get("segments") or {}).get("sections")
+                if not sections:
+                    raise StepFailed(INTEGRATION_FAILED, "SEGMENT_SECTIONS_MISSING", "package.montage.sections \"segments\": the seams step gave no "
+                                     "sections", fatal=True, created=[montage])
+            if sections:
                 try:
-                    res = editor.require("set_montage_sections", asset_path=montage, sections=inputs["sections"], save=ctx.save, generation_guard=True)
+                    res = editor.require("set_montage_sections", asset_path=montage, sections=sections, save=ctx.save, generation_guard=True)
                 except EditorCallError as err:
                     raise _failed(kind, err, created=[montage])
             package["montage"] = {"asset": montage, "animation": seq, "slot": inputs["slot"], "length": res.get("length"),

@@ -526,7 +526,7 @@ def test_attack_width_is_the_hand_path_box_over_arm_length_and_raise_is_recorded
         walk[k] = [[p[0], p[1] + 3.0 * f, p[2]] for f, p in enumerate(walk[k])]
     assert mm.attack(walk, times, up=2)["width_arm_ratio"] == pytest.approx(a["width_arm_ratio"], abs=1e-3)
     m = mm.measure(tr, times, up=2)
-    assert m["attack"]["width_arm_ratio"] == a["width_arm_ratio"] and m["wrist_bend"] is None and m["version"] == mm.VERSION == 5
+    assert m["attack"]["width_arm_ratio"] == a["width_arm_ratio"] and m["wrist_bend"] is None and m["wrist"] is None and m["version"] == mm.VERSION == 6
     assert mm.measure({k: tr[k] for k in ("hand_l", "hand_r", "hip_l", "hip_r")}, times, up=2)["attack"] is None   # 어깨 · 팔꿈치 없으면 못 잰다
 
 
@@ -641,10 +641,12 @@ def cand(index, *, grip=None, p90=None, peak=None, pen=None, status="PASSED", wi
 def test_penalties_follow_the_table():
     p = sel.penalties(cand(0, grip=75, p90=5.55, peak=300, pen=39.7, status="PASSED_WITH_WARNINGS")["metrics"], "PASSED_WITH_WARNINGS",
                       best_swing=400, grip_on=True, swing_on=True)
-    assert p == {"grip": 0.25, "stance": 0.61, "swing": 0.25, "attack": None, "clearance": 0.397, "breakage": 0.5, "cross": None, "head": None}
+    assert p == {"grip": 0.25, "stance": 0.61, "swing": 0.25, "attack": None, "clearance": 0.397, "breakage": 0.5, "cross": None, "head": None,
+                 "wrist": None, "head_deep": None, "handle": None}
     p = sel.penalties(cand(0, grip=75, p90=1.8, peak=400, pen=0, width=1.2)["metrics"], "PASSED", best_swing=400, best_width=1.5, grip_on=False,
                       swing_on=False)
-    assert p == {"grip": None, "stance": 0.0, "swing": None, "attack": None, "clearance": 0.0, "breakage": 0.0, "cross": None, "head": None}
+    assert p == {"grip": None, "stance": 0.0, "swing": None, "attack": None, "clearance": 0.0, "breakage": 0.0, "cross": None, "head": None,
+                 "wrist": None, "head_deep": None, "handle": None}
     assert sel.penalties(cand(0, p90=12.0)["metrics"], "PASSED", best_swing=None, grip_on=True, swing_on=True)["stance"] == 1.0
 
 
@@ -689,7 +691,8 @@ def test_cross_and_head_penalties_spare_the_operating_sickle_and_sink_the_broken
     assert [pen(head=h)["head"] for h in (41.7, 90.0, 59.2, 69.2)] == [1.0, 1.0, 1.0, 1.0] and pen(head=6.7)["head"] == pytest.approx(0.068)
     off = sel.penalties(cand(0, cross=91.7, head=41.7)["metrics"], "PASSED", best_swing=None, grip_on=False, swing_on=False)
     assert off["cross"] is None and off["head"] == 1.0
-    assert sel.WEIGHTS["cross"] == 2.0 and sel.WEIGHTS["head"] == 2.0 and sel.check_weights({"head": 5})["head"] == 5.0
+    # Phase 9-1 — 뼈 기준 근접은 짧은 관통을 대상 쪽이 고쳐 2 → 1 (못 고치는 길고 깊은 관통은 head_deep)
+    assert sel.WEIGHTS["cross"] == 2.0 and sel.WEIGHTS["head"] == 1.0 and sel.check_weights({"head": 5})["head"] == 5.0
     # 같은 점수에서 머리 근접 후보는 밀린다
     out = sel.rank([cand(0, grip=100, p90=3.0, cross=0.0, head=60.0), cand(1, grip=100, p90=3.0, cross=0.0, head=0.0)], grip_on=True, swing_on=False)
     assert out["picked"]["index"] == 1 and "head" in out["picked"]["reason"]
@@ -705,9 +708,90 @@ def test_recorded_job_c49a83_numbers_now_pick_seed_20261025():
     out = sel.rank(rows, grip_on=True, swing_on=True)
     by = {c["index"]: c for c in out["candidates"]}
     assert out["picked"]["index"] == 0 and [by[i]["rank"] for i in range(4)] == [1, 4, 2, 3]
-    assert by[0]["score"] == pytest.approx(0.1138, abs=1e-4) and by[1]["score"] == pytest.approx(0.3197, abs=1e-4)
+    # Phase 9-1 가중치(stance 0.5 · swing 1 · head 1) — 순위 그대로, 점수 0.1138 · 0.3197 → 0.0368 · 0.2606
+    assert by[0]["score"] == pytest.approx(0.0368, abs=1e-4) and by[1]["score"] == pytest.approx(0.2606, abs=1e-4)
     assert by[1]["penalties"]["attack"] == pytest.approx(0.7697, abs=1e-4) and by[0]["clearance_basis"] == "non_grip"
     assert out["best_width_arm_ratio"] == 1.65 and "attack" in out["picked"]["reason"]
+    # 옛 Job 의 가중치 기록(8 개)으로 다시 계산하면 옛 점수 그대로 — 새 지표(wrist · head_deep · handle)가 없는 기록은 그 벌점이 빠진다
+    old = sel.rank(rows, {"grip": 3, "stance": 2, "swing": 2, "attack": 2, "clearance": 1, "breakage": 1, "cross": 2, "head": 2}, grip_on=True, swing_on=True)
+    obys = {c["index"]: c for c in old["candidates"]}
+    assert obys[0]["score"] == pytest.approx(0.1138, abs=1e-4) and obys[1]["score"] == pytest.approx(0.3197, abs=1e-4)
+    assert old["weights"]["wrist"] == 2.0 and obys[0]["penalties"]["wrist"] is None
+
+
+# ---- Phase 9-1 — 뒤 단계가 못 고치는 결함: 손목 꺾임 · 메시 머리목 깊은 관통 · 자루(기록) ----
+def _arm_tracks(n: int, bend_l: list, bend_r: list) -> dict:
+    """팔꿈치 → 손목이 아래(−z), 손(손목 → 중지 뿌리)이 굽힘 각만큼 x 로 꺾인 두 팔 — bend_* = 프레임별 각(°)."""
+    tr = {}
+    for s, bends, x0 in (("l", bend_l, 20.0), ("r", bend_r, -20.0)):
+        tr[f"elbow_{s}"] = [[x0, 0.0, 125.0]] * n
+        tr[f"hand_{s}"] = [[x0, 0.0, 100.0]] * n
+        tr[f"finger_{s}"] = [[x0 + 8.0 * math.sin(math.radians(b)), 0.0, 100.0 - 8.0 * math.cos(math.radians(b))] for b in bends]
+    return tr
+
+
+def test_wrist_check_reads_the_support_wrist_on_grip_frames_only():
+    n = 20
+    tr = _arm_tracks(n, [70.0] * 10 + [20.0] * 10, [80.0] * n)   # 보조(왼) 손목은 앞 10 프레임만 꺾였고 주(오른) 손목은 내내 80°
+    grip = mm.wrist_check(tr, list(range(10, 20)), "l")          # 파지 표본이 뒤 10 개면 꺾임 0
+    assert grip["mode"] == "support_grip" and grip["hand"] == "hand_l" and grip["over_pct"] == 0.0 and grip["frames"] == 10
+    assert grip["threshold_deg"] == mm.WRIST_GRIP_DEG == 60.0 and grip["p50"] == pytest.approx(20.0, abs=0.1)
+    assert mm.wrist_check(tr, list(range(n)), "l")["over_pct"] == 50.0
+    assert mm.wrist_check(tr, list(range(n)), "r")["over_pct"] == 100.0   # 왼손이 주 손이면 오른손을 본다
+    free = mm.wrist_check(tr, None, None)                                  # 파지가 아니면 양손 중 큰 쪽 > 90°
+    assert free["mode"] == "both" and free["threshold_deg"] == 90.0 and free["over_pct"] == 0.0 and free["max"] == pytest.approx(80.0, abs=0.1)
+    assert mm.wrist_check({k: v for k, v in tr.items() if not k.startswith("finger")}, None, None) is None
+    assert mm.wrist_check(tr, [], "l")["over_pct"] is None                  # 파지 표본이 없으면 못 잰다
+
+
+def _head_series(hand: list, forearm: list | None = None, part: str = "head_neck") -> list:
+    out = [{"side": "l", "arm_part": "hand", "body_part": part, "depth": hand}]
+    if forearm is not None:
+        out.append({"side": "r", "arm_part": "forearm", "body_part": part, "depth": forearm})
+    return out
+
+
+def test_head_deep_counts_the_runs_the_body_fit_head_finish_skips():
+    # 40 프레임: 짧고 얕은 관통(2 프레임 · 3 cm — 대상 쪽이 고친다) · 짧고 깊은 관통(1 프레임 · 5 cm) · 긴 관통(4 프레임) · 못 찾음(None)
+    hand = [-5.0] * 40
+    hand[2:4] = [3.0, 3.0]
+    hand[10] = 5.0
+    hand[20:24] = [2.5] * 4
+    hand[30] = None
+    fore = [None] * 40
+    fore[21] = 9.0   # 아래팔이 더 깊으면 그 프레임 깊이 = 큰 쪽
+    h = mm.head_deep(_head_series(hand, fore), 1.0)
+    assert h["runs"] == [[2, 3, 3.0, False], [10, 10, 5.0, True], [20, 23, 9.0, True]]
+    assert h["deep_pct"] == 12.5 and h["pen_pct"] == 17.5 and h["max_cm"] == 9.0 and h["pen_cm"] == 2.0 and h["parts"] == ["hand", "forearm"]
+    # scale 이 크면 문턱도 커진다(관통 2 × 1.6 = 3.2 · 깊음 4 × 1.6 = 6.4 cm)
+    big = mm.head_deep(_head_series(hand, fore), 1.6)
+    assert big["runs"] == [[10, 10, 5.0, False], [21, 21, 9.0, True]] and big["deep_pct"] == 2.5
+    # 위팔 · 다른 몸 부위는 세지 않는다, 쌍이 없으면 None — body_fit 머리목 마무리와 한 원천
+    assert mm.head_deep([{"side": "l", "arm_part": "upper_arm", "body_part": "head_neck", "depth": [9.0] * 5}], 1.0) is None
+    assert mm.head_deep(_head_series([9.0] * 5, part="chest"), 1.0) is None and mm.head_deep(None) is None
+    from anim_gen import body_fit as bf
+    assert (bf.HEAD_FINISH_MAX_RUN, bf.HEAD_FINISH_MAX_CM) == (mm.HEAD_DEEP_MAX_RUN, mm.HEAD_DEEP_MAX_CM) == (2, 4.0)
+
+
+def test_new_penalties_spare_the_operating_sickle_and_sink_the_bent_or_deep_candidates():
+    """E0(2026-11-01 — Vesper 측정): 운영 낫 파지 프레임 보조 손목 60° 넘는 프레임 0 % · 머리목 깊은 관통 0 ~ 12.3 %(Finisher1 — 정수리 쪽 지도
+    과대) → 벌점 0. 검 seed 27 보조 손목 95.8 % → 1, 낫 seed 27 깊은 관통 31.4 · 62.8 % → 0.656 · 1. 자루는 기본 가중 0(기록)."""
+    def pen(**m):
+        return sel.penalties({"scale": 1.05, **m}, "PASSED", best_swing=None, grip_on=True, swing_on=False)
+    # 시작 15 % — 사용자 판정(2026-11-01): 낫 seed 20261103 의 13.3 % 는 손목이 괜찮다 → 0, 낫 seed 01 의 45 % · 검 seed 27 의 95.8 % → 1
+    assert [pen(wrist={"over_pct": v})["wrist"] for v in (0.0, 13.3, 95.8, 45.0, 20.0)] == [0.0, 0.0, 1.0, 1.0, 0.2]
+    assert [pen(head_deep={"deep_pct": v})["head_deep"] for v in (0.0, 12.3, 31.4, 62.8)] == [0.0, 0.0, 0.656, 1.0]
+    assert pen(handle={"grip_dist_p50": 50.7})["handle"] == pytest.approx((50.7 - 15.75) / 42.0, abs=1e-4) and pen(handle={"grip_dist_p50": 10.0})["handle"] == 0.0
+    assert sel.WEIGHTS == {"grip": 3.0, "stance": 0.5, "swing": 1.0, "attack": 2.0, "clearance": 1.0, "breakage": 1.0, "cross": 2.0, "head": 1.0,
+                           "wrist": 2.0, "head_deep": 2.0, "handle": 0.0}
+    assert sel.score({"handle": 1.0, "attack": 0.5}, sel.WEIGHTS) == 0.5 and sel.check_weights({"handle": 1})["handle"] == 1.0
+    # 같은 점수에서 손목이 꺾인 후보 · 머리 속에 오래 박힌 후보는 밀린다
+    base = {"grip": {"grip_pct": 100.0}, "stance": {"lateral_ratio": {"p90": 3.0}}}
+    rows = [{"index": 0, "seed": 1, "status": "PASSED", "metrics": {**base, "wrist": {"over_pct": 95.8}, "head_deep": {"deep_pct": 0.0}}},
+            {"index": 1, "seed": 2, "status": "PASSED", "metrics": {**base, "wrist": {"over_pct": 0.0}, "head_deep": {"deep_pct": 62.8}}},
+            {"index": 2, "seed": 3, "status": "PASSED", "metrics": {**base, "wrist": {"over_pct": 0.0}, "head_deep": {"deep_pct": 0.0}}}]
+    out = sel.rank(rows, grip_on=True, swing_on=False)
+    assert out["picked"]["index"] == 2 and {c["index"]: c["rank"] for c in out["candidates"]}[2] == 1
 
 
 def test_rank_picks_lowest_score_excludes_failed_and_is_reproducible():

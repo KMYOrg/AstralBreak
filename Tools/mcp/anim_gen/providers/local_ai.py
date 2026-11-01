@@ -20,7 +20,7 @@ import json
 import pathlib
 import secrets
 
-from .. import motion_metrics
+from .. import motion_metrics, segments
 from ..soma import SOMA_ARMS, SOMA_CHAINS, SOMA_FEET, SOMA_PELVIS, retarget_defaults  # noqa: F401 — 다시 내보냄(통합 테스트 · pytest)
 from ..envelope import AnimGenError, diag, limitation
 from ..local_ai import constraints as kc
@@ -55,6 +55,7 @@ def repo_ref(cache: pathlib.Path, repo: str) -> pathlib.Path:
 class KimodoProvider(SubprocessProvider):
     label = "Kimodo"
     exit_prefix = "KIMODO"
+    takes_segments = True   # Phase 9-2 — 요청 segments 를 받는 Provider(라우터가 나머지를 SEGMENTS_UNSUPPORTED 로 뺀다)
 
     @staticmethod
     def paths(policy: dict | None) -> tuple[pathlib.Path | None, pathlib.Path | None]:
@@ -87,13 +88,23 @@ class KimodoProvider(SubprocessProvider):
     # ---- 계획 (모델을 띄우지 않는다) ----
     def plan_generate(self, request: dict, pctx: PlanContext) -> dict:
         prompt = request["prompt"]
-        if not prompt:
+        segs = request.get("segments")
+        if not prompt and not segs:
             raise PlanBlocked("UNSUPPORTED_REQUEST", "MISSING_INPUT", "local_ai needs request.prompt — the English text the model reads "
                               "(description is only recorded)", missing=["prompt"])
         gen = request["generation"]
         duration = request["duration_seconds"] or DEFAULT_DURATION_S
         # 길이 = (프레임 − 1) / fps 가 요청 길이가 되게 한 프레임 더 만든다(최대 300)
         frames = min(int(round(duration * FPS)) + 1, MAX_FRAMES)
+        seg_plan = None
+        if segs:
+            # Phase 9-2 — 세그먼트마다 round(길이 × fps), 마지막만 + 1 → 합 = 이은 클립 프레임(Kimodo _multiprompt). 자르지 않고 넘으면 막는다
+            seg_plan = segments.plan_frames([s["duration_seconds"] for s in segs], FPS)
+            frames = seg_plan["total_frames"]
+            duration = seg_plan["length_s"]
+            if frames > MAX_FRAMES:
+                raise PlanBlocked("UNSUPPORTED_REQUEST", "DURATION_OVER_MAX", f"segments make {frames} frames — Kimodo makes up to {MAX_FRAMES} "
+                                  f"({(MAX_FRAMES - 1) / FPS:.3f}s at {FPS:g} fps)")
         if frames < 2:
             raise PlanBlocked("UNSUPPORTED_REQUEST", "DURATION_TOO_SHORT", f"duration {duration}s is shorter than two frames at {FPS:g} fps")
         python, cache = self.paths(pctx.policy)
@@ -141,6 +152,8 @@ class KimodoProvider(SubprocessProvider):
         inputs = {"model": MODEL, "repo": MODEL_REPO, "model_commit": self.model_commit(cache), "prompt": prompt, "duration_seconds": duration,
                   "frames": frames, "fps": FPS, "seed": seed, "samples": gen["samples"], "pick": gen["pick"], "steps": gen["steps"],
                   "postprocess": postprocess, "constraints": specs, "constraint_files": files}
+        if seg_plan:
+            self._plan_segments(inputs, segs, seg_plan, gen["transition_frames"], lims)
         step = {"step": "generate", "provider": self.name, "tool": "kimodo_run.py (Kimodo venv)", "inputs": inputs,
                 "output": "bvh", "bvh": dict(BVH_EXPECTED, frames=frames),
                 "retarget_defaults": retarget_defaults(),
@@ -148,6 +161,21 @@ class KimodoProvider(SubprocessProvider):
         if gen["candidates"] > 1 or refine["passes"] == 2:
             self._plan_candidates(step, request, refine, pctx, spacing, bones)
         return step
+
+    @staticmethod
+    def _plan_segments(inputs: dict, segs: list[dict], seg_plan: dict, transition: int, lims: list[dict]) -> None:
+        """Phase 9-2 — 계획에 세그먼트(프롬프트 · 프레임 · 생성 타임라인 시작 · 끝) · 전이 프레임 · 경계 시각 · swing 창(fix.timing 정점 탐색)."""
+        inputs.update(prompt=None, transition_frames=transition, boundaries_s=seg_plan["boundaries_s"],
+                      segments=[{"index": i, "name": s["name"], "prompt": s["prompt"], "duration_seconds": s["duration_seconds"], "frames": n,
+                                 "start_frame": f0, "start_s": a, "end_s": b, "swing": s["swing"]}
+                                for i, (s, n, f0, a, b) in enumerate(zip(segs, seg_plan["frames"], seg_plan["start_frame"], seg_plan["starts_s"],
+                                                                         seg_plan["ends_s"]))],
+                      swing_window_s=segments.swing_window(segs, seg_plan["starts_s"], seg_plan["ends_s"], transition, FPS),
+                      timeout_extra_s=DIFFUSION_EXTRA_S * (len(segs) - 1))   # 세그먼트마다 확산 한 번 — 후보 계획이 있으면 그쪽이 덮는다
+        lims.append(limitation("SEGMENT_TRANSITIONS", f"세그먼트 {len(segs)}개를 한 Kimodo 실행으로 이었다 — 둘째부터 처음 {transition} 프레임"
+                               f"({transition / FPS:.2f}초)에 앞 세그먼트 끝 자세(전신 + 손발)를 제약으로 걸어 다시 만든다. 경계 {seg_plan['boundaries_s']}초. "
+                               "분해했다고 연결이 자연스럽다는 보장은 없다 — 이음매 수치(Job segments)와 사람 판정으로 본다", "provider",
+                               boundaries_s=seg_plan["boundaries_s"], transition_frames=transition))
 
     @staticmethod
     def _grip_spacing(request: dict, pctx: PlanContext) -> tuple[dict | None, dict | None]:
@@ -183,7 +211,8 @@ class KimodoProvider(SubprocessProvider):
         spacing · bones = _grip_spacing 결과 — select 가 같은 대상 띠 · 측정 본을 쓴다(대상을 다시 재지 않는다)."""
         gen, inputs = request["generation"], step["inputs"]
         seeds = [inputs["seed"] + i for i in range(gen["candidates"])]
-        diffusions = len(seeds) * refine["passes"]
+        # Phase 9-2 — 세그먼트마다 확산을 따로 돈다(Kimodo _multiprompt)
+        diffusions = len(seeds) * refine["passes"] * max(1, len(inputs.get("segments") or []))
         extra = DIFFUSION_EXTRA_S * (diffusions - 1)
         grip_rule = next((r for r in refine["rules"] if r["flag"] == "two_hand_weapon_grip"), None)
         window = [grip_rule["frames"]["from"] / FPS, grip_rule["frames"]["to"] / FPS] if grip_rule else None
@@ -276,6 +305,10 @@ class KimodoProvider(SubprocessProvider):
         if candidates:
             # Phase 8-1 — seed 후보 · 2차 생성(한 실행 · 모델 1회 적재)
             args.update(candidates_mode=True, seeds=inputs["seeds"], refine=inputs["refine"], metric_window=inputs["metric_window"])
+        if inputs.get("segments"):
+            # Phase 9-2 — 프롬프트 · 프레임 목록(Kimodo multi_prompt) · 전이 프레임 · 경계(소스 이음매 수치)
+            args.update(prompts=[s["prompt"] for s in inputs["segments"]], segment_frames=[s["frames"] for s in inputs["segments"]],
+                        transition_frames=inputs["transition_frames"], boundaries_s=inputs["boundaries_s"])
         args_path.write_text(json.dumps(args, ensure_ascii=False, indent=1), encoding="utf-8")
         cmd = [str(python), "-I", str(RUNNER), str(args_path)]
         env = child_env({**_OFFLINE_ENV, "HF_HUB_CACHE": str(cache)})
@@ -308,6 +341,11 @@ class KimodoProvider(SubprocessProvider):
         root = picked.get("root") or {}
         generated = {"model": report.get("model"), "samples": [{k: s.get(k) for k in ("index", "bvh", "npz", "frames", "root")} for s in samples],
                      "pick": handle["pick"], "seconds": report.get("seconds"), "postprocess": report.get("postprocess"), "root": root}
+        if report.get("segments"):
+            # Phase 9-2 — 세그먼트 실행 기록 · 샘플별 소스 이음매 수치
+            generated["segments"] = report["segments"]
+            for g, s in zip(generated["samples"], samples):
+                g["segments"] = s.get("segments")
         return StepResult(values={"file": picked["bvh"], "generated": generated}, diagnostics=diagnostics)
 
     def _candidates_result(self, report: dict, samples: list[dict], handle: dict) -> StepResult:
@@ -325,6 +363,8 @@ class KimodoProvider(SubprocessProvider):
             follow = refine.get("follow") or {}
             entry = {k: s.get(k) for k in ("index", "seed", "bvh", "npz", "pass1_npz", "frames", "root")}
             entry["source_metrics"] = metrics
+            if s.get("segments"):
+                entry["segments"] = s["segments"]   # Phase 9-2 — 소스 이음매 수치 · 세그먼트별 1차 ↔ 2차 차이
             if refine:
                 entry["refine"] = {"constraints": refine.get("constraints"), "fk_check_m": refine.get("fk_check_m"), "follow": follow, "smooth": refine.get("smooth"),
                                    "grip": {k: v for k, v in (refine.get("grip") or {}).items() if k not in ("frames", "targets")} or None,
@@ -343,5 +383,7 @@ class KimodoProvider(SubprocessProvider):
         generated = {"model": report.get("model"), "samples": [{k: s.get(k) for k in ("index", "bvh", "npz", "frames", "root")} for s in samples],
                      "pick": 0, "seconds": report.get("seconds"), "postprocess": report.get("postprocess"), "root": samples[0].get("root") or {},
                      "candidates": cands, "refine_flags": flags}
+        if report.get("segments"):
+            generated["segments"] = report["segments"]
         files = [{k: s.get(k) for k in ("index", "seed", "bvh", "npz")} for s in samples]
         return StepResult(values={"file": samples[0]["bvh"], "candidate_files": files, "generated": generated}, diagnostics=diagnostics)

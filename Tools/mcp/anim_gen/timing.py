@@ -123,27 +123,40 @@ def signals(profile: dict, hands: tuple[str, str], body: list[str], scale: float
     return {"spans": spans, "hands_raw": raw, "hands": _smooth(raw), "body": whole}
 
 
-def detect(sig: dict, params: dict, frames: int) -> dict:
-    """신호 → 구간(프레임). frames = 마지막 키 번호(길이 × fps)."""
+def _search(spans: list, window: list[float] | None, fps: float | None) -> tuple[int, int]:
+    """Phase 9-2 — 휘두름 탐색 표본 범위(params.swing_window_s — segments 의 swing 세그먼트 ± 전이, 초). 없으면 전체."""
+    n = len(spans)
+    if not window or not fps:
+        return 0, n - 1
+    inside = [k for k, (_, end) in enumerate(spans) if window[0] * fps - 1e-6 <= end <= window[1] * fps + 1e-6]
+    return (inside[0], inside[-1]) if inside else (0, n - 1)
+
+
+def detect(sig: dict, params: dict, frames: int, fps: float | None = None) -> dict:
+    """신호 → 구간(프레임). frames = 마지막 키 번호(길이 × fps). params.swing_window_s(Phase 9-2 — fps 와 함께)가 있으면 정점 · 핵심 · 휘두름을
+    그 창 안에서만 찾는다(달리기 팔 흔들기가 공격보다 빠를 때) — 정지 머리 · 꼬리는 그대로 클립 전체."""
     s, body, spans = sig["hands"], sig["body"], sig["spans"]
     n = len(s)
     out = {"peak": None, "core": None, "swing": None, "head": None, "tail": None, "reason": None}
     if not n:
         out["reason"] = "NO_SAMPLES"
         return out
-    k_peak = max(range(n), key=s.__getitem__)
+    lo, hi = _search(spans, params.get("swing_window_s"), fps)
+    k_peak = max(range(lo, hi + 1), key=s.__getitem__)
     peak = s[k_peak]
-    out["peak"] = {"cm_s": round(peak, 1), "raw_cm_s": round(max(sig["hands_raw"]), 1), "time_frame": spans[k_peak][1], "sample": k_peak}
+    out["peak"] = {"cm_s": round(peak, 1), "raw_cm_s": round(max(sig["hands_raw"][lo:hi + 1]), 1), "time_frame": spans[k_peak][1], "sample": k_peak}
+    if params.get("swing_window_s") and fps:
+        out["search"] = [spans[lo][1], spans[hi][1]]
     if peak < MIN_PEAK_CM_S:
         out["reason"] = "NO_SWING"
         return out
     sw = params["swing"]
-    core = [k for k in range(n) if s[k] >= sw["core_ratio"] * peak]
+    core = [k for k in range(lo, hi + 1) if s[k] >= sw["core_ratio"] * peak]
     c0, c1 = core[0], core[-1]
     a, b = c0, c1
-    while a > 0 and s[a - 1] >= sw["edge_ratio"] * peak:
+    while a > lo and s[a - 1] >= sw["edge_ratio"] * peak:
         a -= 1
-    while b < n - 1 and s[b + 1] >= sw["edge_ratio"] * peak:
+    while b < hi and s[b + 1] >= sw["edge_ratio"] * peak:
         b += 1
     # 머리 · 꼬리 — 처음부터 / 끝까지 이어지는 정지 표본(정점은 넘지 않는다)
     still = params["still"]["speed_cm_s"]
@@ -154,9 +167,9 @@ def detect(sig: dict, params: dict, frames: int) -> dict:
     while t - 1 > k_peak and body[t - 1] < still:
         t -= 1
     # 국소 최소 쪽으로 넓히되 정지 머리 · 꼬리 안으로는 들어가지 않는다(스무딩 꼬리가 정지 구간에서도 계속 줄어든다)
-    while a > max(0, h - 1) and s[a - 1] < s[a]:
+    while a > max(lo, h - 1) and s[a - 1] < s[a]:
         a -= 1
-    while b < min(n - 1, t) and s[b + 1] < s[b]:
+    while b < min(hi, t) and s[b + 1] < s[b]:
         b += 1
     out["core"] = [spans[c0][0], spans[c1][1]]
     out["swing"] = [spans[a][0], spans[b][1]]
@@ -287,7 +300,7 @@ def plan(profile: dict, *, hands: tuple[str, str], body: list[str], scale: float
     applied 가 거짓이면 ops 는 항등 trim 하나(최종 이름의 새 애셋을 만들기 위해) — reason 이 그 이유."""
     frames = int(round(length * fps))
     sig = signals(profile, hands, body, scale, fps)
-    win = detect(sig, params, frames)
+    win = detect(sig, params, frames, fps)
     sec = lambda f: round(f / fps, ROUND)  # noqa: E731
     out = {"version": VERSION, "applied": False, "reason": win["reason"], "fps": fps,
            "signal": {"peak_cm_s": (win["peak"] or {}).get("cm_s"), "peak_raw_cm_s": (win["peak"] or {}).get("raw_cm_s"),
@@ -297,6 +310,8 @@ def plan(profile: dict, *, hands: tuple[str, str], body: list[str], scale: float
            "rate": None, "recovery_rate": None, "antialias": params["antialias"], "profile": [], "knots": None, "ops": [],
            "warp": [[0.0, 0.0, 1.0], [round(length, ROUND), round(length, ROUND), 1.0]],
            "length": {"before": round(length, ROUND), "after": round(length, ROUND)}}
+    if win.get("search"):
+        out["swing_search_s"] = [sec(f) for f in win["search"]]   # Phase 9-2 — segments swing 세그먼트 창
     if win["reason"]:
         out["ops"] = [{"op": "trim"}]
         return out

@@ -23,21 +23,40 @@ retarget 파이프의 select 단계가 후보(seed 별 Kimodo 결과)를 모두 
             (손목이 손 폭 10 cm × scale 넘게 엇갈린 프레임). 운영 낫 애니 0 ~ 16.3 % → 0, 망가진 낫 후보 12.5 ~ 91.7 %
 - head      clamp((손-머리 근접 % − 5) / 25) (모든 동작) — motion_metrics.head_near near_pct(손 점이 머리 본 10 cm × scale 안). 운영 낫 0 % → 0,
             망가진 낫 후보 41.7 ~ 90 % → 1
+- wrist     clamp((손목 꺾임 % − 15) / 25) (모든 동작) — motion_metrics.wrist_check over_pct(양손 파지면 파지 띠 안 표본의 보조 손목 > 60°, 아니면 양손
+            > 90°). 운영 낫 0 % → 0, 검 seed 27(1차부터 꺾인 생성) 95.8 % · 낫 seed 01(1차부터 101.8°) 45 % → 1. 시작 15 % = 사용자 Persona 판정
+            (2026-11-01 — 낫 새 생성 seed 20261103 의 13.3 %(최대 81°)는 '손목 괜찮다' — 처음 5 % 는 이 후보를 밀어냈다)
+- head_deep clamp((깊은 머리목 관통 % − 15) / 25) (body_clearance 를 잴 때) — motion_metrics.head_deep deep_pct(손 · 아래팔 ↔ head_neck 의 길거나 깊은
+            관통 구간 — 대상 쪽 머리목 마무리가 건너뛴다). 운영 낫 0 ~ 12.3 %(Finisher1 — 머리 지도가 정수리 쪽을 부풀린다) → 0, 낫 seed 27 31.4 · 62.8 %
+- handle    clamp((파지 프레임 보조 손바닥 ↔ 붙인 자루 p50 − 15 × scale) / (40 × scale)) (요청 weapon 에 보조 손 grip 이 있을 때) — weapon.handle_report.
+            기본 가중 0(기록만): 운영 낫도 파지 띠 프레임 왼손이 자루에서 p50 50.7 ~ 66.5 cm · 두 손 선 ∠ 자루 71 ~ 78° 라 운영 기준선이 서지 않는다(E0).
+            15 cm = 8-4 E0 '손잡이 위' 판정(쥔 오른 손바닥 12.4 + 3). 생성 쪽 두 손 · 부착(9-3 U3)의 판정 수치
+
+가중치(Phase 9-1 — 뒤 단계가 고칠 수 있는 결함은 낮추고 못 고치는 결함은 지표를 더했다): stance 2 → 0.5(8-3 stance_width 가 두 발 디딘 비를 ≤ 3.0 으로 —
+발당 25 cm, Vesper 비 ≈ 5.8 까지) · swing 2 → 1(8-3 시간 보정이 ×2.0 까지 — 상한이 있어 후보끼리의 상대 차는 남는다) · head 2 → 1(짧은 관통 · 근접은
+body_fit 머리목 마무리가 고친다) · wrist 2 · head_deep 2(새 — 못 고친다) · handle 0. 요청에 fix 가 없어도 낮춘다(선택 애셋을 뒤에 따로 고치는 흐름 —
+8-3 · 8-4 시험 대상 = 8-1 선택), 고치지 않을 Job 은 generation.select.weights 로 되돌린다.
 
 개정 이력: 2026-10-26 Persona 소견 ② '공격 자세가 맞나' — 기록 Job c49a83 이 '양손 모아 서 있기'(seed 26, 궤적 폭 0.38)를 골랐다. 원인 = 관통
 이중 계산 · 파지 프레임 관통 벌점 · 공격다움 지표 없음 → attack 추가 · 파지면 비파지 관통 · 깨짐에서 관통 경고 제외(같은 수치로 seed 25).
 2026-10-26 밤 낫 Persona '팔 꼬임 · 머리 관통 · 배 관통' — 기록 Job ad275a 가 손이 뒤바뀌고(85 ~ 93 %) 머리에 박힌(42 ~ 90 %) 후보를 PASS 로 골랐다.
 원인 = 파지 목표 축(refine) · 자루 무기에도 비파지 관통만 셈 · 꼬임 · 머리 지표 없음 → 자루 무기는 전체 관통 · cross · head 추가.
+2026-11-01 Phase 9-1 — 설계 때(10-26)는 8-3 · 8-4 가 없어 고칠 수 있는 결함(넓은 다리 · 느린 휘두름 · 짧은 머리 관통)에도 벌점을 주고 못 고치는 결함
+(1차부터 꺾인 손목 · 길고 깊은 머리 관통)은 덜 봤다 → 가중치 조정 · wrist · head_deep · handle(기록) 추가(지표 버전 6).
 """
 from __future__ import annotations
 
 from . import motion_metrics as mm
 
 METRIC_VERSION = mm.VERSION
-WEIGHTS = {"grip": 3.0, "stance": 2.0, "swing": 2.0, "attack": 2.0, "clearance": 1.0, "breakage": 1.0, "cross": 2.0, "head": 2.0}
+WEIGHTS = {"grip": 3.0, "stance": 0.5, "swing": 1.0, "attack": 2.0, "clearance": 1.0, "breakage": 1.0, "cross": 2.0, "head": 1.0,
+           "wrist": 2.0, "head_deep": 2.0, "handle": 0.0}
 THRESHOLDS = {"grip_cm": mm.GRIP_CM, "grip_tolerance_cm": mm.GRIP_TOL_CM, "stance_ratio_base": 2.5, "stance_ratio_span": 5.0, "attack_width_floor": 1.0, "warnings_penalty": 0.5,
               "grip_reached_pct": 80.0, "cross_cm": mm.CROSS_CM, "cross_pct_base": 20.0, "cross_pct_span": 50.0,
-              "head_near_cm": mm.HEAD_NEAR_CM, "head_pct_base": 5.0, "head_pct_span": 25.0}
+              "head_near_cm": mm.HEAD_NEAR_CM, "head_pct_base": 5.0, "head_pct_span": 25.0,
+              "wrist_grip_deg": mm.WRIST_GRIP_DEG, "wrist_free_deg": mm.WRIST_FREE_DEG, "wrist_pct_base": 15.0, "wrist_pct_span": 25.0,
+              "head_deep_pen_cm": mm.HEAD_PEN_CM, "head_deep_max_run": mm.HEAD_DEEP_MAX_RUN, "head_deep_max_cm": mm.HEAD_DEEP_MAX_CM,
+              "head_deep_pct_base": 15.0, "head_deep_pct_span": 25.0, "handle_cm_base": 15.0, "handle_cm_span": 40.0}
 _STATUS = {"PASSED": 0.0, "PASSED_WITH_WARNINGS": THRESHOLDS["warnings_penalty"], "NEEDS_REVIEW": THRESHOLDS["warnings_penalty"]}
 
 
@@ -46,7 +65,7 @@ class WeightError(ValueError):
 
 
 def check_weights(raw) -> dict:
-    """generation.select.weights — 키는 WEIGHTS 의 8개만, 값은 0 이상의 수. 빠진 키는 기본값."""
+    """generation.select.weights — 키는 WEIGHTS 의 11개만, 값은 0 이상의 수. 빠진 키는 기본값(옛 Job 기록의 8개 가중치면 새 3개는 기본값)."""
     if raw is None:
         return dict(WEIGHTS)
     if not isinstance(raw, dict):
@@ -88,7 +107,8 @@ def breakage(metrics: dict, status: str) -> float | None:
 
 def penalties(metrics: dict, status: str, *, best_swing: float | None, grip_on: bool, swing_on: bool, best_width: float | None = None) -> dict:
     """한 후보의 벌점 — 켜지지 않은 지표 · 값이 없는 지표(기록에 없는 옛 버전 포함)는 None(점수에서 빠진다)."""
-    out = {"grip": None, "stance": None, "swing": None, "attack": None, "clearance": None, "breakage": breakage(metrics, status), "cross": None, "head": None}
+    out = {"grip": None, "stance": None, "swing": None, "attack": None, "clearance": None, "breakage": breakage(metrics, status), "cross": None, "head": None,
+           "wrist": None, "head_deep": None, "handle": None}
     grip = metrics.get("grip") or {}
     if grip_on and grip.get("grip_pct") is not None:
         out["grip"] = round(1.0 - grip["grip_pct"] / 100.0, 4)
@@ -112,6 +132,16 @@ def penalties(metrics: dict, status: str, *, best_swing: float | None, grip_on: 
     near = (metrics.get("head") or {}).get("near_pct")
     if near is not None:
         out["head"] = round(_clamp((near - THRESHOLDS["head_pct_base"]) / THRESHOLDS["head_pct_span"]), 4)
+    bent = (metrics.get("wrist") or {}).get("over_pct")
+    if bent is not None:
+        out["wrist"] = round(_clamp((bent - THRESHOLDS["wrist_pct_base"]) / THRESHOLDS["wrist_pct_span"]), 4)
+    deep = (metrics.get("head_deep") or {}).get("deep_pct")
+    if deep is not None:
+        out["head_deep"] = round(_clamp((deep - THRESHOLDS["head_deep_pct_base"]) / THRESHOLDS["head_deep_pct_span"]), 4)
+    handle = metrics.get("handle") or {}
+    if handle.get("grip_dist_p50") is not None:
+        s = metrics.get("scale") or 1.0
+        out["handle"] = round(_clamp((handle["grip_dist_p50"] - THRESHOLDS["handle_cm_base"] * s) / (THRESHOLDS["handle_cm_span"] * s)), 4)
     return out
 
 

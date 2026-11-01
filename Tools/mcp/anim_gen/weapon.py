@@ -250,6 +250,48 @@ def finger_roots(target_info: dict | None) -> dict:
     return out
 
 
+# ---- 선별 기록 (Phase 9-1) ----
+def handle_report(resolved: dict, positions: dict, rotations: dict, wrists: dict, band: tuple[float, float]) -> dict | None:
+    """붙인 무기의 자루 ↔ 보조 손(Phase 9-1 선별 handle — 기본은 기록만): 프레임마다 부착 본 컴포넌트 변환(profile 위치 · 회전) · resolve 의 local 로
+    무기를 붙이고, 보조 손바닥 점(손목 · 중지 뿌리 중점 — resolve 와 같은 점) ↔ 자루 선(handle_line — extent 안 선분) 거리와 두 손 선(보조 손바닥 − 부착
+    본) ∠ 자루(body_fit grip_state 의 hands_line 과 같은 정의). band = 양손 파지로 볼 손목 간격 띠(cm) — 그 표본(grip_*)과 모든 표본(all_*)을 같이 낸다.
+    wrists = {hand_l, hand_r, finger_l, finger_r: 본}. 자루 선 · 부착 본 회전 · 손가락 뿌리가 없으면 None."""
+    handle, bone, lead = resolved.get("handle"), resolved.get("bone"), resolved.get("lead")
+    off = "l" if lead == "r" else "r"
+    names = (bone, wrists.get(f"hand_{off}"), wrists.get(f"finger_{off}"), wrists.get("hand_l"), wrists.get("hand_r"))
+    if not handle or not all(names) or not rotations.get(bone) or not all(positions.get(n) for n in names):
+        return None
+    local = tuple(tuple(x) for x in resolved["local"])
+    p0, d = handle["point"], handle["dir"]
+    lo, hi = handle["extent_cm"]
+    ends = (bm._add(p0, bm._scale(d, lo)), bm._add(p0, bm._scale(d, hi)))
+    n = min(len(positions[x]) for x in names[1:] + (bone,))
+    n = min(n, len(rotations[bone]))
+    dist, ang, gdist, gang = [], [], [], []
+    for f in range(n):
+        x = bm.compose(local, (tuple(rotations[bone][f]), tuple(positions[bone][f]), (1.0, 1.0, 1.0)))
+        a, b = bm.transform_point(x, ends[0]), bm.transform_point(x, ends[1])
+        palm = bm._scale(bm._add(positions[names[1]][f], positions[names[2]][f]), 0.5)
+        ab = bm._sub(b, a)
+        l2 = bm._dot(ab, ab)
+        s = max(0.0, min(1.0, bm._dot(bm._sub(palm, a), ab) / l2)) if l2 > 1e-12 else 0.0
+        dd = bm._norm(bm._sub(palm, bm._add(a, bm._scale(ab, s))))
+        t, v = bm.qrot(x[0], d), bm._sub(palm, positions[bone][f])
+        an = math.degrees(math.atan2(bm._norm(bm._cross(v, t)), abs(bm._dot(v, t)))) if bm._norm(v) > 1e-6 else None
+        dist.append(dd)
+        ang.append(an)
+        if band[0] <= bm._norm(bm._sub(positions[names[3]][f], positions[names[4]][f])) <= band[1]:
+            gdist.append(dd)
+            gang.append(an)
+    def pct(xs: list, q: float) -> float | None:
+        vals = [v for v in xs if v is not None]
+        return round(bm.percentile(vals, q), 2) if vals else None
+
+    return {"hand": f"hand_{off}", "bone": bone, "band_cm": [round(band[0], 2), round(band[1], 2)], "frames": n,
+            "grip_frames_pct": round(100.0 * len(gdist) / n, 1) if n else None, "grip_dist_p50": pct(gdist, 50.0), "grip_angle_p50": pct(gang, 50.0),
+            "all_dist_p10": pct(dist, 10.0), "all_dist_p50": pct(dist, 50.0), "all_angle_p50": pct(ang, 50.0)}
+
+
 # ---- 풀기 ----
 def resolve(weapon: dict, target_info: dict, weapon_info: dict) -> dict:
     """요청 weapon + 대상 메시 inspect(details · suggest_finger_chains) + 무기 메시 inspect(details · geometry) → body_fit 이 쓰는 값(무기 메시 공간 cm ·

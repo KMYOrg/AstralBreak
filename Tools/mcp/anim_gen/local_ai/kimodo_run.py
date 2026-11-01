@@ -109,6 +109,62 @@ def source_metrics(single, names77, fps, window, spacing_cm=None):
     return out
 
 
+def call_inputs(args):
+    """Kimodo 호출의 (프롬프트 목록, 프레임 목록, 전이 프레임). Phase 9-2 segments 면 세그먼트마다(multi_prompt — 순서대로 잇는다), 아니면
+    프롬프트 하나(개정 10 그대로 — 같은 호출)."""
+    if args.get("prompts"):
+        if len(args["prompts"]) != len(args["segment_frames"]) or sum(args["segment_frames"]) != args["frames"]:
+            raise RunError("BAD_SEGMENTS", f"{len(args['prompts'])} prompts / segment frames {args['segment_frames']} do not make {args['frames']} frames")
+        return list(args["prompts"]), list(args["segment_frames"]), int(args["transition_frames"])
+    return [args["prompt"]], [args["frames"]], 5
+
+
+def source_seams(single, names77, fps, boundaries_s, root_idx):
+    """Phase 9-2 — 소스 이음매 수치(segments.py 정의): 경계마다 관절 로컬 회전 평균 변화의 단계 비(C++ SEAM_JUMP 와 같은 식) + 손목 · 발목 ·
+    골반(루트 관절) · 바닥 루트(smooth_root_pos) 속도 앞뒤 비 · 속도 변화 비. cm · scale 1."""
+    import numpy as np
+    from anim_gen import motion_metrics, segments
+    rots = single["local_rot_mats"]
+    rel = np.einsum("tjab,tjac->tjbc", rots[:-1], rots[1:])          # R_t^T · R_{t+1}
+    cos = np.clip((np.trace(rel, axis1=-2, axis2=-1) - 1.0) * 0.5, -1.0, 1.0)
+    steps = np.degrees(np.arccos(cos)).mean(axis=1).tolist()          # steps[i] = 프레임 i → i+1
+    joints = single["posed_joints"] * 100.0
+    n = int(joints.shape[0])
+    times = [i / fps for i in range(n)]
+    tracks = {"hand_l": joints[:, names77.index("LeftHand")], "hand_r": joints[:, names77.index("RightHand")],
+              "foot_l": joints[:, names77.index("LeftFoot")], "foot_r": joints[:, names77.index("RightFoot")], "pelvis": joints[:, root_idx]}
+    root = single["smooth_root_pos"] * 100.0
+    tracks["root"] = np.stack([root[:, 0], np.zeros(n), root[:, 2]], axis=1)
+    speeds = {role: motion_metrics.speeds(tr.tolist(), times)[1:] for role, tr in tracks.items()}
+    rows = segments.speed_seams(times[1:], speeds, boundaries_s, 1.0)
+    for row, t in zip(rows, boundaries_s):
+        row["rotation_step_ratio"] = segments.step_ratio(steps, int(round(t * fps)))
+    return {"seams": rows, "rotation_step_ratio_max": segments.worst(rows, "rotation_step_ratio"),
+            "speed_step_ratio_max": segments.worst(rows, "speed_step_ratio_max")}
+
+
+def segment_follow(single1, single2, starts, names77):
+    """Phase 9-2 — 같은 seed 의 2차가 세그먼트마다 1차를 얼마나 재현하는가(cm): 몸(엉덩 · 발목 · 어깨 · 머리 — 파지 제약이 옮기는 손 · 팔꿈치 제외) ·
+    손목 위치 차 p50 · p95 · 최대, 바닥 루트 xz 차. starts = 세그먼트 시작 프레임."""
+    import numpy as np
+    names = list(names77)
+    n = int(single1["posed_joints"].shape[0])
+    body = [names.index(METRIC_JOINTS[r]) for r in ("hip_l", "hip_r", "foot_l", "foot_r", "shoulder_l", "shoulder_r", "head")]
+    hands = [names.index("LeftHand"), names.index("RightHand")]
+    p1, p2 = single1["posed_joints"] * 100.0, single2["posed_joints"] * 100.0
+    r1, r2 = single1["smooth_root_pos"][:, [0, 2]] * 100.0, single2["smooth_root_pos"][:, [0, 2]] * 100.0
+    bounds = list(starts) + [n]
+    out = []
+
+    def spread(d):
+        return {"p50": round(float(np.percentile(d, 50)), 2), "p95": round(float(np.percentile(d, 95)), 2), "max": round(float(d.max()), 2)}
+    for i, (a, b) in enumerate(zip(bounds, bounds[1:])):
+        out.append({"index": i, "frames": [a, b - 1], "body_cm": spread(np.linalg.norm(p2[a:b, body] - p1[a:b, body], axis=-1).ravel()),
+                    "hands_cm": spread(np.linalg.norm(p2[a:b, hands] - p1[a:b, hands], axis=-1).ravel()),
+                    "root_xz_cm": spread(np.linalg.norm(r2[a:b] - r1[a:b], axis=-1))})
+    return out
+
+
 def smooth_output(single, skeleton, sigma, device):
     """2차 출력 시간 스무딩 — σ 는 계획(refine.plan 의 smooth_sigma_frames)이 정한 값을 그대로 쓴다. 로컬 회전(쿼터니언 부호 연속) · 루트 위치에
     가우시안(refine.smooth_rotations · smooth_series) → 77 관절 FK 로 전역 회전 · 관절 위치를 다시 만든다. smooth_root_pos · heading(이미 매끈한
@@ -267,11 +323,19 @@ def run(args, report):
     if isinstance(skeleton, SOMASkeleton30):
         skeleton = skeleton.somaskel77.to(device)  # 출력은 모델 안에서 이미 77 관절로 바뀌었다
     out_dir = pathlib.Path(args["out_dir"])
+    prompts, frame_list, transition = call_inputs(args)
+    boundaries = args.get("boundaries_s")
+    if args.get("prompts"):
+        report["segments"] = {"count": len(prompts), "frames": frame_list, "transition_frames": transition, "boundaries_s": boundaries}
+    names77 = list(skeleton.bone_order_names)
 
     def generate(seed, constraints):
         seed_everything(seed)
-        return model([args["prompt"]], [args["frames"]], constraint_lst=constraints, num_denoising_steps=args["steps"],
-                     num_samples=args["samples"], multi_prompt=True, num_transition_frames=5, post_processing=postprocess, return_numpy=True)
+        return model(prompts, frame_list, constraint_lst=constraints, num_denoising_steps=args["steps"],
+                     num_samples=args["samples"], multi_prompt=True, num_transition_frames=transition, post_processing=postprocess, return_numpy=True)
+
+    def seams(single):
+        return source_seams(single, names77, float(model.fps), boundaries, skeleton.root_idx)
 
     def pick(output, i):
         n = int(output["posed_joints"].shape[0])
@@ -310,13 +374,16 @@ def run(args, report):
         gen_seconds.append(round(time.time() - t, 2))
         n = int(output["posed_joints"].shape[0])
         for i in range(n):
-            report["samples"].append({"index": i, **export(pick(output, i), out_dir / f"{args['stem']}_{i:02d}")})
+            single = pick(output, i)
+            entry = {"index": i, **export(single, out_dir / f"{args['stem']}_{i:02d}")}
+            if boundaries:
+                entry["segments"] = seams(single)
+            report["samples"].append(entry)
     else:
         # Phase 8-1 — seed 마다 후보 하나(1차 → [자동 제약 → 2차])
         refine_cfg = args.get("refine") or {"passes": 1, "rules": []}
         if refine_cfg["passes"] == 2 and args["samples"] != 1:
             raise RunError("REFINE_WITH_SAMPLES", "refine (two passes) generates one sample per seed — plan with generation.samples 1")
-        names77 = list(skeleton.bone_order_names)
         window = tuple(args.get("metric_window") or (None, None))
         spacing = next((r.get("spacing_cm") for r in refine_cfg["rules"] if r.get("flag") == "two_hand_weapon_grip"), None)
 
@@ -341,6 +408,11 @@ def run(args, report):
                 entry["refine"] = info
                 entry["pass1_npz"] = stem.with_name(stem.name + "_pass1.npz").as_posix()
                 final = second
+            if boundaries:
+                entry["segments"] = seams(final)
+                if final is not first:
+                    entry["segments"]["pass1"] = seams(first)
+                    entry["segments"]["follow"] = segment_follow(first, final, [0] + [int(round(b * float(model.fps))) for b in boundaries], names77)
             gen_seconds.append(round(time.time() - t, 2))
             report["samples"].append({**entry, **export(final, stem)})
     report["postprocess"] = {"requested": postprocess, "applied": postprocess}

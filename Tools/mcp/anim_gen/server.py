@@ -100,7 +100,13 @@ def plan_motion_generation(request: dict) -> dict:
             {path, unit auto|cm|m|mm|inch|<cm per unit>, facing auto|keep|+X|-X|+Y|-Y (UE axes; auto = the target skeleton's),
             range{start, end} seconds, axis_forward "-Z", axis_up "Y"} — puts the blender provider first: BVH → FBX in a headless
             Blender subprocess, then import → retarget), prompt? (the English sentence the local_ai model reads — YOU write it from the
-            user's words; description stays a record), generation?{seed? (omit → the plan pins one), samples 1-4, steps 10-1000 (100),
+            user's words; description stays a record), segments?[{prompt, duration_seconds ≥ 0.5, name? (montage section name, default
+            Seg1…), swing? (one segment at most — fix.timing looks for the swing peak in it)}] (2-6, instead of prompt — a multi-step move
+            such as wind-up → slash → recover as one local_ai Kimodo run, each prompt in order, each later segment re-generated from the
+            previous one's last generation.transition_frames (1-10, default 5) poses; total ≤ 10 s, duration_seconds omitted or their sum;
+            a seams step measures the boundaries on the final sequence (mapped through fix.timing) and package.montage.sections "segments"
+            puts montage sections there — Job segments; other providers are excluded with SEGMENTS_UNSUPPORTED),
+            generation?{seed? (omit → the plan pins one), samples 1-4, steps 10-1000 (100),
             postprocess auto|on|off (Kimodo foot-skate cleanup), pick (which sample is retargeted), constraints[] — root_path{points[{t s,
             forward_cm, left_cm, yaw_deg? (+ = turn left)}]} character-relative to the first frame | keep_pose{npz (a previous Kimodo
             NPZ under ImportSourceRoots), times[] s, part full|left_hand|right_hand|left_foot|right_foot} (keep those poses, regenerate
@@ -116,8 +122,10 @@ def plan_motion_generation(request: dict) -> dict:
             spacing_cm? (0-100, the same on the GENERATION skeleton — the target gets a different gap; give one of the two; both omitted =
             a sword hilt, the lead knuckle width + 1 cm) — the grip check is then each skeleton's gap ± 13 cm × its arm-length ratio
             (needs the editor at plan time), from_s?, to_s?}, keyframe_step 1-10 (3)} (pass 2 keeps the pass-1 wrist bend and is smoothed σ 1 frame),
-            select{weights{grip 3, stance 2, swing 2, attack 2, clearance 1, breakage 1, cross 2 (wrists crossed — grip only), head 2 (hands
-            in the head)}}},
+            select{weights{grip 3, stance 0.5, swing 1 (both fixed later by fix.ops / fix.timing), attack 2, clearance 1, breakage 1, cross 2
+            (wrists crossed — grip only), head 1 (hands near the head bone), wrist 2 (the support wrist bent over 60° on grip frames — or
+            either wrist over 90° — that pass 2 and fix.body keep), head_deep 2 (long or deep hand/forearm → head-mesh runs that fix.body
+            skips), handle 0 (record only — off palm ↔ the attached handle when the request has weapon)}}},
             review?{render{times[] s on the converted clip (0 = its first
             frame) | count 1-12 (default 4, evenly spaced, first and last included), views front|side (both), reference_images[] (≤ 4
             absolute .png/.jpg under ImportSourceRoots — an extra sheet column, the same image on every row)} (the converted SOURCE

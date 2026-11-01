@@ -17,10 +17,12 @@ from anim_graph_mcp import bridge
 
 def pid_alive(pid: int) -> bool:
     try:
-        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"], capture_output=True, text=True, timeout=15).stdout
+        # tasklist 는 OEM 코드 페이지(한국어 Windows = cp949)로 쓴다 — python -X utf8 에서도 깨지지 않게(PID 판정은 숫자만 본다)
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"], capture_output=True, text=True, encoding="oem", errors="replace",
+                             timeout=15).stdout
     except (OSError, subprocess.SubprocessError):
         return False
-    return f",\"{pid}\"," in out
+    return f",\"{pid}\"," in (out or "")
 
 
 def wait_for_exit(pid: int | None, timeout: float, interval: float) -> bool:

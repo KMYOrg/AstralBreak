@@ -5,7 +5,7 @@ import copy
 import os
 import re
 
-from . import body_fit, bvh, selection, timing, weapon as weapon_req
+from . import body_fit, bvh, segments as seg, selection, timing, weapon as weapon_req
 from .editor import package_path
 from .envelope import AnimGenError, diag
 
@@ -74,6 +74,10 @@ DEFAULTS = {
     # Phase 8-4c — 손에 든 무기(weapon.py). 장비 데이터는 Claude Code 가 읽어 넣는다(플러그인 · anim_gen 은 읽지 않는다 — §8)
     "weapon": None,
 }
+# Phase 9-2 — 세그먼트(segments.py). 줄 때만 정규화된 요청에 키가 생긴다(없는 요청의 계획 · 결과는 9-1 과 비트 같다)
+OPTIONAL = ("segments",)
+SEGMENT_KEYS = {"prompt", "duration_seconds", "name", "swing"}
+_MISSING = object()
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
@@ -96,9 +100,9 @@ def normalize(raw: dict) -> tuple[dict, list[dict]]:
     diagnostics: list[dict] = []
     if "save" in raw:
         raise _bad("save", "save is an argument of generate_motion, not part of the request", reason="UNKNOWN_FIELD")
-    unknown = sorted(set(raw) - set(DEFAULTS) - set(REQUIRED))
+    unknown = sorted(set(raw) - set(DEFAULTS) - set(REQUIRED) - set(OPTIONAL))
     if unknown:
-        raise _bad(unknown[0], f"unknown field(s) {unknown}", reason="UNKNOWN_FIELD", allowed=sorted(set(DEFAULTS) | set(REQUIRED)))
+        raise _bad(unknown[0], f"unknown field(s) {unknown}", reason="UNKNOWN_FIELD", allowed=sorted(set(DEFAULTS) | set(REQUIRED) | set(OPTIONAL)))
     req = copy.deepcopy(DEFAULTS)
     req.update(copy.deepcopy(raw))
     for key in REQUIRED:
@@ -185,7 +189,9 @@ def normalize(raw: dict) -> tuple[dict, list[dict]]:
     if req["prompt"] is not None and (not isinstance(req["prompt"], str) or not req["prompt"].strip() or len(req["prompt"]) > PROMPT_MAX):
         raise _bad("prompt", f"must be a non-empty English sentence for the model (≤ {PROMPT_MAX} characters)")
     req["prompt"] = req["prompt"].strip() if req["prompt"] else None
+    transition = req["generation"].pop("transition_frames", _MISSING) if isinstance(req["generation"], dict) else _MISSING
     req["generation"] = _generation(req["generation"])
+    _segments(req, transition, raw)
     req["review"] = _review(req["review"])
     req["fix"] = _fix(req["fix"])
     req["weapon"] = _weapon(req["weapon"], req["fix"], raw.get("fix"))
@@ -236,6 +242,57 @@ def _motion_file(raw) -> dict | None:
     except bvh.BvhError as err:
         raise _bad("motion_file.axis_forward", err.message) from None
     return mf
+
+
+def _segments(req: dict, transition, raw: dict) -> None:
+    """segments[{prompt, duration_seconds, name?, swing?}] (Phase 9-2 — 2 ~ 6개, prompt 대신) · generation.transition_frames(segments 와만).
+    duration_seconds 는 생략(= 세그먼트 합) 또는 합과 같아야 한다(± 1 프레임 @ 30 fps). 프레임 · 경계는 local_ai 계획(segments.plan_frames)."""
+    items = raw.get("segments")
+    if items is None:
+        req.pop("segments", None)
+        if transition is not _MISSING:
+            raise _bad("generation.transition_frames", "only with segments — the frames each later segment re-generates from the previous "
+                       "one's end", reason="REQUIRES_SEGMENTS")
+        return
+    if req["prompt"] is not None:
+        raise _bad("segments", "give prompt (one motion) or segments (prompts in order) — not both", reason="CONFLICTING_FIELDS")
+    if not isinstance(items, list) or not seg.MIN_SEGMENTS <= len(items) <= seg.MAX_SEGMENTS:
+        raise _bad("segments", f"must be a list of {seg.MIN_SEGMENTS} ~ {seg.MAX_SEGMENTS} {{prompt, duration_seconds, name?, swing?}}")
+    out, names = [], set()
+    for k, s in enumerate(items):
+        where = f"segments[{k}]"
+        s = _keys(s, SEGMENT_KEYS, where)
+        prompt = s.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > PROMPT_MAX:
+            raise _bad(f"{where}.prompt", f"must be a non-empty English sentence for the model (≤ {PROMPT_MAX} characters)")
+        d = s.get("duration_seconds")
+        if not _num(d, seg.MIN_SEGMENT_S):
+            raise _bad(f"{where}.duration_seconds", f"must be seconds ≥ {seg.MIN_SEGMENT_S:g} (longer than the transition frames)")
+        name = s.get("name") if s.get("name") is not None else seg.default_name(k)
+        if not isinstance(name, str) or not _NAME.match(name):
+            raise _bad(f"{where}.name", "must be a section name (letters, digits, '_')")
+        if name in names:
+            raise _bad(f"{where}.name", f"'{name}' is used twice", reason="DUPLICATE_NAME")
+        names.add(name)
+        if not isinstance(s.get("swing", False), bool):
+            raise _bad(f"{where}.swing", "must be true or false")
+        out.append({"name": name, "prompt": prompt.strip(), "duration_seconds": d, "swing": bool(s.get("swing", False))})
+    if sum(s["swing"] for s in out) > 1:
+        raise _bad("segments", "at most one segment can be swing: true (fix.timing looks for the swing peak in it)", reason="CONFLICTING_FIELDS")
+    total = sum(s["duration_seconds"] for s in out)
+    if total > seg.MAX_TOTAL_S + 1e-9:
+        raise _bad("segments", f"durations add up to {total:g}s — the model makes up to {seg.MAX_TOTAL_S:g}s", reason="DURATION_OVER_MAX")
+    if req["duration_seconds"] is None:
+        req["duration_seconds"] = round(total, 4)
+    elif abs(req["duration_seconds"] - total) > 1.0 / 30.0 + 1e-6:
+        raise _bad("duration_seconds", f"is {req['duration_seconds']:g}s but the segments add up to {total:g}s — omit it or give the sum",
+                   reason="CONFLICTING_FIELDS")
+    t = seg.TRANSITION_DEFAULT if transition is _MISSING or transition is None else transition
+    lo, hi = seg.TRANSITION_RANGE
+    if not _int(t, lo, hi):
+        raise _bad("generation.transition_frames", f"must be an integer in [{lo}, {hi}] (default {seg.TRANSITION_DEFAULT} — Kimodo's)")
+    req["segments"] = out
+    req["generation"]["transition_frames"] = t
 
 
 def _int(value, low: int, high: int) -> bool:
@@ -569,10 +626,18 @@ def _package(raw, req: dict) -> dict | None:
         for key in ("blend_in", "blend_out"):
             if mon[key] is not None and not _num(mon[key], 0):
                 raise _bad(f"package.montage.{key}", "must be seconds ≥ 0")
-        if mon["sections"] is not None:
+        if mon["sections"] == "segments":
+            # Phase 9-2 — 세그먼트 경계(시간 보정 뒤 타임라인으로 옮긴 시각)로 섹션을 실행 때 만든다(이음매 단계 결과)
+            if not req.get("segments"):
+                raise _bad("package.montage.sections", "\"segments\" makes sections at the segment boundaries — the request has no segments",
+                           reason="REQUIRES_SEGMENTS")
+            if req["edits"]:
+                raise _bad("package.montage.sections", "\"segments\" cannot follow edits.operations — the boundaries are not mapped through edit ops; "
+                           "give the sections as a list", reason="CONFLICTING_FIELDS")
+        elif mon["sections"] is not None:
             secs = mon["sections"]
             if not isinstance(secs, list) or not secs:
-                raise _bad("package.montage.sections", "must be a non-empty list of {name, start, next?}")
+                raise _bad("package.montage.sections", "must be a non-empty list of {name, start, next?} (or \"segments\" with request segments)")
             for k, s in enumerate(secs):
                 _keys(s, {"name", "start", "next"}, f"package.montage.sections[{k}]")
                 if not isinstance(s.get("name"), str) or not s["name"].strip() or not _num(s.get("start"), 0) \

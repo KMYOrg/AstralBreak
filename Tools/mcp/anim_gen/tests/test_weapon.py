@@ -137,6 +137,26 @@ def test_resolve_reads_sockets_chains_and_geometry():
     assert single["grip"]["from"] == single["grip"]["to"] and single["grip"]["rotation"] == list(wp.quat_from_rotator([0.0, 0.0, 90.0]))
 
 
+def test_handle_report_measures_the_off_palm_to_the_attached_handle():
+    """Phase 9-1 선별 기록 handle — 무기를 hand_r 에 항등으로 붙이고 자루 = 부착 본 x 축(−10 ~ 30 cm). 왼 손바닥(손목 · 중지 뿌리 중점)이 자루에서
+    4 cm(파지 간격 프레임) · 30 cm(벌린 프레임 — 띠 밖), 부착 본이 z 로 90° 돌면 자루도 따라 돈다."""
+    resolved = {"bone": "hand_r", "lead": "r", "local": [[0, 0, 0, 1], [0, 0, 0], [1, 1, 1]],
+                "handle": {"point": [0.0, 0.0, 0.0], "dir": [1.0, 0.0, 0.0], "extent_cm": [-10.0, 30.0], "radius_cm": 2.0}}
+    q90 = [0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4)]
+    pos = {"hand_r": [[0.0, 0.0, 100.0]] * 3, "hand_l": [[20.0, 4.0, 99.0], [20.0, 30.0, 99.0], [-4.0, 20.0, 99.0]],
+           "middle_01_l": [[20.0, 4.0, 101.0], [20.0, 30.0, 101.0], [-4.0, 20.0, 101.0]]}
+    rot = {"hand_r": [[0, 0, 0, 1], [0, 0, 0, 1], q90]}
+    bones = {"hand_l": "hand_l", "hand_r": "hand_r", "finger_l": "middle_01_l", "finger_r": "middle_01_r"}
+    r = wp.handle_report(resolved, pos, rot, bones, (0.0, 25.0))
+    assert r["hand"] == "hand_l" and r["frames"] == 3 and r["grip_frames_pct"] == 66.7 and r["grip_dist_p50"] == pytest.approx(4.0, abs=1e-3)
+    assert r["grip_angle_p50"] == pytest.approx(math.degrees(math.atan2(4.0, 20.0)), abs=0.01) and r["all_dist_p50"] == pytest.approx(4.0, abs=1e-3)
+    assert r["all_angle_p50"] == pytest.approx(math.degrees(math.atan2(4.0, 20.0)), abs=0.01)
+    # 부착 본 회전 · 보조 손 중지 뿌리 · 자루 선이 없으면 잴 수 없다
+    assert wp.handle_report(resolved, pos, {}, bones, (0.0, 25.0)) is None
+    assert wp.handle_report({**resolved, "lead": "l"}, pos, rot, bones, (0.0, 25.0)) is None
+    assert wp.handle_report({**resolved, "handle": None}, pos, rot, bones, (0.0, 25.0)) is None
+
+
 @pytest.mark.parametrize("weapon, target, reason", [
     ({**SICKLE, "attach": {"socket": "Nope"}}, target_info(), "WEAPON_ATTACH_UNKNOWN"),
     ({**SICKLE, "grips": [{"hand": "left", "socket": "Nope"}]}, target_info(), "WEAPON_GRIP_UNKNOWN"),

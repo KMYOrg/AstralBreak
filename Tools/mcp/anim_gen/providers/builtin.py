@@ -12,6 +12,8 @@ from __future__ import annotations
 import pathlib
 
 from .. import bvh, motion_metrics, selection, timing
+from .. import segments as segments_mod
+from .. import weapon as weapon_mod
 from ..editor import EditorCallError, asset_name, package_path
 from ..envelope import diag, limitation
 from ..fallback import from_editor_error
@@ -157,10 +159,13 @@ class DirectKey(Provider):
         except timing.TimingError as err:
             raise StepFailed("VALIDATION_FAILED", "NO_PROFILE", f"{asset}: {err.args[1] if len(err.args) > 1 else err}") from None
 
-    def plan_timing(self, request: dict, source_on_target: str | None, pctx: PlanContext) -> dict:
+    def plan_timing(self, request: dict, source_on_target: str | None, pctx: PlanContext, swing_window: list[float] | None = None) -> dict:
+        """swing_window = Phase 9-2 segments 의 swing 세그먼트(± 전이, 생성 타임라인 초) — 휘두름 정점을 그 창에서만 찾는다(timing.detect)."""
         cfg = request["fix"]["timing"]
         step = {"step": "timing", "provider": self.name, "tool": self.TIMING_TOOL,
                 "inputs": {**cfg, "loop": request["loop"], "root_motion": root_motion_flag(request), "bones": None}, "resolved": None}
+        if swing_window:
+            step["inputs"]["swing_window_s"] = list(swing_window)
         if not pctx.editor_ok:
             return step
         try:
@@ -336,11 +341,18 @@ class RetargetPipe(Provider):
         flags = spec.get("flags") or []
         grip_on = bool((request["constraints"] or {}).get("two_hand_weapon_grip"))
         weights = selection.check_weights(spec.get("weights"))
-        inputs = {"candidates": spec["candidates"], "metrics": ["grip", "stance", "swing", "attack", "clearance", "breakage", "cross", "head",
+        weapon = None
+        if pctx.editor_ok:
+            hands, weapon = self.select_hands(pctx.editor, request, retarget_inputs.get("target_mesh"), pctx.diagnostics)
+            bones = {**bones, **hands} if bones is not None else None
+        else:
+            risks.append("SELECTION_HANDS_AT_RUN")
+        inputs = {"candidates": spec["candidates"], "metrics": ["grip", "stance", "swing", "attack", "clearance", "breakage", "cross", "head", "wrist",
+                                                                "head_deep", "handle (weapon — weight 0: record only)",
                                                                 "non_grip · hand raise · jitter · hand contact (record only)"],
                   "weights": weights, "thresholds": dict(selection.THRESHOLDS), "metric_version": selection.METRIC_VERSION,
                   "grip_on": grip_on, "swing_on": request["motion_category"] == "weapon_action", "grip_window_s": spec.get("grip_window_s"),
-                  "grip_spacing": spec.get("grip_spacing"),
+                  "grip_spacing": spec.get("grip_spacing"), "lead_hand": self.lead_hand(request), "weapon": weapon,
                   "bones": bones, "body_clearance": retarget_inputs["body_clearance"], "refine_flags": flags,
                   "output": f"<work>/Candidates/{CANDIDATE_PREFIX}<import name>"}
         return {"step": "select", "provider": self.name, "tool": "retarget_animations(candidates) → validate_animation(profile_positions · body_clearance)",
@@ -395,6 +407,43 @@ class RetargetPipe(Provider):
                     stack.append(child)
             out[f"hand_tree_{side}"] = pairs
         return out
+
+    @staticmethod
+    def lead_hand(request: dict) -> str:
+        """양손 파지의 주 손(손목 꺾임은 그 반대 손 — Phase 9-1): 요청 무기의 lead_hand, 없으면 generation.refine.grip.lead_hand, 없으면 right."""
+        refine = ((request.get("generation") or {}).get("refine") or {}).get("grip") or {}
+        return (request.get("weapon") or {}).get("lead_hand") or refine.get("lead_hand") or "right"
+
+    @staticmethod
+    def select_hands(editor, request: dict, mesh: str | None, diagnostics: list[dict], step: str = "select") -> tuple[dict, dict | None]:
+        """select 의 손 측정(Phase 9-1) — 대상 메시 inspect_skeleton(suggest_finger_chains — 이름 추측 없음)의 {Side}Middle 체인 시작 = 손목 꺾임의
+        finger_l/finger_r(없으면 그 지표 None · SELECTION_FINGERS_UNKNOWN), 요청 weapon 에 보조 손 grip 이 있으면 무기 메시(details · geometry)로 부착 ·
+        자루 선을 푼다(weapon.resolve — 기록 지표 handle. 못 풀면 HANDLE_NOT_MEASURED 진단 · None, 선별을 막지 않는다)."""
+        if not mesh:
+            return {}, None
+        try:
+            target = editor.require("inspect_skeleton", skeletal_mesh=mesh, details=True, suggest_finger_chains=True)
+        except EditorCallError as err:
+            raise from_editor_error(step, err)
+        roots = weapon_mod.finger_roots(target)
+        hands = {f"finger_{s}": roots[s] for s in ("l", "r") if roots.get(s)}
+        if len(hands) < 2:
+            diagnostics.append(diag("warning", "SELECTION_FINGERS_UNKNOWN", f"{mesh}: no Left/RightMiddle finger chain suggestion — wrist bend is not "
+                                    "scored"))
+        weapon = request.get("weapon")
+        if not weapon or not weapon_mod.off_grip(weapon) or weapon_mod.off_grip(weapon).get("runtime_ik"):
+            return hands, None
+        try:
+            info = editor.require("inspect_skeleton", skeletal_mesh=weapon["mesh"], details=True, geometry=True)
+            resolved = weapon_mod.resolve(weapon, target, info)
+        except (EditorCallError, weapon_mod.WeaponError) as err:
+            diagnostics.append(diag("warning", "HANDLE_NOT_MEASURED", f"weapon {weapon['mesh']}: {getattr(err, 'message', None) or err} — the handle record is "
+                                    "skipped"))
+            return hands, None
+        if not resolved.get("handle"):
+            diagnostics.append(diag("warning", "HANDLE_NOT_MEASURED", f"weapon {weapon['mesh']}: no handle line in its geometry — the handle record is skipped"))
+            return hands, None
+        return hands, {k: resolved[k] for k in ("mesh", "bone", "socket", "local", "lead", "handle")}
 
     @staticmethod
     def _inspect(editor, skeleton: str, details: bool = False) -> dict:
@@ -461,8 +510,86 @@ class RetargetPipe(Provider):
             "Additive Pose op 로 되돌린다(facing_yaw_deg). 루트 회전이 Yaw 뿐일 때 정확", "retarget",
             source_axis=facing["source"], target_axis=facing["target"], yaw_deg=facing["yaw_deg"])]
 
+    # ---- 세그먼트 이음매 (Phase 9-2) ----
+    SEAMS_TOOL = "validate_animation(seams · profile_positions)"
+
+    def plan_seams(self, request: dict, gen_inputs: dict, pctx: PlanContext) -> dict:
+        """세그먼트 경계(생성 타임라인) → 최종 시퀀스 타임라인(시간 보정 warp — 실행 때) · 이음매 수치 · 몽타주 섹션 원천. 측정 본 = 손목 · 발목
+        (select 와 같은 원천) · 골반(엉덩 본의 부모) · 루트(부모 없는 본). edits 가 있으면 경계를 옮길 수 없어 기록만 생성 타임라인."""
+        segs = gen_inputs.get("segments") or []
+        montage = (request["package"] or {}).get("montage") or {}
+        inputs = {"names": [s["name"] for s in segs], "starts_s": [s["start_s"] for s in segs], "boundaries_s": list(gen_inputs.get("boundaries_s") or []),
+                  "transition_frames": gen_inputs.get("transition_frames"), "length_s": gen_inputs.get("duration_seconds"),
+                  "map": "edits — not mapped" if request["edits"] else ("fix.timing warp" if request["fix"].get("timing") else "identity"),
+                  "sections": montage.get("sections") == "segments", "bones": None,
+                  "thresholds": {"seam_ratio_max": segments_mod.SEAM_RATIO_MAX, "speed_step_ratio_max": segments_mod.SEAM_RATIO_MAX}}
+        if pctx.editor_ok:
+            inputs["bones"] = self.seam_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics)
+        return {"step": "seams", "provider": self.name, "tool": self.SEAMS_TOOL, "inputs": inputs}
+
+    def seam_bones(self, editor, skeleton: str, diagnostics: list[dict]) -> dict:
+        bones = self.selection_bones(editor, skeleton, diagnostics, "seams")
+        info = self._inspect(editor, skeleton, details=True)
+        parents = {b.get("name"): b.get("parent") for b in info.get("bones") or []}
+        root = next((n for n, p in parents.items() if not p), None)
+        return {"hand_l": bones["hand_l"], "hand_r": bones["hand_r"], "foot_l": bones["foot_l"], "foot_r": bones["foot_r"],
+                "pelvis": parents.get(bones["hip_l"]) or "pelvis", "root": root or "root"}
+
+    def _seams(self, ctx: RunContext) -> StepResult:
+        """최종 시퀀스 한 번 측정 — 경계를 최종 타임라인으로(timing warp), C++ seams(회전 단계 비 · SEAM_JUMP) + 속도 앞뒤 비 · 속도 변화 비,
+        몽타주 섹션(package.montage.sections "segments"). Job segments 에 남긴다. 판정 초과는 경고 진단(애셋은 그대로 — 사람 판정)."""
+        editor = ctx.editor
+        inputs = ctx.step["inputs"]
+        asset = ctx.values["asset"]
+        target = ctx.request["target_skeleton"]
+        diagnostics: list[dict] = []
+        bones = inputs.get("bones") or self.seam_bones(editor, target, diagnostics)
+        timing_rec = ctx.values.get("timing") or {}
+        warp = timing_rec.get("warp") if timing_rec.get("applied") else None
+        mapped = None if ctx.request["edits"] else segments_mod.map_times(inputs["boundaries_s"], warp)
+        starts = None if mapped is None else [0.0] + mapped
+        out = {"names": inputs["names"], "transition_frames": inputs["transition_frames"], "boundaries_generated_s": inputs["boundaries_s"],
+               "boundaries_s": mapped, "map": inputs["map"] if warp or ctx.request["edits"] else "identity", "asset": asset, "bones": bones,
+               "thresholds": inputs["thresholds"], "seams": None, "sections": None}
+        if mapped is None:
+            diagnostics.append(diag("warning", "SEGMENT_BOUNDARIES_UNMAPPED", "edits.operations ran after generation — the segment boundaries are recorded "
+                                    "on the generated timeline only (no seam check)"))
+            return StepResult(values={"segments": out}, diagnostics=diagnostics)
+        try:
+            item = (editor.require("validate_animation", assets=[asset], skeleton=target, seams=mapped, profile_bones=sorted(set(bones.values())),
+                                   profile_positions=True).get("assets") or [None])[0] or {}
+        except EditorCallError as err:
+            raise from_editor_error("seams", err)
+        numeric = item.get("numeric") or {}
+        profile = numeric.get("profile") or {}
+        scale = (numeric.get("pelvis_height_cm") or 100.0) / 100.0
+        speeds = {role: (profile.get("speed_cm_s") or {}).get(name) for role, name in bones.items()}
+        rows = segments_mod.speed_seams(profile.get("times") or [], {k: v for k, v in speeds.items() if v}, mapped, scale)
+        cpp = {round(s.get("time", -1), 4): s for s in ((item.get("request") or {}).get("seams") or [])}
+        for row in rows:
+            row["rotation_step_ratio"] = (cpp.get(row["time"]) or {}).get("step_ratio")
+        length = numeric.get("length") or inputs.get("length_s")
+        out.update(seams=rows, length_s=length, rotation_step_ratio_max=segments_mod.worst(rows, "rotation_step_ratio"),
+                   speed_step_ratio_max=segments_mod.worst(rows, "speed_step_ratio_max"))
+        limit = inputs["thresholds"]["seam_ratio_max"]
+        for row in rows:
+            if (row.get("rotation_step_ratio") or 0) > limit or (row.get("speed_step_ratio_max") or 0) > limit:
+                diagnostics.append(diag("warning", "SEGMENT_SEAM_JUMP", f"segment seam {row['time']}s: rotation step ×{row.get('rotation_step_ratio')} · speed "
+                                        f"change ×{row.get('speed_step_ratio_max')} the surrounding frames (max {limit:g})", seam=row))
+        if inputs.get("sections") and length:
+            secs, skipped = segments_mod.sections(inputs["names"], starts, float(length), float(numeric.get("frame_rate") or 30.0))
+            out.update(sections=secs, sections_skipped=skipped)
+            if skipped:
+                diagnostics.append(diag("warning", "SEGMENT_SECTION_SKIPPED", f"montage sections {[s['name'] for s in skipped]} collapsed after fix.timing "
+                                        "trimmed the clip — not added", skipped=skipped))
+        diagnostics.append(diag("info", "SEGMENTS_MEASURED", f"{len(inputs['names'])} segments, boundaries {inputs['boundaries_s']}s → {mapped}s on "
+                                f"{asset_name(asset)}: rotation step ×{out['rotation_step_ratio_max']} · speed change ×{out['speed_step_ratio_max']} max"))
+        return StepResult(values={"segments": out}, diagnostics=diagnostics)
+
     def run(self, ctx: RunContext) -> StepResult:
         kind = ctx.step["step"]
+        if kind == "seams":
+            return self._seams(ctx)
         return self._import(ctx) if kind == "import" else self._select(ctx) if kind == "select" else self._retarget(ctx)
 
     def _import(self, ctx: RunContext) -> StepResult:
@@ -632,6 +759,12 @@ class RetargetPipe(Provider):
             facing = self.resolve_facing(ctx.request, self._inspect(editor, ctx.values["skeleton"], details=True), editor)
         # 지표 버전 1 계획(역할 6개)도 돈다 — 없는 역할(어깨 · 팔꿈치)은 기본 이름
         bones = {**DEFAULT_BONES, **(inputs.get("bones") or self.selection_bones(editor, ctx.request["target_skeleton"], diagnostics))}
+        weapon = inputs.get("weapon")
+        if "finger_l" not in bones and "finger_r" not in bones:
+            # 계획 때 에디터가 없었거나(SELECTION_HANDS_AT_RUN) 9-1 전 계획 — 손가락 뿌리 · 무기를 지금 푼다
+            hands, weapon = self.select_hands(editor, ctx.request, rt.get("target_mesh"), diagnostics)
+            bones.update(hands)
+        support = ("r" if inputs.get("lead_hand", self.lead_hand(ctx.request)) == "left" else "l") if inputs["grip_on"] else None
         # 자루 무기 띠 = 계획이 푼 대상 간격 ± 대상 허용(motion_metrics.grip_spacing). 버전 4 계획의 grip_spacing_cm(× pelvis scale 띠)은 쓰지 않는다
         spacing = inputs.get("grip_spacing")
         if spacing is None and inputs.get("grip_spacing_cm"):
@@ -658,7 +791,10 @@ class RetargetPipe(Provider):
             if rt.get("source_feet"):
                 params["source_feet"] = rt["source_feet"]
             if clearance != "off":
-                params["body_clearance"] = {"mesh": rt["target_mesh"], **({"ik_rig": target_rig} if target_rig else {})}
+                # parts · per_frame(8-4a 옵트인 — arms[] 는 그대로) = 메시 머리목 깊은 관통(head_deep)
+                params["body_clearance"] = {"mesh": rt["target_mesh"], **({"ik_rig": target_rig} if target_rig else {}), "parts": "all", "per_frame": True}
+            if weapon:
+                params["profile_rotations"] = True   # 자루 기록 — 부착 본 컴포넌트 회전
             validated = editor.require("validate_animation", **params).get("assets") or []
         except EditorCallError as err:
             raise from_editor_error("select", err, created=created)
@@ -668,10 +804,10 @@ class RetargetPipe(Provider):
             row = {"index": c["index"], "seed": c.get("seed", seeds.get(c["index"])), "source": c["asset"], "asset": outputs[c["asset"]],
                    "status": item.get("status", "PASSED"),
                    "metrics": self.candidate_metrics(item, bones, inputs.get("grip_window_s"), clearance_items.get(outputs[c["asset"]]),
-                                                     center, tolerance)}
+                                                     center, tolerance, support=support, weapon=weapon)}
             rows.append(row)
         ranked = selection.rank(rows, inputs.get("weights"), grip_on=inputs["grip_on"], swing_on=inputs["swing_on"])
-        ranked.update(bones=bones, body_clearance=clearance, retargeter=retargeter)
+        ranked.update(bones=bones, body_clearance=clearance, retargeter=retargeter, support=support, weapon=weapon)
         picked = ranked["picked"]
         if picked is None:
             raise StepFailed("VALIDATION_FAILED", "ALL_CANDIDATES_FAILED", f"all {len(rows)} candidate(s) fail validation_animation", created=created)
@@ -694,17 +830,19 @@ class RetargetPipe(Provider):
 
     @staticmethod
     def profile_bones(bones: dict) -> list[str]:
-        """select 측정 본 — 역할 본 + 머리(손-머리 근접) + 손 아래 자손(양손 겹침 · 손-머리 근접, 계획에 있을 때)."""
+        """select 측정 본 — 역할 본 + 머리(손-머리 근접) + 손 아래 자손(양손 겹침 · 손-머리 근접, 계획에 있을 때) + 중지 뿌리(손목 꺾임 — 보통 손 트리 안)."""
         tree = {b for side in ("l", "r") for pair in bones.get(f"hand_tree_{side}") or [] for b in pair}
         head = {bones[motion_metrics.HEAD_ROLE]} if bones.get(motion_metrics.HEAD_ROLE) else set()
-        return sorted({bones[k] for k in motion_metrics.ROLES} | head | tree)
+        fingers = {bones[k] for k in motion_metrics.OPTIONAL_ROLES if bones.get(k)}
+        return sorted({bones[k] for k in motion_metrics.ROLES} | head | tree | fingers)
 
     @staticmethod
     def candidate_metrics(item: dict, bones: dict, window, clearance_item: dict | None, spacing_cm: float | None = None,
-                          tolerance_cm: float = motion_metrics.GRIP_TOL_CM) -> dict:
-        """validate_animation 한 항목 → 후보 지표 {grip, stance, swing, attack, cross, head, clearance, non_grip, breakage, hand_contact} (motion_metrics
-        — Kimodo 쪽과 같은 정의). spacing_cm · tolerance_cm = 대상 cm 의 자루 무기 간격 · 허용(계획의 grip_spacing target_cm · tolerance_cm.target —
-        파지 판정 띠, motion_metrics.grip_band). 손-머리 근접의 손 점 = 손 트리 본."""
+                          tolerance_cm: float = motion_metrics.GRIP_TOL_CM, support: str | None = None, weapon: dict | None = None) -> dict:
+        """validate_animation 한 항목 → 후보 지표 {grip, stance, swing, attack, cross, head, wrist, head_deep, handle, clearance, non_grip, breakage,
+        hand_contact} (motion_metrics — Kimodo 쪽과 같은 정의). spacing_cm · tolerance_cm = 대상 cm 의 자루 무기 간격 · 허용(계획의 grip_spacing
+        target_cm · tolerance_cm.target — 파지 판정 띠, motion_metrics.grip_band). 손-머리 근접의 손 점 = 손 트리 본. support = 양손 파지의 보조 손(l | r —
+        손목 꺾임), weapon = select_hands 가 푼 무기(자루 기록 — profile 회전이 있어야 한다). 머리목 깊은 관통은 body_clearance per_frame 이 있을 때."""
         numeric = item.get("numeric") or {}
         profile = numeric.get("profile") or {}
         positions = profile.get("position_cm") or {}
@@ -712,9 +850,15 @@ class RetargetPipe(Provider):
         scale = (numeric.get("pelvis_height_cm") or 100.0) / 100.0
         tracks = {role: positions.get(bones[role]) for role in motion_metrics.ROLES}
         tracks[motion_metrics.HEAD_ROLE] = positions.get(bones.get(motion_metrics.HEAD_ROLE) or "")
+        for role in motion_metrics.OPTIONAL_ROLES:
+            tracks[role] = positions.get(bones.get(role) or "")
         hand_points = [positions[b] for b in sorted({child for s in ("l", "r") for _, child in bones.get(f"hand_tree_{s}") or []}) if positions.get(b)]
         win = tuple(window) if window else None
-        out = motion_metrics.measure(tracks, times, up=2, scale=scale, window=win, spacing_cm=spacing_cm, tolerance_cm=tolerance_cm, hand_points=hand_points)
+        out = motion_metrics.measure(tracks, times, up=2, scale=scale, window=win, spacing_cm=spacing_cm, tolerance_cm=tolerance_cm, hand_points=hand_points,
+                                     support=support)
+        out["head_deep"] = motion_metrics.head_deep((((item.get("body_clearance") or {}).get("per_frame")) or {}).get("series"), scale)
+        out["handle"] = (weapon_mod.handle_report(weapon, positions, profile.get("rotations") or {}, bones,
+                                                  motion_metrics.grip_band(scale, spacing_cm, tolerance_cm)) if weapon else None)
         segs = {s: [(positions[a], positions[b]) for a, b in bones.get(f"hand_tree_{s}") or [] if positions.get(a) and positions.get(b)] for s in ("l", "r")}
         out["hand_contact"] = motion_metrics.hand_contact(segs["l"], segs["r"], times, scale) if segs["l"] and segs["r"] else None
         arms = ((item.get("body_clearance") or {}).get("arms")) or []

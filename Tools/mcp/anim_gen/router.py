@@ -124,6 +124,10 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
     direct_key = registry.get("direct_key")
     target = request["target_skeleton"]
     risks: list[str] = []
+    if request.get("segments") and not getattr(provider, "takes_segments", False):
+        # Phase 9-2 — 세그먼트는 local_ai(Kimodo 다중 프롬프트)만. Provider 를 섞어 잇기(기존 모션 + 생성)는 9-3(U2-b)
+        raise PlanBlocked("UNSUPPORTED_REQUEST", "SEGMENTS_UNSUPPORTED", f"{name} does not generate request segments — local_ai (Kimodo multi-prompt) "
+                          "does; mixing providers per segment is not supported yet")
     if name in EXISTING_CHAIN:
         if name == "direct_key" and not (request["edits"] and request["reference_animations"]):
             raise PlanBlocked("UNSUPPORTED_REQUEST", "MISSING_INPUT", "provider direct_key needs edits.operations and a source "
@@ -209,12 +213,15 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
         timed = bool(request["fix"].get("timing"))
         if timed:
             # Phase 8-3 — 흐느적 보정은 리타깃 뒤 대상 시퀀스에서(생성 결과는 실행 때 잰다)
-            steps.append(direct_key.plan_timing(request, None, pctx))
+            steps.append(direct_key.plan_timing(request, None, pctx, swing_window=(first.get("inputs") or {}).get("swing_window_s")))
             risks.append("TIMING_RESOLVED_AT_RUN")
         body_lims, fitted = _plan_body(request, registry, pctx, None, steps, risks)
         if request["edits"]:
             steps.append(direct_key.plan_edit(request, None, pctx))
             risks.append("EDITS_NOT_PREVIEWED")
+        if request.get("segments"):
+            # Phase 9-2 — 최종 시퀀스의 세그먼트 경계(시간 보정 warp 로 옮긴 시각) · 이음매 수치 · 몽타주 섹션 원천
+            steps.append(retarget.plan_seams(request, first.get("inputs") or {}, pctx))
         steps.append(_validate_step(False))
         lims = expected_limitations(request, provider, reuse=False, resolved=first.pop("measured", None), has_edit=bool(request["edits"]) or timed or fitted,
                                     preview=None, handled=set(first.pop("handles_constraints", None) or ()))

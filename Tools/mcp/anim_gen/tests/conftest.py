@@ -317,6 +317,11 @@ class FakeEditor:
                                 "max_deg_per_frame": 30.0}}
             if p.get("profile_bones"):
                 item["numeric"]["profile"] = self._profile(p["profile_bones"], prof, bool(p.get("profile_positions")), bool(p.get("profile_rotations")))
+            if p.get("seams"):
+                # Phase 9-2 — C++ request.seams(SeamStepRatio) 흉내: prof.seam_ratio(기본 1.1), 3 넘으면 SEAM_JUMP
+                ratio = prof.get("seam_ratio", 1.1)
+                seams = [{"time": round(t, 4), "frame": int(round(t * (info["frame_rate"] or 30))), "step_ratio": ratio} for t in p["seams"]]
+                item["request"] = {"seams": seams, "issues": [{"level": "warning", "code": "SEAM_JUMP"} for _ in seams if ratio > 3.0]}
             if p.get("body_clearance"):
                 item["body_clearance"] = {"arms": [{"upper_arm": "upperarm_l", "frames_over_penetration_pct": pen, "frames_over_contact_pct": pen,
                                                     "depth_max": 3.5 if pen else 0.0, "worst": {"frame": 3, "time": 0.1}},
@@ -360,6 +365,11 @@ class FakeEditor:
                   "foot_l": [[9.0 * stance, 0.0, 8.0]] * n, "foot_r": [[-9.0 * stance, 0.0, 8.0]] * n,
                   "upperarm_r": [[x, y, z + 50.0] for x, y, z in right], "upperarm_l": [[x, y, z + 50.0] for x, y, z in left],
                   "lowerarm_r": [[x, y, z + 25.0] for x, y, z in right], "lowerarm_l": [[x, y, z + 25.0] for x, y, z in left]}
+        for side, hand in (("l", left), ("r", right)):
+            # Phase 9-1 — prof.bend_l · bend_r(°): 중지 뿌리 = 손목에서 8 cm, 아래팔(아래 방향)과 그 각만큼 x 로 꺾인 쪽(손목 꺾임)
+            if prof.get(f"bend_{side}") is not None:
+                t = math.radians(prof[f"bend_{side}"])
+                tracks[f"middle_01_{side}"] = [[x + 8.0 * math.sin(t), y, z - 8.0 * math.cos(t)] for x, y, z in hand]
         out = {"times": [round((i + 1) * dt, 4) for i in range(n)], "frames_per_sample": 1,
                "speed_cm_s": {b: [0.0] * n for b in bones if b in tracks}}
         if positions:

@@ -21,18 +21,27 @@ scale = 펠비스 높이 / 100 — 플러그인 관통 · 파지 거리 기준�
 따른다(기록 Job f991aa Vesper = 소스 × 0.79, 띠는 × 1.052 — 요청 > 52 cm 면 늘 띠 밖). 간격 사상(gap_map — 두 골격 기준 포즈의 어깨 관절 폭 ·
 팔 길이)으로 생성 골격 간격 ↔ 대상 간격을 바꾸고(grip_spacing), 띠는 각 골격 간격 ± 허용(생성 13 cm · 대상 13 × 팔 길이 비)으로 그 골격 cm 에서
 잰다. 검 손잡이(간격 없음)는 그대로 ≤ 20 cm × scale.
+버전 6 (2026-11-01 — Phase 9-1 선별 재정의, 뒤 단계가 못 고치는 결함): 손목 꺾임(wrist_check — 파지 프레임의 보조 손목이 WRIST_GRIP_DEG 를 넘는
+프레임 %, 파지가 아니면 양손이 WRIST_FREE_DEG) · 메시 머리목 깊은 관통(head_deep — body_clearance per_frame 의 손 · 아래팔 ↔ head_neck 연속 구간 중
+body_fit 머리목 마무리가 건너뛰는 것). 기준은 E0(운영 낫 Attack1 ~ 3 · Finisher1, Vesper 측정): 파지 띠 안 프레임의 왼 손목 p50 6.0 ~ 16.2° · 60° 넘는
+프레임 0 %(주 손은 25 % 까지 — 그래서 보조 손만), 양손 90° 넘는 프레임 ≤ 1.4 % / 검 seed 27(1차부터 꺾인 생성) 보조 손목 60° 넘는 프레임 95.8 %.
 """
 from __future__ import annotations
 
 import math
 
-VERSION = 5
-GRIP_TOL_CM = 13.0      # 요청 간격(자루 무기)이 있을 때 파지로 보는 ± 폭(생성 골격 cm — 대상은 × 팔 길이 비) — grip_band · grip_spacing
+VERSION = 6
+GRIP_TOL_CM = 13.0     # 요청 간격(자루 무기)이 있을 때 파지로 보는 ± 폭(생성 골격 cm — 대상은 × 팔 길이 비) — grip_band · grip_spacing
 HAND_CONTACT_CM = 2.5   # 두 손의 손가락 · 손바닥 뼈 선분이 이보다 가까우면 살이 겹친다(손가락 굵기 ≈ 2 cm, 손바닥 두께 ≈ 3 cm) — × scale
 CROSS_CM = 10.0         # 팔 꼬임 = 왼 손목이 오른 손목보다 엉덩 축 위에서 이만큼 넘게 오른쪽(손 폭 ≈ 8 ~ 10 cm 넘게 넘어감) — × scale
 HEAD_NEAR_CM = 10.0     # 손-머리 근접 = 손목 · 손 점이 머리 본(두개 바닥)에서 이보다 가깝다(머리 반지름 ≈ 9 ~ 10 cm — 운영 낫 최소 11.0) — × scale
 GRIP_CM = 20.0
-ROLES = ("hand_l", "hand_r", "hip_l", "hip_r", "foot_l", "foot_r", "shoulder_l", "shoulder_r", "elbow_l", "elbow_r")
+WRIST_GRIP_DEG = 60.0   # 파지 프레임 보조 손목 꺾임 — 운영 낫 파지 띠 안 왼 손목 최대 p90 26.8 · 60° 넘는 프레임 0 %, 생성 보통 p50 37 ~ 54 (E0 2026-11-01)
+WRIST_FREE_DEG = 90.0   # 파지가 아닐 때 양손 — 운영 낫 90° 넘는 프레임 0 ~ 1.4 %(Finisher1 왼 손목 최대 93.6)
+HEAD_PEN_CM = 2.0       # 머리목 관통 = 깊이가 이보다 깊다(× scale — 플러그인 body_clearance penetration_cm 기본값과 같다)
+HEAD_DEEP_MAX_RUN = 2   # 이보다 긴 관통 구간 · 아래보다 깊은 구간은 body_fit 머리목 마무리가 건너뛴다(body_fit.HEAD_FINISH_MAX_RUN 의 원천)
+HEAD_DEEP_MAX_CM = 4.0  # × scale (body_fit.HEAD_FINISH_MAX_CM 의 원천)
+ROLES =("hand_l", "hand_r", "hip_l", "hip_r", "foot_l", "foot_r", "shoulder_l", "shoulder_r", "elbow_l", "elbow_r")
 OPTIONAL_ROLES = ("finger_l", "finger_r")
 HEAD_ROLE = "head"
 EDGE_S = 0.67   # 떨림을 처음 · 중간 · 끝으로 나누는 길이(초) — 정지한 처음 · 끝에서 눈에 띈다(사용자 소견 ①)
@@ -334,15 +343,69 @@ def zigzag(tracks: list[list], times: list[float], scale: float = 1.0, edge_s: f
     return {**{k: _r(percentile(v, 0.95), 3) for k, v in parts.items()}, "max": _r(max(every) if every else None, 3), "joints": len(tracks)}
 
 
-def wrist_bend(elbow: list, hand: list, finger: list) -> dict:
-    """손목 굽힘(°) = 아래팔(팔꿈치 → 손목)과 손(손목 → 중지 첫 마디) 방향의 각 — 2차 보조 손 116° 꺾임(소견 ③)을 잰 정의."""
+def bends(elbow: list, hand: list, finger: list) -> list[float | None]:
+    """프레임별 손목 굽힘(°) = 아래팔(팔꿈치 → 손목)과 손(손목 → 중지 첫 마디) 방향의 각 — 길이가 0 인 프레임은 None."""
     out = []
     for e, h, f in zip(elbow, hand, finger):
         a, b = [h[i] - e[i] for i in range(3)], [f[i] - h[i] for i in range(3)]
         na, nb = math.sqrt(sum(x * x for x in a)), math.sqrt(sum(x * x for x in b))
-        if na > 1e-9 and nb > 1e-9:
-            out.append(math.degrees(math.acos(max(-1.0, min(1.0, sum(a[i] * b[i] for i in range(3)) / (na * nb))))))
+        out.append(math.degrees(math.acos(max(-1.0, min(1.0, sum(a[i] * b[i] for i in range(3)) / (na * nb))))) if na > 1e-9 and nb > 1e-9 else None)
+    return out
+
+
+def wrist_bend(elbow: list, hand: list, finger: list) -> dict:
+    """손목 굽힘(°) 분포 — 2차 보조 손 116° 꺾임(소견 ③)을 잰 정의(bends)."""
+    out = [b for b in bends(elbow, hand, finger) if b is not None]
     return {"p50": _r(percentile(out, 0.5), 1), "p95": _r(percentile(out, 0.95), 1), "max": _r(max(out) if out else None, 1)}
+
+
+def wrist_check(tracks: dict, grip_idx: list[int] | None, support: str | None, grip_deg: float = WRIST_GRIP_DEG,
+                free_deg: float = WRIST_FREE_DEG) -> dict | None:
+    """손목 꺾임(버전 6 — 점수 selection wrist): 양손 파지(support = 보조 손 l|r, grip_idx = 파지 띠 안 표본)면 그 표본의 보조 손목이 grip_deg 를 넘는
+    프레임 %, 아니면 모든 표본에서 두 손 중 큰 쪽이 free_deg 를 넘는 %. 1차부터 꺾인 생성은 2차 keep · 대상 쪽 보정(보조 손목 ≤ 원래 + 2°)이 그대로
+    지킨다 — 운영 낫은 파지 프레임 보조 손목이 거의 펴져 있다(E0). 손가락 역할이 없으면 None."""
+    sides = ("l", "r")
+    if not all(tracks.get(f"{k}_{s}") for k in ("elbow", "hand", "finger") for s in sides):
+        return None
+    series = {s: bends(tracks[f"elbow_{s}"], tracks[f"hand_{s}"], tracks[f"finger_{s}"]) for s in sides}
+    if support in sides and grip_idx is not None:
+        vals = [series[support][i] for i in grip_idx if i < len(series[support]) and series[support][i] is not None]
+        mode, hand, threshold = "support_grip", f"hand_{support}", grip_deg
+    else:
+        vals = [max(a, b) for a, b in zip(series["l"], series["r"]) if a is not None and b is not None]
+        mode, hand, threshold = "both", None, free_deg
+    return {"mode": mode, "hand": hand, "threshold_deg": threshold, "frames": len(vals),
+            "over_pct": _r(100.0 * sum(v > threshold for v in vals) / len(vals), 1) if vals else None,
+            "p50": _r(percentile(vals, 0.5), 1), "max": _r(max(vals) if vals else None, 1)}
+
+
+def head_deep(series: list[dict], scale: float = 1.0, parts: tuple[str, ...] = ("hand", "forearm"), pen_cm: float = HEAD_PEN_CM,
+              max_run: int = HEAD_DEEP_MAX_RUN, max_cm: float = HEAD_DEEP_MAX_CM) -> dict | None:
+    """메시 머리목 깊은 관통(버전 6 — 점수 selection head_deep): body_clearance per_frame.series 의 손 · 아래팔 ↔ head_neck 프레임별 깊이(부호 cm,
+    None = 못 찾음)의 최댓값이 pen_cm × scale 보다 깊은 연속 구간 중, 길이 > max_run 이거나 최대 깊이 > max_cm × scale 인 구간(body_fit 머리목
+    마무리가 건너뛰는 '길고 깊은' 구간 — 대상 쪽으로 빼면 동작이 찢긴다)에 든 프레임 %. 짧고 얕은 구간은 대상 쪽이 고치므로 세지 않는다(기록 runs).
+    근사: 본 풀이가 일부는 뺄 수 있고, 머리 지도는 정수리 · 뿔 쪽을 부풀려 본다(운영 Finisher1 12.3 % — 그래서 점수 시작값 15 %)."""
+    rows = [s for s in series or [] if s.get("body_part") == "head_neck" and s.get("arm_part") in parts]
+    if not rows:
+        return None
+    n = min(len(s.get("depth") or []) for s in rows)
+    if not n:
+        return None
+    depth = []
+    for f in range(n):
+        vals = [s["depth"][f] for s in rows if s["depth"][f] is not None]
+        depth.append(max(vals) if vals else None)
+    pen = pen_cm * scale
+    flags = [d is not None and d > pen for d in depth]
+    found, deep = [], 0
+    for a, b in runs(flags, 1):
+        mx = max(depth[f] for f in range(a, b + 1))
+        long_deep = (b - a + 1) > max_run or mx > max_cm * scale
+        found.append([a, b, _r(mx), long_deep])
+        deep += (b - a + 1) if long_deep else 0
+    located = [d for d in depth if d is not None]
+    return {"frames": n, "pen_cm": _r(pen), "pen_pct": _r(100.0 * sum(flags) / n, 1), "deep_pct": _r(100.0 * deep / n, 1),
+            "max_cm": _r(max(located) if located else None), "runs": found, "parts": list(parts)}
 
 
 def contact_slide(track: list, contacts: list[bool], times: list[float], up: int, scale: float = 1.0) -> dict:
@@ -503,15 +566,20 @@ def legs_report(tracks: dict, times: list[float], up: int, leg_cm: float, scale:
 
 
 def measure(tracks: dict, times: list[float], *, up: int, scale: float = 1.0, window=None, spacing_cm: float | None = None,
-            tolerance_cm: float = GRIP_TOL_CM, hand_points: list[list] | None = None) -> dict:
-    """역할별 위치(cm) → {grip, stance, swing, attack, jitter, wrist_bend, cross, head}. 빠진 역할의 지표는 None. spacing_cm · tolerance_cm = 이
+            tolerance_cm: float = GRIP_TOL_CM, hand_points: list[list] | None = None, support: str | None = None) -> dict:
+    """역할별 위치(cm) → {grip, stance, swing, attack, jitter, wrist_bend, wrist, cross, head}. 빠진 역할의 지표는 None. spacing_cm · tolerance_cm = 이
     골격 cm 의 파지 간격 · 허용(grip_spacing — 생성 골격 또는 대상, grip_band). hand_points = 손-머리 근접에 손목과 함께 쓰는 손 점 트랙(없으면
-    finger_l · finger_r 역할) — Kimodo · Vesper 가 같은 정의로 잰다."""
+    finger_l · finger_r 역할) — Kimodo · Vesper 가 같은 정의로 잰다. support = 양손 파지의 보조 손(l | r — 손목 꺾임을 파지 띠 안 표본의 그 손으로
+    잰다, None 이면 양손 · 모든 표본)."""
     have = {r for r in ROLES + OPTIONAL_ROLES if tracks.get(r)}
     out = {"version": VERSION, "scale": _r(scale, 4), "samples": len(times), "grip": None, "stance": None, "swing": None, "attack": None,
-           "jitter": None, "wrist_bend": None, "cross": None, "head": None}
+           "jitter": None, "wrist_bend": None, "wrist": None, "cross": None, "head": None}
+    grip_idx = None
     if {"hand_l", "hand_r"} <= have:
         out["grip"] = grip(tracks["hand_l"], tracks["hand_r"], times, scale, window, spacing_cm, tolerance_cm)
+        lo, hi = grip_band(scale, spacing_cm, tolerance_cm)
+        gap = gaps(tracks["hand_l"], tracks["hand_r"])
+        grip_idx = [i for i in in_window(times, window) if i < len(gap) and lo <= gap[i] <= hi]
         out["swing"] = swing(tracks["hand_l"], tracks["hand_r"], times, scale)
         if tracks.get(HEAD_ROLE):
             extra = hand_points if hand_points is not None else [tracks[r] for r in OPTIONAL_ROLES if r in have]
@@ -527,6 +595,7 @@ def measure(tracks: dict, times: list[float], *, up: int, scale: float = 1.0, wi
     bend = {s: wrist_bend(tracks[f"elbow_{s}"], tracks[f"hand_{s}"], tracks[f"finger_{s}"]) for s in ("l", "r")
             if {f"elbow_{s}", f"hand_{s}", f"finger_{s}"} <= have}
     out["wrist_bend"] = bend or None
+    out["wrist"] = wrist_check(tracks, grip_idx if support else None, support)
     return out
 
 

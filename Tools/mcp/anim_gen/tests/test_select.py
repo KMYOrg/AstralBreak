@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from anim_gen import selection
-from conftest import KATANA, OUT, UE4_MESH, request
+from conftest import KATANA, OUT, UE4_MESH, VESPER_MESH, request
 from test_blender import FakeProc
 from test_local_ai import KimodoProc, ai_request, ka, plan, status  # noqa: F401 — ka 는 픽스처
 
@@ -303,7 +303,7 @@ def test_polearm_spacing_moves_the_grip_band_into_select(ka):
     rule = steps_of(p)["generate"]["inputs"]["refine"]["rules"][0]
     sel = steps_of(p)["select"]["inputs"]
     assert (rule["spacing_cm"], rule["target_spacing_cm"], rule["band_cm"]) == (75.19, 60, [62.19, 88.19]) and "target_spacing_cm 60" in rule["spacing_from"]
-    assert sel["grip_spacing"]["target_band_cm"] == [48.91, 71.09] and sel["grip_spacing"]["map"] == rule["spacing_map"] and sel["metric_version"] == 5
+    assert sel["grip_spacing"]["target_band_cm"] == [48.91, 71.09] and sel["grip_spacing"]["map"] == rule["spacing_map"] and sel["metric_version"] == 6
     assert sel["bones"]["arm_dims"] == {"shoulder_width_cm": 23.96, "arm_cm": 47.66} and ka.fake.count("inspect_skeleton") >= 1
     lim = {x["code"]: x for x in p["candidates"][0]["expected_limitations"]}["GRIP_SPACING_MAPPED"]
     assert (lim["source_cm"], lim["target_cm"]) == (75.19, 60)
@@ -396,3 +396,56 @@ def test_refine_off_runs_kimodo_without_candidates(ka):
     [proc] = ka.launcher.of(KimodoProc)
     assert "candidates_mode" not in proc.args and "items" not in ka.launcher.of(FakeProc)[-1].args
     assert not any(t == "retarget_animations" and q.get("name_rule", {}).get("prefix") for t, q in ka.fake.calls)
+
+
+# ---- Phase 9-1 — 손목 꺾임 · 메시 머리목 깊은 관통 · 자루(기록) ----
+SICKLE_MESH = "/Game/Equipment/Weapon/Mesh/SKM_Test_Sickle"
+
+
+def test_select_scores_the_support_wrist_and_records_the_handle(ka):
+    """계획이 대상 메시 손가락 체인 제안으로 중지 뿌리(손목 꺾임)를, 요청 weapon 으로 부착 · 자루를 푼다(이름 추측 없음). 실행은 body_clearance parts ·
+    per_frame · profile_rotations 로 재고, 보조(왼) 손목이 꺾인 후보를 밀어낸다 — 주(오른) 손목 꺾임은 세지 않는다(운영 낫도 25 % 까지). 자루는 기록(가중 0)."""
+    from test_weapon import target_info, weapon_info
+    ka.fake.mesh_inspect[VESPER_MESH] = {**target_info(), "finger_chain_suggestion": {"chains": [{"name": f"{s}Middle", "start": f"middle_01_{x}", "end": f"middle_03_{x}"}
+                                                                                                 for s, x in (("Left", "l"), ("Right", "r"))]}}
+    ka.fake.mesh_inspect[SICKLE_MESH] = weapon_info()
+    ka.fake.profiles = {"Cand_BVH_kimodo_00": {"gap": 7.0, "stance": 3.0, "peak": 300.0, "bend_l": 75.0, "bend_r": 20.0},
+                        "Cand_BVH_kimodo_01": {"gap": 7.0, "stance": 3.0, "peak": 300.0, "bend_l": 20.0, "bend_r": 75.0}}
+    weapon = {"mesh": SICKLE_MESH, "attach": {"socket": "WeaponHandR"}, "grips": [{"hand": "left", "segment": {"from": [0, 0, 0], "to": [0, 0, 20]}}]}
+    p = sword(ka, generation={"seed": 7, "candidates": 2}, weapon=weapon)
+    s_in = steps_of(p)["select"]["inputs"]
+    assert s_in["bones"]["finger_l"] == "middle_01_l" and s_in["bones"]["finger_r"] == "middle_01_r" and s_in["lead_hand"] == "right"
+    assert s_in["weapon"]["bone"] == "hand_r" and s_in["weapon"]["handle"]["dir"] and "wrist" in s_in["metrics"] and s_in["weights"]["handle"] == 0.0
+    assert "SELECTION_HANDS_AT_RUN" not in p["candidates"][0]["risks"]
+    job = run(ka, p)
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    s = job["selection"]
+    by = {c["index"]: c for c in s["candidates"]}
+    assert by[0]["metrics"]["wrist"]["mode"] == "support_grip" and by[0]["metrics"]["wrist"]["over_pct"] == 100.0 and by[0]["penalties"]["wrist"] == 1.0
+    assert by[1]["metrics"]["wrist"]["over_pct"] == 0.0 and by[1]["penalties"]["wrist"] == 0.0
+    assert s["picked"]["index"] == 1 and s["support"] == "l" and "wrist" in s["picked"]["reason"]
+    h = by[1]["metrics"]["handle"]
+    assert h["hand"] == "hand_l" and h["grip_frames_pct"] == 100.0 and h["grip_dist_p50"] is not None and by[1]["penalties"]["handle"] is not None
+    assert by[0]["metrics"]["head_deep"] is not None and by[0]["penalties"]["head_deep"] is not None
+    val = [q for t, q in ka.fake.calls if t == "validate_animation" and len(q.get("assets") or []) == 2]
+    assert val and val[0]["body_clearance"]["parts"] == "all" and val[0]["body_clearance"]["per_frame"] is True and val[0]["profile_rotations"] is True
+    assert {"middle_01_l", "middle_01_r"} <= set(val[0]["profile_bones"])
+    # 같은 기록으로 다시 계산하면 같은 선택(Job 가중치 11 개)
+    again = selection.rank([{k: c[k] for k in ("index", "seed", "status", "metrics")} for c in s["candidates"]], s["weights"], grip_on=True, swing_on=True)
+    assert again["picked"] == s["picked"] and len(s["weights"]) == 11
+
+
+def test_without_finger_chains_the_wrist_is_not_scored_and_a_bad_weapon_only_skips_the_handle(ka):
+    """손가락 체인 제안이 없는 메시 — 손목 꺾임 None(SELECTION_FINGERS_UNKNOWN), 자루 선이 없는 무기 — 기록만 빠진다(HANDLE_NOT_MEASURED), 선별은 그대로."""
+    ka.fake.mesh_inspect[VESPER_MESH] = {"sockets": [{"name": "WeaponHandR", "bone": "hand_r", "owner": "skeleton", "location": [0, 0, 0], "rotation": [0, 0, 0]}]}
+    ka.fake.mesh_inspect[SICKLE_MESH] = {"sockets": [], "bones": []}
+    ka.fake.profiles = {"Cand_BVH_kimodo_00": {"gap": 7.0, "bend_l": 75.0}, "Cand_BVH_kimodo_01": {"gap": 7.0, "bend_l": 20.0}}
+    weapon = {"mesh": SICKLE_MESH, "attach": {"socket": "WeaponHandR"}, "grips": [{"hand": "left", "segment": {"from": [0, 0, 0], "to": [0, 0, 20]}}]}
+    p = sword(ka, generation={"seed": 7, "candidates": 2}, weapon=weapon)
+    codes = {d["code"] for d in p["candidates"][0].get("diagnostics") or []} | {d["code"] for d in p.get("diagnostics") or []}
+    s_in = steps_of(p)["select"]["inputs"]
+    assert "finger_l" not in s_in["bones"] and s_in["weapon"] is None and {"SELECTION_FINGERS_UNKNOWN", "HANDLE_NOT_MEASURED"} <= codes
+    job = run(ka, p)
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    for c in job["selection"]["candidates"]:
+        assert c["metrics"]["wrist"] is None and c["penalties"]["wrist"] is None and c["metrics"]["handle"] is None

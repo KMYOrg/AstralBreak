@@ -275,6 +275,9 @@ class Executor:
             if "timing" in result.values:
                 # Phase 8-3 — 흐느적 보정 근거(신호 · 구간 · op · warp · 전후 수치)
                 job["timing"] = result.values["timing"]
+            if "segments" in result.values:
+                # Phase 9-2 — 세그먼트 경계(생성 · 최종 타임라인) · 이음매 수치 · 몽타주 섹션
+                job["segments"] = result.values["segments"]
             for key, field in (("fix_source", "source"), ("fix_target", "target"), ("body_fit", "body")):
                 if key in result.values:
                     # Phase 8-3 — 다리 보정: 소스 골격(Blender 보고) · 대상(리타깃 뒤 측정). 8-4b — 한 풀이(전 · 예측 · 후 · 목표 · 한계 근거)

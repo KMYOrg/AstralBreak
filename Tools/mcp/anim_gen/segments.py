@@ -11,8 +11,14 @@ num_transition_frames(generation.transition_frames). Kimodo _multiprompt: 둘째
 - 손 · 발 · 골반 · 루트 속도: 앞뒤 비(speed_ratio — 이음매 앞 3 · 뒤 3 표본 속도 중앙값의 큰 쪽 ÷ 작은 쪽, 기록) · 속도 변화 비
   (speed_step_ratio — |Δv| 에 같은 꼴, 판정 ≤ SEAM_RATIO_MAX)
 순수 Python(pytest 대상) — kimodo_run(Kimodo venv) · 이음매 단계 · 통합 테스트가 같은 정의를 쓴다.
+
+Phase 9-3c (U2-b — Provider 를 섞은 세그먼트): segments[] 에 기존 애셋 구간({source: existing, asset, start?, end?})을 섞는다. 생성 세그먼트(붙어 있는
+덩어리 하나)는 한 Kimodo 실행 — 기존 이웃이 있는 쪽은 겹칠 K = 전이 − 1 프레임만큼 생성을 늘리고, 그 T(= K + 1) 프레임에 이웃 끝(앞) · 첫(뒤) T
+프레임 자세를 자동 전신 키로 준다(Kimodo _multiprompt 전이와 같은 규칙 — 자세와 속도가 함께 이어진다). join 단계가 그 겹친 구간을 크로스페이드로 잇는다.
 """
 from __future__ import annotations
+
+import math
 
 from . import timing
 
@@ -27,6 +33,10 @@ SPEED_SIDE = 3                 # 앞뒤 비 — 이음매 앞 · 뒤 표본 수
 SPEED_FLOOR_CM_S = 5.0         # 속도 변화 비의 분모 바닥(cm/s × scale) — 멈춘 발 · 골반에서 비가 터지지 않게
 ROLES = ("hand_l", "hand_r", "foot_l", "foot_r", "pelvis", "root")
 ROUND = 4
+# Phase 9-3c — 섞은 세그먼트
+SOURCES = ("generate", "existing")
+MIXED_TRANSITION_MIN = 2       # 겹침 K = 전이 − 1 ≥ 1 프레임(크로스페이드 · 골반 맞춤 표본이 있어야 한다)
+GAP_ROLES = ("hand_l", "hand_r", "foot_l", "foot_r", "pelvis", "head")   # 겹친 구간 자세 차를 재는 역할(이음매 측정 본)
 
 
 def default_name(index: int) -> str:
@@ -146,3 +156,112 @@ def speed_seams(times: list[float], speeds: dict[str, list[float]], seam_times: 
 def worst(rows: list[dict], key: str) -> float | None:
     vals = [r.get(key) for r in rows if r.get(key) is not None]
     return max(vals) if vals else None
+
+
+# ---- Phase 9-3c — 섞은 세그먼트 ----
+def is_mixed(segs: list[dict] | None) -> bool:
+    return any(s.get("source") == "existing" for s in segs or [])
+
+
+def layout(segs: list[dict]) -> dict:
+    """세그먼트 순서 → {generated[인덱스], lead(생성 덩어리 바로 앞 기존 인덱스 | None), trail(바로 뒤 | None)} — 요청 검사가 덩어리 하나를 보장한다."""
+    gen = [i for i, s in enumerate(segs) if s.get("source", "generate") == "generate"]
+    lead = gen[0] - 1 if gen and gen[0] > 0 else None
+    trail = gen[-1] + 1 if gen and gen[-1] + 1 < len(segs) else None
+    return {"generated": gen, "lead": lead, "trail": trail}
+
+
+def overlap_frames(transition_frames: int) -> int:
+    """기존 ↔ 생성 이음매의 겹침 K(생성 fps 프레임) — 전이 T 프레임을 겹쳐 키로 묶으면 그 사이 간격이 T − 1(Kimodo 전이와 같은 수)."""
+    return max(1, int(transition_frames) - 1)
+
+
+def mixed_frames(durations: list[float], lead: bool, trail: bool, overlap: int, fps: float) -> dict:
+    """생성 세그먼트 길이 → plan_frames, 기존 이웃이 있는 쪽 세그먼트를 겹침 K 프레임만큼 늘린다(요청 길이 = 새 동작 — 겹친 키 프레임은 이웃 자세)."""
+    d = list(durations)
+    if lead:
+        d[0] += overlap / fps
+    if trail:
+        d[-1] += overlap / fps
+    return plan_frames(d, fps)
+
+
+def seam_key_constraints(lead: dict | None, trail: dict | None, total_frames: int, overlap: int, fps: float) -> list[dict]:
+    """이음매 자동 키(요청 key_pose 꼴 + source 이름) — 앞 이웃 끝 K + 1 프레임 → 생성 프레임 0 ~ K(origin), 뒤 이웃 첫 K + 1 프레임 → 생성 끝 K + 1 프레임
+    (pass1). 이웃 = {index, asset, start, end}(초 — end 는 계획이 잰 값). 원천 시각 간격 = 생성 프레임 간격(1/fps)."""
+    out = []
+    if lead is not None:
+        out.append({"type": "key_pose", "source": f"segments[{lead['index']}].seam", "asset": lead["asset"], "part": "full", "placement": "origin",
+                    "times": [round(lead["end"] - (overlap - i) / fps, 6) for i in range(overlap + 1)],
+                    "at": [round(i / fps, 6) for i in range(overlap + 1)]})
+    if trail is not None:
+        first = total_frames - 1 - overlap
+        out.append({"type": "key_pose", "source": f"segments[{trail['index']}].seam", "asset": trail["asset"], "part": "full", "placement": "pass1",
+                    "times": [round(trail["start"] + i / fps, 6) for i in range(overlap + 1)],
+                    "at": [round((first + i) / fps, 6) for i in range(overlap + 1)]})
+    return out
+
+
+def heading_deg(hip_l: list[float], hip_r: list[float]) -> float:
+    """몸 방향(UE 컴포넌트 xy) — 왼 → 오른 엉덩 관절 벡터의 각(°). 두 자세의 차만 쓴다(rotate_root yaw 와 같은 부호 — x → y 가 +)."""
+    return math.degrees(math.atan2(hip_r[1] - hip_l[1], hip_r[0] - hip_l[0]))
+
+
+def wrap_deg(a: float) -> float:
+    return (a + 180.0) % 360.0 - 180.0
+
+
+def sample_index(times: list[float], t: float) -> int:
+    """profile 표본(시각 = 구간 끝, 프레임 1 부터) 중 t 에 가장 가까운 것 — 프레임 0 은 표본이 없어 첫 표본."""
+    return min(range(len(times)), key=lambda i: abs(times[i] - t))
+
+
+def overlap_pairs(prev: dict, nxt: dict, prev_end: float, nxt_start: float, blend: float, steps: int) -> list[tuple[int, int]]:
+    """겹친 구간의 같은 비율 시각 표본 짝(앞 [끝 − blend, 끝] ↔ 뒤 [시작, 시작 + blend]). profile 은 프레임 0 표본이 없다 — 반 표본 간격 밖이면
+    (그 시각 표본 없음) 그 단계는 뺀다."""
+    def near(times: list[float], t: float) -> int | None:
+        k = sample_index(times, t)
+        half = 0.5 * ((times[1] - times[0]) if len(times) > 1 else 1.0 / 30.0) + 1e-6
+        return k if abs(times[k] - t) <= half else None
+    out = []
+    for i in range(steps + 1):
+        a = near(prev["times"], prev_end - blend + blend * i / steps)
+        b = near(nxt["times"], nxt_start + blend * i / steps)
+        if a is not None and b is not None:
+            out.append((a, b))
+    return out
+
+
+def overlap_fit(prev: dict, nxt: dict, pairs: list[tuple[int, int]]) -> dict | None:
+    """겹친 구간 전체로 맞춤 — 몸 방향 차(앞 − 뒤, 엉덩 관절 선)의 원형 평균(°) · 골반 수평 차(앞 + shift − 뒤)의 평균(cm). 한 순간이 아니라 구간 평균이라
+    크로스페이드 동안 두 궤적이 가장 덜 어긋난다(M1 실측: 겹침 끝 한 순간 맞춤은 뒤 이음매 자세 차 p50 1.6 cm 에 골반 궤적 차가 더해져 3.5 cm)."""
+    if not pairs:
+        return None
+    s = c = 0.0
+    dx = dy = 0.0
+    for a, b in pairs:
+        pa, pb = prev["pos"], nxt["pos"]
+        d = math.radians(heading_deg(pa["hip_l"][a], pa["hip_r"][a]) - heading_deg(pb["hip_l"][b], pb["hip_r"][b]))
+        s, c = s + math.sin(d), c + math.cos(d)
+        dx += pa["pelvis"][a][0] + prev["shift"][0] - pb["pelvis"][b][0] - nxt["shift"][0]
+        dy += pa["pelvis"][a][1] + prev["shift"][1] - pb["pelvis"][b][1] - nxt["shift"][1]
+    n = len(pairs)
+    return {"yaw_deg": math.degrees(math.atan2(s, c)), "shift": [dx / n, dy / n], "samples": n}
+
+
+def overlap_gap(prev: dict, nxt: dict, prev_end: float, nxt_start: float, blend: float, steps: int, roles=GAP_ROLES) -> dict | None:
+    """겹친 구간 자세 차(cm) — 앞 조각 [끝 − blend, 끝] ↔ 뒤 조각 [시작, 시작 + blend] 의 같은 비율 시각, 역할 관절 위치(이은 좌표 — 조각마다 shift 를 더한다).
+    prev · nxt = {times, pos{역할: [[x, y, z]…]}, shift[x, y]}. 키를 준 이음매는 거의 0(같은 자세), 대조(키 없음)는 두 동작의 차."""
+    values = []
+    for a, b in overlap_pairs(prev, nxt, prev_end, nxt_start, blend, steps):
+        for role in roles:
+            pa, pb = (prev["pos"].get(role) or [None] * (a + 1))[a], (nxt["pos"].get(role) or [None] * (b + 1))[b]
+            if pa is None or pb is None:
+                continue
+            pa = [pa[0] + prev["shift"][0], pa[1] + prev["shift"][1], pa[2]]
+            pb = [pb[0] + nxt["shift"][0], pb[1] + nxt["shift"][1], pb[2]]
+            values.append(math.dist(pa, pb))
+    if not values:
+        return None
+    s = sorted(values)
+    return {"p50": round(_median(s), 2), "max": round(s[-1], 2), "samples": len(values)}

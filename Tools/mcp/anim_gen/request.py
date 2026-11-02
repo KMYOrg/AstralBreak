@@ -33,6 +33,7 @@ FACINGS = ("auto", "keep", "+X", "-X", "+Y", "-Y")
 # foot_contact)를 local_ai 2차 생성 제약으로(local_ai/refine.py) · select: 후보 선별 가중치(selection.py)
 REFINE_DEFAULTS = {"mode": "auto", "grip": {"lead_hand": "right", "target": "meet", "spacing_cm": None, "target_spacing_cm": None, "from_s": None,
                                             "to_s": None}, "keyframe_step": 3}
+REFINE_HANDLES = ("wrist_line", "weapon")   # Phase 9-3b — grip.handle(줄 때만 — 기본 wrist_line)
 SPACING_MAX_CM = 100.0
 GENERATION_DEFAULTS = {"seed": None, "samples": 1, "steps": 100, "postprocess": "auto", "pick": 0, "constraints": [], "options": {},
                        "candidates": 1, "refine": REFINE_DEFAULTS, "select": {"weights": None}}
@@ -79,6 +80,8 @@ DEFAULTS = {
 # Phase 9-2 — 세그먼트(segments.py). 줄 때만 정규화된 요청에 키가 생긴다(없는 요청의 계획 · 결과는 9-1 과 비트 같다)
 OPTIONAL = ("segments",)
 SEGMENT_KEYS = {"prompt", "duration_seconds", "name", "swing"}
+# Phase 9-3c — 기존 애셋 구간 세그먼트(U2-b). 하나라도 있으면 모든 항목에 source 가 생긴다(없는 요청은 9-2 와 비트 같다)
+EXISTING_SEGMENT_KEYS = {"source", "asset", "start", "end", "name"}
 _MISSING = object()
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
@@ -192,8 +195,9 @@ def normalize(raw: dict) -> tuple[dict, list[dict]]:
         raise _bad("prompt", f"must be a non-empty English sentence for the model (≤ {PROMPT_MAX} characters)")
     req["prompt"] = req["prompt"].strip() if req["prompt"] else None
     transition = req["generation"].pop("transition_frames", _MISSING) if isinstance(req["generation"], dict) else _MISSING
+    seam_keys = req["generation"].pop("seam_keys", _MISSING) if isinstance(req["generation"], dict) else _MISSING
     req["generation"] = _generation(req["generation"])
-    _segments(req, transition, raw)
+    _segments(req, transition, raw, seam_keys)
     req["review"] = _review(req["review"])
     req["fix"] = _fix(req["fix"])
     req["weapon"] = _weapon(req["weapon"], req["fix"], raw.get("fix"))
@@ -246,45 +250,64 @@ def _motion_file(raw) -> dict | None:
     return mf
 
 
-def _segments(req: dict, transition, raw: dict) -> None:
+def _segments(req: dict, transition, raw: dict, seam_keys=_MISSING) -> None:
     """segments[{prompt, duration_seconds, name?, swing?}] (Phase 9-2 — 2 ~ 6개, prompt 대신) · generation.transition_frames(segments 와만).
-    duration_seconds 는 생략(= 세그먼트 합) 또는 합과 같아야 한다(± 1 프레임 @ 30 fps). 프레임 · 경계는 local_ai 계획(segments.plan_frames)."""
+    duration_seconds 는 생략(= 세그먼트 합) 또는 합과 같아야 한다(± 1 프레임 @ 30 fps). 프레임 · 경계는 local_ai 계획(segments.plan_frames).
+    Phase 9-3c — 기존 애셋 구간 {source: existing, asset, start?, end?, name?} 를 섞을 수 있다(U2-b): 생성 세그먼트는 붙어 있는 덩어리 하나 · 1개 이상,
+    기존은 대상 스켈레톤 시퀀스(계획이 잰다). 섞으면 duration_seconds 는 생략(이은 길이는 기존 구간 길이에 달려 계획이 보인다), 전이 ≥ 2, edits 와 함께 못 쓰고,
+    generation.seam_keys(기본 true — 이음매 자동 키, false = 크로스페이드만 대조)를 받는다."""
     items = raw.get("segments")
     if items is None:
         req.pop("segments", None)
         if transition is not _MISSING:
             raise _bad("generation.transition_frames", "only with segments — the frames each later segment re-generates from the previous "
                        "one's end", reason="REQUIRES_SEGMENTS")
+        if seam_keys is not _MISSING:
+            raise _bad("generation.seam_keys", "only with existing segments — the poses keyed where a generated segment meets an existing clip",
+                       reason="REQUIRES_SEGMENTS")
         return
     if req["prompt"] is not None:
         raise _bad("segments", "give prompt (one motion) or segments (prompts in order) — not both", reason="CONFLICTING_FIELDS")
     if not isinstance(items, list) or not seg.MIN_SEGMENTS <= len(items) <= seg.MAX_SEGMENTS:
         raise _bad("segments", f"must be a list of {seg.MIN_SEGMENTS} ~ {seg.MAX_SEGMENTS} {{prompt, duration_seconds, name?, swing?}}")
+    mixed = any(isinstance(s, dict) and s.get("source") == "existing" for s in items)
     out, names = [], set()
     for k, s in enumerate(items):
         where = f"segments[{k}]"
-        s = _keys(s, SEGMENT_KEYS, where)
-        prompt = s.get("prompt")
-        if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > PROMPT_MAX:
-            raise _bad(f"{where}.prompt", f"must be a non-empty English sentence for the model (≤ {PROMPT_MAX} characters)")
-        d = s.get("duration_seconds")
-        if not _num(d, seg.MIN_SEGMENT_S):
-            raise _bad(f"{where}.duration_seconds", f"must be seconds ≥ {seg.MIN_SEGMENT_S:g} (longer than the transition frames)")
+        source = s.get("source", "generate") if isinstance(s, dict) else "generate"   # 객체가 아니면 _keys 가 거부한다
+        if source not in seg.SOURCES:
+            raise _bad(f"{where}.source", f"must be one of {list(seg.SOURCES)}")
+        s = _keys(s, EXISTING_SEGMENT_KEYS if source == "existing" else SEGMENT_KEYS | {"source"}, where)
+        if source == "generate":
+            # 검사 순서는 9-2 그대로(prompt → 길이 → 이름 → swing)
+            prompt = s.get("prompt")
+            if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > PROMPT_MAX:
+                raise _bad(f"{where}.prompt", f"must be a non-empty English sentence for the model (≤ {PROMPT_MAX} characters)")
+            d = s.get("duration_seconds")
+            if not _num(d, seg.MIN_SEGMENT_S):
+                raise _bad(f"{where}.duration_seconds", f"must be seconds ≥ {seg.MIN_SEGMENT_S:g} (longer than the transition frames)")
         name = s.get("name") if s.get("name") is not None else seg.default_name(k)
         if not isinstance(name, str) or not _NAME.match(name):
             raise _bad(f"{where}.name", "must be a section name (letters, digits, '_')")
         if name in names:
             raise _bad(f"{where}.name", f"'{name}' is used twice", reason="DUPLICATE_NAME")
         names.add(name)
+        if source == "existing":
+            out.append(_existing_segment(s, name, where))
+            continue
         if not isinstance(s.get("swing", False), bool):
             raise _bad(f"{where}.swing", "must be true or false")
-        out.append({"name": name, "prompt": prompt.strip(), "duration_seconds": d, "swing": bool(s.get("swing", False))})
-    if sum(s["swing"] for s in out) > 1:
+        out.append({"name": name, **({"source": "generate"} if mixed else {}), "prompt": prompt.strip(), "duration_seconds": d,
+                    "swing": bool(s.get("swing", False))})
+    if sum(s.get("swing", False) for s in out) > 1:
         raise _bad("segments", "at most one segment can be swing: true (fix.timing looks for the swing peak in it)", reason="CONFLICTING_FIELDS")
-    total = sum(s["duration_seconds"] for s in out)
+    generated = [s for s in out if s.get("source", "generate") == "generate"]
+    total = sum(s["duration_seconds"] for s in generated)
     if total > seg.MAX_TOTAL_S + 1e-9:
         raise _bad("segments", f"durations add up to {total:g}s — the model makes up to {seg.MAX_TOTAL_S:g}s", reason="DURATION_OVER_MAX")
-    if req["duration_seconds"] is None:
+    if mixed:
+        _check_mixed(req, out)
+    elif req["duration_seconds"] is None:
         req["duration_seconds"] = round(total, 4)
     elif abs(req["duration_seconds"] - total) > 1.0 / 30.0 + 1e-6:
         raise _bad("duration_seconds", f"is {req['duration_seconds']:g}s but the segments add up to {total:g}s — omit it or give the sum",
@@ -293,8 +316,47 @@ def _segments(req: dict, transition, raw: dict) -> None:
     lo, hi = seg.TRANSITION_RANGE
     if not _int(t, lo, hi):
         raise _bad("generation.transition_frames", f"must be an integer in [{lo}, {hi}] (default {seg.TRANSITION_DEFAULT} — Kimodo's)")
+    if mixed and t < seg.MIXED_TRANSITION_MIN:
+        raise _bad("generation.transition_frames", f"must be ≥ {seg.MIXED_TRANSITION_MIN} with existing segments — the seams overlap transition − 1 frames")
     req["segments"] = out
     req["generation"]["transition_frames"] = t
+    if not mixed and seam_keys is not _MISSING:
+        raise _bad("generation.seam_keys", "only with existing segments — the poses keyed where a generated segment meets an existing clip",
+                   reason="REQUIRES_SEGMENTS")
+    if mixed:
+        keys = True if seam_keys is _MISSING or seam_keys is None else seam_keys
+        if not isinstance(keys, bool):
+            raise _bad("generation.seam_keys", "must be true (key the neighbour poses at the seams — default) or false (crossfade only)")
+        req["generation"]["seam_keys"] = keys
+
+
+def _existing_segment(s: dict, name: str, where: str) -> dict:
+    """{source: existing, asset, start?, end?} — 형식만(스켈레톤 · 길이는 local_ai 계획이 에디터로 잰다)."""
+    asset = s.get("asset")
+    if not isinstance(asset, str) or not asset.startswith("/Game/"):
+        raise _bad(f"{where}.asset", "must be a /Game/... AnimSequence on the target skeleton")
+    start, end = s.get("start", 0.0), s.get("end")
+    if not _seconds(start):
+        raise _bad(f"{where}.start", "must be seconds (≥ 0) on the asset")
+    if end is not None and (not _seconds(end) or end - start < seg.MIN_SEGMENT_S - 1e-9):
+        raise _bad(f"{where}.end", f"must be seconds on the asset, ≥ start + {seg.MIN_SEGMENT_S:g}")
+    return {"name": name, "source": "existing", "asset": package_path(asset.split(".", 1)[0]), "start": float(start),
+            "end": None if end is None else float(end)}
+
+
+def _check_mixed(req: dict, out: list[dict]) -> None:
+    gen = [i for i, s in enumerate(out) if s["source"] == "generate"]
+    if not gen:
+        raise _bad("segments", "needs at least one generated segment — joining existing clips only is edits.operations concat")
+    if gen != list(range(gen[0], gen[-1] + 1)):
+        raise _bad("segments", "the generated segments must be next to each other (one Kimodo run) — existing clips go before and/or after them",
+                   reason="GENERATION_NOT_CONTIGUOUS")
+    if req["duration_seconds"] is not None:
+        raise _bad("duration_seconds", "omit it with existing segments — the joined length depends on the existing ranges (the plan shows it)",
+                   reason="CONFLICTING_FIELDS")
+    if req["edits"]:
+        raise _bad("segments", "existing segments are joined by a join step after the generated part — edits.operations cannot follow it",
+                   reason="CONFLICTING_FIELDS")
 
 
 def _int(value, low: int, high: int) -> bool:
@@ -402,11 +464,16 @@ def _refine(raw) -> dict:
         raise _bad("generation.refine.keyframe_step", "must be an integer in [1, 10] (constraint every n frames)")
     grip = raw.get("grip") or {}
     if not isinstance(grip, dict):
-        raise _bad("generation.refine.grip", "must be {lead_hand?, target?, spacing_cm? | target_spacing_cm?, from_s?, to_s?}")
-    extra = sorted(set(grip) - set(REFINE_DEFAULTS["grip"]))
+        raise _bad("generation.refine.grip", "must be {lead_hand?, target?, spacing_cm? | target_spacing_cm?, from_s?, to_s?, handle?}")
+    allowed = set(REFINE_DEFAULTS["grip"]) | {"handle"}
+    extra = sorted(set(grip) - allowed)
     if extra:
-        raise _bad(f"generation.refine.grip.{extra[0]}", f"unknown key(s) {extra}", reason="UNKNOWN_FIELD", allowed=sorted(REFINE_DEFAULTS["grip"]))
+        raise _bad(f"generation.refine.grip.{extra[0]}", f"unknown key(s) {extra}", reason="UNKNOWN_FIELD", allowed=sorted(allowed))
     g = {**REFINE_DEFAULTS["grip"], **grip}
+    # Phase 9-3b — 손잡이 축: 줄 때만 키가 생긴다(없는 요청은 9-3a 와 비트 같다). weapon = 요청 weapon 의 운영 부착 자루(local_ai 계획이 푼다)
+    if "handle" in g and g["handle"] not in REFINE_HANDLES:
+        raise _bad("generation.refine.grip.handle", f"must be one of {list(REFINE_HANDLES)} — wrist_line = the pass-1 wrist line (default), weapon = the "
+                   "request weapon's attached handle (the lead hand turns it toward the support hand, the support hand goes onto it)")
     if g["lead_hand"] not in ("left", "right"):
         raise _bad("generation.refine.grip.lead_hand", "must be left or right (the hand nearer the guard)")
     if g["target"] not in ("meet", "lead"):

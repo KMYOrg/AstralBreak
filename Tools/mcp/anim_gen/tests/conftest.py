@@ -262,11 +262,22 @@ class FakeEditor:
         bad = [i for i, o in enumerate(ops) if o.get("op") not in KNOWN_OPS]
         return [{"index": i, "op": o.get("op"), "ok": i not in bad} for i, o in enumerate(ops)], bad
 
+    def _concat(self, length: float, op: dict, source: str) -> tuple[float, dict]:
+        """Phase 9-3c — concat 흉내: 붙인 구간 길이(asset · start · end) − blend, planned.range.start = 겹침 시작(앞 길이 − blend)."""
+        seg = self._source(op.get("asset") or source)
+        seg_len = (op.get("end") if op.get("end") is not None else seg["length"]) - (op.get("start") or 0.0)
+        blend = op.get("blend") or 0.0
+        return round(length - blend + seg_len, 4), {"start": round(length - blend, 4), "end": round(length - blend + seg_len, 4)}
+
     def _preview_animation_edits(self, p):
         src = self._source(p["source"])
         planned, bad = self._check_ops(p["operations"])
+        length = src["length"]
+        for i, op in enumerate(p["operations"]):
+            if op.get("op") == "concat" and not bad:
+                length, planned[i]["range"] = self._concat(length, op, p["source"])
         out = {"valid": not bad, "planned": planned,
-               "result": {"length": src["length"], "frame_rate": src["frame_rate"], "frames": int(src["length"] * src["frame_rate"])},
+               "result": {"length": length, "frame_rate": src["frame_rate"], "frames": int(length * src["frame_rate"])},
                "seams": [], "limitations": []}
         if p.get("asset_path"):
             out["would_create"] = {"allowed": is_under(p["asset_path"], self.output_paths), "exists": package_path(p["asset_path"]) in self.assets}
@@ -296,6 +307,8 @@ class FakeEditor:
                 length = round(op["knots"][-1][1], 4)
             elif op["op"] == "trim":
                 length = round(end - start, 4)
+            elif op["op"] == "concat":
+                length, _ = self._concat(length, op, p["source"])
         path = self._new(p["asset_path"], **{"class": "AnimSequence", "skeleton": src["skeleton"], "length": length,
                                              "frame_rate": src["frame_rate"], "loop": loop, "root_motion": src["root_motion"]})
         item = {"status": "PASSED", "numeric": {"length": length, "frame_rate": src["frame_rate"], "loop": loop}}

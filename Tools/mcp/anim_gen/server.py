@@ -105,7 +105,12 @@ def plan_motion_generation(request: dict) -> dict:
             such as wind-up → slash → recover as one local_ai Kimodo run, each prompt in order, each later segment re-generated from the
             previous one's last generation.transition_frames (1-10, default 5) poses; total ≤ 10 s, duration_seconds omitted or their sum;
             a seams step measures the boundaries on the final sequence (mapped through fix.timing) and package.montage.sections "segments"
-            puts montage sections there — Job segments; other providers are excluded with SEGMENTS_UNSUPPORTED),
+            puts montage sections there — Job segments; other providers are excluded with SEGMENTS_UNSUPPORTED; Phase 9-3c — an item may
+            be an existing clip {source: "existing", asset (target-skeleton AnimSequence), start?, end? (seconds on it), name?}: the generated
+            segments (next to each other) are one Kimodo run lengthened by transition − 1 frames on each side that meets an existing clip, whose
+            last / first transition poses become full-body key poses there (origin / pass1 — generation.seam_keys false = crossfade only), the
+            corrections (fix.timing · fix.body · select) touch only the generated part, then a join step crossfades the overlaps and lines each
+            appended piece up by pelvis and body heading (not the root bone) — Job join; omit duration_seconds, the editor must be running),
             generation?{seed? (omit → the plan pins one), samples 1-4, steps 10-1000 (100),
             postprocess auto|on|off (Kimodo foot-skate cleanup), pick (which sample is retargeted), constraints[] — root_path{points[{t s,
             forward_cm, left_cm, yaw_deg? (+ = turn left)}]} character-relative to the first frame | keep_pose{npz (a previous Kimodo
@@ -117,6 +122,8 @@ def plan_motion_generation(request: dict) -> dict:
             crossed wrists · hands in the head and
             keeps the lowest score — Job selection holds every number; numbers are not a visual verdict), refine{mode auto|off,
             grip{lead_hand right|left, target meet (move both wrists into reach, default) | lead (keep the lead hand path),
+            handle? (wrist_line default | weapon — Phase 9-3b: follow the request weapon's ATTACHED handle — the lead hand turns it toward
+            the support hand within wrist caps, the support palm goes onto it; needs weapon{grips} · the grip flag · a spacing),
             target_spacing_cm? (0-100, wrist-to-wrist on the TARGET mesh — a two-handed polearm such as Vesper's scythe ≈ 60; the plan
             measures both skeletons' shoulder width and arm length and maps it to the generation gap, e.g. Vesper 60 → Kimodo ≈ 75) |
             spacing_cm? (0-100, the same on the GENERATION skeleton — the target gets a different gap; give one of the two; both omitted =

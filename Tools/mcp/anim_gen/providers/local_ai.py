@@ -20,7 +20,7 @@ import json
 import pathlib
 import secrets
 
-from .. import motion_metrics, segments
+from .. import body_model as bm, motion_metrics, segments, weapon as weapon_mod
 from ..soma import SOMA_ARMS, SOMA_CHAINS, SOMA_FEET, SOMA_PELVIS, retarget_defaults  # noqa: F401 — 다시 내보냄(통합 테스트 · pytest)
 from ..envelope import AnimGenError, diag, limitation
 from ..local_ai import constraints as kc
@@ -44,6 +44,8 @@ DEFAULT_DURATION_S = 5.0    # kimodo_gen 기본값
 BVH_EXPECTED = {"unit": "cm", "facing": "+Y", "joints": 78, "fps": FPS}
 # 확산 한 번 더 할 때마다 기한에 더하는 초 — 스파이크(2026-10-26, 에디터 띄운 채) 확산 + 후처리 20 ~ 27초
 DIFFUSION_EXTRA_S = 25.0
+# Phase 9-3b — 키 2차의 자유 손 고정 창(pass1 키 프레임 ± 프레임, 0.5초 @ 30 fps). E0: 키가 키운 자유 손목 비틀기는 키 10 프레임 앞(0.86초)
+HOLD_WINDOW_FRAMES = 15
 _RAW_MAX_BYTES = 8 << 20
 _OFFLINE_ENV = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "LOCAL_CACHE": "true", "HF_HUB_DISABLE_TELEMETRY": "1",
                 "GRADIO_ANALYTICS_ENABLED": "False", "TEXT_ENCODER_MODE": "local", "TEXT_ENCODER_DEVICE": "cpu", "TRANSFORMERS_VERBOSITY": "error"}
@@ -98,7 +100,19 @@ class KimodoProvider(SubprocessProvider):
         # 길이 = (프레임 − 1) / fps 가 요청 길이가 되게 한 프레임 더 만든다(최대 300)
         frames = min(int(round(duration * FPS)) + 1, MAX_FRAMES)
         seg_plan = None
-        if segs:
+        mixed = None
+        if segs and segments.is_mixed(segs):
+            # Phase 9-3c — 기존 애셋 구간을 섞은 세그먼트: Kimodo 는 생성 덩어리만(기존 이웃 쪽은 겹침 K 프레임만큼 늘린다), 잇기는 join 단계
+            mixed = self._plan_mixed(request, segs, pctx)
+            segs = [segs[i] for i in mixed["layout"]["generated"]]
+            seg_plan = segments.mixed_frames([s["duration_seconds"] for s in segs], mixed["layout"]["lead"] is not None,
+                                             mixed["layout"]["trail"] is not None, mixed["overlap_frames"], FPS)
+            frames = seg_plan["total_frames"]
+            duration = seg_plan["length_s"]
+            if frames > MAX_FRAMES:
+                raise PlanBlocked("UNSUPPORTED_REQUEST", "DURATION_OVER_MAX", f"the generated segments make {frames} frames with the seam overlaps — "
+                                  f"Kimodo makes up to {MAX_FRAMES} ({(MAX_FRAMES - 1) / FPS:.3f}s at {FPS:g} fps)")
+        elif segs:
             # Phase 9-2 — 세그먼트마다 round(길이 × fps), 마지막만 + 1 → 합 = 이은 클립 프레임(Kimodo _multiprompt). 자르지 않고 넘으면 막는다
             seg_plan = segments.plan_frames([s["duration_seconds"] for s in segs], FPS)
             frames = seg_plan["total_frames"]
@@ -119,6 +133,11 @@ class KimodoProvider(SubprocessProvider):
         try:
             specs = kc.convert(gen["constraints"], FPS, frames)
             files = self._pin_constraint_files(specs, pctx.settings, frames)
+            if mixed and mixed["seam_keys"]:
+                # Phase 9-3c — 이음매 자동 키(앞 이웃 끝 → 프레임 0 ~ K origin · 뒤 이웃 첫 → 끝 K + 1 프레임 pass1) — key_pose 단계가 역리타깃한다
+                auto = segments.seam_key_constraints(mixed["neighbours"]["lead"], mixed["neighbours"]["trail"], frames, mixed["overlap_frames"], FPS)
+                for c, spec in zip(auto, kc.convert(auto, FPS, frames)):
+                    specs.append({**spec, "source": c["source"], "seam": True})
         except kc.ConstraintError as err:
             raise PlanBlocked("UNSUPPORTED_REQUEST", err.reason, err.message, **err.details) from None
         # Phase 9-3 — 대상 애셋 키 포즈: 생성 앞 key_pose 단계(역리타깃 → 제약 파일). pass1 배치면 같은 seed 로 한 번 더 만든다
@@ -133,7 +152,7 @@ class KimodoProvider(SubprocessProvider):
         if seed is None:
             seed = secrets.randbelow(2 ** 31)
             pctx.diagnostics.append(diag("info", "SEED_PINNED", f"generation.seed not given — {seed} pinned so the plan reruns the same motion"))
-        if not request["duration_seconds"]:
+        if not request["duration_seconds"] and not mixed:
             pctx.diagnostics.append(diag("info", "DURATION_DEFAULTED", f"duration_seconds not given — {DEFAULT_DURATION_S:g}s (Kimodo default)"))
         risks = ["TEXT_ENCODER_CPU"]  # Llama 3 8B 인코더를 CPU 로 — 한 건 약 35초, RAM 약 15 GB (스파이크)
         if pctx.settings is None and files:
@@ -142,9 +161,10 @@ class KimodoProvider(SubprocessProvider):
                            "그 포즈를 따른다(손 체인 매핑)", "provider")]
         # Phase 8-1 — 플래그 → 2차 생성 제약 · seed 후보
         spacing, bones = self._grip_spacing(request, pctx)
+        handle = self._grip_handle(request, pctx, spacing)
         try:
             refine = kr.plan(request["constraints"], gen["refine"], frames=frames, fps=FPS,
-                             requested_root=any(c["type"] == "root_path" for c in gen["constraints"]), spacing=spacing)
+                             requested_root=any(c["type"] == "root_path" for c in gen["constraints"]), spacing=spacing, handle=handle)
         except kr.RefineError as err:
             raise PlanBlocked("UNSUPPORTED_REQUEST", err.code, f"generation.refine: {err.message}") from None
         if refine["passes"] == 2 and gen["samples"] > 1:
@@ -163,10 +183,21 @@ class KimodoProvider(SubprocessProvider):
                   "postprocess": postprocess, "constraints": specs, "constraint_files": files}
         if seg_plan:
             self._plan_segments(inputs, segs, seg_plan, gen["transition_frames"], lims)
-        if key_step:
-            inputs["key_pose"] = self._plan_key_pose(inputs, key_specs, seg_plan)
+        if mixed:
+            inputs["mixed"] = self._mixed_inputs(mixed, seg_plan, lims)
+        if handle:
+            # Phase 9-3b — 생성 파지 규칙(운영 부착 자루)의 손 방향 대응을 생성 앞에서 잰다(key_pose 단계가 있으면 그 단계에, 없으면 hand_basis 단계)
+            key_step, basis_lims = key_pose_step.plan_hand_basis(request, key_step, pctx, python, handle["bone"])
+            lims += basis_lims
+        if key_specs:
+            inputs["key_pose"] = self._plan_key_pose(inputs, key_specs, seg_plan, refine)
             risks += key_risks
             lims += key_lims
+            hold = inputs["key_pose"].get("hold_free_hands")
+            if hold:
+                lims.append(limitation("KEY_POSE_HANDS_HELD", f"키가 묶지 않은 손 {hold['hands']} 을 2차에서 1차(같은 seed · 키 없이) 손 위치 · 회전에 "
+                                       f"{hold['keyframe_step']} 프레임마다 묶었다 — 키가 자유 팔을 1차보다 더 비틀지 않게(9-3b E0: 왼손목 비틀기 −105 → −128°). "
+                                       "1차부터 있던 자세는 그대로 남는다", "provider", hands=hold["hands"]))
         step = {"step": "generate", "provider": self.name, "tool": "kimodo_run.py (Kimodo venv)", "inputs": inputs,
                 "output": "bvh", "bvh": dict(BVH_EXPECTED, frames=frames),
                 "retarget_defaults": retarget_defaults(),
@@ -178,15 +209,24 @@ class KimodoProvider(SubprocessProvider):
         return step
 
     @staticmethod
-    def _plan_key_pose(inputs: dict, key_specs: list[dict], seg_plan: dict | None) -> dict:
+    def _plan_key_pose(inputs: dict, key_specs: list[dict], seg_plan: dict | None, refine: dict) -> dict:
         """Phase 9-3 — 계획에 키 포즈 항목(생성 프레임 · 배치)과 패스 수. pass1 배치가 있으면 1차(키 없이) 뒤 같은 seed 2차 — 확산 한 번(× 세그먼트)
-        만큼 기한을 늘린다(후보 계획이 있으면 그쪽이 다시 센다)."""
+        만큼 기한을 늘린다(후보 계획이 있으면 그쪽이 다시 센다). 9-3b — 그 2차에서 키 · 파지가 묶지 않은 손(hold_free_hands)은 1차 손에 묶는다:
+        전신 키가 있으면(모든 손을 묶는다) · 양손 파지 2차가 손을 맡으면 없다."""
         pass1 = [s["source"] for s in key_specs if s["placement"] == "pass1"]
         # 키 둘레 떨림(확산 쪽 키 조건 — 8-1 수정안 A 와 같은 원인, 9-3 실측: 성긴 전신 키 3개에서 Vesper 손 속도 톱니) → 최종 출력에 같은 σ 스무딩
         # (사용자 결정 2026-11-01). 파지 · 발 2차가 이미 스무딩하면 한 번만
         out = {"from_step": "key_pose", "passes": 2 if pass1 else 1, "pass1_items": pass1, "smooth_sigma_frames": kr.SMOOTH_SIGMA_FRAMES,
                "items": [{"source": s["source"], "asset": s["asset"], "part": s["part"], "frames": s["frame_indices"], "placement": s["placement"]}
                          for s in key_specs]}
+        parts = {s["part"] for s in key_specs}
+        grip = any(r["flag"] == "two_hand_weapon_grip" for r in refine["rules"])
+        hold = [h for h in ("left_hand", "right_hand") if h not in parts] if pass1 and "full" not in parts and not grip else []
+        if hold:
+            # 키 둘레만(± HOLD_WINDOW_FRAMES) — 클립 전체를 묶으면 키 뒤 동작까지 1차로 끌려 바뀐다(9-3b 실측)
+            out["hold_free_hands"] = {"hands": hold, "keyframe_step": refine["keyframe_step"], "window_frames": HOLD_WINDOW_FRAMES,
+                                      "around_frames": sorted({f for s in key_specs if s["placement"] == "pass1" for f in s["frame_indices"]}),
+                                      "target": "pass-1 hand (position + rotation, general end-effector) — the keys do not twist a free arm further"}
         if pass1:
             inputs["timeout_extra_s"] = inputs.get("timeout_extra_s", 0.0) + DIFFUSION_EXTRA_S * max(1, len((seg_plan or {}).get("frames") or []))
         return out
@@ -201,10 +241,69 @@ class KimodoProvider(SubprocessProvider):
                                                                          seg_plan["ends_s"]))],
                       swing_window_s=segments.swing_window(segs, seg_plan["starts_s"], seg_plan["ends_s"], transition, FPS),
                       timeout_extra_s=DIFFUSION_EXTRA_S * (len(segs) - 1))   # 세그먼트마다 확산 한 번 — 후보 계획이 있으면 그쪽이 덮는다
+        if len(segs) < 2:
+            return   # 9-3c — 섞은 세그먼트의 생성 덩어리가 하나면 Kimodo 안 전이가 없다
         lims.append(limitation("SEGMENT_TRANSITIONS", f"세그먼트 {len(segs)}개를 한 Kimodo 실행으로 이었다 — 둘째부터 처음 {transition} 프레임"
                                f"({transition / FPS:.2f}초)에 앞 세그먼트 끝 자세(전신 + 손발)를 제약으로 걸어 다시 만든다. 경계 {seg_plan['boundaries_s']}초. "
                                "분해했다고 연결이 자연스럽다는 보장은 없다 — 이음매 수치(Job segments)와 사람 판정으로 본다", "provider",
                                boundaries_s=seg_plan["boundaries_s"], transition_frames=transition))
+
+    @staticmethod
+    def _plan_mixed(request: dict, segs: list[dict], pctx: PlanContext) -> dict:
+        """Phase 9-3c — 기존 세그먼트를 계획 때 잰다(대상 스켈레톤 · fps · 길이 → 구간 고정). 생성 덩어리 앞 · 뒤 이웃은 이음매 자동 키의 원천."""
+        if not pctx.editor_ok:
+            raise PlanBlocked("PROVIDER_UNAVAILABLE", "EDITOR", "segments with existing clips read those clips (skeleton · length · fps) when planning — "
+                              "plan again with the editor running")
+        target = request["target_skeleton"]
+        overlap = segments.overlap_frames(request["generation"]["transition_frames"])
+        lay = segments.layout(segs)
+        pieces, cache = [], {}
+        for k, s in enumerate(segs):
+            if s["source"] == "generate":
+                if k == lay["generated"][0]:
+                    pieces.append({"source": "generated", "segments": [segs[i]["name"] for i in lay["generated"]], "indices": lay["generated"]})
+                continue
+            where = f"segments[{k}]"
+            info = cache.get(s["asset"]) or key_pose_step._source_info(pctx.editor, s["asset"], where)
+            cache[s["asset"]] = info
+            if info["skeleton"] and info["skeleton"] != target:
+                raise PlanBlocked("UNSUPPORTED_REQUEST", "SAMPLE_SKELETON_MISMATCH", f"{where}.asset is on {info['skeleton']} — existing segments must be on "
+                                  f"the target skeleton {target} (retarget them first)", skeleton=info["skeleton"])
+            length = float(info["length"] or (info["frames"] - 1) / info["frame_rate"])
+            end = length if s["end"] is None else s["end"]
+            if end > length + 0.5 / info["frame_rate"] or s["start"] >= end:
+                raise PlanBlocked("UNSUPPORTED_REQUEST", "CONSTRAINT_OUT_OF_RANGE", f"{where}: range {s['start']:g} ~ {end:g}s is outside "
+                                  f"{s['asset'].rsplit('/', 1)[-1]} (0 ~ {length:g}s)", length=length)
+            end = min(end, length)
+            if end - s["start"] < overlap / FPS + 1.0 / info["frame_rate"] - 1e-9:
+                raise PlanBlocked("UNSUPPORTED_REQUEST", "DURATION_TOO_SHORT", f"{where}: {end - s['start']:g}s is shorter than the seam overlap "
+                                  f"({overlap} frames at {FPS:g} fps)")
+            pieces.append({"source": "existing", "index": k, "name": s["name"], "asset": s["asset"], "start": round(s["start"], 6), "end": round(end, 6),
+                           "length_s": round(end - s["start"], 4), "frame_rate": info["frame_rate"], "asset_length_s": round(length, 4)})
+        by_index = {p.get("index"): p for p in pieces if p["source"] == "existing"}
+        neighbours = {side: ({k: by_index[i][k] for k in ("index", "asset", "start", "end")} if i is not None else None)
+                      for side, i in (("lead", lay["lead"]), ("trail", lay["trail"]))}
+        return {"layout": lay, "overlap_frames": overlap, "seam_keys": request["generation"]["seam_keys"], "pieces": pieces, "neighbours": neighbours,
+                "names": [s["name"] for s in segs]}
+
+    @staticmethod
+    def _mixed_inputs(mixed: dict, seg_plan: dict, lims: list[dict]) -> dict:
+        """계획에 섞은 세그먼트(조각 · 겹침 · 생성 덩어리 프레임 · 자동 키) — join · seams 단계가 이것을 읽는다."""
+        lay, overlap = mixed["layout"], mixed["overlap_frames"]
+        gen = next(p for p in mixed["pieces"] if p["source"] == "generated")
+        gen.update(frames=seg_plan["total_frames"], length_s=seg_plan["length_s"], lead_overlap_frames=overlap if lay["lead"] is not None else 0,
+                   trail_overlap_frames=overlap if lay["trail"] is not None else 0)
+        joined = sum(p["length_s"] for p in mixed["pieces"]) - (len(mixed["pieces"]) - 1) * overlap / FPS
+        out = {"names": mixed["names"], "pieces": mixed["pieces"], "overlap_frames": overlap, "blend_s": round(overlap / FPS, 6), "gen_fps": FPS,
+               "seam_keys": mixed["seam_keys"], "lead": lay["lead"], "trail": lay["trail"], "joined_length_s": round(joined, 4), "align": "pelvis"}
+        seams = [n for n in (lay["lead"], lay["trail"]) if n is not None]
+        lims.append(limitation("SEGMENTS_JOINED", f"기존 세그먼트 {[mixed['names'][i] for i in seams]} 와 생성 덩어리를 join 단계가 잇는다 — 이음매마다 {overlap} "
+                               f"프레임({overlap / FPS:.3f}초)을 겹쳐 크로스페이드, 붙는 조각은 골반 수평 위치 · 몸 방향(엉덩 관절 선)으로 맞춘다(루트 본이 아니라 — 운영 "
+                               "애니 루트는 골반과 1.7 ~ 19 cm 떨어진다, 9-3c E0). " + (
+                                   f"이음매 자세는 이웃의 끝 · 첫 {overlap + 1} 프레임을 생성 전신 키로 줬다(앞 origin · 뒤 pass1 — key_pose 단계 역리타깃)" if mixed["seam_keys"]
+                                   else "seam_keys false — 이음매 키 없이 크로스페이드만(대조)") + ". 보정(fix.timing · fix.body · select)은 생성 부분만, 기존 이웃 쪽 "
+                               "끝은 시간 보정 정지 트림을 하지 않는다", "provider", overlap_frames=overlap, seam_keys=mixed["seam_keys"]))
+        return out
 
     @staticmethod
     def _grip_spacing(request: dict, pctx: PlanContext) -> tuple[dict | None, dict | None]:
@@ -234,6 +333,49 @@ class KimodoProvider(SubprocessProvider):
             raise PlanBlocked("UNSUPPORTED_REQUEST", "GRIP_SPACING_OUT_OF_RANGE", f"{field}: {spacing['target_cm']:g} cm on the target is "
                               f"{spacing['source_cm']:g} cm on the generation skeleton — beyond both arms' reach ({reach:.1f} cm)")
         return spacing, bones
+
+    @staticmethod
+    def _grip_handle(request: dict, pctx: PlanContext, spacing: dict | None) -> dict | None:
+        """Phase 9-3b — generation.refine.grip.handle weapon(사용자 결정 ③): 요청 weapon 의 운영 부착 자루를 부착 본(대상 주 손) 공간 cm 로 — 자루 방향 ·
+        손목에서 가장 가까운 자루 점(anchor) · 자루 범위(anchor 기준 선 좌표). 무기 · 대상 메시는 select 기록과 같은 풀이(RetargetPipe.select_hands —
+        weapon.resolve). 생성 손(SOMA)으로의 대응은 실행 때 hand_basis 단계가, 체형 비(SOMA → 대상 팔 길이)는 간격 사상(gap_map)이 준다. handle 이
+        없거나 wrist_line 이면 None(지금 규칙 그대로 — 계획 비트 같음)."""
+        g = request["generation"]["refine"]["grip"]
+        if g.get("handle", "wrist_line") != "weapon":
+            return None
+        field = "generation.refine.grip.handle"
+        weapon = request.get("weapon")
+        off = weapon_mod.off_grip(weapon)
+        if off is None or off.get("runtime_ik"):
+            raise PlanBlocked("UNSUPPORTED_REQUEST", "GRIP_HANDLE_NEEDS_WEAPON", f"{field} weapon follows the request weapon's attached handle — give "
+                              "weapon{mesh, attach, grips[{hand: the support hand, segment | socket}]}")
+        if request["generation"]["refine"]["mode"] == "off" or not (request["constraints"] or {}).get("two_hand_weapon_grip"):
+            raise PlanBlocked("UNSUPPORTED_REQUEST", "GRIP_HANDLE_NEEDS_GRIP", f"{field} weapon shapes the two-hand grip pass — set "
+                              "constraints.two_hand_weapon_grip (generation.refine.mode auto)")
+        if spacing is None:
+            raise PlanBlocked("UNSUPPORTED_REQUEST", "GRIP_HANDLE_NEEDS_SPACING", f"{field} weapon puts the support palm on the handle at the grip gap — give "
+                              "generation.refine.grip.target_spacing_cm (or spacing_cm)")
+        if weapon["lead_hand"] != g["lead_hand"]:
+            raise PlanBlocked("UNSUPPORTED_REQUEST", "CONFLICTING_FIELDS", f"weapon.lead_hand {weapon['lead_hand']} differs from generation.refine.grip.lead_hand "
+                              f"{g['lead_hand']} — the weapon hangs on the lead hand")
+        if not pctx.editor_ok:
+            raise PlanBlocked("PROVIDER_UNAVAILABLE", "EDITOR", f"{field} weapon reads the weapon and target meshes when planning — plan again with the editor running")
+        diags: list[dict] = []
+        _, resolved = RetargetPipe.select_hands(pctx.editor, request, request["target_mesh"], diags)
+        if not resolved:
+            raise PlanBlocked("UNSUPPORTED_REQUEST", "HANDLE_NOT_MEASURED", f"{field}: " + ("; ".join(d["message"] for d in diags) or "no handle line"))
+        ratio = spacing["map"]["arm_ratio"]
+        x = tuple(tuple(v) for v in resolved["local"])
+        h = resolved["handle"]
+        p = bm.transform_point(x, h["point"])
+        d = bm._sub(bm.transform_point(x, bm._add(h["point"], h["dir"])), p)
+        d = bm._scale(d, 1.0 / bm._norm(d))
+        t0 = bm._dot(p, d)
+        anchor = bm._sub(p, bm._scale(d, t0))   # 부착 본 원점(손목)에서 가장 가까운 자루 점
+        lo, hi = h["extent_cm"]
+        return {"from": "weapon", "mesh": resolved["mesh"], "bone": resolved["bone"], "lead": resolved["lead"], "dir_bone": [round(v, 6) for v in d],
+                "anchor_bone_cm": [round(v, 3) for v in anchor], "extent_cm": [round(t0 + lo, 2), round(t0 + hi, 2)], "arm_ratio": round(ratio, 5),
+                "wrist_cap_deg": kr.HANDLE_WRIST_CAP_DEG, "basis": "measured at run (hand_basis — the attach bone with SOMA in its T pose)"}
 
     def _plan_candidates(self, step: dict, request: dict, refine: dict, pctx: PlanContext, spacing: dict | None = None, bones: dict | None = None) -> None:
         """seed 후보 · 2차 생성 — 계획에 seed 목록 · 규칙 · 기한을 보이고, 라우터에 select 단계와 처리한 플래그를 알린다(모델을 띄우지 않는다).
@@ -334,7 +476,14 @@ class KimodoProvider(SubprocessProvider):
         candidates = "seeds" in inputs
         if candidates:
             # Phase 8-1 — seed 후보 · 2차 생성(한 실행 · 모델 1회 적재)
-            args.update(candidates_mode=True, seeds=inputs["seeds"], refine=inputs["refine"], metric_window=inputs["metric_window"])
+            refine = inputs["refine"]
+            if any(r.get("handle") for r in refine["rules"]):
+                # Phase 9-3b — 운영 부착 자루 규칙: 앞 hand_basis(또는 key_pose) 단계가 잰 손 방향 대응을 규칙에 싣는다
+                basis = ctx.values.get("hand_basis")
+                if not basis or not basis.get("rotation"):
+                    raise StepFailed("GENERATION_FAILED", "HAND_BASIS_MISSING", "the grip handle rule needs the hand basis the hand_basis step measures", fatal=True)
+                refine = {**refine, "rules": [{**r, "handle": {**r["handle"], "basis": basis}} if r.get("handle") else r for r in refine["rules"]]}
+            args.update(candidates_mode=True, seeds=inputs["seeds"], refine=refine, metric_window=inputs["metric_window"])
         if inputs.get("segments"):
             # Phase 9-2 — 프롬프트 · 프레임 목록(Kimodo multi_prompt) · 전이 프레임 · 경계(소스 이음매 수치)
             args.update(prompts=[s["prompt"] for s in inputs["segments"]], segment_frames=[s["frames"] for s in inputs["segments"]],
@@ -348,6 +497,8 @@ class KimodoProvider(SubprocessProvider):
                                  fatal=True)
             args["key_pose_file"] = path.as_posix()
             args["key_pose_smooth"] = inputs["key_pose"].get("smooth_sigma_frames")
+            if inputs["key_pose"].get("hold_free_hands"):
+                args["key_pose_hold"] = inputs["key_pose"]["hold_free_hands"]   # 9-3b — 키 2차의 자유 손 고정
         args_path.write_text(json.dumps(args, ensure_ascii=False, indent=1), encoding="utf-8")
         cmd = [str(python), "-I", str(RUNNER), str(args_path)]
         env = child_env({**_OFFLINE_ENV, "HF_HUB_CACHE": str(cache)})

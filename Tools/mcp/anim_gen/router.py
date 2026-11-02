@@ -5,6 +5,7 @@ preview_animation_edits)로 고른 소스·메시를 계획에 고정해 보여 
 """
 from __future__ import annotations
 
+from . import segments as segments_mod
 from .editor import EditorCallError, is_under, package_path
 from .envelope import AnimGenError, diag, limitation
 from .policy import FREE_FIRST, QUALITY_FIRST, paid_block_reason, resolve_mode
@@ -125,9 +126,11 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
     target = request["target_skeleton"]
     risks: list[str] = []
     if request.get("segments") and not getattr(provider, "takes_segments", False):
-        # Phase 9-2 — 세그먼트는 local_ai(Kimodo 다중 프롬프트)만. Provider 를 섞어 잇기(기존 모션 + 생성)는 9-3(U2-b)
-        raise PlanBlocked("UNSUPPORTED_REQUEST", "SEGMENTS_UNSUPPORTED", f"{name} does not generate request segments — local_ai (Kimodo multi-prompt) "
-                          "does; mixing providers per segment is not supported yet")
+        # Phase 9-2 — 세그먼트는 local_ai(Kimodo 다중 프롬프트)만. 9-3c — 기존 애셋 구간을 섞은 세그먼트도 생성 덩어리는 local_ai, 잇기는 join 단계
+        # (기존 구간이 없으면 메시지는 9-2 그대로 — segments 요청의 계획이 비트 같게)
+        tail = ("does (existing segments are joined to its generated part by the join step)" if segments_mod.is_mixed(request["segments"])
+                else "does; mixing providers per segment is not supported yet")
+        raise PlanBlocked("UNSUPPORTED_REQUEST", "SEGMENTS_UNSUPPORTED", f"{name} does not generate request segments — local_ai (Kimodo multi-prompt) {tail}")
     if name in EXISTING_CHAIN:
         if name == "direct_key" and not (request["edits"] and request["reference_animations"]):
             raise PlanBlocked("UNSUPPORTED_REQUEST", "MISSING_INPUT", "provider direct_key needs edits.operations and a source "
@@ -212,14 +215,18 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
         steps.append(step)
         risks += first.pop("risks", []) + (last.pop("risks", []) if last is not first else []) + r
         timed = bool(request["fix"].get("timing"))
+        mixed = (first.get("inputs") or {}).get("mixed")
         if timed:
-            # Phase 8-3 — 흐느적 보정은 리타깃 뒤 대상 시퀀스에서(생성 결과는 실행 때 잰다)
-            steps.append(direct_key.plan_timing(request, None, pctx, swing_window=(first.get("inputs") or {}).get("swing_window_s")))
+            # Phase 8-3 — 흐느적 보정은 리타깃 뒤 대상 시퀀스에서(생성 결과는 실행 때 잰다). 9-3c — 기존 이웃 쪽 끝은 정지 트림을 하지 않는다
+            steps.append(direct_key.plan_timing(request, None, pctx, swing_window=(first.get("inputs") or {}).get("swing_window_s"), seam_ends=mixed))
             risks.append("TIMING_RESOLVED_AT_RUN")
         body_lims, fitted = _plan_body(request, registry, pctx, None, steps, risks)
         if request["edits"]:
             steps.append(direct_key.plan_edit(request, None, pctx))
             risks.append("EDITS_NOT_PREVIEWED")
+        if mixed:
+            # Phase 9-3c — 보정까지 끝난 생성 덩어리를 기존 조각과 잇는다(겹침 크로스페이드 · 골반 맞춤) — 최종 시퀀스를 만드는 단계
+            steps.append(direct_key.plan_join(request, mixed, pctx))
         if request.get("segments"):
             # Phase 9-2 — 최종 시퀀스의 세그먼트 경계(시간 보정 warp 로 옮긴 시각) · 이음매 수치 · 몽타주 섹션 원천
             steps.append(retarget.plan_seams(request, first.get("inputs") or {}, pctx))
@@ -234,7 +241,7 @@ def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[
 
 def _reuse_state(steps: list[dict]) -> str:
     """앞 사슬이 새 시퀀스를 만드는가 — 'produced' | 'reused'(대상 스켈레톤의 기존 애셋 그대로) | 'unknown'(계획 때 소스를 몰라 리타깃이 조건부)."""
-    if any(s["step"] in ("edit", "timing", "import", "generate", "convert") or (s["step"] == "retarget" and not s.get("conditional"))
+    if any(s["step"] in ("edit", "timing", "import", "generate", "convert", "join") or (s["step"] == "retarget" and not s.get("conditional"))
            or (s["step"] == "body_fit" and (s.get("inputs") or {}).get("produces")) for s in steps):
         return "produced"
     return "unknown" if any(s["step"] == "retarget" for s in steps) else "reused"

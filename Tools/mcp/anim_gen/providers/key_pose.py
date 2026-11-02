@@ -9,10 +9,16 @@ blender 실행 파일 · target_mesh 를 확인하고 단계를 고정한다 —
   → 원천마다 retarget_animations → apply_animation_edits(hold_pose 한 프레임 — profile 은 프레임 0 을 내지 않는다, 길면 trim 먼저)
   → validate_animation profile(SOMA 78 본 컴포넌트 회전 · 위치) → anim_gen/key_pose.convert → <ImportSourceRoots>/LocalAI/<job>/A<n>/KeyPose/key_pose.json.
 배치(origin · pass1)는 Kimodo 실행 스크립트가 한다(pass1 은 1차 생성 결과가 있어야 한다).
+
+Phase 9-3b — 손 방향 대응(hand_basis, 생성 파지 규칙 grip.handle weapon 이 쓴다): 같은 SOMA 스켈레톤 · 리그로 정방향 리타기터(SOMA → 대상, 생성 리타깃과
+같은 ops · align_mode)를 만들어 SOMA T 포즈(전역 회전 0) 애니를 대상으로 옮기고, 부착 본(무기 소켓의 본)의 컴포넌트 회전 R_T 를 잰다. FK 리타깃은
+전역 회전 변화를 복사하므로 R_대상(t) = S·G(t)·S·R_T(G = Kimodo 전역 회전, S = y ↔ z) — 부착 본 공간 벡터 x 는 Kimodo 손 공간에서 S·R_T·x 다
+(E0 9-3a: 대응이 모든 프레임 같은 상수). key_pose 키가 없으면 단계 이름은 hand_basis 이고 제약 파일을 쓰지 않는다.
 """
 from __future__ import annotations
 
 import json
+import math
 import os
 import pathlib
 import subprocess
@@ -30,6 +36,8 @@ from .subprocess_step import child_env, file_sha256, import_roots, launch, read_
 
 TOOL = ("blender(SOMA T pose) → import_animation_file → create_ik_rig ×2 → create_ik_retargeter(target → SOMA) → retarget_animations → "
         "apply_animation_edits(hold_pose) → validate_animation(profile_rotations · positions)")
+TOOL_BASIS = ("blender(SOMA T pose) → import_animation_file(rest · T pose motion) → create_ik_rig ×2 → create_ik_retargeter(SOMA → target) → "
+              "retarget_animations(T pose) → validate_animation(profile_rotations — attach bone)")
 FPS_FALLBACK = 30.0
 
 
@@ -55,6 +63,44 @@ def source_frames(spec: dict, info: dict, where: str) -> list[int]:
     return out
 
 
+def _tpose_and_blender(pctx: PlanContext, kimodo_python: pathlib.Path | None) -> pathlib.Path:
+    tpose = kp.tpose_path(kimodo_python)
+    if tpose is None:
+        raise PlanBlocked("PROVIDER_UNAVAILABLE", "KEY_POSE_TPOSE_MISSING", f"the Kimodo package (from {kimodo_python}) has no "
+                          f"{'/'.join(kp.TPOSE_FILE)} — the SOMA skeleton for the reverse retarget is built from it")
+    exe = BlenderProvider.executable(pctx.policy)
+    if pctx.policy is not None and not (exe and pathlib.Path(exe).is_file()):
+        raise PlanBlocked("PROVIDER_UNAVAILABLE", "DEPENDS_ON_BLENDER", f"key_pose converts the SOMA T pose with Blender — blender_executable not found: {exe}")
+    return tpose
+
+
+def _common_inputs(request: dict, tpose: pathlib.Path) -> dict:
+    rt = request["retarget"]
+    return {"tpose": {"path": tpose.as_posix(), "sha256": file_sha256(tpose)}, "target_mesh": request["target_mesh"],
+            "existing_target_rig": rt.get("existing_target_rig"), "source_pelvis": SOMA_PELVIS, "source_chains": rt.get("source_chains") or SOMA_CHAINS,
+            "ops": rt.get("ops", "match_existing"), "align_mode": rt.get("align_mode", "per_bone"), "work": "<work>/KeyPose"}
+
+
+def plan_hand_basis(request: dict, step: dict | None, pctx: PlanContext, kimodo_python: pathlib.Path | None, bone: str) -> tuple[dict, list[dict]]:
+    """Phase 9-3b — 생성 파지 규칙(grip.handle weapon)의 손 방향 대응을 잴 단계: key_pose 단계가 있으면 그 단계에 hand_basis 를 더하고, 없으면 hand_basis
+    단계 하나(키 없음 · 제약 파일 없음). bone = 무기 부착 본(대상). → (단계, 예상 한계)."""
+    basis = {"bone": bone, "measure": "SOMA T pose (global rotations 0) → forward retarget (SOMA → target, same ops · align_mode as the generation) → "
+                                      "the attach bone's component rotation R_T; bone-space x is S·R_T·x in the Kimodo hand frame"}
+    lims = [limitation("GRIP_HANDLE_BASIS", f"무기 자루를 생성 손(SOMA)에 옮기는 손 방향 대응은 실행 때 SOMA T 포즈를 대상으로 정방향 리타깃해 부착 본 {bone} 의 회전으로 잰다 "
+                       "(FK 리타깃은 전역 회전 변화를 복사 — 대응은 프레임마다 같은 상수, E0 9-3a). 대상 쪽 관통 보정(resolve)이 손을 돌리면 그만큼 어긋난다", "provider",
+                       bone=bone)]
+    if step is not None:
+        step["inputs"]["hand_basis"] = basis
+        step["tool"] = TOOL + " · " + TOOL_BASIS.split(" → ", 1)[1]
+        return step, lims
+    if not request["target_mesh"]:
+        raise PlanBlocked("UNSUPPORTED_REQUEST", "MISSING_INPUT", "generation.refine.grip.handle weapon measures the hand basis on the target mesh — "
+                          "target_mesh is required", missing=["target_mesh"])
+    tpose = _tpose_and_blender(pctx, kimodo_python)
+    return {"step": "hand_basis", "provider": "retarget", "tool": TOOL_BASIS,
+            "inputs": {"items": [], **_common_inputs(request, tpose), "hand_basis": basis}}, lims
+
+
 def plan(request: dict, specs: list[dict], pctx: PlanContext, kimodo_python: pathlib.Path | None) -> tuple[dict, list[str], list[dict]]:
     """key_pose 명세(constraints.convert) → (key_pose 단계, 위험, 예상 한계). 막히면 PlanBlocked(이 후보를 뺀다)."""
     if not request["target_mesh"]:
@@ -69,13 +115,7 @@ def plan(request: dict, specs: list[dict], pctx: PlanContext, kimodo_python: pat
                 raise PlanBlocked("UNSUPPORTED_REQUEST", "DUPLICATE_FRAME", f"{spec['source']} and {clash} both pin {spec['part']} at generated frame {f}",
                                   frame=f)
             seen.setdefault(f, []).append((spec["part"], spec["source"]))
-    tpose = kp.tpose_path(kimodo_python)
-    if tpose is None:
-        raise PlanBlocked("PROVIDER_UNAVAILABLE", "KEY_POSE_TPOSE_MISSING", f"the Kimodo package (from {kimodo_python}) has no "
-                          f"{'/'.join(kp.TPOSE_FILE)} — the SOMA skeleton for the reverse retarget is built from it")
-    exe = BlenderProvider.executable(pctx.policy)
-    if pctx.policy is not None and not (exe and pathlib.Path(exe).is_file()):
-        raise PlanBlocked("PROVIDER_UNAVAILABLE", "DEPENDS_ON_BLENDER", f"key_pose converts the SOMA T pose with Blender — blender_executable not found: {exe}")
+    tpose = _tpose_and_blender(pctx, kimodo_python)
     risks, items = [], []
     target = package_path(request["target_skeleton"])
     cache: dict[str, dict] = {}
@@ -198,6 +238,14 @@ def run(ctx: RunContext) -> StepResult:
             r = editor.require("create_ik_rig", skeletal_mesh=target_mesh, asset_path=f"{work}/IK_Target", save=ctx.save)
             target_rig = package_path(r["asset_path"])
             created.append(target_rig)
+        basis = None
+        if inputs.get("hand_basis"):
+            # Phase 9-3b — 손 방향 대응(정방향 리타깃한 SOMA T 포즈의 부착 본 회전)
+            basis = _hand_basis(ctx, inputs, work, imp, rest_fbx, soma_mesh, soma_skel, soma_rig, target_rig, created)
+            diagnostics.append(diag("info", "HAND_BASIS_MEASURED", f"{basis['bone']} with SOMA in its T pose: rotation {basis['rotation']} "
+                                    f"({basis['retargeter']})", basis=basis))
+        if not inputs["items"]:
+            return StepResult(values={"hand_basis": basis}, created=created, diagnostics=diagnostics)
         r = editor.require("create_ik_retargeter", source_rig=target_rig, target_rig=soma_rig, source_mesh=target_mesh, target_mesh=soma_mesh,
                            asset_path=f"{work}/RTG_KeyPose", ops=inputs["ops"], align_mode=inputs["align_mode"], save=ctx.save)
         retargeter = package_path(r["asset_path"])
@@ -275,7 +323,48 @@ def run(ctx: RunContext) -> StepResult:
     record = {"file": path.as_posix(), "sha256": file_sha256(path), "skeleton": soma_skel, "mesh": soma_mesh, "retargeter": retargeter,
               "rigs": {"soma": soma_rig, "target": target_rig}, "items": items_out,
               "seconds": {"blender": round(t_blender - t0, 2), "total": round(time.time() - t0, 2)}}
-    return StepResult(values={"key_pose": record}, created=created, diagnostics=diagnostics)
+    values = {"key_pose": record}
+    if basis is not None:
+        values["hand_basis"] = basis
+    return StepResult(values=values, created=created, diagnostics=diagnostics)
+
+
+def _hand_basis(ctx: RunContext, inputs: dict, work: str, imp: dict, rest_fbx: pathlib.Path, soma_mesh: str, soma_skel: str, soma_rig: str,
+                target_rig: str, created: list[str]) -> dict:
+    """Phase 9-3b — SOMA T 포즈 애니(기준 포즈 FBX 임포트가 애니를 내면 그것, 아니면 2 프레임 T 포즈 동작 FBX 를 그 스켈레톤에) → 정방향 리타기터(SOMA →
+    대상 — 생성 리타깃과 같은 ops · align_mode) → 대상 애니 → 부착 본 컴포넌트 회전(profile 표본 — 모든 표본이 T 포즈라 같아야 한다)."""
+    editor = ctx.editor
+    bone = inputs["hand_basis"]["bone"]
+    anims = [package_path(a.get("asset")) for a in imp.get("animations") or [] if a.get("asset")]
+    if anims:
+        tpose_anim = anims[0]
+    else:
+        res = editor.require("import_animation_file", file=rest_fbx.with_name("SOMA_TPose.fbx").as_posix(), dest_path=f"{work}/Basis/Motion", save=ctx.save,
+                             skeleton=soma_skel)
+        created += [package_path(p) for p in res.get("imported", [])]
+        tpose_anim = package_path(((res.get("animations") or [{}])[0]).get("asset"))
+    if not tpose_anim:
+        raise StepFailed("RETARGET_FAILED", "HAND_BASIS_NO_TPOSE", "the SOMA T-pose import produced no animation", created=created)
+    r = editor.require("create_ik_retargeter", source_rig=soma_rig, target_rig=target_rig, source_mesh=soma_mesh, target_mesh=inputs["target_mesh"],
+                       asset_path=f"{work}/RTG_Basis", ops=inputs["ops"], align_mode=inputs["align_mode"], save=ctx.save)
+    rtg = package_path(r["asset_path"])
+    created.append(rtg)
+    res = editor.require("retarget_animations", retargeter=rtg, assets=[tpose_anim], source_mesh=soma_mesh, target_mesh=inputs["target_mesh"],
+                         output_path=f"{work}/Basis", name_rule={"prefix": "KPB_"}, include_referenced=False, validate=False, fingers=False, save=ctx.save)
+    target_anim = package_path(((res.get("generated") or [{}])[0]).get("asset"))
+    if not target_anim:
+        raise StepFailed("RETARGET_FAILED", "NOTHING_GENERATED", f"forward retarget of {tpose_anim} generated nothing", created=created)
+    created.append(target_anim)
+    item = editor.require("validate_animation", assets=[target_anim], checks=["numeric"], profile_bones=[bone], profile_rotations=True)["assets"][0]
+    rots = (((item.get("numeric") or {}).get("profile") or {}).get("rotations") or {}).get(bone) or []
+    if not rots:
+        raise StepFailed("RETARGET_FAILED", "HAND_BASIS_NOT_MEASURED", f"{target_anim}: no profile rotation for {bone}", created=created)
+    q0 = kp.qnormalize(tuple(rots[0]))
+    spread = max(math.degrees(2.0 * math.acos(min(1.0, abs(sum(a * b for a, b in zip(q0, kp.qnormalize(tuple(q)))))))) for q in rots)
+    if spread > 0.5:
+        raise StepFailed("RETARGET_FAILED", "HAND_BASIS_UNSTABLE", f"{target_anim}: {bone} turns {spread:.2f}° over the T-pose samples", created=created)
+    return {"bone": bone, "rotation": [round(x, 7) for x in q0], "spread_deg": round(spread, 4), "samples": len(rots), "retargeter": rtg,
+            "asset": target_anim, "tpose_asset": tpose_anim}
 
 
 def _source_info_run(editor, asset: str, where: str) -> dict:

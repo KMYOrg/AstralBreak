@@ -21,7 +21,7 @@ from .store import (CANCELLED, FAILED, QUEUED, RUNNING, SUCCEEDED, WAITING_FOR_A
 
 # 계획 시점의 길이·fps 한계는 실행 뒤 측정값으로 다시 적는다
 _MEASURED_CODES = {"DURATION_MISMATCH", "FRAME_RATE_MISMATCH"}
-_PRODUCING = ("retarget", "edit", "timing", "body_fit")   # timing — Phase 8-3 흐느적 보정, body_fit — 8-4b 한 풀이(mode auto 일 때만)
+_PRODUCING = ("retarget", "edit", "timing", "body_fit", "join")   # timing — Phase 8-3 흐느적 보정, body_fit — 8-4b 한 풀이(mode auto 일 때만), join — 9-3c
 
 
 def _produces(step: dict) -> bool:
@@ -236,7 +236,7 @@ class Executor:
     @staticmethod
     def _is_final(steps: list[dict], j: int, values: dict, target: str) -> bool:
         for later in steps[j + 1:]:
-            if later["step"] in ("edit", "timing") or (later["step"] == "body_fit" and _produces(later)):
+            if later["step"] in ("edit", "timing", "join") or (later["step"] == "body_fit" and _produces(later)):
                 return False
             if later["step"] == "retarget" and not (later.get("conditional") and values.get("skeleton") == target):
                 return False
@@ -278,9 +278,15 @@ class Executor:
             if "key_pose" in result.values:
                 # Phase 9-3 — 키 포즈 역리타깃 · 제약 파일 기록(배치 · 추종은 generated.candidates[].key_pose)
                 job["key_pose"] = result.values["key_pose"]
+            if result.values.get("hand_basis"):
+                # Phase 9-3b — 생성 파지 규칙(grip.handle weapon)의 손 방향 대응
+                job["hand_basis"] = result.values["hand_basis"]
             if "segments" in result.values:
                 # Phase 9-2 — 세그먼트 경계(생성 · 최종 타임라인) · 이음매 수치 · 몽타주 섹션
                 job["segments"] = result.values["segments"]
+            if "join" in result.values:
+                # Phase 9-3c — 섞은 세그먼트 잇기(조각 · 이음매마다 몸 방향 · 골반 맞춤 · 겹친 구간 자세 차 · op)
+                job["join"] = result.values["join"]
             for key, field in (("fix_source", "source"), ("fix_target", "target"), ("body_fit", "body")):
                 if key in result.values:
                     # Phase 8-3 — 다리 보정: 소스 골격(Blender 보고) · 대상(리타깃 뒤 측정). 8-4b — 한 풀이(전 · 예측 · 후 · 목표 · 한계 근거)

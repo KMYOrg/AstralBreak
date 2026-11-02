@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import math
 import pathlib
 
 from .. import bvh, motion_metrics, selection, timing
@@ -160,13 +161,22 @@ class DirectKey(Provider):
         except timing.TimingError as err:
             raise StepFailed("VALIDATION_FAILED", "NO_PROFILE", f"{asset}: {err.args[1] if len(err.args) > 1 else err}") from None
 
-    def plan_timing(self, request: dict, source_on_target: str | None, pctx: PlanContext, swing_window: list[float] | None = None) -> dict:
-        """swing_window = Phase 9-2 segments 의 swing 세그먼트(± 전이, 생성 타임라인 초) — 휘두름 정점을 그 창에서만 찾는다(timing.detect)."""
+    def plan_timing(self, request: dict, source_on_target: str | None, pctx: PlanContext, swing_window: list[float] | None = None,
+                    seam_ends: dict | None = None) -> dict:
+        """swing_window = Phase 9-2 segments 의 swing 세그먼트(± 전이, 생성 타임라인 초) — 휘두름 정점을 그 창에서만 찾는다(timing.detect).
+        seam_ends = Phase 9-3c 섞은 세그먼트(local_ai inputs.mixed) — 기존 이웃이 있는 쪽 끝은 정지 트림을 끄고 겹침 키 구간의 배율을 1 로 둔다(이음매 키 ·
+        겹침 프레임을 자르거나 빠르게 하지 않게 — M1 첫 실행: 생성 덩어리 전체가 swing 창이라 핵심 ×2 가 뒤 겹침까지 이어져 겹친 자세 차 p50 7 cm)."""
         cfg = request["fix"]["timing"]
         step = {"step": "timing", "provider": self.name, "tool": self.TIMING_TOOL,
                 "inputs": {**cfg, "loop": request["loop"], "root_motion": root_motion_flag(request), "bones": None}, "resolved": None}
         if swing_window:
             step["inputs"]["swing_window_s"] = list(swing_window)
+        if seam_ends:
+            kept = [k for k, side in (("trim_head", "lead"), ("trim_tail", "trail")) if seam_ends.get(side) is not None and cfg["still"].get(k)]
+            step["inputs"]["still"] = {**cfg["still"], **{k: False for k in kept}}
+            step["inputs"]["seam_trim_off"] = kept
+            overlap_s = seam_ends["overlap_frames"] / seam_ends["gen_fps"]
+            step["inputs"]["seam_keep_s"] = [round(overlap_s if seam_ends.get(side) is not None else 0.0, 6) for side in ("lead", "trail")]
         if not pctx.editor_ok:
             return step
         try:
@@ -212,6 +222,8 @@ class DirectKey(Provider):
     def run(self, ctx: RunContext) -> StepResult:
         if ctx.step["step"] == "timing":
             return self._timing(ctx)
+        if ctx.step["step"] == "join":
+            return self._join(ctx)
         source = ctx.values.get("asset") or ctx.values["source"]
         inputs = ctx.step["inputs"]
         return self._apply(ctx, source, inputs["operations"], inputs, "edit")
@@ -251,6 +263,141 @@ class DirectKey(Provider):
             result.limitations.append(limitation(
                 "TIMING_NOT_APPLIED", f"흐느적 보정을 하지 않았다({plan['reason']}) — 휘두름 정점 {before['peak_cm_s']} cm/s, 목표 "
                 f"{inputs['target_peak_cm_s']:g}. 최종 애셋은 원래 시퀀스 그대로(항등 trim)", "direct_key", reason=plan["reason"]))
+        return result
+
+    # ---- 섞은 세그먼트 잇기 (Phase 9-3c — U2-b) ----
+    JOIN_TOOL = ("validate_animation(profile — pelvis · hips) → apply_animation_edits(trim · rotate_root — each appended piece) → "
+                 "apply_animation_edits(trim · concat(blend, align_root false) · offset_bone(root, ramp))")
+    JOIN_ROTATE_MIN_DEG = 0.05   # 이보다 작은 몸 방향 차는 돌리지 않는다(붙는 조각을 복사하지 않는다)
+
+    def plan_join(self, request: dict, mixed: dict, pctx: PlanContext) -> dict:
+        """조각 순서 · 겹침 · 측정 본(골반 · 엉덩 관절 · 손발 · 머리 — 골반 맞춤 · 겹친 구간 자세 차)을 고정한다. 붙는 조각의 맞춤 값은 실행 때 잰다."""
+        inputs = {k: mixed[k] for k in ("names", "pieces", "overlap_frames", "blend_s", "gen_fps", "seam_keys", "lead", "trail", "joined_length_s", "align")}
+        inputs.update(loop=request["loop"], root_motion=root_motion_flag(request), bones=None)
+        if pctx.editor_ok:
+            inputs["bones"] = RetargetPipe.join_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics)
+        return {"step": "join", "provider": self.name, "tool": self.JOIN_TOOL, "inputs": inputs}
+
+    @staticmethod
+    def _piece_profile(editor, asset: str, skeleton: str, bones: dict) -> dict:
+        try:
+            item = (editor.require("validate_animation", assets=[asset], skeleton=skeleton, checks=["numeric"], profile_bones=sorted(set(bones.values())),
+                                   profile_positions=True).get("assets") or [None])[0] or {}
+        except EditorCallError as err:
+            raise from_editor_error("join", err)
+        numeric = item.get("numeric") or {}
+        prof = numeric.get("profile") or {}
+        pos = prof.get("position_cm") or {}
+        if not prof.get("times") or not all(pos.get(bones[r]) for r in ("pelvis", "hip_l", "hip_r")):
+            raise StepFailed("VALIDATION_FAILED", "NO_PROFILE", f"validate_animation gave no pelvis · hip positions for {asset}")
+        return {"times": prof["times"], "pos": {role: pos.get(name) for role, name in bones.items()}, "length": float(numeric.get("length") or prof["times"][-1]),
+                "fps": float(numeric.get("frame_rate") or 30.0), "frames_per_sample": prof.get("frames_per_sample", 1)}
+
+    @staticmethod
+    def _join_pose(piece: dict, t: float) -> dict:
+        """조각의 t 초(그 조각 시퀀스 타임라인) 골반 수평 위치(이은 좌표 — shift 더함) · 몸 방향."""
+        prof = piece["prof"]
+        i = segments_mod.sample_index(prof["times"], t)
+        p = prof["pos"]["pelvis"][i]
+        return {"pelvis": [p[0] + piece["shift"][0], p[1] + piece["shift"][1]], "heading": segments_mod.heading_deg(prof["pos"]["hip_l"][i], prof["pos"]["hip_r"][i]),
+                "time": prof["times"][i]}
+
+    def _join(self, ctx: RunContext) -> StepResult:
+        """조각을 순서대로 잇는다 — 붙는 조각마다 (1) 겹친 구간의 몸 방향 차(엉덩 관절 선, 원형 평균)만큼 rotate_root(그 조각만 복사 — 첫 키는 겹침 블렌드
+        가중 0 이라 보이지 않는다) (2) 겹친 구간 골반 수평 차의 평균 = offset_bone 루트 이동(겹침 동안 크로스페이드와 같은 smoothstep 램프 — 블렌드 =
+        (1 − W)·앞 + W·(뒤 + 이동)이 정확).
+        concat 은 align_root false(루트 본이 아니라 골반으로 맞춘다 — 9-3c E0). 겹침 = 계획의 K 프레임(생성 fps) → 이은 시퀀스 fps(첫 조각) 프레임."""
+        editor = ctx.editor
+        inputs = ctx.step["inputs"]
+        target = ctx.request["target_skeleton"]
+        diagnostics: list[dict] = []
+        created: list[str] = []
+        bones = inputs.get("bones") or RetargetPipe.join_bones(editor, target, diagnostics)
+        pieces = []
+        for p in inputs["pieces"]:
+            generated = p["source"] == "generated"
+            asset = ctx.values["asset"] if generated else p["asset"]
+            prof = self._piece_profile(editor, asset, target, bones)
+            if prof["frames_per_sample"] != 1:
+                diagnostics.append(diag("warning", "JOIN_PROFILE_BUCKETED", f"{asset_name(asset)}: profile groups {prof['frames_per_sample']} frames per sample — "
+                                        "the seam alignment uses the nearest sample"))
+            start, end = (0.0, prof["length"]) if generated else (p["start"], min(p["end"], prof["length"]))
+            label = "+".join(p["segments"]) if generated else p["name"]
+            pieces.append({"label": label, "source": p["source"], "asset": asset, "start": start, "end": end, "prof": prof})
+        first = pieces[0]
+        fps = first["prof"]["fps"]
+        blend_keys = max(1, int(round(inputs["blend_s"] * fps)))
+        blend = round(blend_keys / fps, 6)
+        root = bones["root"]
+        ops = [] if first["start"] <= 1e-6 and first["end"] >= first["prof"]["length"] - 1e-6 else [{"op": "trim", "start": first["start"], "end": first["end"]}]
+        prev = {"prof": first["prof"], "end": first["end"], "shift": [0.0, 0.0]}
+        out_pieces = [{"label": first["label"], "source": first["source"], "asset": first["asset"], "range_s": [first["start"], first["end"]], "joined_start_s": 0.0,
+                       "yaw_deg": 0.0, "shift_cm": [0.0, 0.0]}]
+        seams = []
+        steps = inputs["overlap_frames"]
+        for k, p in enumerate(pieces[1:], 1):
+            want = self._join_pose(prev, prev["end"])
+            prev_view = {**prev["prof"], "shift": prev["shift"]}
+            # 몸 방향 = 겹친 구간 표본 짝의 방향 차 원형 평균(구간이 없으면 겹침 끝 한 순간)
+            fit = segments_mod.overlap_fit(prev_view, {**p["prof"], "shift": [0.0, 0.0]},
+                                           segments_mod.overlap_pairs(prev_view, p["prof"], prev["end"], p["start"], blend, steps))
+            own = self._join_pose({"prof": p["prof"], "shift": [0.0, 0.0]}, p["start"] + blend)
+            yaw = round(fit["yaw_deg"] if fit else segments_mod.wrap_deg(want["heading"] - own["heading"]), 4)
+            whole = p["start"] <= 1e-6 and p["end"] >= p["prof"]["length"] - 1e-6
+            edit = []
+            if abs(yaw) > self.JOIN_ROTATE_MIN_DEG:
+                # 돌릴 때만 그 조각을 복사한다(구간이면 trim 먼저 — rotate_root 는 첫 키 루트 둘레로 강체 회전, 첫 키는 블렌드 가중 0)
+                edit = ([] if whole else [{"op": "trim", "start": p["start"], "end": p["end"]}]) + [
+                    {"op": "rotate_root", "yaw": yaw, "start": 0.0, "end": round(1.0 / p["prof"]["fps"], 6), "ease": "linear"}]
+            asset, prof, start = p["asset"], p["prof"], p["start"]
+            if edit:
+                asset = f"{ctx.work_path}/{ctx.request['animation_name']}_JoinP{k}"
+                try:
+                    editor.require("apply_animation_edits", source=p["asset"], asset_path=asset, operations=edit, validate=False, save=ctx.save)
+                except EditorCallError as err:
+                    raise from_editor_error("join", err, created=created)
+                created.append(asset)
+                prof = self._piece_profile(editor, asset, target, bones)
+                start = 0.0
+            moved = self._join_pose({"prof": prof, "shift": [0.0, 0.0]}, start + blend)
+            # 골반 = 겹친 구간 표본 짝의 골반 수평 차 평균(돌린 뒤 — 크로스페이드 동안 두 궤적이 가장 덜 어긋나게)
+            fit_x = segments_mod.overlap_fit(prev_view, {**prof, "shift": [0.0, 0.0]},
+                                             segments_mod.overlap_pairs(prev_view, prof, prev["end"], start, blend, steps))
+            delta = fit_x["shift"] if fit_x else [want["pelvis"][0] - moved["pelvis"][0], want["pelvis"][1] - moved["pelvis"][1]]
+            shift = [round(delta[0], 3), round(delta[1], 3)]
+            target = [round(moved["pelvis"][0] + shift[0], 3), round(moved["pelvis"][1] + shift[1], 3)]   # 이은 결과의 겹침 끝 골반(검사용)
+            ops.append({"op": "concat", "asset": asset, "blend": blend, "align_root": False,
+                        **({} if edit or whole else {"start": p["start"], "end": p["end"]})})
+            env = editor.call("preview_animation_edits", source=first["asset"], operations=ops)
+            res = env.get("result") or {}
+            if not env.get("ok") or not res.get("valid", True):
+                raise StepFailed("UNSUPPORTED_REQUEST", "BAD_OPERATIONS", f"preview_animation_edits rejected the join ops {ops}", created=created,
+                                 planned=res.get("planned"))
+            anchor = float(((res.get("planned") or [{}])[-1].get("range") or {}).get("start", 0.0))
+            ops.append({"op": "offset_bone", "targets": [{"bone": root, "translation": [shift[0], shift[1], 0.0]}], "space": "component", "start": anchor,
+                        "blend_in": blend, "blend_out": 0.0})
+            nxt = {"prof": prof, "end": start + (p["end"] - p["start"]), "shift": shift}
+            # 겹친 구간 자세 차(이은 좌표) — 키를 준 이음매는 같은 자세라 작고, 대조(크로스페이드만)는 두 동작의 차
+            gap = segments_mod.overlap_gap({**prev["prof"], "shift": prev["shift"]}, {**prof, "shift": shift}, prev["end"], start, blend, inputs["overlap_frames"])
+            keyed = bool(inputs["seam_keys"]) and "generated" in (pieces[k - 1]["source"], p["source"])
+            seams.append({"index": k, "from": pieces[k - 1]["label"], "to": p["label"], "keyed": keyed, "anchor_s": round(anchor, 4),
+                          "window_s": [round(anchor, 4), round(anchor + blend, 4)], "yaw_deg": yaw, "shift_cm": shift, "fit": "overlap mean" if fit_x else "window end",
+                          "fit_samples": (fit_x or {}).get("samples"), "yaw_residual_deg": round((fit_x or {}).get("yaw_deg", 0.0), 3),
+                          "pelvis_target_cm": target, "pelvis_end_gap_cm": round(math.dist(want["pelvis"], target), 2), "overlap_gap_cm": gap,
+                          "piece_asset": asset})
+            out_pieces.append({"label": p["label"], "source": p["source"], "asset": asset, "range_s": [p["start"], p["end"]], "joined_start_s": round(anchor, 4),
+                               "yaw_deg": yaw, "shift_cm": shift})
+            prev = nxt
+        result = apply_edits(ctx, first["asset"], ops, inputs, "join", "direct_key")
+        result.created = created + result.created
+        result.values["join"] = {"asset": result.values["asset"], "fps": fps, "blend_s": blend, "blend_frames": blend_keys, "overlap_frames": inputs["overlap_frames"],
+                                 "seam_keys": inputs["seam_keys"], "align": "pelvis", "pieces": out_pieces, "seams": seams, "ops": ops,
+                                 "length_s": (result.values.get("measured") or {}).get("length"), "bones": bones}
+        for s in seams:
+            diagnostics.append(diag("info", "SEGMENTS_JOINED", f"{s['from']} → {s['to']} at {s['anchor_s']}s (+{blend}s crossfade): turned {s['yaw_deg']}°, pelvis "
+                                    f"moved {s['shift_cm']} cm, overlap pose gap p50 {(s['overlap_gap_cm'] or {}).get('p50')} cm"
+                                    + (" (seam keyed)" if s["keyed"] else ""), seam=s["index"]))
+        result.diagnostics = diagnostics + result.diagnostics
         return result
 
 
@@ -524,9 +671,25 @@ class RetargetPipe(Provider):
                   "map": "edits — not mapped" if request["edits"] else ("fix.timing warp" if request["fix"].get("timing") else "identity"),
                   "sections": montage.get("sections") == "segments", "bones": None,
                   "thresholds": {"seam_ratio_max": segments_mod.SEAM_RATIO_MAX, "speed_step_ratio_max": segments_mod.SEAM_RATIO_MAX}}
+        mixed = gen_inputs.get("mixed")
+        if mixed:
+            # Phase 9-3c — 이음매 = join 의 겹침 시작 · 끝 + 생성 덩어리 안 경계(warp 사상 + 덩어리 시작), 섹션 = 모든 세그먼트(기존 포함)
+            inputs["map"] = "join" + (" + fix.timing warp" if request["fix"].get("timing") else "")
+            inputs["mixed"] = {"names": mixed["names"], "generated": [s["name"] for s in segs]}
         if pctx.editor_ok:
             inputs["bones"] = self.seam_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics)
         return {"step": "seams", "provider": self.name, "tool": self.SEAMS_TOOL, "inputs": inputs}
+
+    @staticmethod
+    def join_bones(editor, skeleton: str, diagnostics: list[dict]) -> dict:
+        """Phase 9-3c join 측정 본 — 이음매 본(손목 · 발목 · 골반 · 루트) + 엉덩 관절(몸 방향) · 머리(겹친 구간 자세 차). select 와 같은 원천."""
+        bones = RetargetPipe.selection_bones(editor, skeleton, diagnostics, "join")
+        info = RetargetPipe._inspect(editor, skeleton, details=True)
+        parents = {b.get("name"): b.get("parent") for b in info.get("bones") or []}
+        root = next((n for n, p in parents.items() if not p), None)
+        return {"hand_l": bones["hand_l"], "hand_r": bones["hand_r"], "foot_l": bones["foot_l"], "foot_r": bones["foot_r"],
+                "pelvis": parents.get(bones["hip_l"]) or "pelvis", "root": root or "root", "hip_l": bones["hip_l"], "hip_r": bones["hip_r"],
+                "head": bones.get(motion_metrics.HEAD_ROLE) or "head"}
 
     def seam_bones(self, editor, skeleton: str, diagnostics: list[dict]) -> dict:
         bones = self.selection_bones(editor, skeleton, diagnostics, "seams")
@@ -547,6 +710,9 @@ class RetargetPipe(Provider):
         bones = inputs.get("bones") or self.seam_bones(editor, target, diagnostics)
         timing_rec = ctx.values.get("timing") or {}
         warp = timing_rec.get("warp") if timing_rec.get("applied") else None
+        join = ctx.values.get("join") if inputs.get("mixed") else None
+        if join:
+            return self._seams_joined(ctx, inputs, asset, target, bones, warp, join, diagnostics)
         mapped = None if ctx.request["edits"] else segments_mod.map_times(inputs["boundaries_s"], warp)
         starts = None if mapped is None else [0.0] + mapped
         out = {"names": inputs["names"], "transition_frames": inputs["transition_frames"], "boundaries_generated_s": inputs["boundaries_s"],
@@ -587,12 +753,70 @@ class RetargetPipe(Provider):
                                 f"{asset_name(asset)}: rotation step ×{out['rotation_step_ratio_max']} · speed change ×{out['speed_step_ratio_max']} max"))
         return StepResult(values={"segments": out}, diagnostics=diagnostics)
 
+    def _seams_joined(self, ctx: RunContext, inputs: dict, asset: str, target: str, bones: dict, warp, join: dict, diagnostics: list[dict]) -> StepResult:
+        """Phase 9-3c — 이은 시퀀스의 이음매: join 겹침 시작 · 끝(기존 ↔ 생성 · 기존 ↔ 기존) + 생성 덩어리 안 경계(timing warp 사상 + 덩어리 시작), 같은 수치
+        (C++ 회전 단계 비 · 속도 앞뒤 비 · 속도 변화 비) + 겹침 끝 골반 잔차(join 이 맞춘 목표와 이은 결과의 차). 섹션 = 모든 세그먼트(기존 포함)."""
+        chunk = next(p["joined_start_s"] for p in join["pieces"] if p["source"] == "generated")
+        times, labels = [], []
+        for s in join["seams"]:
+            for kind, t in zip(("join_start", "join_end"), s["window_s"]):
+                times.append(t)
+                labels.append({"kind": kind, "seam": s["index"], "from": s["from"], "to": s["to"], "keyed": s["keyed"]})
+        for t_gen, t in zip(inputs["boundaries_s"], segments_mod.map_times(inputs["boundaries_s"], warp)):
+            times.append(round(chunk + t, 4))
+            labels.append({"kind": "segment", "generated_s": t_gen})
+        out = {"names": inputs["mixed"]["names"], "generated": inputs["mixed"]["generated"], "transition_frames": inputs["transition_frames"],
+               "boundaries_generated_s": inputs["boundaries_s"], "boundaries_s": times, "map": inputs["map"] if warp else "join", "asset": asset, "bones": bones,
+               "thresholds": inputs["thresholds"], "chunk_start_s": chunk, "seams": None, "sections": None}
+        try:
+            item = (ctx.editor.require("validate_animation", assets=[asset], skeleton=target, seams=times, profile_bones=sorted(set(bones.values())),
+                                       profile_positions=True).get("assets") or [None])[0] or {}
+        except EditorCallError as err:
+            raise from_editor_error("seams", err)
+        numeric = item.get("numeric") or {}
+        profile = numeric.get("profile") or {}
+        scale = (numeric.get("pelvis_height_cm") or 100.0) / 100.0
+        speeds = {role: (profile.get("speed_cm_s") or {}).get(name) for role, name in bones.items()}
+        rows = segments_mod.speed_seams(profile.get("times") or [], {k: v for k, v in speeds.items() if v}, times, scale)
+        cpp = {round(s.get("time", -1), 4): s for s in ((item.get("request") or {}).get("seams") or [])}
+        pelvis = (profile.get("position_cm") or {}).get(bones["pelvis"]) or []
+        by_seam = {s["index"]: s for s in join["seams"]}
+        for row, label in zip(rows, labels):
+            row.update(label)
+            row["rotation_step_ratio"] = (cpp.get(row["time"]) or {}).get("step_ratio")
+            if label["kind"] == "join_end" and pelvis and profile.get("times"):
+                # join 이 맞춘 골반 목표(앞 조각 끝 = 이은 좌표) ↔ 이은 결과의 그 시각(겹침 끝 — 뒤 조각 가중 1)
+                p = pelvis[segments_mod.sample_index(profile["times"], row["time"])]
+                want = by_seam[label["seam"]]["pelvis_target_cm"]
+                row["pelvis_residual_cm"] = round(((p[0] - want[0]) ** 2 + (p[1] - want[1]) ** 2) ** 0.5, 2)
+        length = numeric.get("length") or join.get("length_s")
+        out.update(seams=rows, length_s=length, rotation_step_ratio_max=segments_mod.worst(rows, "rotation_step_ratio"),
+                   speed_step_ratio_max=segments_mod.worst(rows, "speed_step_ratio_max"), pelvis_residual_cm_max=segments_mod.worst(rows, "pelvis_residual_cm"))
+        limit = inputs["thresholds"]["seam_ratio_max"]
+        for row in rows:
+            if (row.get("rotation_step_ratio") or 0) > limit or (row.get("speed_step_ratio_max") or 0) > limit:
+                diagnostics.append(diag("warning", "SEGMENT_SEAM_JUMP", f"{row['kind']} seam {row['time']}s: rotation step ×{row.get('rotation_step_ratio')} · speed "
+                                        f"change ×{row.get('speed_step_ratio_max')} the surrounding frames (max {limit:g})", seam=row))
+        if inputs.get("sections") and length:
+            starts, piece_starts = [], {p["label"]: p["joined_start_s"] for p in join["pieces"]}
+            gen_starts = [round(chunk + t, 4) for t in segments_mod.map_times(inputs["starts_s"], warp)]
+            for name in out["names"]:
+                starts.append(gen_starts[out["generated"].index(name)] if name in out["generated"] else piece_starts.get(name, 0.0))
+            secs, skipped = segments_mod.sections(out["names"], starts, float(length), float(numeric.get("frame_rate") or 30.0))
+            out.update(sections=secs, sections_skipped=skipped)
+            if skipped:
+                diagnostics.append(diag("warning", "SEGMENT_SECTION_SKIPPED", f"montage sections {[s['name'] for s in skipped]} collapsed after fix.timing "
+                                        "trimmed the clip — not added", skipped=skipped))
+        diagnostics.append(diag("info", "SEGMENTS_MEASURED", f"{len(out['names'])} segments joined on {asset_name(asset)} — seams {times}s: rotation step "
+                                f"×{out['rotation_step_ratio_max']} · speed change ×{out['speed_step_ratio_max']} · pelvis residual {out['pelvis_residual_cm_max']} cm max"))
+        return StepResult(values={"segments": out}, diagnostics=diagnostics)
+
     def run(self, ctx: RunContext) -> StepResult:
         kind = ctx.step["step"]
         if kind == "seams":
             return self._seams(ctx)
-        if kind == "key_pose":
-            # Phase 9-3 — 생성 앞 역리타깃(대상 → SOMA) · 키 포즈 제약 파일 (blender 를 쓰므로 그 모듈에서)
+        if kind in ("key_pose", "hand_basis"):
+            # Phase 9-3 — 생성 앞 역리타깃(대상 → SOMA) · 키 포즈 제약 파일 (blender 를 쓰므로 그 모듈에서). 9-3b hand_basis = 키 없이 손 방향 대응만
             from . import key_pose
             return key_pose.run(ctx)
         return self._import(ctx) if kind == "import" else self._select(ctx) if kind == "select" else self._retarget(ctx)

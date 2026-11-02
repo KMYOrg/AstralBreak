@@ -46,6 +46,10 @@ AXIS_MIN_CM = 2.0                         # 1차 두 손목이 이보다 가까�
 MIN_CONTACT_FRAMES = 4                    # 이보다 짧은 접지는 건너뛴다(스치기)
 SMOOTH_SIGMA_FRAMES = 1.0                 # 2차 출력 시간 스무딩(가우시안 σ, 프레임) — 1차는 건드리지 않는다
 SMOOTH_TRUNCATE = 4.0                     # 커널 반경 = round(σ × 4) (scipy gaussian_filter1d 와 같은 기본)
+# Phase 9-3b 운영 부착 자루 규칙(grip.handle weapon) — 주 손을 돌리는 상한: 손목 굽힘 ≤ max(1차, 이 값)(9-1 wrist 지표 WRIST_GRIP_DEG 와 같은 60°) ·
+# 아래팔 축 비틀기 변화 ≤ HANDLE_TWIST_CAP_DEG(9-3b E0 — 손목 비틀기 이탈이 눈에 꺾임으로 보였다). 남는 어긋남은 보조 손을 자루 위로 옮겨 맞춘다
+HANDLE_WRIST_CAP_DEG = 60.0
+HANDLE_TWIST_CAP_DEG = 60.0
 _EPS = 1e-9
 
 
@@ -278,7 +282,7 @@ def smooth_rotations(mats: list, sigma: float | None) -> list:
 
 
 # ---- 계획 (보이는 것 = 실행 인자) ----
-def plan(flags: dict, refine: dict, *, frames: int, fps: float, requested_root: bool, spacing: dict | None = None) -> dict:
+def plan(flags: dict, refine: dict, *, frames: int, fps: float, requested_root: bool, spacing: dict | None = None, handle: dict | None = None) -> dict:
     """요청 플래그 · generation.refine → {mode, passes, rules[], keyframe_step, smooth_sigma_frames}. 변환할 플래그가 없거나 mode off 면 1차만
     (스무딩 None). 스무딩 σ 는 여기서만 정한다 — 러너(kimodo_run)는 받은 값을 쓰기만 한다. spacing = 계획이 푼 자루 무기 간격
     (motion_metrics.grip_spacing — 생성 · 대상 간격 · 띠 · 사상): 규칙 spacing_cm 은 생성 골격 간격(러너가 목표 · 소스 띠에 쓴다)."""
@@ -304,6 +308,12 @@ def plan(flags: dict, refine: dict, *, frames: int, fps: float, requested_root: 
                                       f"request target_spacing_cm {spacing['target_cm']:g} cm → generation {spacing['source_cm']:g} cm") +
                         f" — gap map: target = {m['target_shoulder_cm']:g} + {m['arm_ratio']:g} × (generation − {m['source_shoulder_cm']:g}) "
                         "(shoulder joints at their own width, the arm part × the arm-length ratio; grip line along the shoulder line)")
+        if handle:
+            # Phase 9-3b — 운영 부착 자루(local_ai 계획이 부착 본 공간으로 푼 값, 손 방향 대응은 실행 때 hand_basis)
+            rule.update(handle=handle, axis="the request weapon's attached handle on the pass-1 lead hand (hand_basis maps the attach bone onto the SOMA hand)",
+                        pose=f"lead hand turned by the least rotation that points the handle at the pass-1 support palm (wrist bend ≤ max(pass 1, "
+                             f"{HANDLE_WRIST_CAP_DEG:g}°) · forearm-axis twist ≤ {HANDLE_TWIST_CAP_DEG:g}°), support palm onto the handle at the spacing — "
+                             "two-bone IK of both arms, diffusion condition only")
         rules.append(rule)
     if "foot_contact" in on:
         rules.append({"flag": "foot_contact", "kimodo": ["end-effector[LeftFoot]", "end-effector[RightFoot]"],
@@ -397,6 +407,179 @@ def _move_arm(pos: dict, rot: dict, side: str, f: int, target) -> tuple[dict, di
         if child in pos:
             changes[child] = {"pos": _add(ik["wrist"], _mv(rigid, _sub(pos[child][f], wrist))), "rot": _mm(rigid, rot[child][f])}
     return changes, ik
+
+
+# ---- Phase 9-3b 운영 부착 자루 규칙 (grip.handle weapon) ----
+def _qrot(q, v):
+    """단위 쿼터니언 (x, y, z, w) 으로 v 회전 — UE 프로필 회전 · 계획 값과 같은 관례."""
+    x, y, z, w = q
+    t = _mul(_cross([x, y, z], v), 2.0)
+    return _add(_add(v, _mul(t, w)), _cross([x, y, z], t))
+
+
+def _swap(v):
+    """UE ↔ Kimodo 축(y ↔ z) — anim_gen/key_pose.py 와 같은 S."""
+    return [v[0], v[2], v[1]]
+
+
+def axis_angle(axis, angle: float) -> list[list[float]]:
+    k = _unit(axis, [1.0, 0.0, 0.0])
+    x, y, z = k
+    cs, sn, vc = math.cos(angle), math.sin(angle), 1.0 - math.cos(angle)
+    return [[cs + x * x * vc, x * y * vc - z * sn, x * z * vc + y * sn],
+            [y * x * vc + z * sn, cs + y * y * vc, y * z * vc - x * sn],
+            [z * x * vc - y * sn, z * y * vc + x * sn, cs + z * z * vc]]
+
+
+def handle_in_hand(handle: dict, unit_cm: float = 100.0) -> tuple[list[float], list[float]]:
+    """계획의 부착 본 공간 자루(방향 · 손목에서 가장 가까운 점 cm) + 실행 때 잰 hand_basis(SOMA T 포즈일 때 부착 본 컴포넌트 회전 R_T) → 생성 주 손(Kimodo
+    손 관절) 공간의 자루 방향 h · 손목 → 자루 점 o(입력 단위). FK 리타깃이 전역 회전 변화를 복사하므로 R_대상 = S·G·S·R_T → 본 공간 x 는 손 공간 S·R_T·x.
+    o 는 체형 비(대상 팔 / SOMA 팔)로 나눠 SOMA 크기로."""
+    q = handle["basis"]["rotation"]
+    h = _unit(_swap(_qrot(q, handle["dir_bone"])))
+    o = _mul(_swap(_qrot(q, handle["anchor_bone_cm"])), 1.0 / (unit_cm * handle["arm_ratio"]))
+    return h, o
+
+
+def _twist_deg(m, u) -> float:
+    """회전 행렬 m 의 단위 축 u 둘레 비틀기 성분(°)."""
+    w = math.sqrt(max(0.0, 1.0 + m[0][0] + m[1][1] + m[2][2])) / 2.0
+    v = [(m[2][1] - m[1][2]), (m[0][2] - m[2][0]), (m[1][0] - m[0][1])]
+    v = _mul(v, 1.0 / max(4.0 * w, _EPS))
+    return math.degrees(2.0 * math.atan2(_dot(v, _unit(u)), w))
+
+
+def _turn(fdir, hdir, k, theta: float, bend_cap: float, twist_cap: float) -> tuple[float, float, float]:
+    """주 손을 축 k 둘레로 돌릴 각(≤ theta) — 손목 굽힘(아래팔 ↔ 손) ≤ bend_cap · 아래팔 축 비틀기 ≤ twist_cap 인 가장 큰 비율(이분). → (각, 굽힘, 비틀기)."""
+    def state(s):
+        r = axis_angle(k, s * theta)
+        return _angle_deg(fdir, _mv(r, hdir)), abs(_twist_deg(r, fdir))
+    b, t = state(1.0)
+    if b <= bend_cap + 1e-9 and t <= twist_cap + 1e-9:
+        return theta, b, t
+    lo, hi = 0.0, 1.0
+    for _ in range(24):
+        mid = (lo + hi) / 2.0
+        b, t = state(mid)
+        if b <= bend_cap + 1e-9 and t <= twist_cap + 1e-9:
+            lo = mid
+        else:
+            hi = mid
+    b, t = state(lo)
+    return lo * theta, b, t
+
+
+def solve_handle_grip(pose: dict, palms: dict, frames: list[int], *, lead: str = "right", target: str = "meet", spacing_cm: float, handle: dict,
+                      unit_cm: float = 100.0) -> dict:
+    """Phase 9-3b 운영 부착 자루 규칙(사용자 결정 ③ — 9-3b 확정 세부): 1차 주 손에 붙인 자루(handle_in_hand)를 '자루 → 1차 보조 손바닥' 쪽으로 최소 회전
+    하되 주 손목 굽힘 ≤ max(1차, wrist_cap) · 아래팔 축 비틀기 ≤ HANDLE_TWIST_CAP_DEG 까지만 돌리고(_turn), 보조 손바닥 목표 = 돌린 자루 위, 주 손목에서
+    spacing 떨어진 점(자루 범위 안) → 보조 손목 = 그 점 − 손바닥 오프셋(IK 뒤 손 회전으로 한 번 더 맞춘다). meet 면 두 손목을 함께 평행 이동(자루와
+    손이 같이 움직인다). 보조 손 회전 = keep(1차 손목 로컬), 주 손 회전 = 돌린 전역 회전. palms = 보조 손바닥 점(77 관절 손목 · 중지 너클 중점) 프레임별.
+    자루 방향 부호는 파지 구간 전체에서 1차 보조 손바닥 쪽 하나(프레임마다 뒤집히지 않게). → solve_grip 과 같은 모양 + stats.handle."""
+    if target not in TARGETS:
+        raise RefineError("BAD_TARGET", f"grip target must be one of {TARGETS}")
+    lead_s, sup_s = SIDES[lead], SIDES["left" if lead == "right" else "right"]
+    pos, rot = pose["pos"], pose["rot"]
+    h_s, o_s = handle_in_hand(handle, unit_cm)
+    spacing = spacing_cm / unit_cm
+    lo_ext, hi_ext = (e / (unit_cm * handle["arm_ratio"]) for e in handle["extent_cm"])
+    cap = float(handle.get("wrist_cap_deg") or HANDLE_WRIST_CAP_DEG)
+    reach_lead, reach_sup = REACH["lead"] * _lengths(pos, lead_s), REACH["support"] * _lengths(pos, sup_s)
+    tips = [f"{lead_s}HandMiddleEnd", f"{lead_s}HandThumbEnd"]
+    side = 0.0
+    for f in frames:
+        g_l, w = rot[f"{lead_s}Hand"][f], pos[f"{lead_s}Hand"][f]
+        side += _dot(_sub(palms[sup_s][f], _add(w, _mv(g_l, o_s))), _mv(g_l, h_s))
+    sign = 1.0 if side >= 0.0 else -1.0
+    # 자루 범위(주 손 자루 점 기준, 보조 손 쪽 부호) — 그 쪽으로 자루가 없으면 0(자루 점)
+    u_lo, u_hi = (lo_ext, hi_ext) if sign > 0 else (-hi_ext, -lo_ext)
+    u_lo, u_hi = max(0.0, u_lo), max(0.0, u_hi)
+    changes, targets = {}, {}
+    st = {k: [] for k in ("need", "turn", "bend0", "bend1", "twist", "moved", "angle", "palm_line", "errors")}
+    kinds, clamped, capped = {}, 0, 0
+    for f in frames:
+        g_l, w = rot[f"{lead_s}Hand"][f], pos[f"{lead_s}Hand"][f]
+        fdir = _sub(w, pos[f"{lead_s}ForeArm"][f])
+        hdir = _sub(pos[f"{lead_s}HandMiddleEnd"][f], w)
+        hs = _mul(_mv(g_l, h_s), sign)
+        a = _add(w, _mv(g_l, o_s))
+        palm0 = palms[sup_s][f]
+        v = _sub(palm0, a)
+        k = _cross(hs, v)
+        theta = math.radians(_angle_deg(hs, v))
+        if norm(k) < 1e-9:
+            k = _perpendicular(hs)
+        bend0 = _angle_deg(fdir, hdir)
+        turn, bend1, twist = _turn(fdir, hdir, k, theta, max(bend0, cap), HANDLE_TWIST_CAP_DEG)
+        capped += turn < theta - 1e-6
+        q = axis_angle(k, turn)
+        h2 = _mv(q, hs)
+        a2 = _add(w, _mv(q, _sub(a, w)))
+        off = _sub(palm0, pos[f"{sup_s}Hand"][f])
+        r_old = rot[f"{sup_s}Hand"][f]
+
+        def on_handle(offset):
+            # 자루 위 u — 보조 손목(= 손바닥 점 − 손바닥 오프셋)이 주 손목에서 spacing(손목 간격 — select 파지 띠와 같은 정의)이 되는 쪽 근
+            c = _sub(_sub(a2, offset), w)
+            b = _dot(c, h2)
+            u = min(max(-b + math.sqrt(max(b * b - _dot(c, c) + spacing * spacing, 0.0)), u_lo), u_hi)
+            return _add(a2, _mul(h2, u))
+        grip_pt = on_handle(off)
+        t = _sub(grip_pt, off)
+        sup_sh, lead_sh = pos[f"{sup_s}Arm"][f], pos[f"{lead_s}Arm"][f]
+        if target == "meet":
+            d, kind = meet_offset(w, t, lead_sh, sup_sh, reach_lead, reach_sup)
+        else:
+            d, kind = [0.0, 0.0, 0.0], "lead_fixed"
+        kinds[kind] = kinds.get(kind, 0) + 1
+        frame_changes, ik = _move_arm(pos, rot, sup_s, f, _add(t, d))
+        # 손바닥 오프셋을 IK 뒤 손 회전으로 다시(keep — 손목 로컬 그대로라 아래팔이 돈 만큼 오프셋도 돈다) → 자루 위 점 · 목표 다시, 세 번
+        for _ in range(3):
+            off2 = _mv(frame_changes[f"{sup_s}Hand"]["rot"], _mv(_t(r_old), off))
+            grip_pt = on_handle(off2)
+            frame_changes, ik = _move_arm(pos, rot, sup_s, f, _add(_sub(grip_pt, off2), d))
+        clamped += ik["clamped"]
+        st["errors"].append(ik["error"] * unit_cm)
+        lead_w = _add(w, d)
+        if norm(d) > _EPS:
+            lead_changes, lik = _move_arm(pos, rot, lead_s, f, lead_w)
+            clamped += lik["clamped"]
+            st["errors"].append(lik["error"] * unit_cm)
+            lead_w = lead_changes[f"{lead_s}Hand"]["pos"]
+        else:
+            lead_changes = {}
+        lead_changes[f"{lead_s}Hand"] = {"pos": lead_w, "rot": _mm(q, g_l)}
+        for tip in tips:
+            if tip in pos:
+                lead_changes[tip] = {"pos": _add(lead_w, _mv(q, _sub(pos[tip][f], w))), "rot": _mm(q, rot[tip][f])}
+        frame_changes.update(lead_changes)
+        changes[f] = frame_changes
+        targets[f] = {"lead": lead_w, "support": ik["wrist"]}
+        palm = _add(ik["wrist"], _mv(frame_changes[f"{sup_s}Hand"]["rot"], _mv(_t(r_old), off)))
+        a3 = _add(a2, _sub(lead_w, w))
+        rel = _sub(palm, a3)
+        st["need"].append(math.degrees(theta))
+        st["turn"].append(math.degrees(turn))
+        st["bend0"].append(bend0)
+        st["bend1"].append(bend1)
+        st["twist"].append(twist)
+        st["moved"].append(norm(_sub(ik["wrist"], pos[f"{sup_s}Hand"][f])) * unit_cm)
+        st["angle"].append(math.degrees(math.atan2(norm(_cross(_sub(palm, lead_w), h2)), abs(_dot(_sub(palm, lead_w), h2)))))
+        st["palm_line"].append(norm(_sub(rel, _mul(h2, _dot(rel, h2)))) * unit_cm)
+
+    def spread(v):
+        return {"p50": None if not v else round(_pct(v, 0.5), 2), "max": None if not v else round(max(v), 2)}
+
+    n = len(frames)
+    return {"frames": changes, "targets": targets, "lead": lead_s, "support": sup_s, "target": target, "hand_rule": "keep (support) · handle turn (lead)",
+            "spacing_cm": round(spacing * unit_cm, 2), "knuckle_cm": None,
+            "handle_frame": {"dir": [round(x, 6) for x in h_s], "offset": [round(x, 6) for x in o_s], "sign": sign},
+            "stats": {"keyframes": n, "ik_error_cm": spread(st["errors"]), "clamped": clamped, "directions": kinds, "moved_cm": spread(st["moved"]),
+                      "handle": {"turn_needed_deg": spread(st["need"]), "turn_applied_deg": spread(st["turn"]),
+                                 "capped_pct": round(100.0 * capped / n, 1) if n else None, "lead_wrist_bend_deg": {"pass1": spread(st["bend0"]),
+                                                                                                                 "targets": spread(st["bend1"])},
+                                 "lead_twist_deg": spread(st["twist"]), "range_cm": [round(u_lo * unit_cm, 2), round(u_hi * unit_cm, 2)],
+                                 "targets_angle_deg": spread(st["angle"]), "targets_palm_line_cm": spread(st["palm_line"])}}}
 
 
 def solve_grip(pose: dict, knuckles: dict, frames: list[int], *, lead: str = "right", target: str = "meet", spacing_cm: float | None = None,

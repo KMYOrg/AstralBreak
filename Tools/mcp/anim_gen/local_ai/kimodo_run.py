@@ -18,7 +18,8 @@ Phase 8-1 후보 · 2차 생성(args.candidates_mode): seeds 마다 seed_everyth
 
 Phase 9-3 키 포즈(args.key_pose_file — 생성 앞 key_pose 단계가 대상 애셋을 SOMA 로 되돌려 만든 관절 회전 · 엉덩 위치): origin 배치 항목은 1차부터
 제약, pass1 배치 항목은 1차(키 없이)의 그 프레임 엉덩 xz · 방향에 두고 같은 seed 로 2차(파지 · 발 2차가 있으면 그 2차에 함께). 키 추종(관절 위치 ·
-손발 회전) · 키 둘레 떨림을 report 에 남긴다(anim_gen/key_pose.py — 배치 · 지표는 순수 Python).
+손발 회전) · 키 둘레 떨림을 report 에 남긴다(anim_gen/key_pose.py — 배치 · 지표는 순수 Python). Phase 9-3b: 계획의 key_pose_hold(키 · 파지가 묶지 않은
+손)가 있으면 그 2차에서 그 손을 1차 손에 묶는다(hold_constraints).
 """
 import json
 import os
@@ -145,6 +146,46 @@ def key_follow(single, placed_items, parts, skeleton, device, pass1=None):
         if pass1 is not None:
             rec["jitter_pass1_p95"] = kp.key_jitter([(pass1["posed_joints"][:, j] * 100.0).tolist() for j in body], frames)
         out.append(rec)
+    return out
+
+
+def hold_constraints(single1, model, hands, pinned_items, step, device, around=None, window=None):
+    """Phase 9-3b — 키 2차에서 키가 묶지 않은 손(계획 hold_free_hands)을 1차 손(SOMA30 FK 위치 · 회전)에 step 프레임마다 일반 end-effector 로 묶는다.
+    E0(2026-11-02): 오른손 · 발 키만 준 2차가 자유 왼손목 비틀기를 1차 −105° 에서 −128° 로 키웠다(0.86초 손목 꺾임 — 스무딩과 무관) → 키가 키운 몫만
+    막는다(1차의 비틀기는 생성 특성). around · window = 키 프레임 ± 프레임 안만(없으면 클립 전체). 요청 · 키 제약이 그 손을 이미 묶은 프레임은
+    건너뛴다(refine.pinned)."""
+    import torch
+    from anim_gen.local_ai import refine
+    from kimodo.constraints import EndEffectorConstraintSet
+    skel30 = model.skeleton
+    local77 = torch.from_numpy(single1["local_rot_mats"].astype("float32")).to(device)
+    root = torch.from_numpy(single1["root_positions"].astype("float32")).to(device)
+    rot30, pos30, _ = skel30.fk(skel30.from_SOMASkeleton77(local77), root)
+    smooth2d = torch.from_numpy(single1["smooth_root_pos"][:, [0, 2]].astype("float32")).to(device)
+    pin = refine.pinned(pinned_items)
+    frames = int(pos30.shape[0])
+    out, info = [], {}
+    for part in hands:
+        joint = refine.SIDES[part.split("_")[0]] + "Hand"
+        idx = [f for f in refine.keyframes(0, frames - 1, step) if f not in pin[part]
+               and (not around or window is None or min(abs(f - k) for k in around) <= window)]
+        info[part] = {"joint": joint, "frames": idx}
+        if idx:
+            index = torch.tensor(idx, dtype=torch.long).to(device)
+            out.append(EndEffectorConstraintSet(skel30, index.cpu(), pos30[index], rot30[index], smooth2d[index], joint_names=[joint]))
+    return out, info
+
+
+def hold_follow(single1, single2, info, names77):
+    """묶은 손이 1차를 얼마나 지켰나(cm) — 묶은 프레임의 손목 위치 차."""
+    import numpy as np
+    out = {}
+    for part, rec in info.items():
+        idx = rec["frames"]
+        if idx:
+            j = names77.index(rec["joint"])
+            d = np.linalg.norm(single2["posed_joints"][idx, j] - single1["posed_joints"][idx, j], axis=1) * 100.0
+            out[part] = {"keyframes": len(idx), "p50": round(float(np.median(d)), 2), "max": round(float(d.max()), 2)}
     return out
 
 
@@ -351,8 +392,14 @@ def refine_constraints(single1, model, requested_items, cfg, device):
         if grip_frames:
             pose = {"pos": {n: pos30[:, names30.index(n)].cpu().tolist() for n in ARM_JOINTS},
                     "rot": {n: rot30[:, names30.index(n)].cpu().tolist() for n in ARM_JOINTS}}
-            knuckles = {n: pos77[:, names77.index(n)].tolist() for n in KNUCKLES}
-            g = refine.solve_grip(pose, knuckles, grip_frames, lead=rule["lead_hand"], target=rule["target"], spacing_cm=rule["spacing_cm"], unit_cm=100.0)
+            if rule.get("handle"):
+                # Phase 9-3b — 운영 부착 자루 규칙: 보조 손바닥 = 손목 · 중지 너클 중점(9-1 handle 기록 · weapon.resolve 와 같은 점)
+                palms = {s: ((pos77[:, names77.index(f"{s}Hand")] + pos77[:, names77.index(f"{s}HandMiddle2")]) * 0.5).tolist() for s in ("Left", "Right")}
+                g = refine.solve_handle_grip(pose, palms, grip_frames, lead=rule["lead_hand"], target=rule["target"], spacing_cm=rule["spacing_cm"],
+                                             handle=rule["handle"], unit_cm=100.0)
+            else:
+                knuckles = {n: pos77[:, names77.index(n)].tolist() for n in KNUCKLES}
+                g = refine.solve_grip(pose, knuckles, grip_frames, lead=rule["lead_hand"], target=rule["target"], spacing_cm=rule["spacing_cm"], unit_cm=100.0)
             for f, changes in g["frames"].items():
                 for name, v in changes.items():
                     i = names30.index(name)
@@ -360,6 +407,9 @@ def refine_constraints(single1, model, requested_items, cfg, device):
                     rot[f, i] = torch.tensor(v["rot"], dtype=rot.dtype, device=device)
             add(["LeftHand", "RightHand"], grip_frames, pos, rot)
             info["grip"] = {k: g[k] for k in ("lead", "support", "target", "hand_rule", "spacing_cm", "knuckle_cm", "stats")}
+            if g.get("handle_frame"):
+                info["grip"]["handle_frame"] = g["handle_frame"]
+                info["grip"]["window"] = [rule["frames"]["from"], rule["frames"]["to"]]
             info["grip"]["frames"] = grip_frames
             info["grip"]["targets"] = {str(f): {k: [round(x * 100.0, 3) for x in v] for k, v in t.items()} for f, t in g["targets"].items()}
     if "foot_contact" in rules:
@@ -379,6 +429,28 @@ def refine_constraints(single1, model, requested_items, cfg, device):
     return out, info
 
 
+def handle_metrics(single, grip, names77):
+    """한 샘플의 자루 지표(cm · °) — 주 손 전역 회전 · 손목으로 붙인 자루(handle_frame — 손 공간 방향 · 오프셋) ↔ 보조 손바닥(손목 · 중지 너클 중점)."""
+    import numpy as np
+    hf = grip["handle_frame"]
+    lead, sup = grip["lead"], grip["support"]
+    li, si, sm = names77.index(f"{lead}Hand"), names77.index(f"{sup}Hand"), names77.index(f"{sup}HandMiddle2")
+    lo, hi = grip["window"]
+    h, o = np.array(hf["dir"]), np.array(hf["offset"])
+    dist, ang = [], []
+    for f in range(lo, hi + 1):
+        g, w = single["global_rot_mats"][f, li], single["posed_joints"][f, li]
+        d = g @ h
+        a = w + g @ o
+        palm = (single["posed_joints"][f, si] + single["posed_joints"][f, sm]) * 0.5
+        rel = palm - a
+        dist.append(float(np.linalg.norm(rel - d * float(rel @ d))) * 100.0)
+        v = palm - w
+        ang.append(float(np.degrees(np.arctan2(np.linalg.norm(np.cross(v, d)), abs(float(v @ d))))))
+    return {"palm_line_cm": {"p50": round(float(np.median(dist)), 2), "max": round(max(dist), 2)},
+            "angle_deg": {"p50": round(float(np.median(ang)), 2), "max": round(max(ang), 2)}, "frames": len(dist)}
+
+
 def follow(single1, single2, info, names77):
     """2차가 제약을 따랐는가(cm) — 목표 손목(파지 키 프레임) · 접지 발목(1차와 같은 위치) · 루트."""
     import numpy as np
@@ -391,6 +463,9 @@ def follow(single1, single2, info, names77):
             for role, side in (("lead", grip["lead"]), ("support", grip["support"])):
                 errs[role].append(float(np.linalg.norm(pos2[int(f), names77.index(f"{side}Hand")] - np.array(t[role]))))
         out["grip_target_error_cm"] = {k: {"p50": round(float(np.median(v)), 2), "max": round(float(max(v)), 2)} for k, v in errs.items() if v}
+        if grip.get("handle_frame"):
+            # Phase 9-3b — 소스 쪽 자루 지표(파지 구간 모든 프레임): 보조 손바닥 ↔ 주 손에 붙인 자루 선 거리 · 두 손 선 ∠ 자루(9-1 handle 과 같은 정의)
+            out["handle"] = {"pass1": handle_metrics(single1, grip, names77), "pass2": handle_metrics(single2, grip, names77)}
     for side, name in (("left", "LeftFoot"), ("right", "RightFoot")):
         idx = ((info.get("foot") or {}).get(side) or {}).get("frames") or []
         if idx:
@@ -495,12 +570,25 @@ def run(args, report):
         records = keys["records"] + recs
         return {"placements": records, "follow": key_follow(single, keys["placed"] + placed, [r["part"] for r in records], skeleton, device, pass1)}
 
+    hold_plan = args.get("key_pose_hold") or {}
+
+    def hold_sets(single1, pinned_items):
+        """Phase 9-3b — 키 2차의 자유 손 고정(계획 hold_free_hands). 없으면 빈 값."""
+        if not hold_plan.get("hands"):
+            return [], None
+        return hold_constraints(single1, model, hold_plan["hands"], pinned_items, int(hold_plan.get("keyframe_step") or 3), device,
+                                around=hold_plan.get("around_frames"), window=hold_plan.get("window_frames"))
+
+    def hold_record(single1, single2, info):
+        return None if info is None else {"hands": {p: {"joint": r["joint"], "keyframes": len(r["frames"])} for p, r in info.items()},
+                                          "follow_cm": hold_follow(single1, single2, info, names77)}
+
     gen_seconds = []
     if not args.get("candidates_mode"):
         # 개정 10 그대로 — seed 하나 · samples 개 샘플
         t = time.time()
         output = generate(args["seed"], constraint_lst)
-        first, placed, recs = None, [], []
+        first, placed, recs, held = None, [], [], None
         if keys["deferred"]:
             # Phase 9-3 — pass1 배치 키: 키 없이 만든 1차의 루트 · 방향에 두고 같은 seed 로 2차(샘플 1 — 계획이 막는다)
             if args["samples"] != 1:
@@ -508,7 +596,8 @@ def run(args, report):
             first = pick(output, 0)
             save_kimodo_npz(str((out_dir / f"{args['stem']}_00_pass1.npz")), first)
             sets, placed, recs = key_sets(first)
-            output = generate(args["seed"], list(constraint_lst) + sets)
+            hold, held = hold_sets(first, requested_items + placed)
+            output = generate(args["seed"], list(constraint_lst) + sets + hold)
         gen_seconds.append(round(time.time() - t, 2))
         n = int(output["posed_joints"].shape[0])
         key_sigma = args.get("key_pose_smooth") if key_pose is not None else None
@@ -524,6 +613,8 @@ def run(args, report):
             if key_pose is not None:
                 entry["key_pose"] = key_record(single, placed, recs, first)
                 entry["key_pose"]["smooth"] = ksmooth
+                if held is not None:
+                    entry["key_pose"]["hold"] = hold_record(first, single, held)
                 if first is not None:
                     entry["pass1_npz"] = (out_dir / f"{args['stem']}_00_pass1.npz").as_posix()
             report["samples"].append(entry)
@@ -543,12 +634,13 @@ def run(args, report):
             first = pick(generate(seed, constraint_lst), 0)
             entry = {"index": ci, "seed": seed, "metrics": {"pass1": measure(first)}}
             final = first
-            placed, recs = [], []
+            placed, recs, held = [], [], None
             if refine_cfg["passes"] == 2:
                 save_kimodo_npz(str(stem.with_name(stem.name + "_pass1.npz")), first)
                 sets, placed, recs = key_sets(first)
                 auto, info = refine_constraints(first, model, requested_items + placed, refine_cfg, device)
-                second = pick(generate(seed, list(constraint_lst) + sets + auto), 0)
+                hold, held = hold_sets(first, requested_items + placed) if sets else ([], None)
+                second = pick(generate(seed, list(constraint_lst) + sets + auto + hold), 0)
                 sigma = refine_cfg.get("smooth_sigma_frames")
                 if sigma:
                     entry["metrics"]["pass2_unsmoothed"] = measure(second)
@@ -562,7 +654,8 @@ def run(args, report):
                 # Phase 9-3 — 키만 2 패스(파지 · 발 자동 제약 없음): 1차 루트 · 방향에 키를 두고 같은 seed 2차, 스무딩 없음
                 save_kimodo_npz(str(stem.with_name(stem.name + "_pass1.npz")), first)
                 sets, placed, recs = key_sets(first)
-                final = pick(generate(seed, list(constraint_lst) + sets), 0)
+                hold, held = hold_sets(first, requested_items + placed)
+                final = pick(generate(seed, list(constraint_lst) + sets + hold), 0)
                 entry["metrics"]["pass2"] = measure(final)
                 entry["pass1_npz"] = stem.with_name(stem.name + "_pass1.npz").as_posix()
             if key_pose is not None:
@@ -576,6 +669,8 @@ def run(args, report):
                     entry["metrics"]["key_smoothed"] = measure(final)
                 entry["key_pose"] = key_record(final, placed, recs, first if two_pass else None)
                 entry["key_pose"]["smooth"] = ksmooth
+                if held is not None:
+                    entry["key_pose"]["hold"] = hold_record(first, final, held)
             if boundaries:
                 entry["segments"] = seams(final)
                 if final is not first:

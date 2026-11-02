@@ -275,23 +275,40 @@ class WarpCurve:
         return 0.5 * (lo + hi)
 
 
-def rate_marks(win: dict, r: float, rr: float, has_recovery: bool, head_cut: int, tail_cut: int, recovery_end: int) -> list[tuple[int, float, str]]:
-    """배율 곡선의 매듭(원 프레임, 배율, 종류) — 같은 프레임이면 큰 배율 하나(램프 길이 0 이어도 핵심 배율을 지킨다), 머리 · 꼬리 컷 안으로."""
+def rate_marks(win: dict, r: float, rr: float, has_recovery: bool, head_cut: int, tail_cut: int, recovery_end: int,
+               seam_tail: int | None = None) -> list[tuple[int, float, str]]:
+    """배율 곡선의 매듭(원 프레임, 배율, 종류) — 같은 프레임이면 큰 배율 하나(램프 길이 0 이어도 핵심 배율을 지킨다), 머리 · 꼬리 컷 안으로.
+    seam_tail = Phase 9-3c 겹침 키 구간 시작(그 뒤 끝까지 배율 1 — 같은 프레임의 다른 매듭보다 이긴다)."""
     a, b = win["swing"]
     c0, c1 = win["core"]
     marks = [(head_cut, 1.0, "start"), (a, 1.0, "swing_start"), (c0, r, "core_start"), (c1, r, "core_end"),
              (b, rr if has_recovery else 1.0, "swing_end")]
     if has_recovery:
         marks.append((min(recovery_end, tail_cut), rr, "recovery_end"))
+    if seam_tail is not None and seam_tail < tail_cut:
+        marks.append((seam_tail, 1.0, "seam_tail"))
     marks.append((tail_cut, 1.0, "end"))
     out: list[tuple[int, float, str]] = []
     for f, rate, kind in sorted(((min(max(f, head_cut), tail_cut), rate, kind) for f, rate, kind in marks), key=lambda m: m[0]):
         if out and out[-1][0] == f:
-            if rate > out[-1][1]:
+            if kind == "seam_tail" or (rate > out[-1][1] and out[-1][2] != "seam_tail"):
                 out[-1] = (f, rate, kind)
             continue
         out.append((f, rate, kind))
     return out
+
+
+def keep_seams(win: dict, keep_s: list[float], fps: float, frames: int) -> tuple[dict, int | None, str | None]:
+    """Phase 9-3c — 섞은 세그먼트의 겹침 키 구간(앞 [0, lo] · 뒤 [hi, 끝] 프레임)은 배율 1 로 둔다(이웃 기존 구간의 자세 · 시간과 겹쳐 크로스페이드한다):
+    휘두름 · 핵심 창을 [lo, hi] 안으로 줄인다. → (줄인 창, 뒤 매듭 hi | None, 막힘 이유 | None)."""
+    lo = int(round(keep_s[0] * fps))
+    hi = frames - int(round(keep_s[1] * fps))
+    a, b = win["swing"]
+    c0, c1 = win["core"]
+    a, b = max(a, lo), min(b, hi)
+    c0, c1 = max(c0, a), min(c1, b)
+    out = {**win, "swing": [a, b], "core": [c0, c1]}
+    return out, (hi if keep_s[1] > 0 else None), (None if c0 < c1 else "SEAM_KEPT")
 
 
 def plan(profile: dict, *, hands: tuple[str, str], body: list[str], scale: float, fps: float, length: float, params: dict) -> dict:
@@ -315,6 +332,15 @@ def plan(profile: dict, *, hands: tuple[str, str], body: list[str], scale: float
     if win["reason"]:
         out["ops"] = [{"op": "trim"}]
         return out
+    seam_tail = None
+    if params.get("seam_keep_s"):
+        # Phase 9-3c — 겹침 키 구간은 배율 1(계획 inputs.seam_keep_s — 섞은 세그먼트의 기존 이웃 쪽)
+        win, seam_tail, why = keep_seams(win, params["seam_keep_s"], fps, frames)
+        out["seam_keep_s"] = list(params["seam_keep_s"])
+        out["windows_kept"] = {k: [sec(f) for f in win[k]] for k in ("core", "swing")}
+        if why:
+            out.update(reason="NOTHING_TO_CHANGE", ops=[{"op": "trim"}])
+            return out
     st = params["still"]
     a, b = win["swing"]
     head_cut = 0
@@ -327,12 +353,16 @@ def plan(profile: dict, *, hands: tuple[str, str], body: list[str], scale: float
     r = min(max(params["target_peak_cm_s"] / peak, 1.0), params["max_rate"])
     rr = params["recovery_rate"]
     recovery_end = max(win["tail"][0], b) if win["tail"] else frames
+    if seam_tail is not None:
+        # 복귀 배율은 겹침 키 구간 앞(그 구간 길이만큼 램프)까지 — 키 구간은 배율 1
+        recovery_end = min(recovery_end, seam_tail - (frames - seam_tail))
     # 이미 빠른 휘두름(운영 공격 — 정점 ≥ 목표)은 복귀도 건드리지 않는다: 흐느적이 아니다
     has_recovery = r >= MIN_RATE and rr >= MIN_RATE and min(recovery_end, tail_cut) > b
     ops = []
     if head_cut > 0 or tail_cut < frames:
         ops.append({"op": "trim", **({"start": sec(head_cut)} if head_cut > 0 else {}), **({"end": sec(tail_cut)} if tail_cut < frames else {})})
-    marks = rate_marks(win, r, rr, has_recovery, head_cut, tail_cut, recovery_end) if r >= MIN_RATE else [(head_cut, 1.0, "start"), (tail_cut, 1.0, "end")]
+    marks = (rate_marks(win, r, rr, has_recovery, head_cut, tail_cut, recovery_end, seam_tail) if r >= MIN_RATE
+             else [(head_cut, 1.0, "start"), (tail_cut, 1.0, "end")])
     # 매듭 사이 출력 길이 = 원 길이 / 두 끝 배율 평균(선형 램프) → 전체를 정수 프레임으로 올림(출력 시각을 고르게 늘인다 — 배율은 그 역수만큼
     # 낮아져 상한을 넘지 않는다, 1 프레임 미만)
     dst = [0.0]

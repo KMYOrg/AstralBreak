@@ -205,8 +205,8 @@ def test_requested_window_blends_without_a_seam():
     hl = model.index["hand_l"]
     blend = int(round(bf.GRIP_BLEND_WEAPON_S * model.fps))
     inside = [f for f in range(60) if g["weights"][f] > 0.0]
-    # 요청 구간 27 ~ 36 — 앞의 짧은 빈틈 잇기(GRIP_GAP_FRAMES — 8-4b 그대로)가 시작을 ≤ 2 프레임 앞당긴다
-    assert 25 <= g["frames"][0] <= 27 and g["frames"][-1] == 36 and inside == list(range(g["frames"][0] - blend, 36 + blend + 1))
+    # 요청 구간 27 ~ 36 그대로 — 9-4b U4-c(빈틈 잇기는 앞 프레임이 파지일 때만): 앞당김(8-4b 판 25)이 없다
+    assert g["frames"][0] == 27 and g["frames"][-1] == 36 and inside == list(range(27 - blend, 36 + blend + 1))
     tail = int(2 * bf.SPLINE_WIDTH * round(cfg["smooth_s"] * model.fps))
     moved = [bm._norm(bm._sub(res["poses"][f][hl][1], model.poses[f][hl][1])) for f in range(60)]
     # 꼬리 밖 ≤ 0.1 cm(8-4b 기준 4 '보정 구간 밖' 값) — 블렌드 아웃이 원래 손을 따르면서(8-4c 후속) 꼬리 프레임(f45 · f46)의 손끼리 맞닿음을 재검사가

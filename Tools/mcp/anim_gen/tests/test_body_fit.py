@@ -221,7 +221,15 @@ def test_off_wrist_bend_cap_is_a_clearance_hinge_in_grip_frames_only():
     assert ev["cost"] == pytest.approx((10.0 * bf.TIER["clearance"] * math.radians(10.0 - bf.BEND_KEEP_TOL_DEG) * bf.ROT_CM) ** 2, rel=1e-4)
     assert "bend" not in bf.FAMILIES and "bend" not in s._violations(0, state, [])
     off = bf.Solver(model, cfg, grip=grip)
-    assert off.bend_rig is None and off._finish_wrist([state]) == [state] and bf.solve(model, cfg, grip=grip)["wrist_bend"]["on"] is False
+    # 9-4b — 손가락 뿌리가 없으면 두 손목 상한(보조 · 주)이 다 꺼지고 손 부근 마무리는 파지 프레임을 처리하지 않는다
+    assert off.bend_rig is None and off.lead_br is None and bf.solve(model, cfg, grip=grip)["wrist_bend"]["on"] is False
+    # 손 부근 마무리에서만 주 손목(원래 + LEAD_BEND_TOL_DEG) · 보조 손목(HAND_TIER off_bend 층)이 함께 걸린다
+    assert s.lead_br["side"] == "r" and s.lead_br["caps"][0] == pytest.approx(s.lead_br["bend0"][0] + math.radians(bf.LEAD_BEND_TOL_DEG), abs=1e-6)
+    s.hand_mode = True
+    limits = s._bend_limits(0)
+    assert [(br["side"], tier) for br, _, tier in limits] == [("l", bf.HAND_TIER["off_bend"]), ("r", bf.HAND_TIER["lead_bend"])]
+    s.hand_mode = False
+    assert [br["side"] for br, _, _ in s._bend_limits(0)] == ["l"]
 
 
 def test_finish_probes_with_the_live_shoulder_axis_like_cpp():
@@ -262,8 +270,8 @@ def test_rule_two_model_never_reaims_the_angle_axis():
 
 def test_keep_grip_does_not_bend_the_off_wrist_past_the_original(monkeypatch):
     # 왼 위팔이 배 속으로 드는 파지(keep) — 상한이 없으면 keep(주 손 기준 상대 회전)이 팔을 옮긴 만큼을 보조 손목이 떠안아 2.3° 더 굽는다. 허용 0° 로
-    # 좁혀 보면 원래 굽힘 위로 거의 안 간다. 2차 — 본 풀이 뒤 보조 손목만 다듬는다: 관통은 그대로, 팔꿈치 · 손목 위치 · 주 손은 상한 없는 풀이와 같고,
-    # keep 은 편 만큼까지만 풀린다(다듬기는 keep 을 두지 않는다 — 같은 손목을 상한과 반대로 당긴다)
+    # 좁혀 보면 원래 굽힘 위로 거의 안 간다. 9-4b — 손 부근 마무리가 손목을 펴는 만큼을 팔(쇄골 · 위팔 · 팔꿈치)이 받아 keep(그 상태의 두 손 관계)과
+    # 주 손을 붙든다(8-4c 후속 2차의 손목만 다듬기는 팔 · 주 손을 그대로 두고 keep 을 편 만큼 풀었다 — 낫 정정 2.5 → 7.3°)
     monkeypatch.setattr(bf, "BEND_KEEP_TOL_DEG", 0.0)
     frames = fx.bump(fx.grip_close(), fx.grip_close({"upperarm_l": (-30.0, 0.0, 35.0)}))
     model = bm.BodyModel(fx.make_model(frames))
@@ -279,9 +287,10 @@ def test_keep_grip_does_not_bend_the_off_wrist_past_the_original(monkeypatch):
     wb = capped["wrist_bend"]
     assert wb["on"] and wb["frames"] == len(frames) and wb["over_cap_frames"] == 0 and wb["increase_deg_max"] == pytest.approx(inc(capped), abs=1e-3)
     assert worst(capped["predicted"]["pairs"]) <= worst(free["predicted"]["pairs"]) + 0.1
-    moved = max(bm._norm(bm._sub(a[ix[b]][1], c[ix[b]][1])) for a, c in zip(free["poses"], capped["poses"]) for b in ("lowerarm_l", "hand_l", "hand_r"))
-    assert moved <= 1e-6
-    assert capped["keep"]["deg_max"] <= free["keep"]["deg_max"] + inc(free) - inc(capped) + 0.5 and capped["keep"]["pos_cm_max"] <= free["keep"]["pos_cm_max"] + 0.5
+    lead = max(bm._norm(bm._sub(a[ix["hand_r"]][1], c[ix["hand_r"]][1])) for a, c in zip(free["poses"], capped["poses"]))
+    elbow = max(bm._norm(bm._sub(a[ix["lowerarm_l"]][1], c[ix["lowerarm_l"]][1])) for a, c in zip(free["poses"], capped["poses"]))
+    assert lead <= 0.3 and elbow > 0.1   # 주 손은 붙들리고 보조 팔이 움직인다
+    assert capped["keep"]["deg_max"] <= free["keep"]["deg_max"] + 1.0 and capped["keep"]["pos_cm_max"] <= free["keep"]["pos_cm_max"] + 0.5
 
 
 def test_hands_passing_through_each_other_are_separated():

@@ -11,9 +11,11 @@
              회전(무기 공간 ± 허용각, 없으면 원래 상대 회전) · 보조 손목 굽힘 ≤ max(원래 최대, wrist_bend_max_deg)(관통 층) — keep 과 같은 층, 주 손 방향
              충실도는 keep 층(무기 방향). 손끼리 관통은 하드 그대로(보조 손이 미끄러져 피한다). 매끈화 · 재검사 뒤 파지 구간 전체를 보조 팔만으로
              마무리(_snap_weapon — 스플라인이 묽힌 손잡이 거리를 되돌린다).
-  손목 굽힘 — 파지 프레임(손목을 여는 프레임) 보조 손목 굽힘 ≤ 원래 + BEND_KEEP_TOL_DEG(관통 층 hinge — 8-4c 후속, keep 이 팔 보정을 손목에 떠넘겨 원본보다
-             꺾이지 않게). 본 풀이에는 두지 않고 본 풀이 뒤 보조 손목만 다듬는다(_finish_wrist — 2차: 본 풀이에 걸면 팔 보정 경로가 바뀌어 매끈화 뒤
-             재검사가 못 따라갔다). 손가락 뿌리 = 대상 메시 손가락 체인 제안 {Side}Middle 시작(fingers), 없으면 끈다.
+  손목 굽힘 — 파지 프레임(손목을 여는 프레임) 보조 손목 굽힘 ≤ 원래 + BEND_KEEP_TOL_DEG · 주 손목 ≤ 원래 + LEAD_BEND_TOL_DEG(8-4c 후속 · 9-4b, keep 이
+             팔 보정을 손목에 떠넘겨 원본보다 꺾이지 않게). 본 풀이에는 두지 않고 본 풀이 뒤 손 부근 마무리(_finish_hands)에서만 건다(본 풀이에 걸면
+             팔 보정 경로가 바뀌어 매끈화 뒤 재검사가 못 따라갔다 — 8-4c 후속 1차). 손가락 뿌리 = 대상 메시 손가락 체인 제안 {Side}Middle 시작(fingers),
+             없으면 끈다. 파지 밖(손목을 닫은 프레임)은 손목 로컬 원래대로 — 본 풀이 첫 회가 앞 프레임 해를 이어 받을 때도 닫힌 손목 델타는 싣지 않는다
+             (_open_start — 9-4b).
              weapon_tip 목표 = 부착 본의 강체 점. 무기-몸 관통은 기록만(weapon_body — 무기 기록 점 ↔ 같은 몸 지도). 무기가 없으면 이 경로는 쉰다.
              무기 파지는 원래 보조 손이 손잡이 근처(WEAPON_NEAR_CM × scale)인 구간만 — 먼 띠 프레임은 keep(사용자 결정 '가' — grip_weights).
   샘플 전이(8-4c c2) — pose_from[]: 같은 스켈레톤 애니(샘플)의 로컬 회전을 본 묶음(bundle_bones — 템플릿 체인 · 손 트리, 이름 추측 없음)으로 가져온다.
@@ -53,8 +55,12 @@
              위반 프레임만 매끈화 없이 고치는 처음 판(보조 팔 따라가기 · 마무리)은 이웃과 끊겨 떨림을 만들었다(띠 정정 zigzag 1.05 → 4.7) — 남는 작은
              위반(keep ≈ 1 ~ 2 cm · 고립 관통 프레임)은 한계로 보고한다. 단 머리목(하드 기준)만은 맨 끝에 그 프레임 값 + 이웃 × 0.3 으로 뺀다
              (_finish_head — 8-4d, 빠른 휘두름의 한 프레임 깊은 관통).
-  위팔     — 풀이에서는 '안 깊어짐'만. clearance.upper_arm: cap(8-4f 기본)이면 맨 끝에 위팔 ↔ 몸이 upper_cap_cm × scale 보다 깊은 프레임만 팔꿈치를
-             어깨 ↔ 손목 축으로 돌린다(_finish_upper — 손 컴포넌트 그대로, 위팔 · 손 로컬 두 본, 방향은 묶음마다 하나 · ±4 프레임 램프).
+  위팔     — 풀이에서는 '안 깊어짐'만. clearance.upper_arm: cap(8-4f 기본)이면 손 부근 마무리가 위팔 ↔ 몸을 upper_cap_cm × scale 까지 뺀다.
+  손 부근 마무리(9-4b — _finish_hands, 무기 마무리 뒤 · 머리목 마무리 앞): 보조 손목 다듬기(8-4c)와 위팔 마무리(8-4f)를 한 작은 GN 으로 —
+             처리 프레임(손목 상한이 있는 파지 프레임 · 위팔 > 상한 · 팔 교차가 원본보다 깊음 · 앞 프레임 증분 꼬리)마다 두 팔 쇄골 · 위팔 · 팔꿈치 ·
+             손목을 그 상태(본 풀이 해)에서 다시 푼다. 층(HAND_TIER): 관통(그 상태보다 안 깊어짐) · 보조 손목 상한 > 주 손목 상한 · 팔 교차 > keep(그
+             상태의 두 손 관계) = 손 붙들기(주 손 · 파지 밖 보조 손) = 위팔 상한 > 충실도 · 시간 연속. 묶기 전에는 다듬기가 keep 을 빼 keep 회전이
+             커졌고(낫 정정 2.5 → 7.3°) 위팔 마무리는 손목 + 2° 에 막혔다(합본 검 f30 ~ 36).
 결과 = 본별 프레임 델타(bone_deltas) · 모델 예측(쌍별 깊이 — C++ 실측과 대조) · keep 오차 · 목표 달성 · 남은 관통.
 """
 from __future__ import annotations
@@ -117,12 +123,21 @@ HEAD_FINISH_NEIGHBOR = 0.3   # 머리목 마무리(_finish_head)의 이웃 몫 �
 HEAD_FINISH_ROUNDS = 2       # 이웃 몫으로 새로 든 프레임까지 되풀이하는 횟수
 HEAD_FINISH_MAX_RUN = mm.HEAD_DEEP_MAX_RUN  # 2 — 마무리하는 관통 구간의 최대 길이(프레임) — 더 길면 한 프레임씩 빼는 것이 동작을 찢는다(s27 4 프레임 · 떨림 41.9). 선별 head_deep 과 한 원천
 HEAD_FINISH_MAX_CM = mm.HEAD_DEEP_MAX_CM    # 4.0 — 마무리하는 구간의 최대 깊이(× scale) — 검 선택 합본 2.37 · s27 5.4 ~ 10.2
-# 위팔 마무리(_finish_upper — 8-4f): 팔꿈치를 어깨 ↔ 손목 축으로 돌리는 각의 격자 · 최대, 손목 굽힘 허용(원래 + 이 값), 시간 램프(프레임).
-# 합본 검 실측: 상한 4 cm 에 각 20 ~ 28°, 손목 허용 +5° 면 6.82 → 5.20 cm · +10° 면 4.30(제한 없음 4.24 — 손목 32 → 44.5°, 원래 36.6)
+# 위팔 궤도 격자(8-4f — 손 부근 마무리가 위팔 상한을 GN 으로 못 맞춘 프레임의 둘째 출발점): 팔꿈치를 어깨 ↔ 손목 축으로 돌리는 각의 격자 · 최대,
+# 손목 굽힘 허용(원래 + 이 값). 합본 검 실측: 상한 4 cm 에 각 20 ~ 28°, 손목 허용 +5° 면 6.82 → 5.20 cm · +10° 면 4.30
 UPPER_FINISH_STEP_DEG = 2.0
 UPPER_FINISH_MAX_DEG = 46.0
 UPPER_FINISH_WRIST_DEG = 10.0
-UPPER_FINISH_RAMP = 4
+# 손 부근 마무리(_finish_hands — 9-4b) 층(√가중 = weights.clearance | grip × 이 값). 시제품 대조(phase9-4b-report §4): keep 회전을 keep 위치보다 낮게(3)
+# 두면 다듬기 대가가 거의 그대로(낫 정정 7.7°), 같은 층이면 4.1°. 위팔 상한 30 은 검 선택 위팔 4.6 cm 지만 keep 위치 1.5 → 3.2 cm(두 손 파지가 미끄러짐) —
+# 10(keep 과 같은 층)이면 5.25 · 1.93(사용자 결정). 보조 손목 상한 30 이면 GN 이 0.6° 를 남겨 c4_off_wrist(+2.5)를 넘었다 → 100. keep(위치 · 회전) ·
+# 위팔은 본 풀이 가족 그대로(TIER grip · TIER upper = 10 — 손 붙들기와 같은 층)
+HAND_TIER = {"off_bend": 100.0, "lead_bend": 30.0, "cross": 30.0, "hold": 10.0}
+LEAD_BEND_TOL_DEG = 4.5   # 파지 프레임 주 손목 굽힘 상한(원래 + 이 값) — 통합 c4_wrist(+5) 안의 여유: +5 면 검 선택이 +5.07 로 넘었다
+FREE_WRIST_DEG = 5.0      # 손 부근 마무리가 연 상한 없는 손목(파지 밖 처리 프레임) ≤ max(그 상태, 원래 + 이 값) — 그 상태만이면 위팔 둘째 출발점이 막혔다
+CROSS_MARGIN_CM = 1.0     # 팔 교차 목표 = 교차 문턱 안쪽 이 값 × scale — 문턱 그대로면 손 붙들기와 비용을 나눠 문턱 바로 밖에 멈췄다(Attack2 f50 −10.56 vs −10.52)
+HAND_TAIL_DEG = 0.2       # 앞 프레임 마무리 증분이 이보다 크면(관절 회전 크기) 다음 프레임도 처리 — 위반이 끝난 뒤 증분이 시간 연속으로 잦아든다
+HAND_FINISH_KEYS = ("frames", "upper_over", "cross", "second_start")   # stats hand_finish — 처리 · 위팔 > 상한 · 교차 · 궤도 둘째 출발점을 쓴 프레임
 STEP_RAD = math.radians(8.0)
 STEP_CM = 3.0
 CANDIDATE_CM = 3.0       # 이보다 얕게 떨어진 점만 풀이 후보(끝에 전체 재검사)
@@ -148,7 +163,7 @@ WEAPON_TOL_DEG, BEND_TOL_DEG = 2.0, 1.0
 # keep(주 손 기준 상대 회전)이 팔을 옮긴 만큼을 보조 손목이 떠안아 원본보다 더 꺾였다(낫 정정 8-4b 실측 원본 91.1 → 102.1°, 띠 정정 f72 +1 ~ +3°)
 BEND_KEEP_TOL_DEG = 2.0
 # 본 풀이 잔차 묶음 — 관통 · 위팔 · keep · 무기 파지 · 주 손 · 손목 위치 · 관절 충실도 · 지시 목표 · 다리 늘어남. 손목 굽힘 상한(bend)은 본 풀이 뒤
-# 다듬기(_snap_weapon · _finish_wrist)에만 둔다(8-4c 후속 2차 — _finish_wrist 주석)
+# 마무리(_snap_weapon · _finish_hands)에만 둔다(8-4c 후속 2차 — 본 풀이에 걸면 팔 보정 경로가 바뀌었다, 9-4b 에서 손 부근 마무리로 묶음)
 FAMILIES = frozenset({"clear", "upper", "keep", "weapon", "lead", "wrist", "fid", "targets", "reach"})
 GRIP_MIN_FRAMES = 3
 GRIP_GAP_FRAMES = 2      # 띠 밖으로 잠깐(≤ 이 프레임) 나간 것은 파지로 이어 본다
@@ -1046,13 +1061,14 @@ def _flag_weights(flags: list[bool], fps: float, blend_s: float) -> tuple[list[f
     """프레임 깃발 → 가중(0 ~ 1) · 구간 — 짧은 빈틈(≤ GRIP_GAP_FRAMES) 잇기 · GRIP_MIN_FRAMES 이상 · 경계 smoothstep 블렌드."""
     n = len(flags)
     flags = list(flags)
-    # 짧은 빈틈 잇기
+    # 짧은 빈틈 잇기 — 앞 프레임이 파지일 때만(9-4b U4-c): 앞이 파지가 아니어도 이으면 긴 비파지 구간의 마지막 ≤ 2 프레임이 채워져 구간 시작이
+    # 앞당겨졌다(합성 window 27 → 25)
     for f in range(n):
         if not flags[f]:
             a = f
             while a < n and not flags[a]:
                 a += 1
-            if 0 < f and a < n and a - f <= GRIP_GAP_FRAMES:
+            if 0 < f and flags[f - 1] and a < n and a - f <= GRIP_GAP_FRAMES:
                 for k in range(f, a):
                     flags[k] = True
     runs = mm.runs(flags, GRIP_MIN_FRAMES)
@@ -1777,6 +1793,18 @@ class Solver:
         self.weapon_w = g.get("weapon_weights") if self.wgrip is not None and g.get("weapon_weights") else [0.0] * rig.frames
         self.weapon_s = [_smootherstep(w) for w in self.weapon_w]   # 무기 파지 목표 보간(grip_state blend)
         self.bend_rig, self.bend_cap = self._bend_caps()
+        self.lead_br = self._lead_rig()
+        # 손 부근 마무리(_finish_hands) 동안만 — 손목을 늘 열고(_joints) · 굽힘 상한 층(_bend_limits) · 위팔 허용(_limit) · 상한 없는 손목의 그 상태 상한
+        self.hand_mode = False
+        self._ucap: dict = {}
+        self._state_cap: dict = {}
+        self._lead_floor = None   # 지시 목표 · 샘플 블록 프레임의 주 손목 상한 아래쪽(그 블록 상태의 굽힘 — 요청한 움직임이 보호보다 앞선다)
+        # 팔 교차 허용(몸 좌우 차 — (왼 − 오른 손목) · 엉덩 축, motion_metrics.arm_cross 와 같은 정의): 원본이 교차 문턱 안이면 문턱 안쪽
+        # CROSS_MARGIN_CM × scale, 넘었으면 원본(더 교차하지 않음). 다리가 없으면 끈다
+        self.cross_floor = None
+        if {"l", "r"} <= set(rig.legs):
+            thr = mm.CROSS_CM * self.scale
+            self.cross_floor = [min(-thr + CROSS_MARGIN_CM * self.scale, self._lateral(f, model.poses[f])[0]) for f in range(rig.frames)]
         self.keep_rel = {}
         for f in range(rig.frames):
             if self.keep_w[f] > 0.0:
@@ -1784,7 +1812,7 @@ class Solver:
         self.keep_orig = self.keep_rel   # keep_report 는 늘 원본 관계로 잰다(목표 블록은 keep_rel 을 목표 없는 해의 관계로 바꾼다)
         # 목표 블록의 기준(_solve_targets) — 관통 바닥{(f, 점, 지도): 목표 없는 해의 깊이} · away 거리의 기준 자세. 목표 없는 풀이는 비어 있음 · 원본
         self.floor: dict = {}
-        self.live_lateral = False   # probe 의 각도 0 방향을 그 자세의 어깨로(C++ 와 같은 칸 나눔 — _finish_wrist 동안만)
+        self.live_lateral = False   # probe 의 각도 0 방향을 그 자세의 어깨로(C++ 와 같은 칸 나눔 — 규칙 1 모델의 마무리 동안만)
         self.ref_poses = model.poses
         self.orig_upper_depth: dict = {}
         self.stats = {"frame_solves": 0, "evaluations": 0, "clamped": {}}
@@ -1841,6 +1869,16 @@ class Solver:
         self.bends = [br] if br is not None else []
         return br, (br["caps"] if br else [None] * self.rig.frames)
 
+    def _lead_rig(self) -> dict | None:
+        """주 손목 굽힘 상한(9-4b U4-b) — 보조 손의 반대 손, 파지 프레임 상한 = 원래 + LEAD_BEND_TOL_DEG(손 부근 마무리만 — 본 풀이는 그대로).
+        검 선택 · s27 의 주 손목은 본 풀이가 keep 으로 팔을 옮긴 만큼 손목이 떠안아 + 18 ~ 28° 꺾였다(8-4b 부터 기록만)."""
+        off = self.wgrip["side"] if self.wgrip is not None else self.off
+        br = self._bend_rig(self.rig.side_of(off), False)
+        if br is not None:
+            tol = math.radians(LEAD_BEND_TOL_DEG)
+            br["caps"] = [None if c is None else br["bend0"][f] + tol for f, c in enumerate(br["caps"])]
+        return br
+
     def _keep_of(self, pose) -> tuple:
         """보조 손바닥 점 · 회전의 주 손목 기준 상대 변환(keep 기준)."""
         lw, ow = pose[self.rig.arms[self.lead]["wrist"]], pose[self.rig.arms[self.off]["wrist"]]
@@ -1849,8 +1887,11 @@ class Solver:
 
     def _limit(self, f: int, i: int, name: str, upper: bool) -> float:
         """팔 점 i 가 지도 name 에서 허용되는 깊이 — 위팔 = 원래 깊이(안 깊어짐) · 손끼리 = 맞닿음 · 몸 = body_allow, 목표 블록이면 목표 없는 해의
-        깊이(floor)보다 얕게 요구하지 않는다(목표는 관통을 base 보다 깊게 만들지 못하고, base 에 남은 한계는 다시 풀지 않는다)."""
+        깊이(floor)보다 얕게 요구하지 않는다(목표는 관통을 base 보다 깊게 만들지 못하고, base 에 남은 한계는 다시 풀지 않는다). 손 부근 마무리(hand_mode)의
+        위팔 = _ucap(몸 지도는 그 상태가 위팔 상한보다 깊으면 상한, 아니면 그 상태 · 반대 팔 손 · 아래팔은 그 상태 — _upper_limits)."""
         if upper:
+            if self.hand_mode:
+                return self._ucap.get((i, name), math.inf)
             lim = max(self.orig_upper_depth.get((f, i, name), self.body_allow[name]), self.body_allow[name])
         elif name in HAND_MAPS:
             lim = self.hand_contact   # 손끼리는 맞닿음(≤ contact_cm)까지 정상 — 파지한 두 손을 떼지 않는다
@@ -1859,6 +1900,42 @@ class Solver:
         if self.floor:
             lim = max(lim, self.floor.get((f, i, name), lim))
         return lim
+
+    def _bend_limits(self, f: int) -> list:
+        """손목 굽힘 상한 [(손 리그, 상한 rad | None, 층)] — 본 풀이 · 무기 마무리 = 보조 손(bends) 상한 · 관통 층. 손 부근 마무리(hand_mode) = 보조 손
+        (HAND_TIER off_bend) · 주 손(lead_bend), 파지 상한이 없는 프레임은 그 상태 상한(_state_cap = max(그 상태, 원래 + FREE_WRIST_DEG))."""
+        if not self.hand_mode:
+            return [(br, br["caps"][f], TIER["clearance"]) for br in self.bends]
+        out = [(br, br["caps"][f] if br["caps"][f] is not None else self._state_cap.get(br["side"]), HAND_TIER["off_bend"]) for br in self.bends]
+        if self.lead_br is not None:
+            cap = self.lead_br["caps"][f]
+            if cap is not None and self._lead_floor is not None:
+                cap = max(cap, self._lead_floor)
+            out.append((self.lead_br, cap if cap is not None else self._state_cap.get(self.lead_br["side"]), HAND_TIER["lead_bend"]))
+        return out
+
+    def _lateral(self, f: int, pose) -> tuple:
+        """몸 좌우 차(cm) · 축 — (왼 − 오른 손목) · 엉덩 축(수평 단위, 그 자세). motion_metrics.arm_cross 와 같은 정의(음수 = 교차)."""
+        a, b = pose[self.rig.legs["l"]["thigh"]][1], pose[self.rig.legs["r"]["thigh"]][1]
+        h = _unit((a[0] - b[0], a[1] - b[1], 0.0))
+        wl, wr = pose[self.rig.arms["l"]["wrist"]][1], pose[self.rig.arms["r"]["wrist"]][1]
+        return (wl[0] - wr[0]) * h[0] + (wl[1] - wr[1]) * h[1], h
+
+    def _open_start(self, f: int, start: dict, base: dict) -> dict:
+        """앞 프레임 해를 이어 받은 출발점 — 그 프레임에서 닫힌 손목(파지 밖 — _joints 가 안 연다)의 델타는 base(그 프레임 자신의 값) 그대로(9-4b).
+        이어 받기가 파지 구간 끝의 손목 델타를 닫힌 프레임으로 실어 날라 '파지 밖은 손목 로컬 원래대로'가 깨졌다(s27 f68 ~ f95 오른손 27° — 위반이
+        이어져 매끈화 뒤에도 남아 주 손목 원래 46.6 → 64.9°)."""
+        opened = set(self._joints(f))
+        closed = [a["wrist"] for a in self.rig.arms.values() if a["wrist"] not in opened and start["rot"].get(a["wrist"]) != base["rot"].get(a["wrist"])]
+        if not closed:
+            return start
+        out = self._copy(start)
+        for w in closed:
+            if w in base["rot"]:
+                out["rot"][w] = base["rot"][w]
+            else:
+                out["rot"].pop(w, None)
+        return out
 
     # ---- 프레임별 자유도 ----
     def _joints(self, f: int, only: set | None = None) -> list:
@@ -1873,6 +1950,9 @@ class Solver:
             # 파지 방향을 맞출 때만 손목을 연다(그 밖은 손목 로컬 원래대로) — 주 손목도 열어야 팔을 옮겨도 주 손 방향(주 손 충실도)이 남고 보조 손목이
             # 혼자 주 손 회전 변화를 다 떠안지 않는다(낫 정정 선택 — 보조 손목만이면 상대 방향 23°)
             out += [rig.arms[self.off]["wrist"], rig.arms[self.lead]["wrist"]]
+        elif self.hand_mode:
+            # 손 부근 마무리는 파지 밖 처리 프레임(위팔 · 교차 · 꼬리)도 두 손목을 연다 — 손 붙들기(손 컴포넌트 회전)를 팔 궤도와 함께 맞춘다
+            out += [rig.arms[s]["wrist"] for s in ("l", "r")]
         for t in self.targets + self.pose_from:
             if t["ramp"][f] > 0.0:
                 for b, _ in t["dof"]:
@@ -2098,21 +2178,49 @@ class Solver:
                 info["weapon"]["bend_deg"] = math.degrees(st["bend"] - wg["cap"])
                 jb = [_sub(x, y) for x, y in zip(self._jac_rot(ob, dofs), self._jac_rot(wg["elbow"], dofs))] if jac else None
                 row((st["bend"] - wg["cap"]) * ROT_CM, [-ROT_CM * _dot(m, x) for x in jb] if jac else None, (self.w["clearance"] * TIER["clearance"]) ** 2)
-        # 보조 손목 굽힘 상한(파지 프레임 — 손목을 여는 프레임, 관통과 같은 층 hinge — 꺾임을 만들지 않는다, 다듬기 단계만): keep = 프레임별 원래 굽힘 +
-        # BEND_KEEP_TOL_DEG(원래보다 더 굽히지 않음), 무기 파지 = max(원래 최대, wrist_bend_max_deg) — 블렌드 프레임은 둘을 smootherstep(가중)으로 잇는다(bend_caps)
-        for br in self.bends if "bend" in families else ():
-            cap = br["caps"][f]
+        # 손목 굽힘 상한(파지 프레임 — 손목을 여는 프레임, hinge — 꺾임을 만들지 않는다, 마무리 단계만): 보조 keep = 프레임별 원래 굽힘 + BEND_KEEP_TOL_DEG
+        # (원래보다 더 굽히지 않음), 무기 파지 = max(원래 최대, wrist_bend_max_deg) — 블렌드 프레임은 둘을 smootherstep(가중)으로 잇는다(bend_caps).
+        # 손 부근 마무리는 주 손목(원래 + LEAD_BEND_TOL_DEG)과 상한 없는 프레임의 그 상태 상한까지(_bend_limits)
+        for br, cap, tier in self._bend_limits(f) if "bend" in families else ():
             if cap is None:
                 continue
             ob, eb, mb = br["wrist"], br["elbow"], br["middle"]
             bend = WeaponRig.bend(pose, eb, ob, mb)
-            info["bend_deg"] = max(info.get("bend_deg", 0.0), math.degrees(bend - cap))
+            if br is not self.lead_br:
+                info["bend_deg"] = max(info.get("bend_deg", 0.0), math.degrees(bend - cap))
             if bend > cap:
                 u = _unit(_sub(pose[ob][1], pose[eb][1]))
                 h = _unit(_sub(pose[mb][1], pose[ob][1]))
                 m = _unit(_cross(h, u))
                 jb = [_sub(x, y) for x, y in zip(self._jac_rot(ob, dofs), self._jac_rot(eb, dofs))] if jac else None
-                row((bend - cap) * ROT_CM, [-ROT_CM * _dot(m, x) for x in jb] if jac else None, (self.w["clearance"] * TIER["clearance"]) ** 2)
+                row((bend - cap) * ROT_CM, [-ROT_CM * _dot(m, x) for x in jb] if jac else None, (self.w["clearance"] * tier) ** 2)
+        # 손 붙들기(손 부근 마무리 — anchor = 그 상태): 손 컴포넌트 위치 · 회전을 어깨 바탕 본 기준으로 그 상태에 — 주 손은 늘(무기 방향 = 휘두름 궤적),
+        # 보조 손은 파지 밖 몫(1 − keep 가중 — 파지 프레임은 keep 이 주 손에 묶는다)
+        if "hold" in families:
+            apose = anchor["pose"]
+            for side in ("l", "r"):
+                share = 1.0 if side == self.lead else 1.0 - self.keep_w[f]
+                if share <= 0.0:
+                    continue
+                wb, base = rig.arms[side]["wrist"], self.arm_base[side]
+                pw, aw, pb, ab = pose[wb], apose[wb], pose[base], apose[base]
+                tgt = _add(bm.qrot(pb[0], bm.qrot(bm.qconj(ab[0]), _sub(aw[1], ab[1]))), pb[1])
+                w2 = (self.w["grip"] * HAND_TIER["hold"] * share) ** 2
+                jpos = [_sub(x, y) for x, y in zip(self._jac_rigid(wb, pw[1], dofs, pose), self._jac_rigid(base, tgt, dofs, pose))] if jac else None
+                rows3(_sub(pw[1], tgt), jpos, w2)
+                q_tgt = bm.qmul(pb[0], bm.qmul(bm.qconj(ab[0]), aw[0]))
+                e_rot = _scale(qlog(bm.qmul(pw[0], bm.qconj(q_tgt))), ROT_CM)
+                rows3(e_rot, [_scale(_sub(x, y), ROT_CM) for x, y in zip(self._jac_rot(wb, dofs), self._jac_rot(base, dofs))] if jac else None, w2)
+        # 팔 교차(손 부근 마무리): 몸 좌우 차가 cross_floor 보다 작으면(원본보다 더 교차 — 문턱 안이던 프레임은 문턱 안쪽까지) 두 손목을 좌우로
+        if "cross" in families and self.cross_floor is not None:
+            lat, ax = self._lateral(f, pose)
+            gap = self.cross_floor[f] - lat
+            if gap > 0.0:
+                info["cross_cm"] = gap
+                wl, wr = rig.arms["l"]["wrist"], rig.arms["r"]["wrist"]
+                grad = ([-_dot(ax, _sub(a, b)) for a, b in zip(self._jac_rigid(wl, pose[wl][1], dofs, pose), self._jac_rigid(wr, pose[wr][1], dofs, pose))]
+                        if jac else None)
+                row(gap, grad, (self.w["clearance"] * HAND_TIER["cross"]) ** 2)
         # 주 손 충실도(파지 프레임) · 손목 위치 충실도(모든 프레임) — 어깨 바탕 본(쇄골의 부모 — 척추 끝) 기준 상대 변환이라 골반 · 척추 목표가
         # 몸을 옮기면 손은 따라간다(팔 모양 충실도)
         apose = anchor.get("pose") if ("lead" in families or "wrist" in families) else None
@@ -2413,7 +2521,7 @@ class Solver:
 
     def _violations(self, f: int, state: dict, points: list) -> dict:
         """다시 풀 위반 — 손 · 아래팔 관통 · keep · 무기 파지(weapon 모드 — 손잡이 거리 × 가중 · 회전 초과 · 무기 상한 넘은 손목 굽힘). 위팔 '안 깊어짐'은
-        풀 때만 함께 맞추고 위반으로 세지 않는다(TIER upper 주석). 원래 + 2° 손목 상한은 본 풀이 뒤 다듬기라 여기 없다(_finish_wrist)."""
+        풀 때만 함께 맞추고 위반으로 세지 않는다(TIER upper 주석). 원래 + 2° 손목 상한은 본 풀이 뒤 손 부근 마무리라 여기 없다(_finish_hands)."""
         ev = self.evaluate(f, state, {"rot": {}, "trans": {}}, {"clear", "keep", "weapon"}, points, self._joints(f), jac=False)
         clear = [c for c in ev["info"]["clear"] if c[4] > TOL_CM]
         keep = ev["info"]["keep"]
@@ -2448,6 +2556,9 @@ class Solver:
                                               "blocked": sorted(set(ub.get("blocked") or []) | set(uo.get("blocked") or []))}
                 for k in ("deg_max", "elbow_cm_max", "remain_cm_max"):
                     self.stats["upper_finish"][k] = max(ub.get(k, 0.0), uo.get(k, 0.0))
+            hb, ho = base_solver.stats.get("hand_finish"), self.stats.get("hand_finish")
+            if hb or ho:
+                self.stats["hand_finish"] = {k: sorted(set((hb or {}).get(k) or []) | set((ho or {}).get(k) or [])) for k in HAND_FINISH_KEYS}
         if log:
             log(f"body_fit: {self.rig.frames} frames · passes {passes} · {self.stats['frame_solves']} frame solves · {round(time.time() - t0, 1)} s"
                 + (f" · target blocks {region['blocks']} (passes {region['passes']})" if region else ""))
@@ -2469,7 +2580,7 @@ class Solver:
         for f in range(n):
             need = self._violations(f, zero, cand[f])
             if need["any"]:
-                start = prev_full if prev_full is not None else zero
+                start = self._open_start(f, prev_full, zero) if prev_full is not None else zero
                 sf, _ = self.solve_frame(f, start, {**base_anchor[f], "prev": prev_full}, FAMILIES, cand[f])
                 prev_full = sf
             else:
@@ -2505,7 +2616,7 @@ class Solver:
                         incs[g] = share
                         active[g] = True
             state = self._combine(state, incs, radius, active, SPLINE_RECHECK_QUIET_WEIGHT)
-        return self._finish_upper(self._finish_head(self._finish_wrist(self._snap_weapon(state)))), passes
+        return self._finish_head(self._finish_hands(self._snap_weapon(state))), passes
 
     def _finish_head(self, state: list, blocks: list | None = None) -> list:
         """머리목 마무리(8-4d 진단 · 사용자 결정 '머리목만' — 머리목은 관통 0 하드 기준): 매끈화 · 재검사 · 다듬기 뒤에도 손 · 아래팔이 머리목을
@@ -2513,7 +2624,7 @@ class Solver:
         값(매끈화 없이 — 재검사와 같은 가족 · 출발점 · 앞 프레임 연속)으로 두고, 그 증분 × HEAD_FINISH_NEIGHBOR 를 ±1 이웃(자신은 마무리하지 않은
         프레임)에 더한다. 빠른 휘두름(시간 보정 뒤 손 7 ~ 16 cm/프레임)의 한 프레임 깊은 관통은 재검사가 풀어도 매끈화가 묽혀 패스 안에 다 못 뺐다
         (검 선택 합본 f21 4.20 → 2.16 cm — 감사 §21-4). 이웃 몫이 없으면 떨림 3.00 → 4.76, × 0.3 은 4.25 · 머리 0, × 0.5 는 이웃이 다시 들었다(1.77).
-        - 판정 · 풀이의 지도 각도 칸 = C++ 처럼 그 자세의 어깨(live_lateral — _finish_wrist 와 같다): 원래 축이면 모델이 s25 f56 을 2.65(C++ 1.50 —
+        - 판정 · 풀이의 지도 각도 칸 = C++ 처럼 그 자세의 어깨(live_lateral — 규칙 1 모델만, _finish_hands 와 같다): 원래 축이면 모델이 s25 f56 을 2.65(C++ 1.50 —
           관통 아님) · 검 선택 합본 f21 을 2.16(C++ 2.37)으로 봐 문턱 양쪽에서 틀렸다. 문턱이 맞닿음(contact_cm)이면 s25 의 맞닿음 잔여까지 튀게
           만들었다(떨림 2.65 → 5.03 — 통합 1회차).
         - 길거나 깊은 구간은 건너뛰고 한계로 남긴다(stats head_finish_skipped): s27(손이 57% 프레임 머리 속 11 cm) 의 f61 ~ 64 5.4 ~ 10.2 cm 를 한 프레임씩
@@ -2561,96 +2672,135 @@ class Solver:
             out[-1] = self._copy(out[0])
         return out
 
-    def _finish_upper(self, state: list, blocks: list | None = None) -> list:
-        """위팔 마무리(8-4f — 사용자 판정 '검 선택 합본 f25 왼 위팔 ↔ 가슴'): 풀이의 위팔 쌍은 '안 깊어짐'만이라(TIER upper) 손 · 아래팔이 닿지 않는
-        구간은 원래 깊이가 그대로 남았다(검 선택 합본 f23 ~ 36 6 ~ 6.8 cm — 모델 = C++). clearance.upper_arm: cap 이면 모든 마무리 뒤, 위팔 ↔ 몸(몸통 ·
-        넓적다리 · 머리목) 깊이가 upper_cap_cm × scale 를 넘는 프레임만 팔꿈치를 어깨 ↔ 손목 축으로 돌린다 — 손 컴포넌트 변환은 그대로(위팔 · 손 로컬
-        두 본만 바꾼다)라 파지 · keep · 무기 · 머리 · 휘두름이 바뀌지 않는다.
-        - 각 = UPPER_FINISH_STEP_DEG 격자의 가장 작은 |θ|(≤ UPPER_FINISH_MAX_DEG): 위팔 ≤ 상한, 그 팔의 나머지 쌍(손 · 아래팔 ↔ 몸 · 머리 · 반대 팔, 위팔 ↔
-          반대 팔)은 max(허용, 그 상태 깊이) 이하 — 반대 팔 허용은 관통 문턱(맞닿음이면 합본 검 f29 ~ 33 이 아래팔 ↔ 오른손 +0.1 cm 에 막혀 5.44 cm 가
-          남았다), 손목 굽힘 ≤ max(원래 + UPPER_FINISH_WRIST_DEG, 그 상태)(손가락 뿌리가 없으면 각 ≤ 그 값). 보조 손목 상한이 걸린 프레임(bend_cap
-          — 파지)은 그 상한이 먼저: ≤ max(min(원래 + UPPER_FINISH_WRIST_DEG, bend_cap), 그 상태) — + 10° 만 두면 통합 검 선택 보조 손목이 원래 + 6.4°
-          (T4 + 9.8°)로 c4_off_wrist(원래 + 2°)를 넘었다(오프라인 실제 모델 — 합본 검 f25 4.05 cm 그대로, 끝 f30 ~ 36 4.19 ~ 4.65 → 4.35 ~ 5.11
-          cm). 다 못 맞추면 조건 안에서 위팔이 가장 얕은 각(blocked).
-        - 시간: 방향(±)은 램프가 겹치는 묶음마다 하나(막힌 프레임이 적은 쪽 → 최대 |θ| 가 작은 쪽), 필요한 각을 지키고 ±UPPER_FINISH_RAMP 프레임
-          smoothstep 으로 줄인다(|θ| 큰 쪽). 램프로 바뀐 각도 같은 조건으로 확인해 넘으면 0 쪽으로 줄인다.
-        - 풀이 안에 상한을 두면(첫 풀이부터 · 재검사부터) 빠른 휘두름 프레임의 해가 상한값마다 갈렸다(오프라인 실제 모델 — 합본 검 상한 4 cm 머리
-          7.65 · 재검사 상한 4.5 cm 머리 7.26, s25 떨림 2.17 → 4.90). 궤도 회전은 합본 검 6.82 → 5.11 cm(f25 4.05) 에 손 · 머리 · 떨림 그대로.
-        blocks = 목표 블록 프레임 목록들(그 프레임만), 없으면 전체."""
-        if self.upper_mode != "cap" or not self.clear_on:
-            return state
+    def _finish_hands(self, state: list, blocks: list | None = None) -> list:
+        """손 부근 마무리(9-4b U4-a — 보조 손목 다듬기(8-4c 후속 2차)와 위팔 마무리(8-4f)를 한 풀이로): 본 풀이(매끈화 · 재검사 · 무기 마무리) 뒤, 처리 프레임
+        마다 두 팔(쇄골 · 위팔 · 팔꿈치 · 손목)을 그 상태에서 작은 GN 으로 다시 푼다 — 기준 = 그 상태(관절 충실도 · 손 붙들기 · keep 관계 · 관통 바닥).
+        - 처리 프레임: 손목 상한이 있는 파지 프레임(보조 원래 + BEND_KEEP_TOL_DEG · 주 원래 + LEAD_BEND_TOL_DEG) · 위팔 ↔ 몸 > upper_cap_cm × scale(cap) ·
+          팔 교차가 cross_floor 보다 깊은 프레임 · 앞 프레임 증분이 HAND_TAIL_DEG 보다 큰 꼬리. 그 밖은 그대로(이미 조건을 지키는 프레임은 비용 0 이라
+          풀이가 바로 멈춘다). 무기 파지 프레임은 _snap_weapon 이 이미 풀었다 — 건너뛴다.
+        - 층(HAND_TIER): 관통(손 · 아래팔 — 그 상태보다 안 깊어짐, 쌍 바닥 _floor_at(pair)) · 보조 손목 상한 > 주 손목 상한 · 팔 교차 > keep(그 상태의 두
+          손 관계 — 위치 · 회전 같은 층) = 손 붙들기 = 위팔(상한을 넘으면 상한, 아니면 그 상태보다 안 깊어짐) > 관절 충실도 · 시간 연속(앞 프레임 증분).
+          상한 없는 손목은 max(그 상태, 원래 + FREE_WRIST_DEG).
+        - 묶기 전(다듬기 → 머리목 → 위팔 차례)의 대가: 손목만 돌린 다듬기가 keep 을 빼 keep 회전이 커졌고(낫 정정 2.5 → 7.3° · T5 16.6°), 위팔 마무리는
+          손 고정 궤도 하나라 보조 손목 + 2° 에 막혔다(합본 검 f30 ~ 36, 검 선택 112 프레임 중 83). 쇄골이 들어와 손 고정 · 손목 상한을 지키며 어깨를 옮긴다.
+        - 위팔을 GN 으로 상한까지 못 뺀 프레임은 둘째 출발점 = 궤도 격자 각(_upper_angle · _swivel_state — 8-4f 규칙) 중 비용이 낮은 쪽.
+        - 출발점 둘(그 상태 · 앞 프레임 증분을 이어 받은 상태) 중 비용이 낮은 쪽(_snap_weapon 과 같은 규칙).
+        blocks = 목표 블록 프레임 목록들(그 프레임만 — 밖은 목표 없는 해 그대로), 없으면 전체. 지시 목표가 있으면 목표 항(소프트)도 함께."""
         rig, n = self.rig, self.rig.frames
-        cap = self.upper_cap * self.scale
-        runs = [list(r) for r in (blocks if blocks is not None else [range(n - 1 if self.loop else n)])]
-        whole = blocks is None
-        m = n - 1 if self.loop else n
+        runs = blocks if blocks is not None else [range(n - 1 if self.loop else n)]
+        cap = self.upper_cap * self.scale if self.upper_mode == "cap" and self.clear_on else None
+        only = {arm[k] for arm in rig.arms.values() for k in ("clavicle", "upper", "elbow", "wrist") if arm[k] is not None}
+        fam = {"clear", "keep", "bend", "hold", "cross", "fid"} | ({"upper"} if self.upper_mode != "off" else set()) | ({"targets"} if self.targets else set())
+        free = math.radians(FREE_WRIST_DEG)
+        tail = math.radians(HAND_TAIL_DEG)
+        hands = [br for br in self.bends + [self.lead_br] if br is not None]
+        hs = self.stats.setdefault("hand_finish", {k: [] for k in HAND_FINISH_KEYS})
+        us = self.stats.setdefault("upper_finish", {"frames": [], "deg_max": 0.0, "elbow_cm_max": 0.0, "blocked": [], "remain_cm_max": 0.0}) if cap is not None else None
         out = list(state)
-        live0, self.live_lateral = self.live_lateral, True
-        st = self.stats.setdefault("upper_finish", {"frames": [], "deg_max": 0.0, "elbow_cm_max": 0.0, "blocked": [], "remain_cm_max": 0.0})
-        for side in sorted(rig.arms):
-            arm = rig.arms[side]
-            if arm["upper"] is None or arm["elbow"] is None or arm["wrist"] is None:
-                continue
-            ctx = self._upper_ctx(side)
+        floor0, keep0, live0 = self.floor, self.keep_rel, self.live_lateral
+        self.floor, self.keep_rel, self.live_lateral, self.hand_mode = dict(self.floor), dict(self.keep_rel), True, True
+        try:
             for run in runs:
-                info = {}
+                carried = None
                 for f in run:
-                    info[f] = self._upper_angle(f, self.pose(f, out[f])[0], cap, ctx)
-                over = [f for f in run if info[f]["over"]]
-                if not over:
-                    continue
-                # 방향은 이어진 묶음(램프가 겹치는 거리 안)마다 하나 — 프레임마다 가까운 쪽을 고르면 이웃이 반대로 돌아(s25 오른팔 f50 −8° · f51 +14°)
-                # 램프가 부호를 넘나들며 떨림 2.17 → 3.00 이었다. 막힌 프레임이 적은 쪽, 같으면 최대 |θ| 가 작은 쪽
-                need = {}
-                groups, cur = [], [over[0]]
-                for f in over[1:]:
-                    if f - cur[-1] <= 2 * UPPER_FINISH_RAMP + 1:
-                        cur.append(f)
-                    else:
-                        groups.append(cur)
-                        cur = [f]
-                groups.append(cur)
-                for grp in groups:
-                    sign = min((1.0, -1.0), key=lambda sg: (sum(not info[f][sg]["reached"] for f in grp), max(abs(info[f][sg]["deg"]) for f in grp), -sg))
-                    for f in grp:
-                        pick = info[f][sign]
-                        if pick["deg"]:
-                            need[f] = pick["deg"]
-                        if not pick["reached"]:
-                            st["blocked"].append(f)
-                            st["remain_cm_max"] = max(st["remain_cm_max"], round(pick["remain"], 2))
-                if not need:
-                    continue
-                for f in run:
-                    v = 0.0
-                    for g, a in need.items():
-                        d = abs(f - g)
-                        if self.loop and whole:
-                            d = min(d, m - d)
-                        if d > UPPER_FINISH_RAMP:
-                            continue
-                        c = a * _smoothstep(1.0 - d / (UPPER_FINISH_RAMP + 1.0))
-                        if abs(c) > abs(v):
-                            v = c
-                    if v and v != need.get(f):
-                        # 램프 각 — 같은 조건으로 확인, 넘으면 0 쪽으로 격자만큼씩
-                        frame = info[f]
-                        while v and not self._upper_check(f, self._swivel_pose(frame["pose"], ctx["bones"], frame["s"], frame["u"], v), frame, ctx)[1]:
-                            v = math.copysign(max(0.0, abs(v) - UPPER_FINISH_STEP_DEG), v)
-                    if v:
-                        frame = info[f]
-                        e0 = frame["pose"][arm["elbow"]][1]
-                        e1 = _add(frame["s"], bm.qrot(qexp(_scale(frame["u"], math.radians(v))), _sub(e0, frame["s"])))
-                        out[f] = self._swivel_state(f, out[f], side, v)
-                        st["frames"].append(f)
-                        st["deg_max"] = max(st["deg_max"], round(abs(v), 2))
-                        st["elbow_cm_max"] = max(st["elbow_cm_max"], round(_norm(_sub(e1, e0)), 2))
-        st["frames"] = sorted(set(st["frames"]))
-        st["blocked"] = sorted(set(st["blocked"]))
-        self.live_lateral = live0
+                    pose = self.pose(f, state[f])[0]
+                    grip_on = self.bend_cap[f] is not None or (self.lead_br is not None and self.lead_br["caps"][f] is not None)
+                    self._ucap, up = self._upper_limits(f, pose, cap)
+                    over = cap is not None and up > cap
+                    crossed = self.cross_floor is not None and self._lateral(f, pose)[0] < self.cross_floor[f] - 1e-6
+                    if not (grip_on or over or crossed or (carried is not None and self._size(carried) > tail)):
+                        carried = None
+                        continue
+                    if self.weapon_w[f] > 0.0:
+                        carried = self._diff(out[f], state[f])
+                        continue
+                    cand = sorted(set(self._candidates(f, self.model.poses[f])) | set(self._candidates(f, pose)))
+                    self._floor_at(f, pose, pair=True)
+                    self._state_cap = {br["side"]: max(br["bend0"][f] + free, WeaponRig.bend(pose, br["elbow"], br["wrist"], br["middle"])) for br in hands}
+                    # 지시 목표 · 샘플 전이 블록(완급 > 0)은 주 손목 상한을 그 블록 상태의 굽힘까지 — 요청한 손 이동을 손목 보호가 되돌리지 않게(샘플 전이의
+                    # 보조 손목 상한 = max(원래, 덮은 자세) + 허용과 같은 규칙). 원래 + LEAD_BEND_TOL_DEG 로만 두면 T1(베기 끝 낫 15 cm 아래)이 오차 p95
+                    # 0.87 → 1.14 cm 로 못 닿았다(통합 B — blocked_by grip · joint_limit)
+                    lb = self.lead_br
+                    self._lead_floor = (WeaponRig.bend(pose, lb["elbow"], lb["wrist"], lb["middle"])
+                                        if lb is not None and any(t["ramp"][f] > 0.0 for t in self.targets + self.pose_from) else None)
+                    if self.keep_w[f] > 0.0:
+                        self.keep_rel[f] = self._keep_of(pose)
+                    prev = self._plus(state[f], carried) if carried is not None else None
+                    anchor = {**self._anchor_of(f, state[f]), "prev": prev}
+                    sol, ev = self.solve_frame(f, state[f], anchor, fam, cand, only=only)
+                    if prev is not None:
+                        start = self._copy(prev)
+                        self._clamp(f, start, count=False)
+                        alt, ev2 = self.solve_frame(f, start, anchor, fam, cand, only=only)
+                        if ev2["cost"] < ev["cost"]:
+                            sol, ev = alt, ev2
+                    if over:
+                        hs["upper_over"].append(f)
+                        if self._upper_limits(f, self.pose(f, sol)[0], None)[1] > cap + TOL_CM:
+                            sw = state[f]
+                            for side in sorted(rig.arms):
+                                ctx = self._upper_ctx(side)
+                                info = self._upper_angle(f, self.pose(f, sw)[0], cap, ctx)
+                                if not info["over"]:
+                                    continue
+                                sign = min((1.0, -1.0), key=lambda sg: (not info[sg]["reached"], abs(info[sg]["deg"])))
+                                if info[sign]["deg"]:
+                                    sw = self._swivel_state(f, sw, side, info[sign]["deg"])
+                            if sw is not state[f]:
+                                alt, ev3 = self.solve_frame(f, sw, anchor, fam, cand, only=only)
+                                if ev3["cost"] < ev["cost"]:
+                                    sol, ev = alt, ev3
+                                    hs["second_start"].append(f)
+                        self._record_upper(us, f, pose, self.pose(f, sol)[0], cap)
+                    if crossed:
+                        hs["cross"].append(f)
+                    out[f] = sol
+                    hs["frames"].append(f)
+                    carried = self._diff(out[f], state[f])
+        finally:
+            self.floor, self.keep_rel, self.live_lateral, self.hand_mode = floor0, keep0, live0, False
+            self._ucap, self._state_cap, self._lead_floor = {}, {}, None
+        for k in HAND_FINISH_KEYS:
+            hs[k] = sorted(set(hs[k]))
+        if us is not None:
+            us["frames"], us["blocked"] = sorted(set(us["frames"])), sorted(set(us["blocked"]))
         if self.loop:
             out[-1] = self._copy(out[0])
         return out
+
+    def _upper_limits(self, f: int, pose, cap: float | None) -> tuple[dict, float]:
+        """위팔 점의 손 부근 마무리 허용 깊이 {(점, 지도): 몸(몸통 · 넓적다리 · 머리목)은 그 자세가 cap 보다 깊으면 cap, 아니면 max(그 자세, 허용) · 반대 팔
+        손 · 아래팔은 max(그 자세, 허용) — 8-4f _upper_check 와 같은 쌍(빠뜨린 첫 판은 s25 오른 위팔 ↔ 왼 아래팔을 원래보다 깊게)} · 몸 쪽 최대 깊이."""
+        out, top = {}, -math.inf
+        for i in self.arm_points:
+            pt = self.points[i]
+            if pt["part"] != "upper_arm":
+                continue
+            p = self.model.skin(pose, pt)
+            for name in self._maps_for(pt["side"]):
+                hit = self.probe(name, f, p, pose)
+                if hit is None:
+                    continue
+                if name in HAND_MAPS:
+                    out[(i, name)] = max(hit[0], self.body_allow[name])
+                    continue
+                top = max(top, hit[0])
+                out[(i, name)] = cap if cap is not None and hit[0] > cap else max(hit[0], self.body_allow[name])
+        return out, top
+
+    def _record_upper(self, us: dict, f: int, before, after, cap: float) -> None:
+        """stats upper_finish(8-4f 기록 모양 그대로 — Job fix.body.upper_arm · UPPER_ARM_REMAINS): 위팔이 상한을 넘던 프레임 · 위팔 방향 변화 최대(°) ·
+        팔꿈치 이동 최대(cm) · 상한까지 못 뺀 프레임과 그 남은 깊이(모델)."""
+        us["frames"].append(f)
+        for arm in self.rig.arms.values():
+            a = _sub(before[arm["elbow"]][1], before[arm["upper"]][1])
+            b = _sub(after[arm["elbow"]][1], after[arm["upper"]][1])
+            us["deg_max"] = max(us["deg_max"], round(math.degrees(math.acos(max(-1.0, min(1.0, _dot(_unit(a), _unit(b)))))), 2))
+            us["elbow_cm_max"] = max(us["elbow_cm_max"], round(_norm(_sub(after[arm["elbow"]][1], before[arm["elbow"]][1])), 2))
+        remain = self._upper_limits(f, after, None)[1]
+        if remain > cap + TOL_CM:
+            us["blocked"].append(f)
+            us["remain_cm_max"] = max(us["remain_cm_max"], round(remain, 2))
 
     def _upper_ctx(self, side: str) -> dict:
         """위팔 마무리의 팔 묶음 — 그 팔 점 · 지도 · 돌릴 본(위팔 아래, 손 아래는 뺀다) · 손가락 뿌리(손목 굽힘 — _bend_rig 와 같은 원천)."""
@@ -2706,7 +2856,7 @@ class Solver:
             lim = WeaponRig.bend(self.model.poses[f], arm["elbow"], arm["wrist"], mid) + math.radians(UPPER_FINISH_WRIST_DEG)
             br = self.bend_rig
             if br is not None and br["wrist"] == arm["wrist"] and self.bend_cap[f] is not None:
-                lim = min(lim, self.bend_cap[f])    # 보조 손목 상한(파지 프레임 — _finish_wrist 와 같은 기준)이 먼저
+                lim = min(lim, self.bend_cap[f])    # 보조 손목 상한(파지 프레임 — _finish_hands 와 같은 기준)이 먼저
             wrist_cap = max(lim, WeaponRig.bend(pose, arm["elbow"], arm["wrist"], mid))
         frame = {"pose": pose, "s": s, "u": u, "base": base, "wrist_cap": wrist_cap, "over": up0 > cap}
         if not frame["over"]:
@@ -2789,52 +2939,6 @@ class Solver:
             out[-1] = self._copy(out[0])
         return out
 
-    def _finish_wrist(self, state: list, blocks: list | None = None) -> list:
-        """보조 손목 다듬기(8-4c 후속 2차) — 본 풀이(매끈화 · 재검사 · 무기 마무리) 뒤 손목 굽힘 상한이 있는 파지 프레임 전부를 보조 손목만으로 다시
-        푼다(관통 · 손목 굽힘 상한 · 관절 충실도 — 기준 = 그 상태, 시간 연속 = 앞 프레임 다듬기 증분 — 위반 프레임만이 아니라 구간 전체라 끊기지 않는다.
-        _snap_weapon 처럼 앞 프레임 상태 자체를 기준으로 하면 keep 이 없는 다듬기는 손목 회전을 앞 프레임 쪽으로 늦춰, 상한이 안 걸린 s27 에서도 keep
-        회전이 12.2 → 21.2° 로 풀렸다). 상한을 본 풀이 잔차에 걸던 1차 판은 팔 보정 경로를 바꿔 매끈화 뒤 재검사가 못 따라갔다(통합 — 낫 정정 머리목
-        0 → 1.7% · 2.88 cm, s27 주 손목 59.8 → 66.6°, 운영 Attack2 꼬임 7.4 → 13.7%, T5 무기 끝 p95 2.04 → 2.45 cm) — 손목만 돌리면 팔 · 주 손은 본 풀이
-        해 그대로다(오프라인 실제 모델 — 다듬기 전 = 8-4b 값, 주 손 · 보조 팔꿈치 이동 0).
-        - 관통은 그 상태보다 깊어지지 않게만(쌍 단위 바닥 _floor_at(pair) — 손목만 돌린 손이 몸 · 머리로 다시 들지 않게, 남은 얕은 관통을 손목 하나로
-          그 프레임만 풀지 않게). 바닥이 없으면 s25 f55 머리 1.76 cm 를 손목을 14° 펴서 빼 떨림 2.17 → 6.06, 점마다 바닥이면 낫 정정 f48 · f51 이 갇히거나
-          (굽힘 +6.1°) 머리 근처에서 상한보다 4° 더 펴 떨림 1.99 → 2.75. 관통을 빼면 s25 머리 1.76 → 2.71 cm 로 새로 든다.
-        - 다듬기 동안 지도 각도 칸은 C++ 처럼 그 자세의 어깨로 나눈다(live_lateral — _lateral_x). 본 풀이가 쇄골을 옮긴 프레임은 원래 축과 1 ~ 2° 어긋나,
-          원래 축으로 다듬으면 칸 경계의 손가락 점을 모델은 얕다(−2.13) · C++ 는 깊다(+2.81 cm)고 봤다(s25 f55 — 통합 0.8% · 2.81, 이 규칙이면 0% · 1.50).
-          본 풀이는 원래 축 그대로(8-4b 해).
-        - keep 은 두지 않는다 — 같은 손목을 상한과 반대로 당겨 상한이 안 맞았다(keep 을 두면 낫 정정 +3.6° · 최대 94.6(원본 91.1), s25 +3.3°). 빼면
-          +2.1 · +2.1° 이고 대가는 keep 회전(낫 정정 최대 2.6 → 10.9° · s25 2.7 → 7.2° — c2_keep 은 8-4b 부터 알려진 미달)이다.
-        무기 파지 프레임(가중 > 0)은 _snap_weapon 이 보조 팔 전체로 이미 상한까지 풀었다 — 건너뛰고 시간 연속만 잇는다. blocks = 목표 블록 프레임
-        목록들(_snap_weapon 과 같다)."""
-        br = self.bend_rig
-        if br is None:
-            return state
-        only = {br["wrist"]}
-        fam = {"clear", "bend", "fid"}
-        n = self.rig.frames
-        out = list(state)
-        floor0, self.floor = self.floor, dict(self.floor)
-        self.live_lateral = True
-        for run in (blocks if blocks is not None else [range(n - 1 if self.loop else n)]):
-            carried = None
-            for f in run:
-                if self.bend_cap[f] is None:
-                    carried = None
-                    continue
-                if self.weapon_w[f] > 0.0:
-                    carried = self._diff(out[f], state[f])
-                    continue
-                pose = self.pose(f, state[f])[0]
-                cand = sorted(set(self._candidates(f, self.model.poses[f])) | set(self._candidates(f, pose)))
-                self._floor_at(f, pose, pair=True)
-                prev = self._plus(state[f], carried) if carried is not None else None
-                out[f], _ = self.solve_frame(f, state[f], {**self._anchor_of(f, state[f]), "prev": prev}, fam, cand, only=only)
-                carried = self._diff(out[f], state[f])
-        self.floor, self.live_lateral = floor0, False
-        if self.loop:
-            out[-1] = self._copy(out[0])
-        return out
-
     # ---- (가) 지시 목표 블록 ----
     def _solve_targets(self, base: list, base_poses: list) -> tuple[list, dict]:
         """목표 없는 해 base 를 그대로 두고 완급 > 0 블록만 다시 푼다 — 블록 밖 = base 복사(본 델타가 목표 없는 Job 과 같다 → 구간 ± ease 밖 변화 0).
@@ -2910,7 +3014,7 @@ class Solver:
                     if d_full is not None:
                         carried = self._plus(st, d_full)
                         self._clamp(f, carried, count=False)
-                    sf, _ = self.solve_frame(f, carried or st, {**anchor[f], "prev": carried}, fam, cand[f])
+                    sf, _ = self.solve_frame(f, self._open_start(f, carried, st) if carried else st, {**anchor[f], "prev": carried}, fam, cand[f])
                     d_full = self._diff(sf, st)
                 else:
                     sf, d_full = st, None
@@ -2964,13 +3068,13 @@ class Solver:
             if self.loop:
                 state[-1] = self._copy(state[0])
         frames_of = [blk for blk, _, _ in blocks]
-        state = self._finish_upper(self._finish_head(self._finish_wrist(self._snap_weapon(state, frames_of), frames_of), frames_of), frames_of)
+        state = self._finish_head(self._finish_hands(self._snap_weapon(state, frames_of), frames_of), frames_of)
         return state, {"blocks":[[blk[0], blk[-1]] for blk, _, _ in blocks], "passes": passes, "frame_solves": self.stats["frame_solves"] - solves0}
 
     def _floor_at(self, f: int, pose, pair: bool = False, parts: tuple | None = None) -> None:
         """관통 바닥 — 그 자세에서 허용(_limit)보다 깊은 (f, 팔 점, 지도)의 깊이를 floor 에 둔다(그보다 얕게 요구하지 않는다 — 그 자세에 남은 한계는
         다시 풀지 않는다). pair = 점마다 대신 쌍(쪽 · 부위 · 지도 — 보고 쌍과 같은 묶음)의 최대 깊이를 그 쌍의 모든 점에: 쌍별 깊이가 그 자세보다
-        깊어지지 않는다는 같은 보장이지만 점 하나가 제 깊이에 걸려 손 전체를 더 돌리지 않는다(_finish_wrist). parts = 그 팔 부위 점만(샘플 전이의
+        깊어지지 않는다는 같은 보장이지만 점 하나가 제 깊이에 걸려 손 전체를 더 돌리지 않는다(_finish_hands). parts = 그 팔 부위 점만(샘플 전이의
         위팔 — 덮은 자세 기준)."""
         deep = {}
         for i in self.arm_points:
@@ -3323,13 +3427,17 @@ class Solver:
         out = {"on": True, "side": br["side"], "middle": br["middle_name"], "tol_deg": BEND_KEEP_TOL_DEG, "frames": len(inc),
                "increase_deg_max": r3(max(inc)) if inc else None, "increase_deg_p95": r3(bm.percentile(inc, 95.0)) if inc else None, "over_cap_frames": over,
                "all_frames_increase_deg_max": r3(max(inc_all)), "bend_deg_max": [r3(math.degrees(max(br["bend0"]))), r3(math.degrees(max(after)))]}
-        lead = self.rig.side_of(br["side"])
-        arm = self.rig.arms[lead]
-        mid = self.model.index.get((self.fingers or {}).get(lead) or "")
-        if mid is not None and arm["wrist"] in self.rig.anc_set[mid] and mid != arm["wrist"]:
-            d = [math.degrees(WeaponRig.bend(poses[f], arm["elbow"], arm["wrist"], mid) - WeaponRig.bend(self.model.poses[f], arm["elbow"], arm["wrist"], mid))
-                 for f in range(n) if self.bend_cap[f] is not None]
-            out["lead"] = {"side": lead, "increase_deg_max": r3(max(d)) if d else None}
+        lb = self.lead_br
+        if lb is not None:
+            # 주 손목(9-4b) — 파지 프레임 상한 원래 + LEAD_BEND_TOL_DEG(손 부근 마무리), 증가 최대 · 상한 넘은 프레임(> BEND_TOL_DEG)
+            d, over_l = [], 0
+            for f in range(n):
+                if lb["caps"][f] is None:
+                    continue
+                b = WeaponRig.bend(poses[f], lb["elbow"], lb["wrist"], lb["middle"])
+                d.append(math.degrees(b - lb["bend0"][f]))
+                over_l += math.degrees(b - lb["caps"][f]) > BEND_TOL_DEG
+            out["lead"] = {"side": lb["side"], "tol_deg": LEAD_BEND_TOL_DEG, "increase_deg_max": r3(max(d)) if d else None, "over_cap_frames": over_l}
         return out
 
     def pose_from_report(self, poses: list, state: list) -> list:

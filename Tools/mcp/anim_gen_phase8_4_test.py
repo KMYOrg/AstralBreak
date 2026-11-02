@@ -695,6 +695,7 @@ CLEAR_KEYS = ["scythe_pick", "scythe_s25", "scythe_s26", "scythe_s27", "sword_pi
 EXISTING_KEYS = ["op_walk", "op_run", "op_rifle_idle", "op_sickle_attack2"]
 STRESS_KEYS = {"scythe_axis_bug"}
 ARM_TARGET = ("hand", "forearm")          # 기준 1 관통 목표 쌍(위팔 쌍 = '전보다 나빠지지 않음'만 — 총괄 정정)
+KEEP_ROT_DEG = 10.0                         # 9-4b — keep 회전 허용(운영 낫 파지 띠의 보조 손 상대 회전 프레임 변화 p50 4.5 ~ 10° — phase9-4b-report §3)
 UPPER_PCT_TOL, UPPER_DEPTH_TOL_CM = 1.0, 0.5   # 위팔 쌍 '나빠지지 않음' 허용(관통 % · 최대 깊이 — 반올림 · 재측정 오차)
 SPINE_TOP = "spine_05"
 # 설계 §6 표준 지시 — 이름 → (대상, 목표). Claude Code 가 자연어 지시를 이 틀로 바꿔 계획에서 확인받는다(서버는 해석하지 않는다)
@@ -725,9 +726,13 @@ KNOWN_MISSES = {
 # s25 f55 · 검 선택 f37)의 원본 자세가 정수리 칸(뿔 · 머리카락으로 각도마다 0.4 ~ 10 cm)에 들어 본 풀이가 수렴하지 못하고 머리목 마무리가 그 프레임만
 # 빼서 튄다 — 로드맵 U5 '머리목 마무리의 원 속도 대가'(9-4c U5-a · U5-c). 같은 대상의 지시 목표 · 샘플 Job(T2 · T3 · T4 · S2)도 물려받는다
 _HEAD_FINISH_RAW = "9-4a 규칙 2 — 원 속도 한 프레임 머리목 마무리 튐(f61 · f55 · f37) → 9-4c U5-a · U5-c(phase9-4a-report)"
-KNOWN_MISSES.update({("scythe_pick", "c4_zigzag"): _HEAD_FINISH_RAW, ("scythe_s25", "c4_zigzag"): _HEAD_FINISH_RAW, ("sword_pick", "c4_zigzag"): _HEAD_FINISH_RAW,
-                     ("scythe_s27", "c4_wrist"): "9-4a 규칙 2 — 해가 바뀌어 오른 손목 최대 + 5.3°(기준 + 5) → 9-4b 주 손목 기준(U4-b)",
-                     ("op_sickle_attack2", "c4_cross"): "9-4a 규칙 2 — 손 · 아래팔 지도 칸이 손목 · 팔꿈치에 붙어 손끼리 해가 바뀜, 교차 7.4 → 13.7 % → 9-4b(U4 손끼리)"})
+KNOWN_MISSES.update({("scythe_pick", "c4_zigzag"): _HEAD_FINISH_RAW, ("sword_pick", "c4_zigzag"): _HEAD_FINISH_RAW})
+# (9-4b) s25 c4_zigzag 는 손 부근 마무리 뒤 머리목 마무리가 안 걸려 통과(5.06 → 1.89)라 뺐다. s25 휘두름은 U4-c(빈틈은 앞 프레임이 파지일 때만)의
+# 대가 — 짧은 파지 구간 다섯 개의 시작이 2 프레임씩 늦어 본 풀이 해가 바뀌어 정점 f50(구간 [50, 53] 첫 프레임) 508.5 → 472.0 cm/s(사용자 판정 통과 ·
+# known 결정 2026-11-03)
+KNOWN_MISSES[("scythe_s25", "c4_swing")] = "9-4b U4-c 빈틈 규칙 대가 — 짧은 파지 구간 시작이 2 프레임씩 늦어 휘두름 정점 −7.2 %(phase9-4b-report, 사용자 판정 통과)"
+# (9-4b) 9-4a 가 넘긴 s27 c4_wrist(오른 손목 + 5.3° — 본 풀이 첫 회가 파지 끝 손목 델타를 닫힌 프레임으로 이어 받음 → _open_start) · Attack2 c4_cross
+# (교차 7.4 → 13.7 % — 손끼리 관통을 빼는 증분이 번져 아래팔을 좌우로 뗌 → 손 부근 마무리 팔 교차 항)는 고쳐서 알려진 미달에서 뺐다
 RECORD_ONLY: dict[str, set] = {}   # crit 키 → 판정하지 않고 기록만 할 기준(8-4c c2 샘플 전이 — 요청한 동작 변화)
 # 사용자 Persona 소견 자리(8-4a 보고 §5-1) — 이름 → [(소견, 프레임들, 쌍 키들)] · 위팔 쌍은 기록만
 _HEAD = [(s, "hand", "head_neck") for s in "lr"]
@@ -913,9 +918,12 @@ def judge(key: str, rec: dict, bf: dict, af: dict, *, stress: bool = False) -> d
     crit(key, "c1_head", a["head_neck"]["pen_pct"] == 0.0, f"head/neck {b['head_neck']} → {a['head_neck']} (penetration 0)")
     crit(key, "c1_head_near", near["after"] is None or near["after"] <= 5.0, f"hand-head near (10 cm × scale) {near['before']} → {near['after']}% (≤ 5%)")
     crit(key, "c1_upper", not worse, f"upper-arm pairs no worse (+{UPPER_PCT_TOL}% · +{UPPER_DEPTH_TOL_CM} cm) — worse {worse}")
-    crit(key, "c2_keep", not rec["grip"]["frames"] or ((keep["pos_cm_max"] or 0.0) <= scale and (keep["deg_max"] or 0.0) <= 5.0),
-         f"grip frames {rec['grip']['frames']} · keep (model) p95 {keep['pos_cm_p95']} / max {keep['pos_cm_max']} cm · {keep['deg_p95']} / {keep['deg_max']}° "
-         f"(≤ {scale:.2f} cm · 5°) · C++ wrist {actual}")
+    # 9-4b — keep 을 위치 · 회전으로 나눈다: 위치 1 cm × scale 그대로(8-4b 부터 알려진 미달 '*'), 회전은 운영 낫 파지 띠의 퍼짐(프레임마다 p50 4.5 ~ 10° ·
+    # 구간 평균에서 p50 22 ~ 30°)을 근거로 KEEP_ROT_DEG(사용자 결정 — 처음 5°)
+    crit(key, "c2_keep", not rec["grip"]["frames"] or (keep["pos_cm_max"] or 0.0) <= scale,
+         f"grip frames {rec['grip']['frames']} · keep (model) p95 {keep['pos_cm_p95']} / max {keep['pos_cm_max']} cm (≤ {scale:.2f}) · C++ wrist {actual}")
+    crit(key, "c2_keep_rot", not rec["grip"]["frames"] or (keep["deg_max"] or 0.0) <= KEEP_ROT_DEG,
+         f"keep rotation (model) p95 {keep['deg_p95']} / max {keep['deg_max']}° (≤ {KEEP_ROT_DEG}°)")
     crit(key, "c2_grip_pct", gb is None or (ga is not None and ga >= gb - 100.0 / frames - 1e-6), f"grip_pct {gb} → {ga} (not lower, one frame {100.0 / frames:.2f}%)")
     slide = lambda f, s: ((f.get("slide_p95") or {}).get(s) or 0.0)  # noqa: E731 — 발마다(접지 구간이 없으면 None → 0)
     crit(key, "c3_feet", not fb or (all(slide(fa, s) <= slide(fb, s) + 0.5 for s in "lr")
@@ -1218,7 +1226,7 @@ OPT_IN_KEY = "op_sickle_attack2"            # 옵트인 weapon 파지 시험 대
 # 옵트인 weapon 파지의 알려진 미달(오프라인 실제 모델 — 인계 노트 §3): 운영 Attack2 왼손은 자루를 쥐지 않고 빠르게 지나가 붙이면 동작이 망가진다
 _OPT_IN = "운영 Attack2 왼손은 자루를 쥐지 않고 빠른 휘두름 중 근처를 지나간다(쥠 축 83° · 1 ~ 2 프레임 31 cm 까지) — 오프라인 거리 p95 7 cm · zigzag 8 → 19(인계 §3)"
 KNOWN_MISSES.update({("op_sickle_attack2", c): _OPT_IN for c in ("c1_grip", "c2_off_wrist", "c4_zigzag", "c4_swing", "c4_width", "c4_wrist", "c4_seam", "c1_body",
-                                                                 "c1_hands", "c1_upper", "c5", "c2_keep")})
+                                                                 "c1_hands", "c1_upper", "c5", "c2_keep", "c2_keep_rot")})
 GRIP_P95_CM, GRIP_MAX_CM = 1.0, 2.0       # 기준 1(× scale) — 쥠 축 15° 는 기록만(사용자 결정 — 운영 왼손도 자루를 감아 쥐지 않는다)
 TIP_P95_CM = 2.0                           # 기준 8
 
@@ -1376,7 +1384,7 @@ def section_grip() -> None:
         rec = r["rec"]
         rs = rec["grip"].get("weapon_runs_s") or []
         check(rec["grip"]["mode"] == "weapon" and bool(rs) and all(GRIP_WINDOW_S[0] - 0.1 <= a and b <= GRIP_WINDOW_S[1] + 1e-3 for a, b in rs),
-              f"opt-in: grip mode {rec['grip']['mode']} · weapon runs {rs} inside the requested {GRIP_WINDOW_S} s (start ≤ 2 frames early — 8-4b gap filling) · "
+              f"opt-in: grip mode {rec['grip']['mode']} · weapon runs {rs} inside the requested {GRIP_WINDOW_S} s (9-4b — gaps are filled only after a grip frame) · "
               f"near {rec['grip'].get('near_cm')} cm · far band frames {rec['grip'].get('band_far_frames')}")
         judged = judge(f"{OPT_IN_KEY}/weapon", rec, r["bf"], r["af"])
         judged.update(judge_weapon(f"{OPT_IN_KEY}/weapon", {**r, "rec": {**rec, "grip": {**rec["grip"], "runs_s": rs}}}, op))

@@ -491,8 +491,11 @@ class BodyFitPipe(Provider):
                      "knee_bend": {"before": (before.get("feet") or {}).get("knee_bend"), "after": (after.get("feet") or {}).get("knee_bend")}},
             # 빠른 구간 매끈화(8-4e) — 켬 여부 · 이유 · 폭을 줄인 프레임 수 · 최소 배율(켰어도 손이 기준보다 느리면 frames 0)
             "smooth_speed": {**smooth, **(solved["stats"].get("smooth_fast") or {"frames": 0, "k_min": 1.0})},
-            # 위팔 마무리(8-4f) — 방식 · 상한(cm, × scale 전) · 팔꿈치를 돌린 프레임 수 · 최대 각 · 팔꿈치 이동 · 상한까지 못 뺀 프레임 수와 그 남은 깊이(모델)
+            # 위팔 마무리(8-4f · 9-4b 손 부근 마무리) — 방식 · 상한(cm, × scale 전) · 위팔이 상한을 넘던 프레임 수 · 위팔 방향 변화 최대 · 팔꿈치 이동 · 상한까지
+            # 못 뺀 프레임 수와 그 남은 깊이(모델)
             "upper_arm": self.upper_record(inputs["clearance"], solved["stats"].get("upper_finish")),
+            # 손 부근 마무리(9-4b) — 처리 프레임 · 위팔 > 상한 · 팔 교차 · 궤도 둘째 출발점을 쓴 프레임 수
+            "hand_finish": {k: len(v) for k, v in (solved["stats"].get("hand_finish") or {}).items()},
         })
         lp = solved.get("leg_path") or {}
         if lp.get("windows"):
@@ -524,8 +527,8 @@ class BodyFitPipe(Provider):
         up = record["upper_arm"]
         if up["blocked"]:
             limitations.append(limitation("UPPER_ARM_REMAINS", f"위팔 ↔ 몸 깊이가 상한({up['cap_cm']} cm × scale)을 넘는 프레임 {up['blocked']} 개를 다 못 뺐다(남은 "
-                                          f"최대 {up['remain_cm_max']} cm — 모델) — 팔꿈치 궤도 회전이 손 · 아래팔 관통 · 손목 굽힘 허용(원래 + "
-                                          f"{body_fit.UPPER_FINISH_WRIST_DEG}°)에 막혔다", "body_fit", frames=up["blocked"], remain_cm_max=up["remain_cm_max"]))
+                                          f"최대 {up['remain_cm_max']} cm — 모델) — 손 부근 마무리(쇄골 · 팔꿈치 궤도)가 손 · 아래팔 관통 · 손목 굽힘 상한 · "
+                                          "keep · 손 붙들기(같은 층)에 막혔다", "body_fit", frames=up["blocked"], remain_cm_max=up["remain_cm_max"]))
         keep = solved["keep"]
         if keep["frames"] and (keep["pos_cm_max"] or 0.0) > model.scale:
             limitations.append(limitation("GRIP_RELAXED", f"파지 프레임의 보조 손 상대 위치가 최대 {keep['pos_cm_max']} cm · {keep['deg_max']}° 바뀌었다(p95 "

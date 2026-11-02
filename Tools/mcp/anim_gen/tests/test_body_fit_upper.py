@@ -1,4 +1,5 @@
-"""Phase 8-4f — 위팔 마무리(clearance.upper_arm: cap): 위팔이 상한보다 깊이 몸에 든 프레임만 팔꿈치를 어깨 ↔ 손목 축으로 돌린다(손 고정)."""
+"""Phase 8-4f · 9-4b — 위팔 상한(clearance.upper_arm: cap): 위팔이 상한보다 깊이 몸에 든 프레임을 손 부근 마무리(_finish_hands — 쇄골 · 팔꿈치 궤도 ·
+손목, 손 붙들기 · keep 과 같은 층)가 상한 쪽으로 뺀다. 궤도 격자(_upper_angle · _swivel_state — 8-4f)는 GN 이 못 맞춘 프레임의 둘째 출발점."""
 from __future__ import annotations
 
 import math
@@ -8,6 +9,7 @@ import pytest
 import body_fit_fixture as fx
 from anim_gen import body_fit as bf
 from anim_gen import body_model as bm
+from anim_gen import motion_metrics as mm
 
 FINGERS = {"l": "middle_01_l", "r": "middle_01_r"}
 
@@ -68,23 +70,27 @@ def test_swivel_keeps_the_hand_and_turns_the_elbow_around_the_shoulder_wrist_lin
         assert bf._norm(bf._sub(direct[b][1], p1[b][1])) < 1e-6
 
 
-def test_cap_pulls_the_upper_arm_out_with_the_hands_untouched():
+def test_cap_pulls_the_upper_arm_toward_the_cap_with_the_hands_held():
+    # 9-4b — 위팔 상한은 keep · 손 붙들기와 같은 층(사용자 결정 — 30 이면 검 선택 keep 위치 1.5 → 3.2 cm): 관절 충실도와 맞서 상한 쪽으로 줄이고, 다 못
+    # 뺀 프레임은 blocked · remain_cm_max 로 남긴다(Job UPPER_ARM_REMAINS). 8-4f 의 손 고정 궤도는 이 장면을 상한까지 뺐다(4.26 → < 3.96)
     model, s_nw, r_nw = run("no_worse")
     _, s_cap, r_cap = run("cap")
     nw, cap = r_nw["predicted"]["pairs"]["l|upper_arm|chest"], r_cap["predicted"]["pairs"]["l|upper_arm|chest"]
-    assert nw["depth_max"] > 4.0 * model.scale and cap["depth_max"] < nw["depth_max"] - 0.3
+    assert nw["depth_max"] > 4.0 * model.scale and cap["depth_max"] < nw["depth_max"] - 0.1
     assert "upper_finish" not in r_nw["stats"]
     uf = r_cap["stats"]["upper_finish"]
-    assert uf["frames"] and not uf["blocked"] and 0.0 < uf["deg_max"] <= bf.UPPER_FINISH_MAX_DEG and uf["elbow_cm_max"] > 0.5
+    deep = {f for f, d in enumerate(bf.measure(model, r_nw["poses"], s_nw)["series"][("l", "upper_arm", "chest")]) if d is not None and d > 4.0 * model.scale}
+    assert deep and deep <= set(uf["frames"]) and 0.0 < uf["deg_max"] and uf["elbow_cm_max"] > 0.2
+    assert set(uf["blocked"]) <= set(uf["frames"]) and uf["remain_cm_max"] == pytest.approx(cap["depth_max"], abs=0.05)
+    # 손은 붙들린다(층 hold) · 손 부근 마무리가 처리하지 않은 프레임은 no_worse 와 같다
     rig = s_cap.rig
+    done = set(r_cap["stats"]["hand_finish"]["frames"])
     for f in range(len(r_cap["poses"])):
         for side in ("l", "r"):
             wb = rig.arms[side]["wrist"]
-            assert bf._norm(bf._sub(r_cap["poses"][f][wb][1], r_nw["poses"][f][wb][1])) < 1e-6
-    # 램프 밖(필요 프레임 ± UPPER_FINISH_RAMP 밖)은 그대로 — 바뀐 프레임은 위팔이 든 구간 둘레만
-    changed = set(uf["frames"])
-    deep = {f for f, d in enumerate(bf.measure(model, r_nw["poses"], s_nw)["series"][("l", "upper_arm", "chest")]) if d is not None and d > 4.0 * model.scale}
-    assert deep and changed <= {g for f in deep for g in range(f - bf.UPPER_FINISH_RAMP, f + bf.UPPER_FINISH_RAMP + 1)}
+            assert bf._norm(bf._sub(r_cap["poses"][f][wb][1], r_nw["poses"][f][wb][1])) < 0.3
+        if f not in done:
+            assert all(bf._norm(bf._sub(a[1], b[1])) < 1e-9 for a, b in zip(r_cap["poses"][f], r_nw["poses"][f]))
     # 손 · 아래팔 쌍은 관통이 생기지 않는다
     for key, st in r_cap["predicted"]["pairs"].items():
         if key.split("|")[1] in ("hand", "forearm"):
@@ -100,18 +106,29 @@ def test_cap_leaves_a_shallow_upper_arm_alone_and_off_modes_skip_the_finish():
     assert "upper_finish" not in r_off["stats"]
 
 
-def test_a_higher_cap_does_less_and_the_wrist_rule_bounds_the_angle(monkeypatch):
+def test_a_higher_cap_does_less_and_the_free_wrist_is_capped_at_the_state():
+    _, _, r_nw = run("no_worse")
     _, _, r4 = run("cap")
     _, _, r45 = run("cap", upper_cap_cm=4.5)
-    assert r45["stats"]["upper_finish"]["deg_max"] <= r4["stats"]["upper_finish"]["deg_max"]
-    # 손가락 뿌리가 없으면 손목 굽힘을 못 재니 각 ≤ UPPER_FINISH_WRIST_DEG
+    depth = lambda r: r["predicted"]["pairs"]["l|upper_arm|chest"]["depth_max"]  # noqa: E731
+    assert r45["stats"]["upper_finish"]["deg_max"] <= r4["stats"]["upper_finish"]["deg_max"] + 1e-9 and depth(r45) >= depth(r4) - 1e-6
+    # 손가락 뿌리가 없어도 위팔은 줄인다(손목 굽힘을 못 재 손목 상한만 꺼진다)
     _, _, r_nf = run("cap", fingers=None)
-    assert r_nf["stats"]["upper_finish"]["deg_max"] <= bf.UPPER_FINISH_WRIST_DEG + 1e-9
-    # 손목 허용 0 이면 각이 줄거나 막힌다
-    monkeypatch.setattr(bf, "UPPER_FINISH_WRIST_DEG", 0.0)
-    _, _, r_w0 = run("cap")
-    uf = r_w0["stats"]["upper_finish"]
-    assert uf["deg_max"] <= r4["stats"]["upper_finish"]["deg_max"] and (uf["blocked"] or uf["deg_max"] < r4["stats"]["upper_finish"]["deg_max"] + 1e-9)
+    assert depth(r_nf) < depth(r_nw) - 0.1
+    # 손 부근 마무리가 연 상한 없는 손목(파지 밖)은 max(그 상태, 원래 + FREE_WRIST_DEG) 위로 굽히면 보조 손목 상한과 같은 층의 잔차
+    model = bm.BodyModel(fx.make_model([cross_chest()] * 3))
+    s = bf.Solver(model, bf.normalize(True), fingers=FINGERS)
+    br = s.bend_rig
+    assert br["side"] == "l" and br["caps"] == [None] * 3   # 파지 프레임 없음
+    s.hand_mode = True
+    s._state_cap = {"l": br["bend0"][1] + math.radians(bf.FREE_WRIST_DEG)}
+    state = {"rot": {model.index["hand_l"]: (math.radians(12.0), 0.0, 0.0)}, "trans": {}}
+    bend = bf.WeaponRig.bend(s.pose(1, state)[0], br["elbow"], br["wrist"], br["middle"])
+    ev = s.evaluate(1, state, {"rot": {}, "trans": {}}, {"bend"}, [], s._joints(1))
+    over = bend - s._state_cap["l"]
+    assert over > 0.0 and ev["cost"] == pytest.approx((10.0 * bf.HAND_TIER["off_bend"] * over * bf.ROT_CM) ** 2, rel=1e-4)
+    s.hand_mode = False
+    assert s.evaluate(1, state, {"rot": {}, "trans": {}}, {"bend"}, [], s._joints(1))["cost"] == 0.0   # 본 풀이 · 무기 마무리는 파지 프레임만
 
 
 def test_the_off_hand_wrist_cap_of_a_grip_frame_bounds_the_swivel_first():
@@ -142,18 +159,11 @@ def test_the_off_hand_wrist_cap_of_a_grip_frame_bounds_the_swivel_first():
     assert solver._upper_angle(1, pose, cap, r)["wrist_cap"] == pytest.approx(rb + math.radians(bf.UPPER_FINISH_WRIST_DEG))
 
 
-def test_one_direction_per_group_so_the_ramp_never_flips_sign():
-    seen = []
-    orig = bf.Solver._swivel_state
-
-    def spy(self, f, state, side, deg):
-        seen.append((side, f, deg))
-        return orig(self, f, state, side, deg)
-
-    bf.Solver._swivel_state = spy
-    try:
-        run("cap")
-    finally:
-        bf.Solver._swivel_state = orig
-    signs = {math.copysign(1.0, d) for side, f, d in seen if side == "l"}
-    assert seen and len(signs) == 1
+def test_the_elbow_path_stays_smooth():
+    # 9-4b — 손 부근 마무리는 프레임마다 GN(시간 연속 = 앞 프레임 증분, 꼬리는 증분이 잦아들 때까지) — 8-4f 의 묶음 방향 · ±4 프레임 램프 대신. 팔꿈치
+    # 궤적 떨림이 통합 기준(c4_zigzag — ≤ max(× 1.1, + 0.3)) 안이다(묶음마다 방향을 고르던 처음 판은 s25 떨림 2.17 → 3.00)
+    model, _, r_nw = run("no_worse")
+    _, _, r_cap = run("cap")
+    eb = model.index["lowerarm_l"]
+    zz = lambda r: mm.zigzag([[list(p[eb][1]) for p in r["poses"]]], model.times, model.scale)["max"]  # noqa: E731
+    assert zz(r_cap) <= max(zz(r_nw) * 1.1, zz(r_nw) + 0.3)

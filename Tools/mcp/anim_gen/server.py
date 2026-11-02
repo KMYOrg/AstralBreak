@@ -157,9 +157,11 @@ def plan_motion_generation(request: dict) -> dict:
             the ops for an asset already on the target; Job timing has the windows · rate profile · ops · warp · before/after; length changes
             on purpose: TIMING_CHANGED_LENGTH), body?: true | {mode auto|measure, clearance{mode auto|off (off = arms measured only — a legs-only
             fix), margin_cm 0.5, allow_contact true (torso · thighs may touch up to contact_cm; head/neck and false keep margin_cm), hands true,
-            upper_arm cap|no_worse|off (8-4f — cap = after the solve, swing the elbow out around the shoulder-wrist line, hands fixed, where an upper
-            arm sinks deeper than upper_cap_cm 4 × scale into torso · thighs · head; no_worse = only kept no deeper; Job fix.body upper_arm{frames, deg_max,
-            elbow_cm_max, blocked}; UPPER_ARM_REMAINS), secondary record, legs false, map_rule 2 (9-4a — body maps rigid with their anchor bones in both
+            upper_arm cap|no_worse|off (8-4f · 9-4b — cap = the hand-region finish after the solve pulls an upper arm deeper than upper_cap_cm 4 × scale
+            in torso · thighs · head back toward the cap with the clavicle · elbow swing · wrists, hands held, at the keep tier; no_worse = only kept no deeper;
+            Job fix.body upper_arm{frames, deg_max, elbow_cm_max, blocked}; UPPER_ARM_REMAINS. The same finish caps both wrists in grip frames — off hand
+            original + 2°, lead hand original + 4.5° — keeps the state's two-hand relation and stops the arms crossing deeper than the source; Job
+            fix.body hand_finish{frames, upper_over, cross, second_start}), secondary record, legs false, map_rule 2 (9-4a — body maps rigid with their anchor bones in both
             the solver model and the C++ measurement: arm-chain weighted shoulder · armpit vertices handled, angle zero carried by the anchor; 1 = 8-4a maps,
             comparison only)}, legs{pins auto (contact frames of the target ankle never move), swing_path auto|on|off
             (auto = on when this job's fix.ops has stance_width · foot_lock — their blends kink the swing; an existing asset asks on), soft_knee

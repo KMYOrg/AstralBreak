@@ -159,7 +159,9 @@ def plan_motion_generation(request: dict) -> dict:
             fix), margin_cm 0.5, allow_contact true (torso · thighs may touch up to contact_cm; head/neck and false keep margin_cm), hands true,
             upper_arm cap|no_worse|off (8-4f — cap = after the solve, swing the elbow out around the shoulder-wrist line, hands fixed, where an upper
             arm sinks deeper than upper_cap_cm 4 × scale into torso · thighs · head; no_worse = only kept no deeper; Job fix.body upper_arm{frames, deg_max,
-            elbow_cm_max, blocked}; UPPER_ARM_REMAINS), secondary record, legs false}, legs{pins auto (contact frames of the target ankle never move), swing_path auto|on|off
+            elbow_cm_max, blocked}; UPPER_ARM_REMAINS), secondary record, legs false, map_rule 2 (9-4a — body maps rigid with their anchor bones in both
+            the solver model and the C++ measurement: arm-chain weighted shoulder · armpit vertices handled, angle zero carried by the anchor; 1 = 8-4a maps,
+            comparison only)}, legs{pins auto (contact frames of the target ankle never move), swing_path auto|on|off
             (auto = on when this job's fix.ops has stance_width · foot_lock — their blends kink the swing; an existing asset asks on), soft_knee
             {start 0.97, softness 0.03} | null} (Phase 8-4d — swing windows rewritten in the same solve: ankle targets by knee · ankle jerk + fidelity;
             Job fix.body legs{swing_path, windows, frames, knee_bend}; LEGS_PATH_REDESIGNED · LEG_PATH_SKIPPED),

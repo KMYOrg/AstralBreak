@@ -54,9 +54,20 @@ struct FAnimMcpError;
  *   아래팔(팔꿈치 → 손목). 지도 점 = 그 팔의 손 · 아래팔 측정 점(몸 지도와 같은 FRadialAxis 규칙). 반대 팔의 손 · 아래팔 · 위팔 점이 묻는다 → 12 쌍
  *   (body_part hand_<반대> · forearm_<반대>). 두 손을 모아 쥐면 맞닿음(contact_cm)까지는 정상, 관통(penetration_cm) 넘으면 경고 HAND_PENETRATION.
  *   (Vesper 검 선택 f0 — 사용자 Persona 에서 손끼리 통과, 8-4a 측정에는 없던 자리.) 쥔 주먹은 축 둘레 별 모양에 가깝지만 오목한 손바닥 면은 바깥 면으로 메운다.
+ *
+ * 지도 규칙 2 (Phase 9-4a — 옵트인 map_rule 2, parts · per_frame · model 에만): 지도가 그 지도 기준 본에 강체로 붙는다 — Python 풀이(anim_gen/body_fit.py)가
+ *   지도를 기준 본 강체로 따라가는 규칙과 같은 원천. 규칙 1 은 프레임마다 편집된 자세로 지도를 다시 만들어 ① 몸통 · 머리목 정점 중 팔 사슬(쇄골과 그 아래)
+ *   가중을 가진 것(어깨 · 겨드랑이)이 팔과 함께 움직이고(위팔만 15° 돌려도 몸통 맨 위 앞 · 뒤 칸이 7.5 ↔ 19 cm) ② 각도 0 방향(그 자세의 어깨선)이 쇄골 ·
+ *   팔을 따라 돌아 움직이지 않은 넓적다리 · 머리 칸까지 흔들렸다(쇄골 8° → 0.7 ~ 1.8°, 손 · 아래팔 지도는 팔과 함께 14 ~ 38°). 규칙 2:
+ *   정점 — 몸통 · 머리목 지도 정점의 팔 사슬 가중 합이 arm_weight_max 를 넘으면 뺀다, 아니면 팔 사슬 영향을 떼고 나머지로 다시 정규화(지도 기준 본 강체).
+ *   각도 — 0 방향 = 기준 포즈 어깨선을 지도 기준 본(몸통 = 척추 끝 · 넓적다리 · 종아리 = 무릎 · 머리 · 손 = 손목 · 아래팔 = 팔꿈치)에 붙여 그 본과 함께.
+ *   팔 · 다리 측정 점(손 · 아래팔 · 위팔 · 넓적다리 · 종아리)과 arms[] · body · resolve 는 그대로.
  */
 namespace AnimMcpBodyClearance
 {
+	/** 지도 규칙 2 의 팔 사슬 가중 상한 기본값 — 넘는 정점은 뺀다(기준 포즈에 붙여 두면 팔이 내려간 자세에서 없는 몸이 남는다) */
+	constexpr double DefaultArmWeightMax = 0.15;
+
 	struct FSpec
 	{
 		/** 대상 메시 — 없으면 애니 스켈레톤의 프리뷰 메시 */
@@ -77,13 +88,16 @@ namespace AnimMcpBodyClearance
 		int32 ModelStride = 1;
 		/** Phase 8-4b 옵트인 — 손끼리(parts.hands · 경고 HAND_PENETRATION · per_frame · model 지도 hand_l/r · forearm_l/r) */
 		bool bHands = false;
+		/** Phase 9-4a 옵트인 — 지도 규칙(1 = 8-4a 그대로 · 2 = 기준 본 강체 지도) · 규칙 2 의 팔 사슬 가중 상한 */
+		int32 MapRule = 1;
+		double ArmWeightMax = DefaultArmWeightMax;
 
 		bool NeedsParts() const { return bAllParts || bLegs || bPerFrame || bModel || bHands; }
 	};
 
 	/**
 	 * body_clearance 인자 — true 또는 {mesh?, ik_rig?, upper_arms?[], body_bones?[], include_secondary?, contact_cm?, penetration_cm?,
-	 * parts? ("arms" | "all"), legs?, hands?, per_frame?, model? (true | {stride 1..10})}.
+	 * parts? ("arms" | "all"), legs?, hands?, per_frame?, model? (true | {stride 1..10}), map_rule? (1 | 2), arm_weight_max? (map_rule 2 만, 0 ~ 1)}.
 	 * ExtraKeys 는 호출자가 따로 읽는 키(오류로 보지 않는다). 형식 오류 · 못 읽는 애셋은 BAD_REQUEST / ASSET_NOT_FOUND
 	 */
 	bool ParseSpec(const TSharedPtr<FJsonValue>& Value, const TCHAR* Field, const TArray<FString>& ExtraKeys, FSpec& Out, bool& bOutEnabled, FAnimMcpError& OutError);
@@ -92,7 +106,8 @@ namespace AnimMcpBodyClearance
 	 * 측정. {mesh, chains_from, scale, contact_cm, penetration_cm, arms[{upper_arm, elbow, points, frames_over_contact_pct, frames_over_penetration_pct,
 	 * depth_p50, depth_p95, depth_max, worst{frame, time, arm_bone, body_bone}, body_bones_hit[{bone, frames}]}], body{core_roots[], core_points,
 	 * secondary_branches[], secondary_points}, secondary_arms[]?(include_secondary), parts?{…, legs?{…}, hands?{hand_bins, forearm_bins, t_range{hand, forearm},
-	 * tip_local_cm{l, r}, points{"l.hand" …}, pairs[]}}, per_frame?{…}, model?{…}, issues[], seconds}
+	 * tip_local_cm{l, r}, points{"l.hand" …}, pairs[]}, map_rule?{rule, arm_weight_max, arm_roots, torso_points, head_neck_points} (map_rule 2)},
+	 * per_frame?{…}, model?{…, map_rule? (2)}, issues[], seconds}
 	 * | {skipped_reason, issues[]}. parts · per_frame · model 은 Spec 이 요청할 때만(NeedsParts) — 그 밖의 필드 · 값은 요청과 무관하게 같다.
 	 * bOutWarning = 경고(BODY_PENETRATION · parts all 이면 BODY_PENETRATION_PARTS · legs 면 LEG_PENETRATION · hands 면 HAND_PENETRATION) 있음
 	 */
@@ -174,7 +189,18 @@ namespace AnimMcpBodyClearance
 		FRadialAxis Forearm;
 
 		void Init(const FVector& Elbow, const FVector& Wrist, const FVector& HandTip, const FVector& Lateral);
+		/** 지도 규칙 2 — 손 · 아래팔 지도의 각도 0 방향을 따로(손목 · 팔꿈치에 붙인 어깨선) */
+		void Init(const FVector& Elbow, const FVector& Wrist, const FVector& HandTip, const FVector& HandLateral, const FVector& ForearmLateral);
 	};
+
+	/**
+	 * 지도 규칙 2 의 정점 — 영향(Bones · Weights, Num 개 · 합 1) 중 IsForeign(팔 사슬) 가중 합이 MaxForeign 을 넘으면 0(뺀다), 아니면 그 영향을 떼고
+	 * 나머지를 합 1 로 다시 정규화해 제자리에서 줄인 영향 수
+	 */
+	int32 RigidInfluences(int32 Num, int32* Bones, double* Weights, TFunctionRef<bool(int32)> IsForeign, double MaxForeign);
+
+	/** 지도 규칙 2 의 각도 0 방향 — 기준 포즈 어깨선(RefLateral)을 기준 본의 기준 포즈 회전(AnchorRef)에서 그 자세 회전(Anchor)으로 옮긴 것 */
+	FVector AnchoredLateral(const FQuat& Anchor, const FQuat& AnchorRef, const FVector& RefLateral);
 
 	/**
 	 * 손 끝(컴포넌트 공간) — 손목에서 손 점 무게중심 방향으로 가장 멀리 나간 투영(손가락 끝). 무게중심이 손목과 거의 겹치면 아래팔 방향(팔꿈치 → 손목).

@@ -429,6 +429,7 @@ def test_select_scores_the_support_wrist_and_records_the_handle(ka):
     assert by[0]["metrics"]["head_deep"] is not None and by[0]["penalties"]["head_deep"] is not None
     val = [q for t, q in ka.fake.calls if t == "validate_animation" and len(q.get("assets") or []) == 2]
     assert val and val[0]["body_clearance"]["parts"] == "all" and val[0]["body_clearance"]["per_frame"] is True and val[0]["profile_rotations"] is True
+    assert val[0]["body_clearance"]["map_rule"] == 2   # 9-4a — body_fit 과 같은 지도 규칙(body_model.MAP_RULE)
     assert {"middle_01_l", "middle_01_r"} <= set(val[0]["profile_bones"])
     # 같은 기록으로 다시 계산하면 같은 선택(Job 가중치 11 개)
     again = selection.rank([{k: c[k] for k in ("index", "seed", "status", "metrics")} for c in s["candidates"]], s["weights"], grip_on=True, swing_on=True)

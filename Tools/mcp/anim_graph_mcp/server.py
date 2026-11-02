@@ -870,7 +870,8 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
             plane a hand moves in, to compare a retarget with its source.
         profile_rotations: Also return numeric.profile.rotations{bone: [[x, y, z, w]]} — component-space quaternions at the same
             times as position_cm (Phase 8-4a).
-        body_clearance: true or {mesh?, ik_rig?, upper_arms?[2], body_bones?[], include_secondary?, contact_cm?, penetration_cm?} —
+        body_clearance: true or {mesh?, ik_rig?, upper_arms?[2], body_bones?[], include_secondary?, contact_cm?, penetration_cm?, parts?, legs?,
+            hands?, per_frame?, model?, map_rule?, arm_weight_max?} —
             how deep the hands/forearms go into the body (waist, pelvis, thighs) of the target MESH, from its LOD0 skinned
             vertices per frame. mesh defaults to the skeleton's preview mesh; arms/legs/spine come from ik_rig chains (default: the
             mesh's auto-characterization) found geometrically (mirrored chain pairs), or give upper_arms + body_bones. Hanging
@@ -886,7 +887,10 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
             hand tip) and forearm map (elbow → wrist) from its own points, probed by the other arm (touching up to contact_cm is a
             normal grip) + HAND_PENETRATION, also in per_frame / model (maps hand_l/r · forearm_l/r); per_frame true →
             per_frame.series[{…, depth[] signed cm}]; model true | {stride} → model{bones, roles, poses (b64 f32), points (every
-            measured point with influences), maps (b64 i16 radius per frame), …} for the Python body solver (anim_gen/body_model.py).
+            measured point with influences), maps (b64 i16 radius per frame), …} for the Python body solver (anim_gen/body_model.py);
+            map_rule 2 (Phase 9-4a — default 1) → maps rigid with their anchor bones: torso / head_neck map vertices with arm-chain
+            (clavicle and below) weight over arm_weight_max (default 0.15) dropped, the rest skinned without the arm chain, angle zero
+            = the reference-pose shoulder line carried by each map's anchor bone → parts.map_rule{…}, model.map_rule 2.
         fingers: true or {ik_rig?, retargeter?, mesh?} — finger sanity of a retarget result, hands/fingers found by geometry (the
             create_ik_rig finger topology; ik_rig default = the retargeter's target rig, else the preview mesh template, else
             topology; mesh = whose reference pose counts, default the retargeter's target preview mesh). Per frame: a finger bone

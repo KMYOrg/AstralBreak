@@ -190,6 +190,22 @@ namespace AnimMcpBodyClearance
 			/** 손끼리(8-4b, Spec.bHands) — 손 끝(손목 본 로컬, 팔 a 순서) · 손 점이 있어 손 축을 잡았는지 */
 			FVector HandTipLocal[2] = { FVector::ZeroVector, FVector::ZeroVector };
 			bool bHandTip[2] = { false, false };
+			/**
+			 * 지도 규칙 2(9-4a, Spec.MapRule 2) — 팔 사슬 뿌리(위팔에서 척추 끝 바로 아래까지 올라간 본 — 쇄골, 팔 a 순서) · 기준 포즈 어깨선 ·
+			 * 기준 본 강체 지도 점(몸통 축 점 · 머리목 점 — 팔 사슬 영향을 떼고 다시 정규화, 상한을 넘으면 뺌. 넓적다리 축 점은 그대로) ·
+			 * 점 수 [몸통 · 머리목][그대로 · 팔 영향을 뗀 · 뺀]
+			 */
+			int32 ArmRoots[2] = { INDEX_NONE, INDEX_NONE };
+			FVector LateralRef = FVector::ZeroVector;
+			TArray<FPoint> RigidCore;
+			TArray<FPoint> RigidHeads;
+			int32 RigidCounts[2][3] = {};
+
+			/** 지도 규칙 2 의 각도 0 방향 — 기준 포즈 어깨선을 Bone 에 붙여 그 자세로 */
+			FVector Anchored(const TArray<FTransform>& Pose, int32 Bone) const
+			{
+				return AnchoredLateral(Pose[Bone].GetRotation(), Tree.Global[Bone].GetRotation(), LateralRef);
+			}
 		};
 
 		FName BoneName(const USkeletalMesh* Mesh, int32 Bone)
@@ -727,6 +743,42 @@ namespace AnimMcpBodyClearance
 					Out.bHandTip[a] = FVector::Dist(Tip, Tree.Pos(Arm.Wrist)) > MinSegmentCm;
 					Out.HandTipLocal[a] = Tree.Global[Arm.Wrist].InverseTransformPosition(Tip);
 				}
+				if (Spec.MapRule >= 2)
+				{
+					// 지도 규칙 2(9-4a) — 팔 사슬 = 쇄골(위팔에서 척추 끝 바로 아래까지 올라간 본)과 그 자손. 풀이가 쇄골까지 움직인다(E0 — 최대 10°)
+					for (int32 a = 0; a < 2; ++a)
+					{
+						int32 Root = Map.Arms[a].Upper;
+						while (Tree.Parents[Root] != INDEX_NONE && Tree.Parents[Root] != Map.SpineTop) { Root = Tree.Parents[Root]; }
+						Out.ArmRoots[a] = Root;
+					}
+					Out.LateralRef = Tree.Pos(Map.Arms[0].Upper) - Tree.Pos(Map.Arms[1].Upper);
+					const int32 Roots[2] = { Out.ArmRoots[0], Out.ArmRoots[1] };
+					auto IsArm = [&Tree, &Roots](int32 Bone) { return Tree.IsSelfOrAncestor(Roots[0], Bone) || Tree.IsSelfOrAncestor(Roots[1], Bone); };
+					auto Rigid = [&IsArm, &Spec](const TArray<FPoint>& From, TArray<FPoint>& To, int32 (&Counts)[3], bool bTorsoAxisOnly)
+					{
+						for (const FPoint& Source : From)
+						{
+							// 넓적다리 축 점(다리끼리 측정 점 겸)은 그대로
+							if (bTorsoAxisOnly && Source.Axis != 0)
+							{
+								To.Add(Source);
+								continue;
+							}
+							FPoint Point = Source;
+							Point.Num = RigidInfluences(Point.Num, Point.Bones, Point.Weights, IsArm, Spec.ArmWeightMax);
+							if (Point.Num == 0)
+							{
+								++Counts[2];
+								continue;
+							}
+							++Counts[Point.Num == Source.Num ? 0 : 1];
+							To.Add(Point);
+						}
+					};
+					Rigid(Out.Points[Slot(EGroup::Core)], Out.RigidCore, Out.RigidCounts[0], true);
+					Rigid(Out.Points[Slot(EGroup::Head)], Out.RigidHeads, Out.RigidCounts[1], false);
+				}
 			}
 			if (Out.Points[Slot(EGroup::Core)].Num() == 0 || Out.Points[Slot(EGroup::Arm0)].Num() == 0 || Out.Points[Slot(EGroup::Arm1)].Num() == 0)
 			{
@@ -804,18 +856,19 @@ namespace AnimMcpBodyClearance
 			/** 지도에 넣은 몸 정점 (Who 가 가리킨다) */
 			TArray<FVector> Positions;
 
-			void Build(const FBodyMap& Map, const TArray<FTransform>& Pose, const TArray<FPoint>& Points, const TArray<FTransform>& Skin)
+			/** Laterals = 지도 규칙 2 의 각도 0 방향 [몸통, 넓적다리 0, 1](없으면 그 자세의 어깨선) */
+			void Build(const FBodyMap& Map, const TArray<FTransform>& Pose, const TArray<FPoint>& Points, const TArray<FTransform>& Skin, const FVector* Laterals = nullptr)
 			{
 				const FVector Lateral = Pose[Map.Arms[0].Upper].GetLocation() - Pose[Map.Arms[1].Upper].GetLocation();
 				const bool bLegs = Map.Thighs[0] != INDEX_NONE && Map.Thighs[1] != INDEX_NONE;
 				const FVector Bottom = bLegs ? (Pose[Map.Thighs[0]].GetLocation() + Pose[Map.Thighs[1]].GetLocation()) * 0.5 : Pose[Map.Pelvis].GetLocation();
-				Axes[0].Init(Bottom, Pose[Map.SpineTop].GetLocation(), Lateral, TorsoTMin, TorsoTMax, TorsoBins);
+				Axes[0].Init(Bottom, Pose[Map.SpineTop].GetLocation(), Laterals ? Laterals[0] : Lateral, TorsoTMin, TorsoTMax, TorsoBins);
 				for (int32 k = 0; k < 2; ++k)
 				{
 					Axes[k + 1] = FRadialAxis();
 					if (Map.Thighs[k] != INDEX_NONE && Map.Knees[k] != INDEX_NONE)
 					{
-						Axes[k + 1].Init(Pose[Map.Thighs[k]].GetLocation(), Pose[Map.Knees[k]].GetLocation(), Lateral, ThighTMin, ThighTMax, ThighBins);
+						Axes[k + 1].Init(Pose[Map.Thighs[k]].GetLocation(), Pose[Map.Knees[k]].GetLocation(), Laterals ? Laterals[k + 1] : Lateral, ThighTMin, ThighTMax, ThighBins);
 					}
 				}
 				SkinPoints(Points, Skin, Positions);
@@ -1062,7 +1115,8 @@ namespace AnimMcpBodyClearance
 			TArray<FVector> HeadPositions;
 			TArray<FVector> CalfPositions[2];
 
-			void Build(const FModel& Model, const TArray<FTransform>& Pose, const TArray<FTransform>& Skin)
+			/** Heads = 머리목 지도 점(규칙 2 면 기준 본 강체 점) · Laterals = 지도 규칙 2 의 각도 0 방향 [머리, 종아리 0, 1](없으면 그 자세의 어깨선) */
+			void Build(const FModel& Model, const TArray<FTransform>& Pose, const TArray<FTransform>& Skin, const TArray<FPoint>& Heads, const FVector* Laterals = nullptr)
 			{
 				const FBodyMap& Map = Model.Map;
 				const FVector Lateral = Pose[Map.Arms[0].Upper].GetLocation() - Pose[Map.Arms[1].Upper].GetLocation();
@@ -1070,10 +1124,9 @@ namespace AnimMcpBodyClearance
 				HeadPositions.Reset();
 				if (Model.bHeadAxis)
 				{
-					Head.Init(Pose[Map.NeckRoot].GetLocation(), Pose[Map.Head].TransformPosition(Model.HeadTopLocal), Lateral, HeadTMin, HeadTMax, HeadBins);
-					const TArray<FPoint>& Points = Model.Points[Slot(EGroup::Head)];
-					SkinPoints(Points, Skin, HeadPositions);
-					for (int32 i = 0; i < Points.Num(); ++i) { Head.Add(HeadPositions[i], i); }
+					Head.Init(Pose[Map.NeckRoot].GetLocation(), Pose[Map.Head].TransformPosition(Model.HeadTopLocal), Laterals ? Laterals[0] : Lateral, HeadTMin, HeadTMax, HeadBins);
+					SkinPoints(Heads, Skin, HeadPositions);
+					for (int32 i = 0; i < Heads.Num(); ++i) { Head.Add(HeadPositions[i], i); }
 				}
 				for (int32 k = 0; k < 2; ++k)
 				{
@@ -1084,7 +1137,7 @@ namespace AnimMcpBodyClearance
 					{
 						continue;
 					}
-					Calf[k].Init(Pose[Map.Knees[k]].GetLocation(), Pose[Map.Feet[k]].GetLocation(), Lateral, CalfTMin, CalfTMax, CalfBins);
+					Calf[k].Init(Pose[Map.Knees[k]].GetLocation(), Pose[Map.Feet[k]].GetLocation(), Laterals ? Laterals[k + 1] : Lateral, CalfTMin, CalfTMax, CalfBins);
 					SkinPoints(Points, Skin, CalfPositions[k]);
 					for (int32 i = 0; i < Points.Num(); ++i) { Calf[k].Add(CalfPositions[k][i], i); }
 				}
@@ -1237,8 +1290,10 @@ namespace AnimMcpBodyClearance
 			const FBodyMap& Map = Model.Map;
 			const int32 Frames = Poses.Num();
 			const double NoMinT = -TNumericLimits<double>::Max();
-			const TArray<FPoint>& Core = Model.Points[Slot(EGroup::Core)];
-			const TArray<FPoint>& Heads = Model.Points[Slot(EGroup::Head)];
+			// 지도 규칙 2(9-4a) — 몸통 · 머리목 지도는 기준 본 강체 점, 각도 0 방향은 기준 본에 붙인 어깨선
+			const bool bRigid = Spec.MapRule >= 2;
+			const TArray<FPoint>& Core = bRigid ? Model.RigidCore : Model.Points[Slot(EGroup::Core)];
+			const TArray<FPoint>& Heads = bRigid ? Model.RigidHeads : Model.Points[Slot(EGroup::Head)];
 			auto Calves = [&Model](int32 k) -> const TArray<FPoint>& { return Model.Points[Slot(k == 0 ? EGroup::Calf0 : EGroup::Calf1)]; };
 			auto ThighPart = [&Map](int32 k) { return Map.LegSide[k] == 0 ? BodyThighL : BodyThighR; };
 			// [몸 기준 좌우][팔 부위][몸 부위] · 다리 [좌우][넓적다리 · 종아리][반대 넓적다리 · 반대 종아리] · 손끼리 [좌우][팔 부위][반대 손 · 반대 아래팔] — 프레임마다
@@ -1296,11 +1351,23 @@ namespace AnimMcpBodyClearance
 			FPartBody Parts;
 			FArmAxes ArmAxes[2];
 			int32 NextModel = 0;
+			FVector BodyLaterals[3], PartLaterals[3];
 			for (int32 Frame = 0; Frame < Frames; ++Frame)
 			{
 				SkinTransforms(Poses[Frame], RefInverse, Skin);
-				Body.Build(Map, Poses[Frame], Core, Skin);
-				Parts.Build(Model, Poses[Frame], Skin);
+				if (bRigid)
+				{
+					const TArray<FTransform>& Pose = Poses[Frame];
+					BodyLaterals[0] = Model.Anchored(Pose, Map.SpineTop);
+					PartLaterals[0] = Model.bHeadAxis ? Model.Anchored(Pose, Map.Head) : BodyLaterals[0];
+					for (int32 k = 0; k < 2; ++k)
+					{
+						BodyLaterals[k + 1] = Map.Thighs[k] != INDEX_NONE ? Model.Anchored(Pose, Map.Thighs[k]) : BodyLaterals[0];
+						PartLaterals[k + 1] = Map.Knees[k] != INDEX_NONE ? Model.Anchored(Pose, Map.Knees[k]) : BodyLaterals[0];
+					}
+				}
+				Body.Build(Map, Poses[Frame], Core, Skin, bRigid ? BodyLaterals : nullptr);
+				Parts.Build(Model, Poses[Frame], Skin, Heads, bRigid ? PartLaterals : nullptr);
 				for (int32 a = 0; a < 2; ++a)
 				{
 					SkinPoints(Model.Points[Slot(a == 0 ? EGroup::Arm0 : EGroup::Arm1)], Skin, ArmPositions[a][0]);
@@ -1355,8 +1422,15 @@ namespace AnimMcpBodyClearance
 							continue;
 						}
 						const FTransform& Wrist = Poses[Frame][Arm.Wrist];
-						ArmAxes[a].Init(Poses[Frame][Arm.Elbow].GetLocation(), Wrist.GetLocation(), Model.bHandTip[a] ? Wrist.TransformPosition(Model.HandTipLocal[a]) : Wrist.GetLocation(),
-							Lateral);
+						const FVector Tip = Model.bHandTip[a] ? Wrist.TransformPosition(Model.HandTipLocal[a]) : Wrist.GetLocation();
+						if (bRigid)
+						{
+							ArmAxes[a].Init(Poses[Frame][Arm.Elbow].GetLocation(), Wrist.GetLocation(), Tip, Model.Anchored(Poses[Frame], Arm.Wrist), Model.Anchored(Poses[Frame], Arm.Elbow));
+						}
+						else
+						{
+							ArmAxes[a].Init(Poses[Frame][Arm.Elbow].GetLocation(), Wrist.GetLocation(), Tip, Lateral);
+						}
 						const TArray<FPoint>& Points = Model.Points[Slot(a == 0 ? EGroup::Arm0 : EGroup::Arm1)];
 						for (int32 i = 0; i < Points.Num(); ++i)
 						{
@@ -1496,6 +1570,23 @@ namespace AnimMcpBodyClearance
 			}
 			Counts->SetNumberField(TEXT("head_neck"), Heads.Num());
 			PartsObj->SetObjectField(TEXT("points"), Counts);
+			if (bRigid)
+			{
+				TSharedRef<FJsonObject> Rule = AnimMcpJson::MakeObject();
+				Rule->SetNumberField(TEXT("rule"), 2);
+				Rule->SetNumberField(TEXT("arm_weight_max"), Spec.ArmWeightMax);
+				Rule->SetArrayField(TEXT("arm_roots"), Names(Mesh, { Model.ArmRoots[0], Model.ArmRoots[1] }));
+				Rule->SetStringField(TEXT("angle_zero"), TEXT("reference-pose shoulder line carried by each map's anchor bone (torso = spine top, thigh, head, calf = knee, hand = wrist, forearm = elbow)"));
+				for (int32 m = 0; m < 2; ++m)
+				{
+					TSharedRef<FJsonObject> Kept = AnimMcpJson::MakeObject();
+					Kept->SetNumberField(TEXT("unchanged"), Model.RigidCounts[m][0]);
+					Kept->SetNumberField(TEXT("arm_weight_removed"), Model.RigidCounts[m][1]);
+					Kept->SetNumberField(TEXT("dropped"), Model.RigidCounts[m][2]);
+					Rule->SetObjectField(m == 0 ? TEXT("torso_points") : TEXT("head_neck_points"), Kept);
+				}
+				PartsObj->SetObjectField(TEXT("map_rule"), Rule);
+			}
 
 			struct FWorstPair { FString Name; double Depth; double Pct; };
 			TArray<FWorstPair> Over;
@@ -1748,6 +1839,11 @@ namespace AnimMcpBodyClearance
 
 				TSharedRef<FJsonObject> ModelObj = AnimMcpJson::MakeObject();
 				ModelObj->SetNumberField(TEXT("version"), 1);
+				if (bRigid)
+				{
+					// 지도 규칙 2 — 지도가 기준 본 강체라 Python 은 각도 0 방향을 그 자세의 어깨로 다시 잡지 않는다(body_fit live_lateral 끔)
+					ModelObj->SetNumberField(TEXT("map_rule"), 2);
+				}
 				ModelObj->SetStringField(TEXT("mesh"), Mesh->GetPathName());
 				ModelObj->SetNumberField(TEXT("scale"), AnimMcpStats::Round(Model.Scale, 6));
 				ModelObj->SetNumberField(TEXT("contact_cm"), AnimMcpStats::Round(ContactCm, 6));
@@ -1926,6 +2022,7 @@ namespace AnimMcpBodyClearance
 			return Bad(FString(), FString::Printf(TEXT("%s must be true or an object"), Field));
 		}
 		bOutEnabled = true;
+		bool bArmWeight = false;
 		auto Strings = [&Bad, Field](const FString& Key, const TSharedPtr<FJsonValue>& V, TArray<FName>& OutNames)
 		{
 			const TArray<TSharedPtr<FJsonValue>>* Array = nullptr;
@@ -2022,10 +2119,28 @@ namespace AnimMcpBodyClearance
 					return Bad(Key, FString::Printf(TEXT("%s.model must be a boolean or {stride}"), Field));
 				}
 			}
+			else if (Key == TEXT("map_rule"))
+			{
+				const double Rule = V.IsValid() && V->Type == EJson::Number ? V->AsNumber() : -1.0;
+				if (Rule != 1.0 && Rule != 2.0)
+				{
+					return Bad(Key, FString::Printf(TEXT("%s.map_rule must be 1 (default — maps rebuilt from each edited pose) or 2 (maps rigid with their anchor bones: arm-chain weights removed, angle zero carried by the anchor — parts · per_frame · model only)"), Field));
+				}
+				Out.MapRule = static_cast<int32>(Rule);
+			}
+			else if (Key == TEXT("arm_weight_max"))
+			{
+				if (!V.IsValid() || V->Type != EJson::Number || V->AsNumber() < 0.0 || V->AsNumber() > 1.0)
+				{
+					return Bad(Key, FString::Printf(TEXT("%s.arm_weight_max must be a number in [0, 1]"), Field));
+				}
+				Out.ArmWeightMax = V->AsNumber();
+				bArmWeight = true;
+			}
 			else
 			{
 				TArray<FString> Allowed = { TEXT("mesh"), TEXT("ik_rig"), TEXT("upper_arms"), TEXT("body_bones"), TEXT("include_secondary"), TEXT("contact_cm"), TEXT("penetration_cm"),
-					TEXT("parts"), TEXT("legs"), TEXT("hands"), TEXT("per_frame"), TEXT("model") };
+					TEXT("parts"), TEXT("legs"), TEXT("hands"), TEXT("per_frame"), TEXT("model"), TEXT("map_rule"), TEXT("arm_weight_max") };
 				Allowed.Append(ExtraKeys);
 				return Bad(Key, FString::Printf(TEXT("%s.%s is unknown (%s)"), Field, *Key, *FString::Join(Allowed, TEXT(", "))));
 			}
@@ -2033,6 +2148,10 @@ namespace AnimMcpBodyClearance
 		if (Out.UpperArms.Num() != 0 && Out.UpperArms.Num() != 2)
 		{
 			return Bad(TEXT("upper_arms"), FString::Printf(TEXT("%s.upper_arms needs exactly two bones (left and right upper arm)"), Field));
+		}
+		if (bArmWeight && Out.MapRule < 2)
+		{
+			return Bad(TEXT("arm_weight_max"), FString::Printf(TEXT("%s.arm_weight_max only applies with map_rule 2"), Field));
 		}
 		return true;
 	}
@@ -2603,10 +2722,45 @@ namespace AnimMcpBodyClearance
 
 	void FArmAxes::Init(const FVector& Elbow, const FVector& Wrist, const FVector& InHandTip, const FVector& Lateral)
 	{
+		Init(Elbow, Wrist, InHandTip, Lateral, Lateral);
+	}
+
+	void FArmAxes::Init(const FVector& Elbow, const FVector& Wrist, const FVector& InHandTip, const FVector& HandLateral, const FVector& ForearmLateral)
+	{
 		Hand = FRadialAxis();
 		Forearm = FRadialAxis();
-		Hand.Init(Wrist, InHandTip, Lateral, HandTMin, HandTMax, HandBins);
-		Forearm.Init(Elbow, Wrist, Lateral, ForearmTMin, ForearmTMax, ForearmBins);
+		Hand.Init(Wrist, InHandTip, HandLateral, HandTMin, HandTMax, HandBins);
+		Forearm.Init(Elbow, Wrist, ForearmLateral, ForearmTMin, ForearmTMax, ForearmBins);
+	}
+
+	int32 RigidInfluences(int32 Num, int32* Bones, double* Weights, TFunctionRef<bool(int32)> IsForeign, double MaxForeign)
+	{
+		double Foreign = 0.0, Own = 0.0;
+		for (int32 k = 0; k < Num; ++k) { (IsForeign(Bones[k]) ? Foreign : Own) += Weights[k]; }
+		if (Foreign > MaxForeign || Own <= 0.0)
+		{
+			return 0;
+		}
+		if (Foreign <= 0.0)
+		{
+			return Num;
+		}
+		int32 Kept = 0;
+		for (int32 k = 0; k < Num; ++k)
+		{
+			if (!IsForeign(Bones[k]))
+			{
+				Bones[Kept] = Bones[k];
+				Weights[Kept] = Weights[k] / Own;
+				++Kept;
+			}
+		}
+		return Kept;
+	}
+
+	FVector AnchoredLateral(const FQuat& Anchor, const FQuat& AnchorRef, const FVector& RefLateral)
+	{
+		return Anchor.RotateVector(AnchorRef.UnrotateVector(RefLateral));
 	}
 
 	FVector HandTip(const TArray<FVector>& HandPoints, const FVector& Elbow, const FVector& Wrist)

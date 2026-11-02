@@ -34,9 +34,10 @@ def bone_deg(res: dict, bone: str) -> float:
 # ---- 요청 ----
 def test_normalize_defaults_and_off():
     cfg = bf.normalize(True)
-    # 8-4d 기대된 변화 — clearance.mode(auto | off) · legs(pins · swing_path · soft_knee) 기본값, 8-4f — upper_arm cap · upper_cap_cm 4
+    # 8-4d 기대된 변화 — clearance.mode(auto | off) · legs(pins · swing_path · soft_knee) 기본값, 8-4f — upper_arm cap · upper_cap_cm 4,
+    # 9-4a — map_rule 2(기준 본 강체 지도)
     assert cfg["mode"] == "auto" and cfg["clearance"] == {"mode": "auto", "margin_cm": 0.5, "allow_contact": True, "hands": True, "upper_arm": "cap",
-                                                          "upper_cap_cm": 4.0, "secondary": "record", "legs": False}
+                                                          "upper_cap_cm": 4.0, "secondary": "record", "legs": False, "map_rule": 2}
     assert cfg["legs"] == {"pins": "auto", "swing_path": "auto", "soft_knee": {"start": 0.97, "softness": 0.03}}
     assert cfg["grip"]["mode"] == "auto" and cfg["joints"]["clavicle_deg"] == 10.0 and cfg["joints"]["spine_deg"] == 0.0 and cfg["targets"] == []
     assert bf.normalize(None) is None and bf.normalize(False) is None and bf.normalize({"mode": "off"}) is None
@@ -49,6 +50,8 @@ def test_normalize_defaults_and_off():
     ({"clearance": {"margin_cm": 9}}, "fix.body.clearance.margin_cm", "BAD_FIELD"),
     ({"clearance": {"upper_arm": "target"}}, "fix.body.clearance.upper_arm", "BAD_FIELD"),
     ({"clearance": {"allow_contact": "yes"}}, "fix.body.clearance.allow_contact", "BAD_FIELD"),
+    ({"clearance": {"map_rule": 3}}, "fix.body.clearance.map_rule", "BAD_FIELD"),
+    ({"clearance": {"map_rule": True}}, "fix.body.clearance.map_rule", "BAD_FIELD"),
     ({"grip": {"mode": "glue"}}, "fix.body.grip.mode", "BAD_FIELD"),   # 8-4c — weapon 은 이제 받는다(기대된 변화)
     ({"grip": {"window": [2, 1]}}, "fix.body.grip.window", "BAD_FIELD"),
     ({"joints": {"spine_deg": 5}}, "fix.body.joints.spine_deg", "NOT_SUPPORTED"),
@@ -235,6 +238,26 @@ def test_finish_probes_with_the_live_shoulder_axis_like_cpp():
     assert bm._norm(bm._sub(s._lateral_x(model.maps["torso"], 0, moved, None), model.maps["torso"].axes[0]["x"])) > 1e-3
     s.run()
     assert s.live_lateral is False and s.floor == {}
+
+
+def test_rule_two_model_never_reaims_the_angle_axis():
+    # 9-4a — 지도 규칙 2 모델은 C++ 도 각도 0 방향을 기준 본에 붙여 둔다: 다듬기(live_lateral)에서도 저장된 축 그대로 묻는다(쇄골을 옮겨도 같은 칸)
+    frames = [fx.grip_front() for _ in range(5)]
+    raw = fx.make_model(frames)
+    rule1, rule2 = bm.BodyModel(raw), bm.BodyModel({**raw, "map_rule": 2})
+    assert rule1.map_rule == 1 and rule2.map_rule == 2
+    state = {"rot": {rule2.index["clavicle_l"]: (0.0, 0.0, math.radians(10.0))}, "trans": {}}
+    for model, reaimed in ((rule1, True), (rule2, False)):
+        s = bf.Solver(model, bf.normalize(True), fingers=FINGERS)
+        moved = s.pose(0, state)[0]
+        calls = []
+        s._lateral_x = lambda *a, _calls=calls: _calls.append(a) or None   # noqa: E731
+        s.live_lateral = True
+        for i in s.arm_points[:20]:
+            p = model.skin(moved, s.points[i])
+            for name in s._maps_for(s.points[i]["side"]):
+                s.probe(name, 0, p, moved)
+        assert bool(calls) == reaimed, (model.map_rule, len(calls))
 
 
 def test_keep_grip_does_not_bend_the_off_wrist_past_the_original(monkeypatch):

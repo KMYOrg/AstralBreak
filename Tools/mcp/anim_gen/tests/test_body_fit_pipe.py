@@ -104,6 +104,7 @@ def test_existing_asset_plan_previews_the_body_and_the_targets(service, fake, bo
     assert "BODY_FIT_APPROXIMATE" in codes and "REUSED_EXISTING" not in codes
     spec = [p_["body_clearance"] for t_, p_ in fake.calls if t_ == "validate_animation" and isinstance(p_.get("body_clearance"), dict)][-1]
     assert spec["parts"] == "all" and spec["hands"] and spec["model"] and spec["include_secondary"] and not fake.writes
+    assert spec["map_rule"] == 2   # 9-4a — 기준 본 강체 지도(풀이 모델과 C++ 측정이 같은 규칙)
 
 
 def test_body_fit_comes_after_timing_and_before_edits(service, body):

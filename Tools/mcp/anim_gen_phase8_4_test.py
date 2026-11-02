@@ -152,6 +152,19 @@ def sha256(path: str) -> str:
     return hashlib.sha256((ROOT / "Content" / (path.removeprefix("/Game/") + ".uasset")).read_bytes()).hexdigest()
 
 
+def exists(asset: str | None) -> bool:
+    """지난 실행 애셋이 아직 디스크에 있는가 — 판정 뒤 정리(휴지통)로 사라질 수 있다. 없으면 그 비교만 건너뛴다(9-4a)."""
+    return bool(asset) and (ROOT / "Content" / (asset.removeprefix("/Game/") + ".uasset")).is_file()
+
+
+def gone(asset: str | None, what: str) -> str | None:
+    """지난 실행 애셋 — 사라졌으면 알리고 None."""
+    if asset and not exists(asset):
+        print(f"   {what} {asset} is gone (cleaned up) — skipping that comparison")
+        return None
+    return asset
+
+
 def content_changes() -> list[str]:
     out = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all", "--", "Content"], cwd=ROOT, capture_output=True,
                          text=True, encoding="utf-8").stdout
@@ -224,11 +237,14 @@ LEG_EXTRA = ["thigh_l", "thigh_r", "calf_l", "calf_r", "foot_l", "foot_r", "ball
 
 
 def measure(asset: str, *, parts: bool = True, legs: bool = False, per_frame: bool = False, model: bool = False, rotations: bool = False,
-            extra: list[str] | None = None, hands: bool = False, secondary: bool = False) -> dict:
+            extra: list[str] | None = None, hands: bool = False, secondary: bool = False, extra_spec: dict | None = None) -> dict:
     """validate_animation 한 번 — select 측정 본(+ 다리 · 손가락) profile 위치(+ 회전) · body_clearance(parts all · legs · per_frame · model ·
-    8-4b hands · include_secondary)."""
+    8-4b hands · include_secondary · extra_spec — 9-4a map_rule)."""
     names = sorted(set(RetargetPipe.profile_bones(bones())) | set(LEG_EXTRA) | set(extra or []))
     spec = {**CLEARANCE}
+    if parts or legs or per_frame or model or hands:
+        spec["map_rule"] = bmod.MAP_RULE   # 9-4a — 파이프라인(body_fit · select)과 같은 지도 규칙으로 잰다(1 은 model 섹션이 따로)
+    spec.update(extra_spec or {})
     if parts:
         spec["parts"] = "all"
     for key, on in (("legs", legs), ("per_frame", per_frame), ("model", model), ("hands", hands), ("include_secondary", secondary)):
@@ -328,6 +344,19 @@ def section_model() -> None:
                       "py_per_frame_ms": round(1000.0 * series_s / max(1, len(model.frames)), 2),
                       **{k: cmp[k] for k in ("diff_p95", "diff_max", "located_mismatch", "penetration_pct_equal", "compared_values")}}
     out["reproduction"] = repro
+
+    # ---- 9-4a — 위 재현은 파이프라인 기본(지도 규칙 2): 점 처리 수가 찍히고, 규칙 1(C++ 기본 · 대조용)도 Python 재현 = C++ ----
+    key = REPRODUCE[0]
+    rule2 = (measure(TARGETS[key][0])["body_clearance"].get("parts") or {}).get("map_rule") or {}
+    torso = rule2.get("torso_points") or {}
+    check(rule2.get("rule") == bmod.MAP_RULE == 2 and torso.get("dropped", 0) > 0 and torso.get("arm_weight_removed", 0) > 0,
+          f"9-4a map_rule 2 on {key}: arm roots {rule2.get('arm_roots')} · torso points {torso} · head_neck {rule2.get('head_neck_points')}")
+    bc = measure(TARGETS[key][0], per_frame=True, model=True, extra_spec={"map_rule": 1})["body_clearance"]
+    model = bmod.BodyModel(bc["model"])
+    cmp = bmod.compare(model, bc["per_frame"])
+    check(model.map_rule == 1 and "map_rule" not in (bc.get("parts") or {}) and cmp["diff_p95"] <= REPRO_P95_CM and cmp["penetration_pct_equal"],
+          f"9-4a map_rule 1 (C++ default) {key}: Python vs C++ |diff| p95 {cmp['diff_p95']} · max {cmp['diff_max']} cm · located mismatch {cmp['located_mismatch']}")
+    out["map_rule"] = {"asset": TARGETS[key][0], "rule2": rule2, "rule1_reproduction": {k: cmp[k] for k in ("diff_p95", "diff_max", "located_mismatch", "penetration_pct_equal")}}
 
     # ---- 4 bone_deltas · profile_rotations ----
     src = TARGETS[DELTA_SOURCE][0]
@@ -692,6 +721,13 @@ KNOWN_MISSES = {
     # 왼손이 튄다 — 실제 모델 2.33(원래 1.28), ease 0.3 s 는 휘두름 안으로 들어가 10.4 로 더 나쁘다
     ("scythe_pick/S3", "c4_zigzag"): "덮은 두 팔이 파지 keep 과 맞지 않아 블록 시작 한 프레임(f77) 튐 — 오프라인 2.33(인계 c2 §2)",
 }
+# 9-4a — 지도 규칙 2(기본) 뒤 새로 드러난 것(사용자 결정 2026-11-02: 규칙 2 기본 유지 · 9-4c 로 넘김). 원 속도 클립에서 빠른 휘두름 한 프레임(낫 정정 f61 ·
+# s25 f55 · 검 선택 f37)의 원본 자세가 정수리 칸(뿔 · 머리카락으로 각도마다 0.4 ~ 10 cm)에 들어 본 풀이가 수렴하지 못하고 머리목 마무리가 그 프레임만
+# 빼서 튄다 — 로드맵 U5 '머리목 마무리의 원 속도 대가'(9-4c U5-a · U5-c). 같은 대상의 지시 목표 · 샘플 Job(T2 · T3 · T4 · S2)도 물려받는다
+_HEAD_FINISH_RAW = "9-4a 규칙 2 — 원 속도 한 프레임 머리목 마무리 튐(f61 · f55 · f37) → 9-4c U5-a · U5-c(phase9-4a-report)"
+KNOWN_MISSES.update({("scythe_pick", "c4_zigzag"): _HEAD_FINISH_RAW, ("scythe_s25", "c4_zigzag"): _HEAD_FINISH_RAW, ("sword_pick", "c4_zigzag"): _HEAD_FINISH_RAW,
+                     ("scythe_s27", "c4_wrist"): "9-4a 규칙 2 — 해가 바뀌어 오른 손목 최대 + 5.3°(기준 + 5) → 9-4b 주 손목 기준(U4-b)",
+                     ("op_sickle_attack2", "c4_cross"): "9-4a 규칙 2 — 손 · 아래팔 지도 칸이 손목 · 팔꿈치에 붙어 손끼리 해가 바뀜, 교차 7.4 → 13.7 % → 9-4b(U4 손끼리)"})
 RECORD_ONLY: dict[str, set] = {}   # crit 키 → 판정하지 않고 기록만 할 기준(8-4c c2 샘플 전이 — 요청한 동작 변화)
 # 사용자 Persona 소견 자리(8-4a 보고 §5-1) — 이름 → [(소견, 프레임들, 쌍 키들)] · 위팔 쌍은 기록만
 _HEAD = [(s, "hand", "head_neck") for s in "lr"]
@@ -1060,7 +1096,7 @@ def guarded(key: str, fn) -> None:
 
 def fit_and_judge(key: str, out: dict, section: str) -> None:
     # 8-4b 후속 — 지난 실행(state 의 같은 섹션)의 보정본과도 잰다(손목 이동 · 루프 경계), PREV_CAPTURE 는 이번 | 지난 캡처도
-    prev = ((previous().get(section) or {}).get(key) or {}).get("asset")
+    prev = gone(((previous().get(section) or {}).get(key) or {}).get("asset"), f"{key} previous fit")
     r = run_fit(key, fit_body(key), "Fit")
     if not r:
         return
@@ -1320,7 +1356,7 @@ def section_grip() -> None:
             check(bool(after.get("pairs")), f"{key} c3 weapon ↔ body recorded ({after.get('points')} points) — penetrating "
                   f"{[(k, v['frames_over_penetration_pct'], v['depth_max']) for k, v in (after.get('pairs') or {}).items() if v['frames_over_penetration_pct'] > 0]} · "
                   f"worst {after.get('worst')}")
-            p_asset = (prev.get(key) or {}).get("asset")
+            p_asset = gone((prev.get(key) or {}).get("asset"), f"{key} previous no-weapon fit")
             diff = None
             if p_asset:
                 pa = measure(rec["asset"], parts=False)["numeric"]["profile"]["position_cm"]
@@ -1348,7 +1384,7 @@ def section_grip() -> None:
         out["opt_in"] = fit_summary(r, judged)
         out["opt_in"]["capture"] = capture_pair("op_sickle_attack2_weapon_opt_in", TARGETS[OPT_IN_KEY][0], rec["asset"], r["af"]["numeric"]["length"], True)
         # 8-4c 후속 — 지난 실행의 옵트인(사용자 Persona '블렌드 아웃 손 겹침'을 본 애셋)과도 캡처(후 | 지난)
-        prev_opt = ((previous().get("grip") or {}).get("opt_in") or {}).get("asset")
+        prev_opt = gone(((previous().get("grip") or {}).get("opt_in") or {}).get("asset"), "previous opt-in")
         if prev_opt and prev_opt != rec["asset"]:
             out["opt_in"]["previous"] = prev_opt
             out["opt_in"]["capture_previous"] = capture_pair("op_sickle_attack2_weapon_opt_in_vs_prev", prev_opt, rec["asset"], r["af"]["numeric"]["length"], True,
@@ -1705,7 +1741,7 @@ def section_combined() -> None:
                   f"{key} combined: contact slide p95 at body_fit {fb.get('slide_p95')} → {fa.get('slide_p95')} cm/s (≤ +0.5 — the timed input already slides) · "
                   f"planted ratio {fb.get('planted_ratio_max')} → {fa.get('planted_ratio_max')}")
             # 같은 사슬의 8-3 합본(body_fit 없음)과 다리 본 떨림 · 전체 떨림 · 무릎(기록 + 다리 본 떨림 나빠짐 없음)
-            prev = ((p83.get(p83_key) or {}).get("combined") or {}).get("asset")
+            prev = gone(((p83.get(p83_key) or {}).get("combined") or {}).get("asset"), f"{key} 8-3 combined")
             qa = quality_of(measure(rec["asset"], parts=False)) if rec.get("asset") else None
             qp = quality_of(measure(prev, parts=False)) if prev else None
             if qa and qp:

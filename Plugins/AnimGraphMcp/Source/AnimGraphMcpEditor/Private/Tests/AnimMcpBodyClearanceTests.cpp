@@ -1,4 +1,5 @@
-// 팔-몸통 관통 보정(Core/AnimMcpBodyClearance)의 계산부 단위 테스트 — 최소제곱 어깨 회전과 시간 평활, 반경 지도 · 몸통 칸 · 모델 인코딩(Phase 8-4a) · 손끼리 지도(8-4b).
+// 팔-몸통 관통 보정(Core/AnimMcpBodyClearance)의 계산부 단위 테스트 — 최소제곱 어깨 회전과 시간 평활, 반경 지도 · 몸통 칸 · 모델 인코딩(Phase 8-4a) · 손끼리 지도(8-4b) ·
+// 지도 규칙 2 의 정점 처리 · 기준 본에 붙인 각도 0 방향(9-4a).
 // 애셋 없이 메모리에서만. run_automation_tests {filter:"AnimGraphMcp.Generation.BodyClearance"} 로 돈다.
 
 #include "Misc/AutomationTest.h"
@@ -139,6 +140,45 @@ bool FAnimMcpBodyClearanceTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("separated → negative gap ≈ 5 − 7"), Depth, -2.0, 0.05);
 		TestTrue(TEXT("a point beside the forearm"), Deepest(Arm.Forearm, { FVector(-12.0, 0.0, 2.0) }, Depth) && FMath::IsNearlyEqual(Depth, 1.5, 1e-6));
 		TestFalse(TEXT("beyond the hand tip is not on the hand map"), Deepest(Arm.Hand, { FVector(12.0, 0.0, 0.5) }, Depth));
+	}
+
+	// ---- 지도 규칙 2 (9-4a): 정점 — 팔 사슬 가중 ≤ 상한이면 떼고 다시 정규화, 넘으면 뺀다 · 각도 0 방향 — 기준 본과 함께 돌고 다른 본(쇄골 · 팔)에는 안 움직인다 ----
+	{
+		const auto IsArm = [](int32 Bone) { return Bone >= 10; };
+		int32 Bones[3] = { 1, 10, 2 };
+		double Weights[3] = { 0.6, 0.1, 0.3 };
+		const int32 Kept = AnimMcpBodyClearance::RigidInfluences(3, Bones, Weights, IsArm, 0.15);
+		TestTrue(TEXT("arm weight 0.1 ≤ 0.15 → arm influence removed, the rest renormalised"), Kept == 2 && Bones[0] == 1 && Bones[1] == 2
+			&& FMath::IsNearlyEqual(Weights[0], 0.6 / 0.9, 1e-12) && FMath::IsNearlyEqual(Weights[1], 0.3 / 0.9, 1e-12));
+		int32 Heavy[2] = { 1, 11 };
+		double HeavyW[2] = { 0.7, 0.3 };
+		TestEqual(TEXT("arm weight 0.3 > 0.15 → dropped"), AnimMcpBodyClearance::RigidInfluences(2, Heavy, HeavyW, IsArm, 0.15), 0);
+		int32 Pure[2] = { 1, 2 };
+		double PureW[2] = { 0.25, 0.75 };
+		TestTrue(TEXT("no arm weight → unchanged"), AnimMcpBodyClearance::RigidInfluences(2, Pure, PureW, IsArm, 0.0) == 2 && PureW[0] == 0.25 && PureW[1] == 0.75);
+		int32 All[1] = { 12 };
+		double AllW[1] = { 1.0 };
+		TestEqual(TEXT("all arm weight → dropped even with a cap of 1"), AnimMcpBodyClearance::RigidInfluences(1, All, AllW, IsArm, 1.0), 0);
+
+		const FVector RefLateral(30.0, 0.0, 0.0);
+		const FQuat AnchorRef(FVector::UpVector, FMath::DegreesToRadians(20.0));
+		TestTrue(TEXT("anchor at its reference rotation → the reference shoulder line"),
+			AnimMcpBodyClearance::AnchoredLateral(AnchorRef, AnchorRef, RefLateral).Equals(RefLateral, 1e-9));
+		const FQuat Turn(FVector::UpVector, FMath::DegreesToRadians(30.0));
+		TestTrue(TEXT("anchor turned 30° → the shoulder line turns with it"),
+			AnimMcpBodyClearance::AnchoredLateral(Turn * AnchorRef, AnchorRef, RefLateral).Equals(Turn.RotateVector(RefLateral), 1e-9));
+		// 손 지도: 어깨선 기준(규칙 1)이면 손 · 아래팔이 팔 축 둘레로 비틀린 만큼 칸 나눔이 손에 대해 돈다(어깨선을 축에 직교화한 방향은 비틀림을 모른다),
+		// 손목 · 팔꿈치에 붙이면(규칙 2) 손 기준 칸 나눔이 그대로
+		const FQuat Swing(FVector::ForwardVector, FMath::DegreesToRadians(40.0));
+		const FVector Elbow(-25.0, 0.0, 0.0), Tip(10.0, 0.0, 0.0);
+		AnimMcpBodyClearance::FArmAxes Rest, Moved1, Moved2;
+		Rest.Init(Elbow, FVector::ZeroVector, Tip, FVector(0.0, 1.0, 0.0), FVector(0.0, 1.0, 0.0));
+		// 어깨선은 그대로(+Y) — 손 · 아래팔만 팔 축(+X) 둘레로 40° 비틀린 자세
+		Moved1.Init(Swing.RotateVector(Elbow), FVector::ZeroVector, Swing.RotateVector(Tip), FVector(0.0, 1.0, 0.0));
+		Moved2.Init(Swing.RotateVector(Elbow), FVector::ZeroVector, Swing.RotateVector(Tip),
+			AnimMcpBodyClearance::AnchoredLateral(Swing, FQuat::Identity, FVector(0.0, 1.0, 0.0)), AnimMcpBodyClearance::AnchoredLateral(Swing, FQuat::Identity, FVector(0.0, 1.0, 0.0)));
+		TestTrue(TEXT("anchored hand map: the angle basis moves with the hand"), Moved2.Hand.X.Equals(Swing.RotateVector(Rest.Hand.X), 1e-9) && Moved2.Forearm.X.Equals(Swing.RotateVector(Rest.Forearm.X), 1e-9));
+		TestFalse(TEXT("shoulder-line hand map: the angle basis does not follow the hand"), Moved1.Hand.X.Equals(Swing.RotateVector(Rest.Hand.X), 1e-3));
 	}
 
 	// ---- 몸통 칸 · 내보내기 인코딩 ----

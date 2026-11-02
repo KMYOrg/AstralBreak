@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 import pathlib
 
-from .. import bvh, motion_metrics, selection, timing
+from .. import body_model, bvh, motion_metrics, selection, timing
 from .. import segments as segments_mod
 from .. import weapon as weapon_mod
 from ..editor import EditorCallError, asset_name, package_path
@@ -1020,8 +1020,9 @@ class RetargetPipe(Provider):
             if rt.get("source_feet"):
                 params["source_feet"] = rt["source_feet"]
             if clearance != "off":
-                # parts · per_frame(8-4a 옵트인 — arms[] 는 그대로) = 메시 머리목 깊은 관통(head_deep)
-                params["body_clearance"] = {"mesh": rt["target_mesh"], **({"ik_rig": target_rig} if target_rig else {}), "parts": "all", "per_frame": True}
+                # parts · per_frame(8-4a 옵트인 — arms[] 는 그대로) = 메시 머리목 깊은 관통(head_deep), 지도 규칙은 body_fit 과 같은 원천(9-4a)
+                params["body_clearance"] = {"mesh": rt["target_mesh"], **({"ik_rig": target_rig} if target_rig else {}), "parts": "all", "per_frame": True,
+                                            "map_rule": body_model.MAP_RULE}
             if weapon:
                 params["profile_rotations"] = True   # 자루 기록 — 부착 본 컴포넌트 회전
             validated = editor.require("validate_animation", **params).get("assets") or []

@@ -261,6 +261,9 @@ class BodyFitPipe(Provider):
             out["legs"] = True
         if c["secondary"] == "record":
             out["include_secondary"] = True
+        if c["map_rule"] >= 2:
+            # 9-4a — 지도 = 기준 본 강체(C++ 옵트인 · 이 파이프의 기본): 풀이 모델과 C++ 측정이 같은 규칙. 1 은 키를 안 보낸다(8-4a 요청 그대로)
+            out["map_rule"] = c["map_rule"]
         if per_frame:
             out["per_frame"] = True
         if model:

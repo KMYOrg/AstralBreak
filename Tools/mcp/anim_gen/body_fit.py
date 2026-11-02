@@ -36,7 +36,9 @@
              ω × (가중 점 − 관절). 몸통 · 넓적다리 지도는 clearance.allow_contact(기본)면 맞닿음(깊이 ≤ contact_cm)까지 정상(손끼리와 같은
              규칙 — 관통 = max(0, 깊이 − contact), CONTACT_MAPS), 머리목 · allow_contact 끔은 margin 만큼 떼어 둔다(max(0, 깊이 + margin)).
   지도     —지도마다 기준 본(몸통 = t 칸별 펠비스 · 척추 마디, 넓적다리 = 넓적다리, 머리 = 목 뿌리 · 머리, 손 = 손목, 아래팔 = 팔꿈치)에 붙어 강체로
-             따라간다: 풀이 포즈의 점을 T원래(기준 본) · T풀이(기준 본)⁻¹ 로 되돌려 원래 지도에 묻는다. 기준 본이 안 움직이면 C++ 규칙 그대로.
+             따라간다: 풀이 포즈의 점을 T원래(기준 본) · T풀이(기준 본)⁻¹ 로 되돌려 원래 지도에 묻는다. 기준 본이 안 움직이면 C++ 규칙 그대로 —
+             지도 규칙 2(9-4a, clearance.map_rule 기본 — C++ 지도도 기준 본 강체)에서. 규칙 1 모델이면 C++ 지도가 팔 사슬 가중 정점 · 그 자세의
+             어깨선을 따라 바뀌어 근사다(마무리 동안만 live_lateral 로 각도 칸을 C++ 처럼).
   한 프레임 — 감쇠 GN(LM, μ 0.1 시작) ≤ 12 회 · 한 걸음 ≤ 8°(상한을 넘는 관절은 그 걸음만 상한까지), 후보 점 = 깊이 > −(margin + 3 cm).
   시간     — 관통 몫 Δ 만 가중 매끈화 스플라인(spline — 하드 잔차로 푼 프레임 가중 SPLINE_ACTIVE_WEIGHT · 그 밖 SPLINE_QUIET_WEIGHT,
              2차 차분 벌점, 보정 구간 ± 2·폭 밖 0) → S(Δ). 원본이 루프(validate numeric.loop — C++ bLoop)면 순환(끝 프레임 = 첫 프레임 —
@@ -73,7 +75,7 @@ VERSION = 1
 DEFAULTS = {
     "mode": "auto",
     "clearance": {"mode": "auto", "margin_cm": 0.5, "allow_contact": True, "hands": True, "upper_arm": "cap", "upper_cap_cm": 4.0, "secondary": "record",
-                  "legs": False},
+                  "legs": False, "map_rule": bm.MAP_RULE},
     "grip": {"mode": "auto", "lead_hand": "right", "window": None, "spacing_cm": None, "tolerance_cm": None, "blend_s": None, "wrist_bend_max_deg": None},
     "legs": {"pins": "auto", "swing_path": "auto", "soft_knee": {"start": 0.97, "softness": 0.03}},
     "joints": {"clavicle_deg": 10.0, "upper_arm_deg": 45.0, "elbow_deg": 60.0, "wrist_deg": 30.0, "spine_deg": 0.0, "spine_deg_for_targets": 20.0,
@@ -222,6 +224,10 @@ def normalize(raw) -> dict | None:
                            "rifle idle sits at 4.0 ~ 4.6 cm and does not read as penetration)")
     if c["secondary"] not in ("record", "off"):
         raise BodyFitError("fix.body.clearance.secondary", "must be record | off (secondary branches — coat flaps — are measured, never constrained)")
+    if c["map_rule"] not in (1, 2) or isinstance(c["map_rule"], bool):
+        raise BodyFitError("fix.body.clearance.map_rule", "must be 2 (default — body maps rigid with their anchor bones: arm-chain weighted shoulder · armpit "
+                           "vertices handled, angle zero carried by the anchor — the solver model and the C++ measurement follow one rule) or 1 (8-4a maps, "
+                           "rebuilt from each edited pose — comparison only)")
     if g["mode"] not in ("auto", "weapon", "keep", "off"):
         raise BodyFitError("fix.body.grip.mode", "must be auto | weapon | keep | off (auto = keep inside the grip band — the weapon grip is opt-in: "
                            "weapon, with the request weapon's grip for the other hand)")
@@ -1930,7 +1936,9 @@ class Solver:
             orig = self.model.poses[f][anchor]
             q = _rel_point(orig, pose[anchor], p)
             back = bm.qmul(pose[anchor][0], bm.qconj(orig[0]))
-        hit = mp.depth(f, q, min_t, self._lateral_x(mp, f, pose, back) if self.live_lateral else None)
+        # 지도 규칙 2 모델은 각도 0 방향이 이미 기준 본에 붙어 있다(C++ 와 같은 칸) — 그 자세의 어깨로 다시 잡지 않는다
+        live = self.live_lateral and self.model.map_rule < 2
+        hit = mp.depth(f, q, min_t, self._lateral_x(mp, f, pose, back) if live else None)
         if hit is None:
             return None
         ax = mp.axes[f]
@@ -1942,9 +1950,10 @@ class Solver:
         return hit[0], n, anchor, hit[1]
 
     def _lateral_x(self, mp, f: int, pose, back):
-        """C++ 와 같은 지도 각도 0 방향 — 그 자세의 어깨(upperarm_l − upperarm_r, 기준 본이 움직였으면 원래 자리로 되돌린 방향)를 축에 수직으로. 원래
-        자세면 저장된 축 x 와 같다(실제 모델 8 지도 차 ≤ 1e-6). 모델 지도는 원래 축을 기준 본 강체로 따라가므로 쇄골을 옮긴 프레임은 C++ 칸 나눔과
-        1 ~ 2° 어긋난다 — 칸 경계 점은 반경이 크게 다른 칸에 든다(s25 f55 검지 — 모델 −2.13 · C++ +2.81 cm). 반경은 모델 지도의 같은 번호 칸."""
+        """(지도 규칙 1 모델만) C++ 와 같은 지도 각도 0 방향 — 그 자세의 어깨(upperarm_l − upperarm_r, 기준 본이 움직였으면 원래 자리로 되돌린 방향)를
+        축에 수직으로. 원래 자세면 저장된 축 x 와 같다(실제 모델 8 지도 차 ≤ 1e-6). 모델 지도는 원래 축을 기준 본 강체로 따라가므로 쇄골을 옮긴 프레임은
+        C++ 칸 나눔과 1 ~ 2° 어긋난다 — 칸 경계 점은 반경이 크게 다른 칸에 든다(s25 f55 검지 — 모델 −2.13 · C++ +2.81 cm). 반경은 모델 지도의 같은 번호
+        칸. 규칙 2(9-4a)는 C++ 도 각도 0 방향을 기준 본에 붙여 이 보정이 필요 없다(probe 가 끈다)."""
         lat = _sub(pose[self.rig.arms["l"]["upper"]][1], pose[self.rig.arms["r"]["upper"]][1])
         if back is not None:
             lat = bm.qrot(bm.qconj(back), lat)

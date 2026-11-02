@@ -14,6 +14,10 @@ C++ 측정과 같은 규칙으로 깊이를 다시 계산한다(8-4b 의 한 풀
   델타      — bone_deltas 와 같은 뜻: 새 로컬 회전 = Q(Δ) ⊗ 원래(부모 공간 회전 벡터, 관절 그대로), 이동 = 원래 + Δ → 그 본과 자손만 다시 FK.
 
 모델의 몸 지도는 프레임마다 C++ 가 대상 메시 스킨으로 만든 것이라, 팔 · 다리를 옮기는 동안(몸통 · 척추가 그대로면) 그대로 쓴다.
+
+지도 규칙(9-4a — model.map_rule, 없으면 1): 1 = C++ 가 편집된 자세마다 지도를 다시 만든다(몸통 · 머리목 정점 중 팔 사슬 가중을 가진 어깨 · 겨드랑이가 팔과
+함께 움직이고, 각도 0 방향 = 그 자세의 어깨선). 2 = 지도가 그 지도 기준 본에 강체(팔 사슬 가중 > 상한 정점은 빼고 나머지는 팔 사슬 영향을 뗀 스킨,
+각도 0 방향 = 기준 포즈 어깨선을 기준 본에 붙인 것) — 위 '팔 · 다리를 옮기는 동안 그대로' 가 규칙 그대로 맞는다. 파이프라인(body_fit · select)은 2 를 요청한다(MAP_RULE).
 """
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ import math
 import struct
 
 VERSION = 1
+MAP_RULE = 2   # 파이프라인이 C++ body_clearance 에 요청하는 지도 규칙(9-4a — 기준 본 강체 지도). 1 = 8-4a 규칙(대조용)
 ARM_PARTS = ("hand", "forearm", "upper_arm")
 LEG_PARTS = ("thigh", "calf")
 BODY_PARTS = ("pelvis", "belly", "chest", "thigh_l", "thigh_r", "head_neck")
@@ -219,6 +224,7 @@ class BodyModel:
         if int(model.get("version") or 0) != VERSION:
             raise ModelError(f"model version {model.get('version')} (this reader knows {VERSION})")
         self.raw = model
+        self.map_rule = int(model.get("map_rule") or 1)
         self.frames = [int(f) for f in model["frames"]]
         self.times = [float(t) for t in model["times"]]
         self.fps = float(model["fps"])

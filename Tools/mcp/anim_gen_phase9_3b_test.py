@@ -8,11 +8,13 @@ Saved/AnimGen/TestRuns/P93bRun<시각>/ 에, 새 애셋은 /Game/Animation/Test/
 Kimodo 1건 ≈ RAM 15 GB — 생성 섹션은 순서대로 한 건씩.
 섹션:
   hashes   — (맨 앞) 대상 스켈레톤 · 메시 · 원천 운영 애니 .uasset SHA-256 · Content/ git 상태 · 미저장 패키지 수
-  ee       — 9-3a ee 재현: 운영 낫 Attack1 정점의 오른손 · 왼발 · 오른발 end-effector 키(생성 1.2초 · pass1, 같은 seed — Kimodo 는 결정적)
+  ee       — 운영 낫 Attack1 정점의 오른손 · 왼발 · 오른발 end-effector 키(생성 1.2초 · pass1, 같은 seed — Kimodo 는 결정적). 9-3b 부터 이 계획이
+             자유 손 고정을 기본으로 넣어 9-3a 값(14.35°)이 아니라 9-3b 채택값(오른손 회전 5.86°)을 재현한다
   e0wrist  — ⓪ E0(제품 코드 무변경): ee 의 Kimodo 실행을 같은 인자로 다시 돌려(스무딩 함수만 감싸 스무딩 전 출력을 남긴다) 1차 · 스무딩 전 · 후의
              프레임별 오른 손목 굽힘(아래팔 ↔ 손 — motion_metrics.bends 정의) · 비틀기 · 손 각속도 · 키 손 회전과의 차, 키 프레임 아래팔 차
   vwrist   — ⓪ E0: ee 최종 Vesper 의 프레임별 오른 손목 굽힘(lowerarm_r → hand_r → middle_01_r) · 운영 Attack1 정점의 굽힘(기준)
   dirty    — (맨 뒤) 해시 불변 · 미저장 수 그대로 · Content/ 변경은 이번 실행 폴더뿐
+⓪ E0 섹션(ee · e0wrist · e0twist · vwrist · e0capture · eehold — 9-3b 착수 전 진단)은 기본 --only 에서 빠진다(명시할 때만, phase8_4 baseline 과 같은 방식).
 생성 섹션의 seed 는 --seed(기본 20261025). 요약은 Tools/mcp/anim_gen_phase9_3b_state.json(섹션 단위로 덮어쓴다).
 """
 from __future__ import annotations
@@ -53,6 +55,10 @@ SCYTHE_PROMPT = ("A person holds a long-handled scythe with both hands, raises i
                  "then returns to a fighting stance.")  # 8-1 낫 기준 프롬프트
 BODY = ["hand_l", "hand_r", "thigh_l", "thigh_r", "foot_l", "foot_r", "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "head"]
 WRIST_R = ["lowerarm_r", "hand_r", "middle_01_r"]   # Vesper 오른 손목 굽힘(아래팔 → 손 → 가운데 손가락 뿌리)
+# ⓪ E0 섹션 — 기본 --only 에서 뺀다(진단은 끝남). 기대값은 지금 기본(키 2차 자유 손 고정)에 맞춘다 — 지침서 §14 '9-3b' ⓪ 표
+E0_SECTIONS = ("ee", "e0wrist", "e0twist", "vwrist", "e0capture", "eehold")
+EE_HAND_ROT_DEG = 5.86      # ee 오른손 키 회전 p50 — 채택(키 ± 15 프레임 묶음) 행
+TWIST_DIP_9_3A_DEG = -91.0  # 묶음 없는 9-3a ee 의 왼손목 비틀기 이탈(f15 ~ 35, 1차 f10 기준) — ee 도 이제 묶이므로 고정 효과는 이 기록과 비교
 FAILS: list[str] = []
 STATE: dict = {"run": RUN, "state_dir": STATE_DIR.as_posix(), "out": OUT.as_posix()}
 SERVICE = Service(store=Store(STATE_DIR))
@@ -351,7 +357,7 @@ def section_hashes() -> None:
 
 def section_ee() -> None:
     t_star = strike()
-    print(f"== ee — right hand · left foot · right foot end-effector keys at {AT}s from the Attack1 strike ({t_star}s) — 9-3a reproduction")
+    print(f"== ee — right hand · left foot · right foot end-effector keys at {AT}s from the Attack1 strike ({t_star}s) — free hand held (9-3b default)")
     req = gen_request("AS_Vesper_Sickle_KeyHandFeet", SCYTHE_PROMPT, "Sickle",
                       [{"type": "key_pose", "asset": ATTACK1, "times": [t_star], "at": [AT], "part": part} for part in ("right_hand", "left_foot", "right_foot")])
     _, job, seconds = run_job(req, "ee")
@@ -364,8 +370,8 @@ def section_ee() -> None:
                    "placements": (sample.get("key_pose") or {}).get("placements"), "smooth": (sample.get("key_pose") or {}).get("smooth"),
                    "npz": sample.get("npz"), "pass1_npz": sample.get("pass1_npz"), "args": (pathlib.Path(sample["npz"]).parent / "args.json").as_posix()}
     hand = next((r for r in follow if r["part"] == "right_hand"), None)
-    check(hand is not None and abs(hand["rotation_deg"]["p50"] - 14.35) < 0.5,
-          f"ee reproduces the 9-3a record (right-hand rotation {(hand or {}).get('rotation_deg')}° vs 14.35°)")
+    check(hand is not None and abs(hand["rotation_deg"]["p50"] - EE_HAND_ROT_DEG) < 0.5,
+          f"ee reproduces the 9-3b record (right-hand rotation {(hand or {}).get('rotation_deg')}° vs {EE_HAND_ROT_DEG}° — free hand held)")
 
 
 def section_e0wrist() -> None:
@@ -472,7 +478,7 @@ def section_vwrist() -> None:
 
 def section_eehold() -> None:
     """⓪ 수정 확인 — ee 와 같은 요청(같은 seed)을 9-3b 자유 손 고정(키 2차가 왼손을 1차에 묶는다)으로 다시: 왼손목 비틀기(SOMA · Vesper) · 오른손 키 추종 ·
-    0.6 ~ 1.6초 비교 캡처(고정 | 9-3a)."""
+    0.6 ~ 1.6초 비교 캡처(고정 | ee). 9-3b 부터 ee 도 같은 계획이라 묶음 없는 값은 9-3a 기록과 비교한다."""
     ee = STATE.get("ee") or previous().get("ee")
     t_star = strike()
     print(f"== eehold — ee with the free (left) hand held to pass 1 in the keyed pass")
@@ -502,7 +508,9 @@ def section_eehold() -> None:
         print(f"   left twist dip f15 ~ f35 (vs pass-1 f10 {base}°): {dip}")
         rec["twist"] = {n: {s: {k: v for k, v in r.items() if k not in ("bend", "twist")} for s, r in tw[n].items()} for n in tw}
         rec["twist_dip"] = dip
-        check(dip["hold"] >= dip["before"] + 10.0, f"holding the free hand cuts the keyed left-wrist twist dip {dip['before']}° → {dip['hold']}° (pass 1 {dip['pass1']}°)")
+        # ee 도 9-3b 부터 같은 계획(자유 손 고정)이라 before = hold — 묶음 없는 값은 9-3a 기록(TWIST_DIP_9_3A_DEG)과 비교한다
+        check(dip["hold"] >= TWIST_DIP_9_3A_DEG + 10.0,
+              f"holding the free hand cuts the keyed left-wrist twist dip {TWIST_DIP_9_3A_DEG}° (9-3a record) → {dip['hold']}° (pass 1 {dip['pass1']}° · ee {dip['before']}°)")
     rows = vesper_bends(rec["final"])
     rec["vesper"] = {"left_twist_range": [min(r["twist_l"] for r in rows if r.get("twist_l") is not None), max(r["twist_l"] for r in rows if r.get("twist_l") is not None)],
                      "bend_r_at_key": next((r["bend_r"] for r in rows if abs(r["t"] - AT) < 1e-3), None)}
@@ -512,12 +520,12 @@ def section_eehold() -> None:
     if ee:
         before = dirty_count()
         times = [0.6, 0.767, 0.867, 0.933, 1.033, 1.2, 1.4, 1.6]
-        b = capture(OUT / "eehold_before", ee["final"], "9-3a ee (no hold)", times=times)
+        b = capture(OUT / "eehold_before", ee["final"], "ee (held — 9-3b default)", times=times)
         rows_b: dict[int, list[str]] = {}
         for f in sorted(b["frames"], key=lambda f: (f["row"], f["view"] != "front")):
             rows_b.setdefault(f["row"], []).append(f["path"])
         c = capture(OUT / "eehold", rec["final"], "9-3b ee (free hand held)", times=times, sequence={"fps": 30, "start": 0.5, "end": 1.7},
-                    compare={"label": "9-3a ee", "rows": [rows_b[r] for r in sorted(rows_b)]})
+                    compare={"label": "ee", "rows": [rows_b[r] for r in sorted(rows_b)]})
         rec["capture"] = {"compare": (c.get("compare") or {}).get("path"), "apng": (c.get("animation") or {}).get("path"), "times": times}
         print(f"   capture {rec['capture']}")
         check(dirty_count() == before, f"captures dirtied nothing ({before})")
@@ -823,7 +831,7 @@ SECTIONS = {"hashes": section_hashes, "ee": section_ee, "e0wrist": section_e0wri
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--only", default=",".join(SECTIONS), help="comma separated: " + ",".join(SECTIONS))
+    ap.add_argument("--only", default=",".join(s for s in SECTIONS if s not in E0_SECTIONS), help="comma separated: " + ",".join(SECTIONS))
     ap.add_argument("--seed", type=int, default=SEED, help=f"seed (default {SEED})")
     args = ap.parse_args()
     globals().update(SEED=args.seed)

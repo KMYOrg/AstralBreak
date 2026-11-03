@@ -9,10 +9,10 @@ Saved/AnimGen/TestRuns/P81Run<시각>/ 에 격리한다. 기준 = Kimodo 칼 휘
 한 건씩만 돌린다.
 섹션:
   hashes — (맨 앞) 유지 애셋 · 대상 스켈레톤 · 메시 .uasset SHA-256 · Content/ git 상태 · 미저장 패키지 수
+  plan   — 플래그 · 후보 계획: 2차 생성 규칙 · seed 목록 · 기한 · select 단계 · 한계 교체 · 관통 measure — Kimodo 안 띄움 · 애셋 0 · 더티 0.
+           플래그 · 후보가 없으면 사슬 · 관통 기본값이 개정 10 과 같다(이번 실행 폴더가 없어야 하니 애셋을 만드는 섹션보다 앞에)
   exp1   — 첫 실험 E1: 기준 시험과 같은 요청 + retarget.body_clearance measure → 유지 애셋(resolve)과 같은 profile 로 손목 간격 · 왼 손목 이동 ·
            위팔 방향 차 · 관통을 비교해 "보정이 파지를 깼다 / 파지 없음" 을 판정하고, 관통이 기록의 보정 전 값과 같으면 같은 seed 결정성도 확인
-  plan   — 플래그 · 후보 계획: 2차 생성 규칙 · seed 목록 · 기한 · select 단계 · 한계 교체 · 관통 measure — Kimodo 안 띄움 · 애셋 0 · 더티 0.
-           플래그 · 후보가 없으면 사슬 · 관통 기본값이 개정 10 과 같다
   refine — E2 ①: 같은 프롬프트 + two_hand_weapon_grip · foot_contact · meet, 후보 1(seed 20261025) → 소스(1 → 2차)와 Vesper 양쪽 파지 · 접지 발 ·
            비파지 관통 상한 · 최종 = 잰 후보
   lead   — E2': ① 과 같은 seed, grip.target lead (비교용)
@@ -1022,7 +1022,8 @@ def section_dirty() -> None:
         STATE["content_new"] = new
 
 
-SECTIONS = {"hashes": section_hashes, "exp1": section_exp1, "plan": section_plan, "refine": section_refine, "lead": section_lead,
+# 기본 --only 는 이 순서 — plan 은 '실행 폴더 없음'까지 보므로 애셋을 만드는 섹션(exp1 …)보다 앞에(9-4 끝 묶음 회귀에서 밟음)
+SECTIONS = {"hashes": section_hashes, "plan": section_plan, "exp1": section_exp1, "refine": section_refine, "lead": section_lead,
             "select": section_select, "recompute": section_recompute, "regrip": section_regrip, "rescore": section_rescore, "scythe": section_scythe,
             "e3": section_e3,
             "dirty": section_dirty}

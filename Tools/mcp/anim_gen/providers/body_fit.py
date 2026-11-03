@@ -77,8 +77,10 @@ class BodyFitPipe(Provider):
         produces = cfg["mode"] == "auto"
         inputs = {**copy.deepcopy(cfg), "mesh": request["target_mesh"], "loop": request["loop"], "root_motion": root_motion_flag(request),
                   "bones": None, "produces": produces}
-        # 다리 공중 경로(8-4d) — auto 는 이 Job 의 fix.ops 에 다리 op(stance_width · foot_lock)가 있을 때만 켠다(계획에 이유와 함께 보인다)
-        inputs["legs_swing"] = body_fit.swing_mode(cfg["legs"], request["fix"].get("ops"))
+        # 다리 공중 경로(8-4d) — auto 는 이 Job 의 fix.ops 에 다리 op(stance_width · foot_lock)가 있을 때만 켠다(계획에 이유와 함께 보인다).
+        # 접지 고정(9-4d) — auto 는 fix.timing 과 다리 op 가 함께 있을 때만 hold(공중 경로도 켠다)
+        modes = body_fit.leg_modes(cfg["legs"], request["fix"].get("ops"), request["fix"].get("timing"))
+        inputs["legs_swing"], inputs["legs_pins"] = modes["swing"], modes["pins"]
         # 빠른 구간 매끈화(8-4e) — auto 는 이 Job 이 fix.timing 을 돌릴 때만 켠다
         inputs["smooth_fast"] = body_fit.smooth_mode(cfg["smooth_speed"], request["fix"].get("timing"))
         # 무기(8-4c) — 파지 모드는 요청 grip.mode + 요청 weapon 으로 정한다(무기가 없으면 지금 그대로)
@@ -169,6 +171,16 @@ class BodyFitPipe(Provider):
         샘플 전이 묶음을 풀 때(템플릿 체인 · 손 트리)."""
         return bool(inputs.get("weapon")) or (inputs["produces"] and ((inputs.get("grip_mode") or inputs["grip"]["mode"]) != "off"
                                                                       or bool(inputs.get("pose_from"))))
+
+    @staticmethod
+    def needs_balls(inputs: dict, pose_from: list | None = None) -> bool:
+        """발볼 오프셋(9-4d — 발끝 접지 · 바닥 · 발 회전 중심, 대상 메시 기준 포즈)이 필요한가 — 다리 경로가 켜졌거나 발 회전 목표 · 다리 샘플 전이가
+        있을 때. needs_target_info 와 따로 — 그것을 넓히면 다리만 고치는 Job 의 손가락 뿌리(손목 상한)까지 바뀐다."""
+        if not inputs["produces"]:
+            return False
+        legs = any(n in body_fit.LEG_PRESETS for p in (pose_from if pose_from is not None else inputs.get("pose_from") or []) for n in p.get("bones") or [])
+        feet = any(t["effector"] in ("foot_l", "foot_r") and t.get("rotation") for t in inputs.get("targets") or [])
+        return bool((inputs.get("legs_swing") or {}).get("on") or legs or feet)
 
     @staticmethod
     def inspect_target(editor, request: dict, step: str = "body_fit") -> dict:
@@ -395,6 +407,7 @@ class BodyFitPipe(Provider):
         mode = inputs.get("grip_mode") or inputs["grip"]["mode"]
         pose_from = copy.deepcopy(inputs.get("pose_from") or [])
         pf_items: list = []
+        target_info, balls = None, {}
         try:
             need_weapon = bool(inputs.get("weapon")) and not inputs.get("weapon_resolved")
             need_bundles = any(p.get("resolved_bones") is None for p in pose_from)
@@ -406,6 +419,9 @@ class BodyFitPipe(Provider):
                     inputs["weapon_resolved"] = self.resolve_weapon(editor, request, target_info=target_info)
                 if need_bundles:
                     self.resolve_bundles({"pose_from": pose_from}, target_info)
+            if self.needs_balls(inputs, pose_from):
+                # 발볼(9-4d) — 대상 메시 기준 포즈의 발 → 발 자식 본 오프셋(몸 모델에는 발볼 본이 없다)
+                balls = body_fit.ball_offsets(target_info if target_info is not None else self.inspect_target(editor, request), rig)
             wrig = self.weapon_rig(rig, {**inputs, "grip_mode": mode})
             if pose_from:
                 # 샘플 전이(8-4c c2) — 샘플마다 같은 측정(대상 메시 몸 모델 · 사건 — 한 원천) → 구간 · 묶음 본 · 프레임별 샘플 로컬
@@ -428,18 +444,23 @@ class BodyFitPipe(Provider):
             if t.get("skipped"):
                 limitations.append(limitation("TARGET_NOT_REACHED", f"지시 목표 '{t['id']}' 를 건너뛰었다 — {t['skipped']['message']}", "body_fit", id=t["id"],
                                               reason=t["skipped"]["reason"], blocked_by=[]))
-        # 다리 공중 경로(8-4d) — 켜졌으면 접지(대상 발목 — summary 와 같은 정의 · leg_cm) 사이 구간의 발목 목표를 먼저 짠다(팔 상태와 무관 — 골반 고정)
+        # 다리 공중 경로(8-4d) — 켜졌으면 접지(대상 발목 — summary 와 같은 정의 · leg_cm) 사이 구간의 발목 목표를 먼저 짠다(팔 상태와 무관 — 골반 고정).
+        # 접지 고정(9-4d hold)이면 접지 프레임도 목표(발목 수평 고정 · 발끝 접지 발볼 잇기), 공중 프레임은 바닥 아래로 원래보다 내려가지 않는다
         legs_cfg = inputs.get("legs") or copy.deepcopy(body_fit.DEFAULTS["legs"])
-        swing = inputs.get("legs_swing") or body_fit.swing_mode(legs_cfg, [])
+        if inputs.get("legs_swing") and inputs.get("legs_pins"):
+            swing, pins = inputs["legs_swing"], inputs["legs_pins"]
+        else:
+            modes = body_fit.leg_modes(legs_cfg, [], None)
+            swing, pins = inputs.get("legs_swing") or modes["swing"], inputs.get("legs_pins") or modes["pins"]
         leg_path = None
         if swing["on"]:
             t_l = time.time()
-            leg_path = body_fit.swing_paths(rig, legs_cfg, loop=loop, leg_cm=(inputs["bones"].get("leg_dims") or {}).get("leg_cm"))
+            leg_path = body_fit.swing_paths(rig, legs_cfg, loop=loop, leg_cm=(inputs["bones"].get("leg_dims") or {}).get("leg_cm"), hold=pins["on"], balls=balls)
             seconds["legs"] = round(time.time() - t_l, 2)
         smooth = inputs.get("smooth_fast") or body_fit.smooth_mode(inputs.get("smooth_speed", "auto"), None)
         t1 = time.time()
         solved = body_fit.solve(model, inputs, grip=grip, targets=targets, loop=loop, weapon=wrig, fingers=inputs.get("fingers"), pose_from=pf_items,
-                                leg_path=leg_path, smooth_fast=smooth["on"])
+                                leg_path=leg_path, smooth_fast=smooth["on"], balls=balls)
         seconds["solve"] = round(time.time() - t1, 2)
         op = body_fit.bone_deltas_op(solved)
         t2 = time.time()
@@ -480,13 +501,15 @@ class BodyFitPipe(Provider):
             "passes": solved["passes"], "stats": solved["stats"], "targets": solved["targets"],
             # 샘플 전이(8-4c c2) — 항목마다 풀린 묶음 · 구간 · 정렬 · 덮은 자세 대비 각 · 막힌 본(건너뛴 항목은 skipped). 없으면 []
             "pose_from": self.pose_from_record(pf_items, solved.get("pose_from") or []),
+            # 다리 샘플 전이(9-4d U6-c) — 쪽마다 덮은 프레임 · 접지(pin) · 공중 · 다시 푼 공중 구간. 없으면 []
+            "leg_samples": solved.get("leg_samples") or [],
             # 지시 목표 블록(완급 > 0 — 그 밖은 목표 없는 해 그대로) · 블록 재검사 패스 · 블록 풀이 수. 목표 없으면 None
             "target_region": solved.get("region"),
             # 루프 이음매 — 풀이의 첫 · 끝 델타 차(°, 루프면 0) · C++ 첫 · 끝 포즈 차(전 → 후)
             "loop": {"source": loop, "seam_deg": solved["loop"]["seam_deg"],
                      "boundary_max_deg": [before.get("loop_boundary_max_deg"), after.get("loop_boundary_max_deg")]},
             # 다리(8-4d) — 공중 경로 켬 여부 · 이유 · 소프트 무릎 · 구간별 모델 수치(없으면 windows 빈 목록) · 무릎 굽힘 전후(C++ 프로필)
-            "legs": {"pins": legs_cfg["pins"], "swing_path": swing, "soft_knee": legs_cfg["soft_knee"], "clearance_mode": inputs["clearance"].get("mode", "auto"),
+            "legs": {"pins": pins, "swing_path": swing, "soft_knee": legs_cfg["soft_knee"], "clearance_mode": inputs["clearance"].get("mode", "auto"),
                      **(solved.get("leg_path") or {"windows": [], "skipped": [], "frames": []}),
                      "knee_bend": {"before": (before.get("feet") or {}).get("knee_bend"), "after": (after.get("feet") or {}).get("knee_bend")}},
             # 빠른 구간 매끈화(8-4e) — 켬 여부 · 이유 · 폭을 줄인 프레임 수 · 최소 배율(켰어도 손이 기준보다 느리면 frames 0)
@@ -494,17 +517,26 @@ class BodyFitPipe(Provider):
             # 위팔 마무리(8-4f · 9-4b 손 부근 마무리) — 방식 · 상한(cm, × scale 전) · 위팔이 상한을 넘던 프레임 수 · 위팔 방향 변화 최대 · 팔꿈치 이동 · 상한까지
             # 못 뺀 프레임 수와 그 남은 깊이(모델)
             "upper_arm": self.upper_record(inputs["clearance"], solved["stats"].get("upper_finish")),
-            # 손 부근 마무리(9-4b) — 처리 프레임 · 위팔 > 상한 · 팔 교차 · 궤도 둘째 출발점을 쓴 프레임 수
-            "hand_finish": {k: len(v) for k, v in (solved["stats"].get("hand_finish") or {}).items()},
+            # 손 부근 마무리(9-4b) — 처리 프레임 · 위팔 > 상한 · 팔 교차 · 궤도 둘째 출발점을 쓴 프레임 · 매끈화 뒤 마무리 해에 고정한 프레임(9-4c) 수
+            "hand_finish": {**{k: len(v) for k, v in (solved["stats"].get("hand_finish") or {}).items()}, "smooth": inputs.get("finish_smooth", True)},
+            # 국소 수렴(9-4c U5-c) — 켬 · 그 프레임 풀이에 고정한 프레임 · 건너뛴 길거나 깊은 구간 [첫, 끝, 깊이 cm]
+            "converge": {"on": inputs.get("converge", True), "frames": (solved["stats"].get("converge") or {}).get("frames") or [],
+                         "skipped": (solved["stats"].get("converge") or {}).get("skipped") or []},
         })
         lp = solved.get("leg_path") or {}
         if lp.get("windows"):
             w = lp["windows"]
             zz = [x["zigzag_model"] for x in w if x["zigzag_model"][0] is not None]
-            limitations.append(limitation("LEGS_PATH_REDESIGNED", f"공중 발 경로 {len(w)} 구간({len(lp['frames'])} 프레임)을 다시 짰다 — 접지 프레임은 원래 키 그대로, "
-                                          f"발목 이동 최대 {max(x['ankle_moved_cm_max'] for x in w)} cm"
+            limitations.append(limitation("LEGS_PATH_REDESIGNED", f"공중 발 경로 {len(w)} 구간({len(lp['frames'])} 프레임)을 다시 짰다 — 접지 프레임은 "
+                                          + ("고정값(hold)" if lp.get("hold") else "원래 키 그대로") + f", 발목 이동 최대 {max(x['ankle_moved_cm_max'] for x in w)} cm"
                                           + (f", 모델 무릎 · 발목 떨림 최대 {max(z[0] for z in zz)} → {max(z[1] for z in zz)}" if zz else "")
                                           + " — 발이 지나는 길이 바뀐다(판정은 사람 — 옆 모습 캡처)", "body_fit", windows=len(w), frames=len(lp["frames"])))
+        if lp.get("hold"):
+            hs = lp["hold"]["sides"]
+            limitations.append(limitation("LEGS_PINS_HELD", f"접지 발목 수평을 구간마다 한 점에 고정했다({pins['reason']}) — 구간 {sum(s['runs'] for s in hs)} · "
+                                          f"{sum(s['frames'] for s in hs)} 프레임 · 발끝 접지(발볼 잇기) {sum(s['toe_frames'] for s in hs)} 프레임, 수평 이동 최대 "
+                                          f"{max((s['moved_cm_max'] for s in hs), default=0.0)} cm · pin 오차 {lp['hold']['pin_error_cm_max']} cm. 높이 · 발 회전은 원래 그대로",
+                                          "body_fit", frames=sum(s["frames"] for s in hs), toe_frames=sum(s["toe_frames"] for s in hs)))
         for s in lp.get("skipped") or []:
             limitations.append(limitation("LEG_PATH_SKIPPED", f"공중 경로를 다시 짜지 않은 다리 {s.get('side') or '양쪽'} — {s['reason']}"
                                           " (맞출 접지 경계가 없다)", "body_fit", side=s.get("side"), reason=s["reason"]))

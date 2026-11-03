@@ -2,7 +2,7 @@
 척추 3마디 · 목 · 머리 · 두 다리 · 손 · 아래팔 지도(hands).
 
 골격(기준 포즈 로컬 회전 = 항등 — 점 영향 로컬 위치 = 점 − 본 기준 위치): 몸 왼쪽 = +X, 앞 = +Y, 위 = +Z(Vesper 와 같다). 팔은 몸 옆(x ±18)으로 내려뜨림.
-프레임 = {본: 부모 공간 회전 벡터(°)} · 선택 "pelvis_t": 이동(cm). 지도는 프레임마다 그 포즈로 축을 잡고 반경은 고정(원통):
+프레임 = {본: 부모 공간 회전 벡터(°)} · 선택 "pelvis_t" · "root_t": 이동(cm). 지도는 프레임마다 그 포즈로 축을 잡고 반경은 고정(원통):
 몸통 = 엉덩 중점 → 척추 끝 반경 10, 넓적다리 = 엉덩 → 무릎 6.5, 머리목 = 목 → 머리 + 15 반경 8, 손 = 손목 → 손 로컬 (0, 0, −10) 반경 2.5,
 아래팔 = 팔꿈치 → 손목 반경 3.5.
 """
@@ -55,6 +55,8 @@ def fk(frame: dict) -> list:
         q = bm.from_rotvec_deg(frame.get(BONES[b], (0.0, 0.0, 0.0)))
         if BONES[b] == "pelvis" and frame.get("pelvis_t"):
             t = bm._add(t, tuple(frame["pelvis_t"]))
+        if BONES[b] == "root" and frame.get("root_t"):   # 9-4d — 루트 모션(루프 이음매 시험)
+            t = bm._add(t, tuple(frame["root_t"]))
         local = (q, t, (1.0, 1.0, 1.0))
         out.append(local if p < 0 else bm.compose(local, out[p]))
     return out

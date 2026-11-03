@@ -69,7 +69,6 @@ def test_normalize_defaults():
 
 @pytest.mark.parametrize("item, field, reason", [
     ({"asset": None}, "fix.body.pose_from[0].asset", "MISSING_FIELD"),
-    ({"bones": "legs"}, "fix.body.pose_from[0].bones", "NOT_SUPPORTED"),
     ({"bones": []}, "fix.body.pose_from[0].bones", "BAD_FIELD"),
     ({"mode": "copy"}, "fix.body.pose_from[0].mode", "BAD_FIELD"),
     ({"source": {"window": [0.1, 0.3]}}, "fix.body.pose_from[0].source", "BAD_FIELD"),           # pose = 샘플 한 시각
@@ -109,12 +108,24 @@ def test_presets_follow_the_template_chains_and_the_hand_tree():
                                 "clavicle_r", "upperarm_r", "lowerarm_r", "hand_r"} and len(up["bones"]) == 13
 
 
-@pytest.mark.parametrize("names, reason", [(["calf_l"], "NOT_SUPPORTED"), (["pelvis"], "NOT_SUPPORTED"), (["root"], "NOT_SUPPORTED"),
-                                           (["tail_01"], "UNKNOWN_BONE")])
-def test_legs_pelvis_and_unknown_bones_are_refused(names, reason):
+@pytest.mark.parametrize("names, reason", [(["pelvis"], "NOT_SUPPORTED"), (["root"], "NOT_SUPPORTED"), (["tail_01"], "UNKNOWN_BONE")])
+def test_pelvis_and_unknown_bones_are_refused(names, reason):
+    # 9-4d 기대된 변화 — 다리 본 · 프리셋은 받는다(U6-c), 골반 · 그 조상은 몸 전체가 돌아 여전히 막는다
     with pytest.raises(bf.BodyFitError) as exc:
         bf.bundle_bones(names, INFO)
     assert exc.value.reason == reason
+
+
+def test_leg_presets_follow_the_leg_chains_with_twists_and_the_foot_subtree():
+    info = copy.deepcopy(INFO)
+    info["bones"] += [{"name": "thigh_twist_01_l", "parent": "thigh_l"}, {"name": "calf_twist_01_l", "parent": "calf_l"},
+                      {"name": "ball_l", "parent": "foot_l"}, {"name": "toe_l", "parent": "ball_l"}]
+    out = bf.bundle_bones(["leg_l", "calf_r"], info)
+    assert out["presets"]["leg_l"] == ["thigh_l", "calf_l", "foot_l", "thigh_twist_01_l", "calf_twist_01_l", "ball_l", "toe_l"]
+    assert out["bones"][-1] == "calf_r"
+    both = bf.bundle_bones(["legs"], INFO)
+    assert both["bones"] == ["thigh_l", "calf_l", "foot_l", "thigh_r", "calf_r", "foot_r"]
+    assert bf.normalize({"pose_from": [pose_item(bones="legs")]})["pose_from"][0]["bones"] == ["legs"]
 
 
 def test_missing_chain_or_finger_chains_are_unresolved_presets():

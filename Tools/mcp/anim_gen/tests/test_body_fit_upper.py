@@ -82,14 +82,15 @@ def test_cap_pulls_the_upper_arm_toward_the_cap_with_the_hands_held():
     deep = {f for f, d in enumerate(bf.measure(model, r_nw["poses"], s_nw)["series"][("l", "upper_arm", "chest")]) if d is not None and d > 4.0 * model.scale}
     assert deep and deep <= set(uf["frames"]) and 0.0 < uf["deg_max"] and uf["elbow_cm_max"] > 0.2
     assert set(uf["blocked"]) <= set(uf["frames"]) and uf["remain_cm_max"] == pytest.approx(cap["depth_max"], abs=0.05)
-    # 손은 붙들린다(층 hold) · 손 부근 마무리가 처리하지 않은 프레임은 no_worse 와 같다
+    # 손은 붙들린다(층 hold) · 손 부근 마무리가 처리하지 않은 프레임은 no_worse 와 같다 — 9-4c 마무리 매끈화의 꼬리(처리 프레임 ± 2·폭) 밖에서
     rig = s_cap.rig
     done = set(r_cap["stats"]["hand_finish"]["frames"])
+    reach = 2.0 * bf.SPLINE_WIDTH * max(1, int(round(bf.FINISH_SMOOTH_S * model.fps)))
     for f in range(len(r_cap["poses"])):
         for side in ("l", "r"):
             wb = rig.arms[side]["wrist"]
             assert bf._norm(bf._sub(r_cap["poses"][f][wb][1], r_nw["poses"][f][wb][1])) < 0.3
-        if f not in done:
+        if all(abs(f - g) > reach for g in done):
             assert all(bf._norm(bf._sub(a[1], b[1])) < 1e-9 for a, b in zip(r_cap["poses"][f], r_nw["poses"][f]))
     # 손 · 아래팔 쌍은 관통이 생기지 않는다
     for key, st in r_cap["predicted"]["pairs"].items():

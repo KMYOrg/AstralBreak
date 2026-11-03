@@ -1,5 +1,5 @@
 """Phase 8-4e — 빠른 구간 매끈화(fix.body.smooth_speed): 손이 빠른 프레임은 관통 몫 스플라인 폭 · 재검사 ±1 이웃 몫을 k 배로 줄인다. 순수 테스트.
-on = 켬, auto = 같은 Job 에 fix.timing 이 있을 때만(Job 이 smooth_mode 로 정해 solve 에 넘긴다 — 요청만 보면 끔), off = 고정 폭.
+on = 켬, auto = 켬(9-4c — 8-4e 는 같은 Job 에 fix.timing 이 있을 때만), off = 고정 폭. Job 은 smooth_mode 로 정해 solve 에 넘긴다(smooth_fast False = 끔).
 
 합성 C++ 모델 = body_fit_fixture. grip_front → grip_close bump 는 위팔이 프레임마다 18° 씩 돌아 손이 SPEED_REF_CM 보다 빠르다."""
 from __future__ import annotations
@@ -30,7 +30,7 @@ def test_normalize_smooth_speed_and_the_auto_rule():
     with pytest.raises(bf.BodyFitError) as exc:
         bf.normalize({"smooth_speed": "fast"})
     assert exc.value.field == "fix.body.smooth_speed" and exc.value.reason == "BAD_FIELD"
-    assert bf.smooth_mode("auto", {"rate": None})["on"] and not bf.smooth_mode("auto", None)["on"]
+    assert bf.smooth_mode("auto", {"rate": None})["on"] and bf.smooth_mode("auto", None)["on"]   # 9-4c — auto 는 늘 켬
     assert bf.smooth_mode("on", None) == {"mode": "on", "on": True, "reason": "requested on"} and not bf.smooth_mode("off", {"x": 1})["on"]
 
 
@@ -71,19 +71,20 @@ def test_neighbor_share_scales_on_fast_frames_only():
     f = min(range(len(solver.smooth_k)), key=solver.smooth_k.__getitem__)
     assert solver._neighbor_share(f, inc)["rot"][3] == pytest.approx((0.1 * solver.smooth_k[f], 0.0, 0.0))
     assert solver._neighbor_share(0, inc) is inc   # 느린 프레임 — 같은 증분(지금 규칙)
-    for cfg, flag in ((bf.normalize({"smooth_speed": "off"}), None), (bf.normalize(True), None), (bf.normalize(True), False)):
-        off = bf.Solver(model, cfg, smooth_fast=flag)   # 끔 · Job 밖의 auto · Job 이 끈 auto
+    for cfg, flag in ((bf.normalize({"smooth_speed": "off"}), None), (bf.normalize(True), False)):
+        off = bf.Solver(model, cfg, smooth_fast=flag)   # 끔 · Job 이 끈 auto
         assert off.smooth_k is None and off._neighbor_share(f, inc) is inc
-    assert bf.Solver(model, bf.normalize(True), smooth_fast=True).smooth_k == solver.smooth_k   # Job 이 켠 auto(fix.timing)
+    for flag in (None, True):   # Job 밖의 auto(9-4c — 켬) · Job 이 켠 auto
+        assert bf.Solver(model, bf.normalize(True), smooth_fast=flag).smooth_k == solver.smooth_k
 
 
-def test_on_changes_only_fast_clips_and_off_auto_are_the_fixed_width(monkeypatch):
+def test_on_changes_only_fast_clips_and_auto_is_on(monkeypatch):
     frames = fx.bump(fx.grip_front(), fx.grip_close())
     _, off = solve(frames, bf.normalize({"smooth_speed": "off"}))
     _, auto = solve(frames)
     _, on = solve(frames, bf.normalize({"smooth_speed": "on"}))
-    assert on["stats"]["smooth_fast"]["frames"] > 0 and "smooth_fast" not in off["stats"] and "smooth_fast" not in auto["stats"]
-    assert on["deltas"] != off["deltas"] and auto["deltas"] == off["deltas"]
+    assert on["stats"]["smooth_fast"]["frames"] > 0 and "smooth_fast" not in off["stats"] and auto["stats"]["smooth_fast"] == on["stats"]["smooth_fast"]
+    assert on["deltas"] != off["deltas"] and auto["deltas"] == on["deltas"]
     monkeypatch.setattr(bf, "SPEED_REF_CM", 1e9)   # 어떤 프레임도 빠르지 않다 → 고정 폭 · 같은 이웃 몫
     _, never = solve(frames, bf.normalize({"smooth_speed": "on"}))
     assert never["deltas"] == off["deltas"] and "smooth_fast" not in never["stats"]

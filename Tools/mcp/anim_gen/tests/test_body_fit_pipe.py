@@ -238,18 +238,22 @@ def test_swing_path_auto_is_off_on_the_existing_asset_and_on_with_leg_fix_ops(se
     assert step["inputs"]["legs_swing"]["on"] and step["inputs"]["legs_swing"]["reason"] == "fix.ops ['foot_lock', 'stance_width']"
 
 
-def test_smooth_speed_auto_follows_fix_timing_and_the_job_records_it(service, fake, body):
-    # 8-4e — auto 는 같은 Job 이 fix.timing 을 돌릴 때만 켠다(기존 애셋 · 원 속도는 고정 폭), on 은 요청 그대로
+def test_smooth_speed_auto_is_on_and_the_job_records_it(service, fake, body):
+    # 9-4c — auto 는 모든 요청에 켠다(8-4e 는 같은 Job 의 fix.timing 때만 — 이유는 그대로 남긴다), off 는 고정 폭
     step = next(s for s in plan_of(service)["candidates"][0]["steps"] if s["step"] == "body_fit")
-    assert step["inputs"]["smooth_fast"] == {"mode": "auto", "on": False, "reason": "no fix.timing — ask smooth_speed on"}
+    assert step["inputs"]["smooth_fast"] == {"mode": "auto", "on": True, "reason": "default (9-4c — every clip)"}
     step = next(s for s in plan_of(service, fix={"timing": True, "body": True})["candidates"][0]["steps"] if s["step"] == "body_fit")
     assert step["inputs"]["smooth_fast"] == {"mode": "auto", "on": True, "reason": "fix.timing"}
-    job = run(service, fix={"body": {"smooth_speed": "on"}})
+    job = run(service)
     assert job["status"] == "SUCCEEDED", job.get("error")
     rec = job["fix"]["body"]["smooth_speed"]
-    assert rec["mode"] == "on" and rec["on"] and rec["frames"] > 0 and rec["k_min"] >= 0.5   # grip_front → grip_close 는 손이 빠르다
-    off = run(service, animation_name="AS_Vesper_Sickle_GripTest_Fit2")["fix"]["body"]["smooth_speed"]
-    assert not off["on"] and off["frames"] == 0
+    assert rec["mode"] == "auto" and rec["on"] and rec["frames"] > 0 and rec["k_min"] >= 0.5   # grip_front → grip_close 는 손이 빠르다
+    # 9-4c 기록 — 국소 수렴 · 손 부근 마무리 매끈화(켬이 기본)
+    assert job["fix"]["body"]["converge"]["on"] and job["fix"]["body"]["hand_finish"]["smooth"]
+    off = run(service, animation_name="AS_Vesper_Sickle_GripTest_Fit2", fix={"body": {"smooth_speed": "off", "converge": False, "finish_smooth": False}})
+    rec = off["fix"]["body"]
+    assert not rec["smooth_speed"]["on"] and rec["smooth_speed"]["frames"] == 0
+    assert rec["converge"] == {"on": False, "frames": [], "skipped": []} and not rec["hand_finish"]["smooth"]
 
 
 def test_upper_arm_cap_runs_by_default_and_the_job_records_it(service, fake, body):
@@ -288,6 +292,32 @@ def test_legs_only_job_rewrites_the_swing_and_records_it(service, fake, body):
     # 접지 프레임은 델타 0(원래 키 그대로)
     contact = [f for f in range(len(frames)) if f not in rec["frames"]]
     assert all(b["rotation_deg"][f] == [0.0, 0.0, 0.0] for b in bones for f in contact)
+
+
+def test_pins_auto_holds_only_with_timing_and_leg_ops_and_the_job_records_the_hold(service, fake, body, bl):
+    # 9-4d — auto = 같은 Job 에 fix.timing 과 fix.ops 다리 op 가 함께일 때만 hold(사용자 결정 ①)
+    step = next(s for s in plan_of(service)["candidates"][0]["steps"] if s["step"] == "body_fit")
+    assert step["inputs"]["legs_pins"] == {"mode": "auto", "on": False, "reason": "no fix.timing"}
+    from test_fix_legs import CMU_LEGS
+    p = bl_plan(bl, retarget={"source_chains": CMU_LEGS}, fix={"ops": [{"op": "stance_width"}, {"op": "foot_lock"}], "timing": True, "body": True})
+    assert p["candidates"], p["excluded"]
+    step = next(s for s in p["candidates"][0]["steps"] if s["step"] == "body_fit")
+    assert step["inputs"]["legs_pins"] == {"mode": "auto", "on": True, "reason": "fix.timing + fix.ops ['foot_lock', 'stance_width']"}
+    assert step["inputs"]["legs_swing"]["on"]
+    # 기존 애셋 + 요청 hold — 공중 경로도 켠다(이유 pins hold), 발볼 오프셋은 대상 메시 기준 포즈(inspect), 기록 · 한계
+    import test_body_fit_feet as feet
+    frames = feet.slide_frames()
+    fake.assets[ASSET]["length"] = round((len(frames) - 1) / 30, 4)
+    body[ASSET] = fx.make_model(frames)
+    job = run(service, fix={"body": {"clearance": {"mode": "off"}, "grip": {"mode": "off"}, "legs": {"pins": "hold"}}})
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    rec = job["fix"]["body"]["legs"]
+    assert rec["pins"] == {"mode": "hold", "on": True, "reason": "requested hold"} and rec["swing_path"] == {"mode": "auto", "on": True, "reason": "pins hold"}
+    assert rec["hold"]["pin_error_cm_max"] < 1e-3 and rec["floor"]["ankle"] is not None and rec["floor"]["ball"] is not None
+    assert {s: b["bone"] for s, b in rec["balls"].items()} == {"l": "ball_l", "r": "ball_r"}   # 발 자식 본(conftest 골격) — 발 로컬 오프셋
+    lim = next(lm for lm in job["limitations"] if lm["code"] == "LEGS_PINS_HELD")
+    assert lim["frames"] == sum(s["frames"] for s in rec["hold"]["sides"]) and lim["toe_frames"] == 0
+    assert any(t == "inspect_skeleton" and q.get("skeletal_mesh") == VESPER_MESH for t, q in fake.calls)
 
 
 # ---- 무기(8-4c) ----

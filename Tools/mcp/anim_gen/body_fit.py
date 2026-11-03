@@ -44,7 +44,7 @@
   한 프레임 — 감쇠 GN(LM, μ 0.1 시작) ≤ 12 회 · 한 걸음 ≤ 8°(상한을 넘는 관절은 그 걸음만 상한까지), 후보 점 = 깊이 > −(margin + 3 cm).
   시간     — 관통 몫 Δ 만 가중 매끈화 스플라인(spline — 하드 잔차로 푼 프레임 가중 SPLINE_ACTIVE_WEIGHT · 그 밖 SPLINE_QUIET_WEIGHT,
              2차 차분 벌점, 보정 구간 ± 2·폭 밖 0) → S(Δ). 원본이 루프(validate numeric.loop — C++ bLoop)면 순환(끝 프레임 = 첫 프레임 —
-             스플라인 · 재검사 받침이 감아 돌고 첫 · 끝 델타가 같다). 빠른 구간(8-4e — smooth_speed on, auto = 같은 Job 의 fix.timing): 손이 빠른
+             스플라인 · 재검사 받침이 감아 돌고 첫 · 끝 델타가 같다). 빠른 구간(8-4e — smooth_speed on, auto = 켬(9-4c — 8-4e 는 같은 Job 의 fix.timing 만)): 손이 빠른
              프레임은 폭 · 재검사 이웃 몫을 k 배(speed_factors — 몸 기준틀 손목 이동 기준)로 — 한 증분이 섞는 손 이동 거리를 줄인다.
   지시 목표 — (가) 목표 없는 풀이(base — 목표 없는 Job 과 같은 코드 · 입력)를 먼저 끝내고, 완급 > 0 블록(구간 ± ease)만 base 를 출발점 · 기준으로
              다시 푼다: 블록 밖 = base 그대로(구간 ± ease 밖 변화 0). 블록 안은 두 번 — x_T(목표 · keep · 충실도) → x(전부), 관통 몫 Δ = x − x_T 는
@@ -60,8 +60,12 @@
              처리 프레임(손목 상한이 있는 파지 프레임 · 위팔 > 상한 · 팔 교차가 원본보다 깊음 · 앞 프레임 증분 꼬리)마다 두 팔 쇄골 · 위팔 · 팔꿈치 ·
              손목을 그 상태(본 풀이 해)에서 다시 푼다. 층(HAND_TIER): 관통(그 상태보다 안 깊어짐) · 보조 손목 상한 > 주 손목 상한 · 팔 교차 > keep(그
              상태의 두 손 관계) = 손 붙들기(주 손 · 파지 밖 보조 손) = 위팔 상한 > 충실도 · 시간 연속. 묶기 전에는 다듬기가 keep 을 빼 keep 회전이
-             커졌고(낫 정정 2.5 → 7.3°) 위팔 마무리는 손목 + 2° 에 막혔다(합본 검 f30 ~ 36).
-결과 = 본별 프레임 델타(bone_deltas) · 모델 예측(쌍별 깊이 — C++ 실측과 대조) · keep 오차 · 목표 달성 · 남은 관통.
+             커졌고(낫 정정 2.5 → 7.3°) 위팔 마무리는 손목 + 2° 에 막혔다(합본 검 f30 ~ 36). 처리 프레임마다 따로 푼 증분은 마지막에 짧은 스플라인으로
+             잇는다(_smooth_finish — 9-4c, 손목 상한을 넘긴 프레임만 마무리 해에 고정).
+  국소 수렴(9-4c — _converge, 재검사 뒤 · 무기 마무리 앞): 남은 짧은 몸 관통 구간(≤ 2 프레임 · ≤ 4 cm × scale — 머리목 마무리와 같은 원천)만 그 프레임
+             풀이에 고정하고 이웃 ± CONVERGE_TAPER_S 를 2차 차분 최소(혹 모양)로 잇는다 — 머리목 마무리는 안전망으로 남는다.
+  빠른 구간 매끈화는 9-4c 부터 모든 요청 기본(smooth_speed auto = 켬 — 국소 수렴이 갈림길 해를 함께 모은다).
+결과 =본별 프레임 델타(bone_deltas) · 모델 예측(쌍별 깊이 — C++ 실측과 대조) · keep 오차 · 목표 달성 · 남은 관통.
 """
 from __future__ import annotations
 
@@ -69,13 +73,14 @@ import bisect
 import copy
 import math
 import re
+import statistics
 import time
 
 from . import body_model as bm
 from . import motion_metrics as mm
 from . import timing
 from .local_ai import refine
-from .weapon import hand_tree
+from .weapon import hand_tree, quat_from_rotator
 
 VERSION = 1
 DEFAULTS = {
@@ -91,6 +96,8 @@ DEFAULTS = {
     "weights": {"clearance": 10.0, "grip": 10.0, "pins": 10.0, "targets": 5.0, "pose_from": 3.0, "lead_hand": 3.0, "fidelity": 1.0},
     "smooth_s": 0.13,
     "smooth_speed": "auto",
+    "converge": True,
+    "finish_smooth": True,
     "passes": 3,
 }
 TARGET_KEYS = {"id", "note", "effector", "at", "hold_s", "position", "rotation", "ease_s", "weight", "priority"}
@@ -98,8 +105,10 @@ TARGET_DEFAULTS = {"note": None, "hold_s": 0.0, "position": None, "rotation": No
 EFFECTORS = ("hand_l", "hand_r", "foot_l", "foot_r", "head", "pelvis", "weapon_tip")
 POSE_FROM_KEYS = {"id", "note", "asset", "bones", "mode", "source", "target", "hold_s", "ease_s", "weight", "space"}
 POSE_FROM_DEFAULTS = {"note": None, "hold_s": 0.0, "ease_s": 0.15, "weight": 1.0, "space": "local"}
-# 샘플 전이 묶음 프리셋(8-4c c2) — 대상 메시 템플릿 체인 이름 · 손 쪽(bundle_bones). legs 는 발 pin 과 부딪히는 규칙이 필요해 막는다(8-4d 결정 — 후속)
-BUNDLE_PRESETS = ("spine", "neck_head", "arm_l", "arm_r", "upper_body", "fingers_l", "fingers_r")
+# 샘플 전이 묶음 프리셋(8-4c c2) — 대상 메시 템플릿 체인 이름 · 손 쪽(bundle_bones). 다리(9-4d U6-c): 접지 프레임은 발 pin 이 이기고(IK 로 되돌림 — 무릎
+# 방향만 샘플), 공중 프레임은 샘플 발 경로를 기준으로 공중 경로 풀이. 골반 · 그 조상은 여전히 막는다(몸 전체가 돈다 — 범위 밖)
+LEG_PRESETS = ("legs", "leg_l", "leg_r")
+BUNDLE_PRESETS = ("spine", "neck_head", "arm_l", "arm_r", "upper_body", "fingers_l", "fingers_r") + LEG_PRESETS
 POSE_FROM_TOL_DEG = 0.5  # 기준 7 — 막히지 않은 묶음 본의 로컬 회전 = 덮은 자세(블렌드) 허용
 _ID = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 # 층 배율 — weights 값에 곱한다(잔차 가중 = (값 × 층)²). 하드 목표 > 관통 · 늘어남 > keep > 소프트 목표 > 소프트(주 손 · 손목 위치) — 기본 weights 로
@@ -137,7 +146,21 @@ LEAD_BEND_TOL_DEG = 4.5   # 파지 프레임 주 손목 굽힘 상한(원래 + �
 FREE_WRIST_DEG = 5.0      # 손 부근 마무리가 연 상한 없는 손목(파지 밖 처리 프레임) ≤ max(그 상태, 원래 + 이 값) — 그 상태만이면 위팔 둘째 출발점이 막혔다
 CROSS_MARGIN_CM = 1.0     # 팔 교차 목표 = 교차 문턱 안쪽 이 값 × scale — 문턱 그대로면 손 붙들기와 비용을 나눠 문턱 바로 밖에 멈췄다(Attack2 f50 −10.56 vs −10.52)
 HAND_TAIL_DEG = 0.2       # 앞 프레임 마무리 증분이 이보다 크면(관절 회전 크기) 다음 프레임도 처리 — 위반이 끝난 뒤 증분이 시간 연속으로 잦아든다
-HAND_FINISH_KEYS = ("frames", "upper_over", "cross", "second_start")   # stats hand_finish — 처리 · 위팔 > 상한 · 교차 · 궤도 둘째 출발점을 쓴 프레임
+HAND_FINISH_KEYS = ("frames", "upper_over", "cross", "second_start", "smooth_pinned")   # stats hand_finish — 처리 · 위팔 > 상한 · 교차 · 궤도 둘째
+                                                                                      # 출발점을 쓴 프레임 · 매끈화 뒤 마무리 해에 고정한 프레임
+# 손 부근 마무리 증분 매끈화(9-4c U5-a — _smooth_finish): 반경(초 — 30 fps 2 프레임) · 손목 상한을 넘긴 프레임 고정 되풀이 · 넘김 허용(°).
+# 실측(E0 오프라인): 반경 2 = 검 선택 떨림 2.63 → 0.45(본 풀이 값) · 주 손목 클립 + 3.7 → + 2.6°, 낫 정정 f74 ~ 75 2.47 → 1.25. 반경 4 는 고정한 국소 수렴
+# 프레임까지 묽혀 가슴 관통이 되살아났다(0.8 % · 2.31 cm). 고정 없이는 낫 정정 보조 손목 클립 + 4.8°(c4_off_wrist + 2.5 넘음)
+FINISH_SMOOTH_S = 0.067
+FINISH_PIN_ROUNDS = 3
+FINISH_PIN_DEG = 0.5
+# 국소 수렴 패스(9-4c U5-c — _converge): 이웃 혹 반폭(초 — 30 fps 3 프레임) · 되풀이 · 구간 길이 · 깊이 상한(머리목 마무리 · 선별 head_deep 과 한 원천).
+# 실측: 반폭 2 는 떨림 3.13 · 3 은 2.40 · 4 는 2.42(keep 위치 2.2 → 4.5 cm)(낫 정정). 자유 프레임 자료 가중은 ≈ 0 — 고정값 사이를 곡률 최소로만 잇는다
+CONVERGE_TAPER_S = 0.1
+CONVERGE_ROUNDS = 3
+CONVERGE_MAX_RUN = HEAD_FINISH_MAX_RUN
+CONVERGE_MAX_CM = HEAD_FINISH_MAX_CM
+CONVERGE_FREE_WEIGHT = 1e-9
 STEP_RAD = math.radians(8.0)
 STEP_CM = 3.0
 CANDIDATE_CM = 3.0       # 이보다 얕게 떨어진 점만 풀이 후보(끝에 전체 재검사)
@@ -275,7 +298,11 @@ def normalize(raw) -> dict | None:
         raise BodyFitError("fix.body.smooth_s", "must be a number in [0, 1] (seconds)")
     if out["smooth_speed"] not in ("auto", "on", "off"):
         raise BodyFitError("fix.body.smooth_speed", "must be auto | on | off (on = frames where the hands move fast get a narrower smoothing width, "
-                           "auto = on when the same job runs fix.timing, off = one width for the whole clip)")
+                           "auto = on (every clip — 9-4c), off = one width for the whole clip)")
+    for key in ("converge", "finish_smooth"):
+        if not isinstance(out[key], bool):
+            raise BodyFitError(f"fix.body.{key}", "must be a boolean (converge = pin the short body penetrations left after the re-checks to their own frame "
+                               "solve and blend the neighbours; finish_smooth = smooth the hand-finish increments over time)")
     if not (isinstance(out["passes"], int) and not isinstance(out["passes"], bool) and 1 <= out["passes"] <= 5):
         raise BodyFitError("fix.body.passes", "must be an integer in [1, 5]")
     if not isinstance(out["targets"], list):
@@ -296,12 +323,16 @@ def normalize(raw) -> dict | None:
 
 
 def _legs(legs: dict) -> None:
-    """fix.body.legs(8-4d) — pins auto(접지 프레임 = 대상 발목 detect_contacts, 움직이지 않는다) · swing_path auto | on | off · soft_knee
+    """fix.body.legs(8-4d · 9-4d) — pins auto | hold | keep(접지 프레임 = 대상 발목 detect_contacts — keep 은 원래 키, hold 는 접지 구간마다 발목 수평
+    고정 · 발끝 접지 발볼 잇기, auto = 같은 Job 에 fix.timing 과 fix.ops 다리 op 가 함께 있으면 hold) · swing_path auto | on | off · soft_knee
     {start, softness} | null(끔). 제자리에서 고친다."""
-    if legs["pins"] != "auto":
-        raise BodyFitError("fix.body.legs.pins", "must be auto (contact frames from the target ankle — they never move)")
+    if legs["pins"] not in ("auto", "hold", "keep"):
+        raise BodyFitError("fix.body.legs.pins", "must be auto (hold when this job has fix.timing and a fix.ops leg op) | hold (contact ankles held "
+                           "in place horizontally, toe contacts keep the ball still) | keep (contact frames keep their own keys)")
     if legs["swing_path"] not in ("auto", "on", "off"):
         raise BodyFitError("fix.body.legs.swing_path", "must be auto (on when this job's fix.ops has a leg op — stance_width · foot_lock) | on | off")
+    if legs["pins"] == "hold" and legs["swing_path"] == "off":
+        raise BodyFitError("fix.body.legs.pins", "hold needs the swing path — it joins the held contacts to the swing frames (swing_path auto | on)")
     sk = legs["soft_knee"]
     if sk is None or sk is False:
         legs["soft_knee"] = None
@@ -339,9 +370,6 @@ def _pose_from(i: int, raw) -> dict:
     names = [p.get("bones")] if isinstance(p.get("bones"), str) else p.get("bones")
     if not (isinstance(names, list) and names and all(isinstance(x, str) and x.strip() for x in names)):
         raise BodyFitError(f"{where}.bones", f"must be a preset {list(BUNDLE_PRESETS)}, a bone name or a list of them")
-    if "legs" in names:
-        raise BodyFitError(f"{where}.bones", "legs need a rule against the foot pins — a follow-up (Phase 8-4d decision; the legs block only "
-                           "redesigns swing paths)", "NOT_SUPPORTED")
     p["bones"] = list(dict.fromkeys(names))
     if p.get("mode") not in ("pose", "motion"):
         raise BodyFitError(f"{where}.mode", "must be pose (one sample instant onto the target window) | motion (sample window onto the target window)")
@@ -449,9 +477,6 @@ def _target(i: int, raw) -> dict:
         rot.setdefault("space", "body")
         if rot["space"] not in ("body", "local"):
             raise BodyFitError(f"{where}.rotation.space", "must be body | local")
-        if t["effector"] in ("foot_l", "foot_r"):
-            raise BodyFitError(f"{where}.rotation", "foot rotation targets are a follow-up (Phase 8-4d decision — the legs block keeps the foot's "
-                               "own rotation) — give a position", "NOT_SUPPORTED")
     return t
 
 
@@ -603,6 +628,26 @@ def spline_block(series: list, active: list[bool], radius: int, pin_before: bool
     padded = [zero] * a + [tuple(v) for v in series] + [zero] * b
     return _spline_line(padded, [False] * a + list(active) + [False] * b, radius, quiet, [True] * a + [False] * n + [True] * b,
                         k=None if k is None else [k[0]] * a + list(k) + [k[-1]] * b)[a:a + n]
+
+
+def spline_fixed(series: list, active: list[bool], radius: int, quiet: float | None, fixed: list[bool], *, loop: bool = False,
+                 pins: tuple = (False, False)) -> list:
+    """고정 프레임이 있는 매끈화(9-4c — 국소 수렴 혹 · 손 부근 마무리 매끈화): fixed 프레임은 그 값에 묶고(SPLINE_PIN_WEIGHT) 나머지는 active
+    (SPLINE_ACTIVE_WEIGHT) · quiet 가중, 고정 폭. loop = 열이 루프 원(끝 프레임을 뺀 열 — 앞뒤로 감아 붙여 풀고 가운데를 쓴다), pins = (앞, 뒤)에
+    SPLINE_PIN_FRAMES 개의 0 고정을 붙인다(지시 목표 블록 — spline_block 과 같은 규칙)."""
+    n = len(series)
+    if radius <= 0 or n == 0:
+        return [tuple(v) for v in series]
+    if loop and n > 2:
+        pad = min(n, int(math.ceil(SPLINE_LOOP_PAD * SPLINE_WIDTH * radius)))
+        idx = [(i - pad) % n for i in range(n + 2 * pad)]
+        return _spline_line([tuple(series[i]) for i in idx], [active[i] for i in idx], radius, quiet, [fixed[i] for i in idx])[pad:pad + n]
+    a, b = (SPLINE_PIN_FRAMES if pins[0] else 0), (SPLINE_PIN_FRAMES if pins[1] else 0)
+    if n + a + b < 3:
+        return [tuple(v) for v in series]
+    zero = (0.0, 0.0, 0.0)
+    return _spline_line([zero] * a + [tuple(v) for v in series] + [zero] * b, [False] * a + list(active) + [False] * b, radius, quiet,
+                        [True] * a + list(fixed) + [True] * b)[a:a + n]
 
 
 def _spline_line(series: list, active: list[bool], radius: int, quiet: float | None, fixed: list[bool] | None = None, k: list | None = None) -> list:
@@ -848,6 +893,10 @@ LEG_FID_W = 0.5          # 발목 목표 이동(cm) 충실도 가중 — 실측:
 LEG_ITER = 15
 LEG_STEP_TOL_CM = 1e-4
 LEG_FD_CM = 1e-3         # 수치 미분 폭(프레임마다 3×3 — 무릎 · 발목은 그 프레임 δ 에만 기댄다)
+# 바닥(9-4d U6-b) — 공중 프레임 발목 · 발볼 높이 ≥ min(바닥, 그 프레임 원래 높이)의 잔차 가중(cm). 저크(1) · 충실도(0.5)보다 충분히 커 사실상 하한.
+# 바닥 = 클립 접지 프레임의 최저 높이(발목 · 발볼 각각, 두 발 중 낮은 쪽 — 9-4d E0: 접지 판정에 뒤꿈치 듦(구간 안 높이 범위 ≤ 3.4 cm)이 섞여 중앙값이면
+# 원본 공중 발볼도 0.4 ~ 0.57 cm '관통'으로 잡혔다). 8-4d 공중 경로는 발볼을 그 최저보다 0.34 ~ 0.5 cm 낮췄다(합본 낫 · 낫 정정 다리 보정본)
+LEG_FLOOR_W = 30.0
 _JERK = (-1.0, 3.0, -3.0, 1.0)
 _EYE = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
 
@@ -861,6 +910,164 @@ def swing_mode(legs: dict, ops: list | None) -> dict:
         return {"mode": mode, "on": mode == "on", "reason": f"requested {mode}"}
     found = sorted({o.get("op") for o in ops or [] if o.get("op") in SWING_OPS})
     return {"mode": "auto", "on": bool(found), "reason": f"fix.ops {found}" if found else "no fix.ops leg op (stance_width · foot_lock) — ask swing_path on"}
+
+
+def pins_mode(legs: dict, ops: list | None, timing_cfg) -> dict:
+    """pins → {mode, on, reason}(9-4d U6-a). auto = 같은 Job 에 fix.timing 과 fix.ops 다리 op(SWING_OPS)가 함께 있을 때만 hold(사용자 결정 ①) —
+    원인은 '다리 보정이 고정한 발을 시간 보정(time_warp antialias)이 다시 거름'이라 둘이 겹칠 때뿐이다(합본 접지 미끄러짐 3.7 ~ 9.8 cm/s = 접지 구간
+    안 0.1 ~ 0.9 cm 흔들림). 다리 op 없는 Job 은 원본 발이 고정된 적이 없어 고정은 다른 요청(대상 쪽 foot_lock) — hold 로 요청한다."""
+    mode = legs["pins"]
+    if mode != "auto":
+        return {"mode": mode, "on": mode == "hold", "reason": f"requested {mode}"}
+    found = sorted({o.get("op") for o in ops or [] if o.get("op") in SWING_OPS})
+    if timing_cfg and found:
+        return {"mode": "auto", "on": True, "reason": f"fix.timing + fix.ops {found}"}
+    return {"mode": "auto", "on": False, "reason": "no fix.timing" if not timing_cfg else "no fix.ops leg op (stance_width · foot_lock) — ask pins hold"}
+
+
+def leg_modes(legs: dict, ops: list | None, timing_cfg) -> dict:
+    """계획 · 실행의 다리 켬 여부 — {swing, pins}. hold 는 공중 경로를 함께 켠다(고친 접지값을 공중 프레임에 잇는 풀이가 그것뿐이다 — swing_path auto
+    인데 다리 op 가 없으면 이유 'pins hold')."""
+    swing, pins = swing_mode(legs, ops), pins_mode(legs, ops, timing_cfg)
+    if pins["on"] and not swing["on"]:
+        swing = {"mode": swing["mode"], "on": True, "reason": "pins hold"}
+    return {"swing": swing, "pins": pins}
+
+
+def ball_offsets(info: dict, rig: "Rig") -> dict:
+    """발볼(9-4d — 발끝 접지 · 바닥 · 발 회전 중심) = 발 본의 자식 중 기준 포즈에서 가장 먼 본(Vesper ball_l/r) — 발 로컬 고정 오프셋(대상 메시
+    inspect_skeleton details 의 ref_component t · r). C++ 몸 모델에는 발볼 본이 없다. 애니는 발볼을 발 로컬에서 옮기지 않는다(9-4d E0 — 프로필 발볼의
+    발 로컬 위치 퍼짐 0.01 cm). → {side: {bone, offset_cm}} — 자식이 없거나 기준 포즈가 없는 쪽은 뺀다."""
+    bones = {b.get("name"): b for b in info.get("bones") or []}
+    out = {}
+    for side, leg in sorted(rig.legs.items()):
+        foot = rig.model.bones[leg["foot"]]
+        rc = (bones.get(foot) or {}).get("ref_component") or {}
+        kids = [b for b in bones.values() if b.get("parent") == foot and ((b.get("ref_component") or {}).get("t"))]
+        if not rc.get("t") or rc.get("r") is None or not kids:
+            continue
+        tf = tuple(float(v) for v in rc["t"])
+        best = max(kids, key=lambda b: (_norm(_sub(tuple(float(v) for v in b["ref_component"]["t"]), tf)), b["name"]))
+        d = _sub(tuple(float(v) for v in best["ref_component"]["t"]), tf)
+        out[side] = {"bone": best["name"], "offset_cm": tuple(round(v, 4) for v in bm.qrot(bm.qconj(quat_from_rotator(rc["r"])), d))}
+    return out
+
+
+def _loop_seam(rig: "Rig") -> dict | None:
+    """루프 이음매 변환(9-4d — 루트 모션 루프): 끝 프레임 = 다음 주기의 첫 프레임이라, 한 주기 뒤 위치 = 루트 변화(수직축 회전 + 이동)를 첫 프레임 위치에
+    준 것. 공중 경로 · 접지 고정이 이음매를 넘는 프레임을 같은 주기로 옮겨 푼다(8-4d 는 몰라 운영 걷기 swing on 에서 904 cm 를 이었다). 루트가 안
+    움직이면 None(이전 풀이와 비트 같다)."""
+    n = rig.frames
+    roots = [b for b in range(rig.n) if rig.parents[b] < 0]
+    if not roots or n < 2:
+        return None
+    q0, t0, _ = rig.model.poses[0][roots[0]]
+    q1, t1, _ = rig.model.poses[n - 1][roots[0]]
+    x = bm.qrot(bm.qmul(q1, bm.qconj(q0)), (1.0, 0.0, 0.0))
+    yaw = math.atan2(x[1], x[0])
+    d = _sub(t1, t0)
+    if _norm(d) < 1e-6 and abs(yaw) < 1e-9:
+        return None
+    return {"yaw": yaw, "origin": t0, "d": d}
+
+
+def _rot_z(v, a: float) -> tuple:
+    c, s = math.cos(a), math.sin(a)
+    return (c * v[0] - s * v[1], s * v[0] + c * v[1], v[2])
+
+
+def _seam(seam: dict | None, p, cyc: int, vector: bool = False):
+    """점(또는 방향) p 를 cyc 주기 뒤의 같은 프레임 자리로 — 이음매 변환을 cyc 번(음수면 역)."""
+    if seam is None or cyc == 0:
+        return p
+    o, d, yaw = seam["origin"], seam["d"], seam["yaw"]
+    for _ in range(abs(cyc)):
+        if vector:
+            p = _rot_z(p, yaw if cyc > 0 else -yaw)
+        elif cyc > 0:
+            p = _add(_add(_rot_z(_sub(p, o), yaw), o), d)
+        else:
+            p = _add(_rot_z(_sub(_sub(p, o), d), -yaw), o)
+    return p
+
+
+def _cycles(frames: list[int]) -> list[int]:
+    """m 을 법으로 이어진 프레임 열(루프 감아 돎) → 첫 프레임 기준 주기 번호(번호가 줄면 다음 주기)."""
+    out, c = [0], 0
+    for a, b in zip(frames, frames[1:]):
+        c += 1 if b < a else 0
+        out.append(c)
+    return out
+
+
+def _flag_runs(flags: list[bool], loop: bool) -> list[list[int]]:
+    """참 구간들(프레임 목록, 시간 순) — 루프면 끝 프레임(= 첫)을 빼고 감아 돈다(_air_windows 의 참 쪽)."""
+    n = len(flags)
+    m = n - 1 if loop and n > 3 else n
+    fl = flags[:m]
+    if not any(fl):
+        return []
+    if all(fl):
+        return [list(range(m))]
+    if not loop:
+        return [list(range(a, b + 1)) for a, b in mm.runs(fl, 1)]
+    start = fl.index(False)
+    order = [(start + k) % m for k in range(m)]
+    return [[order[k] for k in range(a, b + 1)] for a, b in mm.runs([fl[f] for f in order], 1)]
+
+
+def _floor_levels(tracks: dict, contacts: dict, ball_contacts: dict, m: int) -> dict | None:
+    """바닥(9-4d U6-b — 사용자 결정 ② + E0 정정) = 접지 프레임 최저 높이(발목은 발목 접지 · 발볼은 발볼 접지, 두 발 중 낮은 쪽). 접지가 없으면 None."""
+    ank = [tracks[s][0][f][2] for s in tracks for f in range(m) if contacts[s][f]]
+    ball = [tracks[s][1][f][2] for s in tracks if tracks[s][1] and ball_contacts.get(s) for f in range(m) if ball_contacts[s][f]]
+    if not ank and not ball:
+        return None
+    return {"ankle": min(ank) if ank else None, "ball": min(ball) if ball else None}
+
+
+def _hold_targets(side: str, A: list, B: list | None, ca: list[bool], cb: list[bool] | None, loop: bool, seam: dict | None) -> tuple[dict, dict]:
+    """접지 고정(9-4d U6-a · U6-d — pins hold): 발목 접지 구간마다 발목 수평 = 구간 중앙값(높이 · 발 회전은 원래 — 8-3 foot_lock 처럼 수평만, 뒤꿈치
+    듦을 누르지 않는다), 발끝 접지(발볼 접지 · 발목 아님 — 뒤꿈치 든 프레임)는 발볼 수평 = 붙은 발목 접지 프레임(고친 자세)의 발볼, 없으면 그 구간
+    중앙값 — 발은 원래 회전 그대로 평행 이동. 루프 이음매를 넘는 구간은 한 주기로 옮겨 잰다. → ({f: 발목 목표}, 기록).
+    실측(9-4d E0 시제품 — 다리만, 합본 입력): 발목 xyz 를 고정하면 접지 끝 뒤꿈치 듦(높이 2 cm)을 눌러 검 다리 떨림 1.598 → 2.586, 발 회전까지
+    고정하면 피벗을 지워 발 회전이 최대 19 ~ 32° 바뀌었다. 수평만 + 발끝 잇기 = 낫 1.666 → 1.69 · 검 → 1.269, 미끄러짐 0 / 0."""
+    n = len(A)
+    m = n - 1 if loop and n > 3 else n
+    pos, moved, runs, toe_frames = {}, 0.0, 0, 0
+    for fr in _flag_runs(ca, loop):
+        runs += 1
+        cyc = _cycles(fr) if seam else [0] * len(fr)
+        pts = [_seam(seam, A[f], c) for f, c in zip(fr, cyc)]
+        mx, my = statistics.median(p[0] for p in pts), statistics.median(p[1] for p in pts)
+        for f, c, p in zip(fr, cyc, pts):
+            pos[f] = _seam(seam, (mx, my, p[2]), -c)
+            moved = max(moved, math.hypot(mx - p[0], my - p[1]))
+    if B is not None and cb is not None:
+        for fr in _flag_runs([b and not a for a, b in zip(ca, cb)], loop):
+            prev, nxt = fr[0] - 1, fr[-1] + 1
+            if loop:
+                prev, nxt = prev % m, nxt % m
+            g, seq = None, fr
+            if 0 <= prev < n and ca[prev] and prev in pos:
+                g, seq = prev, [prev] + fr
+            elif 0 <= nxt < n and ca[nxt] and nxt in pos:
+                g, seq = nxt, fr + [nxt]
+            cyc = _cycles(seq) if seam else [0] * len(seq)
+            c_of = dict(zip(seq, cyc))
+            if g is not None:
+                bg, ag, hg = (_seam(seam, x, c_of[g]) for x in (B[g], A[g], pos[g]))
+                bx, by = bg[0] + hg[0] - ag[0], bg[1] + hg[1] - ag[1]
+            else:
+                pts = [_seam(seam, B[f], c_of[f]) for f in fr]
+                bx, by = statistics.median(p[0] for p in pts), statistics.median(p[1] for p in pts)
+            for f in fr:
+                a, b = _seam(seam, A[f], c_of[f]), _seam(seam, B[f], c_of[f])
+                pos[f] = _seam(seam, (a[0] + bx - b[0], a[1] + by - b[1], a[2]), -c_of[f])
+                moved = max(moved, math.hypot(bx - b[0], by - b[1]))
+                toe_frames += 1
+    if loop and 0 in pos:
+        pos[n - 1] = _seam(seam, pos[0], 1)
+    return pos, {"side": side, "runs": runs, "frames": len([f for f in pos if f < m]), "toe_frames": toe_frames, "moved_cm_max": round(moved, 3)}
 
 
 def soft_reach(d: float, length: float, soft: dict | None) -> float:
@@ -909,37 +1116,64 @@ def _air_windows(contacts: list[bool], loop: bool) -> tuple[list[list[int]], lis
     return [[order[k] for k in range(a, b + 1)] for a, b in mm.runs([not flags[f] for f in order], 1)], []
 
 
-def swing_paths(rig: "Rig", legs: dict, *, loop: bool = False, leg_cm: float | None = None) -> dict:
-    """공중 구간 발목 목표(컴포넌트 공간) — {targets{side: {f: 점}}, contacts{side: [bool]}, windows[…], skipped[…]}. 접지 = 대상 발목
-    detect_contacts(Job 측정 summary 와 같은 정의 · leg_cm), 접지 프레임은 목표가 없다(원래 키 그대로)."""
+def swing_paths(rig: "Rig", legs: dict, *, loop: bool = False, leg_cm: float | None = None, hold: bool = False, balls: dict | None = None) -> dict:
+    """공중 구간 발목 목표(컴포넌트 공간) — {targets{side: {f: 점}}, contacts{side: [bool]}, windows[…], skipped[…], hold{…} | None, floor{…} | None,
+    balls}. 접지 = 대상 발목 detect_contacts(Job 측정 summary 와 같은 정의 · leg_cm). hold 가 아니면 접지 프레임은 목표가 없다(원래 키 그대로),
+    hold(9-4d)면 접지 프레임 목표 = _hold_targets(발끝 접지 = 발볼 detect_contacts 포함)이고 공중 구간은 그 값을 경계로 푼다. balls = ball_offsets
+    (발볼 — 발끝 접지 · 바닥, 없으면 발목 바닥만). 공중 프레임은 바닥(_floor_levels) 아래로 원래보다 더 내려가지 않는다(9-4d U6-b). 루프는 이음매
+    변환(_loop_seam — 루트 모션)으로 주기를 맞춘다."""
     model = rig.model
     n = rig.frames
     soft = legs.get("soft_knee")
-    out = {"targets": {}, "contacts": {}, "windows": [], "skipped": []}
+    out = {"targets": {}, "contacts": {}, "windows": [], "skipped": [], "hold": None, "floor": None, "balls": balls or {}}
     if set(rig.legs) != {"l", "r"}:
         out["skipped"].append({"side": None, "reason": "NO_LEGS"})
         return out
     cm = leg_cm or sum(rig.leg_len.values()) / 2.0
     loop = bool(loop) and n > 3
+    m = n - 1 if loop else n
+    seam = _loop_seam(rig) if loop else None
+    tracks, ball_c = {}, {}
     for side, leg in sorted(rig.legs.items()):
-        track = [model.poses[f][leg["foot"]][1] for f in range(n)]
-        contacts = mm.detect_contacts(track, model.times, 2, cm)
-        out["contacts"][side] = contacts
+        A = [model.poses[f][leg["foot"]][1] for f in range(n)]
+        off = (balls or {}).get(side, {}).get("offset_cm")
+        B = [bm.transform_point(model.poses[f][leg["foot"]], off) for f in range(n)] if off else None
+        tracks[side] = (A, B)
+        out["contacts"][side] = mm.detect_contacts(A, model.times, 2, cm)
+        ball_c[side] = mm.detect_contacts(B, model.times, 2, cm) if B else None
+    floor = _floor_levels(tracks, out["contacts"], ball_c, m)
+    out["floor"] = {k: (round(v, 3) if v is not None else None) for k, v in floor.items()} if floor else None
+    if hold:
+        out["hold"] = {"sides": []}
+        out["held"] = {}
+    for side, leg in sorted(rig.legs.items()):
+        contacts = out["contacts"][side]
+        held = {}
+        if hold:
+            held, rec = _hold_targets(side, *tracks[side], contacts, ball_c[side], loop, seam)
+            out["hold"]["sides"].append(rec)
+            out["held"][side] = sorted(held)
+            if ball_c[side] is not None:
+                contacts = [a or b for a, b in zip(contacts, ball_c[side])]
         windows, skipped = _air_windows(contacts, loop)
         out["skipped"] += [{"side": side, **s} for s in skipped]
-        targets = {}
+        targets = dict(held)
         for win in windows:
-            got, rep = _swing_window(rig, side, win, contacts, loop, soft)
+            got, rep = _swing_window(rig, side, win, contacts, loop, soft, held=held, floor=floor, ball=(balls or {}).get(side, {}).get("offset_cm"), seam=seam)
             targets.update(got)
             out["windows"].append(rep)
         if loop and 0 in targets:
-            targets[n - 1] = targets[0]
+            targets[n - 1] = _seam(seam, targets[0], 1)
         out["targets"][side] = targets
     return out
 
 
-def _swing_window(rig: "Rig", side: str, win: list[int], contacts: list[bool], loop: bool, soft: dict | None) -> tuple[dict, dict]:
-    """한 공중 구간 — δ 를 무릎 · 발목 저크 + 충실도로(GN, 띠 연립). → ({f: 발목 목표}, 보고)."""
+def _swing_window(rig: "Rig", side: str, win: list[int], contacts: list[bool], loop: bool, soft: dict | None, *, held: dict | None = None,
+                  floor: dict | None = None, ball=None, seam: dict | None = None, ref: dict | None = None) -> tuple[dict, dict]:
+    """한 공중 구간 — δ 를 무릎 · 발목 저크 + 충실도로(GN, 띠 연립). held = 접지(패드) 프레임 발목 고정값(hold — 무릎은 그 값으로 IK, 없으면 원래 키) ·
+    floor = 바닥(공중 프레임 발목 · 발볼 높이 ≥ min(바닥, 기준 높이) — 발볼은 발 로컬 오프셋 ball 과 기준 발 회전으로, 둘 다 발목 높이 하한이 된다) ·
+    seam = 루프 이음매 변환(이 구간 첫 프레임의 주기로 옮겨 풀고 되돌린다) · ref = {f: (무릎, 발목, 발 회전)} 공중 프레임 기준(샘플 전이 — 없으면 원래).
+    → ({f: 발목 목표}, 보고)."""
     model, leg = rig.model, rig.legs[side]
     n = rig.frames
     m = n - 1 if loop else n
@@ -948,10 +1182,35 @@ def _swing_window(rig: "Rig", side: str, win: list[int], contacts: list[bool], l
     seq = pad_a + win + pad_b
     air = {f: j for j, f in enumerate(win)}
     length = rig.leg_len[side]
-    hip = {f: model.poses[f][leg["thigh"]][1] for f in seq}
-    knee = {f: model.poses[f][leg["knee"]][1] for f in seq}
-    ankle = {f: model.poses[f][leg["foot"]][1] for f in seq}
-    fwd = {f: rig.body_frame(f)[1][0] for f in win}
+    # 주기(루프 이음매) — 앞 패드가 이전 주기면 −1, 구간 · 뒤 패드가 이음매를 넘으면 +1(구간 첫 프레임 = 0)
+    cyc = dict(zip(seq, [c - _cycles(seq)[len(pad_a)] for c in _cycles(seq)])) if seam else {}
+    hip = {f: _seam(seam, model.poses[f][leg["thigh"]][1], cyc.get(f, 0)) for f in seq}
+    knee = {f: _seam(seam, model.poses[f][leg["knee"]][1], cyc.get(f, 0)) for f in seq}
+    ankle = {f: _seam(seam, model.poses[f][leg["foot"]][1], cyc.get(f, 0)) for f in seq}
+    if ref:
+        for f, (k, a, _) in ref.items():
+            if f in knee:
+                knee[f], ankle[f] = _seam(seam, k, cyc.get(f, 0)), _seam(seam, a, cyc.get(f, 0))
+    fwd = {f: _seam(seam, rig.body_frame(f)[1][0], cyc.get(f, 0), vector=True) for f in win}
+    for f in seq:
+        if held and f in held and f not in air:
+            # 고정한 접지 패드 — 무릎은 그 발목으로 IK(굽힘 평면 유지), 경계가 고친 값에서 이어진다
+            res = _leg_ik(hip[f], knee[f], ankle[f], _EYE, _EYE, _seam(seam, held[f], cyc.get(f, 0)), _seam(seam, rig.body_frame(f)[1][0], cyc.get(f, 0), vector=True))
+            knee[f], ankle[f] = res["knee"], res["reached"]
+    # 바닥 — 공중 프레임 발목 높이 하한(발목: min(바닥, 기준), 발볼: min(바닥, 기준 발볼) − 그 프레임 발볼 높이 오프셋). 주기 이동의 높이 몫을 더한다
+    lows = {}
+    if floor:
+        for f in win:
+            dz = ankle[f][2] - (ref[f][1] if ref and f in ref else model.poses[f][leg["foot"]][1])[2]
+            lo = []
+            if floor.get("ankle") is not None:
+                lo.append(min(floor["ankle"] + dz, ankle[f][2]))
+            if floor.get("ball") is not None and ball is not None:
+                q = ref[f][2] if ref and f in ref and ref[f][2] is not None else model.poses[f][leg["foot"]][0]
+                h = bm.qrot(q, ball)[2]
+                lo.append(min(floor["ball"] + dz, ankle[f][2] + h) - h)
+            if lo:
+                lows[f] = max(lo)
 
     def point(f: int, delta) -> tuple:
         v = _sub(_add(ankle[f], delta), hip[f])
@@ -974,6 +1233,9 @@ def _swing_window(rig: "Rig", side: str, win: list[int], contacts: list[bool], l
             for P in (K, A):
                 for comp in range(3):
                     c += (LEG_JERK_W * sum(_JERK[i] * P[seq[k + i]][comp] for i in range(4))) ** 2
+        for f, lo in lows.items():
+            if A[f][2] < lo:
+                c += (LEG_FLOOR_W * (lo - A[f][2])) ** 2
         return c
 
     nv = 3 * len(win)
@@ -1014,6 +1276,16 @@ def _swing_window(rig: "Rig", side: str, win: list[int], contacts: list[bool], l
                         g[a] += va * r
                         for b, vb in row:
                             H[a][b] += va * vb
+        for f, lo in lows.items():
+            if A[f][2] < lo:
+                # 바닥 하한(활성일 때만) — r = W(lo − 발목 높이), 그 프레임 δ 에만 기댄다
+                j = air[f]
+                r = LEG_FLOOR_W * (lo - A[f][2])
+                row = [(3 * j + c, -LEG_FLOOR_W * jac[f][c][1][2]) for c in range(3)]
+                for a, va in row:
+                    g[a] += va * r
+                    for b, vb in row:
+                        H[a][b] += va * vb
         step = _solve_banded(H, [-v for v in g], 3 * 4 + 2)
         t = 1.0
         for _ in range(6):
@@ -1028,7 +1300,7 @@ def _swing_window(rig: "Rig", side: str, win: list[int], contacts: list[bool], l
         x, K, A, c0 = xn, Kn, An, cn
         if max(abs(v) * t for v in step) < LEG_STEP_TOL_CM:
             break
-    targets = {f: tuple(A[f]) for f in win}
+    targets = {f: _seam(seam, tuple(A[f]), -cyc.get(f, 0)) for f in win}
     scale = model.scale
 
     def zz(Kd: dict, Ad: dict) -> float | None:
@@ -1041,6 +1313,20 @@ def _swing_window(rig: "Rig", side: str, win: list[int], contacts: list[bool], l
            "ankle_moved_cm_max": round(max(_norm(_sub(A[f], ankle[f])) for f in win), 3),
            "d_ratio_max": [round(max(_norm(_sub(ankle[f], hip[f])) for f in win) / length, 4), round(max(_norm(_sub(A[f], hip[f])) for f in win) / length, 4)],
            "zigzag_model": [zz(knee, ankle), zz(K, A)], "iterations": iters}
+    if floor:
+        # 바닥 여유(cm — 공중 프레임 최소 높이 − 바닥, 전 = 기준 경로 · 후) · 하한이 걸린 프레임 수
+        def margin(P: dict, which: str) -> float | None:
+            if floor.get(which) is None or (which == "ball" and ball is None):
+                return None
+            vals = []
+            for f in win:
+                dz = ankle[f][2] - (ref[f][1] if ref and f in ref else model.poses[f][leg["foot"]][1])[2]
+                q = ref[f][2] if which == "ball" and ref and f in ref and ref[f][2] is not None else model.poses[f][leg["foot"]][0]
+                h = bm.qrot(q, ball)[2] if which == "ball" else 0.0
+                vals.append(P[f][2] + h - floor[which] - dz)
+            return round(min(vals), 3)
+        rep["floor_margin_cm"] = {w: [margin(ankle, w), margin(A, w)] for w in ("ankle", "ball")}
+        rep["floor_frames"] = sum(1 for f, lo in lows.items() if A[f][2] <= lo + 0.01)   # 하한에 닿은(± 0.01 cm) 공중 프레임
     return targets, rep
 
 
@@ -1461,8 +1747,9 @@ def bundle_bones(names: list[str], info: dict) -> dict:
     """pose_from bones(프리셋 · 본 이름) → 본 이름 — 대상 메시 inspect_skeleton(details · template_match · suggest_finger_chains) 하나에서(이름 추측 없음):
     spine = 템플릿 Spine 체인 경로 · neck_head = Neck + Head · arm_l/r = {Side}Clavicle + {Side}Arm + 위팔 · 아래팔의 체인 밖 잎 자식(트위스트 — 자식이
     있는 가지는 옷 자락이라 뺀다: Vesper 위팔 아래 재킷 자락 2마디는 C++ 몸 모델 twist 규칙엔 들고 끝 마디는 모델 밖이다) · fingers_l/r = 손가락 체인
-    제안 다섯 시작과 자손(메타카팔은 빼고 — 손바닥 점 · 손목 굽힘이 쓰는 가운데 손가락 뿌리 위치가 그대로) · upper_body = 앞 넷. 골반 · 그 조상 · 다리 체인 가지는 NOT_SUPPORTED(8-4d), 체인이 없으면 POSE_FROM_PRESET_UNKNOWN, 모르는 본은 UNKNOWN_BONE.
-    → {bones[], presets{프리셋: [본]}}."""
+    제안 다섯 시작과 자손(메타카팔은 빼고 — 손바닥 점 · 손목 굽힘이 쓰는 가운데 손가락 뿌리 위치가 그대로) · upper_body = 앞 넷 · leg_l/r(9-4d U6-c) =
+    {Side}Leg 체인 + 발 아래 자손(발볼 · 발끝) + 넓적다리 · 종아리의 체인 밖 잎 자식(트위스트) · legs = 둘. 골반 · 그 조상은 NOT_SUPPORTED(몸 전체가 돈다),
+    체인이 없으면 POSE_FROM_PRESET_UNKNOWN, 모르는 본은 UNKNOWN_BONE. → {bones[], presets{프리셋: [본]}}."""
     parents = {b.get("name"): b.get("parent") for b in info.get("bones") or []}
     children: dict = {}
     for b, p in parents.items():
@@ -1490,9 +1777,6 @@ def bundle_bones(names: list[str], info: dict) -> dict:
                            "POSE_FROM_PRESET_UNKNOWN")
 
     forbidden = set()
-    for leg in ("LeftLeg", "RightLeg"):
-        if (chains.get(leg) or {}).get("start") in parents:
-            forbidden |= set(subtree(chains[leg]["start"]))
     x = tm.get("pelvis")
     while x is not None:
         forbidden.add(x)
@@ -1503,6 +1787,14 @@ def bundle_bones(names: list[str], info: dict) -> dict:
             return path("Spine")
         if name == "neck_head":
             return path("Neck") + path("Head")
+        if name == "legs":
+            return preset("leg_l") + preset("leg_r")
+        if name in ("leg_l", "leg_r"):
+            leg = path(f"{'Left' if name == 'leg_l' else 'Right'}Leg")
+            out = list(leg)
+            for b in leg[:-1]:
+                out += [c for c in sorted(children.get(b) or []) if c not in leg and not children.get(c)]
+            return out + [c for c in subtree(leg[-1]) if c != leg[-1]]
         if name in ("arm_l", "arm_r"):
             side = "Left" if name == "arm_l" else "Right"
             arm = path(f"{side}Arm")
@@ -1525,8 +1817,8 @@ def bundle_bones(names: list[str], info: dict) -> dict:
             presets[name] = bones
         elif name in parents:
             if name in forbidden:
-                raise BodyFitError("bones", f"{name} is the pelvis, above it or on a leg — legs need a rule against the foot pins (a follow-up — "
-                                   "Phase 8-4d decision)", "NOT_SUPPORTED")
+                raise BodyFitError("bones", f"{name} is the pelvis or above it — the whole body would turn (legs: leg_l · leg_r · legs or leg bones)",
+                                   "NOT_SUPPORTED")
             bones = [name]
         else:
             raise BodyFitError("bones", f"{name} is neither a preset {list(BUNDLE_PRESETS)} nor a bone of the target mesh", "UNKNOWN_BONE")
@@ -1653,12 +1945,13 @@ def resolve_pose_from(rig: Rig, items: list[dict], events: dict | None, samples:
 
 # ---- 풀이 ----
 def smooth_mode(value: str, timing_cfg) -> dict:
-    """smooth_speed → {mode, on, reason}. auto = 같은 Job 에 fix.timing 이 있을 때만 켠다(8-4e 사용자 결정 — swing_mode 와 같은 꼴): 시간 보정이 휘두름을
-    ×1.7 쯤 줄이면 고정 폭(smooth_s 프레임)이 섞는 손 이동이 그만큼 길어진다. 모든 요청에 켜면 원 속도의 빠른 동작에서 새 미달이 생겼다(통합 —
-    s25 휘두름 +11.5% · 운영 달리기 몸 2.61 cm · Attack2 팔 교차 7.4 → 14.7% · T5 위팔) — 기존 애셋은 on 으로 요청한다."""
+    """smooth_speed → {mode, on, reason}. auto = 켬(9-4c 사용자 결정 — 모든 요청). 8-4e 에는 같은 Job 에 fix.timing 이 있을 때만이었다: 모든 요청에 켜면
+    원 속도의 빠른 동작에서 새 미달이 생겼다(통합 — s25 휘두름 +11.5% · 운영 달리기 몸 2.61 cm · Attack2 팔 교차 7.4 → 14.7% · T5 위팔). 9-4a · 9-4b
+    (지도 규칙 2 · 손 부근 마무리 · 팔 교차 항) 뒤로는 셋이 재현되지 않고(E0 — s25 휘두름 −7.2 → +1.4%), 갈림길(배율 ± 0.05 에 머리 0 ↔ 7 cm)은
+    국소 수렴(_converge)이 모은다. reason 은 fix.timing 이 있으면 그것(합본 기록 그대로)."""
     if value != "auto":
         return {"mode": value, "on": value == "on", "reason": f"requested {value}"}
-    return {"mode": "auto", "on": bool(timing_cfg), "reason": "fix.timing" if timing_cfg else "no fix.timing — ask smooth_speed on"}
+    return {"mode": "auto", "on": True, "reason": "fix.timing" if timing_cfg else "default (9-4c — every clip)"}
 
 
 def speed_factors(rig: Rig, loop: bool) -> list[float] | None:
@@ -1691,14 +1984,22 @@ class Solver:
 
     def __init__(self, model: bm.BodyModel, cfg: dict, *, grip: dict | None = None, targets: list[dict] | None = None, loop: bool = False,
                  weapon: WeaponRig | None = None, fingers: dict | None = None, pose_from: list[dict] | None = None, leg_path: dict | None = None,
-                 smooth_fast: bool | None = None):
+                 smooth_fast: bool | None = None, balls: dict | None = None):
         self.model = model
         self.fingers = fingers
         self.rig = Rig(model)
         # 다리 공중 경로(8-4d — swing_paths) — 공중 프레임의 발목 목표. 다리 블록은 골반이 고정이면 팔과 운동학적으로 따로라 같은 pose() 의 다리
-        # IK 로 넣는다(관통 지도 · 재검사 · 예측 · bone_deltas 가 바뀐 다리를 본다). 없으면 다리는 골반 · 발 목표가 있을 때만 움직인다
+        # IK 로 넣는다(관통 지도 · 재검사 · 예측 · bone_deltas 가 바뀐 다리를 본다). 없으면 다리는 골반 · 발 목표가 있을 때만 움직인다.
+        # 9-4d — hold 면 접지 프레임 목표도 들어 있다. 사본(쪽마다) — 다리 샘플 전이(_leg_samples)가 블록 프레임만 바꾼다(목표 없는 풀이와 공유하지 않는다)
         self.leg_path = leg_path
-        self.leg_targets = (leg_path or {}).get("targets") or {}
+        self.leg_targets = {s: dict(t) for s, t in ((leg_path or {}).get("targets") or {}).items()}
+        # 발볼(9-4d — ball_offsets: 발 로컬 오프셋, 발 회전 목표의 접지 중심 · 바닥) · 발 컴포넌트 회전 덮기(다리 샘플 공중 프레임 — 없으면 원래) ·
+        # 다리 묶음(넓적다리와 자손 — 샘플이 덮으면 접지 프레임은 pin 으로 IK)
+        self.balls = {s: (b or {}).get("offset_cm") for s, b in (balls or (leg_path or {}).get("balls") or {}).items() if (b or {}).get("offset_cm")}
+        self.foot_rot: dict = {s: {} for s in self.rig.legs}
+        self.leg_chain = {s: self._subtree(g["thigh"]) for s, g in self.rig.legs.items()}
+        self._ground_c: dict | None = None
+        self.leg_samples: dict = {}
         # 팔 관통 보정(clearance.mode off = 재기만 — 다리만 고치는 요청)
         self.clear_on = cfg["clearance"].get("mode", "auto") != "off"
         # 무기(8-4c) — weapon 모드면 파지 = 손잡이 선분 · 무기 공간 회전(keep 대신), 아니면 무기 끝 목표 · 기록만
@@ -1713,6 +2014,9 @@ class Solver:
             smooth_fast = smooth_mode(cfg.get("smooth_speed", "auto"), None)["on"]
         self.smooth_on = bool(smooth_fast)
         self.smooth_k = speed_factors(self.rig, self.loop) if self.smooth_on else None
+        # 국소 수렴(9-4c U5-c — _converge) · 손 부근 마무리 증분 매끈화(9-4c U5-a — _smooth_finish)
+        self.converge_on = bool(cfg.get("converge", True)) and cfg["clearance"].get("mode", "auto") != "off"
+        self.finish_smooth = bool(cfg.get("finish_smooth", True))
         self.margin = cfg["clearance"]["margin_cm"] * model.scale
         # 몸 지도(몸통 · 넓적다리 · 머리목)에서 허용하는 깊이 — allow_contact(기본)면 맞닿음(≤ contact_cm)까지 정상(손끼리와 같은 규칙, 관통 판정
         # penetration_cm 은 그대로). 처음 판(margin 만큼 떼기)은 엄지 끝 하나가 넓적다리를 스치는 걷기에서도 팔 전체를 바깥으로 밀었다
@@ -2311,22 +2615,63 @@ class Solver:
         return {"cost": cost, "H": H, "g": g, "dofs": dofs, "pose": pose, "info": info}
 
     # ---- 포즈 ----
-    def ankle_target(self, f: int, side: str):
+    def _subtree(self, root: int) -> set:
+        out, stack = set(), [root]
+        while stack:
+            b = stack.pop()
+            out.add(b)
+            stack += self.model.children[b]
+        return out
+
+    def _ground(self, side: str) -> list:
+        """접지(발목 또는 발볼 — 9-4d 발 회전 목표의 중심 · 다리 샘플 pin) — 다리 경로가 있으면 그 판정, 없으면 같은 detect_contacts(다리 길이 평균)."""
+        if self._ground_c is None:
+            lp = self.leg_path or {}
+            cm = sum(self.rig.leg_len.values()) / max(1, len(self.rig.leg_len))
+            out = {}
+            for s, leg in self.rig.legs.items():
+                A = [self.model.poses[f][leg["foot"]][1] for f in range(self.rig.frames)]
+                c = list((lp.get("contacts") or {}).get(s) or mm.detect_contacts(A, self.model.times, 2, cm))
+                if self.balls.get(s):
+                    B = [bm.transform_point(self.model.poses[f][leg["foot"]], self.balls[s]) for f in range(self.rig.frames)]
+                    c = [a or b for a, b in zip(c, mm.detect_contacts(B, self.model.times, 2, cm))]
+                out[s] = c
+            self._ground_c = out
+        return self._ground_c[side]
+
+    def _foot_target(self, f: int, side: str):
         for t in self.targets:
-            if t["kind"] == "foot" and t["side"] == side and f in t["pos"]:
-                return t["pos"][f]
+            if t["kind"] == "foot" and t["side"] == side and (f in t["pos"] or f in t["rot"]):
+                return t
+        return None
+
+    def foot_rotation(self, f: int, side: str):
+        """발 컴포넌트 회전 — 발 회전 목표(9-4d U6-c) > 다리 샘플 덮기 > 원래(leg_overrides 기본). None = 원래."""
+        t = self._foot_target(f, side)
+        if t is not None and f in t["rot"]:
+            return t["rot"][f]
+        return self.foot_rot.get(side, {}).get(f)
+
+    def ankle_target(self, f: int, side: str):
+        t = self._foot_target(f, side)
+        if t is not None and f in t["pos"]:
+            return t["pos"][f]
         path = self.leg_targets.get(side)
-        if path and f in path:
-            return path[f]
-        return self.model.poses[f][self.rig.legs[side]["foot"]][1]
+        leg = self.rig.legs[side]
+        base = path[f] if path and f in path else self.model.poses[f][leg["foot"]][1]
+        if t is not None and f in t["rot"] and self.balls.get(side) and self._ground(side)[f]:
+            # 발 회전 목표 — 디딘 발은 발볼 둘레로 돌린다(결정 ③): 목표 없는 발의 발볼 자리에 발볼을 두고 발목을 거기서 되짚는다
+            q0 = self.foot_rot.get(side, {}).get(f) or self.model.poses[f][leg["foot"]][0]
+            off = self.balls[side]
+            return _sub(_add(base, bm.qrot(q0, off)), bm.qrot(t["rot"][f], off))
+        return base
 
     def legs_active(self, f: int, state: dict) -> dict:
-        """다리 IK 가 필요한 프레임 — 골반이 움직였거나 발 목표 · 공중 경로 목표(8-4d)가 있다 → {side: 발목 목표}."""
+        """다리 IK 가 필요한 프레임 — 골반이 움직였거나 발 목표(위치 · 회전) · 공중 경로 · 고정(8-4d · 9-4d) 목표가 있다 → {side: 발목 목표}."""
         moved = self.rig.pelvis is not None and (self.rig.pelvis in state["rot"] or self.rig.pelvis in state["trans"])
         out = {}
         for side in self.rig.legs:
-            foot_target = any(t["kind"] == "foot" and t["side"] == side and f in t["pos"] for t in self.targets)
-            if moved or foot_target or f in (self.leg_targets.get(side) or ()):
+            if moved or self._foot_target(f, side) is not None or f in (self.leg_targets.get(side) or ()):
                 out[side] = self.ankle_target(f, side)
         return out
 
@@ -2337,6 +2682,10 @@ class Solver:
         if not ankles:
             return pose, {}
         over, info = rig.leg_overrides(f, pose, ankles)
+        for side in ankles:
+            q = self.foot_rotation(f, side)
+            if q is not None:
+                over[rig.legs[side]["foot"]] = q
         return rig.fk(f, state["rot"], state["trans"], over), info
 
     # ---- 한 프레임 ----
@@ -2539,7 +2888,7 @@ class Solver:
             # (가) 목표 없는 풀이(목표 없는 Job 과 같은 코드 · 입력 — cfg 는 targets · pose_from 키만 다르고 풀이는 그 키를 읽지 않는다) → 완급 > 0
             # 블록만 다시(지시 목표 · 샘플 전이 함께)
             base_solver = Solver(self.model, self.cfg, grip=self.grip, loop=self.loop, weapon=self.weapon, fingers=self.fingers, leg_path=self.leg_path,
-                                 smooth_fast=self.smooth_on)
+                                 smooth_fast=self.smooth_on, balls={s: {"offset_cm": o} for s, o in self.balls.items()})
             base, passes = base_solver._solve_states()
             state, region = self._solve_targets(base, [base_solver.pose(f, s)[0] for f, s in enumerate(base)])
             for key in ("frame_solves", "evaluations"):
@@ -2559,6 +2908,12 @@ class Solver:
             hb, ho = base_solver.stats.get("hand_finish"), self.stats.get("hand_finish")
             if hb or ho:
                 self.stats["hand_finish"] = {k: sorted(set((hb or {}).get(k) or []) | set((ho or {}).get(k) or [])) for k in HAND_FINISH_KEYS}
+            cb, co = base_solver.stats.get("converge"), self.stats.get("converge")
+            if cb or co:
+                cb, co = cb or {}, co or {}
+                self.stats["converge"] = {"frames": sorted(set(cb.get("frames") or []) | set(co.get("frames") or [])),
+                                          "rounds": max(cb.get("rounds", 0), co.get("rounds", 0)),
+                                          "skipped": [list(s) for s in sorted({tuple(s) for s in (cb.get("skipped") or []) + (co.get("skipped") or [])})]}
         if log:
             log(f"body_fit: {self.rig.frames} frames · passes {passes} · {self.stats['frame_solves']} frame solves · {round(time.time() - t0, 1)} s"
                 + (f" · target blocks {region['blocks']} (passes {region['passes']})" if region else ""))
@@ -2616,7 +2971,94 @@ class Solver:
                         incs[g] = share
                         active[g] = True
             state = self._combine(state, incs, radius, active, SPLINE_RECHECK_QUIET_WEIGHT)
-        return self._finish_head(self._finish_hands(self._snap_weapon(state))), passes
+        return self._finish_head(self._finish_hands(self._snap_weapon(self._converge(state)))), passes
+
+    def _converge(self, state: list, blocks: list | None = None, pins: list | None = None) -> list:
+        """국소 수렴 패스(9-4c U5-c — 재검사 뒤 · 무기 마무리 앞): 몸 지도(몸통 · 넓적다리 · 머리목)를 관통 판정(penetration_cm)보다 깊이 관통한 짧은
+        구간(이어진 프레임 ≤ CONVERGE_MAX_RUN · 최대 깊이 ≤ CONVERGE_MAX_CM × scale — 머리목 마무리 · 선별 head_deep 과 한 원천)만 그 프레임 풀이
+        (재검사와 같은 가족 · 출발점 · 앞 프레임 연속 — 구간 안은 앞 프레임 풀이를 이어 받는다)에 고정하고, ± CONVERGE_TAPER_S 이웃은 2차 차분 최소로
+        잇는다(그 밖 0 고정 — 혹 모양, _bump). 이웃이 새로 들면 CONVERGE_ROUNDS 까지 되풀이.
+        - 재검사 증분은 넓은 스플라인(폭 6 프레임)에 묽어져 빠른 휘두름의 1 ~ 2 프레임 관통을 끝내 못 풀었고(E0: 낫 정정 f61 머리 · f51 · f53 가슴,
+          검 선택 f37 머리, 걷기 f97 · f98 넓적다리, 운영 Attack2 f13 넓적다리), 머리목 마무리가 그 프레임만 빼며 튀었다(떨림 8.37 · 3.16).
+        - 손끼리(손 · 아래팔 지도)는 구간 판정에서 뺀다 — 운영 Attack2 의 긴 손끼리 구간(known)이 그 안의 짧은 넓적다리 관통까지 건너뛰게 했다.
+        - 구간 안 프레임을 따로 풀면 두 고정값 사이가 꺾였다(걷기 손가락 떨림 2.27 → 3.14 — 연쇄면 2.27). 빈틈 한 프레임을 함께 풀면 더 나빴다(4.2).
+        - 빠른 구간 매끈화 배율 · 기준을 ± 0.05 · ± 0.5 바꿔도 머리 0 으로 모인다(낫 정정 — 없으면 떨림 2.5 ↔ 10.3 갈림길).
+        blocks = 목표 블록 프레임 목록들(그 안만), pins = 블록마다 (앞, 뒤)에 블록 밖이 있나(0 고정 — 블록 밖으로 새지 않는다). 없으면 전체(루프면 감아
+        돈다)."""
+        if not self.converge_on:
+            return state
+        n = self.rig.frames
+        runs = blocks if blocks is not None else [range(n - 1 if self.loop else n)]
+        width = max(1, int(round(CONVERGE_TAPER_S * self.model.fps)))
+        radius = max(1, int(round(self.cfg["smooth_s"] * self.model.fps)))
+        pen, top = self.model.penetration_cm, CONVERGE_MAX_CM * self.scale
+        cs = self.stats.setdefault("converge", {"frames": [], "rounds": 0, "skipped": []})
+        skipped: set = {tuple(s) for s in cs["skipped"]}
+        out = list(state)
+        for _ in range(CONVERGE_ROUNDS):
+            hit_any = False
+            for r, run in enumerate(runs):
+                frames = list(run)
+                deep = {}
+                for f in frames:
+                    pose = self.pose(f, out[f])[0]
+                    cand = sorted(set(self._candidates(f, self.model.poses[f])) | set(self._candidates(f, pose)))
+                    d = max((c[2] for c in self._violations(f, out[f], cand)["clear"] if c[1] not in HAND_MAPS), default=-math.inf)
+                    if d > pen:
+                        deep[f] = (d, cand)
+                hits = []
+                for a, b in mm.runs([f in deep for f in frames], 1):
+                    fs = frames[a:b + 1]
+                    mx = max(deep[f][0] for f in fs)
+                    if len(fs) <= CONVERGE_MAX_RUN and mx <= top:
+                        hits += fs
+                    else:
+                        skipped.add((fs[0], fs[-1], round(mx, 2)))
+                if not hits:
+                    continue
+                hit_any = True
+                inc, solved = {}, {}
+                for f in hits:
+                    chained = f - 1 in solved
+                    start = out[f]
+                    if chained:
+                        start = self._plus(out[f], inc[f - 1])
+                        self._clamp(f, start, count=False)
+                    prev = solved[f - 1] if chained else self._prev_state(out, f)
+                    solved[f], _ = self.solve_frame(f, start, {**self._anchor_of(f, out[f]), "prev": prev}, FAMILIES, deep[f][1])
+                    inc[f] = self._diff(solved[f], out[f])
+                cs["frames"] += hits
+                wrap = blocks is None and self.loop
+                for f, d in self._bump(frames, inc, width, radius, wrap, (pins or [])[r] if pins else (False, False)).items():
+                    out[f] = self._plus(out[f], d)
+                    self._clamp(f, out[f], count=False)
+            cs["rounds"] += 1
+            if not hit_any:
+                break
+        cs["frames"] = sorted(set(cs["frames"]))
+        cs["skipped"] = sorted(list(s) for s in skipped)
+        if self.loop:
+            out[-1] = self._copy(out[0])
+        return out
+
+    def _bump(self, frames: list, inc: dict, width: int, radius: int, wrap: bool, pins: tuple) -> dict:
+        """혹 — 관절 · 성분별 2차 차분 최소(spline_fixed): inc 프레임 = 그 증분(고정), 거기서 width 넘게 먼 프레임 = 0(고정), 사이는 자유(자료 가중
+        CONVERGE_FREE_WEIGHT). wrap = 프레임 열이 루프 원, pins = (앞, 뒤) 0 고정. → {프레임: 증분}(width 안만)."""
+        m = len(frames)
+        idx = {f: k for k, f in enumerate(frames)}
+        hit = [idx[h] for h in inc]
+        near = [min((min(abs(k - h), m - abs(k - h)) if wrap else abs(k - h)) for h in hit) for k in range(m)]
+        fixed = [d == 0 or d > width for d in near]
+        act = [d == 0 for d in near]
+        zero = (0.0, 0.0, 0.0)
+        out = {frames[k]: {"rot": {}, "trans": {}} for k in range(m) if near[k] <= width}
+        for key, j in {(key, j) for d in inc.values() for key in ("rot", "trans") for j in d[key]}:
+            series = [inc[frames[k]][key].get(j, zero) if near[k] == 0 else zero for k in range(m)]
+            sm = spline_fixed(series, act, radius, CONVERGE_FREE_WEIGHT, fixed, loop=wrap, pins=pins)
+            for k in range(m):
+                if near[k] <= width and _norm(sm[k]) > 1e-12:
+                    out[frames[k]][key][j] = sm[k]
+        return out
 
     def _finish_head(self, state: list, blocks: list | None = None) -> list:
         """머리목 마무리(8-4d 진단 · 사용자 결정 '머리목만' — 머리목은 관통 0 하드 기준): 매끈화 · 재검사 · 다듬기 뒤에도 손 · 아래팔이 머리목을
@@ -2672,7 +3114,7 @@ class Solver:
             out[-1] = self._copy(out[0])
         return out
 
-    def _finish_hands(self, state: list, blocks: list | None = None) -> list:
+    def _finish_hands(self, state: list, blocks: list | None = None, pins: list | None = None) -> list:
         """손 부근 마무리(9-4b U4-a — 보조 손목 다듬기(8-4c 후속 2차)와 위팔 마무리(8-4f)를 한 풀이로): 본 풀이(매끈화 · 재검사 · 무기 마무리) 뒤, 처리 프레임
         마다 두 팔(쇄골 · 위팔 · 팔꿈치 · 손목)을 그 상태에서 작은 GN 으로 다시 푼다 — 기준 = 그 상태(관절 충실도 · 손 붙들기 · keep 관계 · 관통 바닥).
         - 처리 프레임: 손목 상한이 있는 파지 프레임(보조 원래 + BEND_KEEP_TOL_DEG · 주 원래 + LEAD_BEND_TOL_DEG) · 위팔 ↔ 몸 > upper_cap_cm × scale(cap) ·
@@ -2685,7 +3127,9 @@ class Solver:
           손 고정 궤도 하나라 보조 손목 + 2° 에 막혔다(합본 검 f30 ~ 36, 검 선택 112 프레임 중 83). 쇄골이 들어와 손 고정 · 손목 상한을 지키며 어깨를 옮긴다.
         - 위팔을 GN 으로 상한까지 못 뺀 프레임은 둘째 출발점 = 궤도 격자 각(_upper_angle · _swivel_state — 8-4f 규칙) 중 비용이 낮은 쪽.
         - 출발점 둘(그 상태 · 앞 프레임 증분을 이어 받은 상태) 중 비용이 낮은 쪽(_snap_weapon 과 같은 규칙).
-        blocks = 목표 블록 프레임 목록들(그 프레임만 — 밖은 목표 없는 해 그대로), 없으면 전체. 지시 목표가 있으면 목표 항(소프트)도 함께."""
+        - 끝에 처리 프레임의 증분을 시간 매끈화(_smooth_finish — 9-4c, finish_smooth 끔이면 프레임 값 그대로).
+        blocks = 목표 블록 프레임 목록들(그 프레임만 — 밖은 목표 없는 해 그대로) · pins = 블록마다 (앞, 뒤)에 블록 밖이 있나, 없으면 전체. 지시 목표가
+        있으면 목표 항(소프트)도 함께."""
         rig, n = self.rig, self.rig.frames
         runs = blocks if blocks is not None else [range(n - 1 if self.loop else n)]
         cap = self.upper_cap * self.scale if self.upper_mode == "cap" and self.clear_on else None
@@ -2697,6 +3141,7 @@ class Solver:
         hs = self.stats.setdefault("hand_finish", {k: [] for k in HAND_FINISH_KEYS})
         us = self.stats.setdefault("upper_finish", {"frames": [], "deg_max": 0.0, "elbow_cm_max": 0.0, "blocked": [], "remain_cm_max": 0.0}) if cap is not None else None
         out = list(state)
+        done: list = []
         floor0, keep0, live0 = self.floor, self.keep_rel, self.live_lateral
         self.floor, self.keep_rel, self.live_lateral, self.hand_mode = dict(self.floor), dict(self.keep_rel), True, True
         try:
@@ -2756,10 +3201,13 @@ class Solver:
                         hs["cross"].append(f)
                     out[f] = sol
                     hs["frames"].append(f)
+                    done.append(f)
                     carried = self._diff(out[f], state[f])
         finally:
             self.floor, self.keep_rel, self.live_lateral, self.hand_mode = floor0, keep0, live0, False
             self._ucap, self._state_cap, self._lead_floor = {}, {}, None
+        if self.finish_smooth and done:
+            out = self._smooth_finish(state, out, runs, set(done), pins, hs)
         for k in HAND_FINISH_KEYS:
             hs[k] = sorted(set(hs[k]))
         if us is not None:
@@ -2767,6 +3215,56 @@ class Solver:
         if self.loop:
             out[-1] = self._copy(out[0])
         return out
+
+    def _smooth_finish(self, state: list, out: list, runs: list, done: set, pins: list | None, hs: dict) -> list:
+        """손 부근 마무리 증분의 시간 매끈화(9-4c U5-a): 마무리는 처리 프레임마다 그 상태에서 따로 풀어 —
+        - 손목 · 위팔 상한이 거의 모든 프레임에 걸리는 클립에서 쇄골 · 위팔 · 손목이 몫을 프레임마다 다르게 나눴고(검 선택 왼 쇄골 4.6 → 2.2 → 3.8 → 2.7°,
+          떨림 본 풀이 0.45 → 마무리 뒤 2.63 — 합본 검 1.84 → 7.91 의 주 손목 상한 4.5 ↔ 5° 갈림길도 같은 뿌리)
+        - 상한 위반이 끝나는 프레임에서 증분이 한 번에 0 이 됐다(낫 정정 f74 ~ 75 — 보조 손목 원래 + 2° 안으로 든 프레임, 떨림 2.47).
+        증분(마무리 − 그 상태)을 관절 · 성분별 가중 매끈화 스플라인(처리 프레임 SPLINE_ACTIVE_WEIGHT · 그 밖 SPLINE_QUIET_WEIGHT · 폭 FINISH_SMOOTH_S)으로
+        잇고, 매끈화가 손목 굽힘을 max(상한, 마무리 해) + FINISH_PIN_DEG 보다 넘긴 프레임은 마무리 해에 고정해 다시 잇는다(≤ FINISH_PIN_ROUNDS — 고정 없이는
+        낫 정정 보조 손목 클립 + 4.8°). 무기 파지 프레임(_snap_weapon 몫)은 그대로(고정). runs · pins = _finish_hands 의 블록(루프 원이면 감아 돈다)."""
+        n = self.rig.frames
+        radius = max(1, int(round(FINISH_SMOOTH_S * self.model.fps)))
+        hands = self.bends + ([self.lead_br] if self.lead_br is not None else [])
+        res = list(out)
+        for r, run in enumerate(runs):
+            frames = list(run)
+            act = [f in done for f in frames]
+            if not any(act):
+                continue
+            wrap = self.loop and len(frames) == n - 1
+            fixed = [self.weapon_w[f] > 0.0 for f in frames]
+            incs = [self._diff(out[f], state[f]) for f in frames]
+            joints = {(key, j) for d in incs for key in ("rot", "trans") for j in d[key]}
+            ends = pins[r] if pins else (False, False)
+            for _ in range(FINISH_PIN_ROUNDS + 1):
+                new = [self._copy(state[f]) for f in frames]
+                for key, j in joints:
+                    sm = spline_fixed([d[key].get(j, (0.0, 0.0, 0.0)) for d in incs], act, radius, None, fixed, loop=wrap, pins=ends)
+                    for k in range(len(frames)):
+                        if _norm(sm[k]) > 1e-12:
+                            new[k][key][j] = _add(new[k][key].get(j, (0.0, 0.0, 0.0)), sm[k])
+                for k, f in enumerate(frames):
+                    self._clamp(f, new[k], count=False)
+                    res[f] = out[f] if fixed[k] else new[k]
+                grew = False
+                for k, f in enumerate(frames):
+                    if fixed[k] or not act[k]:
+                        continue
+                    ps, po = self.pose(f, res[f])[0], self.pose(f, out[f])[0]
+                    for br in hands:
+                        c = br["caps"][f]
+                        if c is None:
+                            continue
+                        bo = WeaponRig.bend(po, br["elbow"], br["wrist"], br["middle"])
+                        if WeaponRig.bend(ps, br["elbow"], br["wrist"], br["middle"]) - max(c, bo) > math.radians(FINISH_PIN_DEG):
+                            fixed[k] = grew = True
+                            hs["smooth_pinned"].append(f)
+                            break
+                if not grew:
+                    break
+        return res
 
     def _upper_limits(self, f: int, pose, cap: float | None) -> tuple[dict, float]:
         """위팔 점의 손 부근 마무리 허용 깊이 {(점, 지도): 몸(몸통 · 넓적다리 · 머리목)은 그 자세가 cap 보다 깊으면 cap, 아니면 max(그 자세, 허용) · 반대 팔
@@ -2961,6 +3459,7 @@ class Solver:
         frames = [f for blk, _, _ in blocks for f in blk]
         # 샘플 전이 — 덮은 자세(묶음 본 로컬 = slerp(base, 샘플, weight × 완급))가 출발점 · 충실도 기준. 샘플 전이가 없는 프레임은 base 그대로(같은 객체)
         ov = {f: self._overlay(f, base[f]) for f in frames}
+        self._leg_samples(ov, base)
         ov_poses = {f: base_poses[f] if ov[f] is base[f] else self.pose(f, ov[f])[0] for f in frames}
         anchor = {f: {"rot": dict(ov[f]["rot"]), "trans": dict(ov[f]["trans"]), "pose": ov_poses[f]} for f in frames}
         # 기준 바꾸기 — keep 상대 변환 · 관통 바닥(원래 위팔 깊이를 먼저 채운다)
@@ -3068,8 +3567,67 @@ class Solver:
             if self.loop:
                 state[-1] = self._copy(state[0])
         frames_of = [blk for blk, _, _ in blocks]
-        state = self._finish_head(self._finish_hands(self._snap_weapon(state, frames_of), frames_of), frames_of)
+        ends = [(a, b) for _, a, b in blocks]
+        state = self._finish_head(self._finish_hands(self._snap_weapon(self._converge(state, frames_of, ends), frames_of), frames_of, ends), frames_of)
         return state, {"blocks":[[blk[0], blk[-1]] for blk, _, _ in blocks], "passes": passes, "frame_solves": self.stats["frame_solves"] - solves0}
+
+    def _leg_samples(self, ov: dict, base: list) -> None:
+        """다리 샘플 전이(9-4d U6-c) — 덮은 자세의 다리 묶음 본이 바뀐 블록 프레임: 접지(발목 또는 발볼) 프레임은 발목을 지금 목표(hold 고정값 · 원래 키)에
+        IK 로 되돌린다(발 pin 이 이긴다 — 다리 IK 가 굽힘 평면을 지켜 무릎 방향만 샘플), 공중 프레임 묶음은 덮은 자세의 무릎 · 발목 · 발 회전을 기준으로
+        공중 경로 풀이(_swing_window ref — 앞뒤 LEG_PAD 프레임은 지금 목표로 고정, 바닥 · 이음매 그대로). 발 회전 = 덮은 자세 발 회전, 접지 패드 쪽은
+        원래에서 smootherstep 으로 잇는다. 덮지 않은 프레임 · 블록 밖은 그대로(구간 밖 변화 0). → leg_targets · foot_rot · leg_samples(기록)."""
+        rig, model = self.rig, self.model
+        n = rig.frames
+        m = n - 1 if self.loop else n
+        soft = self.cfg["legs"].get("soft_knee")
+        seam = _loop_seam(rig) if self.loop else None
+        floor = (self.leg_path or {}).get("floor")
+        if floor is None:
+            tracks = {s: ([model.poses[f][g["foot"]][1] for f in range(n)],
+                          [bm.transform_point(model.poses[f][g["foot"]], self.balls[s]) for f in range(n)] if self.balls.get(s) else None)
+                      for s, g in rig.legs.items()}
+            floor = _floor_levels(tracks, {s: self._ground(s) for s in rig.legs}, {s: self._ground(s) for s in rig.legs}, m)
+        for side, leg in sorted(rig.legs.items()):
+            chain = self.leg_chain[side]
+            on = sorted(f for f in ov if ov[f] is not base[f] and any(b in chain for b in (self.pf_req.get(f) or {})))
+            if not on:
+                continue
+            ground = self._ground(side)
+            targets = self.leg_targets.setdefault(side, {})
+            ref = {}
+            for f in on:
+                p = rig.fk(f, ov[f]["rot"], ov[f]["trans"])
+                ref[f] = (p[leg["knee"]][1], p[leg["foot"]][1], p[leg["foot"]][0])
+                if ground[f]:
+                    targets.setdefault(f, model.poses[f][leg["foot"]][1])
+            air = [False] * n
+            for f in on:
+                air[f] = not ground[f]
+            rec = {"side": side, "frames": len(on), "ground": sum(1 for f in on if ground[f]), "air": sum(air[:m]), "windows": []}
+            for win in _flag_runs(air, self.loop):
+                pads = ([(win[0] - k) % m for k in range(LEG_PAD, 0, -1)] + [(win[-1] + k) % m for k in range(1, LEG_PAD + 1)] if self.loop else
+                        [f for f in range(win[0] - LEG_PAD, win[0]) if f >= 0] + [f for f in range(win[-1] + 1, win[-1] + 1 + LEG_PAD) if f < n])
+                fixed = {g: targets.get(g, model.poses[g][leg["foot"]][1]) for g in pads}
+                got, wrep = _swing_window(rig, side, win, ground, self.loop, soft, held=fixed, floor=floor, ball=self.balls.get(side), seam=seam,
+                                          ref={f: ref[f] for f in list(win) + pads if f in ref})
+                targets.update(got)
+                rec["windows"].append(wrep)
+                ga = win[0] > 0 or self.loop
+                ga = ga and ground[(win[0] - 1) % m]
+                gb = (win[-1] < n - 1 or self.loop) and ground[(win[-1] + 1) % m]
+                k = len(win)
+                for j, f in enumerate(win):
+                    w = 1.0
+                    if ga:
+                        w = min(w, _smootherstep((j + 1) / (LEG_PAD + 1)))
+                    if gb:
+                        w = min(w, _smootherstep((k - j) / (LEG_PAD + 1)))
+                    self.foot_rot[side][f] = _slerp(model.poses[f][leg["foot"]][0], ref[f][2], w)
+            if self.loop and 0 in targets:
+                targets[n - 1] = _seam(seam, targets[0], 1)
+                if 0 in self.foot_rot[side]:
+                    self.foot_rot[side][n - 1] = self.foot_rot[side][0]
+            self.leg_samples[side] = rec
 
     def _floor_at(self, f: int, pose, pair: bool = False, parts: tuple | None = None) -> None:
         """관통 바닥 — 그 자세에서 허용(_limit)보다 깊은 (f, 팔 점, 지도)의 깊이를 floor 에 둔다(그보다 얕게 요구하지 않는다 — 그 자세에 남은 한계는
@@ -3359,12 +3917,21 @@ class Solver:
                "seconds": round(seconds, 2), "stats": {k: v for k, v in self.stats.items() if k != "clamped"}}
         if self.pose_from:
             out["pose_from"] = self.pose_from_report(poses, state)
+        if self.leg_samples:
+            # 다리 샘플 전이(9-4d U6-c) — 쪽마다 덮은 프레임 · 접지(pin) · 공중 · 다시 푼 공중 구간(모델 수치)
+            out["leg_samples"] = [self.leg_samples[s] for s in sorted(self.leg_samples)]
         if self.leg_path is not None:
-            # 다리 공중 경로(8-4d) — 구간별 모델 수치(발목 이동 · d/다리 · 무릎 · 발목 떨림 전후) · 건너뛴 구간 · 접지 비율
+            # 다리 공중 경로(8-4d) — 구간별 모델 수치(발목 이동 · d/다리 · 무릎 · 발목 떨림 전후 · 바닥 여유) · 건너뛴 구간 · 접지 비율 · 공중 프레임.
+            # 9-4d — 접지 고정(hold: 구간 · 프레임 · 발끝 접지 프레임 · 수평 이동 최대 · pin 오차) · 바닥 높이 · 발볼 오프셋
             lp = self.leg_path
+            held = lp.get("held") or {}
             out["leg_path"] = {"windows": lp.get("windows") or [], "skipped": lp.get("skipped") or [],
                                "contact_pct": {s: round(100.0 * sum(c) / len(c), 1) if c else None for s, c in (lp.get("contacts") or {}).items()},
-                               "frames": sorted({f for t in self.leg_targets.values() for f in t})}
+                               "frames": sorted({f for s, t in self.leg_targets.items() for f in t if f not in set(held.get(s) or ())}),
+                               "floor": lp.get("floor"), "balls": lp.get("balls") or {}}
+            if lp.get("hold") is not None:
+                err = max((legs[f][s]["error_cm"] for s, fr in held.items() for f in fr if s in legs[f]), default=0.0)
+                out["leg_path"]["hold"] = {**lp["hold"], "pin_error_cm_max": round(err, 4)}
         if self.weapon is not None:
             # 무기(8-4c) — 파지 오차(전 = 원본 포즈 · 후) · 무기-몸 관통 기록(모델 지도 — 제약 아님)
             out["weapon"] = {"grip": {"before": self.weapon_report(model.poses), "after": self.weapon_report(poses)} if self.weapon.grip else None,
@@ -3481,6 +4048,8 @@ class Solver:
                         blocked.add("grip")
                     if self._at_limit(f, b, state[f]):
                         blocked.add("joint_limit")
+                    if any(b in self.leg_chain[s] and f in (self.leg_targets.get(s) or ()) for s in self.leg_chain):
+                        blocked.add("pins")   # 다리 샘플(9-4d) — 발목 목표(접지 pin · 공중 경로)로 IK 한 다리 본
                 partial.append({"bone": rig.model.bones[b], "frames": [rows[0][0], rows[-1][0]], "count": len(rows), "deg_max": round(max(d for _, d in rows), 3),
                                 "blocked_by": sorted(blocked) or ["smoothing"]})
             r3 = lambda xs: round(max(xs), 3) if xs else None  # noqa: E731
@@ -3542,18 +4111,41 @@ class Solver:
                     chain += [self.rig.arms[t["side"]][k] for k in ("clavicle", "upper", "elbow") if self.rig.arms[t["side"]][k] is not None]
                 if any(self._at_limit(f, b, state[f]) for b in chain):
                     blocked.add("joint_limit")
-                if t["kind"] == "pelvis":
+                if t["kind"] == "pelvis" or (t["kind"] == "foot" and f in t["pos"]):
                     li = self.pose(f, state[f])[1]
                     if any(x["reach_cm"] > REACH * self.rig.leg_len[s] - 1e-3 for s, x in li.items()):
                         blocked.add("pins")
             pct = lambda xs: round(bm.percentile(xs, 95.0), 3) if xs else None  # noqa: E731
-            out.append({"id": t["id"], "note": t["note"], "effector": t["effector"], "bone": t["bone_name"], "priority": t["priority"],
-                        "window_s": t["window_s"], "frames": t["frames"], "ease_frames": t["ease_frames"],
-                        "requested": {k: t["spec"][k] for k in ("position", "rotation") if t["spec"].get(k)},
-                        "achieved": {"error_cm_p95": pct(pos_err or away_err), "error_cm_max": round(max(pos_err or away_err), 3) if (pos_err or away_err) else None,
-                                     "error_deg_p95": pct(rot_err), "error_deg_max": round(max(rot_err), 3) if rot_err else None},
-                        "reached": not bad, "blocked_by": sorted(blocked) if bad else []})
+            rec = {"id": t["id"], "note": t["note"], "effector": t["effector"], "bone": t["bone_name"], "priority": t["priority"],
+                   "window_s": t["window_s"], "frames": t["frames"], "ease_frames": t["ease_frames"],
+                   "requested": {k: t["spec"][k] for k in ("position", "rotation") if t["spec"].get(k)},
+                   "achieved": {"error_cm_p95": pct(pos_err or away_err), "error_cm_max": round(max(pos_err or away_err), 3) if (pos_err or away_err) else None,
+                                "error_deg_p95": pct(rot_err), "error_deg_max": round(max(rot_err), 3) if rot_err else None},
+                   "reached": not bad, "blocked_by": sorted(blocked) if bad else []}
+            if t["kind"] == "foot" and t["rot"]:
+                rec["pivot"] = self._pivot_report(t, poses)
+            out.append(rec)
         return out
+
+    def _pivot_report(self, t: dict, poses: list) -> dict:
+        """발 회전 목표(9-4d U6-c)의 중심 — 디딘 프레임(접지 · 위치 목표 없음)의 발볼이 목표 없는 자리에서 벗어난 거리(cm, 결정 ③ — 0 이어야 한다) ·
+        공중 프레임 발목이 벗어난 거리. 발볼 오프셋이 없으면 디딘 프레임도 발목 둘레(point ankle)."""
+        side, leg = t["side"], self.rig.legs[t["side"]]
+        off = self.balls.get(side)
+        ground = self._ground(side)
+        planted, air = [], []
+        for f in t["rot"]:
+            if f in t["pos"]:
+                continue
+            path = self.leg_targets.get(side) or {}
+            base = path[f] if f in path else self.model.poses[f][leg["foot"]][1]
+            q0 = self.foot_rot.get(side, {}).get(f) or self.model.poses[f][leg["foot"]][0]
+            if ground[f] and off:
+                planted.append(_norm(_sub(bm.transform_point(poses[f][leg["foot"]], off), _add(base, bm.qrot(q0, off)))))
+            else:
+                air.append(_norm(_sub(poses[f][leg["foot"]][1], base)))
+        r = lambda xs: round(max(xs), 4) if xs else None  # noqa: E731
+        return {"point": "ball" if off else "ankle", "planted_frames": len(planted), "ball_cm_max": r(planted), "air_frames": len(air), "ankle_cm_max": r(air)}
 
 
 # ---- 예측 측정 (C++ parts · hands 쌍과 같은 키 · 통계) ----
@@ -3618,13 +4210,13 @@ def weapon_body(solver: Solver, poses: list) -> dict | None:
 
 def solve(model: bm.BodyModel, cfg: dict, *, grip: dict | None = None, targets: list[dict] | None = None, loop: bool = False, weapon: WeaponRig | None = None,
           fingers: dict | None = None, pose_from: list[dict] | None = None, leg_path: dict | None = None, smooth_fast: bool | None = None,
-          log=None) -> dict:
+          balls: dict | None = None, log=None) -> dict:
     """한 풀이 — 모델 · 정규화한 fix.body · 파지(grip_weights) · 풀린 목표(resolve_targets) · 원본 루프 여부 · 무기(WeaponRig, 8-4c) · 손가락 뿌리
     (fingers{side: 대상 메시 손가락 체인 제안 {Side}Middle 시작 — 보조 손목 굽힘 상한, 없으면 그 제약을 끈다) · 풀린 샘플 전이(resolve_pose_from,
     8-4c c2) · 다리 공중 경로(swing_paths, 8-4d — 없으면 다리는 골반 · 발 목표가 있을 때만) · 빠른 구간 매끈화 켬(smooth_mode, 8-4e — 없으면
-    요청 smooth_speed 만: auto = 끔) → Solver.run 결과."""
+    요청 smooth_speed 만: auto = 켬(9-4c)) · 발볼(ball_offsets, 9-4d — 발 회전 목표의 접지 중심 · 다리 샘플 바닥, 없으면 다리 경로의 것) → Solver.run 결과."""
     return Solver(model, cfg, grip=grip, targets=targets, loop=loop, weapon=weapon, fingers=fingers, pose_from=pose_from, leg_path=leg_path,
-                  smooth_fast=smooth_fast).run(log=log)
+                  smooth_fast=smooth_fast, balls=balls).run(log=log)
 
 
 def bone_deltas_op(result: dict) -> dict | None:

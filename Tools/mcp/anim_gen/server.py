@@ -163,20 +163,29 @@ def plan_motion_generation(request: dict) -> dict:
             original + 2°, lead hand original + 4.5° — keeps the state's two-hand relation and stops the arms crossing deeper than the source; Job
             fix.body hand_finish{frames, upper_over, cross, second_start}), secondary record, legs false, map_rule 2 (9-4a — body maps rigid with their anchor bones in both
             the solver model and the C++ measurement: arm-chain weighted shoulder · armpit vertices handled, angle zero carried by the anchor; 1 = 8-4a maps,
-            comparison only)}, legs{pins auto (contact frames of the target ankle never move), swing_path auto|on|off
+            comparison only)}, legs{pins auto|hold|keep (9-4d — hold: each contact run of the target ankle is held at one horizontal spot,
+            height and foot rotation kept; toe contacts (ball down, heel up) keep the ball where the flat contact left it; auto = hold when this job
+            has fix.timing and a fix.ops leg op — the time warp re-blurs the feet the leg fix planted; keep = contact frames keep their keys; hold
+            turns the swing path on), swing_path auto|on|off
             (auto = on when this job's fix.ops has stance_width · foot_lock — their blends kink the swing; an existing asset asks on), soft_knee
-            {start 0.97, softness 0.03} | null} (Phase 8-4d — swing windows rewritten in the same solve: ankle targets by knee · ankle jerk + fidelity;
-            Job fix.body legs{swing_path, windows, frames, knee_bend}; LEGS_PATH_REDESIGNED · LEG_PATH_SKIPPED),
+            {start 0.97, softness 0.03} | null} (Phase 8-4d — swing windows rewritten in the same solve: ankle targets by knee · ankle jerk + fidelity,
+            9-4d: never lower than min(floor, own height) — floor = the clip's lowest planted ankle · ball; a looping clip with root motion is solved
+            across the seam in one cycle; Job fix.body legs{pins, swing_path, windows{floor_margin_cm, floor_frames}, frames, hold, floor, balls,
+            knee_bend}; LEGS_PATH_REDESIGNED · LEGS_PINS_HELD · LEG_PATH_SKIPPED),
             grip{mode auto|weapon|keep|off (auto = keep; weapon = opt-in grip on the request weapon's handle), lead_hand right, window [a, b]?,
             spacing_cm?, tolerance_cm?, blend_s? (keep 0.1 · weapon 0.2), wrist_bend_max_deg? (off-hand wrist bend cap = max(this, the clip's max))},
             joints{clavicle_deg
             10, upper_arm_deg 45, elbow_deg 60, wrist_deg 30, spine_deg_for_targets 20, neck_deg_for_targets 20, pelvis_cm 15, pelvis_deg 10},
             targets[{id, note (the user's words), effector hand_l|hand_r|head|pelvis|foot_l|foot_r|weapon_tip (needs weapon.tip)|bone, at{event swing_start|swing_peak|swing_end|
             still_start|still_end|swing|both_planted, offset_s, index} | {time} | {window}, hold_s, position{offset_cm [forward, left, up],
-            space body|component} | {absolute_cm, space} | {away_from, min_cm}, rotation{offset_deg [pitch, yaw, roll], space body|local}, ease_s
+            space body|component} | {absolute_cm, space} | {away_from, min_cm}, rotation{offset_deg [pitch, yaw, roll], space body|local} (9-4d —
+            foot_l|foot_r rotation turns a planted foot about the ball, a foot in the air about the ankle; Job targets[].pivot), ease_s
             0.15, weight 1, priority soft|hard}], weights{clearance 10, grip 10, pins 10, targets 5, lead_hand 3, fidelity 1}, smooth_s 0.13,
-            smooth_speed auto|on|off (8-4e — on narrows the smoothing where the hands move fast; auto = on when the job runs fix.timing; off = one
-            width), passes 3} (Phase 8-4b — one solve on the TARGET sequence after retarget · timing, every route incl. an existing Vesper asset → a new
+            smooth_speed auto|on|off (8-4e — on narrows the smoothing where the hands move fast; auto = on for every clip since 9-4c; off = one
+            width), converge true (9-4c — short body penetrations left after the re-checks, ≤ 2 frames · ≤ 4 cm × scale, are pinned to their own
+            frame solve and the ± 0.1 s neighbours blended; Job fix.body converge{on, frames, skipped}), finish_smooth true (9-4c — the hand-finish
+            increments are smoothed over time, frames whose wrist bend the smoothing pushes past the cap keep the finish solve; Job hand_finish
+            {…, smooth_pinned, smooth}), passes 3} (Phase 8-4b — one solve on the TARGET sequence after retarget · timing, every route incl. an existing Vesper asset → a new
             asset: hands/forearms out of torso · thighs · head/neck · the other hand, two-hand grip kept, upper arms no deeper, targets you translate
             from the user's words (the server never parses language — show the plan's resolved targets and get a yes); retarget body_clearance
             defaults to measure; Job fix.body has before · predicted · after (C++) · targets · remains · loop (source numeric.loop — a loop source is fitted as a cycle, seam_deg 0); limitations BODY_FIT_APPROXIMATE ·

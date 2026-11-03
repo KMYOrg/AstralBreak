@@ -39,6 +39,12 @@
                옆 모습 '후 | 8-3 다리' 캡처(다시 짠 구간 둘레)
   combined   — 기준 2: 저장된 Kimodo BVH(8-3 합본과 같은 원천) → fix.ops 다리 → 리타깃 → timing → body_fit(관통 · 파지 · 다리 auto) → 검증 →
                review.capture(낫 부착) 한 Job SUCCEEDED · 한계 목록 · 다리 본 떨림 ≤ 8-3 합본 · '후 | 8-3 합본' 캡처
+  (9-4d — 다리 · 시간 보정 연결 U6)
+  legs · combined 에 바닥(C++ 프로필 — 공중 프레임 발목 · 발볼 높이 ≥ min(접지 최저, 원래) − 0.1 cm) · 다리끼리 관통(C++ legs — 전보다 늘지 않음),
+  combined 에 접지 고정 auto → hold(fix.timing + 다리 op) · 접지 미끄러짐 p95 ≤ 1 cm/s · 다리 본 떨림 ≤ 지난 실행(9-4d 출발 기록) + 0.05 · 옆 모습
+  '후 | 지난 실행' 캡처
+  feet       — U6-c 표준 시험: L1 다리 샘플(검 선택 다리 보정본 ← 운영 낫 Attack2 왼다리 pose — 디딘 프레임 pin · 공중은 샘플 쪽 · 구간 밖 변화 0 ·
+               블렌드 수치) · L2 발 회전 목표(디딘 오른발 끝 바깥 20° — 발볼 중심 · 구간 밖 변화 0) · 바닥 · 다리끼리 · 옆(+ 앞) 모습 캡처
   dirty      — (맨 뒤) 해시 불변 · 미저장 수 그대로 · Content/ 변경은 실행 폴더뿐
 요약은 Tools/mcp/anim_gen_phase8_4_state.json. 수치 · 캡처는 판정 근거일 뿐 — 품질 합격은 사람이 본다(§16-9). 못 맞춘 기준 중 인계 노트에 미리 적어 둔
 것(KNOWN_MISSES — 이유와 함께)은 [known] 으로 찍고 state known_misses 에 남긴다(실패 수에는 넣지 않는다 — 보고에 따로).
@@ -725,12 +731,20 @@ KNOWN_MISSES = {
 # 9-4a — 지도 규칙 2(기본) 뒤 새로 드러난 것(사용자 결정 2026-11-02: 규칙 2 기본 유지 · 9-4c 로 넘김). 원 속도 클립에서 빠른 휘두름 한 프레임(낫 정정 f61 ·
 # s25 f55 · 검 선택 f37)의 원본 자세가 정수리 칸(뿔 · 머리카락으로 각도마다 0.4 ~ 10 cm)에 들어 본 풀이가 수렴하지 못하고 머리목 마무리가 그 프레임만
 # 빼서 튄다 — 로드맵 U5 '머리목 마무리의 원 속도 대가'(9-4c U5-a · U5-c). 같은 대상의 지시 목표 · 샘플 Job(T2 · T3 · T4 · S2)도 물려받는다
-_HEAD_FINISH_RAW = "9-4a 규칙 2 — 원 속도 한 프레임 머리목 마무리 튐(f61 · f55 · f37) → 9-4c U5-a · U5-c(phase9-4a-report)"
-KNOWN_MISSES.update({("scythe_pick", "c4_zigzag"): _HEAD_FINISH_RAW, ("sword_pick", "c4_zigzag"): _HEAD_FINISH_RAW})
+# (9-4c) 머리목 튐은 국소 수렴(converge)이 풀었다 — 검 선택은 0.459(통과)라 뺐고, 낫 정정은 f52(본 풀이가 빠른 휘두름의 f51 · f53 가슴 관통을 빼는
+# 증분 — 8-4b 부터 2.08) 1.98 이 기준 1.74 위에 남는다(같은 대상의 T2 · S2 도 물려받는다)
+_SCYTHE_PICK_ZZ = "8-4b 부터의 f52 본 풀이 가슴 보정(빠른 휘두름, 8-4f 2.08) — 9-4c 국소 수렴으로 머리목 튐 8.38 → 1.98(phase9-4c-report)"
+KNOWN_MISSES.update({("scythe_pick", "c4_zigzag"): _SCYTHE_PICK_ZZ})
 # (9-4b) s25 c4_zigzag 는 손 부근 마무리 뒤 머리목 마무리가 안 걸려 통과(5.06 → 1.89)라 뺐다. s25 휘두름은 U4-c(빈틈은 앞 프레임이 파지일 때만)의
 # 대가 — 짧은 파지 구간 다섯 개의 시작이 2 프레임씩 늦어 본 풀이 해가 바뀌어 정점 f50(구간 [50, 53] 첫 프레임) 508.5 → 472.0 cm/s(사용자 판정 통과 ·
 # known 결정 2026-11-03)
-KNOWN_MISSES[("scythe_s25", "c4_swing")] = "9-4b U4-c 빈틈 규칙 대가 — 짧은 파지 구간 시작이 2 프레임씩 늦어 휘두름 정점 −7.2 %(phase9-4b-report, 사용자 판정 통과)"
+# (9-4c) s25 휘두름은 빠른 구간 매끈화 기본 켬으로 + 2.1 %(통과) — 알려진 미달에서 뺐다
+# (9-4c 판정 통과 2026-11-03 — 사용자 '괜찮다') 지시 목표 구간 안 떨림은 목표 몫(x_T)을 프레임마다 따로 풀 때 위팔 ↔ 팔꿈치가 몫을 넘겨주는 해 갈림 —
+# 완급 · 막힌 목표 줄이기 · x_T 연속 · 목표 몫 매끈화 모두 효과 없어 U5-b 는 구현하지 않았다. T4 c5 는 손끼리 쌍 예측 p95 0.76 vs C++ 1.08 cm(관통 0) —
+# 손 · 아래팔 지도 점이 두 본에 걸친 모델 근사(9-4a 기록 p95 0.1 ~ 0.6)
+_TARGET_SPLIT = "9-4c — 지시 목표 블록의 목표 몫 위팔 ↔ 팔꿈치 해 갈림(U5-b 구현 안 함 — 완급 · 막힌 목표가 원인 아님, phase9-4c-report · 사용자 판정 통과)"
+KNOWN_MISSES.update({("scythe_regrip/T1", "c4_zigzag"): _TARGET_SPLIT, ("sword_pick/T4", "c4_zigzag"): _TARGET_SPLIT,
+                     ("sword_pick/T4", "c5"): "손끼리 쌍 예측 p95 차 0.32 cm(관통 0) — 손 · 아래팔 지도 모델 근사(9-4a 기록, phase9-4c-report · 사용자 판정 통과)"})
 # (9-4b) 9-4a 가 넘긴 s27 c4_wrist(오른 손목 + 5.3° — 본 풀이 첫 회가 파지 끝 손목 델타를 닫힌 프레임으로 이어 받음 → _open_start) · Attack2 c4_cross
 # (교차 7.4 → 13.7 % — 손끼리 관통을 빼는 증분이 번져 아래팔을 좌우로 뗌 → 손 부근 마무리 팔 교차 항)는 고쳐서 알려진 미달에서 뺐다
 RECORD_ONLY: dict[str, set] = {}   # crit 키 → 판정하지 않고 기록만 할 기준(8-4c c2 샘플 전이 — 요청한 동작 변화)
@@ -1608,6 +1622,8 @@ LOCAL_AI = ROOT / "Saved" / "AnimGen" / "Import" / "LocalAI"
 COMBINED = {"scythe_pick": ("p81_scythe_pick", LOCAL_AI / "job_20261026_192555_f991aa" / "A1" / "kimodo_03.bvh", "Sickle"),
             "sword_pick": ("p81_sword_pick", LOCAL_AI / "job_20261026_180741_c0f5be" / "A1" / "kimodo_00.bvh", "Sword")}
 COMBINED_OPS = [{"op": "stance_width"}, {"op": "foot_lock"}]
+COMBINED_SLIDE_MAX = 1.0           # 9-4d U6 기준 1 — 합본 접지 미끄러짐 p95(cm/s, 다리 보정본 수준)
+COMBINED_ZZ_TOL = 0.05             # 9-4d — 다리 본 떨림 '나빠지지 않음' 여유(오프라인 낫 1.666 → 1.672 — 고정값을 공중 경로가 잇는 몫)
 
 
 def quality_of(item: dict) -> dict:
@@ -1629,16 +1645,21 @@ def upper_moved(bf: dict, af: dict) -> tuple[float, list]:
     return max(per.values(), default=0.0), sorted(bn for bn, v in per.items() if v > 0.0)
 
 
-def capture_legs(name: str, before_asset: str, after_asset: str, window_s: list, length: float, before_label: str = "before") -> dict | None:
-    """다리 판정용 — 옆 모습(side)만 · 다시 짠 공중 구간 ± 0.1 s 의 8 시각 · APNG 30 fps(구간 ± 0.4 s — 한 프레임 꺾임이 보이게) · 후 | 전 비교."""
+def capture_legs(name: str, before_asset: str, after_asset: str, window_s: list, length: float, before_label: str = "before",
+                 views: tuple = ("side",)) -> dict | None:
+    """다리 판정용 — 옆 모습(side — 9-4d 발 회전은 앞 모습도)만 · 다시 짠 공중 구간 ± 0.1 s 의 8 시각 · APNG 30 fps(구간 ± 0.4 s — 한 프레임 꺾임이
+    보이게) · 후 | 전 비교."""
     a0, a1 = max(0.0, window_s[0] - 0.1), min(length, window_s[1] + 0.1)
     times = [round(a0 + (a1 - a0) * i / 7, 4) for i in range(8)]
     seq = {"fps": 30, "start": round(max(0.0, window_s[0] - 0.4), 4), "end": round(min(length, window_s[1] + 0.4), 4)}
-    b = capture(OUT / name / "before", before_asset, f"{name} {before_label}", times=times, views=["side"], sequence=seq)
+    b = capture(OUT / name / "before", before_asset, f"{name} {before_label}", times=times, views=list(views), sequence=seq)
     if not b:
         return None
-    rows = [[f["path"]] for f in sorted(b["frames"], key=lambda f: f["row"])]
-    a = capture(OUT / name / "after", after_asset, f"{name} after", times=times, views=["side"], sequence=seq, compare={"label": before_label, "rows": rows})
+    by_row: dict[int, list[str]] = {}
+    for f in sorted(b["frames"], key=lambda f: (f["row"], f["view"] != "front")):
+        by_row.setdefault(f["row"], []).append(f["path"])
+    rows = [by_row[r] for r in sorted(by_row)]
+    a = capture(OUT / name / "after", after_asset, f"{name} after", times=times, views=list(views), sequence=seq, compare={"label": before_label, "rows": rows})
     if not a:
         return None
     check(bool(a.get("compare")) and b["cells_touching_edge"] == 0 and a["cells_touching_edge"] == 0 and b.get("animation") and a.get("animation"),
@@ -1647,9 +1668,56 @@ def capture_legs(name: str, before_asset: str, after_asset: str, window_s: list,
             "after_apng": (a.get("animation") or {}).get("path"), "times": times, "sequence": seq}
 
 
+FLOOR_TOL_CM = 0.1   # 9-4d — 바닥 관통 여유(풀이 하한은 벌점이라 모델 0.01 cm 안 · C++ 쓰기 잡음 0.01)
+
+
+def floor_of(item: dict, floor: dict | None = None) -> dict:
+    """9-4d 바닥(C++ 프로필 — 발목 foot_* · 발볼 ball_*): 접지(각각 detect_contacts — Job 과 같은 leg_cm) 프레임 최저 높이(두 발 중 낮은 쪽, floor 를 주면
+    그것 — 후는 전의 바닥으로 잰다) · 공중(발목 · 발볼 어느 접지도 아닌) 프레임 최소 높이 − 바닥(cm)."""
+    prof = item["numeric"]["profile"]
+    pos, times = prof["position_cm"], prof["times"]
+    leg_cm = (bones().get("leg_dims") or {}).get("leg_cm") or 90.0
+    cont = {(j, s): mm.detect_contacts(pos[f"{j}_{s}"], times, 2, leg_cm) for j in ("foot", "ball") for s in "lr" if pos.get(f"{j}_{s}")}
+    out = {}
+    for j in ("foot", "ball"):
+        hs = [pos[f"{j}_{s}"][k][2] for s in "lr" if (j, s) in cont for k in range(len(times)) if cont[(j, s)][k]]
+        level = (floor or {}).get(j, {}).get("floor") if floor else (min(hs) if hs else None)
+        air = [pos[f"{j}_{s}"][k][2] for s in "lr" if (j, s) in cont for k in range(len(times))
+               if not (cont.get(("foot", s)) or [False] * len(times))[k] and not (cont.get(("ball", s)) or [False] * len(times))[k]]
+        out[j] = {"floor": round(level, 3) if level is not None else None, "air_margin": round(min(air) - level, 3) if level is not None and air else None}
+    return out
+
+
+def floor_ok(fb: dict, fa: dict) -> bool:
+    """공중 프레임이 바닥 아래로 원래보다 더 내려가지 않음(− FLOOR_TOL_CM) — 발목 · 발볼."""
+    return all(fa[j]["air_margin"] is None or fb[j]["air_margin"] is None or fa[j]["air_margin"] >= min(fb[j]["air_margin"], 0.0) - FLOOR_TOL_CM
+               for j in ("foot", "ball"))
+
+
+def leg_pairs(asset: str) -> dict:
+    """9-4d 다리끼리(C++ body_clearance legs — 다리 점 ↔ 반대 넓적다리 · 종아리): 관통 % 최대 · 깊이 최대."""
+    pairs = (((measure(asset, parts=False, legs=True)["body_clearance"].get("parts") or {}).get("legs") or {}).get("pairs")) or []
+    return {"pen_pct_max": max((p["frames_over_penetration_pct"] for p in pairs), default=0.0), "depth_max": max((p["depth_max"] for p in pairs), default=0.0),
+            "pairs": len(pairs)}
+
+
+def floor_and_legs(key: str, before_asset: str, after_asset: str, bf: dict | None = None, af: dict | None = None) -> dict:
+    """9-4d 기준 2 — 바닥 · 다리끼리(기록 + 판정)."""
+    bf = bf or measure(before_asset, parts=False)
+    af = af or measure(after_asset, parts=False)
+    fb = floor_of(bf)
+    fa = floor_of(af, fb)
+    crit(key, "d2_floor", floor_ok(fb, fa), f"floor (C++ profile — air frames vs the lowest planted height): ankle {fb['foot']} → {fa['foot']} · ball {fb['ball']} → "
+                                             f"{fa['ball']} (after ≥ min(before, 0) − {FLOOR_TOL_CM})")
+    lb, la = leg_pairs(before_asset), leg_pairs(after_asset)
+    crit(key, "d2_legs", la["pen_pct_max"] <= lb["pen_pct_max"] + 1e-9, f"legs ↔ other leg (C++ legs) pen % / depth {lb['pen_pct_max']} / {lb['depth_max']} → "
+                                                                       f"{la['pen_pct_max']} / {la['depth_max']} cm (no new penetration)")
+    return {"floor": {"before": fb, "after": fa}, "leg_pairs": {"before": lb, "after": la}}
+
+
 def section_legs() -> None:
     print("== legs (8-4d criterion 1): legs-only body_fit (swing_path on · clearance off) on the 8-3 leg-fixed assets — jitter · slide · planted ratio · "
-          "knee bend · upper body unchanged · the same solve records the redesigned swing windows")
+          "knee bend · upper body unchanged · the same solve records the redesigned swing windows (9-4d: floor · leg pairs)")
     out = STATE.setdefault("legs", {})
     for key in LEG_KEYS:
         def one(key=key):
@@ -1683,12 +1751,15 @@ def section_legs() -> None:
             crit(key, "d1_upper", moved <= LEG_UPPER_TOL_CM, f"upper body (non-leg profile bones) moved {round(moved, 4)} cm (≤ {LEG_UPPER_TOL_CM} — C++ write "
                                                             f"noise; bones > 0: {moved_bones}) · leg deltas {rec['deltas']['bones']}")
             crit(key, "d1_status", af["status"] != "FAILED", f"validation {bf['status']} → {af['status']}")
+            # 9-4d — 접지 고정은 auto 로 켜지지 않는다(fix.timing 없음) · 공중 경로 바닥 하한 · 다리끼리
+            check(not (legs.get("pins") or {}).get("on") and "LEGS_PINS_HELD" not in r["limitations"], f"{key}: pins {legs.get('pins')} (auto stays off — no fix.timing)")
+            fl = floor_and_legs(key, rec["source"], rec["asset"], bf, af)
             main = max(legs.get("windows") or [{"s": [0.0, 0.0], "zigzag_model": [0, 0]}], key=lambda w: w["zigzag_model"][0] or 0.0)
             length = af["numeric"]["length"]
             out[key] = {"asset": rec["asset"], "source": rec["source"], "original": TARGETS[LEG_ORIG[key]][0], "job_s": r["job"]["_seconds"],
                         "seconds": rec.get("seconds"), "limitations": r["limitations"], "legs": legs, "quality": {"original": qo, "before": qb, "after": qa},
                         "feet": {"before": fb, "after": fa}, "upper_moved_cm": round(moved, 5), "upper_moved_bones": moved_bones, "status": [bf["status"], af["status"]],
-                        "deltas": rec["deltas"], "capture": capture_legs(key, rec["source"], rec["asset"], main["s"], length, "8-3 legs")}
+                        "deltas": rec["deltas"], **fl, "capture": capture_legs(key, rec["source"], rec["asset"], main["s"], length, "8-3 legs")}
         guarded(key, one)
 
 
@@ -1697,6 +1768,7 @@ def section_combined() -> None:
           "capture (sickle attached) · limitations")
     out = STATE.setdefault("combined", {})
     p83 = (json.loads(P83_STATE.read_text(encoding="utf-8")).get("targets") or {}) if P83_STATE.is_file() else {}
+    last = previous().get("combined") or {}   # 9-4d — 지난 실행(출발 기록)의 합본: 다리 본 떨림 · 옆 모습 비교
     for key, (p83_key, bvh, family) in COMBINED.items():
         def one(key=key, p83_key=p83_key, bvh=bvh, family=family):
             if not check(bvh.is_file(), f"{key}: saved Kimodo BVH exists ({bvh.name})"):
@@ -1742,12 +1814,21 @@ def section_combined() -> None:
                   f"{up.get('deg_max')}° · elbow {up.get('elbow_cm_max')} cm · blocked {up.get('blocked')} (remain {up.get('remain_cm_max')} cm, model)")
             check(bool(cap.get("ok") or cap.get("sheet")) and (not sickle or len(cap.get("attachments") or []) == 1),
                   f"{key} combined: review.capture {cap.get('ok')} · sheet {cap.get('sheet')} · attachments {len(cap.get('attachments') or [])}")
-            # 접지 미끄러짐 — 합본의 body_fit 입력은 timing(time_warp antialias — 고정한 발도 거른다) 뒤라 이미 미끄러진다: body_fit 이 늘리지 않음(8-4b c3 — 전 + 0.5)
+            # 접지 미끄러짐 — 합본의 body_fit 입력은 timing(time_warp antialias — 고정한 발도 거른다) 뒤라 이미 미끄러진다. 9-4d: 접지 고정(pins auto →
+            # hold — fix.timing + 다리 op)이 접지 발목 수평을 구간마다 한 점에 두어 다리 보정본 수준(≤ 1 cm/s — U6 기준 1)
             fb, fa = (rec.get("before") or {}).get("feet") or {}, (rec.get("after") or {}).get("feet") or {}
             slide = lambda f, s: ((f.get("slide_p95") or {}).get(s) or 0.0)  # noqa: E731
-            check(all(slide(fa, s) <= slide(fb, s) + 0.5 for s in "lr") and abs((fa.get("planted_ratio_max") or 0.0) - (fb.get("planted_ratio_max") or 0.0)) <= LEG_RATIO_TOL,
-                  f"{key} combined: contact slide p95 at body_fit {fb.get('slide_p95')} → {fa.get('slide_p95')} cm/s (≤ +0.5 — the timed input already slides) · "
-                  f"planted ratio {fb.get('planted_ratio_max')} → {fa.get('planted_ratio_max')}")
+            pins = legs.get("pins") or {}
+            check(pins.get("on") and str(pins.get("reason", "")).startswith("fix.timing") and "LEGS_PINS_HELD" in lims
+                  and (legs.get("hold") or {}).get("pin_error_cm_max", 1.0) <= 0.05,
+                  f"{key} combined: pins auto → hold ({pins}) · hold {legs.get('hold')}")
+            crit(f"{key}_combined", "d1_slide", all(slide(fa, s) <= COMBINED_SLIDE_MAX for s in "lr")
+                 and abs((fa.get("planted_ratio_max") or 0.0) - (fb.get("planted_ratio_max") or 0.0)) <= LEG_RATIO_TOL,
+                 f"contact slide p95 at body_fit {fb.get('slide_p95')} → {fa.get('slide_p95')} cm/s (≤ {COMBINED_SLIDE_MAX} — held) · "
+                 f"planted ratio {fb.get('planted_ratio_max')} → {fa.get('planted_ratio_max')}")
+            fl = floor_and_legs(f"{key}_combined", rec["source"], rec["asset"])
+            conv = (rec.get("converge") or {}).get("frames")
+            print(f"   {key} combined: converge frames {conv} · skipped {(rec.get('converge') or {}).get('skipped')} (9-4c — 0 expected after the legs change)")
             # 같은 사슬의 8-3 합본(body_fit 없음)과 다리 본 떨림 · 전체 떨림 · 무릎(기록 + 다리 본 떨림 나빠짐 없음)
             prev = gone(((p83.get(p83_key) or {}).get("combined") or {}).get("asset"), f"{key} 8-3 combined")
             qa = quality_of(measure(rec["asset"], parts=False)) if rec.get("asset") else None
@@ -1755,15 +1836,105 @@ def section_combined() -> None:
             if qa and qp:
                 check(qa["zigzag_legs"] <= qp["zigzag_legs"] + 1e-3, f"{key} combined: legs jitter vs the 8-3 combined {prev} {qp['zigzag_legs']} → {qa['zigzag_legs']} "
                                                                   f"(all bones {qp['zigzag']} → {qa['zigzag']} — arm fix included, recorded)")
+            # 9-4d — 지난 실행(출발 기록 · 8-4d 경로)의 합본보다 다리 본 떨림이 나빠지지 않음(+ COMBINED_ZZ_TOL — 접지 고정값을 공중 경로가 잇는 몫)
+            lq = ((last.get(key) or {}).get("quality") or {}).get("after")
+            last_asset = gone((last.get(key) or {}).get("asset"), f"{key} previous combined")
+            if lq and qa:
+                crit(f"{key}_combined", "d1_zigzag", qa["zigzag_legs"] <= lq["zigzag_legs"] + COMBINED_ZZ_TOL,
+                     f"legs jitter vs the previous combined {lq['zigzag_legs']} → {qa['zigzag_legs']} (≤ + {COMBINED_ZZ_TOL}) · all bones {lq['zigzag']} → {qa['zigzag']}")
             out[key] = {"asset": rec.get("asset"), "job": job.get("job_id"), "job_s": job.get("_seconds"), "steps": steps, "limitations": lims,
-                        "legs": legs, "smooth_speed": sm, "upper_arm_finish": up,
-                        "body": {k: rec.get(k) for k in ("before", "after", "remains", "grip", "deltas", "seconds", "passes", "stats")},
+                        "legs": legs, "smooth_speed": sm, "upper_arm_finish": up, "converge": rec.get("converge"), **fl,
+                        "body": {k: rec.get(k) for k in ("before", "after", "remains", "grip", "deltas", "seconds", "passes", "stats", "source")},
                         "timing": {k: (job.get("timing") or {}).get(k) for k in ("rate", "length", "cut")}, "review_capture": cap,
-                        "previous_combined": prev, "quality": {"previous": qp, "after": qa}}
+                        "previous_combined": prev, "last_combined": last_asset, "quality": {"previous": qp, "last": lq, "after": qa}}
             if prev and rec.get("asset"):
                 out[key]["capture"] = capture_pair(f"{key}_combined", prev, rec["asset"], measure(rec["asset"], parts=False)["numeric"]["length"], sickle,
                                                    before_label="8-3 combined")
+            if last_asset and rec.get("asset"):
+                # 옆 모습 · APNG 30 fps — 접지 고정 · 공중 경로 구간 둘레(후 | 지난 실행)
+                w = legs.get("windows") or []
+                span = [min(x["s"][0] for x in w), max(x["s"][1] for x in w)] if w else [0.0, 1.0]
+                out[key]["capture_legs"] = capture_legs(f"{key}_combined_legs", last_asset, rec["asset"], span, measure(rec["asset"], parts=False)["numeric"]["length"],
+                                                        "9-4c combined")
         guarded(f"combined_{key}", one)
+
+
+# ---- 9-4d — U6-c 표준 시험(다리 샘플 · 발 회전 목표) ----
+FEET_KEY = "legs_sword"            # 검 선택 다리 보정본(8-3) — 왼다리 공중 f14 ~ 26 · 오른발 f18 ~ 디딤
+FEET_LEGS_ONLY = {"clearance": {"mode": "off"}, "grip": {"mode": "off"}}
+FEET_SPECS = {
+    "L1": {"pose_from": [{"id": "l1_legs", "note": "휘두를 때 왼다리를 운영 낫 Attack2 처럼", "asset": OP_SICKLE["Attack2"], "bones": "leg_l", "mode": "pose",
+                          "source": {"event": "swing_peak"}, "target": {"window": [0.3, 1.2]}, "ease_s": 0.15}]},
+    "L2": {"targets": [{"id": "l2_turn", "note": "디딘 오른발 끝을 바깥으로 20°", "effector": "foot_r", "at": {"window": [1.6, 2.6]},
+                        "rotation": {"offset_deg": [0.0, -20.0, 0.0], "space": "body"}, "ease_s": 0.15}]},
+}
+FEET_PIN_TOL_CM = 0.05             # 디딘 프레임 발목(L1) · 발볼(L2) — C++ 쓰기 잡음(0.01)까지
+FEET_DEG_TOL = 1.0                 # L2 발 회전 목표 오차
+
+
+def moved_outside(bf: dict, af: dict, frames: set) -> float:
+    """frames 밖 표본의 프로필 본 위치 차 최대(cm) — 구간 밖 변화 0. 프로필 표본은 프레임 1 부터라(시각 1/fps) 표본 → 프레임은 시각으로."""
+    prof = bf["numeric"]["profile"]
+    pa, pb = prof["position_cm"], af["numeric"]["profile"]["position_cm"]
+    fr = [frame_of(t, float(bf["numeric"]["frame_rate"])) for t in prof["times"]]
+    return max((mm._dist(pa[b][k], pb[b][k]) for b in pa if pa[b] and pb.get(b) for k in range(len(pa[b])) if fr[k] not in frames), default=0.0)
+
+
+def section_feet() -> None:
+    print("== feet (9-4d U6-c): L1 legs sample (pose_from leg_l — planted frames pinned · air follows the sample) · L2 foot rotation target "
+          "(planted foot turns about the ball) on the 8-3 leg-fixed sword pick — pin · outside-window change 0 · blend · floor · leg pairs · captures")
+    out = STATE.setdefault("feet", {})
+    leg_cm = (bones().get("leg_dims") or {}).get("leg_cm") or 90.0
+    for name, spec in FEET_SPECS.items():
+        def one(name=name, spec=spec):
+            key = f"{FEET_KEY}/{name}"
+            r = run_fit(FEET_KEY, {**FEET_LEGS_ONLY, **spec}, name, "P94d")
+            if not r:
+                return
+            rec, bf, af = r["rec"], r["bf"], r["af"]
+            pa, pb = bf["numeric"]["profile"], af["numeric"]["profile"]
+            times, fps = pa["times"], float(bf["numeric"]["frame_rate"])
+            fr = [frame_of(t, fps) for t in times]   # 프로필 표본 k → 프레임(표본은 프레임 1 부터)
+            side = "l" if name == "L1" else "r"
+            planted = [a or b for a, b in zip(mm.detect_contacts(pa["position_cm"][f"foot_{side}"], times, 2, leg_cm),
+                                              mm.detect_contacts(pa["position_cm"][f"ball_{side}"], times, 2, leg_cm))]
+            if name == "L1":
+                p = (rec.get("pose_from") or [{}])[0]
+                fa_, fb_ = p.get("frames") or [0, -1]
+                ease = p.get("ease_frames") or 0
+                inside = set(range(max(0, fa_ - ease), fb_ + ease + 1))
+                ls = rec.get("leg_samples") or []
+                check(len(ls) == 1 and ls[0]["side"] == "l" and ls[0]["ground"] > 0 and ls[0]["air"] > 0 and ls[0]["windows"],
+                      f"{key}: leg sample record {ls}")
+                foot = pa["position_cm"]["foot_l"], pb["position_cm"]["foot_l"]
+                pin = max((mm._dist(foot[0][k], foot[1][k]) for k in range(len(times)) if fr[k] in inside and planted[k]), default=0.0)
+                air = max((mm._dist(foot[0][k], foot[1][k]) for k in range(len(times)) if fr[k] in inside and not planted[k]), default=0.0)
+                crit(key, "u6c_pin", pin <= FEET_PIN_TOL_CM and air > 1.0, f"planted ankle moved {round(pin, 4)} cm (≤ {FEET_PIN_TOL_CM}) · air ankle moved {round(air, 2)} cm "
+                                                                           f"(the sample's swing) · pose_from {p.get('achieved')} · blocked_by {p.get('blocked_by')}")
+                check("pins" in (p.get("blocked_by") or []), f"{key}: leg bones held by the foot pins are reported (blocked_by {p.get('blocked_by')})")
+            else:
+                t = (rec.get("targets") or [{}])[0]
+                fa_, fb_ = t.get("frames") or [0, -1]
+                ease = t.get("ease_frames") or 0
+                inside = set(range(max(0, fa_ - ease), fb_ + ease + 1))
+                pv = t.get("pivot") or {}
+                b0, b1 = pa["position_cm"]["ball_r"], pb["position_cm"]["ball_r"]
+                ball = max((mm._dist(b0[k], b1[k]) for k in range(len(times)) if fr[k] in inside and planted[k]), default=0.0)
+                ank = max((mm._dist(pa["position_cm"]["foot_r"][k], pb["position_cm"]["foot_r"][k]) for k in range(len(times)) if fr[k] in inside), default=0.0)
+                crit(key, "u6c_pivot", bool(t.get("reached")) and (t.get("achieved") or {}).get("error_deg_max", 99.0) <= FEET_DEG_TOL and pv.get("point") == "ball"
+                     and ball <= FEET_PIN_TOL_CM and ank > 1.0,
+                     f"foot rotation {t.get('achieved')} (≤ {FEET_DEG_TOL}°) · pivot {pv} · C++ planted ball moved {round(ball, 4)} cm (≤ {FEET_PIN_TOL_CM}) · ankle swept "
+                     f"{round(ank, 2)} cm")
+            outside = moved_outside(bf, af, inside)
+            crit(key, "u6c_outside", outside <= LEG_UPPER_TOL_CM, f"profile bones outside the window ± ease moved {round(outside, 4)} cm (≤ {LEG_UPPER_TOL_CM})")
+            fl = floor_and_legs(key, rec["source"], rec["asset"], bf, af)
+            length = af["numeric"]["length"]
+            win = [min(inside) / fps, max(inside) / fps]
+            out[name] = {"asset": rec["asset"], "source": rec["source"], "job_s": r["job"]["_seconds"], "limitations": r["limitations"], "seconds": rec.get("seconds"),
+                         "pose_from": rec.get("pose_from"), "leg_samples": rec.get("leg_samples"), "targets": rec.get("targets"), "legs": rec.get("legs"),
+                         "outside_cm": round(outside, 5), **fl,
+                         "capture": capture_legs(f"feet_{name}", rec["source"], rec["asset"], win, length, "8-3 legs", views=("front", "side") if name == "L2" else ("side",))}
+        guarded(f"feet_{name}", one)
 
 
 def section_dirty() -> None:
@@ -1783,7 +1954,7 @@ def section_dirty() -> None:
 
 SECTIONS = {"hashes": section_hashes, "baseline": section_baseline, "automation": section_automation, "model": section_model, "e0": section_e0,
             "plan": section_plan, "clearance": section_clearance, "targets": section_targets, "existing": section_existing, "grip": section_grip,
-            "samples": section_samples, "legs": section_legs, "combined": section_combined, "dirty": section_dirty}
+            "samples": section_samples, "legs": section_legs, "combined": section_combined, "feet": section_feet, "dirty": section_dirty}
 
 
 def finish() -> int:

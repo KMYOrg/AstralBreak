@@ -59,7 +59,8 @@ def test_normalize_defaults_and_off():
     ({"targets": [{"id": "a", "effector": "hand_r", "at": {"event": "swing_end"}}]}, "fix.body.targets[0]", "MISSING_FIELD"),
     ({"targets": [{"id": "a", "effector": "hand_r", "at": {"event": "impact"}, "position": {"offset_cm": [0, 0, 1]}}]}, "fix.body.targets[0].at.event", "BAD_FIELD"),
     ({"targets": [{"id": "a", "effector": "hand_r", "at": {"time": 1, "window": [0, 1]}, "position": {"offset_cm": [0, 0, 1]}}]}, "fix.body.targets[0].at", "BAD_FIELD"),
-    ({"targets": [{"id": "a", "effector": "foot_l", "at": {"time": 1}, "rotation": {"offset_deg": [0, 5, 0]}}]}, "fix.body.targets[0].rotation", "NOT_SUPPORTED"),
+    # 9-4d 기대된 변화 — 발 회전 목표는 받는다(U6-c). 대신 접지 고정 hold 는 공중 경로가 필요하다
+    ({"legs": {"pins": "hold", "swing_path": "off"}}, "fix.body.legs.pins", "BAD_FIELD"),
     ({"targets": [{"id": "a", "effector": "hand_r", "at": {"time": 1}, "position": {"offset_cm": [0, 0, 1]}},
                   {"id": "a", "effector": "hand_l", "at": {"time": 1}, "position": {"offset_cm": [0, 0, 1]}}]}, "fix.body.targets", "DUPLICATE_ID"),
 ])

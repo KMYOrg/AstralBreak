@@ -52,6 +52,12 @@ namespace AnimMcpCapture
 		constexpr int32 SubjectTolerance = 10;
 		/** 라벨 글자 높이 = 셀 높이 × 이 값 (Blender 0.045) */
 		constexpr double LabelHeightRatio = 0.04;
+		/** focus — 본 수 상한(손 + 손가락 두 손 정도) · 여백 상한 · 이보다 피사체가 적은 칸은 빈 칸으로 본다(%) ·
+		 *  near_cut 카메라 = 초점 상자 앞면에서 이만큼 앞 (화면 여백 margin_cm 과 따로 — 4 cm 면 Narmaya 측면 손 앞에 머리카락이 남았다, 2026-11-04 실측) */
+		constexpr int32 MaxFocusBones = 64;
+		constexpr double MaxFocusMarginCm = 100.0;
+		constexpr double FocusEmptyCoveragePct = 1.0;
+		constexpr double FocusNearGapCm = 1.0;
 
 		FAnimMcpError FieldError(const TCHAR* Field, const FString& Message, const TCHAR* Reason = TEXT("BAD_FIELD"))
 		{
@@ -223,10 +229,11 @@ namespace AnimMcpCapture
 			return true;
 		}
 
-		/** 피사체 픽셀 범위 — 오른쪽 위 구석을 배경색으로 보고, 바닥 판(FloorTopRow 아래)과 라벨 글자 상자(LabelBox)는 뺀다. 잘림 · 빈 칸 점검용 */
-		TSharedRef<FJsonObject> SubjectStats(const FImageBuf& Img, int32 FloorTopRow, const FIntRect& LabelBox)
+		/** 피사체 픽셀 범위 — 오른쪽 위 구석을 배경색으로 보고, 바닥 판(FloorTopRow 아래)과 라벨 글자 상자(LabelBox)는 뺀다. 잘림 · 빈 칸 점검용.
+		 *  Background 를 주면(focus — 구석도 몸일 수 있다) 그 색을 배경으로 보고 잘림은 재지 않는다 */
+		TSharedRef<FJsonObject> SubjectStats(const FImageBuf& Img, int32 FloorTopRow, const FIntRect& LabelBox, const FColor* Background = nullptr)
 		{
-			const FColor Bg = Img.Px[Img.W - 1];
+			const FColor Bg = Background ? *Background : Img.Px[Img.W - 1];
 			int32 X0 = Img.W, Y0 = Img.H, X1 = -1, Y1 = -1;
 			int64 Count = 0;
 			const int32 Rows = FMath::Clamp(FloorTopRow, 0, Img.H);
@@ -261,7 +268,7 @@ namespace AnimMcpCapture
 			Box->SetNumberField(TEXT("x1"), X1);
 			Box->SetNumberField(TEXT("y1"), Y1);
 			Out->SetObjectField(TEXT("subject_px"), Box);
-			Out->SetBoolField(TEXT("touches_edge"), X0 == 0 || Y0 == 0 || X1 == Img.W - 1);
+			Out->SetBoolField(TEXT("touches_edge"), !Background && (X0 == 0 || Y0 == 0 || X1 == Img.W - 1));
 			return Out;
 		}
 
@@ -320,6 +327,9 @@ namespace AnimMcpCapture
 			/** 연속 프레임 셀 크기 (같은 시야, 낮은 해상도) */
 			int32 SeqWidth = 0;
 			int32 SeqHeight = 0;
+			/** focus — 전 프레임 초점 범위의 최대 폭 · 높이 (cm) */
+			double FocusW = 0.0;
+			double FocusH = 0.0;
 		};
 
 		/** 부착물 하나 — 인자(메시 · 소켓 또는 본 · 상대 변환)와 장면 컴포넌트 · 메시 로컬 정점 상자 */
@@ -371,6 +381,8 @@ namespace AnimMcpCapture
 			TArray<TStrongObjectPtr<UObject>> Keep;
 			int32 Supersample = 2;
 			double FloorPad = 0.0;
+			/** focus — 라벨이 몸 위에 놓일 수 있어 글자 뒤를 배경색으로 덮는다 */
+			bool bLabelBacking = false;
 		};
 
 		UTextureRenderTarget2D* MakeTarget(FRig& Rig, int32 W, int32 H)
@@ -394,7 +406,7 @@ namespace AnimMcpCapture
 			const FViewFit& Fit = View.Fit;
 			const FVector Center = View.Right * Fit.CenterU + Up * Fit.CenterV;
 			const double Distance = 100.0 + (Fit.DMax - Fit.DMin);
-			Rig.Capture->SetWorldLocationAndRotation(Center + View.Look * (Fit.DMin - Distance), View.Look.Rotation());
+			Rig.Capture->SetWorldLocationAndRotation(Center + View.Look * Fit.NearCutD.Get(Fit.DMin - Distance), View.Look.Rotation());
 			Rig.Capture->OrthoWidth = static_cast<float>(Fit.ExtentW);
 			Rig.Capture->TextureTarget = RT;
 			// 배경판 = 시선에 수직, 피사체 · 바닥 판 뒤 — 무광이라 그림자 · 빛을 받지 않는다
@@ -418,6 +430,11 @@ namespace AnimMcpCapture
 				const double Pixel = LabelHeightRatio * RT->SizeY;
 				const double Scale = Pixel / FMath::Max(1.0, static_cast<double>(Font->GetMaxCharHeight()));
 				FCanvas Canvas(Resource, nullptr, Rig.Scene->GetWorld(), Rig.Scene->GetWorld()->GetFeatureLevel());
+				if (Rig.bLabelBacking)
+				{
+					FCanvasTileItem Backing(FVector2D::ZeroVector, FVector2D(Pixel + Font->GetStringSize(*Label) * Scale, Pixel * 1.7), BackdropColor);
+					Canvas.DrawItem(Backing);
+				}
 				FCanvasTextItem Item(FVector2D(Pixel * 0.5, Pixel * 0.4), FText::FromString(Label), Font, FLinearColor(0.02f, 0.02f, 0.02f, 1.0f));
 				Item.Scale = FVector2D(Scale, Scale);
 				Canvas.DrawItem(Item);
@@ -515,6 +532,82 @@ namespace AnimMcpCapture
 		Fit.DMin = Range.DMin;
 		Fit.DMax = Range.DMax;
 		return Fit;
+	}
+
+	bool ParseFocus(const TSharedPtr<FJsonObject>& Object, FFocus& Out, FString& OutWhy)
+	{
+		Out = FFocus();
+		if (!Object.IsValid())
+		{
+			OutWhy = TEXT("focus must be {bones[], margin_cm?, near_cut?}");
+			return false;
+		}
+		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Object->Values)
+		{
+			if (Pair.Key != TEXT("bones") && Pair.Key != TEXT("margin_cm") && Pair.Key != TEXT("near_cut"))
+			{
+				OutWhy = FString::Printf(TEXT("focus.%s is unknown (bones, margin_cm, near_cut)"), *Pair.Key);
+				return false;
+			}
+		}
+		const TArray<TSharedPtr<FJsonValue>>* Bones = nullptr;
+		if (!Object->TryGetArrayField(TEXT("bones"), Bones) || Bones->Num() < 1 || Bones->Num() > MaxFocusBones)
+		{
+			OutWhy = FString::Printf(TEXT("focus.bones must be 1 to %d bone names"), MaxFocusBones);
+			return false;
+		}
+		for (const TSharedPtr<FJsonValue>& Value : *Bones)
+		{
+			const FString Name = Value.IsValid() && Value->Type == EJson::String ? Value->AsString() : FString();
+			if (Name.IsEmpty() || Out.Bones.Contains(FName(*Name)))
+			{
+				OutWhy = TEXT("focus.bones must be distinct non-empty bone names");
+				return false;
+			}
+			Out.Bones.Add(FName(*Name));
+		}
+		const TSharedPtr<FJsonValue> Margin = Object->TryGetField(TEXT("margin_cm"));
+		if (Margin.IsValid() && Margin->Type != EJson::Null)
+		{
+			if (Margin->Type != EJson::Number || !FMath::IsFinite(Margin->AsNumber()) || Margin->AsNumber() < 0.0 || Margin->AsNumber() > MaxFocusMarginCm)
+			{
+				OutWhy = FString::Printf(TEXT("focus.margin_cm must be a number in [0, %g]"), MaxFocusMarginCm);
+				return false;
+			}
+			Out.MarginCm = Margin->AsNumber();
+		}
+		const TSharedPtr<FJsonValue> NearCut = Object->TryGetField(TEXT("near_cut"));
+		if (NearCut.IsValid() && NearCut->Type != EJson::Null)
+		{
+			if (NearCut->Type != EJson::Boolean)
+			{
+				OutWhy = TEXT("focus.near_cut must be true or false");
+				return false;
+			}
+			Out.bNearCut = NearCut->AsBool();
+		}
+		return true;
+	}
+
+	FViewFit FitFocus(double MaxW, double MaxH, double MarginCm, int32 CellHeight, double MaxAspect)
+	{
+		FRange Box;
+		const double W = MaxW + 2.0 * MarginCm;
+		Box.Add(-W / 2.0, 0.0, 0.0);
+		Box.Add(W / 2.0, MaxH + 2.0 * MarginCm, 0.0);
+		return FitView(Box, 0.0, CellHeight, MaxAspect);
+	}
+
+	FViewFit FollowFocus(const FViewFit& Fit, const FRange& Now, const FFocus& Focus)
+	{
+		FViewFit Out = Fit;
+		Out.CenterU = (Now.UMin + Now.UMax) / 2.0;
+		Out.CenterV = (Now.VMin + Now.VMax) / 2.0;
+		if (Focus.bNearCut)
+		{
+			Out.NearCutD = Now.DMin - FocusNearGapCm;
+		}
+		return Out;
 	}
 
 	double SheetScale(const TArray<int32>& ColumnWidths, int32 CellHeight, int32 Rows, int32 Gap, double SheetMaxPx)
@@ -784,6 +877,20 @@ namespace AnimMcpCapture
 			}
 		}
 
+		// 초점 (Phase 9-5c) — {bones[], margin_cm?, near_cut?}. 본 존재는 메시를 읽은 뒤에
+		const bool bFocus = Present(Params, TEXT("focus"));
+		FFocus Focus;
+		if (bFocus)
+		{
+			const TSharedPtr<FJsonObject>* Object = nullptr;
+			FString Why;
+			if (!Params->TryGetObjectField(TEXT("focus"), Object) || !ParseFocus(*Object, Focus, Why))
+			{
+				OutError = FieldError(TEXT("focus"), Why.IsEmpty() ? TEXT("focus must be {bones[], margin_cm?, near_cut?} or null") : Why);
+				return nullptr;
+			}
+		}
+
 		// ---- 애셋 · 폴더 ----
 		UObject* AssetObject = AnimMcpAssetResolver::LoadAssetOfClass(AssetPath, UAnimSequence::StaticClass(), OutError);
 		if (!AssetObject) { return nullptr; }
@@ -813,6 +920,17 @@ namespace AnimMcpCapture
 				return nullptr;
 			}
 		}
+		TArray<int32> FocusBones;
+		for (const FName Bone : Focus.Bones)
+		{
+			const int32 Index = Mesh->GetRefSkeleton().FindBoneIndex(Bone);
+			if (Index == INDEX_NONE)
+			{
+				OutError = FieldError(TEXT("focus"), FString::Printf(TEXT("bone '%s' is not in '%s'"), *Bone.ToString(), *Mesh->GetName()), TEXT("BONE_NOT_FOUND"));
+				return nullptr;
+			}
+			FocusBones.Add(Index);
+		}
 		FString Dir;
 		if (!AnimMcpGeneration::ResolveCaptureDir(DirRaw, Dir, OutError)) { return nullptr; }
 
@@ -840,6 +958,7 @@ namespace AnimMcpCapture
 		// ---- 장면 ----
 		FRig Rig;
 		Rig.Supersample = Supersample;
+		Rig.bLabelBacking = bFocus;
 		Rig.Scene = MakeUnique<FPreviewScene>(FPreviewScene::ConstructionValues()
 			.SetCreatePhysicsScene(false)
 			.SetTransactional(false)
@@ -851,6 +970,11 @@ namespace AnimMcpCapture
 			return nullptr;
 		}
 		Rig.Scene->SetSkyCubemap(UThumbnailManager::Get().AmbientCubemap);
+		if (bFocus && Focus.bNearCut)
+		{
+			// 잘린 몸도 그림자는 드리운다(주광이 카메라 쪽에서 온다 — S1 측면 왼손이 통째로 어두웠다, 2026-11-04 실측)
+			Rig.Scene->DirectionalLight->SetCastShadows(false);
+		}
 
 		Rig.Skel = NewObject<USkeletalMeshComponent>(GetTransientPackage(), NAME_None, RF_Transient);
 		Rig.Skel->SetSkeletalMesh(Mesh);
@@ -998,6 +1122,34 @@ namespace AnimMcpCapture
 		TArray<int32> RowFrames;
 		for (const FRow& Row : Rows) { RowFrames.Add(Row.Frame); }
 		const TArray<int32> BoundFrames = SampleFrames(0, NumKeys - 1, BoundsSamples, RowFrames);
+		// 초점 범위 — 지정 본의 정점 상자 꼭짓점(전신 범위와 같은 상자), 정점이 없는 본은 본 위치
+		auto FocusRange = [&Rig, &Boxes, &FocusBones](const FView& View)
+		{
+			FRange Range;
+			const TArray<FTransform>& Space = Rig.Skel->GetComponentSpaceTransforms();
+			auto Add = [&Range, &View](const FVector& P) { Range.Add(FVector::DotProduct(P, View.Right), P.Z, FVector::DotProduct(P, View.Look)); };
+			for (const int32 Bone : FocusBones)
+			{
+				if (!Boxes.IsValidIndex(Bone) || !Boxes[Bone].IsValid)
+				{
+					Add(Space[Bone].GetLocation());
+					continue;
+				}
+				const FBox& Box = Boxes[Bone];
+				for (int32 Corner = 0; Corner < 8; ++Corner)
+				{
+					Add(Space[Bone].TransformPosition(FVector((Corner & 1) ? Box.Max.X : Box.Min.X, (Corner & 2) ? Box.Max.Y : Box.Min.Y, (Corner & 4) ? Box.Max.Z : Box.Min.Z)));
+				}
+			}
+			return Range;
+		};
+		// 이 포즈의 셀 뷰 — focus 면 초점을 따라간다, 아니면 전 프레임 고정 그대로
+		auto Posed = [&FocusRange, &Focus, bFocus](const FView& View)
+		{
+			FView Out = View;
+			if (bFocus) { Out.Fit = FollowFocus(View.Fit, FocusRange(View), Focus); }
+			return Out;
+		};
 		FBox World(ForceInit);
 		for (const int32 Frame : BoundFrames)
 		{
@@ -1036,6 +1188,15 @@ namespace AnimMcpCapture
 					}
 				}
 			}
+			if (bFocus)
+			{
+				for (FView& View : Views)
+				{
+					const FRange Now = FocusRange(View);
+					View.FocusW = FMath::Max(View.FocusW, Now.UMax - Now.UMin);
+					View.FocusH = FMath::Max(View.FocusH, Now.VMax - Now.VMin);
+				}
+			}
 		}
 		if (!World.IsValid)
 		{
@@ -1054,6 +1215,13 @@ namespace AnimMcpCapture
 		for (FView& View : Views)
 		{
 			View.Fit = FitView(View.Range, Margin, CellHeight, MaxAspect);
+			if (bFocus)
+			{
+				const FViewFit Whole = View.Fit;
+				View.Fit = FitFocus(View.FocusW, View.FocusH, Focus.MarginCm, CellHeight, MaxAspect);
+				View.Fit.DMin = Whole.DMin;   // 시선 축 범위는 전신 그대로 — 배경판이 몸 뒤에 있게
+				View.Fit.DMax = Whole.DMax;
+			}
 			View.SeqHeight = SeqHeight;
 			View.SeqWidth = FMath::Max(2, static_cast<int32>(FMath::RoundHalfToEven(View.Fit.Width * static_cast<double>(SeqHeight) / CellHeight / 2.0)) * 2);
 		}
@@ -1075,12 +1243,22 @@ namespace AnimMcpCapture
 			{
 				for (const FView& View : Views)
 				{
-					if (!RenderCell(Rig, View, Target(View.Fit.Width, View.Fit.Height), View.Fit.Width, View.Fit.Height, FString(), Warm, OutError)) { return nullptr; }
+					if (!RenderCell(Rig, Posed(View), Target(View.Fit.Width, View.Fit.Height), View.Fit.Width, View.Fit.Height, FString(), Warm, OutError)) { return nullptr; }
 				}
 				FAssetCompilingManager::Get().FinishAllCompilation();
 				IStreamingManager::Get().UpdateResourceStreaming(0.0f, true);
 				IStreamingManager::Get().BlockTillAllRequestsFinished(10.0f);
 			}
+		}
+		// focus — 칸 구석도 몸일 수 있으니 피사체 · 바닥보다 훨씬 위에서 한 번 그려 배경색을 잰다
+		FColor FocusBackground = FColor::Black;
+		if (bFocus)
+		{
+			FView Empty = Views[0];
+			Empty.Fit.CenterV = World.Max.Z + 1000.0 + Empty.Fit.ExtentH;
+			FImageBuf Cell;
+			if (!RenderCell(Rig, Empty, Target(Empty.Fit.Width, Empty.Fit.Height), Empty.Fit.Width, Empty.Fit.Height, FString(), Cell, OutError)) { return nullptr; }
+			FocusBackground = Cell.Px[Cell.W - 1];
 		}
 		const double PrepareSeconds = FPlatformTime::Seconds() - T0;
 
@@ -1095,6 +1273,7 @@ namespace AnimMcpCapture
 		TArray<TArray<FImageBuf>> Grid;
 		TArray<TSharedPtr<FJsonValue>> FramesJson;
 		int32 EdgeCells = 0;
+		int32 EmptyFocusCells = 0;
 		// 행마다 스킨된 본의 평균 위치 — 행끼리 같으면 포즈가 바뀌지 않은 것(점검용)
 		auto PoseCenter = [&Rig, &Boxes]()
 		{
@@ -1113,8 +1292,9 @@ namespace AnimMcpCapture
 			Pose(Rows[r].FrameTime, true);
 			RowCenters.Add(PoseCenter());
 			TArray<FImageBuf>& Cells = Grid.AddDefaulted_GetRef();
-			for (const FView& View : Views)
+			for (const FView& WholeView : Views)
 			{
+				const FView View = Posed(WholeView);
 				FImageBuf& Cell = Cells.AddDefaulted_GetRef();
 				FIntRect LabelBox;
 				if (!RenderCell(Rig, View, Target(View.Fit.Width, View.Fit.Height), View.Fit.Width, View.Fit.Height,
@@ -1122,8 +1302,9 @@ namespace AnimMcpCapture
 				const FString Path = FString::Printf(TEXT("%s/%s_%05d.png"), *Dir, *View.Name, Rows[r].Frame);
 				if (!SavePng(Path, Cell, OutError)) { return nullptr; }
 				const int32 FloorTop = FMath::FloorToInt32((View.Fit.CenterV + View.Fit.ExtentH / 2.0) / View.Fit.ExtentH * View.Fit.Height);
-				TSharedRef<FJsonObject> Stats = SubjectStats(Cell, FloorTop, LabelBox);
+				TSharedRef<FJsonObject> Stats = SubjectStats(Cell, FloorTop, LabelBox, bFocus ? &FocusBackground : nullptr);
 				EdgeCells += Stats->GetBoolField(TEXT("touches_edge")) ? 1 : 0;
+				EmptyFocusCells += bFocus && Stats->GetNumberField(TEXT("coverage_pct")) < FocusEmptyCoveragePct ? 1 : 0;
 				TSharedRef<FJsonObject> Entry = AnimMcpJson::MakeObject();
 				Entry->SetNumberField(TEXT("row"), r);
 				Entry->SetNumberField(TEXT("time"), Rows[r].Time);
@@ -1133,6 +1314,16 @@ namespace AnimMcpCapture
 				Entry->SetStringField(TEXT("path"), Path);
 				Entry->SetStringField(TEXT("sha1"), PixelHash(Cell));
 				Entry->Values.Append(Stats->Values);
+				if (bFocus)
+				{
+					// 이 칸이 따라간 중심 (화면 축 cm) · 앞 자름 깊이 — 행마다 다르다
+					TArray<TSharedPtr<FJsonValue>> Center = { MakeShared<FJsonValueNumber>(FMath::RoundToDouble(View.Fit.CenterU * 1000.0) / 1000.0),
+					                                          MakeShared<FJsonValueNumber>(FMath::RoundToDouble(View.Fit.CenterV * 1000.0) / 1000.0) };
+					Entry->SetArrayField(TEXT("focus_center"), Center);
+					Entry->SetField(TEXT("near_cut_depth"), View.Fit.NearCutD.IsSet()
+						? TSharedPtr<FJsonValue>(MakeShared<FJsonValueNumber>(FMath::RoundToDouble(View.Fit.NearCutD.GetValue() * 1000.0) / 1000.0))
+						: MakeShared<FJsonValueNull>());
+				}
 				FramesJson.Add(MakeShared<FJsonValueObject>(Entry));
 			}
 		}
@@ -1243,7 +1434,7 @@ namespace AnimMcpCapture
 				int32 X = 0;
 				for (int32 v = 0; v < Views.Num(); ++v)
 				{
-					const FView& View = Views[v];
+					const FView View = Posed(Views[v]);
 					FImageBuf Cell;
 					const FString TimeLabel = FString::Printf(TEXT("t %ss"), *Fmt2(Time));
 					const FString Label = v != 0 ? FString() : LabelPrefix.IsEmpty() ? TimeLabel : LabelPrefix + TEXT("   ") + TimeLabel;
@@ -1373,6 +1564,46 @@ namespace AnimMcpCapture
 				AttachmentsJson.Add(MakeShared<FJsonValueObject>(Item));
 			}
 			Result->SetArrayField(TEXT("attachments"), AttachmentsJson);
+		}
+		if (bFocus)
+		{
+			TSharedRef<FJsonObject> F = AnimMcpJson::MakeObject();
+			TArray<TSharedPtr<FJsonValue>> BonesJson;
+			int32 Skinned = 0;
+			for (int32 k = 0; k < FocusBones.Num(); ++k)
+			{
+				const int32 Bone = FocusBones[k];
+				const bool bSkinned = Boxes.IsValidIndex(Bone) && Boxes[Bone].IsValid;
+				Skinned += bSkinned ? 1 : 0;
+				TSharedRef<FJsonObject> Item = AnimMcpJson::MakeObject();
+				Item->SetStringField(TEXT("name"), Focus.Bones[k].ToString());
+				// 정점 상자 크기 (cm — 상자는 본 로컬이라 기준 포즈 스케일을 곱한다), 정점이 없으면 null = 본 위치로 잡았다
+				if (bSkinned) { Item->SetArrayField(TEXT("box_cm"), VectorJson(Boxes[Bone].GetSize() * Tree.Global[Bone].GetScale3D().GetAbs())); }
+				else { Item->SetField(TEXT("box_cm"), MakeShared<FJsonValueNull>()); }
+				BonesJson.Add(MakeShared<FJsonValueObject>(Item));
+			}
+			F->SetArrayField(TEXT("bones"), BonesJson);
+			F->SetNumberField(TEXT("skinned_bones"), Skinned);
+			F->SetNumberField(TEXT("margin_cm"), Focus.MarginCm);
+			F->SetBoolField(TEXT("near_cut"), Focus.bNearCut);
+			F->SetNumberField(TEXT("empty_cells"), EmptyFocusCells);
+			TSharedRef<FJsonObject> Extent = AnimMcpJson::MakeObject();
+			for (const FView& View : Views)
+			{
+				TArray<TSharedPtr<FJsonValue>> Size = { MakeShared<FJsonValueNumber>(FMath::RoundToDouble(View.FocusW * 1000.0) / 1000.0),
+				                                        MakeShared<FJsonValueNumber>(FMath::RoundToDouble(View.FocusH * 1000.0) / 1000.0) };
+				Extent->SetArrayField(View.Name, Size);
+			}
+			F->SetObjectField(TEXT("extent_cm"), Extent);
+			Result->SetObjectField(TEXT("focus"), F);
+			if (Skinned == 0)
+			{
+				Context.AddDiagnostic(TEXT("warning"), TEXT("CAPTURE_FOCUS_NOT_SKINNED"), FString::Printf(TEXT("no vertex of '%s' follows the focus bones — the framing is the bone position and the part may live in another mesh"), *Mesh->GetName()));
+			}
+			if (EmptyFocusCells > 0)
+			{
+				Context.AddDiagnostic(TEXT("warning"), TEXT("CAPTURE_FOCUS_EMPTY"), FString::Printf(TEXT("%d focus cell(s) show almost no mesh (coverage below %g %%)"), EmptyFocusCells, FocusEmptyCoveragePct));
+			}
 		}
 		{
 			TSharedRef<FJsonObject> Render = AnimMcpJson::MakeObject();

@@ -232,6 +232,9 @@ def plan_motion_generation(request: dict) -> dict:
     With review.capture a capture step after validation (before package / anim_bp) photographs the final sequence on the target mesh
     in a transient preview world (no assets; same camera and cell rules as the source-skeleton render) under ini CaptureOutputRoots
     (outside Saved/ so the images can be shown in chat) — job.review.capture{sheet, compare_sheet, animation (APNG), frames[], camera}.
+    review.capture.focus[{bones: "hand_l" | "hand_r" | "fingers_l" | "fingers_r" | "head" | [bone names], name?, margin_cm?, near_cut?}] (≤ 4) adds a close-up per part
+    at the same rows, views and sequence — job.review.capture.focus[{ok, name, bones, sheet, animation, frames[], camera, focus}], folder <dir>/focus_<name>; presets come
+    from the target mesh (hands, fingers) and the measuring bones (head — needs a template or retarget.existing_target_rig); a part that fails only adds REVIEW_NOT_CAPTURED.
     Limitation REVIEW_CAPTURE_PREVIEW_ONLY (no weapon, cloth/hair physics or AnimBP layers — a human judges); a failed capture is
     REVIEW_NOT_CAPTURED, never a generation failure. No CaptureOutputRoots → no capture step (REVIEW_NOT_CAPTURED CAPTURE_ROOTS_EMPTY).
     An external.meshy plan (paid — Meshy Text-to-Motion, 2-10 s in 0.5 s steps, prompt ≤ 400 characters) pins the exact body it will

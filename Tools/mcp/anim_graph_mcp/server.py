@@ -1106,7 +1106,7 @@ def capture_animation(asset: str, mesh: str, facing: str, output_dir: str, times
                       views: list[str] | None = None, label: str | None = None, sequence: dict | None = None, compare: dict | None = None,
                       cell_height_px: int = 512, max_aspect: float = 2.0, margin: float = 0.08, bounds_max_samples: int = 600,
                       sheet_max_px: float = 3000, supersample: int = 2, lighting: dict | None = None, max_seconds: float = 120,
-                      attachments: list[dict] | None = None) -> dict:
+                      attachments: list[dict] | None = None, focus: dict | None = None) -> dict:
     """Capture an AnimSequence on a target skeletal mesh as PNG images — no assets are created (judge a retarget without Persona).
 
     Same camera/sheet rules as the anim_gen Blender source-skeleton review.render, so the sheets line up: orthographic front (from in
@@ -1131,11 +1131,15 @@ def capture_animation(asset: str, mesh: str, facing: str, output_dir: str, times
         attachments: [{mesh (SkeletalMesh in its reference pose or StaticMesh), socket | bone (one, on the captured mesh/skeleton),
             offset? {location, rotation [pitch, yaw, roll], scale} relative to it}] ≤ 4 — e.g. a weapon (compose the game's attach
             transforms into one offset); rendered and included in the framing (Phase 8-4a).
+        focus: {bones[1..64], margin_cm=4, near_cut=true} — close-up of a hand, the fingers or the head (Phase 9-5c): the camera follows the
+            box of those bones' vertices cell by cell at one scale for the whole clip, same views. near_cut puts the camera 1 cm in front of
+            the box, cutting away whatever is nearer (the chest in front of the far hand), with the key light's shadows off. Warnings
+            CAPTURE_FOCUS_NOT_SKINNED (no vertex follows the bones — e.g. a head in another mesh) · CAPTURE_FOCUS_EMPTY.
         max_seconds: Budget — the sequence stops there (warning CAPTURE_TRUNCATED).
 
     Returns {frames[{row, time, frame, view, path, sha1, subject_px, touches_edge}], sheet, compare{path}|null, sequence{frames[], fps,
-    size, truncated}|null, layout, camera{view: {look, right, ortho_width_cm, cm_per_px}}, bounds, attachments[], render, cells_touching_edge,
-    seconds}.
+    size, truncated}|null, layout, camera{view: {look, right, ortho_width_cm, cm_per_px}}, bounds, attachments[], focus{…} (only with focus),
+    render, cells_touching_edge, seconds}.
     Errors: SKELETON_MISMATCH / OUTPUT_DIR_NOT_EMPTY (BAD_REQUEST reasons), OUTPUT_PATH_NOT_ALLOWED (CAPTURE_ROOT),
     IMPORT_SOURCE_NOT_ALLOWED (compare images), CAPTURE_FAILED (render/readback/write), UNEXPECTED_DIRTY (a capture must dirty nothing).
     """
@@ -1143,7 +1147,7 @@ def capture_animation(asset: str, mesh: str, facing: str, output_dir: str, times
                     "max_aspect": max_aspect, "margin": margin, "bounds_max_samples": bounds_max_samples, "sheet_max_px": sheet_max_px,
                     "supersample": supersample, "max_seconds": max_seconds}
     for key, value in (("times", times), ("count", count), ("views", views), ("label", label), ("sequence", sequence),
-                       ("compare", compare), ("lighting", lighting), ("attachments", attachments)):
+                       ("compare", compare), ("lighting", lighting), ("attachments", attachments), ("focus", focus)):
         if value is not None:
             params[key] = value
     return bridge.call("capture_animation", params, timeout=bridge.COMPILE_TIMEOUT)

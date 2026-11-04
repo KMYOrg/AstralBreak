@@ -14,7 +14,7 @@ import pytest
 
 from anim_gen import apng
 from anim_gen.providers.blender import REVIEW_RENDER
-from conftest import AIM_IDLE, OUT, VESPER_MESH, err, request, write_png
+from conftest import AIM_IDLE, OUT, VESPER, VESPER_MESH, err, request, write_png
 from test_blender import bl, bvh_request, generate, plan, status  # noqa: F401 — bl 는 픽스처
 
 
@@ -119,6 +119,20 @@ def test_apng_crc_is_standard(tmp_path):
     ({"capture": {"mesh": "SK_X"}}, "review.capture.mesh", "BAD_FIELD"),
     ({"capture": False}, "review", "BAD_FIELD"),
     ({"capture": "on"}, "review.capture", "BAD_FIELD"),
+    ({"capture": {"focus": []}}, "review.capture.focus", "BAD_FIELD"),
+    ({"capture": {"focus": "hand_l"}}, "review.capture.focus", "BAD_FIELD"),
+    ({"capture": {"focus": [{"bones": "head"}] * 5}}, "review.capture.focus", "BAD_FIELD"),
+    ({"capture": {"focus": ["hand_l"]}}, "review.capture.focus[0]", "BAD_FIELD"),
+    ({"capture": {"focus": [{"bones": "foot_l"}]}}, "review.capture.focus[0].bones", "BAD_FIELD"),
+    ({"capture": {"focus": [{"bones": ["a", "a"]}]}}, "review.capture.focus[0].bones", "BAD_FIELD"),
+    ({"capture": {"focus": [{"bones": []}]}}, "review.capture.focus[0].bones", "BAD_FIELD"),
+    ({"capture": {"focus": [{"name": "x"}]}}, "review.capture.focus[0].bones", "BAD_FIELD"),
+    ({"capture": {"focus": [{"bones": "head", "zoom": 2}]}}, "review.capture.focus[0].zoom", "UNKNOWN_FIELD"),
+    ({"capture": {"focus": [{"bones": "head", "margin_cm": 101}]}}, "review.capture.focus[0].margin_cm", "BAD_FIELD"),
+    ({"capture": {"focus": [{"bones": "head", "margin_cm": True}]}}, "review.capture.focus[0].margin_cm", "BAD_FIELD"),
+    ({"capture": {"focus": [{"bones": "head", "near_cut": 1}]}}, "review.capture.focus[0].near_cut", "BAD_FIELD"),
+    ({"capture": {"focus": [{"bones": "head", "name": "a/b"}]}}, "review.capture.focus[0].name", "BAD_FIELD"),
+    ({"capture": {"focus": [{"bones": "head"}, {"bones": ["hand_l"], "name": "head"}]}}, "review.capture.focus[1].name", "CONFLICTING_FIELDS"),
 ])
 def test_capture_request_validation(service, review, field, reason):
     env = service.plan_motion_generation(request=reuse_request(review=review))
@@ -250,6 +264,108 @@ def test_capture_roots_vanished_at_run(service, fake, roots):
     env = service.generate_motion(plan_id=p["plan_id"], save=False)
     job = service.get_generation_status(job_id=env["result"]["job_id"])["result"]
     assert job["status"] == "SUCCEEDED" and job["review"]["capture"]["reason"] == "CAPTURE_ROOTS_EMPTY" and fake.count("capture_animation") == 0
+
+
+# ---- 부분 프레이밍 (Phase 9-5c) ----
+HAND_INFO = {"bones": [{"name": "hand_l", "parent": "lowerarm_l"}, {"name": "hand_r", "parent": "lowerarm_r"}, {"name": "index_01_l", "parent": "hand_l"},
+                       {"name": "index_02_l", "parent": "index_01_l"}, {"name": "index_01_r", "parent": "hand_r"}],
+             "finger_chain_suggestion": {"hands": [{"side": "Left", "hand": "hand_l"}, {"side": "Right", "hand": "hand_r"}],
+                                         "chains": [{"name": "LeftIndex", "start": "index_01_l", "end": "index_02_l"},
+                                                    {"name": "RightIndex", "start": "index_01_r", "end": "index_01_r"}]}}
+
+
+def focus_calls(fake) -> list[dict]:
+    return [q for t, q in fake.calls if t == "capture_animation" and q.get("focus")]
+
+
+def test_without_focus_nothing_changes_in_the_plan_or_the_call(service, fake, roots):
+    p = plan_of(service)
+    assert "focus" not in p["request"]["review"]["capture"] and "focus" not in p["candidates"][0]["steps"][-1]["inputs"]
+    job = run_job(service)
+    assert "focus" not in job["review"]["capture"] and fake.count("capture_animation") == 1
+    assert "focus" not in fake.calls[[t for t, _ in fake.calls].index("capture_animation")][1]
+
+
+def test_focus_request_defaults(service, roots):
+    p = plan_of(service, review={"capture": {"focus": [{"bones": "hand_l"}, {"bones": ["a", "b"], "margin_cm": 6, "near_cut": False}, {"bones": "head", "name": "h-1"}]}})
+    assert p["request"]["review"]["capture"]["focus"] == [{"name": "hand_l", "bones": "hand_l"}, {"name": "focus1", "bones": ["a", "b"], "margin_cm": 6, "near_cut": False},
+                                                          {"name": "h-1", "bones": "head"}]
+    assert p["candidates"][0]["steps"][-1]["inputs"]["focus"] == p["request"]["review"]["capture"]["focus"]
+
+
+def test_focus_captures_each_part_after_the_main_capture(service, fake, roots):
+    fake.mesh_inspect[VESPER_MESH] = HAND_INFO
+    job = run_job(service, review={"capture": {"count": 3, "views": ["side"], "focus": [{"bones": "hand_l"}, {"bones": "fingers_r"}, {"bones": "head"},
+                                                                                       {"bones": ["hand_l"], "name": "wrist", "margin_cm": 6, "near_cut": False}]}})
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    main, calls = next(q for t, q in fake.calls if t == "capture_animation"), focus_calls(fake)
+    assert "focus" not in main and [c["focus"]["bones"] for c in calls] == [["hand_l", "index_01_l", "index_02_l"], ["index_01_r"], ["head"], ["hand_l"]]
+    assert calls[3]["focus"] == {"bones": ["hand_l"], "margin_cm": 6, "near_cut": False} and set(calls[0]["focus"]) == {"bones"}   # 기본값 원천 = 플러그인
+    out = roots / job["job_id"] / "A1"
+    assert [c["output_dir"] for c in calls] == [(out / f"focus_{n}").as_posix() for n in ("hand_l", "fingers_r", "head", "wrist")]
+    for call in calls:   # 본 캡처와 같은 행 · 뷰 · 시퀀스 — 다른 것은 폴더 · 라벨 · focus 뿐
+        assert {k: v for k, v in call.items() if k not in ("output_dir", "label", "focus")} == {k: v for k, v in main.items() if k not in ("output_dir", "label")}
+    assert calls[0]["label"] == "Vesper hand_l"
+    focus = job["review"]["capture"]["focus"]
+    assert [f["name"] for f in focus] == ["hand_l", "fingers_r", "head", "wrist"] and all(f["ok"] for f in focus)
+    assert focus[0]["bones"] == ["hand_l", "index_01_l", "index_02_l"] and pathlib.Path(focus[0]["sheet"]).is_file() and focus[0]["focus"]["skinned_bones"] == 3
+    assert pathlib.Path(focus[0]["animation"]["path"]).is_file() and focus[0]["animation"]["frames"] == job["review"]["capture"]["animation"]["frames"]
+    assert sum(d["code"] == "REVIEW_FOCUS_CAPTURED" for d in job["diagnostics"]) == 4
+
+
+def test_focus_follows_the_render_rows_without_the_compare(bl, bl_roots):
+    bl.fake.mesh_inspect[VESPER_MESH] = HAND_INFO
+    _, env = generate(bl, review={"render": {"count": 2}, "capture": {"focus": [{"bones": "hand_l"}]}})
+    bl.launcher.last.complete("ok")
+    job = status(bl, env["result"]["job_id"])["result"]
+    assert job["status"] == "SUCCEEDED", job.get("error")
+    main = next(q for t, q in bl.fake.calls if t == "capture_animation" and not q.get("focus"))
+    [call] = focus_calls(bl.fake)
+    assert "compare" in main and "compare" not in call and call["times"] == main["times"]
+
+
+def test_focus_on_a_part_the_mesh_lacks_warns(service, fake, roots):
+    fake.capture_unskinned = {"head"}
+    job = run_job(service, review={"capture": {"focus": [{"bones": "head"}]}})
+    [focus] = job["review"]["capture"]["focus"]
+    assert focus["ok"] and focus["focus"]["skinned_bones"] == 0 and "CAPTURE_FOCUS_NOT_SKINNED" in _codes(job["diagnostics"])
+
+
+def test_focus_failure_only_limits_that_part(service, fake, roots):
+    fake.mesh_inspect[VESPER_MESH] = HAND_INFO
+    fake.capture_focus_fail = [err("BAD_REQUEST", "bone 'x' is not in the mesh", reason="BONE_NOT_FOUND", field="focus")]
+    job = run_job(service, review={"capture": {"focus": [{"bones": ["x"], "name": "bad"}, {"bones": "hand_l"}]}})
+    assert job["status"] == "SUCCEEDED" and job["review"]["capture"]["ok"]
+    bad, good = job["review"]["capture"]["focus"]
+    assert not bad["ok"] and bad["reason"] == "BONE_NOT_FOUND" and bad["editor_error"]["code"] == "BAD_REQUEST" and good["ok"]
+    [lim] = [lm for lm in job["limitations"] if lm["code"] == "REVIEW_NOT_CAPTURED"]
+    assert lim["focus"] == "bad" and lim["reason"] == "BONE_NOT_FOUND"
+
+
+def test_focus_without_finger_chains_is_a_limitation(service, fake, roots):
+    fake.mesh_inspect[VESPER_MESH] = {"bones": HAND_INFO["bones"], "finger_chain_suggestion": {"chains": []}}
+    job = run_job(service, review={"capture": {"focus": [{"bones": "fingers_l"}]}})
+    assert job["status"] == "SUCCEEDED" and job["review"]["capture"]["ok"] and not focus_calls(fake)
+    [focus] = job["review"]["capture"]["focus"]
+    assert not focus["ok"] and focus["reason"] == "POSE_FROM_PRESET_UNKNOWN" and "REVIEW_NOT_CAPTURED" in _codes(job["limitations"])
+
+
+def test_focus_head_without_chains_is_a_limitation(service, fake, roots):
+    fake.bones[VESPER] = [b for b in fake.bones[VESPER] if b["name"] != "head"]
+    p = plan_of(service, review={"capture": {"focus": [{"bones": "head"}]}})
+    env = service.generate_motion(plan_id=p["plan_id"], save=False)
+    job = service.get_generation_status(job_id=env["result"]["job_id"])["result"]
+    assert job["status"] == "SUCCEEDED"
+    [focus] = job["review"]["capture"]["focus"]
+    assert not focus["ok"] and focus["reason"] == "TARGET_CHAINS_UNKNOWN"
+
+
+def test_focus_guard_error_stops_the_job(service, fake, roots):
+    fake.mesh_inspect[VESPER_MESH] = HAND_INFO
+    fake.capture_focus_fail = [err("UNEXPECTED_DIRTY", "capture left packages dirty", unexpected=["/Game/X"])]
+    p = plan_of(service, review={"capture": {"focus": [{"bones": "hand_l"}]}})
+    env = service.generate_motion(plan_id=p["plan_id"], save=False)
+    assert not env["ok"] and env["error"]["code"] == "UNEXPECTED_DIRTY"
 
 
 # ---- blender 경로: 소스 골격 렌더와 같은 행 · 비교 칸 ----

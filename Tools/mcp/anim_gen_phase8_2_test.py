@@ -13,6 +13,7 @@
   existing   — 8-1 검 선택(P81Run1026_180733) · 낫 선택(P81Run1026_205832) · KimodoSword1025 를 원래 Job 의 Blender 소스 골격 프레임과 비교 시트로 +
                APNG — 소스 프레임 경로는 이름 규칙(<ImportSourceRoots>/Blender/<job>/A1/frames[/cNN]/<view>_<frame>.png)으로만 만든다
   chain      — anim_gen Job: CMU 01_01 BVH(0 ~ 3초) → blender(render count 4) → 리타깃 → capture(같은 행 · 비교 칸 · APNG) → Job review.capture
+  focus      — (Phase 9-5c) 부분 프레이밍: S1 왼손 · 머리, 샘플 없는 Fit 과 비교 시트, near_cut 켬 · 끔, Narmaya · SB(스케일 100 · 머리 없는 메시), 거부, anim_gen Job review.capture.focus
   dirty      — (맨 뒤) 해시 불변 · 미저장 수 그대로 · Content/ 변경은 chain 실행 폴더뿐
 요약은 Tools/mcp/anim_gen_phase8_2_state.json. 캡처는 판정 근거일 뿐 — 품질 합격은 사람이 본다(§16-9).
 """
@@ -35,6 +36,8 @@ STATE_DIR = ROOT / "Saved" / "AnimGen" / "TestRuns" / f"P82Run{STAMP}"
 os.environ["ANIM_GEN_STATE_DIR"] = str(STATE_DIR)
 
 from anim_gen import apng  # noqa: E402
+from anim_gen.editor import EditorClient  # noqa: E402
+from anim_gen.providers.review import focus_bones  # noqa: E402
 from anim_gen.service import Service  # noqa: E402
 from anim_gen.store import Store  # noqa: E402
 
@@ -53,8 +56,16 @@ TARGETS = {
     "p81_sword_pick": (SWORD, BLENDER / "job_20261026_180741_c0f5be" / "A1" / "frames" / "c00"),
     "p81_scythe_pick": (SCYTHE, BLENDER / "job_20261026_205840_56d522" / "A1" / "frames" / "c03"),
 }
-HASHED = [KIMODO, SWORD, SCYTHE, VESPER, MESH]
-CMU_BVH = ROOT / "Saved" / "AnimGen" / "Import" / "Sources" / "CMU_01_01" / "01_01.bvh"
+# Phase 9-5c — S1 = 띠 정정 ← Attack3 손가락 샘플(8-4c c2) · 그 샘플 없는 Fit. Narmaya · SB = 루트 스케일 100 · 비표준, 원본 애니를 그 메시에 바로(SB 는 머리가 분리 메시)
+S1 = "/Game/Animation/Test/AIAnimation/P84Run1030_180618/AS_Vesper_Sickle_P84cScytheRegripS1"
+S1_NO_SAMPLE = "/Game/Animation/Test/AIAnimation/P84Run1030_170001/AS_Vesper_Sickle_P84bScytheRegripFit"
+FOCUS_TARGETS = {
+    "narmaya": {"asset": "/Game/Assets/Narmaya/anim", "mesh": "/Game/Assets/Narmaya/pl1400_Mesh", "facing": "+Y", "head": "_0051"},
+    "sb": {"asset": "/Game/Assets/SB/Evefin", "mesh": "/Game/Assets/SB/CH_P_EVE_01_Body_LOD0", "facing": "+X", "head": "Bip001-Head"},
+}
+FOCUS_MAX_CM_PER_PX = 0.12  # 전신 시트 0.42 cm/px 의 3.5배 확대 — 손 0.044 · 뿔까지 든 머리 0.102(2026-11-04 실측)
+HASHED = [KIMODO, SWORD, SCYTHE, VESPER, MESH, S1, S1_NO_SAMPLE]
+CMU_BVH =ROOT / "Saved" / "AnimGen" / "Import" / "Sources" / "CMU_01_01" / "01_01.bvh"
 CMU_CHAINS = [
     {"name": "Spine", "start": "LowerBack", "end": "Spine1"},
     {"name": "Neck", "start": "Neck", "end": "Neck1"},
@@ -291,6 +302,96 @@ def section_chain() -> None:
                       "limitations": [lm["code"] for lm in job["limitations"]]}
 
 
+def judge_focus(name: str, res: dict, follows: bool = True) -> None:
+    """초점 칸의 공통 기준 — 칸마다 같은 배율 · 행마다 다른 중심 · 잘림 경고 없음 · 칸이 비지 않음."""
+    cams = res["camera"]
+    check(all(c["cm_per_px"] <= FOCUS_MAX_CM_PER_PX for c in cams.values()), f"{name}: close enough ({ {k: c['cm_per_px'] for k, c in cams.items()} } cm/px)")
+    check(res["cells_touching_edge"] == 0, f"{name}: no edge warning in focus mode")
+    centers = {tuple(f["focus_center"]) for f in res["frames"]}
+    if follows:
+        check(len(centers) > 1, f"{name}: the camera follows the part ({len(centers)} centres over {len(res['frames'])} cells)")
+    check(res["focus"]["empty_cells"] == 0, f"{name}: no empty cell (coverage {min(f['coverage_pct'] for f in res['frames'])} ~ {max(f['coverage_pct'] for f in res['frames'])} %)")
+
+
+def section_focus() -> None:
+    print("== focus (9-5c): close-ups — S1 hand · head, near_cut, Narmaya · SB, refusals, anim_gen job")
+    before = dirty_count()
+    client = EditorClient()
+    hand = focus_bones(client, {}, MESH, "hand_l", [])
+    check(hand[0] == "hand_l" and len(hand) >= 11, f"preset hand_l = wrist + fingers ({len(hand)} bones)")
+    times = [0.0, 1.0, 2.0, 2.67, 4.0]
+    env, res = capture("focus_s1_hand", S1, times=times, focus={"bones": hand}, sequence={"fps": 15})
+    if not check(env.get("ok"), f"S1 hand capture ok {code_of(env)}"):
+        print(json.dumps(env.get("error"), ensure_ascii=False)[:2000])
+        return
+    judge_focus("S1 hand", res)
+    check(res["focus"]["skinned_bones"] == len(hand), f"S1 hand: {res['focus']['skinned_bones']}/{len(hand)} bones have vertices")
+    check(not any(d["code"].startswith("CAPTURE_FOCUS") for d in env.get("diagnostics") or []), "S1 hand: no focus warning")
+    check(res["animation"]["frames"] == res["sequence"]["count"], f"S1 hand: APNG {res['animation']['frames']} frames · {res['animation']['bytes']} bytes")
+    STATE["focus"] = {"s1_hand": {**summary(res), "focus": res["focus"]}}
+    # 같은 입력 = 같은 픽셀 · 앞 자르기를 끄면 가슴 뒤 손이 가려진다 · 샘플 없는 Fit 과 나란히(같은 시각 · 같은 본)
+    env2, res2 = capture("focus_s1_hand_b", S1, times=times, focus={"bones": hand})
+    check(env2.get("ok") and [f["sha1"] for f in res2["frames"]] == [f["sha1"] for f in res["frames"]], "S1 hand: same input → same pixels")
+    env3, res3 = capture("focus_s1_hand_nocut", S1, times=times, focus={"bones": hand, "near_cut": False})
+    if check(env3.get("ok"), f"near_cut off ok {code_of(env3)}"):
+        differ = sum(a["sha1"] != b["sha1"] for a, b in zip(res["frames"], res3["frames"]))
+        check(differ > 0 and all(f["near_cut_depth"] is None for f in res3["frames"]), f"near_cut changes {differ}/{len(res['frames'])} cells (off: no cut depth)")
+        STATE["focus"]["near_cut_diff"] = differ
+    rows = [[f["path"] for f in res["frames"] if f["row"] == r] for r in range(len(times))]
+    env4, res4 = capture("focus_s1_vs_nosample", S1_NO_SAMPLE, times=times, focus={"bones": hand}, compare={"label": "S1 sample", "rows": rows})
+    if check(env4.get("ok"), f"no-sample Fit with S1 columns ok {code_of(env4)}"):
+        check(pathlib.Path(res4["compare"]["path"]).is_file(), f"compare sheet {res4['compare']['size']}")
+        STATE["focus"]["s1_compare"] = res4["compare"]["path"]
+    env5, res5 = capture("focus_s1_head", S1, times=[0.0, 1.33, 2.67], focus={"bones": ["head"]})
+    if check(env5.get("ok"), f"S1 head ok {code_of(env5)}"):
+        judge_focus("S1 head", res5)
+        STATE["focus"]["s1_head"] = {**summary(res5), "focus": res5["focus"]}
+    # 스케일 100 · 비표준 — 본 위치가 cm 이고 칼 · 치마 · 머리카락이 프레이밍을 넓히지 않는다, SB 머리는 빈 칸이 아니라 경고
+    for key, tgt in FOCUS_TARGETS.items():
+        over = {"mesh": tgt["mesh"], "facing": tgt["facing"], "count": 3}
+        bones = focus_bones(client, {}, tgt["mesh"], "hand_l", [])
+        env, res = capture(f"focus_{key}_hand", tgt["asset"], focus={"bones": bones}, **over)
+        if check(env.get("ok"), f"{key} hand ok {code_of(env)}"):
+            judge_focus(f"{key} hand", res)
+            STATE["focus"][f"{key}_hand"] = {**summary(res), "focus": res["focus"]}
+        env, res = capture(f"focus_{key}_head", tgt["asset"], focus={"bones": [tgt["head"]]}, **over)
+        if not check(env.get("ok"), f"{key} head ok {code_of(env)}"):
+            continue
+        codes = [d["code"] for d in env.get("diagnostics") or []]
+        STATE["focus"][f"{key}_head"] = {**summary(res), "focus": res["focus"], "diagnostics": codes}
+        if key == "sb":
+            check(res["focus"]["skinned_bones"] == 0 and "CAPTURE_FOCUS_NOT_SKINNED" in codes, f"sb head: the mesh has no head — warned {codes}")
+        else:
+            judge_focus(f"{key} head", res)
+    # 거부 — 파일 · 더티 0
+    for what, focus, reason in (("unknown bone", {"bones": ["no_such_bone"]}, "BONE_NOT_FOUND"), ("empty bones", {"bones": []}, "BAD_FIELD"),
+                                ("unknown key", {"bones": ["head"], "zoom": 2}, "BAD_FIELD"), ("margin", {"bones": ["head"], "margin_cm": 101}, "BAD_FIELD")):
+        folder = OUT / f"focus_guard_{what.replace(' ', '_')}"
+        env = editor("capture_animation", asset=S1, mesh=MESH, facing="+Y", output_dir=folder.as_posix(), focus=focus)
+        check(not env.get("ok") and code_of(env) == ("BAD_REQUEST", reason) and not folder.exists(), f"{what} → {code_of(env)}")
+    check(dirty_count() == before, "focus captures dirtied nothing")
+    # anim_gen — 재사용 경로 + review.capture.focus (프리셋 · 본 목록 · 실패 한 부위는 한계만)
+    req = {"target_skeleton": VESPER, "target_mesh": MESH, "hero": "Vesper", "family": "Sickle", "animation_name": "AS_Vesper_Sickle_P82FocusJob", "description": "Phase 9-5c 통합",
+           "motion_category": "weapon_action", "loop": False, "frame_rate": 30, "reference_animations": [S1], "provider": "existing_motion", "output_path": RUN,
+           "review": {"capture": {"count": 3, "sequence": {"fps": 10}, "focus": [{"bones": "hand_l"}, {"bones": "head"}, {"bones": ["no_such_bone"], "name": "bad"}]}}}
+    plan = must(SERVICE.plan_motion_generation(request=req), "plan focus job")
+    env = SERVICE.generate_motion(plan_id=plan["plan_id"], save=False)
+    job = env["result"] if env["ok"] else env["error"]["details"]["job"]
+    if not check(job["status"] == "SUCCEEDED", f"focus job SUCCEEDED ({job['status']})"):
+        print(json.dumps(job.get("error"), ensure_ascii=False)[:2000])
+        return
+    cap = (job.get("review") or {}).get("capture") or {}
+    items = {f["name"]: f for f in cap.get("focus") or []}
+    check(cap.get("ok") and set(items) == {"hand_l", "head", "bad"}, f"job review.capture.focus {sorted(items)}")
+    if set(items) == {"hand_l", "head", "bad"}:
+        check(items["hand_l"]["ok"] and pathlib.Path(items["hand_l"]["sheet"]).is_file() and items["hand_l"]["animation"]["frames"] == cap["animation"]["frames"],
+              f"hand_l close-up at the same rows · APNG {items['hand_l']['animation']['frames']} frames")
+        check(items["head"]["ok"] and items["head"]["bones"] == ["head"], f"head preset = {items['head'].get('bones')}")
+        check(not items["bad"]["ok"] and items["bad"]["reason"] == "BONE_NOT_FOUND", f"a bad part only limits itself ({items['bad'].get('reason')})")
+        check(any(lm["code"] == "REVIEW_NOT_CAPTURED" and lm.get("focus") == "bad" for lm in job["limitations"]), "limitation REVIEW_NOT_CAPTURED focus bad")
+    STATE["focus"]["job"] = {"job_id": job["job_id"], "sheets": {k: f.get("sheet") for k, f in items.items()}, "dir": cap.get("dir")}
+
+
 def section_dirty() -> None:
     print("== hashes · content · dirty (after)")
     if "hashes" in STATE:
@@ -307,7 +408,7 @@ def section_dirty() -> None:
 
 
 SECTIONS = {"hashes": section_hashes, "automation": section_automation, "tool": section_tool, "guard": section_guard,
-            "existing": section_existing, "chain": section_chain, "dirty": section_dirty}
+            "existing": section_existing, "chain": section_chain, "focus": section_focus, "dirty": section_dirty}
 
 
 def finish() -> int:

@@ -66,6 +66,54 @@ bool FAnimMcpCaptureTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("wide: centre u"), FMath::IsNearlyEqual(Fit.CenterU, 150.0, 1e-9));
 	}
 
+	// ---- 초점 (Phase 9-5c): 인자 · 배율 = 최대 범위 + 양쪽 여백 · 바닥을 끌어들이지 않음 · 따라가기 = 중심 · 앞 자름만 ----
+	{
+		FFocus Focus;
+		FString Why;
+		TSharedRef<FJsonObject> Obj = AnimMcpJson::MakeObject();
+		TestFalse(TEXT("focus: bones required"), ParseFocus(Obj, Focus, Why));
+		Obj->SetArrayField(TEXT("bones"), { MakeShared<FJsonValueString>(TEXT("hand_l")), MakeShared<FJsonValueString>(TEXT("index_03_l")) });
+		TestTrue(TEXT("focus: parsed"), ParseFocus(Obj, Focus, Why));
+		TestTrue(TEXT("focus: defaults margin 4 · near_cut"), Focus.Bones.Num() == 2 && Focus.MarginCm == 4.0 && Focus.bNearCut);
+		Obj->SetNumberField(TEXT("margin_cm"), 6.5);
+		Obj->SetBoolField(TEXT("near_cut"), false);
+		TestTrue(TEXT("focus: margin · near_cut"), ParseFocus(Obj, Focus, Why) && Focus.MarginCm == 6.5 && !Focus.bNearCut);
+		Obj->SetNumberField(TEXT("margin_cm"), 101.0);
+		TestFalse(TEXT("focus: margin above 100 refused"), ParseFocus(Obj, Focus, Why));
+		Obj->SetNumberField(TEXT("margin_cm"), 6.5);
+		Obj->SetNumberField(TEXT("near_cut"), 1.0);
+		TestFalse(TEXT("focus: near_cut must be a bool"), ParseFocus(Obj, Focus, Why));
+		TSharedRef<FJsonObject> Dup = AnimMcpJson::MakeObject();
+		Dup->SetArrayField(TEXT("bones"), { MakeShared<FJsonValueString>(TEXT("hand_l")), MakeShared<FJsonValueString>(TEXT("hand_l")) });
+		TestFalse(TEXT("focus: duplicate bone refused"), ParseFocus(Dup, Focus, Why));
+		TSharedRef<FJsonObject> Empty = AnimMcpJson::MakeObject();
+		Empty->SetArrayField(TEXT("bones"), TArray<TSharedPtr<FJsonValue>>());
+		TestFalse(TEXT("focus: empty bones refused"), ParseFocus(Empty, Focus, Why));
+		TSharedRef<FJsonObject> Unknown = AnimMcpJson::MakeObject();
+		Unknown->SetArrayField(TEXT("bones"), { MakeShared<FJsonValueString>(TEXT("hand_l")) });
+		Unknown->SetNumberField(TEXT("zoom"), 2.0);
+		TestFalse(TEXT("focus: unknown key refused"), ParseFocus(Unknown, Focus, Why));
+	}
+	{
+		const FViewFit Fit = FitFocus(12.0, 10.0, 4.0, 512, 2.0);
+		TestEqual(TEXT("focus: width = round(512 × 20/18 / 2) × 2"), Fit.Width, 568);
+		TestEqual(TEXT("focus: cell height"), Fit.Height, 512);
+		TestTrue(TEXT("focus: extent h = 10 + 2 × 4"), FMath::IsNearlyEqual(Fit.ExtentH, 18.0, 0.05));
+		TestTrue(TEXT("focus: extent w covers 12 + 2 × 4"), Fit.ExtentW >= 20.0 - 1e-6);
+		TestFalse(TEXT("focus: no camera depth before following"), Fit.NearCutD.IsSet());
+
+		FRange Now;
+		Now.Add(100.0, 150.0, -30.0);
+		Now.Add(110.0, 158.0, -22.0);
+		FFocus Focus;
+		const FViewFit Near = FollowFocus(Fit, Now, Focus);
+		TestTrue(TEXT("focus: follows the box centre, no floor"), FMath::IsNearlyEqual(Near.CenterU, 105.0, 1e-9) && FMath::IsNearlyEqual(Near.CenterV, 154.0, 1e-9));
+		TestTrue(TEXT("focus: scale and cell kept"), Near.ExtentW == Fit.ExtentW && Near.ExtentH == Fit.ExtentH && Near.Width == Fit.Width);
+		TestTrue(TEXT("focus: camera 1 cm in front of the box, whatever the margin"), Near.NearCutD.IsSet() && FMath::IsNearlyEqual(Near.NearCutD.GetValue(), -31.0, 1e-9));
+		Focus.bNearCut = false;
+		TestFalse(TEXT("focus: near_cut off keeps the far camera"), FollowFocus(Fit, Now, Focus).NearCutD.IsSet());
+	}
+
 	// ---- 시트 축소 · 시각 펼치기 · 샘플 프레임 ----
 	TestTrue(TEXT("sheet scale = (3000 − 42) / (512 × 6)"), FMath::IsNearlyEqual(SheetScale({ 256, 904 }, 512, 6, 6, 3000.0), (3000.0 - 42.0) / 3072.0, 1e-9));
 	TestEqual(TEXT("sheet scale never enlarges"), SheetScale({ 100 }, 100, 1, 6, 3000.0), 1.0);

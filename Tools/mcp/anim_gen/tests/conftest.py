@@ -165,6 +165,9 @@ class FakeEditor:
         # Phase 8-2 — capture_animation 흉내: ini CaptureOutputRoots(디스크 — 테스트가 tmp_path 를 준다, 기본 비어 있음) · 남길 더티
         self.capture_roots: list[str] = []
         self.capture_dirty: list[str] = []
+        # Phase 9-5c — focus 호출만 실패시킬 오류(차례로) · 정점이 없는 본(SB 머리처럼)
+        self.capture_focus_fail: list[dict] = []
+        self.capture_unskinned: set[str] = set()
         # Phase 8-4c — inspect_skeleton skeletal_mesh 흉내: 메시 경로 → 결과(sockets · bones · finger_chain_suggestion · geometry)
         self.mesh_inspect: dict[str, dict] = {}
 
@@ -463,6 +466,8 @@ class FakeEditor:
     # ---- Phase 8-2 — 대상 메시 캡처 (플러그인 AnimMcpCapture 흉내 — 작은 진짜 PNG 를 쓴다) ----
     def _capture_animation(self, p):
         out = pathlib.Path(p["output_dir"])
+        if p.get("focus") and self.capture_focus_fail:
+            raise _Refuse(self.capture_focus_fail.pop(0))
         if not any(str(out.as_posix()).startswith(r.rstrip("/") + "/") for r in self.capture_roots):
             raise _Refuse(err("OUTPUT_PATH_NOT_ALLOWED", f"{out} is not below CaptureOutputRoots", reason="CAPTURE_ROOT", field="output_dir"))
         if out.exists() and any(out.iterdir()):
@@ -507,13 +512,19 @@ class FakeEditor:
                 paths.append((seq_dir / f"f_{k:05d}.png").as_posix())
             sequence = {"dir": seq_dir.as_posix(), "fps": seq_fps, "count": n, "frames": paths, "times": [round(k / seq_fps, 4) for k in range(n)],
                         "size": [10, 4], "truncated": False, "seconds": 0.01}
-        return {"asset": _obj(p["asset"]), "mesh": _obj(p["mesh"]), "facing": p["facing"], "length": length, "frame_rate": fps,
-                "dir": out.as_posix(), "frames": frames, "sheet": (out / "sheet.png").as_posix(), "compare": compare, "sequence": sequence,
-                "layout": {"rows": rows, "columns": [{"kind": "view", "view": v, "width": 6} for v in views], "cell_height": 8, "gap": 6,
-                           "size": [12, 16], "scale": 1.0},
-                "camera": {v: {"look": [0, -1, 0], "right": [1, 0, 0], "ortho_width_cm": 200.0, "resolution": [6, 8], "cm_per_px": 0.4} for v in views},
-                "bounds": {"min": [-50, -30, 0], "max": [50, 30, 180], "frames_sampled": 10, "from": "bone_vertex_boxes"},
-                "cells_touching_edge": 0, "seconds": 0.05}
+        result = {"asset": _obj(p["asset"]), "mesh": _obj(p["mesh"]), "facing": p["facing"], "length": length, "frame_rate": fps,
+                  "dir": out.as_posix(), "frames": frames, "sheet": (out / "sheet.png").as_posix(), "compare": compare, "sequence": sequence,
+                  "layout": {"rows": rows, "columns": [{"kind": "view", "view": v, "width": 6} for v in views], "cell_height": 8, "gap": 6,
+                             "size": [12, 16], "scale": 1.0},
+                  "camera": {v: {"look": [0, -1, 0], "right": [1, 0, 0], "ortho_width_cm": 200.0, "resolution": [6, 8], "cm_per_px": 0.4} for v in views},
+                  "bounds": {"min": [-50, -30, 0], "max": [50, 30, 180], "frames_sampled": 10, "from": "bone_vertex_boxes"},
+                  "cells_touching_edge": 0, "seconds": 0.05}
+        if p.get("focus"):
+            bones = p["focus"]["bones"]
+            result["focus"] = {"bones": [{"name": b, "box_cm": None if b in self.capture_unskinned else [8.0, 8.0, 8.0]} for b in bones],
+                               "skinned_bones": sum(b not in self.capture_unskinned for b in bones), "margin_cm": p["focus"].get("margin_cm", 4.0),
+                               "near_cut": p["focus"].get("near_cut", True), "empty_cells": 0, "extent_cm": {v: [12.0, 12.0] for v in views}}
+        return result
 
     # ---- Phase 7 — 포장 · 연결 (플러그인의 옵트인 generation_guard 흉내) ----
     def _guard(self, p: dict, path: str) -> dict | None:

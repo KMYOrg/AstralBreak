@@ -54,8 +54,15 @@ REVIEW_MAX_REFERENCES = 4
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
 # Phase 8-2 — 대상 메시 캡처(review.capture → 플러그인 capture_animation). 행 = render 시각(render 가 있을 때) 또는 times | count,
 # sequence = 움직임용 연속 프레임(APNG 로 잇는다, false = 시트만), compare = render 가 있으면 소스 골격 칸을 붙인 비교 시트
-REVIEW_CAPTURE_KEYS = {"times", "count", "views", "mesh", "sequence", "compare"}
+REVIEW_CAPTURE_KEYS = {"times", "count", "views", "mesh", "sequence", "compare", "focus"}
 REVIEW_SEQUENCE_DEFAULTS = {"fps": 15, "cell_height_px": 320, "max_frames": 150}
+# Phase 9-5c — focus: 손 · 손가락 · 머리 부분 프레이밍(capture_animation focus). 부위마다 본 캡처와 같은 행 · 뷰 · 시퀀스로 한 번 더 찍는다.
+# bones = 프리셋 또는 본 이름 목록 — 프리셋은 실행 때 대상 메시에서 푼다(providers/review.py). 줄 때만 키가 생긴다(없으면 계획 · Job 비트 같음)
+REVIEW_FOCUS_KEYS = {"bones", "name", "margin_cm", "near_cut"}
+REVIEW_FOCUS_PRESETS = ("hand_l", "hand_r", "fingers_l", "fingers_r", "head")
+REVIEW_MAX_FOCUS = 4
+REVIEW_MAX_FOCUS_BONES = 64
+REVIEW_FOCUS_NAME = re.compile(r"[A-Za-z0-9_-]{1,32}")
 # Phase 7 — 포장(package: 시퀀스 additive · 몽타주 · BlendSpace)과 AnimBP 연결(anim_bp). 출력은 output_path(허용 목록), 쓰기는 플러그인의
 # 옵트인 generation_guard 아래에서. 자리표시는 문자열 값 전체가 그것일 때만 바꾼다 — $asset = 최종 시퀀스(재사용이면 그 애셋)
 PLACEHOLDERS = ("$asset", "$montage", "$blendspace")
@@ -529,12 +536,12 @@ def _review(raw) -> dict | None:
 
 
 def _review_capture(raw, render: dict | None) -> dict:
-    """review.capture — true 또는 {times? | count?, views?, mesh?, sequence?{fps, cell_height_px, max_frames} | false, compare?}.
+    """review.capture — true 또는 {times? | count?, views?, mesh?, sequence?{fps, cell_height_px, max_frames} | false, compare?, focus?[…]}.
     render 가 있으면 행은 render 시각을 따른다(times · count 를 주면 CONFLICTING_FIELDS — 두 시트가 같은 행이어야 나란히 본다)."""
     if raw is True:
         raw = {}
     if not isinstance(raw, dict):
-        raise _bad("review.capture", "must be true or {times? | count?, views?, mesh?, sequence?, compare?}")
+        raise _bad("review.capture", "must be true or {times? | count?, views?, mesh?, sequence?, compare?, focus?}")
     extra = sorted(set(raw) - REVIEW_CAPTURE_KEYS)
     if extra:
         raise _bad(f"review.capture.{extra[0]}", f"unknown key(s) {extra}", reason="UNKNOWN_FIELD", allowed=sorted(REVIEW_CAPTURE_KEYS))
@@ -574,7 +581,46 @@ def _review_capture(raw, render: dict | None) -> dict:
         cap["sequence"] = seq
     if not isinstance(cap["compare"], bool):
         raise _bad("review.capture.compare", "must be true or false")
+    if raw.get("focus") is not None:
+        cap["focus"] = _review_focus(raw["focus"])
     return cap
+
+
+def _review_focus(raw) -> list[dict]:
+    """review.capture.focus — [{bones: 프리셋 | [본 이름 …], name?, margin_cm?, near_cut?}] (1 ~ REVIEW_MAX_FOCUS). name = 폴더 focus_<name>, 없으면 프리셋 ·
+    focus<순번>. margin_cm · near_cut 은 준 것만 넘긴다(기본값 원천 = 플러그인)."""
+    if not isinstance(raw, list) or not 1 <= len(raw) <= REVIEW_MAX_FOCUS:
+        raise _bad("review.capture.focus", f"must be a list of 1 to {REVIEW_MAX_FOCUS} {{bones, name?, margin_cm?, near_cut?}}")
+    out: list[dict] = []
+    for k, item in enumerate(raw):
+        field = f"review.capture.focus[{k}]"
+        if not isinstance(item, dict):
+            raise _bad(field, "must be {bones, name?, margin_cm?, near_cut?}")
+        extra = sorted(set(item) - REVIEW_FOCUS_KEYS)
+        if extra:
+            raise _bad(f"{field}.{extra[0]}", f"unknown key(s) {extra}", reason="UNKNOWN_FIELD", allowed=sorted(REVIEW_FOCUS_KEYS))
+        bones = item.get("bones")
+        if isinstance(bones, str):
+            if bones not in REVIEW_FOCUS_PRESETS:
+                raise _bad(f"{field}.bones", f"must be one of {list(REVIEW_FOCUS_PRESETS)} or a list of bone names")
+        elif (not isinstance(bones, list) or not 1 <= len(bones) <= REVIEW_MAX_FOCUS_BONES or len(set(map(str, bones))) != len(bones)
+              or not all(isinstance(b, str) and b for b in bones)):
+            raise _bad(f"{field}.bones", f"must be one of {list(REVIEW_FOCUS_PRESETS)} or 1 to {REVIEW_MAX_FOCUS_BONES} distinct bone names")
+        one = {"name": item.get("name", bones if isinstance(bones, str) else f"focus{k}"), "bones": bones if isinstance(bones, str) else list(bones)}
+        if not isinstance(one["name"], str) or not REVIEW_FOCUS_NAME.fullmatch(one["name"]):
+            raise _bad(f"{field}.name", "must be 1 to 32 letters, digits, '_' or '-' (it names the folder focus_<name>)")
+        if any(other["name"] == one["name"] for other in out):
+            raise _bad(f"{field}.name", f"'{one['name']}' is used twice — give each focus its own name", reason="CONFLICTING_FIELDS")
+        if item.get("margin_cm") is not None:
+            if not _num(item["margin_cm"], 0) or item["margin_cm"] > 100:
+                raise _bad(f"{field}.margin_cm", "must be a number in [0, 100] (cm around the bones)")
+            one["margin_cm"] = item["margin_cm"]
+        if item.get("near_cut") is not None:
+            if not isinstance(item["near_cut"], bool):
+                raise _bad(f"{field}.near_cut", "must be true or false")
+            one["near_cut"] = item["near_cut"]
+        out.append(one)
+    return out
 
 
 def _review_render(render) -> dict:

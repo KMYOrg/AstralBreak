@@ -98,7 +98,8 @@ def list_animation_assets(skeleton: str | None = None, asset_class: str = "all",
 
 @mcp.tool()
 def create_blendspace(asset_path: str, skeleton: str, dimensions: int, axes: list[dict], samples: list[dict] | None = None,
-                      aim_offset: bool = False, preview_mesh: str | None = None, overwrite: bool = False, save: bool = False) -> dict:
+                      aim_offset: bool = False, preview_mesh: str | None = None, overwrite: bool = False, save: bool = False,
+                      generation_guard: bool = False) -> dict:
     """Create a BlendSpace (dimensions=2) or BlendSpace1D (dimensions=1) asset with axes and samples — or an AimOffset.
 
     Args:
@@ -113,6 +114,9 @@ def create_blendspace(asset_path: str, skeleton: str, dimensions: int, axes: lis
         preview_mesh: Optional skeletal mesh for the preview viewport.
         overwrite: If true, an existing asset at asset_path is DELETED first (refused for protected assets). Ask the user first.
         save: Save the new asset to disk right away.
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): asset_path must be inside [AnimGraphMcp]
+            GenerationOutputPaths (OUTPUT_PATH_NOT_ALLOWED), overwrite is refused, and the editor-wide dirty-package diff is checked before
+            saving (UNEXPECTED_DIRTY — nothing saved). Result gains guard{enabled, newly_dirty[]}.
 
     Returns the asset summary (axes, samples, sample_count, grid_sample_count, aim_offset) plus created=true and saved. Use set_asset on an
     AnimGraphNode_BlendSpacePlayer (or AnimGraphNode_RotationOffsetBlendSpace for an AimOffset) to plug it into a graph.
@@ -121,6 +125,8 @@ def create_blendspace(asset_path: str, skeleton: str, dimensions: int, axes: lis
               "samples": samples or [], "aim_offset": aim_offset, "overwrite": overwrite, "save": save}
     if preview_mesh:
         params["preview_mesh"] = preview_mesh
+    if generation_guard:
+        params["generation_guard"] = True
     return bridge.call("create_blendspace", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
@@ -223,7 +229,7 @@ def preview_graph_operations(asset_path: str, operations: list[dict]) -> dict:
 
 @mcp.tool()
 def apply_graph_operations(asset_path: str, operations: list[dict], expected_revision: str | None = None,
-                           compile: bool = False, save: bool = False) -> dict:
+                           compile: bool = False, save: bool = False, generation_guard: bool = False) -> dict:
     """Apply a batch of graph operations in one undoable transaction. Validated first; a mid-batch failure is rolled back.
 
     Args:
@@ -232,12 +238,17 @@ def apply_graph_operations(asset_path: str, operations: list[dict], expected_rev
         expected_revision: Revision from the last inspection; the call aborts with REVISION_MISMATCH if the graph changed.
         compile: Compile after applying and include the result.
         save: Save to disk after a successful compile (requires compile=true to be meaningful).
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): the AnimBP must be inside [AnimGraphMcp]
+            GenerationOutputPaths (a test copy — production AnimBPs are refused on purpose), and the editor-wide dirty-package diff is
+            checked after compiling and before saving (UNEXPECTED_DIRTY — nothing saved). Result gains guard{enabled, newly_dirty[]}.
 
     Returns revision_before/after, refs (ref name -> node_guid), per-operation results, compile result and saved flag.
 """ + _OPERATIONS_DOC
     params = {"asset_path": asset_path, "operations": operations, "compile": compile, "save": save}
     if expected_revision:
         params["expected_revision"] = expected_revision
+    if generation_guard:
+        params["generation_guard"] = True
     return bridge.call("apply_graph_operations", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
@@ -261,7 +272,7 @@ def save_animation_blueprint(asset_path: str) -> dict:
 
 @mcp.tool()
 def duplicate_animation_blueprint(source_path: str, dest_path: str, overwrite: bool = False,
-                                  preserve_node_guids: bool = True, save: bool = False) -> dict:
+                                  preserve_node_guids: bool = True, save: bool = False, generation_guard: bool = False) -> dict:
     """Duplicate an Animation Blueprint to a new content path (e.g. to edit a copy of a production asset).
 
     Args:
@@ -271,13 +282,17 @@ def duplicate_animation_blueprint(source_path: str, dest_path: str, overwrite: b
             the project's [AnimGraphMcp] ProtectedAssets / ProtectedPaths. Ask the user before using this.
         preserve_node_guids: Keep every node_guid identical to the source (default). With false the engine assigns new guids.
         save: Save the duplicate to disk right away.
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): dest_path must be inside [AnimGraphMcp]
+            GenerationOutputPaths, overwrite is refused, and the editor-wide dirty-package diff is checked before saving
+            (UNEXPECTED_DIRTY — nothing saved). The source is only read. Result gains guard{enabled, newly_dirty[]}.
 
     Returns the same summary as get_anim_blueprint_info plus duplicated=true, source_path, source_revision, node_guids_preserved, saved.
     """
-    return bridge.call("duplicate_animation_blueprint", {
-        "source_path": source_path, "dest_path": dest_path, "overwrite": overwrite,
-        "preserve_node_guids": preserve_node_guids, "save": save,
-    }, timeout=bridge.COMPILE_TIMEOUT)
+    params = {"source_path": source_path, "dest_path": dest_path, "overwrite": overwrite,
+              "preserve_node_guids": preserve_node_guids, "save": save}
+    if generation_guard:
+        params["generation_guard"] = True
+    return bridge.call("duplicate_animation_blueprint", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()
@@ -469,7 +484,7 @@ def set_update_function(asset_path: str, assignments: list[dict] | None = None, 
 
 @mcp.tool()
 def create_anim_montage(asset_path: str, animation: str, slot: str | None = None, blend_in: float | None = None, blend_out: float | None = None,
-                        preview_mesh: str | None = None, overwrite: bool = False, save: bool = False) -> dict:
+                        preview_mesh: str | None = None, overwrite: bool = False, save: bool = False, generation_guard: bool = False) -> dict:
     """Create an AnimMontage from one AnimSequence: one slot track with one segment and a "Default" section at 0.
 
     Args:
@@ -481,6 +496,9 @@ def create_anim_montage(asset_path: str, animation: str, slot: str | None = None
         preview_mesh: Optional skeletal mesh for the preview viewport.
         overwrite: If true, an existing asset at asset_path is DELETED first (refused for protected assets). Ask the user first.
         save: Save the new asset to disk right away.
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): asset_path must be inside [AnimGraphMcp]
+            GenerationOutputPaths, overwrite is refused, and the editor-wide dirty-package diff is checked before saving
+            (UNEXPECTED_DIRTY — nothing saved). Result gains guard{enabled, newly_dirty[]}.
 
     Notifies are not created here (they are project specific — use the project's own notify pipeline). Returns the montage summary
     (slots, sections, length, skeleton_slot_groups) plus created=true and saved. Next: set_montage_sections for combo/loop sections.
@@ -494,6 +512,8 @@ def create_anim_montage(asset_path: str, animation: str, slot: str | None = None
         params["blend_out"] = blend_out
     if preview_mesh:
         params["preview_mesh"] = preview_mesh
+    if generation_guard:
+        params["generation_guard"] = True
     return bridge.call("create_anim_montage", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
@@ -514,7 +534,7 @@ def set_montage_slots(asset_path: str, slots: list[dict | str], save: bool = Fal
 
 
 @mcp.tool()
-def set_montage_sections(asset_path: str, sections: list[dict], save: bool = False) -> dict:
+def set_montage_sections(asset_path: str, sections: list[dict], save: bool = False, generation_guard: bool = False) -> dict:
     """Replace the section list of an AnimMontage (combo sections, loops, section chains).
 
     Args:
@@ -523,11 +543,16 @@ def set_montage_sections(asset_path: str, sections: list[dict], save: bool = Fal
             — start in seconds inside [0, length]; next = the section played after this one (omit/null = stop at its end, its own
             name = loop). Names must be unique and next must name a section in this list.
         save: Save the montage afterwards.
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): the montage must be inside [AnimGraphMcp]
+            GenerationOutputPaths and the editor-wide dirty-package diff is checked before saving (UNEXPECTED_DIRTY — nothing saved).
 
     The whole list is replaced and sorted by start; notifies are untouched. Re-applying the same list is a no-op (unchanged=true).
     A first section that does not start at 0 is applied with a NO_SECTION_AT_ZERO warning. Returns the montage summary plus unchanged and saved.
     """
-    return bridge.call("set_montage_sections", {"asset_path": asset_path, "sections": sections, "save": save}, timeout=bridge.COMPILE_TIMEOUT)
+    params = {"asset_path": asset_path, "sections": sections, "save": save}
+    if generation_guard:
+        params["generation_guard"] = True
+    return bridge.call("set_montage_sections", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()
@@ -587,9 +612,432 @@ def reassign_skeleton(skeleton: str, assets: list[str] | None = None, from_skele
 
 
 @mcp.tool()
+def inspect_skeleton(skeleton: str | None = None, skeletal_mesh: str | None = None, details: bool = False,
+                     compare_to: str | None = None, suggest_finger_chains: bool = False, geometry: bool = False) -> dict:
+    """Read-only facts about a Skeleton for animation generation / IK retargeting (measured values only, nothing guessed).
+
+    Args:
+        skeleton: Skeleton asset path. Either this or skeletal_mesh (if both, the mesh must use this skeleton).
+        skeletal_mesh: Skeletal mesh — its skeleton is inspected and it is the mesh used for template_match and mesh sockets.
+        details: Add reference pose transforms per bone (ref_local / ref_component {t, r[pitch,yaw,roll], s?}) and socket transforms.
+        compare_to: Another Skeleton to compare with. Rigs are judged by REFERENCE POSE, not bone names — a skeleton can share
+            every bone name and still be 10-40 degrees off (UE4 mannequin vs UE5-style skeletons).
+        suggest_finger_chains: Also return finger_chain_suggestion — standard finger chains ({Side}Thumb, {Side}{Finger},
+            {Side}{Finger}Metacarpal) found by geometry, not names, the same proposal create_ik_rig makes (a proposal, so only on
+            request). The template's finger chains are compared: differs[] shows a template that matched the fingers one joint off.
+        geometry: Also return geometry{bounds, centroid, principal_axes[{axis, extent_cm, length_cm, std_cm}], slices{items[{from_cm,
+            to_cm, vertices, width_cm, center_cm}]}, per_bone[]} of the mesh's LOD0 vertices in its reference pose — e.g. the long
+            axis of a weapon mesh and its thin (handle) part, for a grip segment (Phase 8-4a).
+
+    Returns skeleton_path, meshes[], animation_count, bone_count, root_bone, bones[{name, parent}], virtual_bones[], mesh +
+    mesh_source (argument | skeleton_preview | first_registered | none), sockets[{name, bone, owner, asset}], slot_groups[],
+    curve_count, ik_rigs[{asset, preview_mesh}] and retargeters[{asset, source_rig, target_rig, roles}] (candidates for
+    existing_rig / existing_retargeter), template_match{used, name, percent, matching_bones, missing_bones, pelvis, chains[]}
+    (used=false means create_ik_rig auto mode will fail — define chains manually), and with compare_to: compare{common,
+    missing_in_other[], only_in_other_count, ref_rot_diff_deg{p50, max, max_bone}, bone_length_ratio{p50, min, max},
+    verdict same_rig | needs_ik_retarget | no_common_bones}. The verdict is reference info: generation always duplicates via
+    retarget_animations, never reassign_skeleton.
+    """
+    params: dict = {"details": details}
+    if suggest_finger_chains:
+        params["suggest_finger_chains"] = True
+    if geometry:
+        params["geometry"] = True
+    if skeleton:
+        params["skeleton"] = skeleton
+    if skeletal_mesh:
+        params["skeletal_mesh"] = skeletal_mesh
+    if compare_to:
+        params["compare_to"] = compare_to
+    return bridge.call("inspect_skeleton", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def import_animation_file(file: str, dest_path: str, skeleton: str | None = None, sample_rate: int = 0, name: str | None = None,
+                          save: bool = False) -> dict:
+    """Import an FBX through Interchange as a retarget source (BVH and other formats: convert with Blender first).
+
+    Args:
+        file: Absolute path under [AnimGraphMcp] ImportSourceRoots (get_editor_status.generation.import_source_roots) —
+            anything else is IMPORT_SOURCE_NOT_ALLOWED.
+        dest_path: Content folder under GenerationOutputPaths that must be EMPTY (ASSET_EXISTS reason DEST_NOT_EMPTY otherwise —
+            names produced from an FBX cannot be checked beforehand, so nothing is ever replaced or renamed).
+        skeleton: Import only the animations onto this existing Skeleton. Omit to create skeletal mesh + new skeleton + animations.
+        sample_rate: Bake rate in Hz; 0 lets Interchange pick the best matching rate.
+        name: Base asset name (default: the file name).
+        save: Save the imported assets.
+
+    A clip whose length is not on the bake rate's frame borders is snapped to the closest frames (warning LENGTH_SNAPPED
+    {track}; the result length is animations[].length). Curve metadata on the skeleton, materials, textures, physics asset and static meshes are always off; the project's default
+    pipeline stack is duplicated transiently. A package outside GenerationOutputPaths that becomes dirty fails the call with
+    UNEXPECTED_DIRTY and nothing is saved. Returns imported[], animations[{asset, skeleton, frame_rate, frames, length}],
+    skeleton, skeleton_created, mesh, source_frame_rate, pipelines[], seconds, saved.
+    """
+    params: dict = {"file": file, "dest_path": dest_path, "sample_rate": sample_rate, "save": save}
+    if skeleton:
+        params["skeleton"] = skeleton
+    if name:
+        params["name"] = name
+    return bridge.call("import_animation_file", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def create_ik_rig(skeletal_mesh: str, asset_path: str | None = None, existing_rig: str | None = None, mode: str = "auto",
+                  pelvis: str | None = None, chains: list[dict] | None = None, fbik: bool = True, save: bool = False) -> dict:
+    """Create an IK Rig (retarget chains + pelvis, optional Full Body IK) for a skeletal mesh, the way the editor's
+    auto-retarget does.
+
+    Args:
+        skeletal_mesh: The mesh the rig is for (always required — a skeleton can have dozens of meshes).
+        asset_path: New asset under GenerationOutputPaths, e.g. "/Game/Animation/Generated/Vesper/IK_Vesper". Required unless existing_rig.
+        existing_rig: Reuse this IK Rig instead (only checks the mesh is compatible; writes nothing).
+        mode: "auto" — skeleton template characterization (works for UE4/UE5 mannequin-like skeletons). A mesh that matches no
+            template fails with IKRIG_AUTO_FAILED and details.bones[{name, parent}] before anything is created; then propose
+            chains from that hierarchy, confirm with the user, and call again with mode="manual".
+            "manual" — pelvis + chains you give.
+        pelvis: Retarget root bone (manual: required; auto: override).
+        chains: manual only — [{"name": "Spine", "start": "spine_01", "end": "spine_05", "goal": null}, ...]. Use the target's
+            chain names where they mean the same thing (create_ik_retargeter maps chains by exact name). Validated first
+            (BONE_NOT_FOUND, END_NOT_BELOW_START, DUPLICATE_NAME/GOAL → BAD_REQUEST reason BAD_CHAINS, details.chains[]).
+        fbik: auto: template Full Body IK; manual: a FullBodyIK solver on the pelvis connected to the goals you gave.
+        save: Save the new rig.
+
+    Finger chains are proposed by geometry, not names (finger_chain_suggestion, also in the IKRIG_AUTO_FAILED details): hands =
+    ends of the mirrored arm chain pair (the chains you give, or the template), or with no arm chains the farthest mirrored pair
+    of bones with 3+ finger-like child chains; thumb = the chain deviating most from the others' mean direction; the rest index →
+    pinky from the thumb side across the knuckles; a first joint closer to the wrist than its own segment is a metacarpal; joints
+    past 3 phalanges at the leaf end are tips (left out); Left/Right from the arm chain names, else the feet facing. Proposed
+    chains missing from the rig → info FINGER_CHAINS_SUGGESTED with chains[] (without them the target fingers keep their
+    reference pose — show them to the user and add them on confirmation); a same-named finger chain on other bones → warning
+    FINGER_CHAINS_DIFFER (e.g. SOMA77 auto-characterized as Mixamo puts LeftIndex on Index1..3, the metacarpal included).
+
+    Returns asset_path, reused, mode, preview_mesh, template_match, pelvis, chains[], goals[], solvers[],
+    finger_chain_suggestion{hands_from, side_from, chains_from, hands[{side, hand, fingers, thumb_margin_deg, tips_excluded[],
+    issues[]}], chains[{name, start, end}], missing[], differs[], mirrored[], not_mirrored[], skipped_reason?}, saved.
+    """
+    params: dict = {"skeletal_mesh": skeletal_mesh, "mode": mode, "fbik": fbik, "save": save}
+    if asset_path:
+        params["asset_path"] = asset_path
+    if existing_rig:
+        params["existing_rig"] = existing_rig
+    if pelvis:
+        params["pelvis"] = pelvis
+    if chains:
+        params["chains"] = chains
+    return bridge.call("create_ik_rig", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, target_mesh: str, asset_path: str | None = None,
+                         existing_retargeter: str | None = None, ops: str = "default", auto_align: bool = False,
+                         align_mode: str = "engine", facing_yaw_deg: float = 0.0, exclude_bones: list[str] | None = None,
+                         save: bool = False) -> dict:
+    """Create an IK Retargeter between two IK Rigs.
+
+    Args:
+        source_rig / target_rig: IK Rigs to copy animation FROM / TO.
+        source_mesh / target_mesh: Meshes used for retargeting (required; each must be compatible with its rig).
+        asset_path: New asset under GenerationOutputPaths. Required unless existing_retargeter.
+        existing_retargeter: Reuse this retargeter (its rigs must be exactly source_rig/target_rig — RIG_MISMATCH otherwise).
+        ops: "default" — engine default ops, every op's chains mapped by exact name. "match_existing" — the editor's
+            auto-retarget recipe (target retarget pose auto-aligned, Run IK Rig off, root motion op configured, Pin Bones op with
+            the template's pinned IK bones); the project's RTG_* assets were made this way. Unlike the editor, every op's chains
+            are mapped by exact name — the editor leaves a fuzzy map on the disabled Run IK Rig op and auto-align follows it,
+            bending target chains the source lacks (fingers) toward look-alike chains (LeftIndex → LeftLeg).
+        auto_align: default ops only — auto-align the target retarget pose to the source.
+        align_mode: "engine" — the engine's auto-align as is. "per_bone" (only with match_existing or auto_align, else
+            ALIGN_MODE_WITHOUT_ALIGN) — after it, the axial chains (mapped chains on the target's midline with no left/right
+            mirror: spine, neck, head — found geometrically from mirrored chain pairs in the target reference pose, a chain is axial
+            when every bone lies within a quarter of the innermost mirror pair's half-width) and the pelvis get the target reference
+            pose's global rotations turned only by the facing alignment, so the target keeps its own spine curve and neck tilt and
+            receives only the source's motion relative to the source reference pose (copying the source's reference-pose shape put
+            e.g. the CMU neck +20° back and the SOMA neck −27° forward against Vesper's own on every frame). Every mapped FK chain
+            whose source and target bone counts match copies rotations one-to-one (FK OneToOne; Interpolated blends neighbouring
+            source rotations when joints sit at different chain fractions, e.g. the elbow bends 0.87× for CMU → Vesper), and the
+            non-axial ones are aligned bone-to-bone to the matching source segment on the final torso; the end bone is aimed at the
+            starts of the mapped chains right below it (2+ spread landmarks: full frame incl. roll, the roll carried by the chain
+            parent); a non-axial single-bone chain with no mapped chain below it gets the same neutral rotation. A chain hanging
+            from a mapped single-bone chain whose parent mapped bone is off the midline (fingers below metacarpals) is aligned
+            relative to it — each segment to the source segment turned by the minimal rotation from the source's single-bone →
+            chain-start segment to the target's — so the target keeps its own palm and copies the source's joint angles (the
+            metacarpal segment differed 3–7° for SOMA → Vesper, bending the MCP up to 17.5°). The single-bone chains with chains
+            below them (clavicles, metacarpals) and template-excluded bones (feet) stay as the engine set them.
+        facing_yaw_deg: Yaw (degrees about UE +Z) that turns the SOURCE's facing onto the TARGET's, e.g. source faces +X and
+            target +Y → 90. FK chains copy global rotation deltas, so differently facing skeletons move in the wrong plane. Non-zero:
+            the target root (bone 0) is turned by -yaw in the target retarget pose before auto-align, an Additive Pose op before the
+            Root Motion op turns it back, and a root motion op copying the source root gets +yaw in GlobalOffset. Refused when the
+            target root is the pelvis (FACING_NEEDS_ROOT).
+        exclude_bones: match_existing only — target bones left out of the auto-aligned pose, added to the template's list. The
+            engine templates all leave the ankles out, which keeps the target's own foot shape and heel height; a manual rig has no
+            template, so pass its ankles.
+        save: Save the new retargeter.
+
+    Returns asset_path, reused, ops_recipe, align_mode, ops[{name, type, enabled, parent}], chain_mapping{target: source|null},
+    unmapped_target_chains[] (warning UNMAPPED_TARGET_CHAINS), pin_bones[], root_motion{}, retarget_poses{},
+    facing_alignment{yaw_deg, target_root, restore_pose, op, op_index, enabled, consistent}|null (read from the asset; a reused
+    retargeter whose yaw differs warns FACING_MISMATCH_EXISTING), pose_alignment{mode, one_to_one_chains[], interpolated_chains[],
+    bones[{bone, deg}], relative_chains[{chain, parent_bone, offset_deg}],
+    chain_ends[{bone, landmarks[], fit, deg, residual_max_deg, twist_bone?, twist_deg?}],
+    axial{lateral_axis[3], tolerance_cm, mirror_pairs[[a, b]], chains[], pelvis|null} | {skipped_reason: NO_MIRROR_CHAINS},
+    neutral_bones[{bone, deg}] (pelvis, axial and neutral leaf bones), skipped[]}|null (per_bone only), saved.
+    """
+    params: dict = {"source_rig": source_rig, "target_rig": target_rig, "source_mesh": source_mesh, "target_mesh": target_mesh,
+                    "ops": ops, "auto_align": auto_align, "save": save}
+    if align_mode != "engine":
+        params["align_mode"] = align_mode
+    if facing_yaw_deg:
+        params["facing_yaw_deg"] = facing_yaw_deg
+    if exclude_bones:
+        params["exclude_bones"] = exclude_bones
+    if asset_path:
+        params["asset_path"] = asset_path
+    if existing_retargeter:
+        params["existing_retargeter"] = existing_retargeter
+    return bridge.call("create_ik_retargeter", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def retarget_animations(retargeter: str, assets: list[str], source_mesh: str, target_mesh: str, output_path: str,
+                        name_rule: dict | None = None, include_referenced: bool = True, dry_run: bool = False,
+                        validate: bool = True, thresholds: dict | None = None, save: bool = False,
+                        body_clearance: str | dict | None = None, fingers: bool = True) -> dict:
+    """Duplicate animation assets onto another skeleton through an IK Retargeter (the engine batch "Duplicate and Retarget",
+    with an explicit output folder). Sources are only read; results are new assets.
+
+    Args:
+        retargeter: IK Retargeter (create_ik_retargeter or an existing one).
+        assets: AnimSequence / AnimMontage / BlendSpace (AimOffset) paths on the source mesh's skeleton. AnimBlueprints are
+            refused (the engine would duplicate and recompile parent blueprints).
+        source_mesh / target_mesh: Meshes to evaluate the source and build the target (required; compatible with the rigs).
+        output_path: Folder under GenerationOutputPaths, e.g. "/Game/Animation/Generated/Vesper".
+        name_rule: {"prefix", "suffix", "replace_from", "replace_to"} applied to each source name, e.g.
+            {"replace_from": "Katana_", "replace_to": "AS_Vesper_Katana_"}.
+        include_referenced: Montage segments and blend space samples come along (default true).
+        dry_run: Only return planned[{source, asset, class, referenced}].
+        validate: validate_animation of every generated sequence against its source (default true). FAILED → nothing saved,
+            error VALIDATION_FAILED with details.partial.
+        thresholds: validate_animation thresholds.
+        save: Save the generated assets.
+        body_clearance: "measure" (validation adds validate_animation body_clearance on the target mesh, chains from the
+            retargeter's target IK Rig) | "resolve" (before validation, frames where the hands/forearms go into the target mesh's
+            body get the smallest least-squares rotation about the shoulder that clears them by margin — only the upper-arm tracks
+            change, elbow/hand keep their local rotations; smoothed over ±0.13 s and re-checked) | {mode, margin_cm (0.5 × scale),
+            max_deg (30), + validate_animation body_clearance keys} | omitted = off. Result body_clearance[{asset, arms[{upper_arm,
+            corrected_frames_pct, deg_p50, deg_p95, deg_max, deg_per_s_max, clamped_frames}], grip_changed_frames, before{}, after{},
+            issues[]}] — warnings BODY_CLEARANCE_LIMIT (clamped at max_deg), CLEARANCE_GRIP_CHANGED (wrists within 20 cm moved
+            relative to each other; the grip is not solved), BODY_PENETRATION_REMAINS.
+        fingers: The validation also runs validate_animation fingers with this retargeter (target rig hands, FK op mapping) —
+            default true; warnings add diagnostic FINGER_WARNINGS.
+
+    A target whose reference pose carries a scale (root scale 100 — game rips, Blender FBX): the engine retargeter drops it and the
+    result collapses to 1/scale, so the new sequences get their reference scale tracks and pelvis · root translation back before
+    clearance and validation (info TARGET_REF_SCALE_RESTORED). A target without such a scale is not touched.
+
+    Never overwrites: existing outputs → ASSET_EXISTS (details.problems), two outputs with the same name → BAD_REQUEST
+    NAME_COLLISION_IN_BATCH, more planned assets (inputs + referenced) than get_editor_status.generation.max_retarget_assets_per_call
+    → BAD_REQUEST LIMIT. The engine shows a progress dialog; cancelling it pops a delete confirmation — don't cancel during automation.
+    Returns generated[], referred[], seconds, seconds_per_asset, frames, ms_per_frame, body_clearance[]?, validation{status, assets[]}, saved.
+    """
+    params: dict = {"retargeter": retargeter, "assets": assets, "source_mesh": source_mesh, "target_mesh": target_mesh,
+                    "output_path": output_path, "include_referenced": include_referenced, "dry_run": dry_run, "validate": validate,
+                    "save": save}
+    if name_rule:
+        params["name_rule"] = name_rule
+    if thresholds:
+        params["thresholds"] = thresholds
+    if body_clearance:
+        params["body_clearance"] = body_clearance
+    if not fingers:
+        params["fingers"] = False
+    return bridge.call("retarget_animations", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def validate_animation(assets: list[str], sources: list[str | None] | None = None, skeleton: str | None = None,
+                       checks: list[str] | None = None, thresholds: dict | None = None, feet: list[str] | None = None,
+                       pelvis: str | None = None, source_feet: list[str] | None = None, source_pelvis: str | None = None,
+                       expect: dict | None = None, seams: list[float] | None = None, profile_bones: list[str] | None = None,
+                       profile_positions: bool = False, profile_rotations: bool = False, body_clearance: bool | dict | None = None,
+                       fingers: bool | dict | None = None) -> dict:
+    """Measure AnimSequences (read-only): structure, obvious breakage, comparison with a source, and whether a request was met.
+
+    Args:
+        assets: AnimSequence paths.
+        sources: Same order as assets (null to skip) — a source on ANOTHER skeleton gives retarget ratios (angular speed p99,
+            planted-foot speed, root travel — size-corrected by pelvis height — length, loop boundary); a source on the SAME
+            skeleton gives a per-bone rotation/position difference (regression comparison of two retargeters).
+        skeleton: Expected skeleton (SKELETON_MISMATCH error otherwise).
+        checks: Subset of "structural", "numeric", "relative" (default all).
+        thresholds: Overrides — max_deg_per_frame (90), ang_speed_p99_ratio_min/max (0.5/2.0), foot_planted_ratio_max (3.0),
+            root_travel_ratio_min/max (0.67/1.5), loop_boundary_ratio_max (3.0), foot_planted_height (3 cm), seam_ratio_max (3.0).
+        feet / pelvis: Bones of the assets used for foot slide and size correction (default foot_l, foot_r / pelvis).
+        source_feet / source_pelvis: The same for the sources.
+        expect: Request checks for every asset — {length, length_tolerance (default one frame), loop, root_yaw_delta
+            (degrees first→last, signed), root_yaw_tolerance (default 5)}. A mismatch is an EXPECT_* error (FAILED).
+        seams: Times (seconds) where segments meet — a pose step over seam_ratio_max × the surrounding frames is SEAM_JUMP.
+        profile_bones: Bones whose per-frame speed (cm/s) is returned in numeric.profile — use it to find strike windows.
+        profile_positions: Also return numeric.profile.position_cm{bone: [[x, y, z]]} (component space, same times) — e.g. the
+            plane a hand moves in, to compare a retarget with its source.
+        profile_rotations: Also return numeric.profile.rotations{bone: [[x, y, z, w]]} — component-space quaternions at the same
+            times as position_cm (Phase 8-4a).
+        body_clearance: true or {mesh?, ik_rig?, upper_arms?[2], body_bones?[], include_secondary?, contact_cm?, penetration_cm?, parts?, legs?,
+            hands?, per_frame?, model?, map_rule?, arm_weight_max?} —
+            how deep the hands/forearms go into the body (waist, pelvis, thighs) of the target MESH, from its LOD0 skinned
+            vertices per frame. mesh defaults to the skeleton's preview mesh; arms/legs/spine come from ik_rig chains (default: the
+            mesh's auto-characterization) found geometrically (mirrored chain pairs), or give upper_arms + body_bones. Hanging
+            branches of 3+ bones (coat tails, hair) are 'secondary', reported only with include_secondary. contact_cm (1) /
+            penetration_cm (2) default × pelvis reference height / 100 cm. Result body_clearance{arms[{upper_arm,
+            frames_over_contact_pct, frames_over_penetration_pct, depth_p50/p95/max, worst{frame, time, arm_bone, body_bone},
+            body_bones_hit[]}], body{core_roots[], secondary_branches[]}, …}; a depth over penetration_cm → warning BODY_PENETRATION.
+            Opt-in (Phase 8-4a — without them the result is unchanged): parts "all" → parts{pairs[{side l|r, arm_part hand|forearm|
+            upper_arm, body_part pelvis|belly|chest|thigh_l|thigh_r|head_neck, frames_over_contact_pct, frames_over_penetration_pct,
+            depth_p50/p95/max, located_pct, gap_min_cm, first_contact_time, worst}], …} + warning BODY_PENETRATION_PARTS; legs true →
+            parts.legs.pairs (thigh/calf vs the other leg) + LEG_PENETRATION; hands true (Phase 8-4b) → parts.hands{pairs[{side,
+            arm_part hand|forearm|upper_arm, body_part hand_<other>|forearm_<other>, …}], tip_local_cm, …} — each arm's hand map (wrist →
+            hand tip) and forearm map (elbow → wrist) from its own points, probed by the other arm (touching up to contact_cm is a
+            normal grip) + HAND_PENETRATION, also in per_frame / model (maps hand_l/r · forearm_l/r); per_frame true →
+            per_frame.series[{…, depth[] signed cm}]; model true | {stride} → model{bones, roles, poses (b64 f32), points (every
+            measured point with influences), maps (b64 i16 radius per frame), …} for the Python body solver (anim_gen/body_model.py);
+            map_rule 2 (Phase 9-4a — default 1) → maps rigid with their anchor bones: torso / head_neck map vertices with arm-chain
+            (clavicle and below) weight over arm_weight_max (default 0.15) dropped, the rest skinned without the arm chain, angle zero
+            = the reference-pose shoulder line carried by each map's anchor bone → parts.map_rule{…}, model.map_rule 2.
+        fingers: true or {ik_rig?, retargeter?, mesh?} — finger sanity of a retarget result, hands/fingers found by geometry (the
+            create_ik_rig finger topology; ik_rig default = the retargeter's target rig, else the preview mesh template, else
+            topology; mesh = whose reference pose counts, default the retargeter's target preview mesh). Per frame: a finger bone
+            with no mapped source chain (retargeter FK op) must keep its reference local rotation (> 2° →
+            FINGER_UNMAPPED_NOT_REFERENCE — a bent retarget pose rides on every frame; needs retargeter);
+            non-thumb MCP / PIP bends, + toward the palm by hand chirality, within MCP −60..110° and PIP −25..130°
+            (FINGER_BEND_REVERSED / FINGER_OVERBENT; Vesper's 57 shipped clips: MCP −37..102°, PIP 1.5..113°); fingertips in
+            index → pinky lateral order on all but 5% of frames (FINGER_ORDER_BROKEN). Result fingers{topology_from, chains_from,
+            reference_mesh, mapping_from, hands[{side, hand, order_broken_pct,
+            fingers[{finger, chain, metacarpal_chain?, mapped, mcp{min,p50,max}, pip{…}}]}], unmapped[{bone, chain, max_deg,
+            frame}], thresholds{}, issues[]} | {skipped_reason}.
+
+    Per asset: status PASSED | PASSED_WITH_WARNINGS | NEEDS_REVIEW | FAILED, structural[], numeric{}, relative{}, needs_review[]
+    (always lists the visual check — passing checks is not motion quality). No absolute speed limits: normal attacks reach
+    ~2,000°/s p99; only NaN, abnormal scale (against the reference pose's scale), missing track bones and a one-frame rotation over
+    max_deg_per_frame fail.
+    """
+    params: dict = {"assets": assets}
+    for key, value in (("sources", sources), ("skeleton", skeleton), ("checks", checks), ("thresholds", thresholds), ("feet", feet),
+                       ("pelvis", pelvis), ("source_feet", source_feet), ("source_pelvis", source_pelvis), ("expect", expect),
+                       ("seams", seams), ("profile_bones", profile_bones), ("profile_positions", profile_positions),
+                       ("profile_rotations", profile_rotations), ("body_clearance", body_clearance), ("fingers", fingers)):
+        if value:
+            params[key] = value
+    return bridge.call("validate_animation", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def search_animations(query: str | None = None, skeleton: str | None = None, path_prefix: str = "/Game",
+                      asset_class: str = "AnimSequence", min_length: float | None = None, max_length: float | None = None,
+                      root_motion: bool | None = None, additive: bool | None = None, loop: bool | None = None,
+                      tags: list[str] | None = None, limit: int = 50, details: bool = False, max_loads: int = 300) -> dict:
+    """Search existing animations by metadata (read-only) — the first step of reusing a motion.
+
+    Index = asset registry tags (no loading) + manual tags from [AnimGraphMcp] AnimationTagFiles
+    (Config/AnimGraphMcp/AnimationTags.json: {"tags": {"<asset path or folder/>": ["tag", ...]}}).
+
+    Args:
+        query: Name tokens ("sickle attack") — split at '_', CamelCase and digit edges; each must equal or prefix a token of
+            the asset name or its folders. Best matches first.
+        skeleton: Only assets on this skeleton.
+        path_prefix: Content folder (default /Game; market packs live under /Game/Assets).
+        asset_class: AnimSequence (default) | AnimMontage | AnimComposite | all.
+        min_length / max_length: Seconds.
+        root_motion / additive: Registry flags.
+        loop: bLoop is not a registry tag — candidates are loaded; more than max_loads is BAD_REQUEST LOAD_LIMIT.
+        tags: Manual tags, all required.
+        limit: Items returned (default 50).
+        details: Load the returned assets — loop, notifies[{name, time, duration}], sync_markers, curves, root{displacement_cm,
+            yaw_delta_deg}.
+        max_loads: Load budget for loop/details (default 300).
+
+    Returns total, returned, truncated, items[{asset_path, name, class, skeleton, length, frames, frame_rate, root_motion,
+    additive_type, loop|null, tags[], score, matched[]}], loaded, tag_files[], query_tokens[].
+    """
+    params: dict = {"path_prefix": path_prefix, "class": asset_class, "limit": limit, "details": details, "max_loads": max_loads}
+    for key, value in (("query", query), ("skeleton", skeleton), ("min_length", min_length), ("max_length", max_length),
+                       ("root_motion", root_motion), ("additive", additive), ("loop", loop), ("tags", tags)):
+        if value is not None:
+            params[key] = value
+    return bridge.call("search_animations", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def preview_animation_edits(source: str, operations: list[dict], asset_path: str | None = None, loop: bool | None = None,
+                            root_motion: bool | None = None) -> dict:
+    """Compute key edits of an AnimSequence in memory without creating anything — check ranges, lengths and seams first.
+
+    Args:
+        source: The AnimSequence to read (never modified).
+        operations: Ordered edits — see below.
+        asset_path: Optional output path to check (would_create{allowed, exists}).
+        loop / root_motion: Override the result's bLoop / bEnableRootMotion (default: the source's).
+
+    Returns valid, planned[{index, op, ok, error?, skipped?, range{start, end, start_key, end_key}, length_before, length_after,
+    note?}], result{frame_rate, frames, length, bone_tracks, curves, root_yaw_delta_deg, root_displacement_cm, max_rate,
+    notifies{kept, truncated, dropped[]}, sync_markers}, seams[{time, frame, step_ratio, jump}], limitations[].
+
+    Operations (seconds on the timeline as it is before that op; start/end default to the whole clip; ranges snap to frames):
+        trim {start?, end?} · retime {start?, end?, rate | duration} (rate 1.5 = 1.5x faster) · hold_pose {at, duration}
+        · concat {asset? (same skeleton; default the original source), start?, end? (on that asset), reverse?, blend? (s),
+          align_root? (true)} · mirror {axis? (x|y|z), mirror_table?} · offset_bone {targets[{bone, rotation?{pitch, yaw, roll},
+          translation?[x, y, z]}], space? (component|local), start?, end?, blend_in? (0.2), blend_out? (0.2)}
+        · rotate_root {yaw, start?, end?, ease? (smooth|linear)}
+        · bone_deltas {space? ("parent"), bones[{bone, rotation_deg? [[x, y, z] per key — rotation vector, degrees, parent space:
+          new local = delta · original, the joint stays], translation_cm? [[x, y, z] per key]}]} (one entry per key of the clip at this
+          op, exact [0, 0, 0] keys untouched — e.g. a solver's result, Phase 8-4a).
+    """
+    params: dict = {"source": source, "operations": operations}
+    for key, value in (("asset_path", asset_path), ("loop", loop), ("root_motion", root_motion)):
+        if value is not None:
+            params[key] = value
+    return bridge.call("preview_animation_edits", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def apply_animation_edits(source: str, asset_path: str, operations: list[dict], loop: bool | None = None,
+                          root_motion: bool | None = None, validate: bool = True, thresholds: dict | None = None,
+                          save: bool = False) -> dict:
+    """Create a NEW AnimSequence from key edits of an existing one (the source is only read).
+
+    All operations are computed in memory first; any failure is BAD_REQUEST with details.planned and nothing is created.
+    Then the source is duplicated to asset_path (must be under [AnimGraphMcp] GenerationOutputPaths and not exist), bone
+    tracks and curves are rewritten, notifies/sync markers move with the timeline (trimmed or reversed parts drop theirs),
+    and the result is validated (structure, one-frame rotation vs the sources × max playback rate, written length/loop/root
+    yaw, seams). FAILED → VALIDATION_FAILED and nothing saved. A package outside the allow-list turning dirty → UNEXPECTED_DIRTY.
+
+    Args:
+        source: The AnimSequence to read.
+        asset_path: The new asset (e.g. /Game/Animation/Generated/Vesper/AS_Vesper_Sickle_AttackVar).
+        operations: Ordered edits — see below.
+        loop / root_motion: Override bLoop / bEnableRootMotion (default: the source's).
+        validate: Run the built-in validation (default true).
+        thresholds: validate_animation thresholds (seam_ratio_max, max_deg_per_frame, …).
+        save: Save the new asset (default false — it stays dirty).
+
+    Operations (seconds on the timeline as it is before that op; start/end default to the whole clip; ranges snap to frames):
+        trim {start?, end?} · retime {start?, end?, rate | duration} (rate 1.5 = 1.5x faster) · hold_pose {at, duration}
+        · concat {asset? (same skeleton; default the original source), start?, end? (on that asset), reverse?, blend? (s),
+          align_root? (true)} · mirror {axis? (x|y|z), mirror_table?} · offset_bone {targets[{bone, rotation?{pitch, yaw, roll},
+          translation?[x, y, z]}], space? (component|local), start?, end?, blend_in? (0.2), blend_out? (0.2)}
+        · rotate_root {yaw, start?, end?, ease? (smooth|linear)}
+        · bone_deltas {space? ("parent"), bones[{bone, rotation_deg? [[x, y, z] per key — rotation vector, degrees, parent space:
+          new local = delta · original, the joint stays], translation_cm? [[x, y, z] per key]}]} (one entry per key of the clip at this
+          op, exact [0, 0, 0] keys untouched — e.g. a solver's result, Phase 8-4a).
+    """
+    params: dict = {"source": source, "asset_path": asset_path, "operations": operations, "validate": validate, "save": save}
+    for key, value in (("loop", loop), ("root_motion", root_motion), ("thresholds", thresholds)):
+        if value is not None:
+            params[key] = value
+    return bridge.call("apply_animation_edits", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
 def set_sequence_additive(asset_path: str, additive_type: str | None = None, ref_pose_type: str | None = None,
                           ref_pose_sequence: str | None = None, clear_ref_pose_sequence: bool = False,
-                          ref_frame_index: int | None = None, save: bool = False) -> dict:
+                          ref_frame_index: int | None = None, save: bool = False, generation_guard: bool = False) -> dict:
     """Set an AnimSequence's additive settings (the Details panel's "Additive Settings") — what makes a sequence usable as an
     AimOffset sample: additive_type RotationOffsetMeshSpace plus a base pose (ref_pose_type AnimFrame + ref_pose_sequence, or
     RefPose). create_blendspace(aim_offset=true) refuses samples whose base pose is missing (ADDITIVE_INVALID); fix them here first.
@@ -602,6 +1050,8 @@ def set_sequence_additive(asset_path: str, additive_type: str | None = None, ref
         clear_ref_pose_sequence: Clear the base pose sequence instead.
         ref_frame_index: Frame of ref_pose_sequence used when ref_pose_type is AnimFrame.
         save: Save the sequence afterwards.
+        generation_guard: AI-generation guard (opt-in, default off = unchanged behaviour): the sequence must be inside [AnimGraphMcp]
+            GenerationOutputPaths and the editor-wide dirty-package diff is checked before saving (UNEXPECTED_DIRTY — nothing saved).
 
     Omitted fields keep their value; identical values report unchanged=true. Returns {additive_type, ref_pose_type,
     ref_pose_sequence, ref_frame_index, additive_valid, changed[], unchanged, saved, dirty}.
@@ -617,7 +1067,90 @@ def set_sequence_additive(asset_path: str, additive_type: str | None = None, ref
         params["ref_pose_sequence"] = ref_pose_sequence
     if ref_frame_index is not None:
         params["ref_frame_index"] = ref_frame_index
+    if generation_guard:
+        params["generation_guard"] = True
     return bridge.call("set_sequence_additive", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def promote_animation(assets: list[dict], dry_run: bool = False, confirm: bool = False, allow_referencers: list[str] | None = None) -> dict:
+    """Move generated candidate animation assets to their production paths with the engine's rename (no redirectors left).
+
+    ALWAYS run dry_run=true first, show the planned list (and every referencer the engine will fix and save) to the user, and only call
+    again with confirm=true after the user approved. The engine saves the moved and the referencing packages itself.
+
+    Args:
+        assets: [{"source": "/Game/Animation/Generated/Vesper/AS_X", "dest": "/Game/Animation/Hero/Vesper/Sickle/Actions/AS_X"}] — full asset
+            paths. Source must be a candidate (inside [AnimGraphMcp] GenerationOutputPaths) and an AnimSequence, AnimMontage, AnimComposite or
+            BlendSpace (incl. 1D / AimOffset). Dest must be inside [AnimGraphMcp] PromotionPaths, outside the candidate paths, not protected and
+            not existing (redirectors count). The plugin knows no naming rule — anim_gen jobs propose promotion.assets[].
+        dry_run: Run every check and return planned[] without changing anything (no confirm needed).
+        confirm: Must be true for the real move.
+        allow_referencers: Packages outside the candidate paths that reference a promoted asset and that the engine may fix and save
+            (refused otherwise with ASSET_REFERENCED REFERENCED_OUTSIDE_CANDIDATES — details.referencers[]). Maps, protected assets and
+            packages with unsaved changes are always refused (REFERENCED_BY_MAP · REFERENCER_PROTECTED · DIRTY_PACKAGES REFERENCER_DIRTY).
+
+    Returns {dry_run, planned[{source, dest, class, content_hash, referencers[{package, candidate, allowed}]}], moved[{source, dest, class,
+    content_hash, same_content}], fixed_referencers[], saved_packages[], redirectors (0), removed_files[]}. Engine failures are PROMOTE_FAILED
+    (reason CDO_REFERENCED · REGISTRY_LOADING · ENGINE_ABORTED · ENGINE · REDIRECTOR_LEFT · OLD_FILE_LEFT · REFERENCES_NOT_UPDATED — details.moved
+    lists what already moved); packages outside candidates ∪ dests ∪ allow_referencers dirtied or saved → UNEXPECTED_DIRTY (reported, not reverted).
+    """
+    params: dict = {"assets": assets, "dry_run": dry_run, "confirm": confirm}
+    if allow_referencers:
+        params["allow_referencers"] = allow_referencers
+    return bridge.call("promote_animation", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
+@mcp.tool()
+def capture_animation(asset: str, mesh: str, facing: str, output_dir: str, times: list[float] | None = None, count: int | None = None,
+                      views: list[str] | None = None, label: str | None = None, sequence: dict | None = None, compare: dict | None = None,
+                      cell_height_px: int = 512, max_aspect: float = 2.0, margin: float = 0.08, bounds_max_samples: int = 600,
+                      sheet_max_px: float = 3000, supersample: int = 2, lighting: dict | None = None, max_seconds: float = 120,
+                      attachments: list[dict] | None = None, focus: dict | None = None) -> dict:
+    """Capture an AnimSequence on a target skeletal mesh as PNG images — no assets are created (judge a retarget without Persona).
+
+    Same camera/sheet rules as the anim_gen Blender source-skeleton review.render, so the sheets line up: orthographic front (from in
+    front of the body, its left on screen right) and side (from its right, front on screen right) views, framed once on the whole clip,
+    rows = times, columns = views. Show the resulting PNGs to the user — the human judges motion quality, not this tool.
+
+    Args:
+        asset: AnimSequence path.
+        mesh: SkeletalMesh compatible with the asset's skeleton (e.g. /Game/Assets/IdaFaber/Meshes/Girl/SK_StreetDemon_F_01).
+        facing: UE axis the mesh's front looks along: "+Y" | "-Y" | "+X" | "-X" (Vesper "+Y").
+        output_dir: Absolute NEW or empty folder below [AnimGraphMcp] CaptureOutputRoots (Tools/mcp/results/capture/ in this project).
+        times: Seconds on the clip for the sheet rows (1..12) — or count (1..12, default 4, first and last frame included).
+        views: Subset of ["front", "side"] (default both).
+        label: Prefix for every cell label.
+        sequence: {fps=15, cell_height_px=320, start?, end?, max_frames=150} — also write one image per time (views side by side) under
+            <output_dir>/sequence/ for an animated image; anim_gen assembles them into an APNG.
+        compare: {label?, rows: [[image, …] per sheet row]} — images under ImportSourceRoots (the Blender source-skeleton frames of the
+            same times) appended as columns into compare.png.
+        cell_height_px, max_aspect, margin, bounds_max_samples, sheet_max_px: Layout (Blender review defaults).
+        supersample: Render scale before downsizing (1..3).
+        lighting: Advanced {exposure_bias, key, fill, sky}.
+        attachments: [{mesh (SkeletalMesh in its reference pose or StaticMesh), socket | bone (one, on the captured mesh/skeleton),
+            offset? {location, rotation [pitch, yaw, roll], scale} relative to it}] ≤ 4 — e.g. a weapon (compose the game's attach
+            transforms into one offset); rendered and included in the framing (Phase 8-4a).
+        focus: {bones[1..64], margin_cm=4, near_cut=true} — close-up of a hand, the fingers or the head (Phase 9-5c): the camera follows the
+            box of those bones' vertices cell by cell at one scale for the whole clip, same views. near_cut puts the camera 1 cm in front of
+            the box, cutting away whatever is nearer (the chest in front of the far hand), with the key light's shadows off. Warnings
+            CAPTURE_FOCUS_NOT_SKINNED (no vertex follows the bones — e.g. a head in another mesh) · CAPTURE_FOCUS_EMPTY.
+        max_seconds: Budget — the sequence stops there (warning CAPTURE_TRUNCATED).
+
+    Returns {frames[{row, time, frame, view, path, sha1, subject_px, touches_edge}], sheet, compare{path}|null, sequence{frames[], fps,
+    size, truncated}|null, layout, camera{view: {look, right, ortho_width_cm, cm_per_px}}, bounds, attachments[], focus{…} (only with focus),
+    render, cells_touching_edge, seconds}.
+    Errors: SKELETON_MISMATCH / OUTPUT_DIR_NOT_EMPTY (BAD_REQUEST reasons), OUTPUT_PATH_NOT_ALLOWED (CAPTURE_ROOT),
+    IMPORT_SOURCE_NOT_ALLOWED (compare images), CAPTURE_FAILED (render/readback/write), UNEXPECTED_DIRTY (a capture must dirty nothing).
+    """
+    params: dict = {"asset": asset, "mesh": mesh, "facing": facing, "output_dir": output_dir, "cell_height_px": cell_height_px,
+                    "max_aspect": max_aspect, "margin": margin, "bounds_max_samples": bounds_max_samples, "sheet_max_px": sheet_max_px,
+                    "supersample": supersample, "max_seconds": max_seconds}
+    for key, value in (("times", times), ("count", count), ("views", views), ("label", label), ("sequence", sequence),
+                       ("compare", compare), ("lighting", lighting), ("attachments", attachments), ("focus", focus)):
+        if value is not None:
+            params[key] = value
+    return bridge.call("capture_animation", params, timeout=bridge.COMPILE_TIMEOUT)
 
 
 @mcp.tool()

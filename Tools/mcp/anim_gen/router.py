@@ -1,0 +1,401 @@
+"""규칙 표 라우터 (지침서 §5, 개정 6). 점수 모델이 아니라 요청 유형 × 정책 모드 × Provider 가용성의 표다.
+
+계획은 실행하지 않는다: 읽기 전용 에디터 호출(get_editor_status · inspect_skeleton · search_animations ·
+preview_animation_edits)로 고른 소스·메시를 계획에 고정해 보여 주고, 유료 호출은 하지 않는다.
+"""
+from __future__ import annotations
+
+from . import segments as segments_mod
+from . import target_style
+from .editor import EditorCallError, is_under, package_path
+from .envelope import AnimGenError, diag, limitation
+from .policy import FREE_FIRST, QUALITY_FIRST, paid_block_reason, resolve_mode
+from .providers.base import PlanBlocked, PlanContext
+from .request import CONSTRAINT_LIMITATIONS, final_asset_path
+from .store import new_id, now_iso
+
+_STANDARD = {
+    FREE_FIRST: ["existing_motion", "local_ai", "external.meshy"],
+    QUALITY_FIRST: ["existing_motion", "external.meshy", "local_ai"],
+}
+# 모드별 순서. FREE_ONLY 는 FREE_FIRST 순서를 쓰고 유료 Provider 는 제외 목록으로 간다
+ORDERS = {
+    "idle": _STANDARD,
+    "locomotion": _STANDARD,
+    "weapon_action": _STANDARD,
+    "full_body_new": {
+        FREE_FIRST: ["local_ai", "external.meshy", "existing_motion"],
+        QUALITY_FIRST: ["external.meshy", "local_ai", "existing_motion"],
+    },
+}
+# 이 요청 유형에서 기존 모션은 근사 후보다
+APPROXIMATE = {"full_body_new": {"existing_motion"}}
+EXISTING_CHAIN = {"existing_motion", "direct_key"}
+
+
+def provider_order(category: str, mode: str, explicit: str, motion_file: bool = False) -> list[str]:
+    """motion_file 이 있으면 그 파일을 쓰는 blender 가 맨 앞(요청이 소스를 준 것) — 없으면 표 그대로(Phase 4)."""
+    if explicit and explicit != "auto":
+        return [explicit]
+    order = list(ORDERS[category][QUALITY_FIRST if mode == QUALITY_FIRST else FREE_FIRST])
+    return ["blender", *order] if motion_file else order
+
+
+def _dedupe(items: list[dict]) -> list[dict]:
+    """같은 코드는 하나만 (요청 유형과 제약이 같은 한계를 낼 수 있다). 처리 못 하는 제약은 제약마다 하나."""
+    seen, out = set(), []
+    for item in items:
+        key = (item["code"], item.get("constraint")) if item["code"] == "CONSTRAINT_UNSUPPORTED" else item["code"]
+        if key not in seen:
+            seen.add(key)
+            out.append(item)
+    return out
+
+
+def expected_limitations(request: dict, provider, *, reuse: bool, resolved: dict | None, has_edit: bool, preview: dict | None,
+                         handled: set[str] | frozenset = frozenset()) -> list[dict]:
+    """handled = 생성 Provider 가 직접 처리한 제약 플래그(Phase 8-1 local_ai 2차 생성) — 그 플래그의 한계는 Provider 가 대신 단다."""
+    out: list[dict] = []
+    category = request["motion_category"]
+    if category == "weapon_action":
+        if "two_hand_weapon_grip" not in handled:
+            out.append(limitation("GRIP_NOT_VALIDATED", "무기 파지 오차 검증·보정은 Phase 8 — 손 위치를 사람이 확인해야 한다", "router"))
+        if provider.generates:
+            out.append(limitation("DRAFT_NEEDS_CLEANUP", "AI 생성 무기 동작은 초안 — 보정 전에는 정식 애셋으로 쓰지 않는다", "router"))
+    if provider.name in APPROXIMATE.get(category, ()):
+        out.append(limitation("NOT_NEW_MOTION", "새 전신 동작을 만들지 않고 가장 가까운 기존 모션을 쓴다", "router"))
+        out.append(limitation("SEGMENTED_PLAN_SUGGESTED", "품질이 부족하면 세그먼트 방식(Phase 8)으로 나눠 만든다", "router"))
+    for name, on in (request["constraints"] or {}).items():
+        if not on or name in handled:
+            continue
+        code = CONSTRAINT_LIMITATIONS.get(name)
+        if code:
+            out.append(limitation(code, f"제약 '{name}' 은 검증·보정하지 않는다(Phase 8)", "router", constraint=name))
+        else:
+            out.append(limitation("CONSTRAINT_UNSUPPORTED", f"제약 '{name}' 을 처리하는 Provider 가 없다", "router", constraint=name))
+    if reuse:
+        out.append(limitation("REUSED_EXISTING", "대상 스켈레톤의 기존 애셋을 그대로 쓴다 — 새 애셋을 만들지 않는다", "router"))
+    if request["root_motion_mode"] != "auto" and not has_edit:
+        out.append(limitation("ROOT_MOTION_UNCHANGED", "root_motion_mode 는 direct_key 단계에서만 쓴다 — 소스 설정 그대로", "router"))
+    # 계획 시점에 알 수 있는 길이·fps 차이 (실행 후 측정값으로 다시 적는다)
+    measured = preview if preview else (resolved if resolved and not has_edit else None)
+    if measured:
+        frame_rate = measured.get("frame_rate")
+        if request["frame_rate"] and frame_rate and abs(frame_rate - request["frame_rate"]) > 0.01:
+            out.append(limitation("FRAME_RATE_MISMATCH", f"출력 fps = 주 소스 {frame_rate} (요청 {request['frame_rate']})", "router"))
+        length = measured.get("length")
+        if request["duration_seconds"] and length and abs(length - request["duration_seconds"]) > 1.0 / (frame_rate or 30.0) + 1e-6:
+            out.append(limitation("DURATION_MISMATCH", f"길이 {length}초 (요청 {request['duration_seconds']}초) — retime op 로 맞출 수 있다", "router",
+                                  length=length, requested=request["duration_seconds"]))
+    return _dedupe(out)
+
+
+def _without_convert(request: dict, name: str) -> list[dict]:
+    """변환 단계(blender)가 없는 경로 — 보정 op 는 돌 곳이 없어 후보를 막고, 렌더 비교는 하지 않는다는 한계를 단다."""
+    ops = [o["op"] for o in request["fix"]["ops"]]
+    if ops:
+        raise PlanBlocked("UNSUPPORTED_REQUEST", "UNSUPPORTED_FIX_OP", f"fix ops {ops} run on the source skeleton in the blender convert step — the {name} "
+                          "route has none (give the source BVH as motion_file — a saved Kimodo BVH gets the SOMA retarget defaults — or use fix.timing, "
+                          "which runs on the target; target-side leg fixes are Phase 8-4)", ops=ops)
+    if (request["review"] or {}).get("render"):
+        return [limitation("REVIEW_NOT_RENDERED", "프레임 렌더 비교(review.render)는 blender 변환 단계에서만 한다 — 이 경로는 렌더하지 않는다"
+                           + (" (대상 메시 캡처 review.capture 는 한다)" if (request["review"] or {}).get("capture") else ""), "router")]
+    return []
+
+
+def _plan_body(request: dict, registry, pctx: PlanContext, on_target: str | None, steps: list[dict], risks: list[str]) -> tuple[list[dict], bool]:
+    """Phase 8-4b — fix.body 면 timing 뒤 · edit 앞에 body_fit 단계(모든 경로). on_target = 계획 때 대상 스켈레톤 위에 있는 소스(기존 애셋 — 목표를
+    풀어 미리 보인다). → (예상 한계, 새 애셋을 만드는가)."""
+    cfg = request["fix"].get("body")
+    if not cfg:
+        return [], False
+    step, r, lims = registry.get("body_fit").plan_body(request, on_target, pctx)
+    steps.append(step)
+    risks += r
+    return lims, bool(step["inputs"].get("produces"))
+
+
+def _validate_step(reuse: bool) -> dict:
+    return {"step": "validate", "provider": "validation",
+            "tool": "validate_animation" if reuse else "validation of the producing step (retarget_animations / apply_animation_edits)"}
+
+
+def _chain(name: str, request: dict, registry, pctx: PlanContext) -> tuple[list[dict], list[str], list[dict]]:
+    provider = registry.get(name)
+    retarget = registry.get("retarget")
+    direct_key = registry.get("direct_key")
+    target = request["target_skeleton"]
+    risks: list[str] = []
+    if request.get("segments") and not getattr(provider, "takes_segments", False):
+        # Phase 9-2 — 세그먼트는 local_ai(Kimodo 다중 프롬프트)만. 9-3c — 기존 애셋 구간을 섞은 세그먼트도 생성 덩어리는 local_ai, 잇기는 join 단계
+        # (기존 구간이 없으면 메시지는 9-2 그대로 — segments 요청의 계획이 비트 같게)
+        tail = ("does (existing segments are joined to its generated part by the join step)" if segments_mod.is_mixed(request["segments"])
+                else "does; mixing providers per segment is not supported yet")
+        raise PlanBlocked("UNSUPPORTED_REQUEST", "SEGMENTS_UNSUPPORTED", f"{name} does not generate request segments — local_ai (Kimodo multi-prompt) {tail}")
+    if name in EXISTING_CHAIN:
+        if name == "direct_key" and not (request["edits"] and request["reference_animations"]):
+            raise PlanBlocked("UNSUPPORTED_REQUEST", "MISSING_INPUT", "provider direct_key needs edits.operations and a source "
+                              "(edits.source or reference_animations)", missing=["edits", "reference_animations"])
+        no_review = _without_convert(request, name)
+        resolve = registry.get("existing_motion").plan_resolve(request, pctx)
+        steps = [resolve]
+        resolved = resolve["resolved"]
+        needs_retarget = None if resolved is None else resolved["skeleton"] != target
+        if resolved is None:
+            risks.append("UNRESOLVED_AT_PLAN")
+        elif request["search"] and not request["reference_animations"]:
+            risks.append("SEARCH_PICKED_TOP")
+        retarget_lims: list[dict] = []
+        if needs_retarget is not False:
+            step, r = retarget.plan_retarget(request, resolved["skeleton"] if resolved else None, pctx, conditional=needs_retarget is None)
+            retarget_lims = step.pop("expected_limitations", [])
+            steps.append(step)
+            risks += r
+        preview = None
+        on_target = resolved["source"] if needs_retarget is False else None
+        timed = bool(request["fix"].get("timing"))
+        if timed:
+            # Phase 8-3 — 흐느적 보정: 소스가 대상 스켈레톤에 있으면 계획이 op 를 구해 미리본다
+            step = direct_key.plan_timing(request, on_target, pctx)
+            preview = (step.get("resolved") or {}).get("preview")
+            if step.get("resolved") is None:
+                risks.append("TIMING_RESOLVED_AT_RUN")
+            steps.append(step)
+        body_lims, fitted = _plan_body(request, registry, pctx, None if timed else on_target, steps, risks)
+        if request["edits"]:
+            step = direct_key.plan_edit(request, None if (timed or fitted) else on_target, pctx)
+            preview = step.get("preview")
+            if preview is None:
+                risks.append("EDITS_NOT_PREVIEWED")
+            steps.append(step)
+        reuse = needs_retarget is False and not request["edits"] and not timed and not fitted
+        steps.append(_validate_step(reuse))
+        lims = expected_limitations(request, provider, reuse=reuse, resolved=resolved, has_edit=bool(request["edits"]) or timed or fitted, preview=preview)
+        return steps, risks, _dedupe(lims + retarget_lims + no_review + body_lims)
+    converts = hasattr(provider, "plan_convert")
+    if provider.generates or converts:
+        # 생성(AI) 또는 파일 변환(blender) → FBX → import → retarget 파이프
+        first = provider.plan_convert(request, pctx) if converts else provider.plan_generate(request, pctx)
+        # Phase 9-3 — 생성 앞 단계(key_pose: 대상 애셋 키 포즈 → 역리타깃 → 제약 파일). 없으면 키도 없다(계획 비트 같음)
+        steps = list(first.pop("pre_steps", None) or []) + [first]
+        last = first
+        if first.pop("output", None) == "bvh":
+            # 생성 결과가 BVH(local_ai) — Phase 4 blender 변환을 잇는다(대상 정면 · 바닥 · 더미 스킨 메시). 파일은 실행 때 생긴다
+            blender = registry.get("blender")
+            state = blender.state(pctx.policy) if pctx.policy is not None else {"available": True}
+            if not state["available"]:
+                why = state["unavailable_reason"]
+                raise PlanBlocked("PROVIDER_UNAVAILABLE", "DEPENDS_ON_BLENDER", f"{name} writes BVH and the blender converter is not available "
+                                  f"({why['reason']})", blender=why)
+            last = blender.plan_convert_generated(request, first.pop("bvh"), pctx)
+            steps.append(last)
+        no_review = [] if converts or last is not first else _without_convert(request, name)
+        # 리샘플 rate: 변환 단계가 정한 값(프레임 경계에 맞춘 경우만) 또는 요청 frame_rate
+        rate = last.pop("sample_rate") if "sample_rate" in last else request["frame_rate"]
+        steps.append({"step": "import", "provider": "retarget", "tool": "import_animation_file", "inputs": {"dest": "<work>/Import", "sample_rate": rate}})
+        # blender 는 변환 단계에서 대상 정면으로 돌린다 — 생성 결과(FBX)는 임포트 뒤에 정면을 잰다
+        step, r = retarget.plan_retarget(request, None, pctx, conditional=False, from_import=True, source_faces_target=converts or last is not first)
+        defaults = first.pop("retarget_defaults", None) or {}
+        filled = [k for k, v in defaults.items() if not step["inputs"].get(k)]
+        for key in filled:
+            # 생성 Provider 는 자기 스켈레톤을 안다(SOMA 수동 체인 · 골반 · 발) — 요청이 주지 않은 것만 채운다
+            step["inputs"][key] = defaults[key]
+        if filled:
+            step["inputs"]["defaults_from"] = {"provider": name, "keys": filled}
+        convert_step = first if converts else (last if last is not first else None)
+        if convert_step is not None:
+            # Phase 8-3 — 다리 보정 op 의 다리 본은 retarget 입력(요청 · 기본값)에서 — 기본값이 채워진 지금 정한다
+            registry.get("blender").plan_fix_legs(convert_step, step["inputs"], request, pctx)
+        retarget_lims = step.pop("expected_limitations", [])
+        select = first.pop("select", None)
+        if select:
+            # Phase 8-1 — 후보를 모두 리타깃 · 측정해 하나를 고른 뒤 최종 리타깃(같은 RTG)
+            sel_step, sel_risks = retarget.plan_select(request, select, step["inputs"], pctx)
+            steps.append(sel_step)
+            r = r + sel_risks
+        steps.append(step)
+        risks += first.pop("risks", []) + (last.pop("risks", []) if last is not first else []) + r
+        timed = bool(request["fix"].get("timing"))
+        mixed = (first.get("inputs") or {}).get("mixed")
+        if timed:
+            # Phase 8-3 — 흐느적 보정은 리타깃 뒤 대상 시퀀스에서(생성 결과는 실행 때 잰다). 9-3c — 기존 이웃 쪽 끝은 정지 트림을 하지 않는다
+            steps.append(direct_key.plan_timing(request, None, pctx, swing_window=(first.get("inputs") or {}).get("swing_window_s"), seam_ends=mixed))
+            risks.append("TIMING_RESOLVED_AT_RUN")
+        body_lims, fitted = _plan_body(request, registry, pctx, None, steps, risks)
+        if request["edits"]:
+            steps.append(direct_key.plan_edit(request, None, pctx))
+            risks.append("EDITS_NOT_PREVIEWED")
+        if mixed:
+            # Phase 9-3c — 보정까지 끝난 생성 덩어리를 기존 조각과 잇는다(겹침 크로스페이드 · 골반 맞춤) — 최종 시퀀스를 만드는 단계
+            steps.append(direct_key.plan_join(request, mixed, pctx))
+        if request.get("segments"):
+            # Phase 9-2 — 최종 시퀀스의 세그먼트 경계(시간 보정 warp 로 옮긴 시각) · 이음매 수치 · 몽타주 섹션 원천
+            steps.append(retarget.plan_seams(request, first.get("inputs") or {}, pctx))
+        steps.append(_validate_step(False))
+        lims = expected_limitations(request, provider, reuse=False, resolved=first.pop("measured", None), has_edit=bool(request["edits"]) or timed or fitted,
+                                    preview=None, handled=set(first.pop("handles_constraints", None) or ()))
+        lims = _dedupe(lims + first.pop("expected_limitations", []) + (last.pop("expected_limitations", []) if last is not first else [])
+                       + retarget_lims + no_review + body_lims)
+        return steps, risks, lims
+    raise PlanBlocked("UNSUPPORTED_REQUEST", "NOT_ROUTABLE", f"{name} is not a generation route (pipe or post-process only)")
+
+
+def _reuse_state(steps: list[dict]) -> str:
+    """앞 사슬이 새 시퀀스를 만드는가 — 'produced' | 'reused'(대상 스켈레톤의 기존 애셋 그대로) | 'unknown'(계획 때 소스를 몰라 리타깃이 조건부)."""
+    if any(s["step"] in ("edit", "timing", "import", "generate", "convert", "join") or (s["step"] == "retarget" and not s.get("conditional"))
+           or (s["step"] == "body_fit" and (s.get("inputs") or {}).get("produces")) for s in steps):
+        return "produced"
+    return "unknown" if any(s["step"] == "retarget" for s in steps) else "reused"
+
+
+def _integrate(request: dict, registry, pctx: PlanContext, steps: list[dict], risks: list[str], lims: list[dict],
+               cache: dict) -> tuple[list[dict], list[str], list[dict]]:
+    """Phase 7 — 모든 후보의 검증 뒤에 공통으로 붙는 포장(package_*) · AnimBP 연결(anim_bp_test · anim_bp_prepare) 단계.
+    integrate_anim_bp 가 거짓이면 anim_bp 단계가 없다(AnimBP 호출 0). 같은 계획 안에서는 결과를 한 번만 계산한다(후보마다 같다)."""
+    if not (request["package"] or request["anim_bp"]):
+        return steps, risks, lims
+    reuse = _reuse_state(steps)
+    key = ("package", reuse)
+    if key not in cache:
+        try:
+            cache[key] = registry.get("package").plan_steps(request, pctx, reuse) if request["package"] else ([], [], [])
+        except PlanBlocked as blocked:
+            cache[key] = blocked
+    if "anim_bp" not in cache:
+        try:
+            cache["anim_bp"] = registry.get("anim_bp").plan_steps(request, pctx) if request["anim_bp"] else ([], [], [])
+        except PlanBlocked as blocked:
+            cache["anim_bp"] = blocked
+    out_steps, out_risks, out_lims = list(steps), list(risks), list(lims)
+    for part in (cache[key], cache["anim_bp"]):
+        if isinstance(part, PlanBlocked):
+            raise part
+        s, r, lm = part
+        out_steps += [dict(x) for x in s]
+        out_risks += r
+        out_lims += lm
+    return out_steps, out_risks, _dedupe(out_lims)
+
+
+def _capture(request: dict, registry, pctx: PlanContext, steps: list[dict], risks: list[str], lims: list[dict]) -> tuple[list[dict], list[str], list[dict]]:
+    """Phase 8-2 — review.capture 면 검증 뒤(포장 · 연결 앞)에 대상 메시 캡처 단계. 모든 경로(생성 · 재사용 · 편집)에 붙는다.
+    캡처할 수 없으면(메시 없음 · 캡처 루트 없음) 단계 없이 한계 REVIEW_NOT_CAPTURED — 후보를 막지 않는다."""
+    if not (request["review"] or {}).get("capture"):
+        return steps, risks, lims
+    step, r, lm = registry.get("review").plan_capture(request, steps, pctx)
+    return (steps + [step] if step else list(steps)), risks + r, _dedupe(lims + lm)
+
+
+def _style(request: dict, policy: dict, steps: list[dict], lims: list[dict]) -> list[dict]:
+    """Phase 9-5a (U8-b) — 대상 ≠ 기준 몸이고 이 계획이 기준 몸의 스타일 값을 쓰면 한계 TARGET_STYLE_FROM_REFERENCE(재서 정했으면 정책 style.profiles)."""
+    skeleton = request["target_skeleton"]
+    if target_style.is_reference(policy, skeleton):
+        return lims
+    values = target_style.reference_values(request, steps, target_style.profile(policy, skeleton))
+    if not values:
+        return lims
+    return _dedupe(lims + [limitation("TARGET_STYLE_FROM_REFERENCE", f"{', '.join(values)} 는 기준 몸({target_style.reference(policy)})의 운영 애니에서 정한 값이다 — 손 속도 기준은 "
+                                      "몸 비율로 옮겼지만 스타일(얼마나 빠르게 · 넓게 서는지)은 이 대상의 값이 아니다. 운영 애니로 재서 정하면 정책 style.profiles 에 둔다", "router",
+                                      reference=target_style.reference(policy), values=values)])
+
+
+def _chain_names(steps: list[dict]) -> list[str]:
+    names: list[str] = []
+    for s in steps:
+        if s["provider"] != "validation" and s["provider"] not in names:
+            names.append(s["provider"])
+    return names
+
+
+def check_output(request: dict, settings: dict | None, editor, editor_ok: bool, diagnostics: list[dict]) -> list[str] | None:
+    """출력 경로를 ini 허용 목록(get_editor_status.generation.output_paths)으로 미리 검사한다. 최종 기준은 C++."""
+    if not settings:
+        diagnostics.append(diag("warning", "OUTPUT_PATH_UNCHECKED", "Editor unreachable — output_path is checked at generation time"))
+        return None
+    roots = (settings.get("generation") or {}).get("output_paths") or []
+    if not is_under(request["output_path"], roots):
+        raise AnimGenError("OUTPUT_PATH_NOT_ALLOWED", f"output_path {request['output_path']} is outside [AnimGraphMcp] GenerationOutputPaths",
+                           reason="OUTSIDE_ALLOW_LIST", allowed=roots)
+    if editor_ok:
+        final = final_asset_path(request)
+        try:
+            items = editor.require("search_animations", query=request["animation_name"], path_prefix=request["output_path"], limit=50,
+                                   **{"class": "all"})["items"]
+        except EditorCallError:
+            items = []
+        if any(package_path(i["asset_path"]) == final for i in items):
+            raise AnimGenError("ASSET_EXISTS", f"{final} already exists — generation never overwrites; choose another animation_name",
+                               reason="OUTPUT_EXISTS", asset=final)
+    return roots
+
+
+def build_plan(request: dict, policy: dict, registry, editor, diagnostics: list[dict]) -> dict:
+    unknown = sorted(name for name in request["generation"]["options"] if not registry.has(name))
+    if unknown:
+        raise AnimGenError("BAD_REQUEST", f"request.generation.options names unknown provider(s) {unknown}", reason="UNKNOWN_PROVIDER",
+                           field="generation.options", known=registry.names())
+    mode, mode_diags = resolve_mode(policy, request["generation_policy"])
+    diagnostics += mode_diags
+    block = paid_block_reason(policy, mode)
+    settings = editor.status()
+    editor_ok = settings is not None
+    if not editor_ok:
+        diagnostics.append(diag("warning", "EDITOR_UNAVAILABLE", "Editor unreachable — sources are resolved when the job runs"))
+    output_paths = check_output(request, settings, editor, editor_ok, diagnostics)
+    explicit = request["provider"] if request["provider"] != "auto" else None
+    if explicit:
+        provider = registry.get(explicit)
+        if provider.manifest.get("role") == "pipe":
+            raise AnimGenError("BAD_REQUEST", f"'{explicit}' is a pipe, not a provider", reason="PIPE_NOT_PROVIDER")
+        diagnostics.append(diag("info", "FALLBACK_DISABLED_EXPLICIT_PROVIDER", f"provider '{explicit}' was requested — no fallback to others"))
+    order = provider_order(request["motion_category"], mode, request["provider"], motion_file=bool(request["motion_file"]))
+    pctx = PlanContext(editor=editor, editor_ok=editor_ok, request=request, diagnostics=diagnostics, settings=settings, policy=policy)
+    candidates, excluded = [], []
+    integration_cache: dict = {}
+    for name in order:
+        provider = registry.get(name)
+        state = provider.state(policy)
+
+        def exclude(cause: str, reason: str | None, message: str, **details):
+            excluded.append({"provider": name, "cause": cause, "reason": reason, "message": message, "state": state, **details})
+
+        if provider.paid and block:
+            exclude("APPROVAL_REQUIRED", block, f"{name} is paid and the policy blocks paid providers ({block})")
+            continue
+        if not state["available"]:
+            why = state["unavailable_reason"]
+            exclude(why["cause"], why["reason"], f"{name} is not available ({why['reason']})")
+            continue
+        max_duration = provider.manifest.get("max_duration_seconds")
+        if max_duration and request["duration_seconds"] and request["duration_seconds"] > max_duration:
+            exclude("UNSUPPORTED_REQUEST", "DURATION_OVER_MAX", f"{name} supports up to {max_duration}s")
+            continue
+        estimate = provider.estimate(request, policy)
+        if provider.paid and not estimate["cost_known"]:
+            exclude("COST_UNKNOWN", estimate.get("basis"), f"{name}: the cost cannot be confirmed, so it is never run (§6)")
+            continue
+        try:
+            steps, risks, lims = _chain(name, request, registry, pctx)
+            steps, risks, lims = _capture(request, registry, pctx, steps, risks, lims)
+            steps, risks, lims = _integrate(request, registry, pctx, steps, risks, lims, integration_cache)
+            lims = _style(request, policy, steps, lims)
+        except PlanBlocked as blocked:
+            exclude(blocked.cause, blocked.reason, blocked.message, **blocked.details)
+            continue
+        candidates.append({
+            "index": len(candidates), "provider": name, "role": "approximate" if name in APPROXIMATE.get(request["motion_category"], ()) else "primary",
+            "chain": _chain_names(steps), "steps": steps, "paid": provider.paid, "cost_known": estimate["cost_known"],
+            "estimated_cost_usd": estimate["estimate_usd"], "estimate_basis": estimate.get("basis"), "needs_approval": provider.paid,
+            **({"estimated_credits": estimate["credits"]} if estimate.get("credits") is not None else {}),
+            "risks": risks, "expected_limitations": lims,
+        })
+    return {
+        "plan_id": new_id("plan"), "created_at": now_iso(), "request": request,
+        "policy": {"mode": policy["mode"], "effective_mode": mode, "paid_allowed": block is None, "paid_block_reason": block,
+                   "allow_fallback": policy["execution"]["allow_fallback"], "max_generation_attempts": policy["execution"]["max_generation_attempts"]},
+        "order": order, "fallback": explicit is None, "candidates": candidates, "excluded": excluded,
+        "executable": bool(candidates), "editor_checked": editor_ok, "output_paths": output_paths,
+        "final_asset": final_asset_path(request),
+        # Phase 7 — 승격 제안의 루트(ini PromotionPaths, get_editor_status). 이동은 promote_animation 을 사용자 확인 뒤에
+        "promotion_paths": ((settings or {}).get("generation") or {}).get("promotion_paths"),
+    }

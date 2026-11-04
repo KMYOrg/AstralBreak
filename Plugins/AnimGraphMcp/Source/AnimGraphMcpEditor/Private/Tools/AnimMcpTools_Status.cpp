@@ -4,6 +4,7 @@
 #include "Bridge/AnimMcpHttpBridge.h"
 #include "Bridge/AnimMcpTypes.h"
 #include "Core/AnimMcpAssetProtection.h"
+#include "Core/AnimMcpGeneration.h"
 #include "Editor.h"
 #include "FileHelpers.h"
 #include "HAL/PlatformProcess.h"
@@ -36,7 +37,7 @@ namespace AnimMcpTools
 	void RegisterStatusTools(FAnimMcpDispatcher& Dispatcher, TWeakPtr<FAnimMcpHttpBridge> Bridge)
 	{
 		Dispatcher.RegisterTool(TEXT("get_editor_status"),
-			TEXT("Editor/plugin health: engine version, project, thread, PIE state, related plugin status, open asset editors, registered tools."),
+			TEXT("Editor/plugin health: engine version, project, thread, PIE state, related plugin status, open asset editors, registered tools, protection rules, generation paths (output_paths · import_source_roots · max_retarget_assets_per_call)."),
 			[Bridge, &Dispatcher](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				TSharedRef<FJsonObject> Result = AnimMcpJson::MakeObject();
@@ -49,6 +50,8 @@ namespace AnimMcpTools
 				// Phase 6-2: quit_editor 뒤 프로세스 소멸 폴링용 · 보호 목록 · 저장 안 된 패키지 수
 				Result->SetNumberField(TEXT("process_id"), FPlatformProcess::GetCurrentProcessId());
 				Result->SetObjectField(TEXT("protection"), AnimMcpAssetProtection::DescribeRules());
+				// AI 애니 생성: 출력·임포트 경로의 유일한 기준(ini) — anim_gen 은 이것을 읽는다
+				Result->SetObjectField(TEXT("generation"), AnimMcpGeneration::DescribeSettings());
 				{
 					TArray<UPackage*> DirtyContent, DirtyWorlds;
 					FEditorFileUtils::GetDirtyContentPackages(DirtyContent);

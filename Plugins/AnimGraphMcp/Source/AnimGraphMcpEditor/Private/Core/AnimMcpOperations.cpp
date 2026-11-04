@@ -7,6 +7,7 @@
 #include "AnimGraphNode_TransitionResult.h"
 #include "AnimMcpAssetResolver.h"
 #include "AnimMcpCompiler.h"
+#include "AnimMcpGeneration.h"
 #include "AnimMcpGraphInspector.h"
 #include "AnimMcpGraphMutator.h"
 #include "AnimMcpLog.h"
@@ -2231,7 +2232,8 @@ namespace AnimMcpOperations
 		return Result;
 	}
 
-	TSharedPtr<FJsonObject> Apply(UAnimBlueprint* Blueprint, const TArray<FOperation>& Ops, const FString& ExpectedRevision, bool bCompile, bool bSave, FAnimMcpContext& Context, FAnimMcpError& OutError)
+	TSharedPtr<FJsonObject> Apply(UAnimBlueprint* Blueprint, const TArray<FOperation>& Ops, const FString& ExpectedRevision, bool bCompile, bool bSave, FAnimMcpContext& Context, FAnimMcpError& OutError,
+		AnimMcpGeneration::FWriteGuard* Guard)
 	{
 		check(IsInGameThread() && Blueprint);
 
@@ -2387,6 +2389,22 @@ namespace AnimMcpOperations
 			TSharedRef<FJsonObject> Skipped = AnimMcpJson::MakeObject();
 			Skipped->SetBoolField(TEXT("ran"), false);
 			Result->SetObjectField(TEXT("compile"), Skipped);
+		}
+
+		// (Phase 7) 옵트인 생성 가드 — 컴파일까지 끝난 뒤 전역 더티 비교, 실패면 저장하지 않는다
+		if (Guard && !Guard->Check(OutError))
+		{
+			if (OutError.Details.IsValid())
+			{
+				OutError.Details->SetBoolField(TEXT("applied"), true);
+				OutError.Details->SetStringField(TEXT("revision_before"), RevisionBefore);
+				OutError.Details->SetStringField(TEXT("revision_after"), Result->GetStringField(TEXT("revision_after")));
+			}
+			return nullptr;
+		}
+		if (Guard)
+		{
+			Guard->Describe(Result);
 		}
 
 		bool bSaved = false;

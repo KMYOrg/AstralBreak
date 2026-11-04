@@ -4,6 +4,7 @@
 #include "Bridge/AnimMcpDispatcher.h"
 #include "Bridge/AnimMcpTypes.h"
 #include "Core/AnimMcpAssetResolver.h"
+#include "Core/AnimMcpGeneration.h"
 #include "Core/AnimMcpOperations.h"
 
 namespace AnimMcpTools
@@ -53,11 +54,14 @@ namespace AnimMcpTools
 
 		Dispatcher.RegisterTool(TEXT("apply_graph_operations"),
 			FString(TEXT("Apply a batch of graph operations inside one undoable transaction. All operations are validated first; a mid-batch failure is undone. "
-			             "Params: asset_path, operations[], expected_revision? (abort if the graph changed), compile? (default false), save? (default false; only if compile ok). ")) + OperationsDoc,
+			             "Params: asset_path, operations[], expected_revision? (abort if the graph changed), compile? (default false), save? (default false; only if compile ok), "
+			             "generation_guard? (default false; true = the AnimBP must be inside [AnimGraphMcp] GenerationOutputPaths and the global dirty-package diff is checked after compiling and before saving — UNEXPECTED_DIRTY; result guard{newly_dirty[]}). ")) + OperationsDoc,
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
+				AnimMcpGeneration::FWriteGuard Guard(Context.Request);
 				FString AssetPath;
 				if (!Context.Request.GetRequiredString(TEXT("asset_path"), AssetPath, OutError)) { return nullptr; }
+				if (!Guard.CheckPath(AssetPath, TEXT("asset_path"), OutError)) { return nullptr; }
 				UAnimBlueprint* Blueprint = AnimMcpAssetResolver::LoadAnimBlueprint(AssetPath, OutError);
 				if (!Blueprint) { return nullptr; }
 
@@ -68,7 +72,7 @@ namespace AnimMcpTools
 				const bool bCompile = Context.Request.GetOptionalBool(TEXT("compile"), false);
 				const bool bSave = Context.Request.GetOptionalBool(TEXT("save"), false);
 
-				return AnimMcpOperations::Apply(Blueprint, Ops, ExpectedRevision, bCompile, bSave, Context, OutError);
+				return AnimMcpOperations::Apply(Blueprint, Ops, ExpectedRevision, bCompile, bSave, Context, OutError, Guard.IsEnabled() ? &Guard : nullptr);
 			});
 	}
 }

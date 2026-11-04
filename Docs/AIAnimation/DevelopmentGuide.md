@@ -1,0 +1,3394 @@
+# AI 애니메이션 생성 자동화 — 개발 지침서
+
+작성일: 2026-10-23 (원본: "AI Animation Generation Automation — Claude Code 최종 개발 지침서")  
+개정 1: 2026-10-23 — 기존 AnimGraphMcp 코드 · UE 5.7.4 엔진 소스 · 외부 서비스 문서와 대조한 검토 반영.  
+개정 2: 2026-10-23 — Phase 0 감사(에디터 읽기 전용 실측) 결과 반영. 히어로 스켈레톤 경로 정정, 일괄 리타깃·Interchange 위험 설정, 수치 검증을 상대 비교로 전환.  
+개정 3: 2026-10-23 — 문서 검토 18건 반영. 생성 흐름의 원본 제자리 수정 분기 제거, 임포트의 스켈레톤 부작용 차단, 전역 더티 검사, 명시적 재사용, 설정 단일 기준.  
+개정 4: 2026-10-23 — Phase 1 구현·실측 결과 반영(§14 Phase 1 결과, 부록 B). 상한 50, 물려받은 회전 튐, `match_existing` = 에디터 자동 리타깃 레시피.  
+개정 5: 2026-10-23 — Phase 2 착수 전 엔진 소스 대조. 키 작성 순서·프레임레이트 제약, 복제 경로, 미러, 레지스트리 태그, Phase 2 Tool 시그니처·op 의미·원자성 정의. 같은 날 Phase 2 결과(§14 Phase 2 결과 · 부록 B) 반영.  
+개정 6: 2026-10-23 — Phase 3 착수 전 확정안. 요청 스키마(§9) 필드·메시 명시, 모드별 라우터 순서표(§5), 승인·장부·멱등 규칙(§6), 폴백 분류·중단 코드(§7), Job 실행 모델(§3.4), `limitations[]` 모양(§3.2), Provider 매니페스트(§4), Phase 3 Tool 시그니처(§14).  
+개정 7: 2026-10-24 — Phase 4(Blender Provider) 착수 전 엔진·Blender 소스 대조와 실측. 메시 없는 FBX는 스켈레톤을 못 만든다(더미 스킨 메시), BVH 기준 포즈 바닥 맞춤, 정면 방향 맞춤(FK 전역 델타), `motion_file` 요청 필드, 서브프로세스 타임아웃 정책 키, Vesper 정면 정정(+Y).  
+개정 7 보강: 2026-10-24 — 리타깃 파이프(existing_motion · 생성 임포트)의 정면 맞춤. 소스 12개 스켈레톤 정면 실측(SB만 +X), 리타깃 포즈는 소스 현재 포즈에 걸리지 않음(소스 쪽 회전으로는 불가) → 대상 루트 반대 회전 + Additive Pose op(`create_ik_retargeter facing_yaw_deg`), 요청 `retarget.source_facing`, 계획 위험 `FACING_DIFFERS` · 한계 `FACING_ALIGNED`, `validate_animation profile_positions`.  
+개정 7 보강 2: 2026-10-24 — `import_animation_file` 리샘플 경계 스냅. `bSnapToClosestFrameBoundary` 를 항상 켜서 경계에 안 맞는 길이도 임포트하고, 맞춘 트랙은 `warning LENGTH_SNAPPED` 로 알린다(§2.3 · 부록 B). 생성 잡은 단계 안 에디터 Tool 진단을 `tool` · `step` 과 함께 Job `diagnostics` 에 남긴다(§3.4).  
+개정 8: 2026-10-25 — Phase 5(로컬 AI) 구현·실측 반영. 조사 결론과 채택(NVIDIA Kimodo-SOMA-RP-v1.2, §2.4), `local_ai` Provider(전용 venv 서브프로세스 · 오프라인 · 텍스트 인코더 CPU — §4 · §6), 요청 `prompt` · `generation` · `review` · `fix` · `retarget.align_mode` · `retarget.body_clearance`(§9), 생성 BVH → `blender` 변환 사슬(§5), 리타깃 정렬 엔진 함정과 `per_bone` 정렬 · 기준 포즈 FBX 2단 임포트 · 손가락 체인 · 팔-몸통 관통 보정(§2.3 · §10 · §13), §14 Phase 5 결과.  
+개정 9: 2026-10-25 — Phase 6(외부 AI — Meshy Text-to-Motion) 공식 문서 확인 · 구현. API · 크레딧 가격 · Rate Limit · 만료 · 약관(§2.4 · 부록 A · B), `external.meshy` Provider(HTTP 어댑터 · 비동기 Job · 잔액 확인 · 요청 로그 — §4), 크레딧 × 사용자 환율 비용 추정과 장부의 크레딧(§6), 요청 `generation.options`(§9), poll 단계 실패의 환불 · 과금 반영(§3.4 · §6), §14 Phase 6.  
+개정 10: 2026-10-25 — Phase 7(AnimBP 연결 · 승격) 설계 확정 · 구현 · 실측. 새 Tool `promote_animation`(엔진 AssetTools rename — 자동 저장이라 사전 검사 + `confirm`, ini `PromotionPaths`), 기존 쓰기 Tool 6개의 옵트인 `generation_guard`(기본 = 기존 동작), 요청 `package` · `anim_bp`(§9), 계획 단계 `package_*` · `anim_bp_test` · `anim_bp_prepare`(§5), `INTEGRATION_FAILED`(§7), 운영 AnimBP 적용 승인 게이트와 노티파이 순서(§12), §14 Phase 7 결과.  
+개정 11: 2026-10-26 — Phase 8-1(생성 품질) 설계 확정 · 첫 실험 E1 · Kimodo 소스 대조 · 구현 · 실측. 요청 플래그 `two_hand_weapon_grip` · `foot_contact` → `local_ai` 2차 생성 제약(§4 · §5 · §9), seed 후보 · select 단계 · 점수 선별(§5 · §7 · §13 · §14), 파지 플래그면 관통 기본 `measure`(§9 · §10), Kimodo 후처리 실측에 따른 제약 형식 정정(§14 Phase 8 · 감사 §18). 같은 날 보강: 사용자 Persona 소견 4가지 → 수정안 A(2차 출력 시간 스무딩 σ 1프레임) · B(손 회전 keep — 1차 손목 굽힘 유지) · C(선별 — 관통 이중 계산 제거 · 파지면 비파지 관통 · 궤적 폭 `attack`) 적용 · 같은 4 seed 재생성(§9 · §14 Phase 8 '수정안 A · B · C' · 감사 §18). 보강 2: 기준 무기 = Vesper 낫 — 파지 간격 상한 · 파지 판정 띠 · 손별 궤적 폭 · 양손 겹침 기록 · 낫 프롬프트 재생성(§14 Phase 8 '낫 기준 보정'). 보강 3: 낫 정정 — 팔 꼬임 · 머리 · 배 관통(§14 Phase 8 '낫 정정'). 보강 4: 파지 띠를 대상 메시 골격 치수로 · 요청 `target_spacing_cm`(§9 · §14 Phase 8 '파지 띠 정정').  
+개정 12: 2026-10-26 — Phase 8-2(Vesper 캡처) 설계 확정 · 엔진 소스 대조 · 구현 · 실측. 새 Tool `capture_animation`(임시 프리뷰 월드 + 정사영 SceneCapture → PNG · 시트 · 소스 골격 비교 시트 · 연속 프레임 — 애셋 0 · 새 더티 0, ini `CaptureOutputRoots`, 오류 `CAPTURE_FAILED`), 요청 `review.capture` → `review` 파이프 capture 단계(모든 경로) · APNG(표준 라이브러리) · Job `review.capture`(§2.3 · §3 · §4 · §5 · §7 · §9 · §13 · §14 Phase 8 '8-2'), 채팅 표시 = Saved 밖 캡처 루트 + SendUserFile.  
+개정 13: 2026-10-27 — Phase 8-3(자동 보정) 설계 확정 · E0 실측 · 엔진 소스 대조 · 구현 · 실측. 요청 `fix.timing`(리타깃 뒤 **대상** 시퀀스 — 손목 속도로 휘두름 구간 탐지 → 기존 `retime` · `trim` 으로 가속 · 정지 머리/꼬리 트림, 모든 경로, `direct_key` timing 단계), `fix.ops` 사전(smooth · stance_width · foot_lock — Blender 변환 단계, 다리는 **리타깃된 다리의 모델**(Pelvis Motion op 배율 · 회전 + 소스 뼈 방향 · 대상 길이) 안에서 한 풀이 → 대상 발 고정), 저장된 Kimodo BVH 의 SOMA 기본값, `capture_animation` 비교 칸 루트에 캡처 루트(§2.3 · §4 · §5 · §7 · §9 · §13 · §14 Phase 8 '8-3'). 같은 날 보강(8-3 후속): 품질 탐침에서 나온 8-3 의 새 문제 2건 — 가속 구간 끊김 → 새 C++ 편집 op `time_warp`(단조 3차 시각 사상 · antialias) + `timing.py` 배율 곡선(trim 하나 + time_warp 하나), 무릎 굽힘 증가 → `stance_width.keep_knee_bend`(골반 상승), 떨림 기준 = 균일 r 배 기대값(§14 Phase 2 op 표 · §14 Phase 8 '8-3 후속' · 감사 §20).  
+개정 14: 2026-10-27 ~ 28 — Phase 8-4(대상 쪽 보정) 총괄 설계 확정(결정 A ~ G — Python 한 풀이 + C++ 얇은 입출력 · 4단위 a → b → c → d · 낫 손잡이 = 요청의 무기 공간 선분 · 새 측정 옵트인) · **8-4a(기반 — 측정 한 원천 · 입출력 · 무기 부착 캡처 · E0)** 엔진 소스 대조 · 구현 · 실측. C++ 5개(전부 옵트인 — 기본 결과 불변): `validate_animation body_clearance` v2(`parts: "all"` 팔 3 × 몸 6 부위 쌍 — 머리 · 목 · 위팔 · 몸통 칸, `legs` 다리끼리, `per_frame`, `model` 몸 모델 내보내기) · `profile_rotations` · 편집 op `bone_deltas{space: parent}` · `capture_animation attachments`(무기 부착) · `inspect_skeleton geometry`(메시 주축 · 단면), 순수 Python `anim_gen/body_model.py`(C++ 몸 모델을 같은 규칙으로 재현 — 8-4b 한 풀이의 바탕), E0(비교 대상 16개 '전' 수치 · 낫 부착값 · 자루 선 · 왼손 파지 선분 제안 · 사건 · 낫 붙인 '전' 캡처)(§2.3 · §8 · §13 · §14 Phase 2 op 표 · Phase 8 '8-4a' · 감사 §21). 같은 날 **8-4b(한 풀이 엔진 + 지시 목표)** 구현 · 실측: 파이프 `body_fit`(control_rig 자리) · 순수 Python `anim_gen/body_fit.py` · 요청 `fix.body`(+ `targets[]` — 자연어 지시 → 목표는 Claude Code) · 리타깃 관통 기본 measure 전환 · C++ 옵트인 `body_clearance.hands`(양손끼리)(§4 · §5 · §9 · §10 · §13 · §14 Phase 8 '8-4b' · 감사 §21-2). 10-29 **8-4b 마지막 — 지시 목표 경로 (가)**: 목표 없는 풀이를 먼저 하고 완급 > 0 블록만 그 해를 기준으로 다시 푼다(§9 `fix.body.targets[]` · §14 '8-4b' · 부록 B · 감사 §21-2). 10-29 **8-4c c1(무기 파지 기반)**: 요청 `weapon`(장비 데이터는 Claude Code 가 — 소켓 · 기하 · 손가락 체인은 메시 사실) · 무기 붙인 캡처 · `weapon_tip` · 무기-몸 기록 · 라이플 런타임 IK keep — **무기 파지는 옵트인**(실측: 운영 왼손은 자루를 쥐지 않고, 생성 두 손 선은 붙인 자루와 ≈ 60° 어긋남 — 사용자 결정)(§9 `weapon` · `fix.body` · §14 '8-4c' · 부록 B · 감사 §21-3). 10-30 **8-4c c2(샘플 전이 `pose_from` · 손가락 쥔 모양)** · **8-4d(③ 펴진 다리 무릎 떨림 + 마무리 — 8-4 종료)**: 요청 `fix.body.legs`(접지 pin · 공중 경로 저크 풀이 · 소프트 무릎, auto = 같은 Job fix.ops 다리 op) · `clearance.mode` · 합본 Job(BVH → fix.ops → 리타깃 → timing → body_fit → 검증 → 낫 부착 캡처) · 통합 전체 · 회귀 전체(§9 · §14 '8-4d' · '8-4 정리' · 부록 B · 감사 §21-4). 10-31 **8-4e(빠른 구간 매끈화)**: 요청 `fix.body.smooth_speed`(손이 빠른 프레임만 관통 몫 매끈화 폭을 줄임, auto = 같은 Job 의 fix.timing) — 합본의 머리목 마무리 대가 해소(§9 · §14 '8-4e' · 부록 B · 감사 §21-5). 같은 날 **8-4f(위팔 마무리)**: 요청 `fix.body.clearance.upper_arm: cap`(기본) · `upper_cap_cm` — 모든 마무리 뒤 위팔 ↔ 몸이 4 cm × scale 를 넘는 프레임만 팔꿈치를 어깨 ↔ 손목 축으로 돌린다(손 고정, 8-4e 판정 '검 선택 합본 f25 왼 위팔 ↔ 가슴')(§9 · §14 '8-4f' · 부록 B · 감사 §21-6).  
+개정 15: 2026-11-01 — Phase 9(후속 로드맵 단계 9-1 ~ 9-5 — [후속 로드맵](FollowUpRoadmap.md) §1-1). **9-1(생성 선별 · 기준 — U1 + U6-e)** 설계 확인(사용자 — 추천안 그대로) · E0 실측 · 구현 · 검증: 8-1 선별 점수를 8-3 · 8-4 뒤 파이프라인에 맞게 — 뒤 단계가 고치는 결함(발 간격 · 휘두름 속도 · 짧은 머리 관통) 가중을 낮추고, 못 고치는 결함에 새 지표(파지 프레임 보조 손목 꺾임 `wrist` · 메시 머리목 깊은 관통 `head_deep` · 낫 자루 ↔ 왼손 `handle` 기록), 지표 버전 6, select 측정에 `body_clearance parts · per_frame` · 대상 메시 손가락 체인 제안 · 요청 `weapon`. 8-3 기준값은 유지(분포 표만). Python 만 — C++ · MCP Tool 변경 없음(§9 `generation.select` · §13 · §14 Phase 9 '9-1' · 부록 B). 같은 날 **9-2(세그먼트 — U2-a)** 설계 확인(사용자 — 추천안 그대로) · Kimodo 소스 대조 · 구현 · 검증: 요청 `segments[{prompt, duration_seconds, name?, swing?}]`(`prompt` 대신 2 ~ 6개) → local_ai 한 Kimodo 실행(`multi_prompt` · `generation.transition_frames` 1 ~ 10, 기본 5), 사슬 끝 새 `seams` 단계(경계를 시간 보정 뒤 타임라인으로 · 회전 단계 비 · 속도 앞뒤 비 · 속도 변화 비 → Job `segments`), `swing` 세그먼트 = `fix.timing` 정점 탐색 창, `package.montage.sections: "segments"`(옵트인), 다른 Provider 는 `SEGMENTS_UNSUPPORTED`. segments 없는 요청은 비트 같음. Python 만(§9 `segments` · §11 · §14 Phase 9 '9-2' · 부록 B). 같은 날 **9-3a(키 포즈 · 역리타깃 — U3-a · U3-b)** 설계 확인(사용자 — 추천안 그대로: 9-3a / 9-3b 로 나눔 · SOMA 애셋 Job 마다 Work · part 생략 = 전신 · 배치 auto · 낫 = 생성 파지 규칙에 부착 자루(9-3b)) · E0 실측(역 RTG · 78 본 profile · 프레임 0 우회 · 손 본 대응 상수) · 구현 · 검증: 요청 `generation.constraints[] key_pose{asset, times, at, part, placement}` → 생성 앞 `key_pose` 단계(대상 애셋 → 역리타깃 SOMA → Kimodo 로컬 회전 · 엉덩 · heading — `anim_gen/key_pose.py`) → 러너 배치(origin · pass1 — 바닥 루트 기준) · 키가 있으면 출력 σ 1 스무딩(키 둘레 떨림 — 실측 뒤 사용자 결정) · 키 추종 · 떨림 기록. 왕복(Kimodo NPZ → Vesper → SOMA) FK 위치 최대 0.38 cm · 로컬 각 p95 1.89°(고정 편향), Attack1 정점 전신 키 1 개로 1.2초 Vesper 자세 ↔ 정점 p50 16.5 → 0.5 cm. Python 만 — C++ · MCP Tool 변경 없음, key_pose 없는 요청 비트 같음(§9 · §10 · §14 Phase 9 '9-3' · 부록 B). 2026-11-02 **9-3c(Provider 를 섞은 세그먼트 — U2-b)** 설계 확인(사용자 — 전부 추천안) · E0(운영 낫 루트 ↔ 골반) · 구현 · 검증: `segments[]` 기존 구간 항목 · 이음매 자동 전신 키(이웃 끝 · 첫 T 프레임) · 생성 부분만 보정(timing 겹침 키 구간 배율 1) · 새 `join` 단계(겹침 크로스페이드 + 골반 · 몸 방향 겹친 구간 평균 맞춤) · `seams` 이음매에 겹침 시작 · 끝 · 골반 잔차 · `generation.seam_keys` 대조. Python 만 — C++ · MCP Tool 변경 없음, 새 필드 없는 요청 비트 같음(§9 · §11 · §14 '9-3c' · 부록 B). 2026-11-02 **9-4a(측정 규칙 — U7-a · U7-b · U5-d)** 설계 확인(사용자 — 전부 추천안: C++ 옵트인 + 파이프라인 기본 · U7-b 실측 뒤 기록만 · U5-d = 각도를 기준 본에 고정) · 출발 기록(HEAD `3d92cbc` — phase8_4 A 18 · B 20, 8-4f 와 같은 항목) · E0(제품 코드 무변경 — 편집 애셋 재측정 · 한 본 시험 애셋 · 팔 벌림 · Finisher1 캡처) · C++ 옵트인 `body_clearance.map_rule 2`(`arm_weight_max`) · 요청 `fix.body.clearance.map_rule`(기본 2) · select 측정 같은 규칙 · 통합 · 회귀: 몸 지도 쌍 모델 예측 = C++(위팔 쌍 p95 1.0 → 0.005 cm), 새 미달(원 속도 머리목 마무리 한 프레임 튐 등)은 9-4c 로(사용자 결정)(§9 · §13 · §14 '9-4a' · 부록 B). 2026-11-02 ~ 03 **9-4b(손 부근 마무리 — U4-a · U4-b · U4-c)** 설계 확인(사용자 — 전부 추천안) · 출발 기록(HEAD `82a518e` — A 7 · B 11) · E0(단계별 오프라인 풀이 · 운영 keep 퍼짐 · 손 지도 모델 ↔ C++ — 판정 갈림 0 → C++ 무변경) · 시제품 판 대조 · 구현: 보조 손목 다듬기 · 위팔 마무리를 한 GN `_finish_hands`(쇄골 포함 · 주 손목 상한 원래 + 4.5° · 팔 교차 · keep = 손 붙들기 = 위팔 상한 층)로, 본 풀이 첫 회 닫힌 손목 이어 받기 막기, 파지 빈틈은 앞 프레임이 파지일 때만, 통합 `c2_keep_rot`(≤ 10°). Python 만 — 파지 없는 · 다리만 요청 비트 같음, 통합 실패 A 6 · B 9(새 1 — s25 휘두름, 빈틈 규칙 대가)(§9 · §14 '9-4b' · 부록 B). 2026-11-03 **9-4c(빠른 구간 · 지시 목표 — U5-a · U5-c, U5-b 조사)** 설계 확인(사용자 — 전부 추천안) · 출발 기록(HEAD `e752f31` — A 5 · B 9) · E0(내보낸 C++ 몸 모델 오프라인 — 머리목 튐 · 짧은 관통 = 재검사 증분이 넓은 스플라인에 묽어짐, 원 속도 떨림의 다음 뿌리 = 손 부근 마무리의 프레임별 해, U5-b 는 완급 · 막힌 목표가 아니라 목표 몫 해 갈림) · 시제품 대조 · 구현: 국소 수렴 `fix.body.converge`(남은 짧은 몸 관통만 그 프레임 풀이 고정 · ± 0.1초 혹) · 손 부근 마무리 증분 매끈화 `fix.body.finish_smooth` · `smooth_speed` auto = 모든 요청 켬, U5-b 는 구현 안 함(사용자 결정). Python 만 — 새 스위치 끈 경로 비트 같음, 통합 실패 A 5 → 3 · B 9 → 7(검 선택 떨림 3.16 → 0.459 · 합본 검 7.91 → 1.60 · 짧은 관통 3건 0 %)(§9 · §14 '9-4c' · 부록 B). 2026-11-03 **9-4d(다리 · 시간 보정 연결 — U6-a ~ d)** 설계 확인(사용자 — 전부 추천안 + E0 정정 · 루트 모션 루프 버그 포함) · 출발 기록(작업 트리 — 통합 legs · combined 실패 0) · E0(몸 모델 `legs` 17 대상 — 합본 미끄러짐 = 접지 구간 안 0.1 ~ 0.9 cm 흔들림 · 발볼 피벗 · 바닥 중앙값의 함정 · 다리끼리 0 · 발볼 본 없음) · 시제품 판 대조 · 구현: 요청 `fix.body.legs.pins: auto | hold | keep`(hold = 접지 발목 수평 고정 · 발끝 접지 발볼 잇기 — auto = fix.timing + 다리 op), 공중 경로 바닥 하한(접지 최저), 루트 모션 루프 이음매, `pose_from` 다리 프리셋 · 발 회전 목표(디딘 발 = 발볼 중심), 발볼 오프셋 = 대상 메시 기준 포즈. Python 만 — 다리 경로를 안 켜는 Job 비트 같음, 합본 미끄러짐 3.7 ~ 9.8 → 0 cm/s · 합본 검 다리 떨림 1.597 → 1.268(§9 · §14 '9-4d' · 부록 B). 2026-11-03 ~ 04 **9-5a(다양한 스켈레톤 — U8-a · U8-b · U8-d = U7-c)** 하위 단계 나눔 · 결정 확인(사용자 — 전부 추천안) · 출발 기록(HEAD `1b20e62` — pytest 853) · E0(코드 무변경 — IdaFaber 남성 · UE5 Manny 에 합본 6 · 기존 애니 3 · 다리 Job, 환산 시험 6) · 구현: 정책 `style{reference_skeleton, profiles}` · 새 `anim_gen/target_style.py` · 손 속도 기준(정점 목표 · `SPEED_REF_CM`)의 몸 비율 환산 · 한계 `TARGET_STYLE_FROM_REFERENCE` · 다리 op 계획 거부 `FIX_LEGS_NEEDS_MATCH_EXISTING` · 임포트 경로 위험 2. Python 만 — 대상 = 기준 몸이면 계획 · Job 비트 같음(Vesper 출력 프로필 정확히 같음), 새 대상 낫 배율 ×1.91 · ×1.77 → ×2.0 · IdaFaber 남성 검 떨림 6.23 → 1.57(§6 · §9 · §14 '9-5a' · 부록 B). 2026-11-04 **9-5b(비표준 대상 — U8-c)** E0(Narmaya · SB 모두 루트 기준 스케일 100 — 엔진 리타기터가 지워 결과가 1/100 로 접힌다) · 설계 확인(사용자 — 설계안대로) · 구현: 요청 `retarget.existing_target_rig` 를 체인 · 측정 본 한 원천으로(`selection_bones` · `body_fit` · 샘플 묶음 · 정면 교차 확인, 없으면 계획 거부 `TARGET_CHAINS_UNKNOWN`), C++ `retarget_animations` 기준 스케일 복원(`TARGET_REF_SCALE_RESTORED`) · `ABNORMAL_SCALE` 기준 포즈 대비 · `per_bone` 최소 길이 cm, 몸 모델 · 무기 부착의 스케일 처리. Narmaya 합본 2 · 운영 Attack2 · 다리 Job · SB(+X) 리타깃 · 캡처 성공, 스케일 1 대상 출력 불변(§9 · §10 · §14 '9-5b' · 부록 B). 2026-11-04 **9-5c(리뷰 도구 — U7-d)** U0-5 답(APNG 가 움직임 — MP4 는 기록으로 닫음) · E0(S1 왼손 이동 93 cm · 측면 왼손이 가슴 뒤 64/120 · 근평면 = 카메라 위치) · 설계 확인(사용자 — 설계안대로) · 구현: `capture_animation focus{bones, margin_cm, near_cut}`(지정 본 정점 상자를 칸마다 따라가기 · 클립 하나의 배율 · 앞 자르기 · 주광 그림자 끔) · 요청 `review.capture.focus[]`(프리셋 hand_l · hand_r · fingers_l · fingers_r · head 또는 본 이름, 폴더 `focus_<이름>`, Job `review.capture.focus[]`). `focus` 없는 호출은 PNG 바이트까지 같음(38/38), S1 손 0.42 → 0.044 cm/px · 비표준 Narmaya · SB 동작(§9 · §14 Phase 8 '8-2' · §14 '9-5c' · 부록 B). 2026-11-04 **9-5d(영상 포즈 조사 + 메시 트랙 결정 — U9 · U10)** 조사 문서 [VideoPoseSurvey.md](VideoPoseSurvey.md) — 유일한 적법 · 호환 후보 NVIDIA GEM-X(SOMA 77 · 세계 궤적, 남은 판단 2 건), 사용자 결정: Provider 채택 안 함 · 키 포즈 원천 후보로만 · 오프라인 시험 없이 닫음 · 메시 트랙 검토 · 미채택. 코드 변경 없음(§2.4 · §14 '9-5d' · '별도 트랙' · 부록 A).  
+상태: Phase 1 · 2 · 3 · 4 · 5 · 6 · 7 완료 · **Phase 8-1 구현 · 검증 + 수정안 A · B · C(2026-10-26, 사람의 Persona 재판정 대기)** · **Phase 8-2 구현 · 검증(2026-10-26 — 캡처는 판정 근거, 판정은 사람)** · **Phase 8-3 구현 · 검증 + 후속 수정 2건(가속 끊김 · 무릎 굽힘, 2026-10-27 — 전후 캡처 사용자 판정 통과 · antialias 1.0 확정, 남은 검 다리 떨림은 8-4 ③)** · **Phase 8-4a 구현 · 검증(2026-10-28 — 기반, 낫 붙인 '전' 캡처는 판정 근거 · 8-4b ~ d 는 사용자 승인 뒤 단위마다)** · **Phase 8-4b 구현 · 검증(2026-10-28 — 관통 목표 쌍은 대부분 해소, 파지 keep · 충실도 일부 · 지시 목표 경로는 10-29 수정안 (가)로 구간 ± ease 밖 변화 0 · SEAM_JUMP 0 — 8-4b 종료, 구간 안 떨림 2건 · 목표 없는 Job 에서 물려받은 미달은 §14 '지시 목표 경로 (가)')**(** · **Phase 8-4c c1 구현 · 검증(2026-10-29 — 무기 요청 · 캡처 · weapon_tip · 무기-몸 기록 · 라이플, 무기 파지는 옵트인(부착 방향이 생성 두 손과 어긋나 붙일 대상 없음 — 생성 쪽 후속), c2(샘플 전이 · 손가락)는 새 세션)** · **Phase 8-4c c2 구현 · 검증(2026-10-30 — 샘플 전이 `pose_from` · 손가락 쥔 모양, 표준 S1 ~ S3 기준 5 · 7 통과, 커밋 `849e502`)** · **Phase 8-4d 구현 · 검증(2026-10-30 — 다리 공중 경로 · 합본 · 통합 · 회귀 전체, 커밋 `12cc032` · 2026-11-01 사용자가 후속 8-4e · f 까지 종료 확인 · 판정 산출물 정리) — Phase 8-4 전 단위 종료** · **8-4e 구현 · 검증(2026-10-31 — 빠른 구간 매끈화, 시간 보정한 Job 만 기본, 커밋 `12cc032` · 판정: 합본 낫 통과 · 합본 검 f25 왼 위팔 ↔ 가슴 → 8-4f)** · **8-4f 구현 · 검증(2026-10-31 — 위팔 마무리, 모든 요청 기본, 커밋 `12cc032` · 사용자 판정 통과)**(§14). Phase 6 완료 기준 ① 실제 유료 1건은 **미실행으로 마감**(사용자 Meshy 계정이 Free 요금제 — API 생성은 유료 요금제만, 2026-10-25 사용자 결정). Phase 7 은 운영 AnimBP 실제 적용을 완료 기준에서 뺐다(사용자 결정 — 미리보기 · revision · 복제본 검증까지). **Phase 9-1 구현 · 검증(2026-11-01 — 선별 재정의 (가) · 새 지표 wrist · head_deep · handle(기록) · 8-3 기준값 유지, 미커밋 · 손목 기준은 사용자 판정 반영(벌점 시작 15 %), 기록 선택 판정 대기)**(§14 '9-1') · **Phase 9-2 구현 · 검증(2026-11-01 — Kimodo 안 세그먼트 · 이음매 단계 · swing 창 · 몽타주 섹션 옵트인, 미커밋 · 달리기는 정지 꼬리 1.12 → 0.12초 · 검은 정점 −33 % · 위임 판정: 달리기 공격 통과 · 경계 속도 꺾임은 기록만 · 검 세그먼트 느림, 9-1 과 함께 사용자 커밋 `c8c77a8`)**(§14 '9-2') · **Phase 9-3a 구현 · 검증(2026-11-01 — 키 포즈 · 역리타깃, 미커밋 · 사용자 판정 통과(손 키 손목 각도만 9-3b) · 산출물 정리 완료, 9-3b(손 키 손목 · 낫 파지 · 활용 시험 · U2-b)는 사용자 지시 때 새 세션)**(§14 '9-3') · **Phase 9-3b 구현 · 검증(2026-11-02 — 자유 손 고정 · 옵트인 낫 자루 규칙 · 키 활용 시험, 미커밋 · 사용자 판정 통과 · U2-b 는 9-3c 로)**(§14 '9-3b') · **Phase 9-3c 구현 · 검증(2026-11-02 — Provider 를 섞은 세그먼트, 미커밋 · 사용자 판정: 보류(의미 없어 보임 — 코드는 옵트인으로 남김) · 산출물 정리 — 9-3 종료)**(§14 '9-3c') · **Phase 9-4a 구현 · 검증(2026-11-02 — 지도 규칙 2 = 기준 본 강체 지도(C++ 옵트인 · 파이프라인 기본) · U7-b 기록만, 미커밋 · 새 미달 5 는 9-4c · 9-4b 로(사용자 결정) · 사용자 판정 통과(11-02 — Finisher1 머리 겹침은 운영 원본의 실제 겹침 → 머리목 시작값 15 % 확정))**(§14 '9-4a') · **Phase 9-4b 구현 · 검증(2026-11-03 — 손 부근 마무리 한 풀이 · 주 손목 상한 · keep 회전 기준 10° · 빈틈 규칙, 미커밋 · 사용자 판정 통과(11-03) · 새 미달 1(s25 휘두름 — 빈틈 규칙 대가)은 known 으로 기록 · 산출물 정리 완료)**(§14 '9-4b') · **Phase 9-4c 구현 · 검증(2026-11-03 — 국소 수렴 · 손 부근 마무리 증분 매끈화 · smooth_speed 모든 요청 기본, U5-b 구현 안 함(원인 기록), 미커밋 · 사용자 판정 통과(11-03) — T1 · T4 구간 안 떨림 · T4 `c5` 는 known 으로 기록)**(§14 '9-4c') · **Phase 9-4d 구현 · 검증(2026-11-03 — 접지 고정 hold · 바닥 하한 · 루트 모션 루프 · 다리 샘플 · 발 회전 목표, 사용자 판정 통과(11-03) · 산출물 정리)**(§14 '9-4d') · **Phase 9-4 끝 묶음 회귀(2026-11-03 — 통합 phase8_4 전체(A · B) + 8-1 · 8-3 · 9-2 · 9-3b · 9-3c · Phase 1 ~ 7 기본 `--only`: 9-4 탓 새 실패 0 · 알려진 미달 그대로, 새로 보인 하네스 쪽 실패 2 곳(8-1 기본 섹션 순서 · 9-3b E0 기대값 노후 — 9-4 무관)은 하네스를 고쳐 재확인 PASS, 9-4a ~ d 커밋 `82a518e` · `e752f31` · `d27f0f5` — 9-4 종료)**(§14 '9-4d' 끝 '9-4 끝 묶음 회귀') · **Phase 9-5a 구현 · 검증(2026-11-04 — 표준 대상 2 일반화 · 손 속도 기준 몸 비율 환산 · 정책 style · 리타기터 구성 계획 검사, 커밋 `b8a9ee5` · 사람 판정 결과는 기록 없음 · 산출물 정리)**(§14 '9-5a') · **Phase 9-5b 구현 · 검증(2026-11-04 — 비표준 대상 Narmaya · SB, 대상 리그 단일 원천 · C++ 기준 스케일 복원, 커밋 `b8a9ee5` · 사용자 판정 완료(11-04) · 산출물 정리)**(§14 '9-5b') · **Phase 9-5c 구현 · 검증(2026-11-04 — 캡처 부분 프레이밍 · MP4 는 기록으로 닫음, 커밋 `a779a1a` · 설계와 달라진 앞 간격 · 라벨 덮개 유지(사용자 결정) · 판정 결과 기록 없음 · 산출물 정리)**(§14 '9-5c') · **Phase 9-5d(2026-11-04 — U9 조사 · 키 포즈 원천 후보로만 · 시험 없이 닫음 · U10 검토 · 미채택, 문서만 · 미커밋)**(§14 '9-5d'). **Phase 9-1 ~ 9-5 전 단계 종료.** 다음 = U0 눈 확인 · `feat/AnimGen_MCP` → main 병합. 단위 · 순서 · 완료 기준은 [후속 로드맵](FollowUpRoadmap.md) §1-1. 3D 메시 생성(Tripo)은 애니 파이프라인 밖 별도 트랙으로 검토 · 미채택(§14 끝).  
+관련 문서: [AnimGraphMcp README](../../Plugins/AnimGraphMcp/README.md) · [Phase 0 감사](ArchitectureAudit.md) · [Phase 5 로컬 모델 조사](LocalModelSurvey.md) · [후속 로드맵](FollowUpRoadmap.md)(남은 일 · 미룬 단위 · 품질 후속 후보를 단위 U0 ~ U10 으로 — 2026-11-01) · [영상 포즈 조사](VideoPoseSurvey.md)(U9 — 2026-11-04)
+
+| 항목 | 내용 |
+| :--- | :--- |
+| 환경 | Windows 11 · UE 5.7.4 소스 빌드 · C++ · Python 3.13 · Claude Code · MCP |
+| 구조 | Multi-Provider + 규칙 기반 라우터 + 폴백 + 공통 리타깃 처리 + 기존 AnimBP MCP 연결 |
+| 기본 정책 | Free-First · 유료 API는 명시 승인 · 비파괴 · Editor 전용 |
+
+---
+
+## 개정 15 변경 요약 (Phase 9 — 9-1 생성 선별 · 기준 · 9-2 세그먼트 · 9-3a 키 포즈 · 역리타깃 · 9-3b 손 키 손목 · 낫 생성 파지 규칙 · 9-3c Provider 를 섞은 세그먼트)
+
+| 항목 | 개정 14 | 개정 15 (9-1 — 설계 확인 · E0 · 구현 · 검증) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 선별 가중치 | grip 3 · stance 2 · swing 2 · attack 2 · clearance 1 · breakage 1 · cross 2 · head 2 — 설계(10-26) 때는 8-3 · 8-4 가 없었다 | **stance 0.5**(8-3 `stance_width` 가 두 발 디딘 비를 ≤ 3.0 으로) · **swing 1**(8-3 시간 보정 ×2.0 — 상한이 있어 상대 차는 남는다) · **head 1**(짧은 관통 · 근접은 8-4 머리목 마무리가 고친다) · 새 **wrist 2** · **head_deep 2** · **handle 0**. 요청에 fix 가 없어도 기본(선택 애셋을 뒤에 따로 고치는 흐름), 되돌리려면 `generation.select.weights` | §9 · §14 '9-1' |
+| 손목 꺾임 (새) | Vesper 손목 굽힘은 통합 테스트만 이름(`middle_01`)으로 잼 — 점수 밖 | `motion_metrics.wrist_check` — 양손 파지면 **파지 띠 안 표본의 보조 손목 > 60°** 프레임 %(파지가 아니면 양손 > 90°), 벌점 clamp((% − 15)/25) — 시작 15 % = 사용자 판정(낫 새 생성 seed 20261103 의 13.3 % 는 '손목 괜찮다' — 처음 5 % 는 이 후보를 밀어냈다). 중지 뿌리 = 대상 메시 `suggest_finger_chains`(이름 추측 없음 — 8-4c 와 같은 원천). E0: 운영 낫 파지 프레임 보조 손목 p50 6 ~ 16° · 60° 넘는 프레임 0 %, 검 seed 27 95.8 % | §13 · §14 '9-1' |
+| 메시 머리목 깊은 관통 (새) | 선별 머리 = `head_near`(뼈 한 점 10 cm), 메시 `head_neck` 쌍은 8-4 옵트인 | `motion_metrics.head_deep` — select 측정에 `body_clearance parts: "all" · per_frame`(arms[] 그대로 — 후보당 1 ~ 2 초), 손 · 아래팔 ↔ head_neck 의 관통 구간 중 **8-4 `_finish_head` 가 건너뛰는 것**(> 2 프레임 또는 > 4 cm × scale — `body_fit.HEAD_FINISH_*` 의 원천을 여기로) 프레임 %, 벌점 clamp((% − 15)/25). 시작값 15 = 운영 Finisher1 12.3 %(정수리 · 뿔 쪽 지도 과대 — U7-a) | §13 · §14 '9-1' |
+| 낫 자루 ↔ 왼손 (새, 기록) | 8-4c `weapon_report` 에만(대상 쪽 보정 Job) | 요청 `weapon` 에 보조 손 grip 이 있으면 select 가 무기를 풀어(`weapon.resolve` — 계획 때) `weapon.handle_report`: 파지 띠 프레임 왼 손바닥 ↔ 붙인 자루 선 p50 · 두 손 선 ∠ 자루 p50. **가중 0** — 운영 낫도 그 프레임 왼손이 자루에서 p50 50.7 ~ 66.5 cm 라 운영 기준선이 서지 않는다. 9-3(U3) 판정 수치 | §9 · §14 '9-1' |
+| 8-3 기준값 (U6-e) | 사용자 판정 통과값(목표 정점 1,200 · 상한 ×2.0 · 복귀 ×1.5 · 발 간격 3.0 · 남김 0.2 / 0.3초) | **유지**(사용자 결정 11-01) — 생성 · 8-3 뒤 · 운영 분포 표만 기록. 느린 휘두름 = 시간 보정이 살리고 선별은 swing 1 로 빠른 쪽을 선호 · 남는 차는 생성 쪽(9-2 세그먼트) | §14 '9-1' |
+| 세그먼트 (9-2, 새) | §11 원칙만 · 라우터 한계 `SEGMENTED_PLAN_SUGGESTED` · 요청 `prompt` 하나(Kimodo 호출은 프롬프트 1개 · 전이 5 고정) | 요청 `segments[{prompt, duration_seconds, name?, swing?}]`(2 ~ 6 · `prompt` 와 둘 중 하나 · 합 ≤ 10초 · `duration_seconds` 생략 = 합) + `generation.transition_frames` 1 ~ 10(5) → local_ai 한 실행(`multi_prompt` — 앞 끝 자세 제약으로 잇는다, 이은 프레임 = 합). 다른 Provider `SEGMENTS_UNSUPPORTED`(섞어 잇기 U2-b 는 9-3). 계획 = 세그먼트 · 경계 · swing 창 · 한계 `SEGMENT_TRANSITIONS` · 기한(확산 × 세그먼트). seed 후보 · 2차 · 선별 · 8-3 · 8-4 는 이은 클립 하나로 | §9 · §11 · §14 '9-2' |
+| 이음매 단계 (9-2, 새) | 이음매 검사 = Phase 2 편집 op 의 `seams`(`SEAM_JUMP`)뿐 | 사슬 끝(검증 앞) `seams` — 경계를 시간 보정 `warp` 로 최종 타임라인에 옮겨 `validate_animation(seams · profile_positions)` 한 번: 회전 단계 비(C++) + 손목 · 발목 · 골반 · 루트 속도 앞뒤 비 · 속도 변화 비(`segments.py` — C++ 와 같은 꼴) → Job `segments`, 넘으면 `SEGMENT_SEAM_JUMP` 진단. Kimodo 쪽 같은 수치 · 같은 seed 1차 ↔ 2차 세그먼트별 차이(`generated.candidates[].segments`) | §13 · §14 '9-2' |
+| swing 창 · 몽타주 섹션 (9-2, 새) | `fix.timing` 은 클립 전체 손 속도 정점 · 몽타주 섹션은 요청 목록만 | `swing: true` 세그먼트 ± 전이에서만 휘두름을 찾는다(달리기 팔 흔들기 대신 공격 — 실측: 없으면 달리기 0 ~ 2.2초를 ×2) · `package.montage.sections: "segments"` = 옮긴 경계에 섹션(next 사슬 — 지금 재생 그대로, 옵트인) | §9 · §14 '9-2' |
+| 역리타깃 · 키 포즈 (9-3a, 새) | Vesper(대상) → SOMA 방향 없음 — 생성 Job 은 SOMA → 대상 리타기터만, 이전 Kimodo NPZ 를 고정하는 `keep_pose` · `kimodo_raw` 만 | 요청 `generation.constraints[] key_pose{asset, times, at, part, placement}` → 생성 앞 **`key_pose` 단계**(retarget 파이프): Kimodo 설치본 표준 T 포즈 → Blender → `<work>/KeyPose` SOMA 스켈레톤 · 리그 · 역리타기터(대상 → SOMA, 같은 리그 규칙) → 원천 리타깃 → `hold_pose`(profile 이 프레임 0 을 안 낸다) → `anim_gen/key_pose.py`(UE 컴포넌트 회전 · 위치 → Kimodo 로컬 axis-angle · 엉덩 m · heading) → 제약 파일. 배치 = 항목마다 강체 한 번(origin · pass1 — pass1 은 러너 안 1차 뒤 같은 seed 2차, 기준점 = 바닥 루트(원천 엉덩 궤적의 Kimodo 매끈화)). 손 · 발은 일반 end-effector. 키가 있으면 출력 σ 1 스무딩(키 둘레 떨림 — 사용자 결정). 러너가 키 추종(관절 위치 · 손발 회전) · 키 둘레 떨림을 기록. Python 만 — C++ · MCP Tool 변경 없음. key_pose 없는 요청 비트 같음 | §9 · §10 · §14 '9-3' |
+| Provider 를 섞은 세그먼트 (9-3c, 새 — 판정 보류) | 세그먼트는 local_ai 한 실행 안만(다른 Provider `SEGMENTS_UNSUPPORTED`) · 기존 모션 잇기는 편집 op `concat`(루트 본 맞춤) | `segments[]` 에 기존 구간 `{source: existing, asset, start?, end?}` — 생성 덩어리(붙은 생성 세그먼트)는 이웃 쪽마다 겹침 K = 전이 − 1 프레임 늘리고 이웃의 끝 · 첫 K + 1 프레임을 **자동 전신 키**(앞 origin · 뒤 pass1), 보정은 생성 부분만(timing 은 겹침 키 구간 배율 1 · 트림 끔), 새 `join` 단계가 겹침 크로스페이드 + **골반 · 몸 방향을 겹친 구간 평균으로** 맞춘다(E0: 운영 낫 루트 ↔ 골반 1.7 ~ 19 cm). `generation.seam_keys: false` = 크로스페이드만. M1(Attack1 → 생성 → Attack2): 겹친 구간 자세 차 앞 0.38 · 뒤 2.80 cm(골반 기준 0.51 · 1.57) vs 대조 20 · 23 cm. Python 만 | §9 · §11 · §14 '9-3c' |
+| 키 2차 자유 손 · 운영 부착 자루 (9-3b, 새) | 손 · 발 키 2차에서 나머지 팔은 자유 · 파지 2차 자루 축 = 1차 두 손목 선(낫 붙인 자루와 ∠ 62 ~ 83°) | pass1 키 2차가 키 · 파지가 묶지 않은 손을 1차 손에 묶는다(키 ± 15 프레임 — `hold_free_hands`, 0.86초 자유 왼손목 비틀기의 키 몫 −20 → −4°) · 옵트인 `refine.grip.handle: "weapon"` — 계획이 요청 weapon 의 자루를 부착 본 공간으로, 생성 앞 `hand_basis`(SOMA T 포즈 → 정방향 RTG)가 손 방향 대응을 재고, 러너가 주 손을 손목 상한(굽힘 max(1차, 60°) · 비틀기 60°)까지 돌려 보조 손바닥을 붙인 자루 위로 → 고른 후보 ∠ 11.1° · 손바닥 ↔ 자루 9.5 cm. Python 만 | §9 · §14 '9-3b' |
+| 몸 지도 규칙 (9-4a, 새 — U7-a · U5-d) | C++ 가 편집된 자세마다 지도를 다시 만든다: 몸통 · 머리목 정점 중 팔 사슬 가중(어깨 · 겨드랑이 — 몸통 축 점의 23 %)이 팔과 함께 움직이고, 각도 0 방향 = 그 자세의 어깨선. Python 풀이는 지도를 기준 본 강체로 본다 → 위팔 ↔ 몸통 예측 vs C++ p95 1.0 · 최대 4.9 cm, 마무리만 `live_lateral` 로 흉내 | C++ 옵트인 `body_clearance.map_rule 2`(+ `arm_weight_max` 0.15 — 넘는 정점은 빼고 나머지는 팔 사슬 영향을 뗀 스킨, 각도 0 방향 = 기준 포즈 어깨선을 지도 기준 본에 붙인 것) — 기본(1) 결과 · arms[] · resolve 불변(기준선 16/16 · 바이트 비교 24/24). 요청 `fix.body.clearance.map_rule`(기본 2) · select 측정 같은 규칙 → 몸 지도 쌍 예측 = C++ p95 0.005 cm. 머리 부속 거르기는 하지 않음(뿔 = `head` 직스킨, 뾰족한 칸을 잘라도 Finisher1 12.3 % 그대로) | §9 · §13 · §14 '9-4a' |
+| 손 부근 마무리 (9-4b, 새 — U4) | 본 풀이 뒤 마무리 셋이 차례로 — 보조 손목 다듬기(손목만 · keep 없음 → keep 회전 낫 정정 2.5 → 7.3° · T5 16.6°) → 머리목 → 위팔 마무리(손 고정 궤도 하나 · 보조 손목 + 2° 에 막힘). 주 손목 기록만(검 선택 + 12.6° · s27 + 5.3°), 파지 빈틈 잇기가 구간 시작을 2 프레임 앞당김, Attack2 교차 13.7 % | `_finish_hands` 한 GN(두 팔 쇄골 · 위팔 · 팔꿈치 · 손목, 층: 관통 · 보조 손목 상한 > 주 손목 상한(원래 + 4.5°) · 팔 교차 > keep = 손 붙들기 = 위팔 상한 > 충실도) → 머리목. 본 풀이 첫 회 닫힌 손목 이어 받기 막기 · 빈틈은 앞 프레임이 파지일 때만 · 통합 `c2_keep_rot` ≤ 10°(운영 퍼짐). 통합 실패 A 7 → 6 · B 11 → 9, 새 1(s25 휘두름 — 빈틈 규칙) | §14 '9-4b' |
+| 국소 수렴 · 마무리 매끈화 (9-4c, 새 — U5-a · U5-c) | 재검사 증분이 넓은 스플라인에 묽어져 1 ~ 2 프레임 관통(머리 · 가슴 · 넓적다리)이 남고 머리목 마무리가 그 프레임만 빼 튐(낫 정정 8.38 · 검 선택 3.16) · 손 부근 마무리가 프레임마다 따로 풀어 떨림(검 선택 0.45 → 2.63 · 합본 검 7.91 — 주 손목 4.5 ↔ 5° 갈림길) · smooth_speed 는 시간 보정 Job 만 | `fix.body.converge`(남은 짧은 몸 관통 ≤ 2 프레임 · ≤ 4 cm 만 그 프레임 풀이 고정 · ± 0.1초 혹 — 머리목 마무리는 안전망) · `fix.body.finish_smooth`(마무리 증분 반경 2 프레임 매끈화 · 손목 상한 넘긴 프레임만 마무리 해) · smooth auto = 모든 요청. 통합 A 5 → 3 · B 9 → 7, 짧은 관통 3건 0 %, 갈림길 배율 ± 0.05 · 기준 ± 0.5 머리 0. U5-b(완급 자동 · 막힌 목표 줄이기)는 E0 에서 효과 없음 → 구현 안 함 | §9 · §14 '9-4c' |
+| 다리 · 시간 보정 연결 (9-4d, 새 — U6-a ~ d) | 접지 프레임 = 원래 키(시간 보정 antialias 가 다시 거른 합본 발은 3.7 ~ 9.8 cm/s 미끄러짐) · 공중 경로는 땅을 안 봄(발볼을 0.34 ~ 0.5 cm 낮춤) · 루프 이음매는 루트 모션을 모름 · 다리 샘플 · 발 회전 목표 `NOT_SUPPORTED` | `fix.body.legs.pins: hold`(접지 발목 수평 = 구간 중앙값, 높이 · 발 회전 원래 · 발끝 접지는 발볼을 붙은 접지 프레임 자리에, auto = fix.timing + 다리 op, hold 는 공중 경로도 켬) · 공중 경로 하한 min(접지 최저, 원래) · 루프 이음매 변환 · `pose_from` `leg_l` · `leg_r` · `legs`(접지 = 발 pin, 공중 = 샘플 경로) · 발 회전 목표(디딘 발 = 발볼 중심) · 발볼 = 대상 메시 기준 포즈. 합본 미끄러짐 → 0, 다리끼리 · 발볼 피벗은 기록만 | §9 · §14 '9-4d' · 부록 B |
+| 대상별 기준값 (9-5a, 새 — U8-b) | 기준값은 Vesper 운영 애니 값 그대로 — 손 속도 기준은 골반 높이로만 정규화돼 팔이 상대적으로 긴 몸은 같은 동작이 빠르게 잡힘(낫 배율 ×2.0 · ×1.91 · ×1.77 · IdaFaber 남성 검 떨림 6.23) | 정책 `style{reference_skeleton, profiles}` · `anim_gen/target_style.py`: 대상 ≠ 기준 몸이면 정점 목표 · `SPEED_REF_CM` × (팔 / scale)_대상 ÷ (팔 / scale)_기준 몸(기준 몸은 계획 때 잰다), 프로필이 있으면 그 값, 요청 값이 먼저. 스타일 값을 쓰는 계획은 한계 `TARGET_STYLE_FROM_REFERENCE`. 대상 = 기준 몸이면 계획 · Job 비트 같음 | §6 · §14 '9-5a' |
+| 리타기터 구성 (9-5a, 새 — U7-c · U8-d) | 다리 op 는 구성을 안 본다 — `ops: default` 는 실행 뒤 검증 FAILED(미저장 남음), 재사용 RTG 는 모델이 구성을 모른 채 푼다 | 다리 op + (`ops: default` 또는 `existing_retargeter`) → 계획 거부 `FIX_LEGS_NEEDS_MATCH_EXISTING`. 임포트 경로의 재사용 · `ops: default`(다리 op 없음)는 위험 `RETARGET_REUSE_SOURCE_UNCHECKED` · `RETARGET_OPS_DEFAULT_UNVERIFIED`(같은 소스 RTG 재사용은 실행 성공 — C++ 호환 검사는 본 이름 기준) | §14 '9-5a' · 부록 B |
+| 대상 리그 단일 원천 (9-5b, 새 — U8-c) | 측정 본 · 샘플 묶음 · 정면 교차 확인은 템플릿 체인만, 못 찾으면 UE 기본 이름 · `body_fit` 은 select 를 탄 Job 만 리그를 받음 | 요청 `retarget.existing_target_rig`(수동 체인 IK Rig)가 체인 · 측정 본의 한 원천 — 이름을 안 본다(발목 = 다리 체인 셋째 본 · 골반 = 리그 펠비스). 체인도 기본 이름도 없으면 계획 거부 `TARGET_CHAINS_UNKNOWN`. 리그가 없으면 계획 · Job 비트 같음 | §9 · §14 '9-5b' |
+| 기준 스케일 (9-5b, 새) | 루트 스케일 100 대상은 리타깃이 1/100 로 접히는데 검증은 통과 · 되돌리면 `ABNORMAL_SCALE` | C++ `retarget_animations` 가 스케일 · 펠비스 · 루트 이동을 되돌린다(`TARGET_REF_SCALE_RESTORED`, 스케일 1 대상은 건드리지 않음) · `ABNORMAL_SCALE` = 기준 포즈 대비 · `per_bone` 최소 길이 cm · Python 풀이는 스케일 없는 cm(`BodyModel`) | §10 · §14 '9-5b' · 부록 B |
+| 부분 프레이밍 (9-5c, 새 — U7-d) | 전 프레임 고정 정사영 한 가지 — 손이 0.42 cm/px 로 20 px, 측면 왼손은 가슴 뒤(S1 64/120 프레임). 손가락 차이를 눈으로 못 봄 | `capture_animation focus{bones, margin_cm, near_cut}` — 지정 본 정점 상자를 칸마다 따라가고 배율은 클립 하나(`FitView` 재사용), 앞 자르기 · 주광 그림자 끔. 요청 `review.capture.focus[]`(프리셋은 실행 때 대상 메시 · 측정 본 원천에서), 한 부위 실패 = 그 부위만 한계. `focus` 없으면 PNG 바이트 같음(38/38). MP4 는 U0-5 답(움직임)으로 닫음 | §9 · §14 '9-5c' · 부록 B |
+| 몸통 대비 팔 벌림 (9-4a — U7-b) | CMU ±2.6°(개정 8) | Kimodo SOMA → Vesper 실측: 정면 벌림 p95 ≤ 2.9°, 시상면 굽힘 +3.8 ~ +5.7°(= 몸통 앞기울기 차 +4.0 · +5.5° — ⓪ 중립 몸통) → **기록만으로 닫음**(사용자 결정 — 고치면 월드 손이 ≈ 4 cm 옮겨진다) | 부록 B |
+
+---
+
+## 개정 14 변경 요약 (Phase 8-4a — 대상 쪽 보정 기반 · 8-4b 한 풀이 · 8-4c 무기 · 샘플 전이 · 8-4d 다리 · 마무리 · 8-4e 빠른 구간 매끈화 · 8-4f 위팔 마무리)
+
+| 항목 | 개정 13 | 개정 14 (8-4a 설계 확정 · 엔진 소스 대조 · 구현 · 실측) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 몸 전체 관통 측정 | `body_clearance` = 손 · 아래팔 ↔ 몸통 · 넓적다리 축 하나씩(`arms[]` — 위팔 · 머리 · 목 안 봄), 머리는 `head_near`(손 ↔ 머리 본 한 점) | 옵트인 `parts: "all"` — 팔 3(손 · 아래팔 · 위팔(어깨 0.4 × 위팔 길이 밖)) × 몸 6(몸통 칸 pelvis · belly · chest · 넓적다리 좌우 · head_neck) 36 쌍 · `legs`(다리끼리) · `per_frame` · 경고 `BODY_PENETRATION_PARTS` · `LEG_PENETRATION`. 같은 반경 지도 · 이웃 규칙 — 기본(키 없음) 결과는 비교 대상 16/16 같음(옛 빌드 baseline 대조). 사용자 소견 자리(낫 정정 선택 1.53초 손 → 머리 11.86 cm · 2.43초 왼 아래팔 → 배 6.53 cm)가 잡힌다 | §13 · §14 '8-4a' |
+| 머리 꼭대기 (뿔) | — | 정수리 = 머리 축선 5 cm × scale 안 머리 정점의 최대 투영, 머리 지도 t ≤ 1.0 — 최대 투영 · t 1.05 는 Vesper 뿔(머리 관절 위 23 cm)이 칸을 채워 손이 정수리 위에 있어도 13 ~ 17 cm 가짜 관통 | §13 · 감사 §21 |
+| 몸 모델 · 재현 | — | `body_clearance model` — 측정 점 전부 · 포즈 · 프레임별 반경 지도(base64, 최대 3.0 MB) → `anim_gen/body_model.py`(순수 — LBS · FK · 지도 조회 · 델타) 재현 차 p95 0.005 cm · 관통 % 같음(5건). Python 평가 최대 9.9 ms/프레임(다리 포함) → 감쇠 GN 24 평가 예측 29초(121 프레임) | §13 · §14 '8-4a' |
+| 포즈 읽기 · 쓰기 | `profile_positions`(위치만) · 편집 op 는 구간 상수 오프셋(`offset_bone`)뿐 | `profile_rotations`(위치와 같은 시각의 회전) · 새 op `bone_deltas{space: parent, bones[{bone, rotation_deg[키마다], translation_cm[키마다]}]}`(0 = 원래 키 · 한 본 = 그 본과 자손만 · 키 수 불일치 `BAD_OP` · 원자성) | §13 · §14 Phase 2 op 표 |
+| 무기 부착 캡처 | 메시 하나(무기 없음) | `capture_animation attachments[{mesh, socket \| bone, offset}]` ≤ 4 — 낫을 `WeaponHandR` 에 붙인 시트 · APNG(잘린 칸 0 · 더티 0). 게임 배치는 변환 2단(`AttachOffset` · `AttachTransform` · 소켓 · 손) — 캡처 offset 은 합성한 한 변환 | §2.3 · §14 '8-4a' |
+| 무기 기하 | 인스펙터는 무기 정보를 추정하지 않음 | `inspect_skeleton geometry`(범위 · 주축 · 단면 · 본별) — 근거만, 손잡이 선분은 요청이 준다. 낫: 자루 선(좁은 단면 중심) ∥ 첫 주축 2.3° · TraceStart → End 0.35°, 운영 낫 왼손 파지 선분 제안 | §8 · §14 '8-4a' |
+| DA 값 읽기 | 원격 실행(UDP) | 원격 실행이 안 되는 환경 — 에디터 시작 스크립트 `-ExecutePythonScript`(끝나면 에디터를 닫으므로 keep-alive, `Tools/mcp/e0_weapon_attach.py`) | §2.3 |
+| (8-4b) 한 풀이 | `control_rig` 비활성 자리 · 관통 보정 = 리타깃 `resolve`(위팔만 · 팔마다) | 파이프 `body_fit` + 순수 Python `body_fit.py`(쇄골 · 위팔 · 팔꿈치 · 파지 프레임 두 손목, 목표 구간만 척추 · 목 · 골반 — 층 가중 감쇠 GN · 관통 몫 가중 매끈화 스플라인 · 재검사) → `bone_deltas` 새 애셋 → C++ 재측정. 요청 `fix.body` · 모든 경로 timing 뒤 · edit 앞, 리타깃 관통 기본 `measure`(`CLEARANCE_BY_BODY_FIT`) | §4 · §5 · §9 · §10 · §14 '8-4b' |
+| (8-4b) 지시 목표 | — | `fix.body.targets[]`(부위 × 사건 · 시각 · 구간 × 몸 기준틀 위치 · 회전 × 완급 × soft/hard) — 자연어 → 목표는 Claude Code, 계획이 풀어 보이고(사건 → 프레임 · 부위 → 본 · 목표 위치) 못 닿으면 `TARGET_NOT_REACHED{blocked_by}` | §9 · §14 '8-4b' |
+| (8-4b) 양손끼리 | 측정 없음(사용자 Persona 검 선택 f0 소견) | C++ 옵트인 `body_clearance.hands` — 팔마다 손 · 아래팔 지도 · 12 쌍 · `HAND_PENETRATION`(기본 결과 불변 16/16) | §13 |
+| (8-4c) 손에 든 무기 | 무기 정보는 요청이 준다(§8) — 캡처 attachments 만 | 요청 `weapon{mesh, attach, lead_hand, grips[], tip}` · 새 `anim_gen/weapon.py`(메시 사실로 풀기) · review 캡처 부착 · `weapon_tip` 목표 · 무기-몸 관통 기록 · 런타임 IK grip = keep + `GRIP_RUNTIME_IK` | §9 · §14 '8-4c' |
+| (8-4c 후속) 블렌드 아웃 · keep 손목 | 무기 파지 블렌드 = 가중만 줄임 · keep 파지 프레임 손목 굽힘 상한 없음 | 무기 파지 가중 > 0 = 가득 가중 + 목표 원래 손바닥 → 손잡이 smootherstep(가중) 보간 · 주 손 자리 건너는 구간 통과 비(2차 — ± 0.2 s 시간으로 넓힘) · 마무리 둘째 출발점. 파지 프레임 보조 손목 ≤ 원래 + 2°(손가락 뿌리 = 대상 메시 체인 제안 — 계획 · 실행 `inputs.fingers`, 없으면 끔 · `GRIP_WRIST_BEND_OFF`) — 2차: 본 풀이가 아니라 **본 풀이 뒤 보조 손목만 다듬기**(`_finish_wrist` — 관통 쌍 바닥 · keep 없음 · 지도 칸 = C++ 처럼 어깨 기준, 팔 · 주 손 = 8-4b 해) — **기본 동작 변경**(keep Job), Job `grip.wrist_bend` | §14 '8-4c' 후속 · 2차 |
+| (8-4c c2) 샘플 전이 · 손가락 쥔 모양 | 없음(지시 목표만) | 요청 `fix.body.pose_from[]{asset, bones(프리셋 spine · neck_head · arm_l/r · upper_body · fingers_l/r · 본 이름), mode pose \| motion, source · target, hold_s, ease_s, weight, space local}` · `weights.pose_from` 3 — 같은 스켈레톤 샘플의 로컬 회전을 묶음(템플릿 체인 · 손 트리)으로, 지시 목표 (가) 블록에서 '덮은 자세'를 출발점 · 충실도 기준으로 다시 푼다(손가락 = 덮은 값 그대로). 한계 `POSE_FROM_PARTIAL` · 오류 `SAMPLE_SKELETON_MISMATCH` · Job `fix.body.pose_from` · `fingers` | §9 · §14 '8-4c c2' |
+| (8-4c) 무기 파지 | keep(파지 띠 안 — 원래 상대 변환) | `fix.body.grip.mode: weapon` **옵트인** — 원래 보조 손이 손잡이 15 cm × scale 안인 구간만 손바닥 점 → 손잡이(주 손 자리 뺀 조각 · 미끄러짐) · 원래 상대 회전 ± 10° · 손목 굽힘 상한 · 마무리 `_snap_weapon`. auto 는 keep + 손잡이 관계 기록(`GRIP_NOT_APPLICABLE`) | §9 · §14 '8-4c' |
+| (8-4d) 펴진 다리 무릎 떨림 | 8-3 다리 보정(소스 쪽 접지 블렌드 · 골반 상승)이 공중 발 경로에 꺾임 — 검 선택 다리 떨림 1.89(원본 0.56), 대상 쪽 다리는 골반 · 발 목표가 있을 때만 움직임 | 요청 `fix.body.legs{pins auto, swing_path auto \| on \| off, soft_knee{start 0.97, softness 0.03} \| null}` — 접지 프레임(대상 발목 `detect_contacts`)은 원래 키, 공중 구간마다 발목 목표를 **무릎 · 발목 저크(3차 차분) 최소 + 충실도**로 다시 짠다(경계 밖 접지 3 프레임 고정 — 값 · 기울기 · 가속 연속, 소프트 무릎은 그 안). 다리 IK 는 같은 `pose()` — 관통 지도 · 재검사 · 예측 · `bone_deltas` 가 같은 풀이에서 본다. **auto = 같은 Job 의 `fix.ops` 에 다리 op(stance_width · foot_lock)가 있을 때만**(기존 애셋은 `on`) — 기본 동작 불변(HEAD 비트 동일). 검 선택 1.891 → 1.259 · 칼 시험 3.33 → 1.41 · 낫 2건 = 원본 손가락 값까지. Job `fix.body.legs` · 한계 `LEGS_PATH_REDESIGNED` · `LEG_PATH_SKIPPED` | §9 · §14 '8-4d' |
+| (8-4d) 다리만 고치기 | 팔 관통 보정은 늘 켜짐 | `fix.body.clearance.mode: auto \| off`(off = 팔 관통은 재기만) — 다리만 고친 결과에서 상체 불변(0.01 cm = C++ 쓰기 잡음) | §9 · §14 '8-4d' |
+| (8-4d) 캡처 기록 | review.capture Job 기록에 부착 정보 없음 | Job `review.capture.attachments`(C++ 결과 그대로 — 낫 합본 1) | §14 '8-4d' |
+| (8-4d 진단 · 수정) 머리목 마무리 | 매끈화 · 재검사 뒤 남은 머리목 관통은 한계로만(빠른 휘두름의 한 프레임 — 검 선택 합본 f21 2.37 cm) | 맨 끝(`_finish_head`)에 손 · 아래팔이 머리목을 관통(> penetration_cm)한 **짧은 고립 구간**(≤ 2 프레임 · ≤ 4 cm × scale)만 그 프레임 풀이 값 + ±1 이웃 증분 × 0.3, 판정 · 풀이의 지도 각도는 C++ 처럼 어깨 기준. 길거나 깊은 구간은 건너뛰고 기록(`stats.head_finish_skipped`). 머리목 = 하드 기준(사용자 결정 '머리목만') — **기본 동작 변경**이지만 비교 대상 12 Job 은 기준 결과 그대로 | §14 '8-4d' |
+| (8-4e) 빠른 구간 매끈화 | 관통 몫 매끈화 폭 = 클립 전체 고정(smooth_s 0.13 × 30 × 1.5 = 6 프레임) — 시간 보정(×1.7) 뒤 빠른 휘두름에서 폭이 손 이동 ≈ 80 cm 를 섞어 고립 깊은 보정이 묽어짐(합본 검 f21 → 머리목 마무리 · 떨림 3.88, 합본 낫 손가락 5.17) | `fix.body.smooth_speed: auto \| on \| off` — on = 몸 기준틀 손목이 6 cm/프레임보다 빠른 프레임만 폭 × 6 / 속도(≥ 0.5) · 재검사 이웃 몫 × 같은 배. **auto = 같은 Job 에 fix.timing 이 있을 때만**(모든 요청에 켜면 원 속도 공격 · 달리기에서 새 미달 4 — 사용자 결정). 합본 검 3.88 → 1.60 · 합본 낫 5.17 → 4.19(머리 0 — 마무리 없이), 그 밖 Job 은 8-4d 와 비트 같다. Job `fix.body.smooth_speed` | §9 · §14 '8-4e' |
+| (8-4f) 위팔 마무리 | 위팔 쌍은 '원래보다 안 깊어짐'만(8-4b) — 손 · 아래팔이 닿지 않는 구간은 원래 깊이가 남았다(검 선택 합본 f23 ~ 36 왼 위팔 ↔ 가슴 6 ~ 6.8 cm, 사용자 판정 f25 '보인다') | `fix.body.clearance.upper_arm: cap`(기본) · `upper_cap_cm` 4.0 — 모든 마무리 뒤 위팔 ↔ 몸이 4 cm × scale 를 넘는 프레임만 팔꿈치를 어깨 ↔ 손목 축으로 돌린다(손 고정 · 손목 굽힘 ≤ 원래 + 10°, 보조 손목 파지 프레임은 그 상한(원래 + 2°)이 먼저 · 묶음마다 한 방향 · ±4 프레임 램프). 합본 검 C++ 6.82 → 5.12 cm(머리 · 손 · 떨림 · keep 그대로), 통합 실패 19 → 18 · 22 → 20(새 항목 0). `no_worse` = 8-4e 와 비트 같다 | §9 · §14 '8-4f' |
+
+---
+
+## 개정 13 변경 요약 (Phase 8-3 — 자동 보정)
+
+| 항목 | 개정 12 | 개정 13 (설계 확정 · E0 실측 · 엔진 소스 대조 · 구현 · 실측) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 흐느적 | 휘두름 정점이 운영 공격의 1/2 ~ 1/4 · 4초 중 정지 꼬리 2.2 ~ 2.5초(검) · 정지 머리 0.9초(낫) — 프롬프트 · 선별로만 | 요청 `fix.timing` → 리타깃 뒤 **대상** 시퀀스(재사용이면 그 애셋 — 모든 경로)에서 `direct_key` timing 단계: `validate_animation profile` 손목 속도로 핵심(정점 50% 이상) · 휘두름(20% 까지 넓혀 국소 최소) · 정지 머리 / 꼬리(전신 < 30 cm/s) → 기존 `retime`(핵심 ×r = 1,200 ÷ 정점 · 상한 2.0, 앞뒤 계단 램프, 복귀 ×1.5) · `trim`(머리 0.2 · 꼬리 0.3초 남김) — 순수 `timing.py`, 정수 프레임 조각, 늦은 시각부터. 대상 스켈레톤의 기존 애셋이면 계획이 op · 결과 길이를 미리 보인다. Job `timing`, 한계 `TIMING_CHANGED_LENGTH` · `TIMING_NOT_APPLIED` | §4 · §5 · §7 · §9 · §13 · §14 |
+| 넓은 다리 · 발 미끄러짐 | `fix.ops` 사전 비어 있음(`UNSUPPORTED_FIX_OP`) | 사전 `smooth` · `stance_width`(두 발 디딘 발 좌우 비 상한 3.0 — 대상 메시 기준, 사용자 결정) · `foot_lock` — `fix_ops.py`(이름 · 기본값 · 순서 한 곳) · `foot_fix.py`(순수) · `blender/fix_legs.py`. 다리 둘은 한 풀이로, **리타깃된 다리의 모델**(대상 골반 = 소스 골반 × 대상/소스 골반 높이 · 회전 변화 — `PelvisMotionOp.cpp DecodePose`, 다리 뼈 = 소스 방향 · 대상 길이) 안에서 풀어 그 뼈 방향을 소스에 입힌다 → 대상 발 고정. 실측: 소스 발만 고정하면 대상 미끄러짐이 줄지 않았다(낫 10.3 → 16.2 cm/s) → 모델 풀이로 4건 0.0 | §4 · §5 · §9 · §13 · §14 |
+| 저장된 생성 결과 다시 보정 | — | SOMA77 BVH 를 `motion_file` 로 주면 local_ai 와 같은 리타깃 기본값(골반 · 체인 · 발 — `soma.py` 한 곳) — 다시 생성하지 않고 보정만. 기준 재현 4건 0.000 cm | §5 · §14 |
+| 전후 캡처 | 비교 칸 이미지 = `ImportSourceRoots` 만 | `capture_animation` 비교 칸 이미지에 `CaptureOutputRoots` 도(앞선 캡처 = 보정 전) — C++ 1곳 · Automation | §2.3 · §14 |
+| (보강) 가속 구간 끊김 | 구간 등속 `retime` 조각(계단 램프) — 떨림 최대 0.5 ~ 3.4 → 7.4 ~ 12.5 cm/프레임² | 새 C++ op `time_warp{knots, rates?, antialias?}`(새 시각 → 원 시각 단조 3차 Hermite — 속도 단차 · 새 이음매 없음, 1배보다 빠른 곳은 σ = c·√(배율² − 1) 프레임 가우시안으로 거른 뒤 고름) + `timing.py` 배율 곡선(출력 시각에 선형인 램프, 새 길이 정수 프레임 올림) → op = trim 하나 + time_warp 하나, `fix.timing.antialias` 기본 1.0. 떨림 최대 3.8 / 2.3 / 3.4 / 2.6(시간만) — 첫 판의 1/3 ~ 1/7 | §14 Phase 2 · Phase 8 '8-3 후속' |
+| (보강) 떨림 기준 | 원본 × r² | 떨림 지표가 보폭에 민감해 원본 × r² 는 가속을 하는 한 못 지킨다 → **균일 r 배 기대값 × 0.8**(`motion_metrics.zigzag_at_rate`) | §14 Phase 8 '8-3 후속' |
+| (보강) 무릎 굽힘 | 발을 모으면 무릎 굽힘 p50 37 ~ 42° → 48 ~ 60° | `stance_width.keep_knee_bend`(기본 참) — 좁힌 만큼 골반을 올려 엉덩 → 발목 거리를 원래대로(두 다리 중 작은 쪽, `foot_fix.pelvis_raise`) → 원본 + 0 ~ 3°, 상체는 골반과 함께 오름(골반 기준 0.01 cm) | §9 · §14 Phase 8 '8-3 후속' |
+
+---
+
+## 개정 12 변경 요약 (Phase 8-2 — Vesper 캡처)
+
+| 항목 | 개정 11 | 개정 12 (설계 확정 · 엔진 소스 대조 · 구현 · 실측) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 시각 근거 | `review.render` = 변환된 **소스 골격**(Blender), 대상 메시는 Persona 에서 사람이 연다 | 새 Tool `capture_animation`(C++, Tool 41) — 임시 `FPreviewScene` + 정사영 `SceneCapture2D` 로 시퀀스를 **대상 메시**(Vesper `SK_StreetDemon_F_01`)에 입혀 행(시각) × 뷰(정면 · 측면) PNG · 시트 · (소스 골격 이미지를 주면) 비교 시트 · 연속 프레임. 카메라 · 셀 규칙 = `review_render.py`(전 프레임 범위에 한 번 고정 · 셀 높이 512 · 폭 = 범위 비율) — 두 시트가 같은 행이라 나란히 본다. 애셋 0 · 새 더티 0(`UNEXPECTED_DIRTY`), 쓰기는 ini `+CaptureOutputRoots` 아래 새 폴더만, 오류 `CAPTURE_FAILED` | §2.3 · §3.1 · §3.2 · §3.3 · §13 |
+| 요청 · 실행 | — | `review.capture{times? \| count?, views?, mesh?, sequence?, compare?}` → 새 파이프 `review` 의 capture 단계(검증 뒤 · 포장 앞, **모든 경로** — 생성 · 재사용 · 편집). render 가 있으면 그 시각을 행으로 쓰고 소스 골격 프레임을 비교 칸으로. 연속 프레임은 anim_gen 이 **APNG** 한 장으로 잇는다(표준 라이브러리 — ffmpeg · 패키지 설치 없음). Job `review.capture{sheet, compare_sheet, animation, frames, camera, …}`. 캡처 실패는 생성 실패가 아니다(한계 `REVIEW_NOT_CAPTURED`), 한계 `REVIEW_CAPTURE_PREVIEW_ONLY` | §3.4 · §4 · §5 · §7 · §9 |
+| 채팅 표시 | — | 세션 권한 `Read(./Saved/**)` 거부가 SendUserFile 에도 걸린다(실측) → 캡처 루트는 Saved 밖 `Tools/mcp/results/capture/`(gitignore). 결과 PNG · APNG 를 SendUserFile 로 보인다 | §3.1 · §14 Phase 8 '8-2' |
+| 엔진 함정 (실측) | — | ① 쇼 플래그는 등록이 덮어쓴다 → `SetShowFlagSettings` ② 틱 없는 프리뷰 월드는 동적 데이터로 스키닝이 갱신되지 않는다 → 포즈마다 `RecreateRenderState_Concurrent`(썸네일 장면과 같은 순서) ③ 메시는 본 밖으로 나온다 → 범위 = LOD0 정점을 본 로컬 상자로 | §2.3 · 감사 §19 |
+
+---
+
+## 개정 11 변경 요약 (Phase 8-1 — 생성 품질)
+
+| 항목 | 개정 10 | 개정 11 (설계 확정 · 실측 · 구현) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 플래그 | `two_hand_weapon_grip` · `foot_contact` = 한계(`GRIP_NOT_VALIDATED` · `FOOT_CONTACT_NOT_ENFORCED`) | `local_ai` 가 **2차 생성 제약**으로: 같은 seed 1차 → `local_ai/refine.py`(순수 Python) 가 1차 결과로 양손 파지 목표(주 손 너클 Index2 → Pinky2 = 손잡이 축, 간격 = 너클 폭 + 1 cm, `meet` = 두 손목을 함께 옮겨 보조 · 주 팔 길이 × 0.92 · 0.98 안 — 기본, `lead` = 주 손 궤적 그대로 · 비교용) · 1차 접지 발 · 1차 루트를 계산 → 2차. 한계 교체 `GRIP_POSITION_ONLY` · 진단 `FOOT_CONTACT_CONSTRAINED`. 그 밖의 Provider 는 그대로 | §4 · §5 · §9 · §14 |
+| 후보 | `samples`(같은 seed) · `pick` | `generation.candidates` 1 ~ 6(seed, seed+1, … 한 Kimodo 실행) → **select 단계**(후보 전부 같은 RTG 로 리타깃 → `validate_animation profile_positions · body_clearance` 한 번 → `motion_metrics.py` 지표 → `selection.py` 점수 → 하나 → 최종 리타깃은 그 후보만). Job `selection`(후보별 수치 · 벌점 · 순위 · 근거 — 같은 기록 → 같은 선택), 한계 `SELECTED_BY_NUMBERS` | §5 · §7 · §9 · §13 · §14 |
+| 관통 보정 | 기본 `resolve` | 비우면 계획이 정한다 — 파지 플래그면 `measure`(모든 Provider, 한계 `BODY_CLEARANCE_MEASURED_FOR_GRIP`), 명시 `resolve` 는 위험 `CLEARANCE_MAY_BREAK_GRIP`. 근거 E1(같은 seed `measure` vs `resolve`): 파지가 처음부터 없었고 보정은 손목을 p50 1.9 cm 더 벌렸다. C안(파지 + 관통 0)은 8-4 | §9 · §10 |
+| Kimodo 제약 형식 (실측 정정) | 설계: 손 `EndEffectorConstraintSet(LeftHand, RightHand)`, 발 `left-foot` · `right-foot` | Kimodo 후처리는 클래스 이름으로만 고정 마스크를 만들고 목표를 회전 FK · 매끈한 루트로 다시 계산한다 — 손을 고정하면 처음 · 끝 12프레임이 되돌아가고, 발을 고정하면 미끄러진다. → **손 · 발 모두 일반 end-effector(확산 조건만) + root2d**, 후처리는 표준 접지 정리만(파지 100% · 발 위치 1차 ± 3.4 cm · 접지 미끄러짐 1차 수준). 제약 포즈는 팔 2본 IK 로 FK 와 맞춘다 | §14 Phase 8 · 감사 §18 |
+| 선별 점수 기준 (실측 정정) | 설계: 발 좌우 비 `(p90 − 2.5) / 2.5` | Vesper 비가 소스보다 크다(엉덩 관절 폭이 좁다 — 기준 시험 5.55) → 폭 2.5 는 1.0 으로 포화 → **폭 5.0** | §14 Phase 8 · 감사 §18 |
+| 실행 | Kimodo 기한 = 정책 | 기한 = 정책 + 25초 × (확산 − 1), 후보 BVH 는 Blender 한 실행(`bvh_to_fbx.py items`), 후보 임포트는 `Import/Motion/C<번호>/`(임포트는 빈 폴더만 — `DEST_NOT_EMPTY`) | §5 · §14 |
+| Persona 소견 후 수정안 A · B · C (같은 날 보강) | 2차 생성 그대로 · 보조 손 방향을 주 손에 맞춤 · 선별 5지표 | A: 2차 출력 시간 스무딩 σ 1프레임(계획 `refine.smooth_sigma_frames` — 떨림 0.18 ~ 1.23 → ≤ 0.13). B: 손 회전 keep(보조 손목 최대 111.5 → 39.7°, seed 25). C: 깨짐에서 관통 경고 제외 · 파지면 비파지 관통 · 궤적 폭 `attack`(가중치 2) — 기록 후보 재계산 · 재생성 모두 seed 20261025. `motion_metrics` 버전 2(어깨 · 팔꿈치 역할, 떨림 · 손목 굽힘 · 손 들기 · 접지 미끄러짐 기록) | §9 · §14 Phase 8 · 감사 §18 |
+| 낫 기준 보정 (같은 날 보강 2) | 파지 = 검 손잡이(간격 ≤ 30 · 판정 ≤ 20 cm) | Vesper 근접 무기 = 낫 → `spacing_cm` 상한 100 · 요청 간격이 있으면 파지 판정 '간격 ± 13 cm' · 궤적 폭 손별 큰 쪽(한손에도 맞게) · 양손 겹침 기록(`hand_contact`) · `motion_metrics` 버전 3. 낫 재생성(간격 60): Vesper 손목 간격 51 cm · 겹침 0 · 정점 +53% | §9 · §14 Phase 8 '낫 기준 보정' · 감사 §18 |
+| 낫 정정 — 팔 꼬임 · 머리 · 배 관통 (같은 날 보강 3) | 손잡이 축 = 주 손 너클 · 파지면 비파지 관통만 · 꼬임 · 머리 지표 없음 | 축 = 1차 두 손목 방향(손목 2 cm 안이면 너클) · 자루 무기는 관통 전체 · `motion_metrics` 버전 4(`arm_cross` · `head_near`) · 벌점 `cross` · `head`(가중치 각 2, 기준 = 운영 낫 애니 0) · 통합 `scythe` 상한 검사. 재생성: Vesper 꼬임 12.5 ~ 91.7 → 0 ~ 5% · 선택 후보(seed 25 → 28) 머리 41.7 → 4.2% · 관통 75.2 → 6.6%. **파지 띠는 FAIL**(Vesper 간격 = 요청 × 0.79 — 띠 정의 후속). 남은 머리 · 배 · 가슴 관통(사용자 Persona)으로 8-4 범위를 '대상 쪽 몸 전체 관통 · 무기 파지'로 보강 | §9 · §14 Phase 8 '낫 정정' · 로드맵 '8-4 범위 보강 근거' · 감사 §18 |
+| 파지 띠 정정 — 대상 메시 기준 간격 (같은 날 보강 4) | 자루 무기 띠 = (요청 간격 ± 13) × 대상 pelvis scale — FK 리타깃은 간격을 어깨 폭 · 팔 길이로 바꾸므로(Vesper × 0.79) 요청 > 52 cm 면 늘 띠 밖 | 간격 사상(두 골격 기준 포즈의 어깨 관절 폭 · 팔 길이 — 대상 = W_대상 + k × (생성 − W_생성), 기록 오차 ≤ 1 cm)을 계획이 한 번 풀어 generate(생성 간격 · 소스 띠 ± 13)와 select(대상 띠 ± 13 × k)가 같은 값을 쓴다 · 새 요청 `target_spacing_cm`(대상 메시 기준) · `motion_metrics` 버전 5 · 한계 `GRIP_SPACING_MAPPED`. 기록 재계산: Vesper 파지 4 ~ 38 → 100%(선택 그대로). 대상 60 cm 재생성: Vesper 간격 60.5 ~ 62.2 cm · 파지 100% · 선택 seed 28 머리 0 · 관통 0.8% · 통합 PASS | §9 · §14 Phase 8 '파지 띠 정정' · 감사 §18 |
+
+---
+
+## 개정 10 변경 요약 (Phase 7 — AnimBP 연결 · 승격)
+
+| 항목 | 개정 9 | 개정 10 (설계 확정 · 엔진 소스 대조 · 구현 · 실측) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 승격 | "AssetTools rename, 리디렉터 없음" 한 줄 | 새 Tool `promote_animation(assets[{source, dest}], dry_run, confirm, allow_referencers)` — `IAssetTools::RenameAssets` 는 새 패키지 · 참조 패키지를 **자동 저장**한다(사후 더티 비교로는 못 막음) → 사전 검사(후보 소스 · 클래스 · dest 규칙 · 참조자 · 맵 · 미저장 참조자 · 보호 · 네이티브 CDO) + `confirm`, 후보 경로 밖 참조자는 `allow_referencers` 로 명시. 사후 검증(리디렉터 0 · 옛 파일 · 내용 해시 · 참조 · 저장 집합). ini `+PromotionPaths=/Game/Animation/Hero/`(생성 경로와 겹치면 무시). 오류 `PROMOTE_FAILED` | §2.3 · §3.1 · §3.2 · §3.3 · §12 · §14 |
+| 기존 쓰기 Tool | "기존 Tool 동작은 바꾸지 않는다" | `create_anim_montage` · `set_montage_sections` · `create_blendspace` · `set_sequence_additive` · `duplicate_animation_blueprint` · `apply_graph_operations` 에 옵트인 `generation_guard`(허용 목록 · 덮어쓰기 거부 · 전역 더티 비교 · 검사 뒤 저장 — 원천은 C++ `FWriteGuard` 한 곳). **기본 false = 기존 동작 그대로**(원칙의 범위 = 기본값) | §3.1 · §3.3 |
+| 요청 | `integrate_anim_bp` → 한계 `ANIM_BP_NOT_INTEGRATED` | `package{additive?, montage?, blendspace?}` · `integrate_anim_bp: true` + `anim_bp{asset_path, operations[], scenario?, smoke}`(참인데 없으면 `MISSING_FIELD`, 거짓인데 있으면 `CONFLICTING_FIELDS`) · 자리표시 `$asset` · `$montage` · `$blendspace`. 한계 `ANIM_BP_APPLY_PENDING` · `NOTIFIES_NOT_ADDED`(`ANIM_BP_NOT_INTEGRATED` 폐지) | §9 |
+| 라우터 · 실행 | 검증에서 끝 | 모든 후보의 검증 뒤 `package_additive` · `package_montage` · `package_blendspace` · `anim_bp_test`(복제본 적용 · 컴파일 · 스모크 · 시나리오 — 비동기) · `anim_bp_prepare`(운영 AnimBP revision · 미리보기 — 읽기만). 계획 때 슬롯 등록(`SLOT_NOT_IN_SKELETON`) · ABP 스켈레톤(`SKELETON_MISMATCH`) · 운영 미리보기(`PREVIEW_INVALID`) · revision 고정 | §5 |
+| 실패 | — | 포장 · 연결 실패 = `INTEGRATION_FAILED`(폴백 없음 · 만든 시퀀스는 `generated_assets` 에 남음), 가드 오류는 그대로 중단 | §7 |
+| 운영 AnimBP | 기존 Tool 로 연결 | **anim_gen 은 운영 AnimBP 에 쓰지 않는다** — Job `anim_bp.apply_payload{asset_path, operations, expected_revision, compile}` 까지. 적용은 사용자 승인 뒤 승격 → 바인딩을 정식 경로로 → `apply_graph_operations(expected_revision)`(가드 없이). Phase 7 완료 기준에서 실제 운영 적용은 뺐다(사용자 결정) | §12 · §14 |
+| 노티파이 | — | 플러그인 = 몽타주 구조(슬롯 · 섹션 · 블렌드), 프로젝트 노티파이 = `astral-ue-montage` 스킬. 순서 = 생성 → 포장 → 확인 → 승격 → 정식 몽타주에 노티파이 → GA 지정(승인). 스킬의 "슬롯 이름 변경 · 다중 섹션 금지"는 Python API 한계였다 → 플러그인 Tool 로(스킬 문서 정정) | §12 |
+| 설계 정정 (엔진 실측) | — | ① additive 기본 = `LocalAnimFrame 0`(설계 예시 `AnimFrame` + 기준 시퀀스 없음은 `IsValidAdditive` 가 거짓 — `AnimSequence.cpp:2627-2639`) ② `ABP_McpRuntimeTest` 의 Run 상태 플레이어는 SequencePlayer 라 `set_asset $blendspace` 가 안 된다 → BlendSpacePlayer 추가 · Speed 연결 · 교체 op ③ 짧은 몽타주는 `wait_frames` 안에 끝나 슬롯이 꺼진다 → 루프 섹션 ④ 복제본 이름에 Job 꼬리(`_Test_<job>A<n>`) — 스모크 테스트 이름이 애셋 이름이라 겹치지 않게 ⑤ additive 는 제자리 편집이라 재사용 애셋에는 거부(`ADDITIVE_ON_REUSED`) | §9 · §14 |
+
+---
+
+## 개정 9 변경 요약 (Phase 6 — 외부 AI · Meshy)
+
+| 항목 | 개정 8 | 개정 9 (공식 문서 확인 · 구현) | 위치 |
+| :--- | :--- | :--- | :--- |
+| Meshy API | 엔드포인트 · Bearer 만 | `prompt` ≤ 400자 · `duration` 2 ~ 10초(0.5초 단위, 필수) · `mode` prime(FBX, 기본) / swift(BVH) → 태스크(`consumed_credits` · `expires_at` · `task_error`), 결과 3일 보존, 취소 없음(DELETE 는 PENDING 만 환불), 잔액 `GET /openapi/v1/balance`(무료), 초당 20 요청 · 동시 태스크 Pro 10, 테스트 모드 키 폐지(2026-09-16). **출력 리그는 문서에 없다** | §2.4 · 부록 A · B |
+| 가격 | 미확인 | 크레딧은 공식(prime 10 · swift 3, 실패 환불). **돈 값은 요금제마다 달라(KRW 표시 · 크레딧 팩 비공개) 공식 문서로 확정할 수 없다** → 정책 `external.meshy.usd_per_credit`(사용자가 자기 요금제로 정함, 기본 null = `COST_UNKNOWN`) | §6 |
+| 약관 · 데이터 | 미확인 | 유료 요금제 출력 소유 · 비 Enterprise 입력 · 출력 학습 사용 가능(§2.9) · 경쟁 AI 학습 금지 · 지역 제한 없음 → 사용자 수용(`license: ok`). 보내는 것은 프롬프트 · 길이 · 모드뿐 | §2.4 · §16-11 |
+| `external.meshy` | 비활성 자리 | `providers/meshy.py`: 계획(보낼 본문 고정 · 네트워크 없음) → 승인된 유료 단계 안에서만 잔액 → 제출 → poll(Retry-After) → 결과 다운로드(인증 헤더 없음 · https · 형식 바이트) → prime = import, swift = blender 변환 → retarget(자동 IK Rig). 요청 로그 `<state>/external/meshy_requests.jsonl` | §4 · §14 |
+| 요청 | — | `generation.options{<provider>: {...}}` — 그 Provider 만 읽는 설정(`{"external.meshy": {"mode": "swift"}}`), 이름은 레지스트리로 검사 | §9 |
+| 장부 · Job | USD 만 · poll 실패는 예약 유지 | reserve · charge 에 `credits`, Job `cost.credits{estimated, actual}`. **poll 단계 실패**도 Provider 가 환불(`charged: false`)이나 실제 과금을 알려 주면 반영(전에는 제출 단계만) | §3.4 · §6 |
+| 비용 추정 | `estimate(request)` | `estimate(request, policy)` — 정책이 환산을 정하는 Provider 용. 계획 후보 `estimated_credits`, 견적 `credits` · `usd_per_credit` | §6 |
+| Phase 6 마감 | — | 완료 기준 ② · ③ · ④ 충족, ① 실제 유료 1건은 **미실행**(사용자 Meshy Free 요금제 — API 생성 402). 유료 요금제에서 `anim_gen_phase6_test.py --real` 로 실행 | §14 |
+| Phase 8 로드맵 | "품질 · 세그먼트" 한 줄 | Kimodo 칼 휘두르기 시험(사용자 Persona 판정: 다리가 많이 벌어짐 · 베기가 흐느적)을 근거로 8-1 생성 품질 · 8-2 Vesper 캡처 · 8-3 자동 보정 · 8-4 무기 파지 4단위. 세그먼트는 그 뒤. 상세 시그니처는 착수 때 개정 10 | §14 |
+| 별도 트랙 | — | 3D 메시 생성(Tripo — 텍스트 → 모션 없음)은 애니 파이프라인 밖 별도 트랙, 애니 자동화 뒤 | §2.4 · §14 |
+
+---
+
+## 개정 8 변경 요약 (Phase 5 — 로컬 AI · Kimodo)
+
+| 항목 | 개정 7 | 개정 8 (조사 · 엔진 소스 대조 · 실측) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 로컬 모델 | "공개 Text-to-Motion 은 학습 데이터 조건 미확인" | HumanML3D 계열(MDM · MoMask · T2M-GPT …)은 AMASS 가 "commercial use of any kind" 학습을 금지 → 상업 부적법(포트폴리오는 원문이 정하지 않음). HY-Motion 1.0 은 한국 제외. **유일한 적법 · 호환 후보 Kimodo-SOMA-RP-v1.2 채택**(2026-10-24, 사용자) | §2.4 · 부록 B · [조사](LocalModelSurvey.md) |
+| `local_ai` | 비활성 자리(`NOT_IMPLEMENTED`) | Kimodo 전용 venv 를 서브프로세스로(`kimodo_run.py`, 오프라인 · 텍스트 인코더 CPU) → BVH(SOMA77 표준 T 포즈 · cm · 루트 트랙) → `blender` 변환 → retarget(SOMA 수동 체인 27개). 서브프로세스 공통 기반 `subprocess_step.py`(blender 와 같이) | §3.4 · §4 · §14 |
+| 정책 | `paths.blender_executable` | + `paths.kimodo_python` · `paths.kimodo_hf_cache` | §6 |
+| 요청 | 생성 필드 없음 | `prompt`(모델이 읽는 영어 문장) · `generation{seed, samples, steps, postprocess, pick, constraints[root_path · keep_pose · kimodo_raw]}` · `review.render` · `fix.ops`(사전 비어 있음) · `retarget.align_mode` · `retarget.body_clearance` | §9 |
+| 라우터 | 생성 → import | 생성 결과가 BVH 면 `blender` 변환을 잇는다(예상 규약 고정 → 실행 때 측정). blender 가 없으면 `DEPENDS_ON_BLENDER`. Provider 가 아는 리타깃 기본값(SOMA 골반 · 체인 · 발)은 요청이 비운 것만 채운다 | §5 |
+| 리타깃 정렬 (엔진 함정) | `match_existing` = FK op 만 정확 매핑 | 리타깃 포즈 자동 정렬은 '매핑된 체인'을 **꺼진 op 까지 모든 op** 의 매핑으로 판정한다 → 꺼진 Run IK Rig op 의 퍼지 매핑이 소스에 없는 손가락을 다리 · 팔 방향으로 꺾었다(SOMA 검지 MCP 120°). `match_existing` 은 모든 op 를 정확 매핑 | §2.3 · §10 |
+| 리타깃 정렬 (`per_bone`) | 엔진 자동 정렬만 | `create_ik_retargeter align_mode=per_bone`(anim_gen 기본): 뼈 수 같은 체인 FK 1:1 + 본 대 본 · 체인 끝 정렬, 축 체인(척추 · 목 · 머리) · 펠비스 = 대상 고유 자세, 머리 해부적 중립, 손가락은 메타카팔 상대 | §2.3 · §10 |
+| 기준 포즈 FBX | 동작 FBX 하나 | Interchange 는 계층 깊이 ≥ 10 본이 있으면 바인드 포즈를 무효로 보고 첫 프레임으로 다시 바인드한다 → blender 가 기준 포즈 2프레임 FBX 를 따로 내고 임포트는 2단(스켈레톤 ← 기준 포즈 FBX, 동작 ← 그 스켈레톤에 애니만) | §2.3 · §10 |
+| 손가락 · 관통 | 검증 없음 | `create_ik_rig finger_chain_suggestion`(이름 없는 위상 · 좌표 제안) · `validate_animation fingers`(미매핑 = 기준 포즈 · 굽힘 방향 · 끝 순서) · `body_clearance`(대상 메시 반경 지도) · `retarget_animations body_clearance resolve`(관통 프레임만 위팔 최소 회전) | §10 · §13 |
+| 시각 확인 | 사람이 Persona/PIE (캡처는 Phase 8) | + `review.render` — 변환된 **소스 골격**의 프레임 PNG · 비교 시트(Blender Workbench). Vesper 캡처는 Phase 8 그대로 | §13 |
+
+---
+
+## 개정 7 변경 요약 (Phase 4 — Blender Provider)
+
+| 항목 | 개정 6 | 개정 7 (소스 대조 · 실측) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 아마추어만 있는 FBX | 미확인 | Interchange는 스킨 메시가 없으면 새 스켈레톤을 만들지 않고 애니도 건너뛴다 → Blender가 본마다 가중치 1.0 기둥 메시(더미 스킨)를 붙인다 | §2.3 · §14 |
+| BVH 단위·축 | 부록 B 미확인 | 단위 정보 없음 → `motion_file.unit`(auto = 기준 포즈 키가 사람 키가 되는 표준 단위, 없으면 170cm 정규화 + `SCALE_NORMALIZED`). 축 BVH(Y-up) → Blender → FBX → Interchange = UE `(x, z_bvh, y_bvh)`. 장면 1 BU = 1 cm로 노드 스케일 1 | §2.3 · §10 |
+| BVH 기준 포즈 높이 | — | 루트 OFFSET 0이면 골반이 바닥 높이 → 리타기터 Pelvis Motion op가 높이를 1로 두고 이동을 키운다 → 기준 포즈를 바닥에 맞추고 루트 위치 키에서 같은 만큼 뺀다 | §2.3 · §10 |
+| 정면 방향 | 언급 없음 | FK 체인 op는 전역 회전 델타 → 소스·대상 정면이 다르면 동작이 다른 평면으로 휜다. Blender 단계에서 대상 정면으로 돌린다(`motion_file.facing`). 보강: retarget 파이프(existing_motion · 생성 임포트)는 리타기터가 맞춘다 — 대상 루트 반대 회전 + Additive Pose op(`facing_yaw_deg`), 요청 `retarget.source_facing` | §2.3 · §9 · §10 · 부록 B |
+| 요청 | 파일 입력 없음 | `motion_file{path, unit, facing, range, axis_forward, axis_up}` — 있으면 라우터가 `blender`를 맨 앞에 둔다 | §5 · §9 |
+| 정책 | — | `execution.subprocess_timeout_seconds`(기본 300, 10~3600) | §6 |
+| Job | 취소 = 결과 무시 | 로컬 서브프로세스는 실제로 종료(`cancel_effect`). 외부 API는 그대로 결과 무시 | §3.4 |
+| Vesper 정면 | 부록 B "Vesper −Y 쪽" | **+Y** — 기준 포즈 `ball_l` y 8.3 > `foot_l` y −3.5(발목 → 볼 = +Y), UE 마네킹과 같은 축 | 부록 B |
+| 임포트 리샘플 | `sample_rate` 를 주면 Interchange 가 굽는다 | 길이가 그 rate 의 프레임 경계에 맞지 않으면 Interchange 가 애니를 **건너뛴다**(`bSnapToClosestFrameBoundary` 기본 false — CMU 01_01 22.925초 × 30 실측). blender 는 굽기 범위 끝을 경계에 맞춘다(120 → 30 은 최대 3 소스 프레임). 보강 2: `import_animation_file` 이 `bSnapToClosestFrameBoundary` 를 항상 켜서 가까운 프레임에 맞추고 `LENGTH_SNAPPED` 를 남긴다 — 다른 FBX(Meshy 등)도 임포트된다 | §2.3 · §14 · 부록 B |
+
+---
+
+## 개정 6 변경 요약 (Phase 3 착수 전 확정안)
+
+| 항목 | 개정 5 | 개정 6 | 위치 |
+| :--- | :--- | :--- | :--- |
+| `target_mesh` | "생략 시 스켈레톤의 첫 메시" | 리타깃 단계가 생기면 **필수**(§10 "메시는 명시"와 충돌 해소). 소스 메시는 계획이 고정해 보여 준다 | §9 |
+| `motion_category` | 예시 `"combat"` | enum `idle` · `locomotion` · `weapon_action` · `full_body_new` (§5 행과 1:1) | §9 · §5 |
+| 요청 필드 | 원본 필드만 | + `search` · `edits` · `retarget`. `save`는 요청이 아니라 `generate_motion` 인자. `generation_policy`는 정책이 `FREE_ONLY`면 벗어날 수 없다 | §9 |
+| 오류·한계 | 코드 예시 | + `COST_UNKNOWN`. `limitations[]` 항목 = `{code, message, source}`. 폴백하지 않는 가드 코드 명시 | §3.2 · §7 |
+| Job | 상태 6종 · 필드 | + `plan_id` · `attempt` · `idempotency_key` · `events[]`. 에디터 Provider는 `generate_motion` 안에서 동기, 비동기 Provider는 `get_generation_status` poll 로 진행(백그라운드 스레드 없음) | §3.4 |
+| 라우터 | 행 3개 · 순서 하나 | 모드별 순서표, `provider` 지정 시 폴백 끔, 같은 스켈레톤·편집 없음이면 재사용(복제 안 함) | §5 |
+| 승인 | `approve_generation(plan_id, max_cost_usd, max_attempts)` | + `provider?`. 상한 검사식, 승인 → 대기 Job `QUEUED`, 실제 금액 미확정 기록, `require_explicit_approval`은 `true`만 | §6 |
+| Capability | 목록 | `Tools/mcp/anim_gen/providers.json` 필드 이름 | §4 |
+| Phase 3 Tool | 이름만 | 입력·결과 시그니처 | §14 |
+
+---
+
+## 개정 5 변경 요약 (Phase 2 착수 전 엔진 대조)
+
+| 항목 | 개정 4 | 개정 5 (엔진 소스 확인) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 키 직접 작성 | `SetFrameRate` · `SetNumberOfFrames` · `AddBoneCurve` · `SetBoneTrackKeys` | 길이를 바꾸면 엔진이 노티파이·싱크 마커를 옮긴다 → 비우고 다시 넣는다. 데이터가 있는 모델의 `SetFrameRate`는 배수·약수만 → 출력 fps = 주 소스. 프레임 수 = 키 수 − 1 | §2.3 |
+| 원시 키 읽기 | 미기재 | `GetBoneAnimationTracks`는 5.2부터 deprecated → `GetBoneTrackTransforms`. 원시 키에는 트랜스폼 커브가 없다 | §2.3 |
+| 애셋 복제 | 미기재 | `IAssetTools::DuplicateAsset`은 소스 컨트롤이 켜져 있으면 즉시 저장하고 이름 충돌 시 모달 → 공통 가드 안에서 `StaticDuplicateObject` | §2.3 |
+| 미러 | 미기재 | `FAnimationRuntime::MirrorPose`는 `FCompactPose` + `FBoneContainer`가 필요 → 같은 수식을 스켈레톤 인덱스로. 짝은 프로젝트 Animation 설정 규칙 또는 MirrorDataTable | §2.3 |
+| 검색 인덱스 | "루프" 포함 | `bLoop`은 레지스트리 태그가 아니다 → 루프 판정은 로드가 필요(상한) | §2.3 · §14 |
+| 원자성 | "`apply_graph_operations`의 사전 검증·원자성 패턴" | 편집은 항상 새 애셋을 만든다 → 모든 op를 메모리 버퍼에서 끝까지 계산한 뒤에만 애셋을 만든다(그래프 op의 보상 롤백과 다르다) | §3.3 · §14 |
+| op 사전 | 7개 | 7개 유지 + `concat.reverse` 옵션. `validate_animation`에 `expect` · `seams` · `profile_bones` | §4 · §13 · §14 |
+
+---
+
+## 개정 4 변경 요약 (Phase 1 실측 반영)
+
+| 항목 | 개정 3 | 개정 4 (실측) | 위치 |
+| :--- | :--- | :--- | :--- |
+| 동기 Interchange 임포트를 브리지에서 | 미확인 | 정상 — 메시째 1.3초, 애니만 0.2초. 잡 패턴 불필요 | §14 · 부록 B |
+| `MaxRetargetAssetsPerCall` | 20 (잠정) | **50** — 20개·1,317프레임 리타깃·검증·저장 3.0초 | §3.4 · §14 |
+| 절대 수치: 한 프레임 회전 > 90° | 항상 `FAILED` | 소스가 없을 때만 `FAILED`. 소스에도 있는 튐(소스 최대 + 10° 이내)은 경고 `ROTATION_JUMP_INHERITED` — 30fps 마켓 공격이 93~109°/프레임 | §13 |
+| `ops: match_existing` | "기존 RTG 의 op 7개에 맞춤" | 에디터 "Retarget Animations" 자동 생성 레시피 그대로(정확 매핑 · 타깃 포즈 자동 정렬 · Run IK Rig 끔 · 루트 모션 op · Pin Bones). 기존 RTG 가 이 경로의 산출물 — 결과 본별 차 0° | §10 · §14 |
+| `retarget_animations` 결과 `seconds_per_asset[]` | 애셋별 배열 | 평균값 + `frames` · `ms_per_frame` — 엔진이 애셋을 단계별로 묶어 처리해 애셋 하나만의 시간은 잴 수 없다 | 감사 §10 |
+
+---
+
+## 개정 3 변경 요약 (문서 검토 반영)
+
+| 항목 | 개정 2 | 개정 3 | 위치 |
+| :--- | :--- | :--- | :--- |
+| 같은 리그일 때 | `same_rig`면 `reassign_skeleton`으로 끝 | 생성 흐름은 항상 복제(`retarget_animations`). `same_rig`는 참고 정보. `reassign_skeleton`은 제자리 이동이라 원래 용도에만 | §10 |
+| 임포트 부작용 | 미기재 | `bAddCurveMetadataToSkeleton=false` 고정(기본 `true`면 기존 스켈레톤이 더티). 메시째 임포트 시 재질·텍스처·피직스·스태틱 메시 끔 | §2.3 · §10 |
+| 원본 보호 검사 | 소스 패키지 더티 확인 | 호출 전후 **전역 더티 집합 차이** — 허용 목록 밖이 새로 더티면 저장 안 하고 `UNEXPECTED_DIRTY` | §3.1-7 |
+| 기존 IK Rig·RTG 재사용 | `reuse_existing=true` (암묵) | `existing_rig` / `existing_retargeter`를 줄 때만. 소스·대상 메시 필수 | §10 · 감사 §10 |
+| 출력 경로 설정 | ini + `policy.json` 두 곳 | ini 하나. `get_editor_status`가 내보내고 `policy.json`에서 `candidate_root`·`allow_asset_overwrite` 삭제 | §3.1-6 · §6 |
+| 문서 정합 | — | `ok` 조건 · 예시 경고 코드 · 의존 목록 · `inspect_skeleton` 필드 · 검증 범위 · `reassign_skeleton` 설명 · Phase 1 완료 기준 1·2·4 · 스모크 경로 | 해당 절 |
+
+---
+
+## 개정 2 변경 요약 (Phase 0 감사 반영)
+
+| 항목 | 개정 1 | 개정 2 | 근거 (감사 문서) |
+| :--- | :--- | :--- | :--- |
+| 히어로 스켈레톤 | `/Game/IdaFaber/Meshes/Girl/SKEL_UE5_F` | `/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F` (애니 71개 · `ABP_Hero_Combat` 대상). 옛 경로는 애니 0개인 사본 | 요약 |
+| 자동 매핑 실패 | "부분 실패면 수동" | 비표준 스켈레톤은 **전부 실패**(엔진이 템플릿 일치 때만 동작) → 수동 체인이 정상 경로 | §2 |
+| 재할당 vs 리타깃 판정 | 미기재 | 본 이름 겹침이 아니라 **기준 포즈 차**로 판정. UE4 마네킹은 이름이 전부 겹쳐도 포즈가 10~40° 다르다 | §8 |
+| 일괄 리타깃 | 출력 폴더만 지정 | + `bOverwriteExistingFiles` 금지(다른 애셋 참조 교체 + 강제 삭제), AnimBlueprint 입력 거부 | §3 |
+| Interchange | 설정 키 미확인 | `bImportOnlyAnimations` + `Skeleton`, **`bReplaceExisting=false`**, 기본 파이프라인은 임시 복제, 임포트 파일은 허용 루트 아래만 | §1 |
+| 수치 검증 | 절대 임계값 | **소스 대비 상대 비교** + 명백한 깨짐(NaN · 90°/프레임 초과)만 절대값 | §5 |
+| 골든 비교 | 품질 기준 | 회귀 기준. 기존 RTG가 기본 자동 구성(수동 조정 흔적 없음) | §4 |
+| 포즈 샘플링 API | `GetAnimPoseAtTimeIntervals` | C++ 전용(UFUNCTION 아님). 검증은 C++에서 — Python은 본 읽기만 샘플링의 5배 | §5.1 |
+| Phase 1 Tool | 이름만 | 입력·결과 시그니처 확정 + 설정 키 4개 | §10 |
+
+---
+
+## 개정 1 변경 요약 (원본 대비)
+
+| 항목 | 원본 | 개정 1 | 근거 |
+| :--- | :--- | :--- | :--- |
+| 결과 형식 | `{success, job_id, provider, ...}` 독자 형식 | 기존 봉투 `{ok, tool, request_id, result, error, diagnostics}` 유지, 생성 관련 필드는 `result` 안 | 클라이언트 분기를 하나로 유지 (§3.2) |
+| 로직 위치 | "기존 MCP 비동기 모델에 맞춘다"(미지정) | C++ = UObject 조작·수치 검증만(기존 플러그인에 Tool 추가). 정책·라우터·Job·외부 호출 = 새 Python 패키지 `anim_gen`(별도 MCP 서버). 기존 `server.py`는 얇은 프록시 유지 | 브리지는 게임 스레드 동기, `server.py`는 로직 없는 설계 (§2.1) |
+| 자연어 해석 | Orchestrator 계층의 Request Analysis | **Claude Code(에이전트) 자신**이 한다. 서버는 구조화된 요청만 받는다. `create_animation_from_prompt` 폐기 | 서버 안에 LLM 호출을 두지 않는다 |
+| Phase 순서 | 기반 → 절차 생성 → 라우터 → 로컬 AI → 외부 → AnimBP → 품질 | 리타깃 기반 → 기존 모션 재사용·변형 → 라우터·정책 → Blender → 로컬 AI → 외부 → AnimBP·승격 → 품질 | 라우터는 고를 Provider가 2개 이상 생긴 뒤에야 의미가 있다 |
+| 절차 생성 수단 | Control Rig 우선 | `IAnimationDataController` 직접 키 작성 우선. Control Rig 베이크는 손·발 제약 보정에만 (Phase 8) | Control Rig 베이크는 World + LevelSequence + 바인딩이 필요 (§2.3) |
+| 전신 신규 생성 | Phase 2 절차 생성의 목표 | Phase 2 범위 밖. Phase 2 = 기존 모션 변형 + 부분 신체 편집 | 원본도 "복잡한 전신 공격은 Phase 2 필수 조건 아님" |
+| 중복 Tool | montage·blendspace·기존 모션 목록 신규 | 기존 `create_anim_montage` · `create_blendspace` · `list_animation_assets` 재사용 | §3.3 |
+| Job 시스템 | 신규 | 에디터 작업은 기존 Automation 잡 패턴(`job_id` + poll) 재사용, Provider 작업은 `anim_gen` | §3.4 |
+| 일괄 리타깃 출력 경로 | 미지정 | Python 정적 함수 대신 C++에서 배치 컨텍스트로 출력 폴더 지정 | 정적 `DuplicateAndRetarget`에는 폴더 인자가 없어 `/Game` 루트에 쓴다 (§2.3) |
+| BVH | "변환 또는 Import 경로" | 엔진 임포터 없음 → Blender 경유만 (Phase 4) | §2.3 |
+| 외부 Provider | Meshy · SayMotion | Meshy 먼저, SayMotion 보류 | SayMotion API는 검증 파트너 한정 (§2.4) |
+| 출력 경로·이름 | `/Game/GeneratedAnimations`, `AN_` 접두 | 후보 영역 `/Game/Animation/Generated/<영웅>/`, 이름은 프로젝트 규칙 `AS_<영웅>_<계열>_<동작>`. 정식 경로 이동은 사용자 확인 후 (Phase 7) | 애셋 명명 규칙 (2026-10-22) |
+| 쓰기 경로 통제 | "원본을 덮어쓰지 않는다" | 새 Tool은 **허용 목록**(`GenerationOutputPaths`) 밖에 쓰지 않는다 | 기존 보호 목록은 파괴 연산만 막는다 (§3.1) |
+| 예시 C (사격 + Strafe) | 생성 대상 | `ABP_Hero_Combat`에 이미 구현(조준 strafe · AimOffset · 레이어 블렌드). 생성 대상은 상체 사격 루프·반동 같은 개별 시퀀스뿐 | §1.1 |
+
+---
+
+## 1. 목적
+
+자연어 지시로 현재 UE 캐릭터의 스켈레톤에 연결 가능한 애니메이션 애셋을 만들고, 저장하고, 검증하는 범용 파이프라인을 만든다. 원본의 핵심 목표 8개를 유지한다.
+
+1. 특정 캐릭터·스켈레톤에 종속되지 않는다.
+2. 특정 무기·애니메이션 종류에 종속되지 않는다.
+3. 외부 유료 AI 없이 동작하는 기본 경로가 있다.
+4. 필요할 때 외부 AI를 Provider로 추가할 수 있다.
+5. 비용·성능·품질을 따져 경로를 고른다.
+6. 실패하면 허용된 다른 경로로 넘어간다.
+7. 기존 AnimBP MCP와 연결된다.
+8. 실제 UE 애셋을 생성·저장·검증한다.
+
+> 파이프라인을 구현할 수 있다는 것과 모든 자연어 요청을 높은 품질로 생성할 수 있다는 것은 별개다. 지원하지 않는 동작과 품질 한계는 결과의 `limitations[]`에 명시한다.
+
+### 1.1 원본 예시의 현실적인 경로
+
+| 예시 | 현실적인 경로 | Phase |
+| :--- | :--- | :---: |
+| A. 낫 양손 회전 3연 베기, 3초 | 기존 모션(Vesper Sickle 액션 · `/Game/Assets` 근접 팩) 검색 → 리타깃 → 리타임·연결. 맞는 모션이 없으면 외부 AI 초안(승인 시) + 보정 | 1 · 2 · 6 |
+| B. 낫 Idle·Walk·Run·Jump·Dodge | 기존 로코모션 리타깃 + 무기 상체 오버레이(기존 ABP 구조) | 1 · 2 · 7 |
+| C. 사격 중 상체 고정 + 8방향 strafe | 이미 `ABP_Hero_Combat`에 있음. 새로 만들 것은 상체 사격 루프·반동 시퀀스 | 2 · 7 |
+| D. 첫 타격 빠르게, 마지막 타격 180° 회전 | 리타임(구간별 재생 속도) + 루트 Yaw 편집 | 2 |
+
+---
+
+## 2. 확인된 전제 (2026-10-23)
+
+이 절의 내용은 코드·엔진 소스·공식 문서로 확인한 것이다. 확인하지 못한 것은 부록 B에 따로 둔다.
+
+### 2.1 기존 AnimGraphMcp
+
+```text
+Claude Code ─ stdio MCP ─▶ Tools/mcp/anim_graph_mcp/server.py (얇은 프록시)
+            ─ HTTP 127.0.0.1:18765 + 기동별 토큰 ─▶ Plugins/AnimGraphMcp (AnimGraphMcpEditor, 게임 스레드)
+```
+
+- **응답 봉투:** `{ok, tool, request_id, result, error, diagnostics}`. 같은 `(tool, request_id)` 재전송은 캐시된 응답을 돌려준다(256개).
+- **실행 모델:** 동기 실행이다(클라이언트 타임아웃 60초, 컴파일 포함 180초). 비동기는 `run_automation_tests` / `run_anim_scenario`의 `job_id` + `poll_automation_tests`뿐이다.
+- **보호:** `ProtectedAssets` / `ProtectedPaths`는 **파괴 연산만** 막는다. 현재 설정은 `/Game/Animation/Hero/ABP_Hero_Base`와 `/Game/Assets/`.
+- **범용성:** 플러그인은 프로젝트 코드에 의존하지 않는다.
+- **애니 관련 기존 Tool:** `list_animation_assets` · `create_anim_montage` · `set_montage_slots` · `set_montage_sections` · `create_blendspace`(AimOffset 포함) · `reassign_skeleton`(애셋을 **제자리에서** 다른 스켈레톤으로 옮김. 본 이름만 검사하고 기준 포즈 차는 검사하지 않음 — 감사 §8) · `set_sequence_additive` · `add_skeleton_slot` · `run_anim_scenario` · `run_automation_tests`.
+- **공백:** README가 IK Retargeter 리타깃을 "범위 밖"으로 명시한다. **이번 작업이 메울 실제 공백은 IK 리타깃과 스켈레톤 조회다.**
+
+### 2.2 프로젝트 애셋과 환경
+
+| 항목 | 값 |
+| :--- | :--- |
+| 히어로 스켈레톤 | Vesper `/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F` (172본, UE5 마네킹 본 이름, 프리뷰 `SK_StreetDemon_F_01`). `/Game/IdaFaber/...`는 기준 포즈가 같은 옛 사본(애니 0개) |
+| 기존 수동 리타깃 애셋 | `/Game/Animation/Hero/Vesper/Retarget/`: `IK_AutoGenerated{Source,Target,Kat,SourceHandS,TargetHandS,TargetKat}` · `RTG_HSwordToH` · `RTG_KatanaToH` · `RTG_AutoGeneratedHandS` → **Phase 1 회귀 비교 기준**. `IK_AutoGeneratedTarget`·`RTG_HSwordToH`는 옛 사본을 가리킨다 |
+| 본 이름 비호환 스켈레톤 | Narmaya `pl1400_Skeleton`(343본), SB `CH_P_EVE_01_Body`(300본). Vesper와 공유하는 본 이름이 0개 → 커스텀 스켈레톤 테스트 대상 |
+| 기존 모션 소스 | `/Game/Assets/` 마켓 키트(uasset 3,169개). CombatMasterAnimBundle은 스타일마다 UE4 마네킹(68본)·UE5 Manny(161본) 스켈레톤을 따로 가지며, 모두 Vesper로 오려면 IK 리타깃이 필요하다 |
+| 명명 규칙 | `/Game/Animation/Hero/<영웅>/<계열>/<용도>/` · `AS_<영웅>_<계열>_<동작>` · 몽타주 `AM_` · 타입 폴더 금지 (`.claude/plans/anim-asset-naming.md`) |
+| 테스트 산출물 위치 | `/Game/Animation/Test/` |
+| Blender | 4.4.1, `C:\Program Files\Blender Foundation\Blender 4.4\` (PATH에 없음 — 정책 `paths.blender_executable`). `-b --factory-startup` 기동 약 2.9초, BVH 1건 변환 0.6~2초 |
+| GPU · 메모리 | RTX 3080 Ti 12GB · RAM 64 GB · i7-12700KF |
+| MCP Python | `Tools/mcp/.venv` Python 3.13.1, `mcp` 2.x |
+| 로컬 AI (개정 8) | Kimodo — 저장소 밖 `D:\AnimGenModels\Kimodo\`. 시스템 Python 3.13 venv(`Tools/mcp/.venv` 와 별개) · 코드 `nv-tlabs/kimodo` `e1c219c` · torch 2.14.1+cu130 · NVIDIA 잠금 버전 72개(numpy 만 2.3.5 — 3.13 휠) · C++ 확장 `motion_correction`(발 미끄러짐 후처리) VS2022 빌드. 오프라인 Hugging Face 캐시 `hf_cache` 17 GB(체크포인트 `nvidia/Kimodo-SOMA-RP-v1.2` · LLM2Vec 어댑터 2개 · `meta-llama/Meta-Llama-3-8B-Instruct` — 사용자가 직접 약관 동의 후 받음, 파일 SHA-256 대조). 텍스트 인코더 CPU(`TEXT_ENCODER_DEVICE=cpu`) → 생성 1건(프로세스 하나 = torch 임포트 + 모델 · 인코더 적재 + 생성) 에디터를 띄운 채 51 ~ 88초(그중 확산 생성 8.5 ~ 13초, 첫 실행은 torch 임포트가 47초) · RAM 약 15 GB · VRAM < 3 GB. 실행에 HF 토큰을 쓰지 않는다(`HF_HUB_OFFLINE`) |
+
+### 2.3 UE 5.7.4 API (엔진 소스 확인)
+
+| 용도 | API | 위치 (Engine/…) | 비고 |
+| :--- | :--- | :--- | :--- |
+| IK Rig 자동 생성 | `UIKRigController::SetSkeletalMesh` · `ApplyAutoGeneratedRetargetDefinition` · `ApplyAutoFBIK` · `SetRetargetRoot` · `AddRetargetChain` | `Plugins/Animation/IKRig/Source/IKRigEditor/Public/RigEditor/IKRigController.h` | BlueprintCallable. 자동 캐릭터라이즈는 **알려진 템플릿 계층(UE5 마네킹 등)과 일치할 때만** 동작하고(`bUsedTemplate` 거짓이면 아무것도 안 하고 `false`), 비표준 스켈레톤(Narmaya·SB)은 체인 0개로 전부 실패한다 → 체인 수동 정의가 정상 경로. 템플릿 이름·매칭률은 C++ 전용(`GetAutoCharacterizer`) |
+| 리타기터 구성 | `UIKRetargeterController::SetIKRig` · `SetPreviewMesh` · `AddDefaultOps` · `AssignIKRigToAllOps` · `AutoMapChains` · `AutoAlignAllBones` · `CreateRetargetPose` | `…/IKRigEditor/Public/RetargetEditor/IKRetargeterController.h` | BlueprintCallable. 5.6+ op 스택 구조 |
+| 일괄 리타깃 | `UIKRetargetBatchOperation::DuplicateAndRetarget` (정적) · `RunRetarget(FIKRetargetBatchOperationContext&)` | `…/RetargetEditor/IKRetargetBatchOperation.h` | **정적 함수는 출력 폴더 인자가 없다.** 컨텍스트의 `NameRule.FolderPath` 기본값이 `/Game`이라 결과가 `/Game` 루트에 생긴다(`EditorAnimUtils.h:27`). C++에서 컨텍스트를 직접 채워 `RunRetarget`을 부른다. 한 번의 동기 호출(`FScopedSlowTask`, 취소 시 삭제 확인 모달). **`bOverwriteExistingFiles=true`는 다른 애셋의 참조를 새 애셋으로 바꾸고 기존 애셋을 강제 삭제한다 — 금지.** AnimBlueprint 입력은 부모 ABP까지 복제·재컴파일하므로 거부. 소스 애셋은 바뀌지 않고, 결과는 저장되지 않은 채 더티로 남는다 |
+| 키 직접 작성 | `IAnimationDataController::OpenBracket`/`CloseBracket` · `RemoveAllBoneTracks` · `SetNumberOfFrames` · `AddBoneCurve` · `SetBoneTrackKeys` · `RemoveAllCurvesOfType` · `AddCurve` · `SetCurveKeys` · `SetFrameRate` | `Source/Runtime/Engine/Classes/Animation/AnimData/IAnimationDataController.h` · 구현 `Plugins/Animation/AnimationData/Source/AnimationData/Private/AnimSequencerController.cpp` | BlueprintCallable. 엔진 일괄 리타깃과 같은 순서(`IKRetargetBatchOperation.cpp:394-513`, `bShouldTransact=false`). **프레임 수 = 키 수 − 1.** `SetNumberOfFrames`는 길이 변경 알림을 내고 시퀀스가 노티파이·싱크 마커를 옮긴다(`AnimSequenceBase.cpp:1275`) → 비운 뒤 길이를 바꾸고 직접 다시 넣는다. 데이터가 있는 모델의 `SetFrameRate`는 현재 값의 배수·약수만 받는다(`AnimSequencerController.cpp:287`) → 출력 fps는 주 소스를 따른다 |
+| 원시 키 읽기 | `IAnimationDataModel::GetBoneTrackTransforms(Name, Out)` · `GetFloatCurves` · `GetTransformCurves` | `…/AnimData/IAnimationDataModel.h` | `GetBoneAnimationTracks`는 5.2부터 deprecated. 원시 본 키에는 **트랜스폼 커브(additive 레이어)가 없다** — 평가 포즈에만 더해진다 |
+| 애셋 복제 | `StaticDuplicateObject` (공통 가드 안) | `Source/Runtime/CoreUObject/Public/UObject/UObjectGlobals.h` | `IAssetTools::DuplicateAsset`은 소스 컨트롤이 켜져 있으면 **즉시 저장**하고, 이름이 겹치면 **모달**을 띄운다(`AssetTools.cpp` `PerformDuplicateAsset`·`CanCreateAsset`) → 생성 Tool은 쓰지 않는다 |
+| 미러 | `FAnimationRuntime::MirrorVector` · `MirrorQuat` · `UMirrorDataTable::GetSettingsMirrorName` · `FillMirrorBoneIndexes` | `Source/Runtime/Engine/Public/AnimationRuntime.h` · `…/Classes/Animation/MirrorDataTable.h` | `MirrorPose`는 `FCompactPose` + `FBoneContainer`가 필요해 같은 수식(`AnimationRuntime.cpp` `MirrorPose`)을 스켈레톤 본 인덱스로 옮긴다. 짝은 프로젝트 Animation 설정의 미러 규칙(기본 축 X) 또는 주어진 MirrorDataTable |
+| 검색 인덱스 | AssetRegistry 태그 | `…/Animation/AnimSequence.h` · `AnimSequenceBase.h` · `AnimationAsset.h`의 `AssetRegistrySearchable` | 태그: `SequenceLength` · `bEnableRootMotion` · `AdditiveAnimType` · `Skeleton` · "Number of Frames" · "Source Frame Rate" · 노티파이·커브 이름. **`bLoop`은 태그가 아니다** → 루프 판정은 로드가 필요 |
+| 포즈 샘플링 (검증) | `UAnimPoseExtensions::GetAnimPoseAtTime` · `GetAnimPoseAtFrame` (+ C++ 전용 `GetAnimPoseAtTimeIntervals`) | `Source/Editor/AnimationBlueprintLibrary/Public/AnimPose.h` | 에디터 전용. 172본 1프레임 0.15~0.19ms(실측). Python에서 본을 읽으면 그 5배라 검증 계산은 C++ |
+| Control Rig 베이크 | `UControlRigSequencerEditorLibrary::BakeToControlRig` · `ExportAnimSequenceFromSequencer` (Python 이름 `ControlRigSequencerLibrary`) | `Plugins/Animation/ControlRig/Source/ControlRigEditor/Public/ControlRigSequencerEditorLibrary.h` | World + LevelSequence + 바인딩 필요 — 무겁다 |
+| FBX 임포트 | Interchange (cvar `Interchange.FeatureFlags.Import.FBX` = `true` 실측). `UInterchangeManager::ImportAsset` + `FImportAssetParameters` · 애니만: `bImportOnlyAnimations` + `Skeleton` | `Source/Runtime/Interchange/Engine/Public/InterchangeManager.h` · `Plugins/Interchange/Runtime/Source/Pipelines/Public/InterchangeGenericAssetsPipelineSharedSettings.h` | **`bReplaceExisting` 기본값 `true` → 반드시 `false`**, `bIsAutomated=true`. **`bAddCurveMetadataToSkeleton`(기본 `true`)도 `false`** — 켜져 있으면 모프·머티리얼 커브가 기존 스켈레톤에 메타데이터를 더하고 더티로 만든다(`Skeleton.cpp:1826-1846`). 기본 파이프라인(`/Interchange/Pipelines/DefaultAssetsPipeline`)은 엔진 콘텐츠라 임시 복제본을 `OverridePipelines`로 넘긴다 |
+| BVH 임포트 | **없음** | — | Blender 경유 (Phase 4) |
+| 메시 없는 FBX (개정 7) | `UInterchangeGenericMeshPipeline` · `UInterchangeGenericAnimationPipeline` | `Plugins/Interchange/Runtime/Source/Pipelines/Private/InterchangeGenericSkeletalMeshPipeline.cpp:181-314` · `InterchangeGenericAnimationPipeline.cpp:642-694, 850` | 스켈레톤 팩토리 노드는 **스킨 메시마다** 만든다. 애니 파이프라인은 기존 스켈레톤을 지정했을 때만 관절에서 만들고, 아니면 애니를 건너뛴다("USkeleton cannot be created without a valid skeletal mesh") → 새 스켈레톤이 필요한 BVH 변환은 더미 스킨 메시를 붙인다 |
+| FBX 축·단위 (개정 7) | `FFbxConvert::ConvertScene` | `Plugins/Interchange/Runtime/Source/Parsers/Fbx/Private/FbxConvert.cpp:84-122` | 번역기 기본 `bConvertScene` · `bConvertSceneUnit` = true → Z-up(앞 −Y) 오른손 + cm 로 바꾼 뒤 왼손으로 뒤집는다. Blender 기본 내보내기(−Z 앞 · Y 위)와 합치면 Blender `(x, y, z)` → UE `(x, −y, z)` (실측) |
+| Blender 아마추어 널 (개정 7) | FBX 번역기 루트 본 찾기 | `…/Parsers/Fbx/Private/FbxScene.cpp:780-790` | 루트 본의 부모가 장면 루트 아래 이름 `armature`(대소문자 무시) 널이면 뼈에서 뺀다 → 객체 이름을 `Armature`로 두면 루트 본 = BVH 루트 |
+| FK 체인 리타깃 (개정 7) | `FChainDecoderFK` | `Plugins/Animation/IKRig/Source/IKRig/Private/Retargeter/RetargetOps/FKChainsOp.cpp:343-350` | 회전 = (소스 현재 × 소스 기준⁻¹) × 대상 기준 — **전역** 델타. 소스와 대상의 정면이 다르면 같은 세계 축으로 돌아 동작이 다른 평면으로 휜다 → 소스를 대상 정면으로 맞춘다 |
+| 리타깃 포즈의 범위 (개정 7 보강) | `FIKRetargetProcessor::RunRetargeter` · `FResolvedRetargetPoseSet::AddOrUpdateRetargetPose` | `…/Retargeter/IKRetargetProcessor.cpp:24-88, 1268-1316` · `…/RetargetOps/PelvisMotionOp.cpp:304-306, 325` | 리타깃 포즈는 기준(소스 기준 · 대상 기준)만 바꾸고 **소스 현재 포즈는 그대로 op 에 들어간다**. 펠비스 위치도 소스 정규화 위치 × 대상 높이(회전 없음). 그래서 소스 리타깃 포즈 루트를 돌리면 몸 기준 동작 평면은 맞아도 **결과 전체가 소스 정면을 본다**(출력 = 회전⁻¹ × 원하는 결과) — 소스 쪽 포즈 회전만으로는 맞출 수 없다 |
+| 정면 맞춤 (개정 7 보강) | `FIKRetargetAdditivePoseOp` · `UIKRetargeterController::AutoAlignBones` · `FIKRetargetRootMotionOp` `GlobalOffset` | `…/RetargetOps/RetargetPoseOp.cpp:66-128` · `IKRigEditor/Private/RetargetEditor/IKRetargeterController.cpp:1346-1386` · `…/RetargetOps/RootMotionGeneratorOp.cpp:160, 281-312` | 대상 리타깃 포즈의 스켈레톤 루트(본 0, 펠비스 아님)를 −yaw → 모든 op 가 "대상이 소스 정면을 보는" 같은 좌표계에서 푼다. Additive Pose op(대상 포즈의 로컬 델타를 출력에 곱하고 자식을 따라 돌림)를 Root Motion op 앞에 두어 루트를 +yaw 로 되돌린다 — 루트가 원점이라 펠비스 이동도 돈다, 루트 트랙은 기준 포즈. Root Motion op 가 소스 루트를 복사하면 `GlobalOffset` 에 +yaw. `AutoAlignAllBones` 는 포즈를 먼저 **전부 리셋**하므로 루트를 돌린 뒤 리셋 없는 `AutoAlignBones(빈 목록 = 전부)` |
+| 임포트 리샘플 (개정 7 · 보강 2) | `UInterchangeGenericAnimationPipeline::CreateAnimSequenceFactoryNode` 의 길이 검사 · `UInterchangeManager::ImportAssetWithResult` | `…/Pipelines/Private/InterchangeGenericAnimationPipeline.cpp:714-807` · `…/Pipelines/Public/InterchangeGenericAnimationPipeline.h:85` · `Source/Runtime/Interchange/Engine/Private/InterchangeManager.cpp:1720-1726` · `…/Tasks/InterchangeTaskPipeline.cpp:42` | 길이가 굽는 rate 의 프레임 경계에 맞지 않으면 애니 파이프라인 프로퍼티 `bSnapToClosestFrameBoundary`(기본 false)가 꺼져 있을 때 오류 메시지만 남기고 **애니 팩토리 노드를 건너뛴다**(커스텀 `CustomBoneAnimationSampleRate` 든 소스 rate 든 같은 검사). 켜면 시작·끝을 가까운 프레임으로 반올림하고 경고(원문 키 `Info_ImportLengthSnap`)를 남긴다. **`import_animation_file` 은 항상 켠다**(경계에 맞는 길이엔 영향 없음). 파이프라인 메시지는 임포트 결과 컨테이너로 가므로 `ImportAssetWithResult`(동기, `ImportAsset` 과 같은 경로)로 받아 그 경고를 찾아 `warning LENGTH_SNAPPED {track}` 로 낸다. 문구는 에디터 언어로 바뀌므로 `FTextInspector::GetHistoricFormatData` 로 원문 형식의 키를 비교한다. 실측: CMU 01_01 전체(2,752키 · 22.925초 = 30 fps 687.75프레임) → 689키 · 22.9333초 + `LENGTH_SNAPPED`. 대조군(blender 가 경계에 맞춘 2,749키 FBX → 30 fps 688키 · 같은 2,752키 파일을 소스 rate 120 으로)은 진단 없음. blender 는 계속 범위를 맞춰 넣는다(반 프레임 늘림·줄임 없음) |
+| 골반 이동 (개정 7) | `FIKRetargetPelvisMotionOp` | `…/RetargetOps/PelvisMotionOp.cpp:183-196, 223` | 소스 골반 기준 높이가 0에 가까우면 오류 로그 후 높이 1 로 두고 이동 배율 = 대상 높이 / 1 → 기준 포즈를 바닥에 맞춘다 |
+| Blender FBX 단위 (개정 7) | `io_scene_fbx` `export_fbx_bin.py` | `Blender 4.4/4.4/scripts/addons_core/io_scene_fbx/export_fbx_bin.py:3453-3463` · `fbx_utils.py:216` | 단위 계수 = 100 × `scale_length`, `FBX_SCALE_NONE`이면 그만큼 노드에 곱한다 → 장면 `scale_length` 0.01(1 BU = 1 cm)이면 노드 스케일 1 · `UnitScaleFactor` 1 |
+| Blender BVH 임포터 (개정 7) | `io_anim_bvh` `import_bvh.py` | `…/addons_core/io_anim_bvh/import_bvh.py:213-224, 545-560, 577-580, 646-647, 785` | End Site는 본이 아니라 꼬리. 축 변환은 객체 회전 → 회전만 적용. 위치 키 = 기준 포즈 로컬 공간(회전 적용 시 루트 이동도 같이 돈다). `frame_start=0`을 줘도 첫 키가 1(실측) · 장면 길이는 늘리기만 한다 → 변환 스크립트가 실제 첫 키 기준으로 옮기고 범위를 직접 맞춘다. `Armature.transform` 뒤에는 데이터 태그 + `view_layer.update()`가 있어야 포즈 평가가 새 기준 포즈를 쓴다(실측) |
+| 리타깃 포즈 자동 정렬의 '매핑된 체인' (개정 8) | `FIKRetargetProcessor::IsBoneInAMappedChain` · `GetFirstChainMappedToChain` · Run IK Rig op `AutoMapChains(Fuzzy)` · `FRetargetChainMapping::AutoMapChains` | `Plugins/Animation/IKRig/Source/IKRig/Private/Retargeter/IKRetargetProcessor.cpp:1496, 1675` · `…/RetargetOps/RunIKRigOp.cpp:150` · `…/Retargeter/IKRetargetChainMapping.cpp:222-242` | 자동 정렬이 본을 '매핑된 체인'으로 보는지는 스택의 **모든 op**(꺼진 op 포함) 매핑에서 첫 상대를 찾는다. 엔진은 Run IK Rig op 에 퍼지 매핑(점수 = 1 − 편집거리 / 두 이름 길이 합, 0.2 초과)을 깔아 두므로, FK op 만 정확 매핑하면 꺼진 op 의 퍼지 짝(LeftIndex · LeftRing → LeftLeg, LeftThumb · LeftPinky → LeftArm)으로 소스에 없는 손가락의 리타깃 포즈를 돌린다. FK op 는 그 손가락을 움직이지 않으니 꺾인 포즈가 모든 프레임에 남는다(SOMA 검지 MCP 120° · CMU 63.8°, 가운데 손가락만 멀쩡 — 퍼지 짝이 뼈 1개 쇄골이라 접선 0). → `match_existing` 은 `AutoMapChains(Exact, bForceRemap=true)` 를 모든 op 에 |
+| FK 체인 Interpolated 회전 (개정 8) | `FIKRetargetFKChainsOp` `EFKChainRotationMode::Interpolated` · `GetTransformAtChainParam` | `…/RetargetOps/FKChainsOp.cpp:283-291` | 대상 본의 체인 param(길이 비율) 위치에서 **소스 체인을 보간한 회전**을 쓴다 → 관절 비율이 다르면(팔꿈치 param Vesper 0.512 · CMU 0.589) 위팔 · 아래팔 회전이 섞여 굽힘이 0.87배로 전달된다(굽힘 평면 회전 0.00° — 롤 문제가 아님). 뼈 수가 같은 체인은 1:1(`OneToOne`)이 맞다 |
+| 리타깃 포즈 자동 생성기 (개정 8) | `FRetargetAutoPoseGenerator::AlignPelvisBone` · 체인 접선 | `Plugins/Animation/IKRig/Source/IKRigEditor/Private/RetargetEditor/IKRetargeterPoseGenerator.cpp:107, 249, 386` | 같은 param 의 접선(유한 차분)끼리 맞춘다 — param 1 근처(뼈 1개 말단 · 머리)는 접선을 못 만들어 건너뛰고, 펠비스는 소스 척추 방향으로, 척추는 소스 곡선 접선으로 돌린다 → 대상 몸통이 소스 기준 포즈 모양(숙임 · 목 기울기)을 물려받아 모든 프레임에 붙는다 |
+| 바인드 포즈 무효 → 첫 프레임 재바인드 (개정 8) | `UInterchangeSkeletalMeshFactory` `bUseTimeZeroAsBindPose` | `Plugins/Interchange/Runtime/Source/Import/Private/Mesh/InterchangeSkeletalMeshFactory.cpp:792-808` | FBX SDK 가 바인드 포즈를 무효로 보면 "invalid bind poses … rebind using the time zero pose" — 스켈레톤 기준 포즈가 **애니 첫 프레임**이 된다. Blender 가 쓴 FBX 는 행렬이 일관인데도 계층 깊이 ≥ 10 본(SOMA 손가락 둘째 마디 아래)이 있으면 정밀도 판정(허용 0.0001 cm)으로 무효가 된다(이분 탐색 실측, CMU 깊이 ≤ 9 는 유효). 미터 단위 FBX 는 유효하지만 루트 본 스케일 100 이 남아 못 쓴다 → 기준 포즈 2프레임 FBX 로 스켈레톤을 만들고 동작은 그 스켈레톤에 애니만 임포트(§10) |
+| 메시 기준 포즈 ≠ 스켈레톤 기준 포즈 (개정 8) | `USkeletalMesh::GetRefSkeleton` · `USkeleton::GetReferenceSkeleton` | — | 메시 46개가 공유하는 Vesper 스켈레톤의 기준 포즈는 `SK_StreetDemon_F_01` 과 손가락 로컬 회전이 최대 14.13°(`index_metacarpal`) 다르다 — 리타기터 · 렌더는 **메시** 기준 포즈를 쓰므로 미매핑 손가락 비교도 대상 메시 기준이어야 한다(스켈레톤 기준이면 고친 결과도 30본 오탐) |
+| 애셋 이동 (개정 10 — 승격) | `IAssetTools::RenameAssets(TArray<FAssetRenameData>)` · `FixupReferencers` | `Source/Developer/AssetTools/Private/AssetRenameManager.cpp:138-152, 386-554, 708-807, 921-1090, 1734-2024` · `Public/IAssetTools.h:121-151, 470, 649` | 대화상자 없는 경로(`bAutoCheckout` · `bWithDialog=false`), 레지스트리 로딩 중이면 false. 네이티브 클래스 CDO 가 하드 · 소프트로 가리키면 OkCancel 모달(기본 Cancel → 중단, 소프트면 리디렉터 표시도). 리디렉터는 참조자가 맵(:1032) · 못 읽음(:1068) · 컬렉션 · 읽기 전용 · SCC 비로컬(:994)일 때만. `PerformAssetRename` 이 **이미 더티인 패키지의 소프트 참조까지 고치고** 새 패키지 · 참조 패키지 · 리디렉터를 `PromptForCheckoutAndSave(bPromptToSave=false)` 로 **자동 저장**, 리디렉터가 없으면 옛 패키지를 지운다(:2014-2023 — 아직 참조되면 파일이 남을 수 있다). 실측: BS 1개 0.6초 · 저장 = 새 패키지(+ 참조자) · 옛 파일 없음 · 리디렉터 0. `UEditorAssetSubsystem::RenameAsset` 도 같은 경로 |
+| 모달 기본값 (개정 10) | `FMessageDialog::Open` | `Source/Runtime/Core/Private/Misc/MessageDialog.cpp:172` | `FApp::IsUnattended() \|\| GIsRunningUnattendedScript` 면 DefaultValue 반환 → `promote_animation` 은 rename 호출 동안만 `TGuardValue(GIsRunningUnattendedScript, true)` |
+| additive 유효 (개정 10) | `UAnimSequence::IsValidAdditive` | `Source/Runtime/Engine/Private/Animation/AnimSequence.cpp:2615-2640` | `RefPose` · `LocalAnimFrame` 은 기준 시퀀스 없이 유효, `AnimScaled` · `AnimFrame` 은 `RefPoseSeq` 가 있어야 — 요청 `package.additive` 기본 `LocalAnimFrame 0`, `AnimFrame` 이면 `ref_pose_sequence`(`$asset` = 자기 자신) 필수 |
+| 시퀀스 내용 해시 (개정 10) | `IAnimationDataModel::GenerateGuid()` | `Source/Runtime/Engine/Classes/Animation/AnimData/IAnimationDataModel.h:380-385` | 경로와 무관한 원시 데이터 GUID — 승격 전후 같으면 같은 내용 |
+| 대상 메시 캡처 (개정 12) | `FPreviewScene` · `USceneCaptureComponent2D::CaptureScene` · `UTextureRenderTarget2D` · `FTextureRenderTargetResource::ReadPixels` · `FImageUtils::{SaveImageByExtension, LoadImage, ImageResize}` | `Source/Runtime/Engine/Private/PreviewScene.cpp:21-95` · `…/Components/SceneCaptureComponent.cpp:817-831` · `Source/Runtime/Renderer/Private/SceneCaptureRendering.cpp:511-535` · `Engine/Public/ImageUtils.h` | 프리뷰 월드는 트랜지언트 패키지(애셋 · 더티 없음), 기본 방향광 + 스카이라이트(썸네일 환경 큐브맵 `UThumbnailManager::AmbientCubemap`), 메시 텍스처 상주. `CaptureScene()` 은 `SendAllEndOfFrameUpdates` 뒤 즉시 렌더(뷰포트 · 창 불필요 — `-unattended` 실측). 정사영 투영 = `OrthoWidth` · 높이는 렌더 타깃 비율 · near 0. `FImage` 는 ImageCore 모듈(링크에 명시 의존 필요 — 실측) |
+| 캡처 포즈 · 쇼 플래그 (개정 12) | `USkeletalMeshComponent::SetPosition` · `RefreshBoneTransforms(nullptr)` · `RecreateRenderState_Concurrent` · `USceneCaptureComponent::SetShowFlagSettings` | `Source/Editor/UnrealEd/Private/ThumbnailHelpers.cpp:645-709` · `…/Components/SceneCaptureComponent.cpp:264-288, 431-447` | 포즈 = 썸네일 장면과 같은 순서(단일 노드 `SetPosition` → 동기 평가 → **렌더 상태 재생성** — 틱 없는 프리뷰 월드에서 동적 데이터만 표시하면 스키닝이 첫 포즈에 머문다, 실측). `ShowFlags` 를 직접 바꾸면 등록이 `ShowFlagSettings` 로 되돌린다 → 설정 배열로 끈다 |
+| 골반 이동 모델 (개정 13) | `FIKRetargetPelvisMotionOp::DecodePose` · `InitializeTarget` | `…/RetargetOps/PelvisMotionOp.cpp:205-221, 297-325` | 대상 골반 위치 = 소스 골반 **절대** 위치 × (대상 / 소스 골반 초기 높이)(초기값 기준 상대 아님), 회전 = (소스 현재 × 소스 초기⁻¹) × 대상 초기. 바닥 제약 가중치 0(기본)이면 그대로 → 다리 보정의 대상 모델(대상 엉덩 = s · P_s + Δ · 대상 엉덩 오프셋, 다리 = 소스 뼈 방향 · 대상 길이 — FK 체인 회전 복사와 per_bone 정렬). 실측: 모델이 예측한 Vesper 두 발 디딘 발 좌우 비 · 접지 미끄러짐이 리타깃 결과와 ±0.03 · ±1 cm/s 안(§14 '8-3') |
+| 캡처 무기 부착 (개정 14 — 8-4a) | `USceneComponent::AttachToComponent(KeepRelativeTransform, 소켓)` · `USkeletalMeshComponent::FinalizeAnimationUpdate` | `Source/Runtime/Engine/Private/PhysicsEngine/PhysAnim.cpp:468-485` · 게임 배치(프로젝트) `Source/AstralBreak/Equipment/AstralEquipmentInstance.cpp:110` · `AstralWeaponActor.cpp:74` | 소켓에 붙은 자식은 `bHasSocketAttachments` 면 애니 갱신 끝(`FinalizeAnimationUpdate` → `UpdateChildTransforms(OnlyUpdateIfUsingSocket)`)에서 따라온다 → `capture_animation attachments` 는 부착 컴포넌트를 소켓에 붙이고 포즈마다 렌더 상태를 다시 만든다. 게임의 무기 메시 = `MeshInfo.AttachOffset` · `ActorsToSpawn[0].AttachTransform` · 소켓 상대 · 손 본(UE 곱 순서 — 변환 2단이라 캡처 `offset` 은 둘을 합성한 한 변환) |
+| 에디터 시작 스크립트 (개정 14 — 8-4a) | `-ExecutePythonScript=<파일>` · `unreal.EditorPythonScripting.set_keep_python_script_alive` | `Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/EditorUtilities/EditorPythonExecuter.cpp:71-77` | 원격 실행(UDP)이 안 되는 환경에서 DA 값을 읽은 경로. 스크립트가 끝나면 `GetKeepPythonScriptAlive()` 가 거짓일 때 **에디터를 닫는다** → 끝에서 keep-alive 를 켜야 같은 기동으로 브리지 측정을 잇는다(`Tools/mcp/e0_weapon_attach.py` — 읽기 전용, 더티 전후 0) |
+| 몸 모델 내보내기 (개정 14 — 8-4a) | `FBase64::Encode` | `Source/Runtime/Core/Public/Misc/Base64.h` | `body_clearance model` 의 반경 지도(int16 0.01 cm, −32768 = 빈 칸) · 축 · 포즈(float32)는 base64 — 121 프레임 · 측정 점 전부 JSON 최대 3.0 MB(점을 줄이면 Python 재현 ≠ 측정이라 줄이지 않는다) |
+| IKRig 플러그인 | `EnabledByDefault: true` | `Plugins/Animation/IKRig/IKRig.uplugin` | 플러그인 의존 선언만 추가하면 된다 |
+
+### 2.4 외부 Provider와 라이선스
+
+| 대상 | 확인 결과 | 결정 |
+| :--- | :--- | :--- |
+| HY-Motion 1.0 | "Tencent HY-MOTION 1.0 Community License". Territory = 전 세계에서 **EU · UK · 한국 제외**. 월간 사용자 100만 초과 시 별도 라이선스 | 별도 적법 라이선스 없이 설치·활성화 금지 |
+| 공개 Text-to-Motion 모델 (MDM · MoMask · T2M-GPT · MotionGPT · MLD · MotionLCM · MotionStreamer · MoMask++) | 개정 8 — **확인**([조사](LocalModelSurvey.md) §2 · §3.1): 코드는 대개 MIT/Apache 지만 가중치 라이선스 미기재, 학습 데이터 HumanML3D ← AMASS 가 "train methods/algorithms/neural networks/etc. for commercial use of any kind" 를 금지(SMPL 도 같은 조항, MotionLCM 은 코드부터 비상업) → 상업 이용 부적법. 개인 포트폴리오가 AMASS 허용 범위(비상업 연구 · 교육 · 예술)에 드는지, 가중치 사용자에게 미치는지는 원문이 정하지 않는다(조사 §4 H-1 ~ H-3). 대부분 관절 위치만 내고 손가락 없음 · 20 fps | 채택하지 않음 |
+| **NVIDIA Kimodo-SOMA-RP-v1.2** (개정 8) | 코드 Apache-2.0 · 가중치 NVIDIA Open Model License("commercially usable" · 전 세계 · 출력 소유 주장 없음 · 모델 재배포 시 고지) · 학습 데이터 Bones Rigplay(700 h 독점 모캡, NVIDIA 라이선스) · 텍스트 인코더 Meta Llama 3 8B Instruct(Llama 3 Community License — HF 게이트, 약관 동의는 사용자 본인) + LLM2Vec 어댑터(MIT). 같은 저장소의 SMPLX-RP 는 NVIDIA R&D 라이선스라 제외, `*-SEED` 는 BONES-SEED 학습 계약이 공개되지 않아 제외. 출력 30 fps · 최대 10초 · `--bvh` SOMA77 cm. ARDY(같은 데이터 · 라이선스)는 BVH 가 없어 2순위 | **채택**(2026-10-24, 사용자) → `local_ai`(§4 · §14 Phase 5). 남은 해석: "Built with Meta Llama 3" 표시가 생성 애셋만 쓰는 게임에도 필요한지(조사 §4 K-1) |
+| Meshy Text-to-Motion | 개정 9 — **확인**(2026-10-25, 부록 A): `POST https://api.meshy.ai/openapi/v1/text-to-motion` `{prompt ≤ 400자, duration 2 ~ 10초 · 0.5초 단위(필수), mode prime(FBX · 10 크레딧, 기본) \| swift(BVH · 3 크레딧)}` → 202 `{result: task_id}`, `GET …/:id`(PENDING · IN_PROGRESS · SUCCEEDED · FAILED, `consumed_credits` — 실패 0 = 환불, `expires_at` — 결과 3일 보존, `motion_url` 은 읽을 때마다 재서명), SSE · 목록 · DELETE(PENDING 만 환불) — 취소 없음. 잔액 `GET /openapi/v1/balance`(무료). 초당 20 요청 · 동시 태스크 Pro 10, 429 = `Retry-After`(초당) / `NoMorePendingTasks`(동시). 멱등 키 헤더 없음. API 는 유료 요금제 필요(Free 402), 테스트 모드 키 폐지(2026-09-16). **출력 리그 · FBX 안 메시 여부는 문서에 없다.** 돈 값은 요금제마다 다르다(요금제 페이지는 KRW — Pro ₩28,869/월 1,000 크레딧 · 크레딧 팩 가격 비공개). 약관(2026-09-19): 유료 요금제 출력 소유 · 비 Enterprise 입력 · 출력을 Meshy 학습에 쓸 수 있음(§2.9) · Meshy 와 경쟁하는 AI 학습에 출력 사용 금지 · 지역 제한 없음. 보내는 것은 프롬프트 · 길이 · 모드뿐(캐릭터 데이터 없음) | **채택**(2026-10-25, 사용자 — 약관 수용 · `license: ok`) → `external.meshy`(§4 · §14 Phase 6). 금액 = 크레딧 × 정책 `usd_per_credit`(사용자 요금제) |
+| DeepMotion SayMotion | REST API 있음. 검증 파트너 한정, base URL은 요청해야 받음 | 보류 |
+| Tripo3D (개정 9) | 2026-10-25 확인([developers.tripo3d.com](https://developers.tripo3d.com/en/models/animation)): **텍스트 → 모션 생성 없음.** 애니메이션 API 는 리깅된 모델(보통 Tripo Auto Rig, 25 크레딧)에 프리셋(100개 이상)을 적용하는 retarget(10 크레딧/개). 무료 API 크레딧 양은 공식 문서로 확인 안 됨. 본업은 텍스트 · 이미지 → 3D 메시(공식 CLI 있음) | 모션 Provider 로는 채택 안 함. 메시 생성은 **별도 트랙 — 검토 · 미채택(2026-11-04, §14 끝 · 로드맵 §12)** |
+| 영상 포즈 추정 (개정 15 — 9-5d) | 2026-11-04 **확인**([조사](VideoPoseSurvey.md)): SMPL · SMPL-X 계열(GVHMR · WHAM · 4D-Humans · TRAM · PromptHMR · GEM-SMPL)은 추론에 바디 모델 파일이 필요해 상업 부적법(포트폴리오는 조사 §5 V-3). **NVIDIA GEM-X** = 코드 Apache-2.0 · 가중치 NVIDIA Open Model License · SOMA 77(Kimodo 와 같은 배열) · 세계 궤적 · Contact/IK · 30 Hz · 최대 60초 · 공식 BVH 내보내기 없음 · 설치 문서 Linux 뿐 · 12 GB 수치 없음. 남은 판단: 두 체크포인트가 SAM 3D Body 초기화(SAM · DINOv3 라이선스 총기 문구 — V-1) · 필수 검출기가 비상업 승인 데이터로 학습(V-2). 상용: Move = 영상 학습 영구 · 옵트아웃 없음 · AI 시스템 입력 금지(키 포즈 불가) · DeepMotion = 출력 회사 소유 · 게임은 바이너리로만 · Rokoko = 처리 뒤 삭제 방침 · API 없음 · Plask = 2023 약관. UE 5.8 MetaHuman Markerless 는 엔진 버전이 달라 범위 밖 | **Provider 채택 안 함 · GEM-X 는 키 포즈 원천 후보로만 · 오프라인 시험 없이 닫음**(2026-11-04, 사용자). 재검토 조건 조사 §7. 파이프라인 변경 없음 |
+
+---
+
+## 3. 통합 원칙
+
+### 3.1 배치
+
+```text
+Claude Code — 자연어 해석·분해·계획 (에이전트 자신)
+  │ MCP
+  ├─▶ anim-graph-mcp  (기존, 얇은 프록시 — Tool 하나 = 라우트 하나)
+  │       └─ HTTP ─▶ AnimGraphMcpEditor (C++, 게임 스레드)
+  │                   ├─ 기존: AnimBP · 몽타주 · BlendSpace · 스켈레톤 슬롯·재할당
+  │                   └─ 신규: 스켈레톤 조회 · 임포트 · IK Rig · 리타기터 · 리타깃 · 키 편집 · 검증 · 승격(Phase 7) · 대상 메시 캡처(Phase 8-2) — 기존 쓰기 Tool 6개는 옵트인 generation_guard
+  │
+  └─▶ anim-gen-mcp    (신규, Phase 3 — Tools/mcp/anim_gen/)
+          ├─ 정책 · 비용 장부 · 승인 · Provider 레지스트리 · 라우터 · 폴백 · Job 저장소
+          ├─ Provider: existing_motion · direct_key · blender · local_ai · external.meshy · 파이프 retarget · package · anim_bp(Phase 7)
+          └─ 에디터 조작은 bridge.py 로 위 플러그인 Tool 을 부른다 (HTTP 재구현 금지)
+```
+
+1. **C++는 UObject·애셋 조작과 수치 검증만 한다.** 네트워크 호출, 서브프로세스, 대기를 넣지 않는다.
+2. **`anim_graph_mcp/server.py`에는 로직을 넣지 않는다.** Phase 1~2의 새 에디터 Tool도 프록시 함수만 추가한다.
+3. **상태(정책·Job·승인·비용 장부)는 `anim_gen`만 가진다.** 저장 위치는 `Saved/AnimGen/`(추적 안 함).
+4. **플러그인은 프로젝트를 모른다.** 영웅 이름, 출력 경로, 명명 규칙은 인자로 받고, 기본값은 `[AnimGraphMcp]` ini에 둔다.
+5. **엔진 의존성 추가**(IKRig · IKRigEditor · InterchangeCore · InterchangeEngine · InterchangePipelines · AnimationBlueprintLibrary — 감사 §6)는 `AnimGraphMcpEditor.Build.cs`와 `AnimGraphMcp.uplugin`의 `Plugins`에 선언한다.
+6. **쓰기 경로 허용 목록:** 새 쓰기 Tool은 `[AnimGraphMcp] +GenerationOutputPaths=`(기본 `/Game/Animation/Generated/`, `/Game/Animation/Test/`) 밖에 애셋을 만들지 않는다(`OUTPUT_PATH_NOT_ALLOWED`). 기존 Tool과 기존 보호 목록의 동작은 바꾸지 않는다.
+   - 허용 목록과 임포트 허용 루트의 **유일한 기준은 이 ini**다. `get_editor_status`가 내보내고 `anim_gen`은 그것을 읽는다(따로 두지 않는다).
+   - 생성 경로는 스모크 경로(`SmokeTestPaths=/Game/Animation`) 안에 있어 생성된 몽타주도 스모크 검사를 받는다. 의도된 동작이고, 승격 전 "Slot 노드 없음" 경고는 정상이다.
+   - **옵트인 생성 가드 (개정 10):** "기존 Tool 동작은 바꾸지 않는다"의 범위는 **기본값**이다. 기존 쓰기 Tool 6개(`create_anim_montage` · `set_montage_sections` · `create_blendspace` · `set_sequence_additive` · `duplicate_animation_blueprint` · `apply_graph_operations`)는 `generation_guard: true` 일 때만 생성 Tool 과 같은 가드(허용 목록 · 덮어쓰기 거부 · 전역 더티 비교 · 검사 뒤 저장, 결과 `guard{newly_dirty[]}`)를 받는다. 기본 false 는 지금까지와 같다(`build_hero_combat.py` 등 영향 없음). anim_gen 은 포장 · 연결 단계의 모든 쓰기에 켠다 — 규칙은 C++ `AnimMcpGeneration::FWriteGuard` 한 곳에만 있다.
+   - **승격 경로 (개정 10):** `+PromotionPaths=/Game/Animation/Hero/` — `promote_animation` 이 후보를 옮길 수 있는 유일한 기준. 생성 경로와 겹치는 항목 · 마운트 루트는 경고 후 무시(`get_editor_status.generation.promotion_paths`).
+   - **캡처 경로 (개정 12):** `+CaptureOutputRoots=Tools/mcp/results/capture/`(디스크, 프로젝트 기준 상대 또는 절대) — `capture_animation` 이 PNG 를 쓰는 유일한 기준(루트 아래 **새 · 빈 하위 폴더**만, 루트 자체는 거부). 비면 캡처를 거부한다. Saved 밖에 둔 이유: 세션 권한 `Read(./Saved/**)` 가 Read 와 SendUserFile 을 모두 막아(브리지 토큰 보호 — 우회하지 않는다) 결과를 채팅에 보일 수 없다(`get_editor_status.generation.capture_output_roots`).
+7. **원본 비파괴:** 소스 애셋은 읽기만 한다. 각 쓰기 Tool은 호출 전후 **에디터 전체의 더티 패키지 집합 차이**를 본다. 새로 더티가 된 패키지 중 허용 목록 밖이 하나라도 있으면 아무것도 저장하지 않고 `UNEXPECTED_DIRTY`(목록 포함)로 실패한다. 애셋마다 따로 검사하지 않고 한 곳에서 보므로, 모르는 부작용(예: 임포트가 스켈레톤에 커브 메타데이터를 더함)도 잡힌다.
+
+### 3.2 결과 형식
+
+봉투는 기존 것을 그대로 쓰고, 생성 관련 필드는 `result` 안에 둔다.
+
+```jsonc
+{
+  "ok": true, "tool": "retarget_animations", "request_id": "…",
+  "result": {
+    "job_id": null,                      // 비동기일 때만
+    "provider": "retarget",              // anim-gen-mcp 경유 시 Provider 이름
+    "generated_assets": ["/Game/Animation/Generated/Vesper/AS_Vesper_Sickle_SpinSlash"],
+    "validation": { "status": "NEEDS_REVIEW", "structural": [], "numeric": [], "needs_review": [] },
+    "limitations": [],                   // 원 요청 대비 빠진 것 — 폴백 결과면 필수
+    "fallback_history": []
+  },
+  "error": null,
+  "diagnostics": [{ "level": "warning", "code": "UNMAPPED_TARGET_CHAINS", "message": "…" }]
+}
+```
+
+- 경고는 `diagnostics[]`에 둔다.
+- 요청한 작업(생성 · 검증, `save`를 요청했으면 저장까지)이 실제로 끝나기 전에는 `ok: true`를 반환하지 않는다. `save=false`(기본)면 저장되지 않은 더티 애셋이 정상 결과다.
+- 오류 코드는 기존 체계(HTTP 상태 + 코드)에 추가한다. 예: `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` · `OUTPUT_PATH_NOT_ALLOWED` · `UNEXPECTED_DIRTY` · `PROVIDER_UNAVAILABLE` · `APPROVAL_REQUIRED` · `BUDGET_EXCEEDED` · `COST_UNKNOWN` · `LICENSE_RESTRICTED` · `PROMOTE_FAILED`(개정 10 — 플러그인, HTTP 400) · `INTEGRATION_FAILED`(개정 10 — anim_gen 포장 · 연결) · `CAPTURE_FAILED`(개정 12 — 플러그인 캡처의 렌더 · 읽기 · 쓰기, HTTP 400). 세부 사유는 기존 Tool처럼 `error.details.reason`에 둔다.
+- `limitations[]` 항목은 `{code, message, source}`다(`source` = `router` · `provider` · `direct_key` · `validation` · `fallback`). C++ Tool이 돌려주는 문자열 한계(예: 미러의 `MIRROR_CURVES_UNCHANGED`)는 `anim_gen`이 같은 모양으로 감싼다.
+
+### 3.3 원본 Tool 목록 대응
+
+| 원본 Tool | 처리 | Phase |
+| :--- | :--- | :---: |
+| `inspect_skeleton` | 신규 (C++) | 1 |
+| `inspect_character` | `inspect_skeleton`의 `skeletal_mesh` 인자로 흡수 | 1 |
+| `import_motion_file` | 신규 `import_animation_file` (FBX만. BVH는 Blender로 FBX 변환 후) | 1 |
+| `create_ik_retargeter` | 신규 `create_ik_rig` + `create_ik_retargeter` | 1 |
+| `retarget_motion` | 신규 `retarget_animations` | 1 |
+| `validate_generated_animation` | 신규 `validate_animation` (Phase 1은 구조 + 절대·상대 수치 + 회귀 비교) | 1 · 8 |
+| `list_existing_motions` | 기존 `list_animation_assets`. 메타데이터 검색은 신규 `search_animations` | 2 |
+| `modify_existing_motion` · `create_animation_sequence` | 신규 `preview_animation_edits` / `apply_animation_edits` (op 사전, 기존 `apply_graph_operations`의 전체 사전 검증 패턴). 원자성은 "모든 op를 메모리 버퍼에서 끝까지 계산한 뒤에만 새 애셋을 만든다" — 항상 새 애셋이라 그래프 op 같은 보상 롤백은 없다 | 2 |
+| `generate_procedural_motion` | 별도 Tool 아님 — `direct_key` Provider 내부 | 2 |
+| `create_animation_montage` | 기존 `create_anim_montage`(+ `set_montage_sections`) — 개정 10: 옵트인 `generation_guard`, anim_gen `package.montage` | 7 |
+| `create_animation_blendspace` | 기존 `create_blendspace` — 개정 10: 옵트인 `generation_guard`, anim_gen `package.blendspace` | 7 |
+| (AnimBP 연결) | 기존 `duplicate_animation_blueprint` · `apply_graph_operations` · `run_automation_tests` · `run_anim_scenario` 조합(개정 10 — 복제본에만, `generation_guard`) | 7 |
+| `promote_animation` | 신규 (C++, 개정 10) — 후보 → 정식 경로 rename, `dry_run` · `confirm` · `allow_referencers` | 7 |
+| `list_motion_providers` · `get/set_generation_policy` · `plan_motion_generation` · `estimate_generation_cost` · `generate_motion` · `get_generation_status` · `cancel_generation` | anim-gen-mcp + 신규 `approve_generation` | 3 |
+| `apply_motion_constraints` | 보류 | 8 |
+| `preview_generated_animation` | 신규 `capture_animation` (C++, 개정 12) — 대상 메시 정사영 캡처(시트 · 비교 시트 · 연속 프레임), anim_gen `review.capture` 가 부른다 | 8-2 |
+| `create_animation_from_prompt` | **폐기.** 자연어 분해는 Claude Code가 하고 `plan_motion_generation`에 구조화된 요청을 넘긴다 | — |
+
+### 3.4 Job
+
+- **에디터 작업:** 기본은 동기다. 일괄 리타깃은 엔진이 한 번의 동기 호출로 처리하므로, 요청당 애셋 수 상한(입력 + 동반 참조 **50** — Phase 1 실측: 20개·1,317프레임을 리타깃·검증·저장까지 3.0초, 애셋당 300프레임이어도 50개 약 35초) + 180초 타임아웃으로 한다. 상한을 넘는 일괄 처리가 실제로 필요해지면 `AnimMcpAutomationRunner`의 `job_id` + poll 패턴으로 애셋 단위 틱 분할을 추가한다.
+- **Provider 작업**(외부 API · Blender · 로컬 AI)은 `anim_gen`의 Job 저장소가 맡는다.
+  - 상태: `QUEUED` · `RUNNING` · `WAITING_FOR_APPROVAL` · `SUCCEEDED` · `FAILED` · `CANCELLED`
+  - 필드: id, plan_id, provider, 현재 단계, 비용(추정/실제), 결과 파일, 오류 코드, attempt · retry_count, fallback_history, approval_id, idempotency_key, events[](상태 전이 기록), diagnostics[]
+  - diagnostics(개정 7 보강 2): `anim_gen` 자신의 진단과 함께 **단계 안 에디터 Tool 이 봉투로 돌려준 진단**(`LENGTH_SNAPPED` · `UNMAPPED_TARGET_CHAINS` 등)을 항목마다 `tool` · `step` 을 붙여 남긴다. 단계가 실패해도 남긴다. 실행기가 단계마다 `EditorClient.collect()`(스레드별)로 감싸 모으므로 Provider 는 따로 넘기지 않는다. 계획 시점 호출의 진단은 계획 `diagnostics` 쪽이다
+  - 전이: `QUEUED → RUNNING | WAITING_FOR_APPROVAL | CANCELLED`, `RUNNING → SUCCEEDED | FAILED | WAITING_FOR_APPROVAL | CANCELLED`, `WAITING_FOR_APPROVAL → QUEUED(승인) | CANCELLED`. 종료 3종(`SUCCEEDED` · `FAILED` · `CANCELLED`) 뒤 전이는 없다.
+  - 실행 모델(Phase 3): 에디터 Provider(`existing_motion` · `direct_key` · `retarget`)는 `generate_motion` 호출 안에서 동기로 끝난다. 비동기 Provider(외부 · Blender · 로컬 AI)는 백그라운드 스레드 없이 `get_generation_status`가 poll 할 때 진행한다.
+  - 로컬 서브프로세스(개정 7 — `blender`, 개정 8 — `local_ai`): `generate_motion`이 프로세스를 띄우고 `RUNNING`을 돌려준다. poll 이 끝남(report 파일)을 보면 같은 호출 안에서 다음 단계를 잇는다 — 다음도 서브프로세스면(Kimodo → Blender) 그것을 띄우고 다시 `RUNNING`, 에디터 단계면 import → retarget → 검증까지 동기로. 자식은 stdin을 막고 출력을 로그 파일로 보낸다(MCP stdio 보호), 키·토큰 이름의 환경 변수는 넘기지 않는다. 기한(`execution.subprocess_timeout_seconds`, 단계마다)을 넘기면 끝내고 `GENERATION_FAILED`(`TIMEOUT`). 서버가 다시 뜨면 프로세스 핸들이 없어 report 파일로만 판정하고, 기한까지 report가 없으면 멈추지 못한 채 `TIMEOUT`으로 적는다. 공통 부분은 `providers/subprocess_step.py`(`SubprocessProvider` — 띄우기 · report 대기 · 기한 · 종료 · 로그 꼬리)이고 Provider 는 명령 · 인자와 report 해석만 정한다.
+  - AnimBP 시나리오(개정 10 — `anim_bp_test`): 복제 · 적용 · 컴파일 · 스모크는 동기, `run_anim_scenario` 는 에디터 잡(PIE)이라 `generate_motion` 이 `RUNNING` 을 돌려주고 `get_generation_status` 의 poll 이 `poll_automation_tests` 로 잇는다(무료 비동기 단계 — 장부 없음). 기다리기 전에 만든 복제본은 Job `intermediate_assets` 에 바로 남는다(취소 · 실패해도). 취소는 PIE 잡을 멈추지 않는다(결과 무시 — 러너가 기한에 PIE 를 닫는다).
+  - 프레임 렌더 비교(개정 8): `blender` 변환 단계가 `review.render` 결과(`values.review` — 프레임 PNG · 시트 · 배치 · 카메라)를 내면 Job 최상위 `review` 에도 남긴다. 뒤 단계가 실패하거나 폴백해도 지우지 않는다(무엇이 변환됐는지 보는 근거).
+  - 대상 메시 캡처(개정 12): capture 단계 결과(`values.review_capture`)는 Job `review.capture{ok, shows: target_mesh, mesh, facing, dir, sheet, compare_sheet, rows_from, animation{path, frames, fps, size, bytes}, frames[], sequence, camera, layout, bounds, cells_touching_edge, seconds}` — `review` 맨 위(소스 골격 렌더)는 그대로 둔다. 실패면 `{ok: false, reason, message, editor_error?}`.
+  - 같은 계획으로 `generate_motion`을 다시 부르면 기존 Job을 돌려준다. 실패·취소된 Job은 `retry=true`일 때만 새 Job을 만든다.
+  - 저장 위치: `Saved/AnimGen/{policy.json, plans/, jobs/, approvals/, ledger.jsonl}`(`ANIM_GEN_STATE_DIR`로 바꿀 수 있다 — 테스트 격리용). 서버 프로세스 하나를 전제한다.
+- **취소:** 취소가 Provider 실행의 즉시 중단을 뜻하지 않는다. 외부 작업은 "결과 무시"로 처리하고, 이미 발생한 비용은 장부에 남긴다. 로컬 서브프로세스(`blender` · `local_ai`)는 실제로 종료하고 Job에 `cancel_effect{stopped, pid}`를 남긴다(개정 7 · 8). `external.meshy`(개정 9)는 Meshy 에 취소가 없어 아무것도 보내지 않는다(PENDING 태스크 DELETE 는 환불되지만 처리 중앙값 15초라 쓰지 않는다) — 예약은 남는다.
+- **외부 비동기 단계 (개정 9 — `external.meshy`):** 유료 단계는 실행기가 승인 · 장부 예약(`(plan_id, attempt)`)을 마친 뒤 Provider `run` 을 부르고, `run` 은 잔액 확인 → 제출 → `pending{task_id, deadline, usd_per_credit}` 를 돌려준다(장부 `submitted`). `get_generation_status` 의 poll 이 태스크를 읽어 끝났으면 결과를 받고 다음 단계(import · blender)를 같은 호출에서 잇는다 — 백그라운드 스레드 없음. poll 의 429 · 5xx · 연결 실패는 실패가 아니라 다음 poll(Meshy 안내), `Retry-After` 전에는 요청하지 않는다. 기한(정책 `external.meshy.timeout_seconds`, 기본 3600 — Meshy 권장 "60분은 기다릴 것")을 넘기면 `GENERATION_FAILED TIMEOUT`(예약 유지 — 끝날 수도 있다). poll 단계가 실패로 끝나면 Provider 가 알려 준 과금을 장부에 반영한다: 환불(`charged: false`, 실패 태스크 `consumed_credits` 0) → `release`, 실제 크레딧 → `charge`, 모르면 예약 유지.
+
+---
+
+## 4. Provider
+
+| Provider | 하는 일 | Phase | 기본 상태 |
+| :--- | :--- | :---: | :--- |
+| `retarget` (파이프) | 공통 처리 계층 — 모든 Provider 결과가 지난다 | 1 | 활성 |
+| `package` (파이프, 개정 10) | 검증 뒤 포장 — additive · 몽타주 · BlendSpace (요청 `package`, 모든 쓰기 `generation_guard`) | 7 | 활성 |
+| `anim_bp` (파이프, 개정 10) | AnimBP 복제본 연결 · 검증 + 운영 AnimBP 미리보기 · 적용 페이로드 (요청 `integrate_anim_bp` 일 때만) | 7 | 활성 |
+| `review` (파이프, 개정 12) | 검증 뒤 최종 시퀀스를 대상 메시로 캡처(`capture_animation`) → 시트 · 비교 시트 · APNG (요청 `review.capture` 일 때만, 모든 경로) | 8 | 활성 (ini `CaptureOutputRoots` 가 있을 때 단계가 생긴다) |
+| `existing_motion` | 메타데이터 인덱스로 검색 → 리타깃 → 편집 | 2 | 활성 (주 경로) |
+| `direct_key` | `IAnimationDataController`로 키 작성: 리타임 · 트림 · 미러 · 본 오프셋 · 루트 Yaw · 포즈 유지 · 구간 연결. 개정 13: timing 단계(`fix.timing` — 휘두름 구간 탐지 → 리타임 · 트림, `anim_gen/timing.py`) | 2 · 8 | 활성 |
+| `blender` | `motion_file`(BVH)을 headless(`blender -b --factory-startup -P anim_gen/blender/bvh_to_fbx.py`)로 FBX로 바꿔 retarget 파이프로 넘긴다 — 더미 스킨 메시 · 대상 정면 · 바닥 맞춤 · 범위 · fps. 개정 8: 기준 포즈 2프레임 FBX 도 낸다(§10), 생성 Provider 의 BVH 도 변환한다(§5), 같은 실행에서 프레임 렌더 비교(`review.render`)와 보정 op(`fix.ops` — 개정 13: smooth · stance_width · foot_lock, 다리는 리타깃된 다리의 모델 안에서 한 풀이). 개정 13: SOMA77 BVH 면 local_ai 리타깃 기본값. FBX 입력·아마추어 편집은 이후 | 4 · 5 · 8 | 실행 파일(정책 `paths.blender_executable`)이 있으면 활성 |
+| `local_ai` | 개정 8 — NVIDIA Kimodo-SOMA-RP-v1.2(§2.4). `request.prompt`(+ `generation`) → Kimodo 전용 venv 서브프로세스 `<paths.kimodo_python> -I anim_gen/local_ai/kimodo_run.py args.json`(오프라인 · 텍스트 인코더 CPU) → 샘플별 NPZ + BVH(SOMA77 표준 T 포즈 · cm · 루트 트랙) → `blender` 변환 → retarget(SOMA 수동 체인 27개 · 골반 `Hips`). 제약 `root_path` · `keep_pose` · `kimodo_raw`. 개정 11: 요청 플래그 `two_hand_weapon_grip` · `foot_contact` → **2차 생성 제약**(같은 seed 1차 → `local_ai/refine.py` 가 양손 파지 목표 · 1차 접지 발 · 1차 루트 → 2차, Kimodo 일반 end-effector · root2d) · **seed 후보** `generation.candidates`(한 실행) · 후보 선별은 retarget 파이프 select 단계 | 5 · 8 | 정책 `paths.kimodo_python` · `kimodo_hf_cache` 가 있고 캐시에 필요한 4개 저장소가 있으면 활성(`license: ok`) |
+| `external.meshy` | 개정 9 — Meshy Text-to-Motion(§2.4). `request.prompt` · 길이(0.5초 단위로 맞춤) · `generation.options["external.meshy"].mode` 로 보낼 본문을 계획에 고정 → 승인된 유료 단계에서 잔액 → 제출 → poll → 결과 다운로드(`<ImportSourceRoots[0]>/Meshy/<job_id>/A<n>/meshy_motion.{fbx,bvh}` + `task.json`) → prime(FBX) = `import_animation_file`, swift(BVH) = `blender` 변환 → retarget(리그 미문서 — 자동 IK Rig, 실패하면 본 계층으로 수동 체인). 금액 = 크레딧 × 정책 `external.meshy.usd_per_credit` | 6 | 키(`MESHY_API_KEY`)가 있으면 사용 가능(`license: ok`). 유료 — 정책 `paid_api_enabled` + 환율 + 승인이 있어야 실행 |
+| `body_fit` (파이프, 개정 14 — 8-4b) | `control_rig` 비활성 자리를 대신한 **한 풀이**(Provider 수 10 그대로 — 이름 변경은 기대된 변화): 리타깃 · timing 뒤 대상 시퀀스(또는 같은 스켈레톤의 기존 Vesper 애니)를 C++ 몸 모델(`validate_animation body_clearance{parts all, hands, model}`)로 재고 → 순수 Python `anim_gen/body_fit.py` 가 관통(손 · 아래팔 ↔ 몸통 · 넓적다리 · 머리목 · 반대 손) · 양손 파지 keep · 위팔 '안 깊어짐' · 지시 목표(`fix.body.targets[]`) · 다리 공중 경로(`fix.body.legs` — 8-4d)를 한 번에 풀어 → `apply_animation_edits bone_deltas` 로 새 애셋 → 같은 측정으로 C++ 실측(모델 예측과 Job 에 함께). 요청 `fix.body` 일 때만 | 8 | 활성 |
+
+- **Motion Primitive** 개념은 유지하되 Phase 2에서는 `direct_key` 편집 op(`retime` · `trim` · `mirror` · `offset_bone` · `rotate_root` · `hold_pose` · `concat`(+ `reverse` 옵션))로 한정한다.
+- **Phase 2와 Phase 3의 경계:** Phase 2는 Provider가 부를 에디터 Tool(`search_animations` · `preview/apply_animation_edits`)만 만든다. `existing_motion` · `direct_key`를 Provider로 등록하는 것은 `anim_gen`(Phase 3)이다. `StepForward` · `JumpArc` 같은 전신 Primitive로 새 전신 모션을 짓는 것은 Phase 8 실험 항목이고, 품질 기대치가 낮다는 점을 결과에 명시한다.
+- **Capability**는 원본 목록(입력 유형, 신규 생성 지원, 수정 지원, 커스텀 스켈레톤 지원, 출력 포맷, 최대 길이, GPU 필요, 네트워크 필요, 유료 여부, 비용 추정 가능 여부, 라이선스 상태, 설치·인증 상태)을 Provider 매니페스트 데이터로 둔다.
+  - 파일: `Tools/mcp/anim_gen/providers.json`(추적). 필드: `input_types[]` · `supports_new_generation` · `supports_modification` · `supports_custom_skeleton` · `output_formats[]` · `max_duration_seconds` · `requires_gpu` · `requires_network` · `paid` · `cost_estimable` · `license` · `auth_env`(환경 변수 **이름**만).
+  - 설치·인증 상태는 매니페스트에 적지 않고 실행 시 계산한다: `state{implemented, installed, auth{env, present}, available, unavailable_reason}`. 키 값은 어디에도 내보내지 않는다.
+
+---
+
+## 5. 라우터
+
+- **Phase 3 MVP는 규칙 표**다(요청 유형 × 가용 Provider × 정책). 점수 기반 선택은 실제로 동작하는 Provider가 3개 이상이 된 뒤에 검토한다.
+- **입력:** 구조화된 요청(§9) + `inspect_skeleton` 결과 + Provider 가용성 + 정책.
+- **출력:** 후보 계획 목록. 각 계획은 단계 사슬 · 예상 비용 · 위험 · 예상 한계를 갖는다. `plan_motion_generation`은 실행하지 않는다.
+
+| 요청 유형 | 규칙 |
+| :--- | :--- |
+| 일반 이동·대기 | `existing_motion` → (없으면) `local_ai`(활성일 때) → 정책이 허용할 때만 `external` |
+| 손 위치가 중요한 무기 동작 | `existing_motion` + `direct_key` 편집 → 파지 오차를 검증으로 보고 → 보정(Phase 8) |
+| 새 복합 전신 동작 | `local_ai`(활성일 때) → `external`(허용·승인 시) → 결과 후처리 → 품질이 부족하면 세그먼트 방식(Phase 8) 제안 |
+
+외부 AI가 가장 적합해도 정책이 막으면 호출하지 않는다.
+
+**모드별 순서 (개정 6 — `Tools/mcp/anim_gen/router.py`의 규칙 표):** `existing` = `existing_motion`, `meshy` = `external.meshy`.
+
+| `motion_category` | `FREE_ONLY` | `FREE_FIRST` (기본) | `QUALITY_FIRST` | 붙는 한계 |
+| :--- | :--- | :--- | :--- | :--- |
+| `idle` · `locomotion` | existing → local_ai | existing → local_ai → meshy | existing → meshy → local_ai | — |
+| `weapon_action` | existing → local_ai | existing → local_ai → meshy | existing → meshy → local_ai | 모든 후보 `GRIP_NOT_VALIDATED`(파지 검증·보정은 Phase 8), AI 후보 `DRAFT_NEEDS_CLEANUP` |
+| `full_body_new` | local_ai → existing(근사) | local_ai → meshy → existing(근사) | meshy → local_ai → existing(근사) | 근사 후보 `NOT_NEW_MOTION` + 제안 `SEGMENTED_PLAN`(Phase 8) |
+
+- **단계 전개:** existing = 소스 결정(`reference_animations` 또는 `search_animations`) → [소스 스켈레톤 ≠ 대상이면 `retarget`] → [`edits`가 있으면 `direct_key`] → 검증. AI Provider = 생성 → `import_animation_file` → `retarget` → [`direct_key`] → 검증.
+- **재사용:** 소스가 대상 스켈레톤에 있고 `edits`가 없으면 복제하지 않는다 — `reused_assets` + 한계 `REUSED_EXISTING`.
+- **`provider` 지정:** 그 Provider의 후보만 만들고 폴백을 끈다(원 요청이 Provider를 고른 것이므로).
+- **`motion_file` (개정 7):** 있으면 `blender`를 모드 순서 맨 앞에 둔다(요청이 소스를 준 것). 없으면 위 표 그대로이고 `blender`는 후보·제외 목록에 나오지 않는다. 사슬 = 변환(blender) → `import_animation_file`(`sample_rate` = 요청 `frame_rate`) → `retarget` → [`direct_key`] → 검증.
+- **생성 BVH (개정 8 — `local_ai`):** 생성 Provider 의 출력이 BVH 면 사슬 = 생성 → 변환(`blender`) → import → `retarget` → [`direct_key`] → 검증(`chain` 은 `local_ai` · `blender` · `retarget`). 파일이 계획 때 없으므로 변환 단계는 생성 Provider 가 아는 규약(Kimodo: cm · 정면 +Y · 관절 78 · 30 fps · 프레임 수)을 `expected` 로 고정하고(위험 `CONVERT_RESOLVED_AT_RUN`), 실행 때 그 파일로 같은 규칙을 돌려 다르면 진단 `GENERATED_BVH_UNEXPECTED` 를 남기고 잰 값으로 변환한다. 리샘플은 생성 fps 와 요청 `frame_rate` 가 다를 때만. `blender` 를 쓸 수 없으면 그 후보를 `PROVIDER_UNAVAILABLE`(`DEPENDS_ON_BLENDER`)로 제외. 리타깃 단계의 소스 골반 · 체인 · 발은 요청이 비운 것만 Provider 기본값으로 채우고 계획에 `defaults_from{provider, keys}` 로 보인다(Kimodo = SOMA 골반 `Hips` · 체인 27개 · 발 — SOMA `LeftLeg` 는 넓적다리라 자동 캐릭터라이즈를 믿지 않는다). 생성 단계의 프롬프트 · 프레임 수 · seed(없으면 계획이 골라 고정 — `SEED_PINNED`) · 모델 커밋 · 제약 파일 SHA-256 도 계획에 고정한다.
+- **2차 생성 · 후보 선별 (개정 11 — `local_ai`, Phase 8-1):** 플래그를 바꿨거나(`generation.refine.mode` auto + `two_hand_weapon_grip` · `foot_contact` 중 하나 이상) `generation.candidates` > 1 이면 사슬 = 생성(seed 후보 N × 차수 1 · 2) → 변환(`blender` — 후보 BVH N 개를 **Blender 한 실행**으로, 기준 포즈 FBX 는 첫 후보만) → import(기준 포즈 1번 + 동작 N 개를 그 스켈레톤에 애니만) → **select**(retarget 파이프 — IK Rig · RTG 1벌로 후보 전부를 `<work>/Candidates/Cand_*` 로 리타깃 → `validate_animation`(소스 대비 · `profile_positions` · `body_clearance` · `fingers`) 한 번 → 지표 · 점수로 하나) → retarget(그 RTG 로 고른 후보만 최종 이름 — 결정적이라 잰 값 = 최종) → [`direct_key`] → 검증. `chain` 은 그대로(`local_ai` · `blender` · `retarget`). 생성 단계 계획에 seed 목록 · 2차 규칙(플래그 · Kimodo 제약 · 프레임 · 목표 · 주 손 · 간격 근거) · 기한(정책 + 25초 × (확산 횟수 − 1))을 고정해 보이고(모델을 띄우지 않는다, 목표 값은 1차 결과로 실행 때 — 위험 `REFINE_RESOLVED_AT_RUN`), select 단계에 후보 · 지표 · 가중치 · 기준 · 측정 본(대상 템플릿 체인 — 손목 · 엉덩 관절 · 발목, 못 찾으면 기본 이름 + 진단 `SELECTION_BONES_DEFAULTED`)을 고정한다. 1후보 + 플래그면 select 는 선택 없이 측정만 한다. 플래그 · 후보가 없으면 사슬 · 계획이 개정 10 과 같다.
+- **외부 생성 (개정 9 — `external.meshy`):** prime(FBX) = 생성 → `import_animation_file`(요청 `frame_rate` 로 굽기) → `retarget` → 검증, swift(BVH) = 생성 → `blender` 변환(단위 · 정면 · 관절 모름 → `expected{unit: auto}` 로 실행 때 잼, 대상 정면으로 돌림) → import(2단) → `retarget` → 검증(`blender` 가 없으면 `DEPENDS_ON_BLENDER`). 리그가 문서에 없어 리타깃 소스 체인을 채우지 않는다(자동 IK Rig — 위험 `SOURCE_RIG_UNVERIFIED`), prime 은 정면을 실행 때 잰다(`FACING_UNRESOLVED_AT_PLAN`). 후보의 위험 `PROMPT_SENT_EXTERNALLY` 와 생성 단계 `inputs.request_body`(보낼 본문 그대로)를 승인 전에 보여 준다. 비용 미확인(환율 없음) 후보는 `COST_UNKNOWN` 으로 제외된다.
+- **포장 · AnimBP 연결 (개정 10 — Phase 7):** 어느 후보든 검증 뒤에 같은 단계가 붙는다(계획 안에서 한 번 계산). `package` 가 있으면 `package_additive`(`set_sequence_additive` — 새로 만든 시퀀스만; 재사용 애셋이면 `ADDITIVE_ON_REUSED` 로 막는다 · 계획 때 소스를 모르면 위험 `ADDITIVE_TARGET_RESOLVED_AT_RUN`) → `package_montage`(`create_anim_montage` → `set_montage_sections`, 슬롯이 대상 스켈레톤에 없으면 `SLOT_NOT_IN_SKELETON` — `add_skeleton_slot` 은 공유 스켈레톤 편집이라 별도 승인) → `package_blendspace`(`create_blendspace`, 고정 샘플 존재 · 스켈레톤), 출력 이름이 있으면 `ASSET_EXISTS`. `integrate_anim_bp` 가 참일 때만 `anim_bp_test`(→ `<work>/<ABP>_Test_<job>A<n>` 복제(노드 Guid 보존) → `apply_graph_operations(compile)` → 스모크 `AnimGraphMcp.Smoke.AnimBlueprint.<복제본>` (+ 몽타주면 `AnimMontage.<몽타주>`) → `run_anim_scenario`) · `anim_bp_prepare`(운영 AnimBP `get_anim_blueprint_info` → `preview_graph_operations` — 읽기만). 계획은 ABP 존재 · 스켈레톤(`SKELETON_MISMATCH`)을 보고 revision 을 고정하며, 자리표시 없는 op 는 운영 AnimBP 로 미리 본다(`PREVIEW_INVALID`), 자리표시가 있으면 위험 `ANIM_BP_OPS_RESOLVED_AT_RUN`. `integrate_anim_bp` 가 거짓이면 AnimBP 호출은 0 이다. 사슬 `chain` 끝에 `package` · `anim_bp` 가 붙는다.
+- **변환 없는 경로 (개정 8):** `existing_motion` · `direct_key` 처럼 `blender` 변환이 없는 후보는 `fix.ops` 가 있으면 `UNSUPPORTED_FIX_OP` 로 막고(개정 13 문구: 소스 BVH 를 `motion_file` 로 · 시간 보정은 `fix.timing` · 대상 쪽 다리는 8-4), `review.render` 에는 한계 `REVIEW_NOT_RENDERED` 를 단다.
+- **자동 보정 (개정 13 — Phase 8-3):** `fix.timing` 이면 리타깃 뒤(재사용 경로는 소스 확정 뒤) · `edits` 앞에 timing 단계(Provider `direct_key`): 측정(`validate_animation profile` — 측정 본 = select 와 같은 `selection_bones`) → `timing.plan`(휘두름 탐지 · op) → `apply_animation_edits` → 새 애셋 다시 측정. 소스가 계획 때 대상 스켈레톤 위에 있고 에디터가 있으면 계획이 op 를 구해 `preview_animation_edits` 까지(결과 길이 · 이음매), 아니면 위험 `TIMING_RESOLVED_AT_RUN`. timing 이 있으면 재사용이 아니다(새 애셋), 캡처는 비교 칸 없이 자기 행(편집과 같음), 앞 단계는 Work 이름. `fix.ops` 는 변환 단계 안(범위를 정한 뒤 · 기둥 메시 앞)에서 순서 고정 smooth → 다리 풀이(stance_width + foot_lock 한 번). 다리 본은 retarget 단계 입력(요청 `source_chains` 또는 Provider 기본값)의 LeftLeg/RightLeg 체인 시작 · `source_feet`(없으면 체인 끝의 부모) · 그 부모(무릎) — 기본값이 채워진 뒤 라우터가 정하고(파일이 계획 때 있으면), 대상 다리 치수 · 기준 포즈(골반 · 엉덩 관절)도 계획에 싣는다. 못 정하면 그 후보 `UNSUPPORTED_REQUEST FIX_LEGS_UNKNOWN`. 다리 op 가 있으면 최종 retarget 단계가 대상 다리를 잰다(Job `fix.target`). SOMA77 BVH(`soma.is_soma` — 리타깃 기본값이 가리키는 관절 이름 전부)를 `motion_file` 로 주면 변환 단계가 local_ai 와 같은 리타깃 기본값을 낸다(`defaults_from{provider: blender}`, 진단 `SOMA_BVH_DEFAULTS`).
+- **한 풀이 (개정 14 — Phase 8-4b):** `fix.body` 면 모든 경로에서 timing 뒤 · `edits` 앞에 `body_fit` 단계(파이프 `body_fit`): 생성 = … → retarget → [timing] → **body_fit** → [edit] → 검증, 재사용 = resolve → [retarget] → [timing] → **body_fit** → [edit] → 검증 — 같은 스켈레톤 기존 애니도 새 애셋(재사용 아님, 앞 단계는 Work 이름). `mode: measure` 는 측정 · 계획만(애셋 없음 — 재사용 경로면 재사용 그대로). 리타깃 단계의 관통 보정은 기본 `resolve` → **`measure`** 로 바꾸고(보정 원천 하나 — 한계 `CLEARANCE_BY_BODY_FIT`, 계획 `retarget.inputs.body_clearance_from: body_fit`), 요청이 retarget `body_clearance: resolve` 를 명시하면 그대로 두되 위험 `CLEARANCE_DOUBLE_FIX`. 계획은 실행하지 않는다 — 소스가 계획 때 대상 스켈레톤 위에 있고 에디터가 있으면 측정해 '전' 수치 · 사건(초) · 지시 목표를 풀어 보이고(사건 → 프레임 구간 · ease 프레임 · 부위 → 본 · 자유도 · 몸 기준틀 오프셋 → 목표 위치 from/to), 생성 경로는 위험 `TARGETS_RESOLVED_AT_RUN`, 풀이는 항상 실행 때(`BODY_FIT_RESOLVED_AT_RUN`). 계획 때 아는 목표 오류는 후보를 막는다: 모르는 effector `BAD_REQUEST UNKNOWN_EFFECTOR` · 사건 없음 `EVENT_NOT_FOUND` · 클립 밖 `TARGET_OUT_OF_RANGE` · `target_mesh` 없음 `BODY_FIT_NO_MESH`(실행 때 알면 그 목표만 건너뛰고 한계 `TARGET_NOT_REACHED{reason}`).
+- **대상 메시 캡처 (개정 12 — Phase 8-2):** `review.capture` 면 모든 후보의 검증 뒤(포장 · 연결 앞)에 `capture` 단계(파이프 `review`, Tool `capture_animation`). 계획은 대상 정면(대상 스켈레톤 기준 포즈 — retarget 의 정면 측정과 같은 원천), 메시(`review.capture.mesh` 또는 `target_mesh`), 행 규칙(`rows_from: render` = 변환 단계의 렌더 시각 · 비교 칸 / `request` = times · count), 셀 상수(blender `REVIEW_RENDER` — 소스 골격 렌더와 같은 값 하나), 출력 `<CaptureOutputRoots[0]>/<job_id>/A<n>/` 을 고정한다. 메시가 없거나 ini 캡처 루트가 비면 단계 없이 한계 `REVIEW_NOT_CAPTURED`(후보는 막지 않는다), 에디터가 없으면 정면 · 루트를 실행 때(위험 `CAPTURE_FACING_RESOLVED_AT_RUN` · `CAPTURE_ROOTS_UNCHECKED`), 변환 없는 경로에서 render 를 요청했거나 `edits` 로 시간축이 바뀌면 비교 칸 없이 자기 행(위험 `CAPTURE_ROWS_NOT_RENDER` · `CAPTURE_COMPARE_SKIPPED_EDITS`). 실행은 최종 시퀀스(재사용이면 그 애셋, 8-1 후보면 고른 후보 — 비교 칸도 그 후보의 소스 골격 프레임)를 캡처하고 연속 프레임을 APNG 로 잇는다. 사슬 `chain` 끝에 `review` 가 붙는다.
+- **계획 단계 제외(`excluded[]`):** `PROVIDER_UNAVAILABLE`(`NOT_IMPLEMENTED` · `NOT_INSTALLED` · `DEPENDS_ON_BLENDER` 등) · `LICENSE_RESTRICTED` · `AUTHENTICATION_FAILED`(`API_KEY_MISSING`) · `APPROVAL_REQUIRED`(`POLICY_FREE_ONLY` · `PAID_API_DISABLED`) · `COST_UNKNOWN` · `UNSUPPORTED_REQUEST`(Capability 밖, 예: 최대 길이 초과 `DURATION_OVER_MAX`. 개정 8: `MISSING_INPUT`(프롬프트 없음) · `CONSTRAINT_OUT_OF_RANGE` · `DUPLICATE_FRAME` · `BAD_RAW_CONSTRAINTS` · `FILE_NOT_FOUND` · `POSTPROCESS_UNAVAILABLE` · `REVIEW_TIME_OUT_OF_RANGE` · `UNSUPPORTED_FIX_OP`). 제약 파일 · 레퍼런스 이미지가 `ImportSourceRoots` 밖이면 계획 전체가 `IMPORT_SOURCE_NOT_ALLOWED`.
+- **계획은 실행하지 않는다:** 읽기 전용 에디터 호출(`get_editor_status` · `inspect_skeleton` · `search_animations`)로 고른 소스·소스 메시를 계획에 고정해 보여 주고, 출력 경로를 ini 허용 목록으로 미리 검사한다. 에디터가 없으면 단계를 미해결로 둔 계획만 만든다.
+- 중간 애셋(IK Rig · 리타기터 · 리타깃 중간본)은 `<output_path>/Work/<job_id>/`에 만들고 결과와 같은 `save`를 따른다. 지우지 않는다(정리는 사용자 확인 후).
+
+---
+
+## 6. 비용·실행 정책
+
+원본의 세 모드(`FREE_ONLY` · `FREE_FIRST`(기본) · `QUALITY_FIRST`)와 의미를 유지한다. 바뀌는 점:
+
+- **정책 파일:** 기본값 `Tools/mcp/anim_gen/policy.default.json`(추적) + 로컬 덮어쓰기 `Saved/AnimGen/policy.json`(추적 안 함).
+- **API 키:** 환경 변수(`MESHY_API_KEY` 등)로만 받는다. 저장소, Tool 인자, 로그, Job 기록에 키를 남기지 않는다.
+- **승인:** `approve_generation(plan_id, max_cost_usd, max_attempts, provider?)`. 승인 범위는 한 계획의 지정 Provider 호출 횟수(재시도 포함) + 금액 상한이다. 범위를 넘는 재시도는 새 승인이 필요하다.
+  - 검사: 추정 ≤ `max_cost_usd` ≤ `max_cost_per_job_usd`, 그리고 지출 + 예약 + `max_cost_usd` ≤ `max_total_cost_usd` → 아니면 `BUDGET_EXCEEDED`. `FREE_ONLY` · `paid_api_enabled=false`면 승인하지 않는다(`BAD_REQUEST` `POLICY_FREE_ONLY` · `PAID_API_DISABLED`). 비용 미확인이면 `COST_UNKNOWN`.
+  - 승인하면 그 계획의 `WAITING_FOR_APPROVAL` Job이 `QUEUED`가 된다. 실행은 다음 `generate_motion` 호출에서 한다(승인이 실행을 일으키지 않는다).
+- **중복 과금 방지:** 유료 제출은 `(plan_id, attempt)`를 멱등 키로 쓴다. 같은 키로 다시 요청하면 기존 Job을 돌려준다. 제출 직전 장부(`Saved/AnimGen/ledger.jsonl`)에 예약을 적고, 같은 키가 이미 있으면 제출하지 않는다.
+- **비용을 확인할 수 없는 유료 요청은 실행하지 않는다.** 금액을 임의로 계산해 확정하지 않는다. Provider가 실제 금액을 알려 주지 않으면 `actual_usd: null`(미확정)로 두고 추정액을 예약으로 남긴다.
+- **정책 파일에 두지 않는 것:** 출력 경로(ini `GenerationOutputPaths`가 유일한 기준)와 덮어쓰기 허용(C++가 항상 금지 — 정책으로 켤 수 없다). `set_generation_policy`는 이런 키(`output_path*` · `candidate_root` · `allow_asset_overwrite`)와 키·토큰 이름의 키를 `BAD_REQUEST FORBIDDEN_KEY`로 거부하고, `require_explicit_approval`은 `true`만 받는다.
+- **병합 순서:** `policy.default.json` ← `Saved/AnimGen/policy.json`(딥 머지) ← 요청의 `generation_policy`(정책이 `FREE_ONLY`면 벗어날 수 없다 — 진단 `POLICY_CLAMPED`). 실행 시점의 정책으로 다시 검사한다.
+
+```jsonc
+{
+  "mode": "FREE_FIRST",
+  "billing": { "paid_api_enabled": false, "require_explicit_approval": true, "max_cost_per_job_usd": 0, "max_total_cost_usd": 0 },
+  "execution": { "max_generation_attempts": 3, "allow_fallback": true, "preserve_intermediate_results": true, "subprocess_timeout_seconds": 300 },  // 타임아웃: 개정 7
+  "paths": {
+    "blender_executable": "C:/Program Files/Blender Foundation/Blender 4.4/blender.exe",
+    "kimodo_python": "D:/AnimGenModels/Kimodo/.venv/Scripts/python.exe",   // 개정 8 — Kimodo 전용 venv
+    "kimodo_hf_cache": "D:/AnimGenModels/Kimodo/hf_cache"                    // 개정 8 — 오프라인 Hugging Face 캐시
+  },
+  "external": { "meshy": { "usd_per_credit": null, "timeout_seconds": 3600 } },  // 개정 9 — 크레딧당 USD(사용자 요금제) · 결과 대기 한도
+  "style": { "reference_skeleton": "/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F", "profiles": {} }  // 개정 15(9-5a) — 기준값을 정한 몸 · 대상별 스타일 값
+}
+```
+
+- **대상별 기준값 (개정 15 — 9-5a, `style`):** 시간 보정 · 다리 보정 · 선별의 기준값은 운영 Vesper 애니에서 정했다. 대상이 `reference_skeleton` 이면 아무것도 바꾸지 않는다(계획 · Job 비트 같음). 다른 대상은 손 속도 기준(시간 보정 정점 목표 · 빠른 구간 매끈화 기준)에 몸 비율 (팔 길이 / scale)_대상 ÷ (팔 길이 / scale)_기준 몸 을 곱한다 — 기준 몸 치수는 계획 때 그 스켈레톤에서 잰다(숫자를 정책에 적지 않는다). `profiles{<스켈레톤>: {timing_target_peak_cm_s?, stance_max_ratio?}}` 는 그 캐릭터의 운영 애니로 잰 스타일 값 — 요청이 주지 않은 값에 환산 대신 쓴다(요청 > 프로필 > 몸 비율 > 기준값). 프로필이 없는 스타일 값을 쓰는 계획은 한계 `TARGET_STYLE_FROM_REFERENCE`. 근거 §14 '9-5a'.
+
+- **외부 AI 금액 (개정 9 — `external.meshy`):** 크레딧 가격(prime 10 · swift 3)은 공식 문서지만 크레딧의 돈 값은 요금제(월 크레딧 · 구매 크레딧)마다 달라 문서로 확정할 수 없다. 그래서 추정액 = 공식 크레딧 × **사용자가 정한** `external.meshy.usd_per_credit`(0 초과 10 이하)이고, null(기본)이면 비용 미확인 — 계획에서 `COST_UNKNOWN` 으로 빠지고 승인도 실행도 없다. 승인 상한 · 정책 상한은 그대로 USD 다. 실제 금액 = 태스크의 `consumed_credits` × 제출 때 핸들에 고정한 같은 환율(장부 `charge{usd, credits}`) — 크레딧은 Provider 가 알려 준 실제 값이다. 제출 직전 잔액(무료 엔드포인트)이 모자라면 제출하지 않는다(`BUDGET_EXCEEDED INSUFFICIENT_CREDITS`, 예약 해제). 키 · 결과 서명 URL 은 정책 · 장부 · Job · 요청 로그 어디에도 남기지 않는다. 기본 URL 은 코드에 고정이다(정책으로 바꿀 수 없다 — 키가 다른 호스트로 가지 않게).
+
+- **로컬 AI 경로 (개정 8):** `paths.kimodo_python` 이 파일이 아니거나 `paths.kimodo_hf_cache` 에 `nvidia/Kimodo-SOMA-RP-v1.2` · LLM2Vec 어댑터 2개 · `meta-llama/Meta-Llama-3-8B-Instruct` 의 `refs/main` 이 없으면 `local_ai` 는 미설치(`NOT_INSTALLED`, 사유에 빠진 저장소). 캐시 `refs/main` 이 계획의 `model_commit` 이 된다. 실행 환경은 `HF_HUB_OFFLINE` · `TRANSFORMERS_OFFLINE` · `TEXT_ENCODER_DEVICE=cpu` 등을 Provider 가 넣고 HF 토큰은 넘기지 않는다. 기본 `subprocess_timeout_seconds` 300 은 Kimodo 1건(차가운 첫 실행 약 90초 — §14 Phase 5)에 충분하다. 다른 PC 는 `Saved/AnimGen/policy.json` 의 `paths` 로 덮어쓴다.
+
+---
+
+## 7. 폴백
+
+원본의 실패 원인 분류를 유지하고 `APPROVAL_REQUIRED`를 추가한다.
+
+```text
+PROVIDER_UNAVAILABLE · AUTHENTICATION_FAILED · APPROVAL_REQUIRED · BUDGET_EXCEEDED · COST_UNKNOWN · RATE_LIMITED · LICENSE_RESTRICTED
+UNSUPPORTED_REQUEST · GENERATION_FAILED · IMPORT_FAILED · RETARGET_FAILED · VALIDATION_FAILED · QUALITY_INSUFFICIENT
+```
+
+에디터 Tool 오류는 다음처럼 분류한다(개정 6):
+
+| 상황 | 원인 | 다음 |
+| :--- | :--- | :--- |
+| `EDITOR_GONE` · `TIMEOUT` · `TRANSPORT` | `PROVIDER_UNAVAILABLE` (`EDITOR`) | **중단** — 모든 경로가 리타깃·저장에 에디터를 쓴다 |
+| 검색 0건 · 참조 애셋 없음 | `UNSUPPORTED_REQUEST` (`NO_MATCH`) | 다음 후보 |
+| `edits`의 `BAD_REQUEST` | `UNSUPPORTED_REQUEST` (`BAD_OPERATIONS`) | 다음 후보 |
+| `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `RIG_MISMATCH` | `RETARGET_FAILED` (`details.bones` 보존 — 수동 체인 제안용) | 다음 후보 |
+| `VALIDATION_FAILED` · `EXPECT_*` | `VALIDATION_FAILED` | 다음 후보 |
+| select 단계 (개정 11) — 후보 일괄 리타깃 실패 · 후보 일부 검증 `FAILED` · 전부 `FAILED` | `RETARGET_FAILED` · (그 후보만 제외 — `selection.candidates[].excluded`) · `VALIDATION_FAILED` (`ALL_CANDIDATES_FAILED`) | 다음 후보(Provider) · 남은 후보에서 선택 · 다음 후보(Provider). 후보 애셋 · IK Rig · RTG 는 `intermediate_assets` |
+| `UNEXPECTED_DIRTY` · `OUTPUT_PATH_NOT_ALLOWED` · `ASSET_EXISTS` · `ASSET_PROTECTED` · `IMPORT_SOURCE_NOT_ALLOWED` | 그대로 | **중단** — 가드·요청 문제라 다른 Provider도 같다 |
+| Provider `RATE_LIMITED` | 그대로 | 같은 후보 재시도 |
+| 포장 · AnimBP 연결 단계의 실패 (개정 10) — 슬롯 · 컴파일 · 스모크 · 시나리오 · 운영 미리보기 등 | `INTEGRATION_FAILED` (`SLOT_NOT_IN_SKELETON` · `COMPILE_FAILED` · `SMOKE_FAILED` · `SMOKE_NOT_FOUND` · `SCENARIO_FAILED`(Job `error.details.observed`) · `PREVIEW_INVALID` · `ADDITIVE_INVALID` …) | **중단** — 다른 Provider 도 같은 포장 · 연결을 한다. 이미 만든 시퀀스는 `generated_assets` 에 남는다(다시 할 때는 그 애셋을 `reference_animations` 로 — 독립 실행). 이 단계의 가드 오류(`UNEXPECTED_DIRTY` 등)는 위 행대로 그대로 중단 |
+| 자동 보정 (개정 13) — timing: 휘두름 없음 · 이미 빠름 · 바꿀 것 없음 / 측정 profile 없음 / `apply_animation_edits` 거부 · 검증 실패. fix.ops: 다리 본을 못 정함 · Blender 안 보정 실패 | timing: 한계 `TIMING_NOT_APPLIED{reason}`(항등 trim 으로 최종 애셋은 만든다) / `VALIDATION_FAILED NO_PROFILE` / `UNSUPPORTED_REQUEST BAD_OPERATIONS` · `VALIDATION_FAILED`. fix.ops: `UNSUPPORTED_REQUEST FIX_LEGS_UNKNOWN`(계획 — 후보 제외 · 실행) · `GENERATION_FAILED <Blender 코드>`(`FIX_LEGS_UNKNOWN` · `FIX_BONE_MISSING` · `UNSUPPORTED_FIX_OP`) | 계속(한계) / 다음 후보 / 다음 후보 · 같은 규칙. fix op 인자 오류 · 중복은 계획 전체 `BAD_REQUEST`(`DUPLICATE_FIX_OP`) |
+| 대상 메시 캡처 단계 (개정 12) — `CAPTURE_FAILED` · 캡처 루트 · 비교 이미지 · 메시 불일치 · 정면을 못 잼 | 한계 `REVIEW_NOT_CAPTURED{reason}` (Job `review.capture.ok = false`) | **계속** — 캡처는 판정 근거라 생성 실패가 아니다(blender 렌더 실패와 같은 규칙). 연결 오류(`EDITOR_GONE` · `TIMEOUT` …)와 `UNEXPECTED_DIRTY` 는 위 행대로 중단 |
+| 유료 단계: 승인 없음 · 상한 초과 · 비용 미확인 | `APPROVAL_REQUIRED` · `BUDGET_EXCEEDED` · `COST_UNKNOWN` | 뒤에 무료 후보가 있으면 그쪽, 없으면 승인 대기(`APPROVAL_REQUIRED`) 또는 `FAILED` |
+
+시도 수 = 후보 실행 횟수(재시도 포함)이고 `max_generation_attempts`를 넘지 않는다. 유료 후보는 승인의 `max_attempts`도 따른다.
+
+다른 Provider로 넘어가려면 아래를 모두 만족해야 한다(원본 유지):
+
+- 비용 정책을 위반하지 않는다.
+- 그 Provider가 요청을 처리할 수 있다.
+- 라이선스상 쓸 수 있다.
+- 리타깃이 가능하다.
+- 최대 시도 횟수를 넘지 않았다.
+
+이미 만든 유효한 결과는 후보로 보존한다(`preserve_intermediate_results` — Job의 `preserved_candidates[]`). **폴백 결과는 `limitations[]`에 원 요청 대비 무엇이 빠졌는지 반드시 적고**(`FALLBACK_USED{from, cause, missing}` + 그 후보의 예상 한계), 원 요청을 완전히 충족한 결과로 보고하지 않는다.
+
+---
+
+## 8. 스켈레톤 조회 — `inspect_skeleton` (Phase 1)
+
+- **입력·결과의 기준은 감사 §10**이고, 이 절은 그 요약이다.
+- **입력:** `skeleton` 또는 `skeletal_mesh`, `details=false`, `compare_to?`(비교할 스켈레톤).
+- **출력:** 측정값만 담고 추정으로 채우지 않는다.
+
+| 필드 | 내용 |
+| :--- | :--- |
+| `skeleton_path` · `meshes[]` | 스켈레톤과 그것을 쓰는 메시 |
+| `bone_count` · `root_bone` | |
+| `bones[]` | 이름 · 부모 · 기준 포즈(로컬/컴포넌트). 기본은 요약, `details`면 전체 |
+| `virtual_bones[]` · `sockets[]` | 스켈레톤 소켓 + 메시 소켓 |
+| `slot_groups[]` · `curve_count` | |
+| `ik_rigs[]` · `retargeters[]` | 이 스켈레톤(메시)을 참조하는 애셋 (AssetRegistry) — `existing_rig` / `existing_retargeter` 후보 |
+| `animation_count` | |
+| `template_match` | 자동 캐릭터라이저의 템플릿 사용 여부 · 이름 · 매칭률 (판정 아닌 측정값) |
+| `compare` | `compare_to`가 있을 때: 공통 본 수 · 상대에 없는 본 · 기준 포즈 회전 차 · 본 길이 비 · 판정(`same_rig` \| `needs_ik_retarget` \| `no_common_bones`) |
+| `geometry` (개정 14 — 8-4a) | `geometry: true` 일 때: 메시(인자 `skeletal_mesh` → 해석된 메시) LOD0 정점의 범위 · 무게중심 · 주축 3개(공분산 야코비, 부호 = 가장 큰 성분 +, 범위 · 길이 · 표준편차) · 첫 주축 단면 24칸(칸마다 정점 수 · 둘째 · 셋째 축 폭 · 중심 — 손잡이 = 가늘고 정점이 적은 구간) · 본별 정점 범위. 무기 손잡이 축의 **근거**(선분은 요청이 준다 — 아래) |
+
+원본 초안의 `compatible_skeletons[]`(엔진 호환 목록은 이름 기준이라 판정 근거가 못 됨, 감사 §8)와 `pose_measure`(A/T 포즈 측정)는 Phase 1 범위에서 뺐다.
+
+무기 파지점은 스켈레톤이 아니라 무기 메시 소켓과 장비 데이터에 있다(예: 라이플 `LeftHandIK` 소켓, `DA_EF_Rifle.AttachSocket = hand_r`). 인스펙터는 무기 정보를 추정하지 않는다. 필요하면 요청이 무기 메시를 인자로 준다.
+
+---
+
+## 9. 생성 요청 스키마
+
+내부 요청 스키마와 외부 Provider API 스키마를 분리한다(원본 유지). 원본 대비 이름·경로·힌트 필드를 조정했다.
+
+```jsonc
+{
+  "target_skeleton": "/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F",
+  "target_mesh": "/Game/Assets/IdaFaber/Meshes/Girl/SK_StreetDemon_F_01", // 리타깃 단계가 있으면 필수 (개정 6)
+  "hero": "Vesper",                          // 이름 토큰
+  "family": "Sickle",                        // 이름 토큰
+  "animation_name": "AS_Vesper_Sickle_SpinSlash",
+  "description": "낫을 양손으로 잡고 회전하며 3번 베는 공격",   // 기록만 — 서버는 해석하지 않는다
+  "motion_category": "weapon_action",        // idle | locomotion | weapon_action | full_body_new (개정 6)
+  "duration_seconds": 3.0,
+  "frame_rate": 30,
+  "loop": false,
+  "root_motion_mode": "auto",
+  "reference_animations": [],                // 주면 검색 대신 이 소스를 쓴다 (선택)
+  "search": { "query": "sickle attack", "path_prefix": "/Game", "min_length": null, "max_length": null },  // 개정 6
+  "edits": { "source": null, "operations": [] },                // 개정 6 — Phase 2 op 사전 그대로
+  "retarget": { "source_mesh": null, "existing_retargeter": null, "source_facing": "auto",   // 개정 6 — 재사용은 명시할 때만 · 개정 7 보강 source_facing
+                "align_mode": "per_bone", "body_clearance": null },                     // 개정 8 · 개정 11 — 비우면 파지 플래그 = measure, 아니면 resolve
+  "constraints": { "two_hand_weapon_grip": true, "foot_contact": true, "smooth_start_end": true },   // 개정 11 — local_ai 는 앞 둘을 2차 생성 제약으로
+  "generation_policy": "FREE_FIRST",
+  "provider": "auto",
+  "package": {                               // 개정 10 — 있을 때만 포장 단계. 출력은 output_path, 쓰기는 generation_guard
+    "additive":   { "additive_type": "LocalSpaceBase", "ref_pose_type": "LocalAnimFrame", "ref_frame_index": 0, "ref_pose_sequence": null },
+    "montage":    { "name": null, "slot": "UpperBody", "blend_in": 0.1, "blend_out": 0.15,           // name 생략 = AS_ → AM_
+                    "sections": [{ "name": "Loop", "start": 0, "next": "Loop" }] },
+    "blendspace": { "name": "BS_Vesper_Sickle_Walk1D", "dimensions": 1, "axes": [{ "name": "Speed", "min": 0, "max": 500 }],
+                    "samples": [{ "animation": "$asset", "value": [300] }, { "animation": "/Game/…/AS_Idle", "value": [0] }], "aim_offset": false }
+  },
+  "integrate_anim_bp": false,                // 개정 10 — 참일 때만 anim_bp 를 읽는다(anim_gen 은 복제본에만 쓴다)
+  "anim_bp": { "asset_path": "/Game/Animation/Hero/ABP_Hero_Combat",
+               "operations": [{ "op": "set_asset", "node": "<guid>", "asset": "$blendspace" }],   // apply_graph_operations op 사전, 빈 목록 = 재생 확인만
+               "scenario": { "montage": "$montage", "expect": { "slots_active": ["UpperBody"] }, "wait_frames": 10 },
+               "smoke": true },
+  "output_path": "/Game/Animation/Generated/Vesper",
+  "motion_file": null,                       // 개정 7 — BVH 경로 또는 {path, unit, facing, range, axis_forward, axis_up}
+  "prompt": "A person swings a scythe in a circle three times.",   // 개정 8 — 생성 모델이 읽는 영어 문장 (description 은 기록만)
+  // "segments": [{ "prompt": "…raises the scythe…", "duration_seconds": 1.0, "name": "Windup" }, { "prompt": "…slashes…", "duration_seconds": 0.7, "swing": true }, …],
+  //   개정 15 (9-2) — prompt 대신 2 ~ 6개(줄 때만 키가 생긴다). generation.transition_frames 1 ~ 10(5) · package.montage.sections "segments"
+  //   개정 15 (9-3c) — 기존 구간 섞기: { "source": "existing", "asset": "/Game/…/AS_Vesper_Sickle_Attack1", "start": 0, "end": null, "name": "Attack1" } ·
+  //   generation.seam_keys true(기본 — 이음매 자동 키) | false(크로스페이드만)
+  "generation": { "seed": null, "samples": 1, "steps": 100, "postprocess": "auto", "pick": 0,
+                  "constraints": [{ "type": "root_path", "points": [{ "t": 3.0, "forward_cm": 400, "left_cm": 0, "yaw_deg": 180 }] }],  // 개정 8
+                  //   { "type": "key_pose", "asset": "/Game/…/AS_Vesper_Sickle_Attack1", "times": [0.83], "at": [1.2], "part": "full", "placement": "auto" }
+                  //   — 개정 15 (9-3): 대상 애셋 자세 → 생성 앞 key_pose 단계(역리타깃 → SOMA) → Kimodo 키 포즈
+                  "options": { "external.meshy": { "mode": "prime" } },                      // 개정 9 — Provider 별 설정
+                  "candidates": 1,                                                           // 개정 11 — 1 ~ 6: seed, seed+1, … (한 Kimodo 실행)
+                  "refine": { "mode": "auto",                                                // 개정 11 — auto: 바꿀 플래그가 있으면 2차 생성 · off: 한계로만
+                              "grip": { "lead_hand": "right", "target": "meet", "spacing_cm": null, "target_spacing_cm": null, "from_s": null, "to_s": null },  // 개정 11 보강 4 — 간격은 둘 중 하나(생성 골격 · 대상 메시)
+                                                                                                 //   개정 15 (9-3b) — handle?: "wrist_line"(기본, 줄 때만 키) | "weapon"(요청 weapon 의 운영 부착 자루 — 계획이 자루를, 생성 앞 hand_basis 가 손 방향 대응을 잰다)
+                              "keyframe_step": 3 },
+                  "select": { "weights": { "grip": 3, "stance": 0.5, "swing": 1, "attack": 2, "clearance": 1, "breakage": 1, "cross": 2, "head": 1, "wrist": 2, "head_deep": 2, "handle": 0 } } },  // 개정 11 — 후보 선별 가중치(attack = 수정안 C, cross · head = 낫 정정) · 개정 15(9-1) — 고칠 수 있는 결함 낮춤 · wrist · head_deep · handle(기록)
+  "review": { "render": { "count": 4, "views": ["front", "side"], "reference_images": [] },   // 개정 8 — blender 변환 단계의 소스 골격 렌더
+              "capture": { "views": null, "mesh": null, "sequence": { "fps": 15, "cell_height_px": 320 }, "compare": true,   // 개정 12 — 대상 메시 캡처(행 = render 시각)
+                           "focus": [{ "bones": "hand_l" }] } },  // 9-5c — 부위마다 같은 행 · 뷰 · 시퀀스로 부분 프레이밍(≤ 4). bones = hand_l · hand_r · fingers_l · fingers_r · head | [본 이름 …], name?, margin_cm?, near_cut? — 줄 때만 키가 생긴다
+  "fix": { "ops": [{ "op": "stance_width", "max_ratio": 3.0 }, { "op": "foot_lock" }],   // 개정 13 — blender 보정 op(리타깃 전 소스 골격, 다리는 대상 모델로 풀이)
+           "timing": true,                   // 개정 13 — 리타깃 뒤 대상 시퀀스의 휘두름 가속 · 정지 머리/꼬리 트림(모든 경로). 9-5a: 다른 대상의 정점 목표 = 프로필 또는 1200 × 몸 비율(§6)
+           "body": {                         // 개정 14 (8-4b) — timing 뒤 대상 시퀀스의 한 풀이(모든 경로). true = 기본값
+             "grip": { "spacing_cm": 60, "tolerance_cm": 11.09 },                 // 낫 = 소스 자루 간격 60 ± 13 × 팔 길이 비(E0 와 같은 띠), 검은 비움
+             "targets": [ { "id": "lower_finish", "note": "베기 끝에 낫을 더 낮게",     // note = 사용자 지시 원문(기록만) — 바꾸는 것은 Claude Code
+                            "effector": "hand_r", "at": { "event": "swing_end" }, "hold_s": 0.3,
+                            "position": { "offset_cm": [0, 0, -15], "space": "body" }, "ease_s": 0.15, "priority": "soft" } ],
+             "legs": { "swing_path": "auto", "pins": "auto" },   // 개정 14 (8-4d) — auto = fix.ops 에 stance_width · foot_lock 이 있으면 공중 발 경로를 다시 짠다.
+                                                            // 9-4d — pins hold = 접지 발목 수평 고정 · 발끝 접지 발볼 잇기(auto = fix.timing + 다리 op), 공중은 바닥 아래로 안 내려감
+             "smooth_speed": "auto",                        // 개정 14 (8-4e) — 손이 빠른 프레임의 매끈화 폭을 줄인다(개정 15 — 9-4c: auto = 켬)
+             "converge": true, "finish_smooth": true } }   // 개정 15 (9-4c) — 남은 짧은 몸 관통 국소 수렴 · 손 부근 마무리 증분 매끈화
+}
+```
+
+Provider가 지원하지 않는 제약은 후처리로 해결 가능한지 따지고, 해결할 수 없으면 무시하지 않고 `limitations[]`에 기록한다.
+
+**개정 6 — 필드 규칙 (`Tools/mcp/anim_gen/request.py`):**
+
+| 필드 | 규칙 |
+| :--- | :--- |
+| `target_skeleton` · `animation_name` · `output_path` · `motion_category` | 필수. `output_path`는 `get_editor_status.generation.output_paths` 안이어야 한다(계획 단계에서 미리 검사, 최종 기준은 C++) |
+| `target_mesh` | 리타깃 단계가 생기는 후보에는 필수 — 없으면 그 후보를 `MISSING_INPUT`으로 막는다. 스켈레톤의 첫 메시를 암묵적으로 고르지 않는다(§10) |
+| `reference_animations[]` · `search{query, path_prefix, asset_class, min_length, max_length, root_motion, loop, tags, limit}` | existing_motion의 소스. 참조가 있으면 검색하지 않는다 |
+| `edits{source?, operations[]}` | `direct_key` 단계(Phase 2 op 사전). `source`를 생략하면 앞 단계 결과 |
+| `retarget{source_mesh?, existing_source_rig?, existing_target_rig?, existing_retargeter?, source_pelvis?, source_chains?, source_facing?}` | 리타깃 파이프 입력. `source_mesh`를 생략하면 소스 스켈레톤의 프리뷰 메시를 계획에 고정해 보여 주고 위험 `SOURCE_MESH_IMPLICIT`을 단다. `source_facing`(개정 7 보강): 소스가 보는 UE 축 — `auto`(기본, 소스 기준 포즈로 잼) · `keep`(맞추지 않음) · `+X` · `−X` · `+Y` · `−Y`. 대상 정면과 다르면 계획에 위험 `FACING_DIFFERS` + 한계 `FACING_ALIGNED`(§10), 못 재면 `FACING_UNKNOWN`(맞추지 않음), 소스를 계획 때 모르면(생성 임포트 · 에디터 없음) `FACING_UNRESOLVED_AT_PLAN` 후 실행 때 잰다. `existing_target_rig`(9-5b): 템플릿이 없는 대상에 필수 — 소스와 이름이 같은 체인의 수동 IK Rig(`create_ik_rig mode manual`). 측정 본 · 몸 모델 체인 · 샘플 묶음의 한 원천이고, 없으면 그 대상 계획은 `TARGET_CHAINS_UNKNOWN` |
+| `generation_policy` | 정책 모드를 요청 단위로 바꾼다. 정책이 `FREE_ONLY`면 벗어날 수 없다(`POLICY_CLAMPED`) |
+| `provider` | `auto` 또는 Provider 이름 — 이름이면 폴백을 끈다(§5) |
+| `duration_seconds` · `frame_rate` · `loop` · `constraints` | 결과와 다르면 한계로 기록: `DURATION_MISMATCH` · `FRAME_RATE_MISMATCH`(출력 fps = 주 소스, §2.3) · `LOOP_MISMATCH` · `GRIP_NOT_VALIDATED` · `FOOT_CONTACT_NOT_ENFORCED` · `CONSTRAINT_UNSUPPORTED`. 길이·fps·루프는 결과를 측정해 적는다(계획 단계 값은 예상). `loop`는 `direct_key` 결과의 `bLoop`로도 쓰인다(내장 검증 `expect`가 쓴 값을 확인). 개정 10: `ANIM_BP_NOT_INTEGRATED` 폐지 — `integrate_anim_bp` 는 아래 `anim_bp` 행 |
+| `package{additive?, montage?, blendspace?}` (개정 10) | 하나 이상. `additive{additive_type LocalSpaceBase \| RotationOffsetMeshSpace, ref_pose_type RefPose \| AnimScaled \| AnimFrame \| LocalAnimFrame (기본 LocalAnimFrame 0), ref_frame_index ≥ 0, ref_pose_sequence ('$asset' = 자기 자신 · 경로 · null)}` — `AnimFrame` · `AnimScaled` 는 기준 시퀀스 필수(§2.3), 새로 만든 시퀀스만(재사용이면 `ADDITIVE_ON_REUSED`). `montage{name? (생략 = animation_name 의 AS_ → AM_), slot (기본 DefaultSlot, 이름 형식), blend_in? · blend_out? ≥ 0, sections?[{name, start ≥ 0, next?}]}`. `blendspace{name (필수), dimensions 1 \| 2, axes[{name, min, max > min, grid?, snap?, wrap?}], samples[{animation '$asset' \| 경로, value[dimensions]}] (축 범위 밖 `OUT_OF_RANGE`), aim_offset}`. 이름은 서로 · `animation_name` 과 달라야(`DUPLICATE_NAME`). 몽타주면 한계 `NOTIFIES_NOT_ADDED` |
+| `integrate_anim_bp` · `anim_bp{asset_path, operations[], scenario?, smoke}` (개정 10) | `integrate_anim_bp` 가 참일 때만 `anim_bp` 를 읽는다 — 참인데 없으면 `MISSING_FIELD`, 거짓인데 있으면 `CONFLICTING_FIELDS`(애셋만 요청하면 AnimBP 를 건드리지 않는다). `asset_path` = 연결할 AnimBP(anim_gen 은 복제본에만 쓴다). `operations` = `apply_graph_operations` op 사전(빈 목록 = 복제본 컴파일 · 스모크 · 시나리오로 재생만 확인), 있으면 한계 `ANIM_BP_APPLY_PENDING`. `scenario{montage? ('$montage' · 경로), expect{state_machines{}, slots_active[]}, wait_frames 1 ~ 600, set_variables{}, mesh? (기본 target_mesh), map?}` = 복제본의 `run_anim_scenario`. `smoke` 기본 true |
+| 자리표시 `$asset` · `$montage` · `$blendspace` (개정 10) | 문자열 값 **전체**가 자리표시일 때만 실행 때 바꾼다(부분 문자열은 그대로). `$asset` = 최종 시퀀스(재사용이면 그 애셋), `$montage` · `$blendspace` = 그 포장 단계가 같은 요청에 있을 때만(`PLACEHOLDER_UNBOUND`), 모르는 `$이름` 은 `UNKNOWN_PLACEHOLDER` |
+| `save` | 요청에 두지 않는다 — `generate_motion(plan_id, save)` 인자 |
+| `motion_file` (개정 7) | 문자열이면 `path`. `path`: 절대 경로, ini `ImportSourceRoots` 아래만(밖이면 계획 전체가 `IMPORT_SOURCE_NOT_ALLOWED`), `.bvh`만. `unit`: `auto`(기본) · `cm` · `m` · `mm` · `inch` · 숫자(cm/파일 단위). `facing`: `auto`(대상 스켈레톤 정면에 맞춤, 기본) · `keep` · `+X` · `−X` · `+Y` · `−Y`(UE 축). `range{start, end}`(초, 굽기 범위 — 요청 `frame_rate` 가 있으면 끝을 그 rate 의 프레임 경계로 당긴다, 진단 `RANGE_ALIGNED`. 정수 fps 가 아니라 맞출 수 없으면 리샘플하지 않는다). `axis_forward`(`-Z`) · `axis_up`(`Y`) — Blender BVH 임포터와 같은 뜻. 계획이 BVH 헤더(관절 계층 — 수동 체인 제안용) · 단위 · 회전 · 범위 · fps · 파일 SHA-256 을 고정하고, 실행 때 파일이 바뀌었으면 `FILE_CHANGED`로 멈춘다 |
+| `prompt` (개정 8) | 생성 Provider(`local_ai`)가 읽는 영어 문장, 1 ~ 500자. `description` 은 기록만이고 서버는 해석하지 않는다(자연어 → 프롬프트 변환은 Claude Code). 없으면 `local_ai` 후보는 `MISSING_INPUT` 으로 제외. 길이는 `duration_seconds`(없으면 5초 — `DURATION_DEFAULTED`) → 프레임 = round(길이 × 30) + 1(최대 300 = 10초) |
+| `segments[{prompt, duration_seconds, name?, swing?}]` · `generation.transition_frames` (개정 15 — 9-2) | 여러 단계 동작(준비 → 베기 → 복귀)을 **한 local_ai(Kimodo) 실행**에서 프롬프트 순서대로 만든다(`multi_prompt` — 둘째 세그먼트부터 처음 `transition_frames` 프레임에 앞 세그먼트 끝 자세(전신 + 손발)를 제약으로 걸어 다시 만들고, 그 프레임이 앞 끝을 대신한다 — 이은 프레임 = 세그먼트 프레임 합). 2 ~ 6개, `prompt` 와 **둘 중 하나**(둘 다 `CONFLICTING_FIELDS`). 세그먼트마다 `prompt` 1 ~ 500자 · `duration_seconds` ≥ 0.5 · `name`(몽타주 섹션 이름 형식, 생략 = `Seg1` …, 중복 `DUPLICATE_NAME`) · `swing`(하나만 — `fix.timing` 이 휘두름 정점을 그 세그먼트 ± 전이 안에서만 찾는다: 달리기 팔 흔들기가 공격보다 빠를 때). 합 ≤ 10초(넘으면 `DURATION_OVER_MAX`), `duration_seconds` 는 생략(= 합) 또는 합과 같아야(± 1 프레임). 프레임 = 세그먼트마다 round(길이 × 30), 마지막만 + 1(한 프롬프트와 같은 총 길이) · 경계 = 누적 프레임 / 30. `transition_frames` 1 ~ 10(기본 5 — Kimodo 기본 0.17초, 데모 UI 범위), segments 없이 주면 `REQUIRES_SEGMENTS`. **segments 를 주지 않으면 정규화된 요청에 키가 생기지 않는다**(계획 · 결과 비트 같음). local_ai 만 받는다 — 다른 Provider 후보는 `SEGMENTS_UNSUPPORTED`(Provider 섞어 잇기 = 기존 구간 항목 — 아래 행, 9-3c). seed 후보 · 2차(파지 · 발) · 선별 · `fix.timing` · `fix.body` 는 이은 클립 하나로 돈다(seed 후보 = 클립 전체). `refine.grip.from_s/to_s` · `keep_pose.times` · `root_path.t` 는 이은 타임라인 초. 사슬 끝(검증 앞)에 `seams` 단계 — §14 '9-2' |
+| `segments[]` 기존 구간 `{source: "existing", asset, start?, end?, name?}` · `generation.seam_keys` (개정 15 — 9-3c, U2-b) | **Provider 를 섞은 세그먼트**(**사용자 판정 2026-11-02: 보류** — 코드는 옵트인으로 남기고 지금은 쓰지 않는다, §14 '9-3c') — 운영 애니(대상 스켈레톤 시퀀스) 구간을 생성 세그먼트 앞 · 뒤에 둔다. 하나라도 있으면 정규화된 요청의 모든 항목에 `source`(`generate` \| `existing`)가 생긴다(없는 요청은 9-2 와 비트 같다). 기존 항목 = `asset`(`/Game/…`) · `start`(0) · `end`(생략 = 끝, `end − start` ≥ 0.5초) · `name`(몽타주 섹션 이름) — `prompt` · `duration_seconds` · `swing` 은 `UNKNOWN_FIELD`. 생성 세그먼트는 1개 이상 · **서로 붙어 있어야**(한 Kimodo 실행 — 아니면 `GENERATION_NOT_CONTIGUOUS`), 기존만이면 `BAD_FIELD`(그건 `edits.operations` concat). `duration_seconds` 는 생략(이은 길이는 기존 구간에 달려 계획이 `inputs.mixed.joined_length_s` 로 보인다 — 주면 `CONFLICTING_FIELDS`), `edits.operations` 와 함께면 `CONFLICTING_FIELDS`, `transition_frames` ≥ 2. `generation.seam_keys`(기본 true, 기존 구간이 있을 때만 — 아니면 `REQUIRES_SEGMENTS`): 생성 덩어리를 기존 이웃이 있는 쪽으로 **겹침 K = 전이 − 1 프레임**(기본 4 = 0.133초)씩 늘리고, 그 K + 1 프레임에 이웃의 끝(앞) · 첫(뒤) K + 1 프레임 자세를 **자동 전신 key_pose** 로 준다(앞 = origin · 뒤 = pass1 — key_pose 단계가 역리타깃, Kimodo `_multiprompt` 전이와 같은 규칙이라 자세와 속도가 함께 이어진다). false = 키 없이 같은 길이 · 같은 겹침(대조). 계획이 기존 구간을 잰다(스켈레톤 · fps · 길이 — 에디터 없으면 `PROVIDER_UNAVAILABLE EDITOR`, 다른 스켈레톤 `SAMPLE_SKELETON_MISMATCH`, 범위 밖 `CONSTRAINT_OUT_OF_RANGE`, 겹침보다 짧으면 `DURATION_TOO_SHORT`). **보정은 생성 부분만**(seed 후보 · 2차 · select · `fix.ops` · `fix.timing` · `fix.body` — 기존 이웃 쪽 끝은 timing 정지 트림을 끈다 `inputs.seam_trim_off`), 그 뒤 새 **`join` 단계**(direct_key — §14 '9-3c')가 조각을 겹침 크로스페이드로 잇고 **골반 수평 위치 · 몸 방향(엉덩 관절 선)으로 맞춘다**(루트 본이 아니라 — E0: 운영 낫 루트는 골반과 1.7 ~ 19 cm 떨어진다). 이은 시퀀스 fps = 첫 조각. 이음매 수치 · 섹션은 `seams` 단계(겹침 시작 · 끝 + 생성 안 경계). 한계 `SEGMENTS_JOINED`. Job `join{fps, blend_s, pieces[{label, source, asset, range_s, joined_start_s, yaw_deg, shift_cm}], seams[{from, to, keyed, window_s, yaw_deg, shift_cm, pelvis_target_cm, overlap_gap_cm}], ops}` |
+| `package.montage.sections: "segments"` (개정 15 — 9-2) | segments 와만(없으면 `REQUIRES_SEGMENTS`). `seams` 단계가 세그먼트 경계를 최종 타임라인으로 옮긴 시각(시간 보정 `warp`)에 섹션 `{name, start, next = 다음 섹션}`(끝까지 이어 재생 — 섹션 없을 때와 같은 재생, 마지막 next 없음)을 만들어 `set_montage_sections` 에 넘긴다. 트림이 세그먼트를 지우면 그 섹션은 건너뛰고 진단 `SEGMENT_SECTION_SKIPPED`. `edits.operations` 와 함께면 경계를 옮길 수 없어 `CONFLICTING_FIELDS`(목록으로 주면 된다) |
+| `generation{seed?, samples=1, steps=100, postprocess=auto, pick=0, constraints[]}` (개정 8) | `seed` 0 ~ 2³¹−1(없으면 계획이 골라 고정 — `SEED_PINNED`) · `samples` 1 ~ 4(같은 seed 로 여러 샘플, 리타깃은 `pick` 번째) · `steps` 10 ~ 1000(확산 단계) · `postprocess` `auto`(설치돼 있으면 켬) · `on`(없으면 `POSTPROCESS_UNAVAILABLE`) · `off`(한계 `POSTPROCESS_OFF`) — Kimodo 발 미끄러짐 후처리(`motion_correction`). `constraints[]`: `root_path{points[{t, forward_cm, left_cm, yaw_deg?}]}` — **캐릭터 기준**(생성 첫 프레임 정면 = forward, 왼쪽 = left, yaw + = 왼쪽으로 돎) → Kimodo `root2d`(yaw 있는 점은 따로 묶어 방향 고정). `keep_pose{npz, times[], part=full\|left_hand\|right_hand\|left_foot\|right_foot}` — 이전 Kimodo 결과 NPZ 의 그 시각 포즈를 고정하고 나머지를 다시 만든다(레퍼런스 기반 다듬기). `kimodo_raw{path}` — Kimodo `constraints.json` 그대로(≤ 8 MB, 타입 · 프레임 범위 검사). `key_pose{asset, times, at, part, placement}` — 대상 애셋 자세(개정 15 · 9-3 — 아래 행). 시각 → 프레임 round(t × 30), 생성 길이 밖이면 `CONSTRAINT_OUT_OF_RANGE`, 같은 프레임 두 번이면 `DUPLICATE_FRAME`. 파일은 `ImportSourceRoots` 아래만 · SHA-256 고정(실행 때 바뀌었으면 `FILE_CHANGED`). 요청 `constraints{}`(플래그)와는 별개다 |
+| `generation.constraints[] key_pose{asset, times[], at[]?, part?, placement?}` (개정 15 — 9-3) | **대상 스켈레톤 애셋의 자세를 Kimodo 키 포즈로**(`keep_pose` 와 같은 꼴 · 원천이 Kimodo NPZ 가 아니라 대상 애셋). `asset` = `/Game/…` 대상 스켈레톤 시퀀스(다른 스켈레톤이면 `UNSUPPORTED_REQUEST SAMPLE_SKELETON_MISMATCH` — 먼저 리타깃), `times` = 원천 초(프레임 = round(t × 원천 fps), 길이 밖 `CONSTRAINT_OUT_OF_RANGE`), `at` = 생성 타임라인 초(생략 = times, 길이 = times 와 같아야 — `BAD_FIELD`), `part` = full(기본 — 사용자 결정 ②) \| left_hand \| right_hand \| left_foot \| right_foot(손 · 발은 일반 end-effector `joint_names` — 8-1 처럼 Kimodo 후처리가 클래스 이름 마스크로 고정하지 않게), `placement` = auto(기본 — 가장 이른 키가 생성 프레임 0 이면 origin, 아니면 pass1) \| origin(첫 키를 원점 · 정면 +Z — 생성 첫 프레임의 정규 원점) \| pass1(같은 seed 를 키 없이 만든 1차의 그 프레임 엉덩 xz · 방향 — 같은 seed 2차가 하나 더, 기한 + 확산 1 × 세그먼트, `samples` > 1 이면 `KEY_POSE_WITH_SAMPLES`). 항목마다 강체 한 번(수평 이동 + yaw)이라 키 사이 상대 궤적은 원천 그대로 — 기준점은 키의 **바닥 루트**(원천 엉덩 궤적을 Kimodo `get_smooth_root_pos` 로 매끈하게 한 경로 — 제약의 `smooth_root_2d` 로도 준다, Kimodo 정규화 = 바닥 루트가 원점). **키가 있으면 최종 출력에 σ 1 프레임 시간 스무딩**(8-1 수정안 A 와 같은 규칙 · 계획 `inputs.key_pose.smooth_sigma_frames` — 키 조건이 키 둘레를 진동시킨다, 사용자 결정 2026-11-01. 파지 · 발 2차가 있으면 그 스무딩 한 번), 한계 `KEY_POSE_SMOOTHED`. 같은 생성 프레임을 두 항목이 쓰면 부위가 겹칠 때만 `DUPLICATE_FRAME`(손 + 발은 같은 프레임 가능, 전신은 모든 부위와 겹친다). **실행 = 생성 앞 `key_pose` 단계**(retarget 파이프 — §14 '9-3'): Kimodo 설치본 표준 T 포즈 BVH(계획이 SHA-256 고정, 없으면 `PROVIDER_UNAVAILABLE KEY_POSE_TPOSE_MISSING`) → Blender → `<work>/KeyPose` 에 SOMA 스켈레톤 · 리그 · 역리타기터(대상 → SOMA, 요청 ops · align_mode — 사용자 결정 ① Job 마다 Work) → 원천 리타깃 → `hold_pose` → profile → 제약 파일 `<ImportSourceRoots>/LocalAI/<job>/A<n>/KeyPose/key_pose.json`. `target_mesh` 필수 · blender 필요(`DEPENDS_ON_BLENDER`). 한계 `KEY_POSE_RETARGETED` · `KEY_POSE_PLACED`, 위험 `KEY_POSE_RESOLVED_AT_RUN`(에디터 없이 계획하면 `KEY_POSE_SOURCES_AT_RUN`). Job `key_pose{file, sha256, skeleton, mesh, retargeter, rigs, items[{source, asset, soma_asset, held_asset, part, placement, edit_ops, keys[{frame, source_frame, source_s, heading_deg, hips_m}]}], seconds}` · `generated.samples[]`(또는 `candidates[]`)`.key_pose{placements[{source, part, placement, yaw_deg, anchor_frame, shift_m, target?}], follow[{part, type, frames, keys, position_cm, rotation_deg?, jitter_p95, jitter_pass1_p95?}]}` · `pass1_npz`. key_pose 가 없는 요청은 계획 · 결과가 비트 같다 |
+| `generation.options{<provider>: {...}}` · `prompt` 의 Meshy 규칙 (개정 9) | Provider 이름 → 그 Provider 만 읽는 설정(다른 Provider 는 무시). 이름이 레지스트리에 없으면 `BAD_REQUEST UNKNOWN_PROVIDER`, 값은 그 Provider 계획이 검사한다. `external.meshy`: `{mode: prime (기본, FBX · 10 크레딧) \| swift (BVH · 3 크레딧 — blender 변환 사슬)}`, 다른 키 · 값은 `BAD_OPTION`. Meshy 는 `prompt` 1 ~ 400자(넘으면 `PROMPT_TOO_LONG`), 길이를 0.5초 단위로 맞추고(`DURATION_SNAPPED` — 결과 `DURATION_MISMATCH`), 없으면 5초(`DURATION_DEFAULTED`), 2초 미만 `DURATION_TOO_SHORT` · 10초 초과 `DURATION_OVER_MAX`. 로컬 모델 설정(`seed` · `samples` · `steps` · `postprocess` · `pick`)을 기본값과 다르게 주면 한계 `GENERATION_SETTINGS_IGNORED{fields}`, 생성 제약은 종류마다 `CONSTRAINT_UNSUPPORTED`, 항상 `NOT_REPRODUCIBLE`(seed 없음) |
+| `review{render{times[] \| count, views[], reference_images[]}}` (개정 8) | `blender` 변환 단계의 프레임 렌더 비교. `times`(변환된 클립 기준 초, 0 = 첫 프레임, 1 ~ 12개) 또는 `count`(1 ~ 12, 기본 4 — 첫 · 끝 포함 고르게, 실행 때 잰 길이로 다시 펼친다). 둘 다 주면 `CONFLICTING_FIELDS`, 클립 끝을 넘는 시각은 그 후보를 `REVIEW_TIME_OUT_OF_RANGE` 로 막는다. `views` ⊆ `front` · `side`(기본 둘). `reference_images` ≤ 4, `ImportSourceRoots` 아래 .png/.jpg(시트의 모든 행에 같은 그림). 보이는 것은 변환된 **소스 골격**이다(한계 `REVIEW_IS_SOURCE_SKELETON`) |
+| `review.capture` (개정 12) | `true` 또는 `{times? \| count?, views?, mesh?, sequence?, compare?}` — 하나라도 오면 `review` 는 `{render?, capture?}`(빠진 쪽은 키가 없다 — render 만이면 개정 8 모양 그대로). render 가 있으면 행 = render 시각(capture 에 times · count 를 주면 `CONFLICTING_FIELDS` — 두 시트가 같은 행이어야 나란히 본다), 없으면 `times`(최종 클립 기준 초, 1 ~ 12) 또는 `count`(1 ~ 12, 기본 4 — 첫 · 끝 포함). `views` 기본 = render 의 뷰 또는 `front` · `side`. `mesh` 기본 `target_mesh`(없으면 단계 없이 `REVIEW_NOT_CAPTURED MISSING_MESH`). `sequence{fps 1 ~ 30 (15), cell_height_px 64 ~ 1024 (320), max_frames 1 ~ 300 (150)} \| false` — 연속 프레임 → APNG. `compare`(기본 true) — render 행이면 같은 시각의 소스 골격 프레임을 비교 칸으로(`compare.png`). 한계 `REVIEW_CAPTURE_PREVIEW_ONLY`(무기 · 옷/머리 물리 · 게임 AnimBP 레이어 없음 · 프리뷰 조명 — 판정은 사람) |
+| `fix{ops[{op, …}]}` (개정 8 · 개정 13) | `blender` 변환 단계의 보정 op(범위를 정한 뒤 · 기둥 메시 앞, 리타깃 **전** 소스 골격). 사전(개정 13 — `anim_gen/fix_ops.py`): `smooth{sigma_frames 0.5 ~ 3 (1), bones "all" \| [이름], root true, from_s?, to_s?}`(로컬 회전 쿼터니언 부호 연속 · 루트 위치 가우시안 — 8-1 수정안 A 함수, 휘두름 정점을 깎아 기본으로 안 켠다) · `stance_width{max_ratio 1 ~ 10 (3.0), min_ratio (1.2), max_shift_cm (25), blend_s (0.2), keep_knee_bend (true — 개정 13 보강: 좁힌 만큼 골반을 올려 무릎 굽힘을 원래대로)}`(**두 발을 디딘 프레임**의 발 좌우 비 — §13 stance 정의 · 대상 메시 기준 — 상한. 오프셋은 발마다 접지 구간 상수 · 공중은 smoothstep, 모자라면 전역 배율 · 최소 간격 지킴) · `foot_lock{feet [left, right], contacts "auto", height_ratio (0.04), speed_ratio (0.25 다리/s), min_frames (4), blend_frames (3), bridge_frames 0 ~ 10 (2), lock_rotation false}`(접지 구간마다 발목 한 점 — 가장 느린 프레임 수평 · 중앙값 높이. 빈틈 `bridge_frames` 이하로 쪼개진 이웃 접지는 두 고정 프레임 사이를 smoothstep 으로 펴고 Blender 보고 `bridges` 에 남긴다, 0 = 끔). 순서 고정 smooth → 다리 풀이(요청 순서가 다르면 진단 `FIX_OPS_REORDERED`), 다리 둘은 한 풀이 — **리타깃된 다리의 모델**(대상 엉덩 관절 = 대상/소스 골반 높이 × 소스 골반 + 골반 회전 변화 · 대상 엉덩 오프셋, 다리 = 소스 뼈 방향 · 대상 길이)에서 접지 · 간격 · 고정을 풀고 '엉덩 둘레로 먼저 돌린 뒤 길이 맞춤' 2본 IK 의 방향 변화를 소스 뼈에 입힌다(대상 치수가 없으면 소스 공간). 사전 밖 op 는 모든 후보 `UNSUPPORTED_FIX_OP`(`available` = 사전), 인자 오류 · 같은 op 두 번은 `BAD_REQUEST`(`fix.ops[i].<키>` · `DUPLICATE_FIX_OP`). 다리 op 는 소스 다리 체인이 필요(`FIX_LEGS_UNKNOWN`). 한계 `FIX_ON_SOURCE_SKELETON`, 위험 `FIX_RESOLVED_AT_RUN`. Job `fix{source(Blender 보고 — before · after = 대상 예측, source_before · after = 소스), target(리타깃 뒤 실측)}` |
+| `fix.timing` (개정 13) | `true` 또는 `{mode auto \| off, target_peak_cm_s 50 ~ 5000 (1200), max_rate 1 ~ 4 (2.0), recovery_rate 1 ~ 4 (1.5), antialias 0 ~ 1.5 (1.0 — 개정 13 보강), swing{core_ratio (0.5), edge_ratio (< core, 0.2)}, still{speed_cm_s (30), min_s (0.3), trim_head (true), keep_head_s (0.2), trim_tail (true), keep_tail_s (0.3)}}` — 리타깃 뒤 대상 시퀀스(모든 경로)의 흐느적 보정(§5 · §14 '8-3'). 끄면 키가 없다(계획 = 개정 12). 범위 밖 · 모르는 키 `BAD_REQUEST`(`fix.timing.<키>`). 길이가 바뀌면 `DURATION_MISMATCH` 대신 한계 `TIMING_CHANGED_LENGTH`, 바꿀 것이 없으면 `TIMING_NOT_APPLIED{reason NO_SWING \| ALREADY_FAST \| NOTHING_TO_CHANGE}` |
+| `fix.body` (개정 14 — 8-4b) | `true` 또는 `{mode auto \| measure \| off, clearance{mode auto \| off (8-4d — off = 팔 관통은 재기만, 다리만 고치는 요청), margin_cm 0 ~ 5 (0.5 × scale), allow_contact (true — 8-4b 후속: 몸통 · 넓적다리는 맞닿음 contact_cm 까지 정상, 머리목 · false 는 margin 만큼 뗀다), hands (true — C++ body_clearance hands), upper_arm cap \| no_worse \| off (8-4f — cap(기본) = 풀이는 no_worse 그대로 두고 마무리에서 위팔 ↔ 몸이 upper_cap_cm × scale 를 넘는 프레임만 팔꿈치를 어깨 ↔ 손목 축으로 돌린다 · 손 고정, no_worse = 8-4e 까지의 동작), upper_cap_cm 1 ~ 20 (4.0 — 8-4f), secondary record \| off, legs (false)}, grip{mode auto \| weapon \| keep \| off (8-4c — auto = 띠 안 keep(요청 `weapon` 이 있어도 — 손잡이 관계만 기록, `GRIP_NOT_APPLICABLE{reason: OPT_IN}`), **weapon = 옵트인 무기 파지**(원래 보조 손바닥 점이 손잡이에서 15 cm × scale 안인 구간만 — 먼 띠 프레임은 keep, `GRIP_NOT_APPLICABLE{reason: OFF_HAND_FAR}`), 런타임 IK grip 이면 keep + `GRIP_RUNTIME_IK`), lead_hand right \| left (`weapon` 이 있으면 그 lead_hand — 다르게 주면 `CONFLICTING_FIELDS`), window null \| [a, b] 초, spacing_cm null \| (0, 200], tolerance_cm null \| (0, 100], blend_s null (keep 0.1 · weapon 0.2) \| [0, 1], wrist_bend_max_deg null \| [0, 180] (보조 손목 굽힘 상한 = max(이 값, 그 클립 원래 최대))}, joints{clavicle_deg 10, upper_arm_deg 45, elbow_deg 60, wrist_deg 30, spine_deg 0 (목표 구간 밖 척추는 8-4b 에서 끔 — 결정 D, 주면 NOT_SUPPORTED), spine_deg_for_targets 20, neck_deg_for_targets 20, pelvis_cm 15, pelvis_deg 10}, targets[], pose_from[] (8-4c c2 — 아래 행), weights{clearance 10, grip 10, pins 10, targets 5, pose_from 3, lead_hand 3, fidelity 1}, smooth_s 0.13, smooth_speed auto \| on \| off (8-4e — 아래 행), passes 3}` — 리타깃 · timing 뒤 대상 시퀀스의 한 풀이(§4 `body_fit` · §5 · §14 '8-4b'). 모르는 키 `BAD_REQUEST UNKNOWN_FIELD`(`fix.body.<키>`), 범위 밖 `BAD_FIELD`. 파지 = 손목 간격이 띠(`motion_metrics.grip_band(scale, spacing, tolerance)` — 비우면 검 띠 [0, 20 × scale]) 안인 구간(짧은 빈틈 2 프레임 잇기 · 3 프레임 이상 · 경계 0.1초 블렌드). `mode: measure` 는 측정만(애셋 없음). 한계 `BODY_FIT_APPROXIMATE`(항상) · `BODY_PENETRATION_REMAINS{pairs, reason}` · `GRIP_RELAXED{keep}` · `TARGET_NOT_REACHED{id, error, blocked_by}` · `BODY_FIT_SECONDARY_RECORDED` · `BODY_FIT_NOT_APPLIED`(바꿀 것 없음 — 항등 trim) · (8-4c) `GRIP_NOT_REACHED{grip}`(weapon 파지 기준 1 밖) · `GRIP_NOT_APPLICABLE{reason OPT_IN \| OFF_HAND_FAR, dist_cm, hands_line_deg_p50}` · `GRIP_RUNTIME_IK{hand}` · `WEAPON_BODY_RECORDED{pairs}` · (8-4f) `UPPER_ARM_REMAINS{frames, remain_cm_max}`(위팔 마무리가 상한까지 못 뺀 프레임 — 조건 안에서 가장 얕은 각). 지시 목표 effector 에 `weapon_tip`(요청 `weapon.tip` — 없으면 `BAD_REQUEST WEAPON_TIP_UNKNOWN`). Job `fix.body{version, mode, source, asset, model, events, grip{…, keep}, before, after (C++ 요약 — 후속: + loop_boundary_max_deg), predicted, predicted_vs_after, deltas, joints_moved_cm, passes, stats, targets, remains, loop{source (원본 numeric.loop — 루프면 시간 처리 순환), seam_deg (첫 · 끝 델타 차 °), boundary_max_deg [전, 후]}, seconds}` — (8-4c) `grip.mode` = 정한 모드, `grip.weapon{before, after{active, frames, dist_cm_p95 · max, along_cm, rot_deg_p95 · max, axis_deg_p95 · max (기록), wrist_bend_deg_max, wrist_bend_cap_deg, rotation_tol_deg, rotation_target, all_frames{dist_cm_p50 · p5, hands_line_deg_p50}}}` · weapon 모드면 `grip.{weapon_frames, weapon_runs_s, near_cm, band_far_frames, dist_cm}` · `weapon{mesh, bone, socket, socket_rel, offset, lead, grip, tip, tip_from, hand, handle, points}` · `weapon_body{before, after{pairs{"부위\|몸 부위"}, worst, points, approx}}` |
+| `fix.body.legs` (개정 14 — 8-4d) | `{pins auto, swing_path auto \| on \| off, soft_knee{start [0.8, 1] 0.97, softness (0, 0.2] 0.03 — start + softness ≤ 1} \| null}`. **pins** — 접지 프레임(대상 발목 `detect_contacts` — Job 측정 summary 와 같은 정의 · 다리 길이)은 원래 키 그대로. **swing_path** — 켜지면 공중 구간(접지 run 사이, 루프면 감아 돈다)마다 발목 목표 δ(3축/프레임)를 무릎 · 발목 위치의 3차 차분(저크) 최소 + 충실도(가중 0.5)로 푼다(경계 밖 접지 3 프레임 고정 — 값 · 기울기 · 가속 연속) → 그 목표로 다리 2본 IK(엉덩 둘레 최소 회전 → 길이, 발 컴포넌트 회전 그대로)를 팔 블록과 같은 `pose()` 에서. **auto = 같은 Job 의 `fix.ops` 에 `stance_width` · `foot_lock` 이 있을 때만 켠다**(그 블렌드가 꺾임을 만든다 — 공중 구간 떨림은 운영 걷기 · 달리기 · 공격도 1.5 ~ 8.2 라 신호로 못 가른다), 기존 애셋은 `on`. 계획 `inputs.legs_swing{mode, on, reason}`. **soft_knee** — 공중 프레임의 엉덩 → 발목 거리 d 를 d/다리 > start 에서 다리 · (start + softness · (1 − e^(−(d/다리 − start)/softness)))로(저크 풀이 안 — 경계 연속). 접지가 없는 다리 · 구간은 건너뜀(`LEG_PATH_SKIPPED{side, reason NO_CONTACT \| NO_LEGS}`), 다시 짠 구간이 있으면 `LEGS_PATH_REDESIGNED{windows, frames}`. Job `fix.body.legs{pins, swing_path, soft_knee, clearance_mode, windows[{side, frames, count, s, bounded, ankle_moved_cm_max, d_ratio_max[전, 후], zigzag_model[전, 후], iterations}], skipped, contact_pct, frames, knee_bend{before, after}}` · summary `feet.knee_bend`. `pose_from` 의 다리 · 골반 묶음과 발 회전 목표는 `NOT_SUPPORTED`(8-4d 결정 — 후속 후보) |
+| `fix.body.smooth_speed` (개정 14 — 8-4e) | `auto`(기본) \| `on` \| `off`. **on** — 관통 몫 매끈화(목표 없는 풀이 · 지시 목표 블록 · 재검사 모두)의 폭을 프레임마다 k = clamp(6 / v, 0.5, 1) 배로(v = 몸 기준틀 손목 이동, 두 손 중 빠른 쪽, cm/프레임 ÷ scale — 원래 포즈), 재검사 ±1 이웃 몫도 k 배. 손이 6 cm/프레임 이하인 프레임은 그대로(모든 프레임이 그러면 고정 폭과 비트 같다). **auto = 켬**(개정 15 — 9-4c 사용자 결정, 계획 `inputs.smooth_fast{mode, on, reason}` — reason 은 `fix.timing` 이 있으면 그것, 없으면 `default (9-4c — every clip)`). 8-4e 에는 같은 Job 의 `fix.timing` 때만이었다(원 속도 공격에 켜면 휘두름 정점 · 몸 · 팔 교차 · 위팔 미달 4 항목 — §14 '8-4e'): 9-4a · 9-4b 뒤로 그 셋은 재현되지 않고, 갈림길(배율 ± 0.05 에 머리 0 ↔ 7 cm)은 `converge` 가 모은다(§14 '9-4c'). `off` = 고정 폭. Job `fix.body.smooth_speed{mode, on, reason, frames, k_min}` |
+| `fix.body.converge` (개정 15 — 9-4c) | `true`(기본) \| `false`. **국소 수렴 패스** — 재검사 뒤 · 무기 마무리 앞: 몸 지도(몸통 · 넓적다리 · 머리목)를 관통 판정보다 깊이 관통한 **짧은 구간**(≤ 2 프레임 · ≤ 4 cm × scale — 머리목 마무리 · 선별 `head_deep` 과 한 원천)만 그 프레임 풀이(재검사와 같은 가족 — 구간 안은 앞 프레임 풀이를 이어 받음)에 고정하고 ± 0.1초 이웃은 2차 차분 최소(혹 모양)로 잇는다, 3 회까지. 손끼리 관통은 구간 판정에서 뺀다. 지시 목표 블록 안에도(블록 밖은 0 고정). 머리목 마무리는 안전망으로 남는다. Job `fix.body.converge{on, frames, skipped[[첫, 끝, 깊이 cm]]}`(건너뛴 길거나 깊은 구간). §14 '9-4c' |
+| `fix.body.finish_smooth` (개정 15 — 9-4c) | `true`(기본) \| `false`. **손 부근 마무리 증분의 시간 매끈화** — `_finish_hands` 가 처리 프레임마다 따로 푼 증분(마무리 − 본 풀이)을 반경 0.067초(30 fps 2 프레임) 가중 스플라인(처리 프레임 30 · 그 밖 10)으로 잇고, 손목 굽힘을 max(상한, 마무리 해) + 0.5° 보다 넘긴 프레임은 마무리 해에 고정해 다시 잇는다(3 회까지). 무기 파지 프레임은 그대로. Job `fix.body.hand_finish{…, smooth_pinned, smooth}`. §14 '9-4c' |
+| `fix.body.clearance.upper_arm` · `upper_cap_cm` (개정 14 — 8-4f · 개정 15 — 9-4b) | `cap`(기본) \| `no_worse` \| `off` · `upper_cap_cm` 1 ~ 20(4.0). 풀이 안의 위팔 쌍은 셋 다 '원래보다 안 깊어짐'(`off` 는 그것도 없음). **cap** — 본 풀이 뒤 **손 부근 마무리**(9-4b — `_finish_hands`, 무기 마무리 뒤 · 머리목 마무리 앞)가 위팔 ↔ 몸(몸통 · 넓적다리 · 머리목) 깊이가 `upper_cap_cm` × scale 를 넘는 프레임을 상한 쪽으로 뺀다 — 두 팔 쇄골 · 위팔 · 팔꿈치 · 손목을 그 상태에서 다시 푸는 작은 GN, 위팔 상한은 keep · 손 붙들기(손 컴포넌트 위치 · 회전)와 **같은 층**(사용자 결정 — 위로 올리면 두 손 파지가 미끄러졌다), 손 · 아래팔 쌍과 위팔 ↔ 반대 팔은 그 상태보다 안 깊어짐, 상한 없는 손목 ≤ max(그 상태, 원래 + 5°). 관절 충실도와 맞서 상한까지 다 못 빼는 프레임이 남는다(→ `UPPER_ARM_REMAINS{frames, remain_cm_max}`). GN 이 못 맞춘 프레임은 8-4f 궤도 격자 각(2° · ≤ 46° · 손목 원래 + 10°)이 둘째 출발점. `no_worse` = 손 부근 마무리에서 위팔은 그 상태보다 안 깊어짐만. 4 cm = 운영 원본 C++ 분포(라이플 대기 4.64 — 측정 과대 판정 · 걷기 4.32 · 달리기 2.94 · 낫 Attack2 7.24) 둘레. Job `fix.body.upper_arm{mode, cap_cm, frames(위팔이 상한을 넘던 프레임), deg_max(위팔 방향 변화), elbow_cm_max, blocked, remain_cm_max}` · `fix.body.hand_finish{frames, upper_over, cross, second_start}`(수) — §14 '9-4b' |
+| `fix.body.clearance.map_rule` (개정 15 — 9-4a) | `2`(기본) \| `1`. 몸 지도 규칙 — **2** = 지도가 그 지도 기준 본에 강체(C++ `body_clearance.map_rule 2` — 몸통 · 머리목 정점 중 팔 사슬(쇄골 이하) 가중 > `arm_weight_max` 0.15 는 빼고 나머지는 팔 사슬 영향을 뗀 스킨, 각도 0 방향 = 기준 포즈 어깨선을 지도 기준 본(척추 끝 · 넓적다리 · 무릎 · 머리 · 손목 · 팔꿈치)에 붙인 것) — 풀이 모델(기준 본 강체로 따라감)과 C++ 측정이 한 규칙이라 몸 지도 쌍 예측 = C++(p95 0.005 cm), 풀이의 `live_lateral`(마무리 동안 어깨 기준 칸)은 끈다. select 측정도 같은 규칙(`body_model.MAP_RULE`). **1** = 8-4a 지도(편집된 자세마다 다시 — 대조용, 키를 보내지 않는다). §14 '9-4a' |
+| `weapon` (개정 14 — 8-4c) | `{mesh, attach{socket \| bone, offset{location, rotation[pitch, yaw, roll], scale}}, lead_hand right \| left, grips[{hand, segment{from, to} \| socket \| sockets[a, b], rotation null \| [x, y, z, w], rotation_tol_deg 10, runtime_ik false}], tip null \| {socket} \| {point_cm}}` — 손에 든 무기. **장비 데이터(DA)는 Claude Code 가 읽어 넣는다**(§8 — 플러그인 · anim_gen 은 읽지 않는다): `attach.socket` = `DA_EF_*.AttachSocket`, `offset` = `DA_WD_*.AttachOffset ∘ AttachTransform`(합성 한 변환 — 캡처 offset 과 같다), 보조 손 `grips[]` = 무기 메시 공간 손잡이(선분 — 보조 손바닥 점이 미끄러질 수 있다 · 소켓 하나(그 회전 = 손 회전) · 소켓 둘), `rotation` = 무기 공간 보조 손 회전(null(기본) = 그 클립의 원래 상대 회전 ± `rotation_tol_deg` — 운영 낫 왼손은 자루를 감아 쥐지 않아(쥠 축 ∠ 자루 p50 52° · 무기 공간 회전 퍼짐 p50 51°) 한 회전을 줄 근거가 없다, 쥠 축은 기록만), **무기 파지 제약은 `fix.body.grip.mode: weapon` 일 때만**(옵트인), `runtime_ik: true` = 게임에서 런타임 IK(무기 액터 `LeftHandGripSocket`)가 그 손을 덮는다 → 파지 keep + `GRIP_RUNTIME_IK`. 소켓 변환 · 손가락 체인(손바닥 점 = 손목 · `{Side}Middle` 시작 중점) · 무기 기하(무기-몸 기록 점)는 메시 사실이라 계획(에디터가 있으면) · 실행이 `inspect_skeleton` 으로 읽는다 — 없으면 `UNSUPPORTED_REQUEST WEAPON_ATTACH_UNKNOWN · WEAPON_GRIP_UNKNOWN`(계획 후보를 막는다), 에디터 없는 계획은 위험 `WEAPON_RESOLVED_AT_RUN`. `review.capture` 는 무기를 부착해 찍는다(attachments). 모르는 키 `BAD_REQUEST UNKNOWN_FIELD`(`weapon.<키>`) |
+| `fix.body.targets[]` (개정 14 — 8-4b) | **자연어 지시 → 목표는 Claude Code 가 바꾼다**(서버는 해석하지 않는다 — `prompt` 와 같은 원칙). 계획에서 풀어 보이고 사용자 확인 뒤 실행. `{id (영숫자 _ - 64자, 중복 DUPLICATE_ID), note?, effector hand_l \| hand_r \| foot_l \| foot_r \| head \| pelvis \| 몸 모델 본 이름(척추 · 목 · 팔), at {event swing_start \| swing_peak \| swing_end \| still_start \| still_end (+ offset_s) \| swing \| both_planted (+ index)} \| {time} \| {window [a, b]}, hold_s (점 사건 · time 의 구간 길이, 0), position {offset_cm [앞, 왼, 위], space body} \| {offset_cm [x, y, z], space component} \| {absolute_cm, space} \| {away_from 본 \| head …, min_cm} \| null, rotation {offset_deg [pitch, yaw, roll], space body \| local} \| null, ease_s 0.15, weight 1, priority soft \| hard}`. 몸 기준틀(프레임마다 원래 포즈): 원점 = 두 엉덩 관절 중점, 왼 = 엉덩 축 수평, 위 = +Z, 앞 = 위 × 왼. 사건은 `timing.events` 한 원천(흐느적 보정과 같은 신호). 부위 → 자유도: 손 = 그 팔(+ 회전 목표면 손목) · 척추 본 = 그 본까지 척추 마디(합 ≤ spine_deg_for_targets) · head = 목 · 머리 · pelvis = 골반 이동 · 회전 + 다리 닫힌 식 IK(원래 발목 · 발 회전) — **몸통 · 골반 자유도는 그 목표 구간만**. soft(기본)는 관통 · keep 이 이기고 못 닿으면 `TARGET_NOT_REACHED{blocked_by clearance \| grip \| joint_limit \| pins}`, hard 는 관통보다 앞선다(남은 관통 → `BODY_PENETRATION_REMAINS`). **풀이 경로((가) — 10-29):** 목표 없는 풀이(같은 요청의 목표 없는 Job 결과와 같다)를 먼저 하고, 완급 > 0 프레임(구간 ± ease)만 그 해를 기준으로 다시 푼다 — 구간 ± ease 밖 본 델타는 목표 없는 Job 과 같다. 오프셋 · 절대 위치 · 회전 · away 의 기준 자세 = **목표 없는 보정 결과**(원본 아님 — 척추 · 골반은 같고, 손은 관통 보정만큼 다르다), 완급 = smootherstep(양끝 가속 0), 원본 루프면 완급이 감아 돈다. Job `fix.body.target_region{blocks [[첫, 끝 프레임]], passes, frame_solves}`(목표 없으면 null) |
+| `fix.body.pose_from[]` (개정 14 — 8-4c c2) | **샘플 전이 — 자연어 지시('Attack1 처럼 타격 순간 상체를')를 항목으로 바꾸는 것은 Claude Code**(서버는 해석하지 않는다). `{id (targets 와 한 이름 공간 — 겹치면 DUPLICATE_ID), note?, asset (같은 스켈레톤 샘플 — 다르면 UNSUPPORTED_REQUEST SAMPLE_SKELETON_MISMATCH, 먼저 리타깃), bones 프리셋 \| 본 이름 \| 그 목록, mode pose \| motion, source · target {event 점 사건 \| swing \| both_planted (+ offset_s · index)} \| {time} \| {window [a, b] — 끝 = 초 · 점 사건 이름 · start · end}, hold_s 0 (점 target 의 구간 길이), ease_s 0.15, weight 0 ~ 1 (1 — 블렌드 비), space local}`. pose = source 는 한 시각(점), motion = source · target 둘 다 구간(사상 = 구간 끝 + 두 구간에 같이 든 점 사건을 잇는 구간별 선형, ease 프레임은 구간 끝 자세). **묶음(이름 추측 없음 — 대상 메시 `inspect_skeleton` 하나):** spine = 템플릿 Spine 체인 · neck_head = Neck + Head · arm_l/r = {Side}Clavicle + {Side}Arm + 위팔 · 아래팔의 체인 밖 **잎** 자식(트위스트 — 가지인 옷 자락은 뺀다) · fingers_l/r = 손가락 체인 제안 다섯 시작과 자손(메타카팔 빼고) · upper_body = 앞 넷, legs · 골반 · 다리 본은 `NOT_SUPPORTED`(8-4d), 체인이 없으면 `POSE_FROM_PRESET_UNKNOWN`, 모르는 본 `UNKNOWN_BONE`. **풀이:** 지시 목표 (가) 블록 — 목표 없는 해(base) 위에서 완급 > 0 블록만 '덮은 자세'(묶음 본 로컬 = slerp(base 로컬, 샘플 로컬(사상 시각), weight × 완급))를 출발점 · 충실도 기준으로 다시 푼다. 손가락 · 트위스트 = 덮은 값 그대로, 척추 · 목머리 = 그 구간만 3축 자유도(상한 = 덮은 자세에서 ± *_deg_for_targets / 마디 수), 팔 = 기존 자유도(관절 상한은 덮은 자세에서). 하드가 이긴다(관통 바닥 = base 깊이 · keep = base 관계 · 발), 묶음 본 충실도 × `weights.pose_from`. 덮은 자세에서 0.5° 넘게 벗어난 구간 프레임 본은 `POSE_FROM_PARTIAL{id, bones, blocked_by clearance \| grip \| joint_limit \| smoothing}`, 실행 때 사건 · 클립 밖이면 그 항목만 건너뛰고 `POSE_FROM_PARTIAL{reason}`. 계획: 기존 애셋이면 사건 → 초 · 프레임 · 정렬 차 · 묶음 → 본을 풀어 보이고(샘플은 `validate_animation` — 스켈레톤 · 사건), 아니면 위험 `POSE_FROM_RESOLVED_AT_RUN`. 실행: 샘플마다 `validate_animation body_clearance{대상 메시, model}`(C++ 변경 없음). 손가락 묶음이 있으면 전 · 후 측정에 `fingers{mesh}` — 경고는 Job `fix.body.fingers.warnings{before, after}` · 진단 `POSE_FROM_FINGER_WARNINGS`. Job `fix.body.pose_from[{id, note, asset, mode, weight, bones, missing, presets, window_s, source_s, frames, ease_frames, alignment[{anchor, target_s, source_s, target_frame, error_frames}], sample_fps, achieved{deg_p95, deg_max, ease_deg_max}, fingers{bones, deg_max}?, partial[{bone, frames, count, deg_max, blocked_by}], blocked_by} \| {…, skipped}]` · `seconds.samples` |
+| `retarget.align_mode` · `retarget.body_clearance` (개정 8) | `align_mode`: `per_bone`(`ops: match_existing` 의 기본) · `engine`(`ops: default` 는 정렬하지 않아 `engine` 만 — `per_bone` 이면 `ALIGN_MODE_WITHOUT_ALIGN`). §10. `body_clearance`: `resolve`(관통 프레임만 위팔 보정) · `measure`(검증에만) · `off` → `retarget_animations body_clearance`. **개정 11: 비우면 계획이 정한다** — `constraints.two_hand_weapon_grip` 이 참이면 `measure`(모든 Provider — 한계 `BODY_CLEARANCE_MEASURED_FOR_GRIP`), 아니면 `resolve`(개정 10 그대로). 파지 플래그에 `resolve` 를 명시하면 그대로 + 위험 `CLEARANCE_MAY_BREAK_GRIP`. 계획 단계 `inputs.body_clearance_from: request \| default \| grip_flag`. **개정 14(8-4b): `fix.body` 가 있으면 비운 값은 `measure`**(`body_clearance_from: body_fit` · 한계 `CLEARANCE_BY_BODY_FIT` — 보정 원천은 body_fit 하나), 명시 `resolve` 는 그대로 + 위험 `CLEARANCE_DOUBLE_FIX`. §10 · §13 |
+| `generation.candidates` · `refine` · `select` (개정 11 — `local_ai`) | `candidates` 1 ~ 6(seed, seed+1, … — 한 Kimodo 실행, 기본 1). `samples` > 1 과 같이 주면 `BAD_REQUEST CONFLICTING_FIELDS`. `refine{mode auto \| off, grip{lead_hand right \| left, target meet \| lead, spacing_cm null \| (0, 100], target_spacing_cm null \| (0, 100], from_s?, to_s? (from ≤ to)}, keyframe_step 1 ~ 10}`(간격 둘 다 비우면 검 손잡이 = 주 손 너클 폭 + 1 cm · 판정 '≤ 20 cm × pelvis scale'. 자루 무기는 축을 따른 손목 간격 — **`target_spacing_cm` = 대상 메시 기준**(Vesper 낫 60) 또는 `spacing_cm` = 생성 골격 기준(처음 의미 그대로) 중 하나, 둘 다면 `CONFLICTING_FIELDS`. 개정 11 보강 4: 계획이 두 골격 기준 포즈의 어깨 관절 폭 · 팔 길이로 간격 사상(대상 = W_대상 + k × (생성 − W_생성), k = 팔 길이 비 — `motion_metrics.gap_map`)을 풀어 생성 간격(generate 규칙 · 소스 띠 '생성 간격 ± 13 cm')과 대상 띠('대상 간격 ± 13 × k cm' — select)를 한 값으로 정한다. 대상 팔을 재야 하므로 에디터 없이 계획하면 `PROVIDER_UNAVAILABLE EDITOR`, 대상 어깨 · 팔꿈치 · 손목 기준 위치가 없으면 `TARGET_ARMS_UNKNOWN`, 생성 골격 두 팔이 닿지 않는 간격이면 `GRIP_SPACING_OUT_OF_RANGE`, 한계 `GRIP_SPACING_MAPPED`) — auto 면 바꿀 플래그가 있을 때 2차 생성(§5 · §14 Phase 8), 파지 구간이 생성 길이 밖이면 `CONSTRAINT_OUT_OF_RANGE`, 2차 생성 + `samples` > 1 은 `UNSUPPORTED_REQUEST REFINE_WITH_SAMPLES`. `foot_contact` 를 바꾸면 후처리 `auto` 를 켠다(명시 `off` · 미설치면 한계 `FOOT_CONTACT_WITHOUT_POSTPROCESS`). `select{weights{grip, stance, swing, attack, clearance, breakage, cross, head, wrist, head_deep, handle}}` — 키 11개만 · 0 이상(`selection.py`, attack 은 수정안 C · cross · head 는 낫 정정 — §14 Phase 8, wrist · head_deep · handle 은 개정 15 — §14 '9-1'. 빠진 키는 기본값 — 옛 Job 의 8개 기록이면 새 3개는 기본값). 2차 생성은 1차 손목 굽힘을 지키고(keep) 출력을 σ 1프레임 스무딩한다(계획 `refine.smooth_sigma_frames` — 수정안 A · B). Meshy 는 기본값과 다르면 `GENERATION_SETTINGS_IGNORED.fields` 에 `candidates` · `refine` |
+| 플래그 `constraints{two_hand_weapon_grip, foot_contact}` 의 처리 (개정 11) | `local_ai`(refine auto): 2차 생성 제약으로 바꾸고 한계 교체 — `GRIP_NOT_VALIDATED` → `GRIP_POSITION_ONLY`(손목 위치만 — 손 회전은 1차 손목 굽힘 유지일 뿐 손잡이에 나란히 맞추지 않는다. 손 방향 · 손가락 · 무기 소켓은 8-4, FK 리타깃은 양손 상대 위치를 보존하지 않는다), `FOOT_CONTACT_NOT_ENFORCED` → 진단 `FOOT_CONTACT_CONSTRAINED`, 고른 후보의 Vesper 파지가 80% 미만이면 `GRIP_NOT_REACHED{grip_pct}`, select 가 있으면 `SELECTED_BY_NUMBERS`. 그 밖의 Provider · refine off: 개정 10 그대로 한계로만(`GRIP_NOT_VALIDATED` · `FOOT_CONTACT_NOT_ENFORCED`) — 관통 기본값(위 행)만 모든 Provider 에 적용 |
+
+---
+
+## 10. 공통 리타깃 처리 (Phase 1 핵심)
+
+```text
+FBX 파일 또는 프로젝트 안의 기존 시퀀스
+  → import_animation_file   Interchange 로 후보 스테이징 폴더에 임포트 — 메시·스켈레톤째 새로(skeleton 미지정) 또는 기존 스켈레톤에 애니만. 커브 메타데이터 추가 끔
+  → inspect_skeleton        소스 · 타깃 (compare_to 로 리그 차이 측정 — 참고 정보)
+  → create_ik_rig           existing_rig 를 주면 재사용 → 아니면 자동 캐릭터라이즈 → 실패(IKRIG_AUTO_FAILED + 본 계층)면 chains 인자로 수동 정의
+  → create_ik_retargeter    existing_retargeter 를 주면 재사용 → 아니면 AddDefaultOps(또는 기존 RTG 구성 match_existing) → AutoMapChains → (선택) AutoAlignAllBones
+  → retarget_animations     FIKRetargetBatchOperationContext(NameRule.FolderPath = 후보 경로, 이름 규칙, 덮어쓰기 false) → RunRetarget
+  → validate_animation      소스 대비 상대 비교
+```
+
+- **생성 흐름은 항상 복제한다:** `same_rig`여도 `reassign_skeleton`을 쓰지 않는다. 그 Tool은 애셋을 제자리에서 옮겨 원본이 바뀐다. 같은 리그 사이 리타깃은 사실상 항등 변환이므로 `retarget_animations`(복제 후 작업)로 그대로 처리한다. `reassign_skeleton`은 원래 용도(본 이름이 같은 중복 스켈레톤 정리, `confirm` 필수)에만 쓴다.
+- **리그 판정은 이름이 아니라 기준 포즈 차로 한다:** UE4 마네킹은 본 이름이 전부 Vesper에 있지만 기준 포즈가 10~40° 다르고 본 길이가 최대 3.6배 달라, 이름만 보면 같은 리그로 오판한다. `same_rig`는 기준 포즈 회전 최대 < 1° ∧ 길이 비 0.99~1.01(감사 §8)이고, 라우터·보고용 참고 정보다.
+
+- 리타깃은 Provider와 독립적으로 동작한다(원본 유지).
+- **좌표·스케일:** FBX 단위·축은 Interchange 설정이, 비율 차이는 리타기터 op가 처리한다. Blender·Meshy 출력의 단위(m/cm)와 축은 각 Provider Phase(4·6)에서 확인한다.
+  - Blender(개정 7, 실측): 장면 1 BU = 1 cm + 임포트 배율 = cm/단위 → 노드 스케일 1 · FBX 단위 cm. BVH(Y-up, 앞 −Z 기본) → UE `(x, z, y)`, 즉 BVH +Z 정면 · +X 왼쪽 = UE 마네킹·Vesper와 같은 +Y 정면 · +X 왼쪽. 루트 본 = BVH 루트(`Armature` 널 제외).
+  - **정면:** FK 체인이 전역 델타라 소스와 대상의 정면을 맞춰야 한다. 정면은 발 영역(바닥 + 키 × 15%)의 부모 → 자식 수평 벡터 합으로 잰다(좌우 대칭 IK 본은 상쇄). 바닥 · 꼭대기는 p5 ~ p95 폭보다 더 떨어진 외톨이 본을 빼고 정한다(SB 의 FX 본 z −2217cm). 스켈레톤 소스는 좌우 체인(`Left*` / `Right*` 쌍의 시작 본) 위치 차로 교차 확인하고, 둘이 다르면 모른다고 본다(`FEET_LATERAL_DISAGREE`). BVH는 Blender에서 대상 정면으로 돌려 적용한다.
+  - **정면 맞춤 (개정 7 보강):** retarget 파이프는 계획 때 소스 · 대상 정면을 재 `steps[].inputs.facing{source, target, yaw_deg}`에 고정하고, 다르면 `create_ik_retargeter(facing_yaw_deg = 소스 → 대상 +Z 회전)`으로 리타기터에서 맞춘다: ① 대상 리타깃 포즈의 스켈레톤 루트 −yaw(자동 정렬 앞) ② 복원 포즈 `FacingRestore` + Additive Pose op(Root Motion op 바로 앞) ③ Root Motion op 가 소스 루트 복사면 `GlobalOffset` +yaw (§2.3). 결과 `facing_alignment{yaw_deg, target_root, restore_pose, op, op_index, enabled, consistent}`는 애셋에서 읽는다. 대상 루트가 펠비스면 펠비스 이동이 돌지 않아 `FACING_NEEDS_ROOT`로 거부, 기존 리타기터 재사용은 바꾸지 않고 `FACING_NOT_ALIGNED` 한계(Tool 진단 `FACING_MISMATCH_EXISTING`). 루트 회전이 기준 대비 Yaw 만일 때 정확하다. 리타기터 에디터 프리뷰의 대상 리타깃 포즈는 돌아가 보인다(출력은 대상 정면).
+  - **기준 포즈 높이:** 소스 골반이 바닥 높이면 Pelvis Motion op 가 이동을 키운다 → BVH 기준 포즈는 가장 낮은 점을 z = 0 으로 올리고 루트 위치 키에서 같은 만큼 뺀다(애니의 월드 위치는 그대로).
+- **루트 모션:** 루트·골반 처리는 리타기터의 Pelvis Motion · Root Motion op 설정을 따른다. 5.7 `AddDefaultOps`는 op 5개(Pelvis Motion · FK Chains · Run IK Rig + IK Chains · Root Motion · Curve Remap)이고, 기존 RTG는 여기에 Pin Bones를 더하고 Run IK Rig를 끈 7개 구성이다(감사 §4).
+- **일괄 리타깃 안전 설정:** `bOverwriteExistingFiles`는 항상 `false`(같은 이름이 있으면 실행 전에 `ASSET_EXISTS`), 입력은 Sequence·Montage·BlendSpace만(AnimBlueprint 거부), 저장은 `save` 명시 시에만.
+- **재사용과 메시는 명시한다:** 기존 IK Rig·RTG는 `existing_rig` / `existing_retargeter`로 줄 때만 쓰고, 소스·대상 메시는 필수 인자다. Vesper 스켈레톤에는 메시가 46개 있고, 기존 타깃 IK Rig는 `SK_StreetDemon_F_02`에, `ABP_Hero_Combat` 프리뷰는 `F_01`에 묶여 있어 암묵적으로 고르면 결과가 달라진다.
+- **임포트 부작용 차단:** `bAddCurveMetadataToSkeleton=false` · `bReplaceExisting=false` · `bIsAutomated=true`. 메시째 임포트할 때는 `bImportMaterials` · `bImportTextures` · `bCreatePhysicsAsset` · `bImportStaticMeshes`를 끈다(리타깃 소스에는 스켈레탈 메시·스켈레톤·애니만 필요).
+- **자동 매핑 실패 처리:** 자동 캐릭터라이즈는 템플릿이 맞지 않으면 체인 0개로 전부 실패한다. `create_ik_rig`는 이때 `IKRIG_AUTO_FAILED`와 함께 본 이름·부모 목록을 돌려주고, Claude Code가 그것으로 `chains[{name, start, end, goal?}]`를 제안 → 사용자 확인 → `mode: manual`로 다시 부른다. 수동 정의가 잘못되면(본 없음·조상 관계 아님) 해당 체인 목록과 함께 `BAD_REQUEST`.
+  - **손가락 체인 제안 (개정 8):** 손가락은 이름 대신 위상 · 좌표로 찾는다(`Core/AnimMcpFingerChains` — 손목 아래 갈래 · 마디 수 · 좌우 거울 · 엄지 = 손바닥 평면에서 가장 벗어난 갈래). `create_ik_rig` 결과(auto 실패 `details` 포함)에 `finger_chain_suggestion`, 진단 `FINGER_CHAINS_SUGGESTED`(info) · 템플릿 체인과 다르면 `FINGER_CHAINS_DIFFER`(warning — SOMA 는 자동 캐릭터라이즈가 Mixamo 템플릿으로 잡혀 `LeftIndex` = Index1 ~ 3, 메타카팔부터 한 마디 밀림). `inspect_skeleton suggest_finger_chains`(옵트인)도 같다. 대상에 손가락 체인이 있는데 소스에 없으면 그 손가락은 대상 기준 포즈로 남아야 한다(아래 정렬 · §13 `fingers`).
+- **`match_existing` 매핑 (개정 8):** 모든 op 를 정확 이름으로 매핑한다(`AutoMapChains(Exact, bForceRemap)` — 꺼진 Run IK Rig op 포함). FK op 만 바꾸면 꺼진 op 의 퍼지 매핑이 자동 정렬을 그르친다(§2.3). 기존 RTG 회귀(`RTG_KatanaToH` 본별 0°)는 그대로 — 메타카팔은 뼈 1개 체인이라 그 RTG 에서도 퍼지 매핑이 정렬에 안 걸렸다.
+- **리타깃 포즈 정렬 `align_mode` (개정 8):** `create_ik_retargeter align_mode` = `engine`(플러그인 기본 — 엔진 `AutoAlignAllBones`/`AutoAlignBones`, Phase 1 회귀 기준) · `per_bone`(anim_gen `match_existing` 기본, `Core/AnimMcpRetargetPoseAlign`). 원칙: **기준 포즈 관례가 다른 부위(팔 · 다리의 T 대 A)만 소스에 맞추고, 같은 자세(직립)를 뜻하는 부위의 차이는 체형이니 대상 것을 둔다.** `per_bone` 순서:
+  - ⓪ 축 체인 중립 — 대상 기준 포즈에서 거울 짝 체인(뼈 ≥ 2, 수직이등분면 반사)으로 좌우축 · 정중선을 이름 없이 정하고, 짝이 없고 정중선 근처(가장 안쪽 짝 반폭 × 0.25)인 체인(척추 · 목 · 머리)과 펠비스는 **정면 맞춤만 반영한 대상 기준 포즈**로 둔다(엔진의 `AlignPelvisBone` · 척추 접선 · 목 정렬이 소스 몸통 모양을 복사하던 것을 되돌림). 팔 · 다리는 바뀐 몸통 위에서 다시 정렬한다.
+  - ① 뼈 수가 같은 체인은 FK op 를 `OneToOne`(관절 비율 차가 굽힘을 섞지 않게 — §2.3), ② 대응 본 구간 정렬 + ③ 체인 끝 랜드마크(매핑된 자식 체인의 시작, 둘 이상이면 Horn 최소제곱, 잔차 15° 넘는 랜드마크는 뺌 — 엄지)로 굴림은 체인 부모가 정한다.
+  - ②' 메타카팔 상대 — 손가락 체인은 대상 메타카팔을 그대로 두고 소스 메타카팔 → 첫 마디 구간을 대상 메타카팔 구간에 맞춘 최소 회전(Q) 뒤의 소스 방향으로(부모 매핑 본이 정중선 밖일 때 — 쇄골 → 팔은 제외), 응답 `relative_chains[]`. 메타카팔 자체를 소스로 돌리는 안은 손 굴림 · 손바닥 변형으로 기각.
+  - ④ 머리 해부적 중립 — 아래에 매핑 체인이 없는 뼈 1개 말단(머리)은 엔진이 건너뛴다(§2.3) → 소스 짝 본의 기준 포즈 대비 회전 × 정면 맞춤 × 대상 기준.
+  - 결과 `pose_alignment{chains[], chain_ends[], relative_chains[], axial{lateral_axis, mirror_pairs, chains, pelvis}, neutral_bones[]}`.
+- **기준 포즈 FBX 2단 임포트 (개정 8):** `blender` 변환이 동작 FBX 와 함께 기준 포즈 2프레임 FBX(`<이름>_Rest.fbx` — 애니가 없으면 `import_animation_file` 이 `NO_ANIMATION`)를 내면, import 단계는 ① 기준 포즈 FBX → `<work>/Import/`(메시 · `_Rest_Skeleton` · `_Rest_Anim`) ② 동작 FBX → `<work>/Import/Motion/` 에 그 스켈레톤으로 애니만. 깊은 본 때문에 Interchange 가 첫 프레임을 기준 포즈로 삼는 것을 피한다(§2.3).
+- **팔-몸통 관통 (개정 8):** 위팔 월드 방향은 소스와 같아도 어깨 반폭 · 옷 부피가 다르면(CMU 21.5 vs Vesper 12.0 cm) 손 · 아래팔이 허리 · 넓적다리에 들어간다. `retarget_animations body_clearance` = `off`(플러그인 기본) · `measure` · `resolve`(anim_gen 기본) · `{mode, margin_cm, max_deg, …}`. `resolve` 는 관통한 프레임만 위팔 트랙을 어깨 둘레 최소 회전(최소제곱, 8° 걸음, 쇄골 공간에서 ±0.13 초 팽창 + 가우시안, 재검사 3회)으로 고친다 — 팔꿈치 · 손 로컬 회전은 그대로. 몸은 대상 메시 LOD0 스킨의 **반경 지도**(몸통 축 = 엉덩 관절 중점 → 척추 끝, 넓적다리 축, (t × 10°) 칸마다 최대 반경, 깊이 = 반경 − 축 거리)로 잰다 — 가장 가까운 정점 법선은 깊이 박힌 점에서 방향이 엉켜 버렸다. 체인 = 리타기터 대상 IK Rig, 거리 기본값 × 펠비스 높이 / 100. 경고 `BODY_CLEARANCE_LIMIT` · `CLEARANCE_GRIP_CHANGED`(양손 거리 변화) · `BODY_PENETRATION_REMAINS`, anim_gen 진단 `BODY_CLEARANCE_RESOLVED`. 기존 Vesper 애니(다른 체형에서 리타깃된 마켓 애니)도 18 ~ 35% 관통하지만 일괄 보정은 하지 않았다(부록 B).
+  - **양손 파지 요청이면 측정만 (개정 11 — 사용자 결정 A안):** `resolve` 는 관통 프레임마다 위팔을 몸 바깥으로 돌리므로 양손으로 모아야 할 팔을 벌린다. 첫 실험 E1(기준 Kimodo 칼 시험과 같은 seed 를 `measure` 로 다시 만들어 유지 애셋(`resolve`)과 비교, 2026-10-26): Vesper 손목 간격 `measure` 최소 36.5 · p50 51.0 cm(20 cm × scale = 21.05 cm 안 **0%**) → `resolve` p50 53.1 cm(벌림 p50 1.9 · 최대 4.1 cm, 왼 손목 이동 p50 2.9 · 최대 5.7 cm, 위팔 방향 p50 8.2 · 최대 14.2°, 오른손 · 발 0) — **파지가 처음부터 없었고 보정은 더 벌렸을 뿐**(파지 프레임을 깬 0프레임). 그래서 `two_hand_weapon_grip` 이면 기본 `measure`(모든 Provider, C++ 변경 없음). 파지를 지키면서 관통을 없애는 C안(두 팔을 함께 옮겨 파지 + 관통 0)은 8-4 손 IK 와 같은 계산이라 8-4 에서. 비파지 프레임의 관통은 select 지표 `non_grip`(상한 = min(비파지 프레임 %, 관통 %)) — 기록만.
+  - **`resolve` 와 `body_fit` (개정 14 — 8-4b, C안 실현):** `fix.body` 가 있으면 리타깃의 `resolve`(위팔만 · 팔마다 따로)는 기본 `measure` 로 바뀌고, 관통은 **대상 시퀀스 위 한 풀이**(`body_fit`)가 고친다 — 쇄골 · 위팔 swing · 팔꿈치 경첩 · (파지 프레임만) 두 손목을 두 팔 함께 움직여 관통(몸통 · 넓적다리 · 머리목 · 반대 손) · 파지 keep · 주 손 충실도를 같은 GN 안에서 맞춘다(같은 반경 지도 원천 — C++ 몸 모델). 같은 자유도를 두 번 고치지 않으려고 둘을 함께 쓰지 않는다(요청이 `resolve` 를 명시하면 위험 `CLEARANCE_DOUBLE_FIX`). `resolve` 자체는 그대로(플러그인 기본 off · `fix.body` 없는 anim_gen 기본 resolve — 회귀 기대값 불변).
+- **역방향 — 대상 → SOMA (개정 15 — 9-3, 키 포즈):** 생성 Job 의 리타깃(SOMA → 대상)과 같은 리그 규칙(SOMA 수동 체인 · 대상 자동 IK Rig · `match_existing` · 요청 `align_mode`)을 **원천 · 대상만 바꿔** 쓴다 — `create_ik_retargeter(source_rig = 대상, target_rig = SOMA)`. E0(2026-11-01, 8-1 기록 Job 의 Work 애셋 — 제품 코드 무변경): 체인 27개 정확 매핑 · Spine 만 Interpolated(SOMA 3 마디 ↔ Vesper 5) · 정면 맞춤 없음(둘 다 +Y). UE 안 왕복(SOMA → Vesper → SOMA, 같은 스켈레톤 본별 비교, SOMA30 몸 관절): 로컬 회전 다리 ≤ 0.13° · 손 0° · **팔 · 아래팔 1.68° · Spine2 · Chest 2.9°**(프레임마다 같은 값 — 리타깃 포즈 정렬이 양방향에서 정확한 역이 아니라 생기는 **고정 편향**, 척추는 마디 수 보간), 위치 ≤ 0.5 cm, 눈(체인 밖) 11.7°, 손가락 끝은 매핑 밖. Vesper `hand_r` ↔ SOMA `RightHand` 컴포넌트 회전 차는 모든 프레임에서 같다(퍼짐 0°) — 9-3b 낫 파지 규칙의 손 방향 대응 상수. SOMA UE 스켈레톤 기준 포즈 = Kimodo 표준 T 포즈 오프셋을 (x, z, y) 로(77 관절 ≤ 0.001 cm) → Kimodo 전역 회전 = S·(Q_t · Q_ref⁻¹)·S(쿼터니언 (x, y, z, w) → (−x, −z, −y, w)), 위치 = UE 컴포넌트 cm 을 같은 S 로 m(`anim_gen/key_pose.py`). `validate_animation profile` 은 프레임 0 을 내지 않아(표본 = 프레임 1 부터, 240 표본 넘으면 묶음) `hold_pose{at 0, 1 프레임}` 로 한 프레임 민 사본을 잰다(E0 — 이동 일치 0.01).
+
+---
+
+## 11. 복합 애니메이션 (Phase 8)
+
+원본의 세그먼트 계획(Dash → Takeoff → Airborne Rotation → Attack → Landing → Recovery)을 유지한다. 각 세그먼트는 길이, 시작·끝 포즈, 루트 모션, 접촉·무기·타이밍 제약을 가진다. 세그먼트별 Provider가 다를 수 있다. 연결부의 포즈·속도 연속성은 `validate_animation`의 수치 항목으로 검증한다. 분해했다고 자연스러운 연결이 보장되지는 않는다.
+
+**구현 (개정 15 — Phase 9-2, U2-a):** 같은 Provider 안의 세그먼트 — 요청 `segments[{prompt, duration_seconds, name?, swing?}]`(§9) → local_ai 한 Kimodo 실행(`multi_prompt` · `num_transition_frames`). 세그먼트마다 길이 · 프롬프트, 시작 자세 = 앞 세그먼트 끝(전신 + 손발 제약 — Kimodo 가 건다), 루트 모션 = 모델(`root_path` 로 이은 타임라인에 줄 수 있다), 접촉 · 무기 = 요청 플래그(2차 생성 — 클립 전체), 타이밍 = 세그먼트 길이 + `swing` 표시(시간 보정 탐색 창). 연속성 수치 = 새 `seams` 단계(최종 시퀀스 — 경계마다 C++ 회전 단계 비 `SEAM_JUMP` + 손 · 발 · 골반 · 루트 속도 앞뒤 비 · 속도 변화 비, `anim_gen/segments.py`)와 Kimodo 쪽 같은 수치(`generated.candidates[].segments`) → Job `segments`, 경계 → 몽타주 섹션(옵트인). **Provider 를 섞은 세그먼트(개정 15 — Phase 9-3c, U2-b):** 기존 모션 구간(`{source: existing, asset, start?, end?}`) + 생성 덩어리(붙어 있는 생성 세그먼트 — 한 Kimodo 실행). 생성 세그먼트의 시작 · 끝 자세 = 이웃 기존 구간의 끝 · 첫 T(전이) 프레임을 역리타깃한 **자동 전신 키 포즈**(U3 — 앞 origin · 뒤 pass1, 생성은 겹침 K = T − 1 프레임만큼 늘린다), 보정은 생성 부분만, 새 `join` 단계가 겹친 구간을 크로스페이드로 잇고 붙는 조각을 골반 · 몸 방향으로 맞춘다(§9 행 · §14 '9-3c'). 연속성 수치 = `seams` 단계에 겹침 시작 · 끝 + 겹친 구간 자세 차 · 골반 잔차. **아직 없는 것:** 세그먼트마다 다른 대상 스켈레톤(U8) · 생성 덩어리 둘 이상(기존 사이에 생성이 두 번) · 관성화 · 모션 매칭 · 세그먼트 단위 seed 후보. 결과 · 판정은 §14 Phase 9 '9-2'. **언제 쓰나(9-2 실측):** 이동 · 정지가 끼는 여러 동작(달리기 → 멈춤 → 공격)에 — 한 프롬프트는 일찍 끝나고 서 있다. 한 동작 안의 단계(준비 → 베기 → 복귀)는 나누면 오히려 느려진다(베기 세그먼트를 길게 해도 · '빠르게' 문장으로도 한 프롬프트보다 느림) — 한 프롬프트 + `fix.timing`.
+
+---
+
+## 12. AnimBP 연결과 승격 (Phase 7 — 개정 10)
+
+- **기존 Tool만 쓴다:** `create_anim_montage` · `set_montage_slots` · `set_montage_sections` · `create_blendspace` · `set_sequence_additive` · `duplicate_animation_blueprint` · `apply_graph_operations` · `run_automation_tests` · `run_anim_scenario`. 새 Tool 은 승격(`promote_animation`) 하나. anim_gen 의 포장 · 연결 단계는 이 Tool 들을 옵트인 `generation_guard` 로 부른다(§3.1-6).
+- **애셋만 요청하면 AnimBP를 수정하지 않는다**(원본 유지) — `integrate_anim_bp` 가 거짓이면 AnimBP 호출 0.
+- **anim_gen 은 운영 AnimBP 에 쓰지 않는다.** 복제본(`<work>/<ABP>_Test_<job>A<n>`)에서 적용 · 컴파일 · 스모크 · 시나리오 → 운영 AnimBP 는 `get_anim_blueprint_info`(revision) · `preview_graph_operations`(읽기)만 → Job `anim_bp.apply_payload{asset_path, operations, expected_revision, compile: true}`. 운영 경로는 가드가 거부하므로(`OUTPUT_PATH_NOT_ALLOWED`) 실수로도 쓰지 못한다.
+- **사격 + Strafe(예시 C):** 하체 strafe, 상체 조준·레이어 블렌드, AimOffset, 왼손 IK, 조준 보정은 이미 `ABP_Hero_Combat` 계열에 있다. 생성할 것은 상체 사격 루프·반동 시퀀스이고, 연결은 기존 레이어 구조에 애셋을 끼우는 일이다(`UpperBody` 슬롯 몽타주 — 2026-10-25 복제본에서 `slots_active[UpperBody]` 확인).
+- 이동 로직, 락온 방향, 사격 지속 시간 같은 게임플레이 상태는 기존 C++/GAS가 기준이다(원본 유지). 운영 계열은 네이티브 AnimInstance 가 매 프레임 변수를 덮어써 시나리오의 `set_variables` 로 전이를 몰 수 없다 — 전이 확인은 BP 변수 ABP(`ABP_McpRuntimeTest` 복제본), 운영 계열은 슬롯 · 진입 상태로 본다(플러그인 README 제약).
+
+**승격 (`promote_animation`)** — 후보 경로 → 정식 경로(`/Game/Animation/Hero/<영웅>/<계열 | Common>/<Locomotion | Actions>/<이름>` — `.claude/plans/anim-asset-naming.md`). 엔진 AssetTools rename(2026-10-22 애셋 정리와 같은 경로)이 새 패키지 · 참조 패키지를 **자동 저장**하므로 사전 검사 + `confirm`:
+- `dry_run` 으로 `planned[{source, dest, class, content_hash, referencers[{package, candidate, allowed}]}]` 를 보이고 → 사용자 승인 → `confirm: true`.
+- 후보 경로 안 참조자는 허용(엔진이 고치고 저장), 밖은 `allow_referencers` 로 명시해야 한다(예: 먼저 승격한 BS 가 그 샘플을 참조). 맵 · 보호 애셋 · 미저장 편집이 있는 참조자는 거부. 서로 참조하는 애셋은 한 배치로 옮기면 참조 거부가 없다.
+- 결과: 옛 경로 애셋 · 리디렉터 0 · 옛 .uasset 없음 · 내용 해시 같음 · 참조자가 새 경로 · 저장 집합 ⊆ 후보 ∪ dest ∪ allow_referencers.
+- 이름 규칙은 플러그인이 모른다 — anim_gen Job 의 `promotion{folder, assets[{source, dest}]}` 이 제안한다(idle · locomotion → Locomotion, 그 밖 Actions, hero 없으면 제안 없음). 재사용 애셋은 제안하지 않는다.
+
+**운영 AnimBP 적용 절차 (승인 게이트 — Phase 7 은 실제 적용을 하지 않았다, 사용자 결정):**
+1. anim_gen Job 이 복제본 검증 + 운영 미리보기 · revision 까지 끝낸다(운영 SHA-256 무변경).
+2. 정식 경로로 쓸 애셋이면 `promote_animation` dry_run → 사용자에게 보임 → 승인 → 실행. **운영 AnimBP 가 후보 경로를 가리키게 하지 않는다**(승격 → 운영 적용 순서). 복제본(후보 경로)의 참조는 엔진이 새 경로로 고친다.
+3. 적용 직전 다시 `get_anim_blueprint_info`(revision) + `preview_graph_operations`(페이로드의 바인딩을 정식 경로로 바꾼 op — `rebind_after_promotion`) → 사용자에게: planned 목록 · `expected_revision` · 복제본 검증 결과(컴파일 · 스모크 · 시나리오 관측).
+4. 승인 → `apply_graph_operations(운영, operations, expected_revision, compile=true, save=true)` — 가드 없이(운영 경로라 가드가 거부한다 — 의도). revision 이 바뀌었으면 `REVISION_MISMATCH` 무변경(2026-10-25 복제본에서 같은 메커니즘 확인).
+5. 검증: 컴파일 0/0 · `AnimGraphMcp.Smoke.AnimBlueprint.<이름>` · `run_anim_scenario`(운영) · 관련 `AstralBreak.*`.
+6. 되돌리기: 운영 .uasset 은 git 추적 — 사용자가 되돌린다. 스켈레톤 슬롯 등록(`add_skeleton_slot`, 스켈레톤이 `/Game/Assets/` 아래) · GA 몽타주 지정(`FireMontage` 등 데이터)은 별도 승인 사항.
+
+**노티파이와의 관계:**
+- 플러그인 = 몽타주 구조(슬롯 · 섹션 · 블렌드). 프로젝트 노티파이(`AstralAnimNotify_GameplayEvent` · `…GameplayEventWindow` · MotionWarping · PawnCollision + GameplayTag) = `astral-ue-montage` 스킬 / `Tools/lib/ab_montage.py`. 플러그인 · anim_gen 은 프로젝트 클래스를 모르므로 부르지 않는다(§3.1-4) — 몽타주를 만들면 한계 `NOTIFIES_NOT_ADDED`.
+- 순서: 생성 → 포장(플러그인) → 사람 확인 → 승격 → **정식 몽타주에** 노티파이(스킬의 `add_notify` / `add_notify_state` — `build_from_spec` 은 DefaultSlot 몽타주를 새로 만드므로 쓰지 않는다) → GA 지정(데이터, 승인). 후보는 버려질 수 있어 먼저 달지 않는다. rename 은 몽타주 안의 노티파이를 그대로 옮긴다.
+- 스킬 문서의 "슬롯 이름 변경 · 다중 섹션 금지"는 Python API 한계였다 → 플러그인 `set_montage_slots` · `set_montage_sections` 로(스킬 문서 정정 2026-10-25).
+- 이 환경은 원격 실행(UDP)이 안 돼 노티파이 단계는 Phase 7 테스트 범위 밖이다.
+
+---
+
+## 13. 검증 — `validate_animation`
+
+| 구분 | 항목 | Phase |
+| :--- | :--- | :---: |
+| 구조 | 애셋 존재·저장 · 타깃 스켈레톤 일치 · 길이·프레임 수·프레임레이트 · 모든 트랙 본이 스켈레톤에 있음 · NaN·비정상 스케일 | 1 |
+| 수치 — 절대 | 명백한 깨짐만: NaN · 비정상 스케일 · 한 프레임 회전 > 90°(기존 히어로 애니 관측 최대 약 70°) → `FAILED`. 단 소스가 주어졌고 소스도 그만큼 튀면(소스 최대 + 10° 이내) 리타깃이 만든 깨짐이 아니므로 경고 `ROTATION_JUMP_INHERITED` — 30fps 마켓 공격은 손·손가락이 93~109°/프레임(Phase 1 실측) | 1 |
+| 수치 — 상대 | 리타깃 결과 vs 소스: 체인별 각속도 p99 비율 · 착지 발 수평 속도 p50 비율(다리 길이 비 보정) · 루트 이동 거리 비율(펠비스 높이 비 보정) · 루프 경계 차 / 프레임당 중앙값 비율. 허용 범위 밖이면 `PASSED_WITH_WARNINGS`. 허용 비율 초기값은 Phase 1 첫 결과로 정한다 | 1 |
+| 회귀 비교 | 같은 소스를 기존 RTG로 리타깃한 결과와 본별 각 차이 — "Tool 결과 = 에디터 수동 절차 결과" 확인 (Phase 1 테스트 전용) | 1 |
+| 요청 충족 | 길이·루프 조건 · 요청한 순서(세그먼트 경계) · 제약 충족. Phase 2: `expect{length, loop, root_yaw_delta}` 불일치 → `FAILED`(`EXPECT_*`), `seams[]`(이음매 시각)의 회전 변화가 앞 · 뒤 4프레임 중앙값 중 큰 쪽의 `seam_ratio_max`(3.0)배 초과 → 경고 `SEAM_JUMP`. 구간을 고르는 측정용 `profile_bones[]`(프레임별 본 선속도) — 개정 7 보강 `profile_positions`면 같은 시각의 컴포넌트 공간 위치도(동작 평면 비교) | 2 · 8 |
+| 손가락 (개정 8) | `fingers: true \| {ik_rig?, retargeter?, mesh?}` → `fingers{hands[{side, fingers[{chain, mapped, mcp, pip}], order_broken_pct}], unmapped[], thresholds, issues[]}`. 손 기준틀(손목 → 손가락 첫 마디 평균, 검지 − 새끼) 위의 MCP · PIP 굽힘(손바닥 쪽 +). 경고 `FINGER_UNMAPPED_NOT_REFERENCE`(소스 체인 없는 손가락이 **대상 메시** 기준 포즈에서 벗어남 — 꺾인 리타깃 포즈가 모든 프레임에 탄다) · `FINGER_BEND_REVERSED` · `FINGER_OVERBENT` · `FINGER_ORDER_BROKEN`(손끝 검지 → 새끼 순서가 깨진 프레임 비율). `retarget_animations` 는 기본으로 그 리타기터 매핑으로 검사하고 경고면 진단 `FINGER_WARNINGS`. Vesper 원본 57개 경고 0 | 5 |
+| 팔-몸통 관통 (개정 8) | `body_clearance: true \| {mesh, ik_rig, upper_arms, body_bones, include_secondary, contact_cm, penetration_cm}` → `body_clearance{arms[{upper_arm, frames_over_contact_pct, frames_over_penetration_pct, depth_p50/p95/max, worst{frame, time, arm_bone, body_bone}}], body{…}, issues[]}`. 관통(기본 깊이 > 2 cm × 펠비스 높이 / 100 — Vesper 2.1 cm, 접촉 1 cm × 같은 배율)이면 경고 `BODY_PENETRATION`. 보정은 §10 | 5 |
+| 몸 전체 관통 (개정 14 — 8-4a, 옵트인) | `body_clearance` 의 새 키 `parts: "all"` · `legs` · `per_frame` · `model` — 주지 않으면 개정 13 결과 그대로(비교 대상 16개 `arms[]` · `body` · 상태 · 경고 같음, 실측). `parts`: 팔 부위 3(손 = 손목 본과 자손 · 아래팔 = 팔꿈치 본과 트위스트 · 위팔 = 위팔 본과 트위스트, 어깨 관절에서 위팔 길이 × 0.4 안은 뺀다 — 몸통에 붙은 삼각근, Vesper 9.8 cm) × 몸 부위 6(몸통 칸 `pelvis` · `belly` · `chest` = 몸통 축 t 를 기준 포즈 척추 마디 s1 · s2 의 t 로 나눔 · `thigh_l` · `thigh_r` · `head_neck` = 중앙선 체인(이름 없이 — 위팔 중점 좌우 어깨 반폭 × 0.25 안 · 척추 끝 위)의 가장 낮은 본 → 정수리) 36 쌍, 쌍마다 접촉 · 관통 % · 깊이 p50/p95/max · 첫 접촉 시각 · 최악 {프레임, 팔 · 몸 본, 점}, 경고 `BODY_PENETRATION_PARTS`(parts 일 때만 상태 반영) · info `HEAD_AXIS_SKIPPED`. 정수리 = 기준 포즈에서 머리 축선 5 cm × scale 안 머리 정점의 최대 투영(뿔 · 큰 머리카락 끝 제외 — `head.top_from`), 머리 지도 t −0.1 ~ 1.0(정수리 위 뿔 줄기 밖). `legs`: 넓적다리 · 종아리 점 ↔ 반대 다리 넓적다리(칸 가운데 t ≥ 0.2 — 사타구니는 서 있기만 해도 닿는다) · 종아리(무릎 → 발목 새 축), 경고 `LEG_PENETRATION`. `per_frame`: 쌍별 부호 있는 프레임 깊이(음수 = 틈 cm, 걸리는 칸이 없으면 null). `model`: 측정 점 전부(기준 위치 · 영향 본 ≤ 8) · 측정과 같은 메시 기준 샘플 포즈 · 프레임별 반경 지도(base64) → `anim_gen/body_model.py`(순수)가 같은 규칙으로 깊이를 다시 낸다(8-4b 한 풀이의 바탕 — 재현 차 p95 0.005 cm). `retarget_animations body_clearance` 에는 `per_frame` · `model` 없음(`BAD_REQUEST`). `profile_rotations: true` = profile 위치와 **같은 시각**의 컴포넌트 공간 회전(`profile.rotations{bone: [[x,y,z,w]…]}`). **(개정 15 — 9-4a) `map_rule: 2`**(parts · per_frame · model 에만 — 기본 1): 지도가 기준 본에 강체 — 몸통 · 머리목 지도 정점의 팔 사슬(쇄골과 그 아래) 가중 합 > `arm_weight_max`(0 ~ 1, 기본 0.15 — `map_rule 2` 와만) 는 빼고 나머지는 팔 사슬 영향을 떼고 다시 정규화, 각도 0 방향 = 기준 포즈 어깨선을 지도 기준 본(몸통 = 척추 끝 · 넓적다리 · 종아리 = 무릎 · 머리 · 손 = 손목 · 아래팔 = 팔꿈치)에 붙인 것. `parts.map_rule{rule, arm_weight_max, arm_roots, torso_points, head_neck_points{unchanged, arm_weight_removed, dropped}}` · `model.map_rule 2`. Vesper: 몸통 축 점 1,577 중 팔 사슬 가중 368(뺀 217 · 뗀 151), 머리목 72(46 · 26). arms[] · body · resolve 불변 | 8 |
+| 손끼리 · 위팔 기준 (개정 14 — 8-4b, 옵트인) | `body_clearance.hands: true` → `parts.hands{hand_bins 12, forearm_bins 14, t_range, tip_local_cm{l, r}, points, pairs[]}` — 팔마다 손 지도(손목 → 손 끝 = 기준 포즈 손 점 무게중심 방향 최대 투영, 손목 로컬로 따라감 · t −0.15 ~ 1.05) · 아래팔 지도(팔꿈치 → 손목 · t −0.1 ~ 1.05)를 **그 팔의** 손 · 아래팔 점으로 만들고(몸 지도와 같은 `FRadialAxis` 규칙 — 공개 `FArmAxes` · `HandTip`), 반대 팔의 손 · 아래팔 · 위팔 점이 묻는다 → 12 쌍(`body_part` = `hand_<반대>` · `forearm_<반대>`), 경고 `HAND_PENETRATION`(hands 일 때만), per_frame · model 지도 `hand_l/r` · `forearm_l/r` · `roles.arms[].hand_tip_local_cm`. 모아 쥔 두 손은 맞닿음(contact_cm)까지 정상 — 풀이는 손끼리 쌍을 '깊이 ≤ contact' 로만 민다. 기본(키 없음)은 결과 그대로. 8-4a 측정에 없던 사용자 Persona 자리(검 선택 f0 손끼리 통과)를 잡는다. **위팔 쌍 기준(총괄 정정):** 운영 애니도 위팔 → 가슴 접촉 42 ~ 100%(겨드랑이 · 옆구리 눌림 · 지도 근사 — Rifle Idle 사용자 눈 '아주 미세' vs 측정 98.1%)라 관통 목표에서 빼고 '점마다 원래 깊이보다 안 깊어짐'(`fix.body.clearance.upper_arm: no_worse`)만 — 판정 = 쌍별 관통 % +1 · 최대 깊이 +0.5 cm 안. 코트 자락(3마디+ 가지 = secondary)은 `include_secondary` 로 재기만(한계 `BODY_FIT_SECONDARY_RECORDED`) | 8 |
+| 제약 | 양손 파지 오차 · 무기 궤적 이상. **개정 11(8-1 구현 — `anim_gen/motion_metrics.py`, Kimodo 소스와 Vesper 결과에 같은 정의):** `validate_animation profile_positions` 의 손목 · 엉덩 관절 · 발목 위치로 — 손목 간격(프레임별) · `grip_pct` = 간격 ≤ 20 cm × scale(scale = 펠비스 높이 / 100, 플러그인 관통 · `CLEARANCE_GRIP_CHANGED` 와 같은 기준) 프레임 %, 발 좌우 간격 비 = 발 간격의 엉덩 축 성분 / 엉덩 관절 폭(프레임별 — 몸이 돌아도 좌우만) p50 · p90, 앞뒤 보폭 / 다리 길이(기록), 휘두름 정점 = 빠른 손목 최대 속도 / scale · 시각 · 동작 구간 비율, 비파지 관통 상한 = min(100 − grip_pct, 관통 %) · 최악 프레임이 파지 프레임인가(검증기가 프레임별 관통을 내지 않아 C++ 없이 상한으로). 선별 점수는 `selection.py`(§14 Phase 8). 무기 궤적은 8-4(무기 메시 · 소켓) | 8 |
+| 자동 보정 (개정 13) | 흐느적(`timing.py` — Job `timing.before/after`): 휘두름 정점(손목 속도 최대 / scale — select `swing` 과 같은 크기) · 정점 시각 · 정지 머리 / 꼬리 길이(전신 < 30 cm/s) · 길이. 다리(`motion_metrics.legs_report` — 소스 · 대상 같은 정의): 발 좌우 비 p50 · p90 · **두 발 디딘 프레임의 최대**, 접지(`detect_contacts` — 발목이 최저 + 다리 × 0.04 · 수평 속도 < 다리 × 0.25 /s, 4 프레임 이상 — 대상 측정은 대상 발목 트랙으로 다시 판정) 비율 · 접지 발목 수평 미끄러짐 p95(cm/s ÷ scale), 무릎 간격 최소. Blender 보고는 대상 모델 예측 — 리타깃 뒤 실측(Job `fix.target`)과 비교해 모델을 확인한다 | 8 |
+| 세그먼트 이음매 (개정 15 — 9-2) | `segments` 요청이면 사슬 끝 `seams` 단계가 최종 시퀀스를 한 번 잰다: 경계(생성 타임라인 → 시간 보정 `warp` 로 최종) 마다 **회전 단계 비**(C++ `seams` — `SEAM_JUMP` 와 같은 식: 이음매로 들어가고 나오는 프레임 평균 회전 변화 ÷ 앞 · 뒤 4 프레임 중앙값, 판정 ≤ 3) · 손목 · 발목 · 골반 · 루트 **속도 앞뒤 비**(앞 3 · 뒤 3 표본 중앙값) · **속도 변화 비**(|Δv| 에 같은 꼴, 바닥 5 cm/s × scale — 기록, > 3 이면 `SEGMENT_SEAM_JUMP` 진단). 실측: 회전 비는 자세 튐을, 속도 변화 비는 새 프롬프트가 경계에서 바로 시작하는 속도 꺾임(가속도)을 본다 — 같은 시각의 한 프롬프트 클립이 대조군(`anim_gen/segments.py` · Job `segments` · §14 '9-2') | 9-2 |
+| 시각 | 항상 `needs_review[]`에 남긴다(사람이 Persona/PIE에서 확인). 개정 8: `review.render` 가 변환된 **소스 골격**(본마다 기둥, 좌 파랑 · 우 빨강 · 머리 앞 초록 코 · 루트 호박색 막대 · 바닥 띠)을 정면 · 측면 정사영으로 그린 프레임 PNG 와 시트(행 = 시각, 열 = 뷰 + 레퍼런스)를 낸다(Blender Workbench, 카메라는 전 프레임 범위에 고정 — 이동이 보인다). **개정 12(8-2):** `capture_animation` 이 같은 카메라 · 셀 규칙으로 **대상 메시**(Vesper)를 찍은 시트 · 소스 골격 비교 시트(같은 시각 행) · APNG 를 낸다 — Persona 를 열지 않고 채팅에서 본다(SendUserFile). 캡처는 근거이고 판정은 사람이다(§16-9). 칸마다 피사체 픽셀 범위(`subject_px` · `touches_edge` — 잘림 점검)와 행마다 포즈 중심(`pose_center` — 포즈가 바뀌는지)을 기록한다 | 1 · 5 · 8 |
+
+- 절대 임계값을 쓰지 않는 이유: 정상 공격 모션의 각속도 p99가 약 2,000°/s(손가락 최대 3,762°/s)이고, 높이 기준 발 미끄러짐은 정상 Walk 루프에서도 수백 cm/s로 튄다(감사 §5.2). 검증 계산은 C++에서 한다.
+- 상태: `PASSED` · `PASSED_WITH_WARNINGS` · `NEEDS_REVIEW` · `FAILED`. 구조 검증 통과가 동작 품질을 뜻하지 않는다(원본 유지).
+
+---
+
+## 14. Phase와 완료 기준
+
+### Phase 0 — 감사 (문서만, 코드 변경 없음) — 완료 2026-10-23
+
+산출물: [ArchitectureAudit.md](ArchitectureAudit.md). 7항 중 6항 확인, 7번(리타깃 소요 시간)은 읽기 전용으로 측정할 수 없어 Phase 1 완료 기준 1번에서 실측한다.
+
+확인 항목:
+
+1. Interchange로 ① 애니만 기존 스켈레톤에, ② 메시 + 스켈레톤 + 애니를 함께 임포트하는 C++ 경로와 파이프라인 설정 키.
+2. 자동 캐릭터라이즈를 Vesper · Narmaya · SB · UE4 마네킹 스켈레톤에 돌린 결과(템플릿 이름 · 매칭률 · 빠진 체인). 메모리 안에서만 실행하고 저장하지 않는다.
+3. `FIKRetargetBatchOperationContext`로 출력 폴더·이름 규칙·참조 애셋 동반(`bIncludeReferencedAssets`)·덮어쓰기가 어떻게 동작하는지.
+4. 기존 수동 `RTG_*`·`IK_AutoGenerated*`의 op 스택과 체인 매핑 덤프 → 회귀 비교 기준 정의.
+5. 포즈 샘플링 비용과 기존 히어로 애니의 수치 기준선(각속도·발 미끄러짐).
+6. 플러그인 의존성 추가의 영향(빌드, 모듈 로딩, 에디터 기동 시간).
+7. 일괄 리타깃 소요 시간 측정 → 요청당 애셋 수 상한.
+
+완료 기준: 위 7항의 결과 + Phase 1 Tool 시그니처 확정안. **사용자 승인 후 Phase 1.**
+
+### Phase 1 — 리타깃 기반
+
+- **Tool:** `inspect_skeleton` · `import_animation_file` · `create_ik_rig` · `create_ik_retargeter` · `retarget_animations` · `validate_animation` (C++ 플러그인 + `server.py` 프록시). 입력·결과 시그니처는 감사 §10
+- **설정:** `+GenerationOutputPaths=` · `+ImportSourceRoots=` · `MaxRetargetAssetsPerCall=50`(Phase 1 실측으로 확정, 처음 잠정값 20)
+- **의존:** `AnimGraphMcpEditor.Build.cs`에 IKRig · IKRigEditor · InterchangeCore · InterchangeEngine · InterchangePipelines · AnimationBlueprintLibrary, `.uplugin`에 IKRig · Interchange 플러그인
+
+완료 기준:
+
+1. **FBX 왕복:** 마켓 UE4 마네킹 계열 애니 1개를 프리뷰 메시째 FBX로 내보낸다(`Saved/AnimGen/Import/`) → 메시·스켈레톤·애니를 허용 경로에 **새로** 임포트(재질·텍스처·피직스 끔) → 새 소스 IK Rig 자동 생성 → `/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F`(대상 메시 `SK_StreetDemon_F_01`)로 리타깃 → 후보 경로에 `AS_` 저장 → `validate_animation`이 `PASSED` 또는 `PASSED_WITH_WARNINGS`. 애셋당 소요 시간을 기록해 `MaxRetargetAssetsPerCall`을 확정한다.
+2. **회귀 비교 (FBX 없이):** 기존 RTG의 소스 스켈레톤(`SK_Mannequin_HK` 또는 `HS1`) 애니 1개를 ① 기존 `RTG_KatanaToH` / `RTG_AutoGeneratedHandS`와 ② Tool이 새로 만든 IK Rig·RTG(`ops: match_existing`, 같은 대상 메시 `SK_StreetDemon_F_02`)로 각각 리타깃해 본별 각 차이를 기록한다.
+3. 본 이름 비호환 스켈레톤(Narmaya 또는 SB) 1건: 자동 매핑 실패 → 본 계층 응답 → 수동 체인으로 IK Rig 생성까지 성공하거나, 실패 이유를 코드로 반환한다.
+4. 허용 목록 밖 Content 패키지가 바뀌지 않았다 — 전역 더티 집합 차이에 허용 목록 밖 항목 0, `git status`의 `Content/` 변경은 허용 경로뿐. (`Saved/` 아래 FBX 쓰기는 테스트 입력이라 제외.)
+5. Development · DebugGame 에디터 빌드 경고 0, 기존 Smoke · 런타임 테스트 회귀 없음.
+
+**결과 (2026-10-23, `Tools/mcp/anim_gen_phase1_test.py` 전체 통과 — 요약 `anim_gen_phase1_state.json`):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | FBX 왕복 | ✅ `Katana_Attack_Slash1`(UE4 마네킹 HK, 58프레임) + 프리뷰 메시 → `Saved/AnimGen/Import/` FBX → 메시·스켈레톤·애니 **3개만** 새로 임포트(1.3초, 재질·피직스 0, 재임포트 스켈레톤은 원본과 `same_rig` 0.002°) → 자동 IK Rig ×2 → RTG(`match_existing`) → `SK_StreetDemon_F_01` 로 `AS_Vesper_Katana_Attack_Slash1` 저장 → `PASSED_WITH_WARNINGS`(경고 = 소스에도 있는 109°/프레임 손가락 튐). 상대 비: 각속도 p99 0.933 · 공통 본 0.998 · 착지 발(펠비스 보정) 1.169 · 루트 이동 1.000 · 길이 차 0. 시간: 리타깃 1.6~2.4ms/프레임, 20개 일괄 0.6~1.4초, 검증·저장 포함 3.0초 → 상한 50 |
+| 2 | 회귀 비교 | ✅ Tool 이 새로 만든 IK Rig 2개(HK · `F_02`)가 기존 `IK_AutoGeneratedKat`·`IK_AutoGeneratedTargetKat` 와 체인·펠비스·골·솔버까지 같고, `match_existing` RTG 가 `RTG_KatanaToH` 와 op 7개·매핑 28·핀 본 7·루트 모션·자동 정렬 타깃 포즈(34본, 최대 20.234°)까지 같다. 같은 소스 리타깃 결과 **본별 회전 차 0° · 위치 차 0cm**(172본 × 58프레임) |
+| 3 | 비호환 스켈레톤 | ✅ Narmaya: auto → `IKRIG_AUTO_FAILED` + 본 343개 계층(애셋 생성 0) → 잘못된 체인 `BAD_CHAINS` → 수동 체인(펠비스 `_000`, 10체인, 골 4) IK Rig 생성 → Vesper RTG 에서 10체인 이름 매핑. 체인 값은 테스트 픽스처로 쓴 제안값이다(기준 포즈 위치로 +X = 왼쪽 판별, 사용자 확인 전) |
+| 4 | 허용 목록 밖 무변경 | ✅ 모든 쓰기 호출이 전역 더티 검사 통과(`UNEXPECTED_DIRTY` 0). 실행 끝 미저장 패키지 33개 전부 `GenerationOutputPaths` 안. `/Game/Assets` 스켈레톤에 애니만 임포트해도 그 스켈레톤 더티 아님. `git status` 의 `Content/` 변경은 `Content/Animation/Test/AIAnimation/` 뿐. 가드가 실제로 잡는지는 C++ 단위 테스트(`AnimGraphMcp.Generation.Guard`, 메모리 패키지)로 확인 |
+| 5 | 빌드·회귀 | ✅ Development·DebugGame 경고 0. `AnimGraphMcp.Smoke` 26/26 · `AstralBreak.*` 31/31 · 런타임 시나리오(`ABP_McpRuntimeTest` Idle·Run+UpperBody) 2/2. `run_all.py`(저장·재기동 포함 전체 단계 테스트)는 돌리지 않았다 — 운영 애셋을 재저장하는 단계가 있어 기준 4 확인과 섞이지 않게 |
+
+실측으로 바뀐 사실은 감사 문서 §12.
+
+### Phase 2 — 기존 모션 재사용·변형
+
+- `search_animations`: 메타데이터 인덱스(이름 토큰 · 길이 · 루프 · 루트 모션 · 스켈레톤 · 수동 태그). 단순 이름 검색에서 시작하고 자동 태깅은 이후.
+- `preview_animation_edits` / `apply_animation_edits`: op 사전(`retime` · `trim` · `mirror` · `offset_bone` · `rotate_root` · `hold_pose` · `concat`, 개정 13 보강에 `time_warp`), 전체 사전 검증 → 원자 적용.
+
+**시그니처 (개정 5 — 착수 전 확정안):**
+
+| Tool | 입력 | 결과 (`result`) |
+| :--- | :--- | :--- |
+| `search_animations` | `query?`(이름 토큰 — `_` · CamelCase · 숫자 경계로 쪼개고, 모든 토큰이 이름·폴더 토큰에 접두 일치), `skeleton?`, `path_prefix="/Game"`, `class=AnimSequence\|AnimMontage\|all`, `min_length?`/`max_length?`, `root_motion?`, `additive?`, `loop?`, `tags?[]`, `limit=50`, `details=false`, `max_loads=300` | `total` · `returned` · `truncated` · `items[{asset_path, name, class, skeleton, length, frames, frame_rate, root_motion, additive_type, loop\|null, tags[], score, matched[]}]`. `details`면 노티파이 · 싱크 마커 · 커브 이름 · 루트 이동량·Yaw 변화. `loop` 필터·`details`만 후보를 로드하고 `max_loads` 초과는 `BAD_REQUEST LOAD_LIMIT` |
+| `preview_animation_edits` | `source`(AnimSequence — 복제 기준), `operations[]`, `asset_path?`, `loop?`, `root_motion?` | `valid` · `planned[{index, op, ok, error?, range, length_before, length_after}]` · 결과 프레임·길이 · 노티파이 유지/제외 · `seams[]` · `would_create`. 애셋을 만들지 않는다 |
+| `apply_animation_edits` | 위 + `asset_path`(필수), `validate=true`, `thresholds?`, `save=false` | 버퍼 계산 실패면 `BAD_REQUEST`(details.planned, 애셋 0개) → 주 소스 복제(허용 목록 · `ASSET_EXISTS`) → 본 트랙·커브·노티파이·싱크 마커 재작성 → 검증(`FAILED`면 저장 안 함, `VALIDATION_FAILED` — Phase 1처럼 미저장으로 남는다) → 전역 더티 검사 → 저장 |
+
+op (시간은 초, 각 op 직전 타임라인 기준. `start`/`end` 생략 = 처음/끝):
+
+| op | 인자 | 동작 |
+| :--- | :--- | :--- |
+| `trim` | `start?`, `end?` | 구간만 남긴다 |
+| `retime` | `start?`, `end?`, `rate` \| `duration` | 구간 재생 속도(1.5 = 1.5배 빠르게). 전체를 재샘플 |
+| `time_warp` (개정 13 보강 — 8-3 후속) | `knots[[src, dst]…]`, `rates?`, `antialias?`(0 ~ 1.5, 기본 0) | 전체를 매끈한 시각 사상 하나로 — 새 시각 → 원 시각 = 단조 3차 Hermite(`rates` = 매듭 재생 배율, 없으면 PCHIP), 속도 단차 · 새 이음매 없음. 첫 매듭 `[0, 0]`, 마지막 `src` = 길이. `antialias` > 0 이면 1배보다 빠른 곳을 σ = antialias·√(배율² − 1) 프레임 가우시안으로 거른 뒤 고른다 |
+| `hold_pose` | `at`, `duration` | `at`의 포즈를 `duration` 동안 정지 삽입(`at` = 끝이면 연장) |
+| `concat` | `asset?`(생략 = 원래 `source`), `start?`, `end?`, `reverse=false`, `blend=0`, `align_root=true` | 같은 스켈레톤 구간을 뒤에 붙인다. `blend`초 크로스페이드, 붙는 구간의 루트를 현재 끝 루트의 위치·Yaw에 맞춘다 |
+| `mirror` | `axis="x"`, `mirror_table?` | 전체 좌우 반전 |
+| `offset_bone` | `targets[{bone, rotation?{pitch,yaw,roll}, translation?}]`, `space=component\|local`, `start?`, `end?`, `blend_in=0.2`, `blend_out=0.2` | 본 회전·이동 오프셋(상체 회전) |
+| `bone_deltas` (개정 14 — 8-4a) | `space="parent"`, `bones[{bone, rotation_deg[[x,y,z]…키마다] \| null, translation_cm[[x,y,z]…키마다] \| null}]` | 키마다 본 델타(8-4b 한 풀이의 쓰기) — 회전 벡터(축 × 각°, 부모 공간): 새 로컬 회전 = Q(Δ) · 원래(관절 위치 그대로), 이동 = 원래 + Δ. 정확히 0 인 키는 손대지 않는다. 배열 길이 = 그 op 직전 버퍼의 키 수(아니면 `BAD_OP` — 기대 키 수 포함), \|Δ\| ≤ 180°(`OUT_OF_RANGE`), 없는 본 `BONE_NOT_FOUND`, 중복 · 둘 다 null `BAD_OP`. 이름이 `offset_bone` 의 `local`(본 자신의 축 · 뒤에 곱함)과 반대 뜻이라 `parent` |
+| `rotate_root` | `yaw`, `start?`, `end?`, `ease=smooth\|linear` | 구간 동안 루트 Yaw 0 → `yaw`, 이후 유지. 루트 이동 증분도 같은 Yaw로 회전 |
+
+- 내장 검증은 상대 비교를 끈다(길이·재생 속도가 바뀌어 프레임 대조가 무의미). 대신 `expect`(길이 · 루프) + `seams` + 물려받은 튐 기준 = 소스의 한 프레임 최대 회전 × 최대 재생 속도.
+- 원시 키를 읽으므로 소스의 트랜스폼 커브·본 속성은 결과에 없다(경고 `TRANSFORM_CURVES_DROPPED` · `ATTRIBUTES_DROPPED`). 역재생·잘린 구간의 노티파이는 빠진다(`NOTIFIES_DROPPED`).
+- 수동 태그: `[AnimGraphMcp] +AnimationTagFiles=`(프로젝트 기준 상대 경로, JSON — 키는 애셋 경로 또는 `/`로 끝나는 폴더 접두). 애셋 메타데이터에는 쓰지 않는다. 쓰기 Tool은 없다(파일 편집).
+
+완료 기준: 외부 AI 없이 "단순 상체 회전" · "공격 준비·복귀" · "기존 공격 변형(예시 D)" 3건을 새 애셋으로 생성·검증한다. 원본은 바뀌지 않는다.
+
+**결과 (2026-10-23, `Tools/mcp/anim_gen_phase2_test.py` 전체 통과 — 요약 `anim_gen_phase2_state.json`):** 타격 구간은 하드코딩하지 않고 `validate_animation profile_bones["hand_r","hand_l"]`(손 속도가 최대의 50% 이상인 구간, 0.1초 안은 하나로)으로 테스트가 찾는다.
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 단순 상체 회전 | ✅ `AS_Vesper_Rifle_AimIdle`(1.33초) → `offset_bone` spine_01~03 각 Yaw 15°(컴포넌트 축), 블렌드 0.3초 → `AS_Vesper_Rifle_AimIdle_TwistL` 저장. `PASSED` · 길이 그대로 · 소스 대비 본별 회전 차 최대 45.0°(p50 30°) · 양 끝 포즈 원본과 같음(경계 0.03°) · 골반·발 속도 차 0.000 cm/s |
+| 2 | 공격 준비·복귀 (테스트 A) | ✅ `AS_Vesper_Sickle_Attack3` 첫 타격 0.48초 → `trim` 0~0.433 → `hold_pose` 0.3초 → `concat` 같은 구간 `reverse` → `AS_Vesper_Sickle_AttackReadyReturn` 1.167초 저장. `PASSED` · 첫·끝 포즈 같음(경계 0°, 루트 0.06cm) · 이음매 비 1.23 · 1.25 |
+| 3 | 기존 공격 변형 — 예시 D (테스트 B) | ✅ `AS_Vesper_Sickle_Finisher1`(2.4초, 타격 0.20~0.37 · 0.63~0.83초) → `rotate_root` 180°(0.583~0.883) + `retime` 첫 타격 ×1.5 → `AS_Vesper_Sickle_Finisher1_FastSpin` 2.3초 저장. 내장 검증 `PASSED_WITH_WARNINGS`(경고 = `upperarm_twist_01_r` 113.6°/프레임, 기준 소스 82.0° × 1.5 = 123.1° 안 → `ROTATION_JUMP_INHERITED`) · `validate_animation expect{길이 2.311±1프레임 · 루트 Yaw +180 · 루프 아님}` `PASSED` · 첫 타격 손 속도 정점 0.267 → 0.233초 |
+| — | 원본 무변경 | ✅ 소스 4개 .uasset SHA-256 실행 전후 동일 · 원본 패키지 더티 0 · 실행 끝 미저장 패키지 48개 전부 `GenerationOutputPaths` 안 · 검색·미리보기는 더티 0 → 0 |
+| — | 그 밖 | `search_animations` 13항목(토큰 · 필터 · 태그 · `loop` 로드 20/57 · `LOAD_LIMIT` · `details`) · 미리보기 거부(파싱 오류 5건 한 번에 · `OUT_OF_RANGE` 뒤 `skipped` · `SKELETON_MISMATCH` · `NOT_A_SEQUENCE`) · 적용 거부(`OUTPUT_PATH_NOT_ALLOWED` · 실패 op 면 애셋 0 · `ASSET_EXISTS`) · 미러(좌우 손·발 속도 반올림 0.1 안에서 같음, 루트 Yaw −90 → +90, `MIRROR_CURVES_UNCHANGED`) · 노티파이(×2 리타임 + 트림: 0.5125 · 0.775 → 0.156 · 0.288, 잘린 것은 `NOTIFIES_DROPPED`) · C++ 단위 테스트 `AnimGraphMcp.Generation.Edit` · `Guard` 2/2 |
+| — | 빌드·회귀 | Development · DebugGame 경고 0 · `AnimGraphMcp.Smoke` 26/26 · `AstralBreak.*` 31/31 · 런타임 시나리오 2/2 · Phase 1 통합 테스트(`anim_gen_phase1_test.py`) 8섹션 다시 실행 PASS(실패 0 — `validate_animation` 확장 뒤에도 소스 없는 109° 튐은 그대로 `FAILED`) · Phase 2 확인 62건 |
+
+실측으로 바뀐 사실은 감사 문서 §13(미러의 짝 없는 본 · 이음매 비 · 빨라진 동작의 튐 기준 · 리타기터 레시피 차이).
+
+### Phase 3 — anim-gen-mcp: 정책 · 라우터 · 폴백 · Job
+
+- Provider 레지스트리, 규칙 표 라우터, 정책 3모드, `approve_generation`, Job 저장소.
+- 실제로 붙이는 Provider: `retarget`(파이프) · `existing_motion` · `direct_key`(Phase 1·2 Tool 조합). `blender` · `local_ai` · `external.meshy` · `control_rig`는 매니페스트와 비활성 자리(`NOT_IMPLEMENTED`)만.
+- 별도 MCP 서버 `anim-gen-mcp`(`Tools/mcp/anim_gen/server.py`, `.mcp.json`). 에디터 조작은 `anim_graph_mcp/bridge.py`를 재사용한다.
+
+**시그니처 (개정 6 — 착수 전 확정안):** 모두 같은 봉투를 쓴다.
+
+| Tool | 입력 | 결과 (`result`) |
+| :--- | :--- | :--- |
+| `list_motion_providers` | `include_inactive=true` | `providers[{name, role(provider\|pipe), phase, capabilities{…}, state{implemented, installed, auth{env, present}, license, available, unavailable_reason}}]` |
+| `get_generation_policy` | — | `effective` · `sources{default, local, local_exists}` · `ledger{spent_usd, reserved_usd}` |
+| `set_generation_policy` | `patch{}`, `reset=false` | `effective` — 로컬 파일만 쓴다. 모르는 키 · 금지 키 → `BAD_REQUEST` |
+| `plan_motion_generation` | `request{}`(§9) | `plan_id` · `executable` · `request`(정규화) · `policy{mode, effective_mode, paid_allowed}` · `candidates[{index, provider, chain[], steps[{step, tool, inputs, resolved}], paid, cost_known, estimated_cost_usd, needs_approval, risks[], expected_limitations[]}]` · `excluded[{provider, cause, reason}]`. 실행하지 않는다 |
+| `estimate_generation_cost` | `plan_id` | 후보별 `{provider, paid, cost_known, estimate_usd, basis, verdict: free\|needs_approval\|approved\|blocked, reason}` · `ledger` · `caps{max_cost_per_job_usd, max_total_cost_usd, remaining_usd}` |
+| `approve_generation` | `plan_id`, `max_cost_usd`, `max_attempts=1`, `provider?` | `approval_id` · 범위 · `resumed_job_id?`. 거부: `PLAN_NOT_FOUND` · `BAD_REQUEST`(`NO_PAID_STEP` · `POLICY_FREE_ONLY` · `PAID_API_DISABLED` · `AMBIGUOUS_PROVIDER`) · `COST_UNKNOWN` · `BUDGET_EXCEEDED`(`ESTIMATE_OVER_APPROVAL` · `MAX_COST_PER_JOB` · `MAX_TOTAL`) |
+| `generate_motion` | `plan_id`, `save=false`, `retry=false` | Job: `job_id, status, provider, chain, generated_assets[], reused_assets[], validation, limitations[], fallback_history[], cost{estimated_usd, actual_usd}`. `SUCCEEDED`일 때만 `ok: true`(비동기 제출은 `ok: true` + `RUNNING`). 승인 대기는 `APPROVAL_REQUIRED`(`details.job`) |
+| `get_generation_status` | `job_id?` \| `plan_id?`, `limit=20` | Job 또는 최근 목록. 비동기 단계는 여기서 poll |
+| `cancel_generation` | `job_id` | `CANCELLED`(진행 중 외부 단계는 `result_ignored`, 비용은 장부에 남음). 종료된 Job → `BAD_REQUEST ALREADY_TERMINAL` |
+
+완료 기준:
+
+- 에디터 없이 도는 pytest: `FREE_ONLY`에서 유료 경로 차단(Mock Provider), Provider 실패 Mock 시 폴백 기록, Job 상태 전이. §15 테스트 D · E(Mock 단계) 포함.
+- 에디터 통합 1건: `existing_motion` 또는 `direct_key` 경로로 실제 애셋 생성까지(`Tools/mcp/anim_gen_phase3_test.py`).
+- Phase 1 · 2 통합 테스트 회귀 없음.
+
+**결과 (2026-10-23, pytest 119건 통과 · `Tools/mcp/anim_gen_phase3_test.py` 확인 34건 PASS — 요약 `anim_gen_phase3_state.json`):** C++ 변경 없음. Mock 단계는 FakeEditor(플러그인 봉투·허용 목록·덮어쓰기 없음 흉내) + `local_ai` · `external.meshy` 자리에 끼운 Mock Provider 로 실제 규칙 표를 돌리고, 진짜 브리지·HTTP 호출은 막아 둔다.
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | pytest — `FREE_ONLY` 유료 차단 (테스트 E Mock) | ✅ `test_cost.py` 17건. `FREE_ONLY` → 계획 제외 `APPROVAL_REQUIRED`(`POLICY_FREE_ONLY`) · `generate_motion` 도 같은 코드 · 승인 거부. 기본 정책은 `PAID_API_DISABLED`. 승인 없음 → `WAITING_FOR_APPROVAL`. 상한 3종 `BUDGET_EXCEEDED`. 비용 미확인 → `COST_UNKNOWN`(승인 거부 · 실행 시 건너뛰기). 승인 뒤 제출 1회, 같은 계획 재호출은 그대로 1회, 재시도는 새 승인 + 키 `plan#2`. 장부에 핸들이 있으면 이어 쓰고, 핸들 없는 예약은 다시 제출하지 않고 `GENERATION_FAILED`(`SUBMISSION_UNCERTAIN`)로 끝낸다. 실제 금액 미확정은 예약으로 남는다. API 키 값은 상태 파일·응답 어디에도 없다. 모든 경우 Mock 외부 호출 수를 확인 |
+| 2 | pytest — Provider 실패 시 폴백 기록 (테스트 D Mock) | ✅ `test_fallback.py` 10건. `local_ai` Mock `GENERATION_FAILED` → `existing_motion` 근사 성공, `fallback_history` 1건 + `FALLBACK_USED{from, cause, missing}` + `NOT_NEW_MOTION`. 실행 시점에 비활성이 된 후보는 건너뛰고 기록. 가드 오류(`UNEXPECTED_DIRTY`) · 에디터 끊김은 폴백 없이 중단. `IKRIG_AUTO_FAILED` → `RETARGET_FAILED`(본 계층 보존). 검증 실패가 남긴 이름은 다음 시도가 `_Try<N>` + `OUTPUT_RENAMED`. `RATE_LIMITED`는 같은 후보 재시도. 시도 수 상한 · `allow_fallback=false` · Provider 지정이면 폴백하지 않는다 |
+| 3 | pytest — Job 상태 전이 | ✅ `test_jobs.py` 48건. 6×6 전이 표 전부(허용 9 · 금지 27), 상태는 `transition`으로만, 같은 초에 만든 Job · 승인도 생성 순서. 성공 · 실패 · `retry` · 재사용 · 취소(대기 · 비동기 실행 중 → 결과 무시 · 비용 유지) · 서버 재시작 뒤 파일에서 이어 poll · 에디터 없이 만든 계획을 실행 시 해결. 그 밖에 정책 17 · 라우터·요청 24 · 서버 3 |
+| 4 | 에디터 통합 1건 | ✅ `generate`: `idle` 요청 + 검색 `rifle aim idle` → 계획이 `AS_Vesper_Rifle_AimIdle`을 고정 → `direct_key` `offset_bone`(spine_01~03 각 Yaw 15°) → `/Game/Animation/Test/AIAnimation/P3Run…/AS_Vesper_Rifle_AimIdle_TwistP3` 저장. `QUEUED → RUNNING → SUCCEEDED` 0.6초, 내장 검증 `PASSED`, 소스 대비 본별 회전 차 p50 30° · 최대 45°(Phase 2 기준 1과 같은 값) · 길이 그대로. 같은 계획 재호출 = 같은 Job |
+| — | 그 밖 (통합) | `mcp`: stdio 로 서버를 띄워 Tool 9개 · 계획 봉투(에디터는 `bridge.py` 경유). `plan`: 미리보기 고정 · 제외 사유 · 허용 목록 밖 `OUTPUT_PATH_NOT_ALLOWED` · `FREE_ONLY` · 계획은 애셋 0 · 더티 0. `retarget`: UE4 HK `Katana_Attack_Slash1` 참조 → 소스 메시(스켈레톤 프리뷰 `SK_Mannequin_HK`)를 계획에 고정 → IK Rig ×2 · RTG `match_existing` · 리타깃 → `AS_Vesper_Katana_Slash1P3` 저장 2.2초, `PASSED_WITH_WARNINGS`, `GRIP_NOT_VALIDATED`. `reuse`: 애셋 0. `dirty`: 원본 SHA-256 불변 · 미저장 0 → 0 · `Content/` 변경은 이번 실행 폴더뿐 |
+| — | 회귀 | ✅ C++ 변경이 없어 빌드는 생략. 같은 에디터에서 `anim_gen_phase1_test.py` 확인 113건 · `anim_gen_phase2_test.py` 확인 62건 모두 실패 0(그 안의 `AnimGraphMcp.Smoke` 26/26 · `AstralBreak.*` 31/31 · 런타임 시나리오 통과). Phase 3 테스트가 저장한 IK Rig 가 `inspect_skeleton.ik_rigs` 후보 목록에 보인다(정리 전까지 — 재사용은 명시할 때만이라 동작 영향 없음) |
+
+통합 테스트에서 고친 것: 요청 유형(`weapon_action`)과 제약(`two_hand_weapon_grip`)이 `GRIP_NOT_VALIDATED`를 두 번 냈다 → 같은 코드는 하나로(처리 못 하는 제약 `CONSTRAINT_UNSUPPORTED`만 제약마다). 마지막 통합 실행 뒤에 고쳤고, 같은 요청의 읽기 전용 계획으로 하나만 남는 것을 에디터에서 다시 확인했다. 그 뒤 pytest 반복 실행에서 간헐 실패 1건: 같은 초에 만든 Job 두 개(실패 → `retry`)의 "최신"을 초 단위 시각 + 무작위 id 로 정해 이전 `FAILED` Job 이 돌아왔다 → 프로세스 안에서 단조 증가하는 나노초 순서(`created_ns`)로 정렬(Job · 승인). 회귀 테스트 추가 후 해당 테스트 20회 · 전체 3회 연속 통과.
+
+### Phase 4 — Blender Provider (선택)
+
+headless 실행, BVH → FBX, 결과는 Phase 1 처리로 넘긴다. C++ 변경 없음(플러그인 Tool 그대로).
+
+**구성 (개정 7):**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/bvh.py` | BVH 헤더·데이터 행 검사 · 기준 포즈 · 단위 추정 · 정면(발 영역 벡터 합, 외톨이 본 제외 · 좌우 체인 교차 확인 `lateral_facing` · UE Yaw `ue_yaw_deg`) · 축 변환 · 범위. 순수 Python — 계획 단계와 pytest 가 Blender 없이 쓴다 |
+| `Tools/mcp/anim_gen/providers/blender.py` | `BlenderProvider`: `installed`(정책 경로) · `plan_convert`(헤더 · 단위 · 회전 · 범위 · fps · SHA-256 고정, Blender 를 띄우지 않음) · `run`(Popen → pending) · `poll`(report · 기한) · `cancel`(종료) |
+| `Tools/mcp/anim_gen/blender/bvh_to_fbx.py` | Blender 안에서 도는 스크립트 — args.json 을 받아 적용만 한다. report.json 은 실패해도 쓴다(종료 코드 0 / 2 알려진 실패 / 3 예외) |
+| 그 밖 | `router`(motion_file 이면 blender 맨 앞 · 변환 사슬) · `request`(`motion_file`) · `policy`(`subprocess_timeout_seconds`) · `executor`(실행 컨텍스트에 정책 · 같은 한계 하나로) · `service`(취소 시 `Provider.cancel`) · `builtin`(import `sample_rate`) · `fallback`(motion_file 폴백 문구) · `providers.json` |
+
+변환 산출물: `<ImportSourceRoots[0]>/Blender/<job_id>/A<n>/{args.json, BVH_<파일>.fbx, report.json, blender.log}`. UE 이름(Phase 1 규칙): 메시 `BVH_<파일>` · `_Skeleton` · `_Anim` → `<output_path>/Work/<job_id>/A<n>/Import/`.
+
+**Blender 설정:** 실행 `blender -b --factory-startup --python-exit-code 3 -P bvh_to_fbx.py -- args.json`(stdin 막음 · 출력은 `blender.log` · `CREATE_NO_WINDOW` · 키 이름 환경 변수 제외). 장면 METRIC `scale_length` 0.01. BVH 임포트 `global_scale` = cm/단위 · `rotate_mode` NATIVE · `use_fps_scale` false · fps 갱신(±0.05 안이면 정수로 맞춤). 범위 = 요청 `range`, 요청 `frame_rate` 가 있으면 끝을 그 rate 의 프레임 경계로(임포트 `sample_rate`). 정면 Z 회전 → 회전만 적용. 바닥 맞춤(가장 낮은 점 z = 0, 루트 위치 키 보정). 객체 이름 `Armature`. 본마다 기둥 8정점(폭 = max(0.5 cm, 길이 8%), 그 본 가중치 1.0). FBX: `ARMATURE`+`MESH` · `apply_unit_scale` · `FBX_SCALE_NONE` · −Z/Y · `add_leaf_bones` false · `use_armature_deform_only` false · `use_mesh_modifiers` false · NLA·모든 액션 끔 · 시작·끝 키 강제 · 키 간소화 0.
+
+완료 기준:
+
+1. 공개 BVH 1건 → `/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F`(대상 메시 `SK_StreetDemon_F_01`) `AS_` 애셋 저장 + `validate_animation` 결과.
+2. 에디터 없이 도는 pytest: Blender 서브프로세스 Mock — 실행 파일 없음 · 실패 · 타임아웃 · 취소 · 폴백 기록.
+3. 실제 Blender 통합 1건(`Tools/mcp/anim_gen_phase4_test.py`).
+4. 기존 pytest · Phase 1 · 2 · 3 통합 테스트 회귀 없음.
+
+**결과 (2026-10-24, `Tools/mcp/anim_gen_phase4_test.py` CMU 01_01 전 섹션 PASS — 요약 `anim_gen_phase4_state.json`):** 공개 BVH = CMU Graphics Lab 피험자 01 · 테이크 01 "playground — forward jumps, turn around"(cgspeed BVH 변환, assimp 저장소 테스트 모델, 2,070,355 B, 사용자 승인 다운로드 → `Saved/AnimGen/Import/Sources/CMU_01_01/`). CMU 조건: 상업 제품 포함 사용 가능 · 데이터 재판매 금지 · 출판 시 인용 요청.
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 공개 BVH → Vesper `AS_` + 검증 | ✅ 관절 31 · 2,752프레임 @ 120 fps(22.9초). 계획: 단위 모름 → 키 170 cm 정규화(cm/단위 6.627, `SCALE_NORMALIZED`), 소스 정면 +Y(편차 0.06°) = Vesper +Y → 회전 0, 30 fps 경계로 끝 3프레임 당김. 실행: Blender 4.4~5.5초(바닥 맞춤 108 cm · 루트 −115 → +255 cm 앞으로) → 임포트(본 31 · 루트 `Hips` · 스케일 1 · 최저 0 · 골반 108 cm · +Y) → 수동 체인 9개(골반 `Hips`) IK Rig + Vesper 자동 IK Rig + RTG `match_existing` → **`/Game/Animation/Test/AIAnimation/P4Run1024_003026/AS_Vesper_Mocap_ForwardJumpP4` 저장**(688프레임 @ 30 fps), 작업 전체 9.8초. `validate_animation`(임포트 소스 대비): **`PASSED_WITH_WARNINGS`** — 경고 1건 `ROTATION_JUMP_INHERITED`(프레임 1, 179.8° — 소스도 같음), 상대 비 각속도 p99 0.833 · 골반 높이 0.975 · 착지 발 1.513 · 루트 이동 1.299 · 길이 차 0(모두 허용 범위). 원인 = cgspeed CMU BVH 의 0번 프레임이 회전 거의 없는 기준 포즈(73채널 중 4개만 0 아님) → `motion_file.range.start` = 1프레임이면 **`PASSED`**(최대 50.4°/프레임, 구조 경고 0 — `…ForwardJumpP4Trim`). 체인 없이 자동 IK Rig 도 **HumanIK / Motionbuilder 템플릿 64%** 로 성공(`PASSED_WITH_WARNINGS`) |
+| 2 | pytest (Mock) | ✅ 189건(기존 119 + `test_bvh.py` 40 + `test_blender.py` 30). 실행 파일 없음(계획 제외 · 명시 Provider · 실행 시점 사라짐 → 건너뛰기 + 폴백 기록) · 성공(명령줄 · stdin 막음 · 키 환경 변수 제외 · args · 출력 위치 · import `sample_rate`) · report 오류 → 폴백 `FALLBACK_USED`(motion_file 이름) · 보고 없이 종료 `BLENDER_EXIT_3` · FBX 없음 `NO_OUTPUT` · 타임아웃(프로세스 종료) · 취소(종료 · 이후 poll 없음) · 서버 재시작(report 로 이어짐 / 기한 지나면 `TIMEOUT`) · 파일 변경 `FILE_CHANGED`(폴백 없음) · 루트 밖 · 형식 · 깨진 BVH · 범위 정렬 · 정수 아닌 fps · 요청 검증 · 정책 키 |
+| 3 | 실제 Blender 통합 | ✅ CMU · 합성 BVH(`--bvh synthetic`) 모두 전 섹션 PASS. 실제 프로세스 취소 종료(report 없음) · 대상 스켈레톤 · 메시 .uasset SHA-256 불변 · 미저장 패키지 수 그대로 · `Content/` 변경은 실행 폴더뿐 |
+| 4 | 회귀 | ✅ 같은 에디터에서 `anim_gen_phase1_test.py` · `phase2` · `phase3` 실패 0(범위 정렬 수정 뒤 `phase3` 다시 실행). C++ 변경 없음 — 빌드 생략 |
+
+통합 테스트에서 고친 것: 처음 CMU 실행은 `IMPORT_FAILED NO_ANIMATION` — Interchange 가 30 fps 리샘플에서 경계에 안 맞는 길이(687.75프레임)의 애니를 건너뛰었다(§2.3). blender 가 굽기 범위 끝을 요청 rate 의 경계로 당기게 하고(`bvh.align_to_rate`), 맞출 수 없는 정수 아닌 fps 는 리샘플하지 않는다. 그 밖에 스파이크에서 고친 것: Blender BVH 임포터 첫 키 1(프레임 정렬), `Armature.transform` 뒤 포즈 평가 갱신, 기준 포즈 바닥 맞춤(감사 §14).
+
+### Phase 5 — 로컬 AI (선택, 라이선스 게이트)
+
+조사 문서 `Docs/AIAnimation/LocalModelSurvey.md`를 쓴다. 모델별로 코드 라이선스 · 가중치 라이선스 · 학습 데이터 조건 · 지역 제한 · VRAM · Windows 호환 · 출력 리그를 정리한다.
+
+완료 기준: 적법하고 호환되는 모델이 있으면 생성 → `AS_`까지 실행한다. 없으면 조사 문서 + Provider 비활성 유지가 정상 완료다.
+
+**진행 (개정 8):** 조사(2026-10-24) → 사용자 Kimodo-SOMA-RP-v1.2 채택 → 설치 항목별 승인 · 설치(§2.2) → 설계 초안 확인 → 커밋 단위 ① `local_ai` Provider ② Blender 프레임 렌더 비교 · 보정 op 자리 ③ 통합 테스트 + 회귀 + 이 개정. ① · ② 뒤 손가락 꺾임을 고치는 과정에서 리타깃 정렬(§2.3 · §10)과 손가락 · 관통 검사(§13)를 플러그인에 더했다.
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/providers/local_ai.py` | `KimodoProvider`: `installed`(정책 경로 + 캐시 4개 저장소) · `plan_generate`(프롬프트 · 프레임 · seed · 샘플 · 후처리 · 제약 → 계획 고정, 제약 파일 루트 · SHA-256, **모델을 띄우지 않음**) · `run`(Popen, 오프라인 환경) · `poll`(report · 샘플 수 · BVH 존재) · `cancel`(종료). SOMA 수동 체인 27개 · 골반 `Hips` · 발 · 예상 BVH 규약 |
+| `Tools/mcp/anim_gen/local_ai/kimodo_run.py` | Kimodo venv 의 python 으로 도는 스크립트(서버가 import 하지 않음) — `load_model` · 제약(`load_constraints_lst`, `keep_pose` 는 NPZ 에서 꺼냄) · `seed_everything` · 생성(`num_samples` · `post_processing`) → 샘플별 NPZ + BVH(`motion_to_bvh(standard_tpose=True)` + 루트 트랙) · report.json(종료 코드 0 / 2 알려진 실패 / 3 예외) |
+| `Tools/mcp/anim_gen/local_ai/{root_track, constraints}.py` | 순수 Python(pytest): Kimodo BVH `Root` 래퍼에 바닥 궤적 · 방향을 넣고 `Hips` 를 Root 기준으로 / 요청 제약 → Kimodo 제약(`root2d` 등) |
+| `Tools/mcp/anim_gen/providers/subprocess_step.py` | 서브프로세스 공통(`blender` 에서 뽑아냄) — 띄우기 · report 대기 · 기한 · 종료 · 로그 꼬리 · 키 이름 환경 변수 제외 |
+| `providers/blender.py` · `blender/bvh_to_fbx.py` · `blender/review_render.py` | `plan_convert_generated`(생성 BVH 예상 → 실행 때 측정) · 기준 포즈 FBX · `review.render`(Workbench 프레임 PNG · 시트) · `fix.ops` 자리 |
+| `router.py` · `request.py` · `executor.py` · `service.py` · `providers/builtin.py` | 생성 BVH 사슬 · `DEPENDS_ON_BLENDER` · `defaults_from` · 요청 필드 검사 · Job `review` · 2단 임포트 · 재검증(소스 골반 + `body_clearance` + `fingers`) · 관통 보정 진단 |
+| 플러그인 C++ (`Plugins/AnimGraphMcp`) | `create_ik_retargeter align_mode`(`Core/AnimMcpRetargetPoseAlign`) · `match_existing` 모든 op 정확 매핑 · `retarget_animations body_clearance` · `fingers` · `validate_animation body_clearance` · `fingers` · `create_ik_rig finger_chain_suggestion` · `inspect_skeleton suggest_finger_chains` · 공유 기하 `Core/AnimMcpSkeletonGeometry` · `Core/AnimMcpBodyClearance` · `Core/AnimMcpFingerChains` · 단위 테스트 `AnimGraphMcp.Generation.BodyClearance` · `FingerChains`. Tool 수는 그대로(39 — 인자 · 결과만 늘었다) |
+| `providers.json` · `policy.default.json` · `anim_gen/server.py` · `anim_graph_mcp/server.py` · 플러그인 README | `local_ai` 매니페스트(`license: ok` · 최대 10초 · 출력 bvh) · `paths.kimodo_*` · Tool 설명 |
+
+산출물: `<ImportSourceRoots[0]>/LocalAI/<job_id>/A<n>/{args.json, kimodo.log, report.json, kimodo_00.npz, kimodo_00.bvh}` → `…/Blender/<job_id>/A<n>/{BVH_kimodo_00.fbx, BVH_kimodo_00_Rest.fbx, frames/{front,side}_<프레임>.png, frames/sheet.png, report.json, blender.log}`. UE 이름: `<output_path>/Work/<job_id>/A<n>/Import/BVH_kimodo_00_Rest{, _Skeleton, _Anim}` · `Import/Motion/BVH_kimodo_00` · `IK_Source` · `IK_Target` · `RTG_Retarget` → `<output_path>/<animation_name>`.
+
+**세부 완료 기준 (개정 8 — 위 완료 기준을 Phase 4 형식으로 나눔):**
+
+1. 적법 · 호환 모델 판정 + 사용자 승인(채택).
+2. 승인한 모델로 프롬프트 → `/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F`(대상 메시 `SK_StreetDemon_F_01`) `AS_` 저장 + `validate_animation`.
+3. 에디터 없이 도는 pytest: Provider Mock(설치 없음 · 성공 사슬 · 실패 · 폴백 · 타임아웃 · 취소 · 제약 · 루트 트랙 · 렌더 비교).
+4. 실제 Kimodo · Blender · 에디터 통합(`Tools/mcp/anim_gen_phase5_test.py`).
+5. 기존 pytest · Phase 1 ~ 4 통합 테스트 회귀 없음 · 두 구성 빌드 경고 0.
+
+**결과 (2026-10-25, `Tools/mcp/anim_gen_phase5_test.py` 전 섹션 PASS 두 번 — 요약 `anim_gen_phase5_state.json`, 마지막 실행 `P5Run1025_160301`):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 모델 판정 · 채택 | ✅ [조사](LocalModelSurvey.md)(2026-10-24): 적법 · 호환 후보는 Kimodo-SOMA-RP-v1.2 하나(§2.4) → 사용자 채택 · 설치(§2.2). `list_motion_providers`: `local_ai` 구현 · 설치 · 사용 가능 · `license: ok`, 캐시 모델 커밋 `0e3c890…`, 후처리(`motion_correction`) 설치됨 |
+| 2 | 프롬프트 → Vesper `AS_` + 검증 | ✅ "A person walks forward, turns around and walks back." · 6초 · seed 20261025 · `locomotion` · `provider: auto` → 계획: `existing_motion` 제외(`NO_SOURCE_HINT` — 검색 힌트 없음) · `external.meshy` 제외(`PAID_API_DISABLED`) → `local_ai` → `blender` → `retarget`(181프레임 · SOMA 체인 27 · `per_bone` · `body_clearance resolve` 고정). 실행: Kimodo 52.2초(RTX 3080 Ti, 확산 9.8초 · 후처리 켬) → BVH 181프레임 · 루트 이동 660.8 cm · 방향 −189.8° → Blender 3.1초(본 78 · +Y · 바닥 0.5 cm) + 렌더 비교 1.9초 → 2단 임포트(본 78 · 루트 `Root`) → SOMA 수동 체인 IK Rig + Vesper 자동 IK Rig → RTG `match_existing` · `per_bone` → 리타깃 + 관통 보정(관통 프레임 왼/오른 52.5 / 45.3% → 0 / 0, 위팔 최대 13.2 / 11.2°) → **`/Game/Animation/Test/AIAnimation/P5Run1025_160301/AS_Vesper_Kimodo_WalkTurnBackP5` 저장**, 잡 69.6초(첫 실행 107초 — Kimodo 88초). `validate_animation`(소스 골반 `Hips` · 손가락 · 관통): **`PASSED`** — 181프레임 @ 30 · 6.0초(요청 그대로), 각속도 p99 비 0.954 · 골반 높이 1.047 · 착지 발 1.756 · 루트 이동 비 1.000(Vesper 691.8 cm), 루트 Yaw +189.8°(Kimodo θ −189.8° 와 같은 오른쪽 돌기 — UE Yaw + = 오른쪽, Kimodo θ + = 왼쪽), 최대 33.5°/프레임, 손가락 경고 0 · 순서 깨짐 0 / 0%, 관통 0 / 0%. 한계 `FINGERS_STATIC` · `REVIEW_IS_SOURCE_SKELETON`. **같은 seed 로 두 번 실행한 결과가 같다**(Kimodo 루트 660.78 cm · −189.81°, Vesper 691.83 cm · 189.81° — 소수 둘째 자리까지) |
+| 3 | pytest (Mock) | ✅ **282건**(Phase 4 189 → 282: `test_local_ai.py` 39 · `test_review.py` 32 · `test_blender` · `test_bvh` · `test_router` · `test_jobs` 추가). 계획이 실행하지 않음 · SOMA 체인이 손가락을 표준 이름으로 매핑 · 요청 체인이 기본값을 덮음 · seed 고정 · 30 fps 아니면 실행 값으로 리샘플 · 제외(프롬프트 · 길이 · 후처리) · 미설치 · `DEPENDS_ON_BLENDER` · 성공 사슬(오프라인 환경 · 인자 · Kimodo → Blender → 리타깃) · 샘플 · `pick` · 예상과 다른 BVH = 경고 · Kimodo 오류 → 폴백 기록 · 보고 없이 종료 · 타임아웃 · 취소 = 종료 · `keep_pose` 파일 고정 · 루트 밖 거부 · `kimodo_raw` 검사 · 재검증 실패 시 리타깃 검증 유지 · 루트 경로 캐릭터 기준 변환 · 오일러 왕복 · 방향 펼침 · 루트 트랙이 월드 포즈 유지 · 다른 BVH 구조 거부 · 정책 경로 검사. 렌더 비교: 요청 형식 · 시각 펼침 · 범위 밖 · 레퍼런스 루트 · 사라진 레퍼런스 · 렌더 실패 = 한계(`REVIEW_NOT_RENDERED`) · 변환 없는 경로 · `fix` 사전 |
+| 4 | 실제 통합 | ✅ `state` · `plan`(계획이 Kimodo 를 띄우지 않음 · 애셋 0 · 더티 0 · 거부 5종: 프롬프트 없음 `MISSING_INPUT` · 12초 `DURATION_OVER_MAX` · 7초 제약 `CONSTRAINT_OUT_OF_RANGE` · 보정 op `UNSUPPORTED_FIX_OP` · 루트 밖 NPZ `IMPORT_SOURCE_NOT_ALLOWED`) · `generate`(위 2 + 프레임 PNG 8장 · 시트 1424 × 2078 을 직접 보고 확인 — 앞으로 걷기 → 4초에 뒤로 돎 → 6초에 출발점 근처) · `constraint`(`root_path` 3초에 앞 400 cm · 왼쪽 0 · 방향 180° → Kimodo `root2d` 프레임 90: 끝 루트 앞 397.2 · 왼쪽 1.1 cm · 방향 182.5°(왼쪽으로 돎) → Vesper 루트 프레임 1 → 끝 406.5 · 1.7 cm = Kimodo 388.3 × 1.047(골반 높이 비 — Root Motion op 배율), Yaw Δ −182.0°, 검증 `PASSED_WITH_WARNINGS` — `FOOT_SLIDE_RATIO` 3.86(3초에 4 m + 180° 도는 빠른 동작)) · `cancel`(torch 임포트 중인 실제 Kimodo 프로세스 종료 · pid 사라짐 · report · BVH 없음) · `dirty`(대상 스켈레톤 · 메시 .uasset SHA-256 불변 · 미저장 수 그대로 · `Content/` 변경은 실행 폴더뿐) |
+| 5 | 회귀 · 빌드 | ✅ 같은 에디터에서 `anim_gen_phase1_test.py` 113 · `phase2` 62 · `phase3` 34 · `phase4` 27 확인 실패 0 — Phase 1 `RTG_KatanaToH` 대비 본별 0° · 위치 0 cm(플러그인 기본 `engine` 정렬), `AnimGraphMcp.Generation` 4/4(BodyClearance · Edit · FingerChains · Guard) · `AnimGraphMcp.Smoke` 26/26 · `AstralBreak.*` 31/31 · 런타임 시나리오 2/2. Phase 3 · 4 는 테스트 기대값 두 곳을 Phase 5 동작에 맞춘 뒤 다시 돌렸다(아래). Development · DebugGame 빌드 경고 0(C++ 는 리타깃 수정 세션들이 두 구성으로 빌드 · 이 단위의 빌드는 "Target is up to date") |
+
+Phase 4 CMU 수치는 anim_gen 기본이 `per_bone` 정렬 + 관통 보정 + 2단 임포트로 바뀌어 달라졌다(기대된 변화 — 감사 §15): 각속도 p99 비 0.833 → 0.868 · 착지 발 1.513 → 1.444 · 골반 높이 0.975 · 루트 이동 1.299 그대로, 관통 프레임 49.3 / 72.8% → 0 / 0, 잡 9.8 → 27.2초. Trim(`PASSED`, 50.44°/프레임) · 자동 IK Rig(HumanIK 64%)는 그대로.
+
+통합 테스트에서 고친 것(테스트만, 제품 코드 변경 없음): ① `anim_gen_phase3_test.py` 가 `local_ai` 제외 사유를 `NOT_IMPLEMENTED` 로 기대했다 → 구현 뒤에는 이 요청(프롬프트 없음)에서 `MISSING_INPUT`(Kimodo 가 없는 PC 는 `NOT_INSTALLED`). ② `anim_gen_phase4_test.py` 가 소스 애니를 `_Anim` 접미사로 골라 2단 임포트의 기준 포즈 애니(`BVH_01_01_Rest_Anim`, 2프레임)를 소스로 비교해 `FAILED` → `Import/Motion/` 애니 우선(잡 내장 검증은 처음부터 `PASSED_WITH_WARNINGS`). ③ Phase 5 테스트의 기록용 골반 높이 비가 소스 골반 이름 없이 재 105.24 로 나왔다 → `pelvis` 를 주고 다시 실행(1.047).
+
+남은 것: Vesper 메시로 Persona/PIE 눈 확인(부록 B) · 기존 Vesper 애니의 팔-몸통 관통 18 ~ 35%(사용자 결정으로 일괄 보정 안 함 — 부록 B) · `keep_pose` · `kimodo_raw` 제약과 `samples` > 1 은 pytest(Mock)로만 확인 · "Built with Meta Llama 3" 표시 판단(부록 B).
+
+### Phase 6 — 외부 AI (Meshy)
+
+어댑터, 비용 추정(공식 가격을 확인할 수 없으면 승인 단계에서 "미확인"으로 차단), 결과 다운로드·만료 처리, 폴백 통합.
+
+완료 기준:
+
+- 승인된 경우에만 1건을 생성하고, Phase 1 처리를 거쳐 검증한다.
+- 승인이 없거나 `FREE_ONLY`이면 외부 호출 0회(요청 로그로 확인).
+
+**진행 (개정 9):** 공식 문서 확인(2026-10-25, §2.4 · 부록 A) → 설계 초안 → 사용자 결정(기본 · 첫 호출 prime, 금액 = 정책 `usd_per_credit`, 약관 수용) → 정정 3건 반영 후 착수(불확실 제출의 목록 기반 자동 채택은 뺌 — 태스크 객체에 프롬프트가 없어 시각만으로는 남의 태스크를 채택할 수 있다 / 요청 로그는 실행기 상태 폴더 / 실제 금액 환산은 제출 때 핸들에 고정한 환율). C++ 변경 없음.
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/providers/meshy.py` | `MeshyProvider`: `estimate(request, policy)`(매니페스트 크레딧 × 정책 환율) · `plan_generate`(본문 고정 · 길이 맞춤 · 모드 · 한계, 네트워크 없음) · `run`(키 · 에디터 · 환율 확인 → 잔액 → 제출, 초당 429 는 `Retry-After` ≤ 5초면 같은 시도에서 한 번 더) · `poll`(Retry-After 간격 · 기한 · FAILED 환불 · 재시도 가능 분류) · 결과 다운로드(인증 헤더 없는 별도 클라이언트 · https · 200 MB · FBX 매직 / `HIERARCHY` · 403 · 404 면 태스크를 다시 읽어 재서명 URL 로 한 번 더) · `cancel`(외부 호출 없음). httpx, 기본 URL 고정, 리다이렉트 안 따름, POST 60초 · GET 30초 |
+| `providers/base.py` · `executor.py` · `router.py` · `service.py` | `estimate(request, policy)` · `StepResult.actual_credits` · `RunContext.state_dir`(요청 로그 위치) · 장부 `credits` · Job `cost.credits` · poll 단계 실패의 환불 / 과금(`_settle_failure`) · 후보 `estimated_credits` · 견적 `credits` · `usd_per_credit` · `generation.options` 이름 검사 |
+| `policy.py` · `policy.default.json` · `request.py` · `providers.json` · `registry.py` · `server.py` | `external.meshy{usd_per_credit, timeout_seconds}` · `generation.options` · 매니페스트(모드 · 크레딧 · 길이 · 프롬프트 한도 · 보존 3일 · `license: ok` · 약관 요약) · Tool 설명 |
+| `tests/test_meshy.py` · `conftest.py` | `httpx.MockTransport` 가짜 Meshy(잔액 · 제출 · 태스크 · 결과 호스트). conftest 가 실제 `HTTPTransport` 를 막는다 |
+| `Tools/mcp/anim_gen_phase6_test.py` | 통합 — `hashes` · `state` · `blocked`(완료 기준 ②) · `real`(완료 기준 ① — `--real` 과 터미널에서 plan_id 를 직접 입력해야 승인, 키는 그 셸의 환경 변수만) · `dirty` |
+
+산출물: `<ImportSourceRoots[0]>/Meshy/<job_id>/A<n>/{submission.json, meshy_motion.fbx \| .bvh, task.json(서명 쿼리 뺀 URL)}` · 요청 로그 `<state>/external/meshy_requests.jsonl`(시각 · Job · 시도 · 메서드 · 엔드포인트 · 태스크 · 상태 · ms, 본문은 길이 · 모드 · 프롬프트 SHA-256 만 — 헤더 · 쿼리 없음).
+
+**오류 분류:** 키 없음 `AUTHENTICATION_FAILED API_KEY_MISSING`(계획 제외 · 실행 게이트) · 401 `UNAUTHORIZED` · 403 IP `IP_NOT_AUTHORIZED` · 402 / 잔액 부족 `BUDGET_EXCEEDED INSUFFICIENT_CREDITS` · 403 모더레이션 `UNSUPPORTED_REQUEST MODERATION_BLOCKED` · 400 `BAD_REQUEST` → 모두 예약 해제 후 폴백. 429 → `RATE_LIMITED`(`CONCURRENT_TASKS` · `REQUESTS_PER_SECOND`, 재시도는 승인 `max_attempts` 안에서만). 제출 응답 없음 · 5xx → `GENERATION_FAILED SUBMISSION_UNCERTAIN`(멈춤 · 다시 내지 않음 · 예약 유지). 태스크 FAILED → `GENERATION_FAILED <task_error.code | type>`(환불 = 해제, timeout · service_unavailable · server_error · queue_timeout 계열만 재시도 가능). 결과 만료 · 재서명 뒤에도 못 받음 → `RESULT_EXPIRED`(과금 확정). 형식 · 크기 · https 위반 → `BAD_FORMAT` · `DOWNLOAD_TOO_LARGE` · `INSECURE_URL`. 404 → `TASK_NOT_FOUND`. 기한 → `TIMEOUT`.
+
+**결과 (2026-10-25 — 완료. 완료 기준 ① 은 미실행으로 마감, 사용자 결정):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 승인된 경우에만 실제 1건 → Phase 1 처리 → Vesper `AS_` + 검증 | ⏸ **미실행** — 사용자 Meshy 계정이 Free 요금제(100 크레딧)다. Meshy API 는 Free 요금제의 생성 요청을 402 로 거절한다(text-to-motion 402 "free plan (paid plan required)" · errors "On the Free plan, most task-creating requests return this" · credits guide "API access requires a paid plan"). 이 기준은 "승인된 경우에만"이라 승인 없는 마감도 기준 안이다. 그래서 **실제 Meshy 응답 형식 · 다운로드 · 출력 리그(본 · 정면 · 단위 · FBX 안 메시 여부) · Vesper 리타깃 결과는 미검증**이다(부록 B). 유료 요금제가 되면 키를 그 셸에만 설정하고 `anim_gen_phase6_test.py --only hashes,state,blocked,real,dirty --real --usd-per-credit <요금제 값>` (승인 화면에서 plan_id 를 직접 입력) — `real` 섹션은 리허설(더미 키 · 비대화형 → 승인 화면 → 호출 0)까지 확인했다 |
+| 2 | 승인 없음 · `FREE_ONLY` → 외부 호출 0(요청 로그) | ✅ 실제 에디터 · 더미 키(카나리)로 기본 정책(`PAID_API_DISABLED`) · `FREE_ONLY`(`POLICY_FREE_ONLY`) · 환율 없음(`COST_UNKNOWN`) · 유료 켬 + 승인 없음(`WAITING_FOR_APPROVAL NO_APPROVAL`, 대기 Job poll 도 호출 없음) → 계획 · `generate_motion` · `approve_generation` 거부, 요청 로그 파일 없음 · 장부 0건 · Meshy 결과 폴더 0. 견적: 본문 고정 · 10 크레딧 × $0.02 = $0.20 · `needs_approval` |
+| 3 | 어댑터 pytest (HTTP Mock) | ✅ `test_meshy.py` 43건 — 계획(본문 · 크레딧 견적 · 호출 0) · swift 사슬 · blender 없음 · 길이 맞춤 · 제외 6종 · 옵션 이름 · 한계 · 환율 없음 · `FREE_ONLY` / 유료 끔 / 승인 없음 = 요청 0 · 성공(잔액 → 제출 1회 → poll 2 → 다운로드, 장부 reserve → submitted → charge 10 크레딧 $0.20, Job `cost.credits`, 결과 파일 루트 · 서명 쿼리 없는 `task.json` · Authorization 은 API 호스트에만, 요청 로그 5줄) · 키 문자열이 상태 · 결과 · 봉투 어디에도 없음 · 실행 때 키 없음 → 폴백(예약 없음) · 거부 6종(401 잔액 · 401 · 402 · 403 모더레이션 · 403 IP · 400) → 해제 · 폴백 · 잔액 부족 → 제출 안 함 · 잔액 조회 실패는 제출을 막지 않음 · 초당 429 → 기다렸다 같은 시도 · 동시 429 → 새 승인 뒤 `plan#2` · poll 500 / 429 는 실패 아님 · Retry-After 전 요청 없음 · FAILED → 환불 · 폴백 / 재시도 가능 → 새 승인 · 만료 → 과금 · 다운로드 403 → 재서명 1회 · 두 번 실패 → `RESULT_EXPIRED` · HTML → `BAD_FORMAT`(파일 안 남김) · 형식 불일치 · 기한 → `TIMEOUT`(예약 유지) · 404 · 취소 = 요청 없음 · 예약 유지 · 서버 재시작 → 같은 태스크 poll · 응답 없음 / 502 → `SUBMISSION_UNCERTAIN`(다시 내지 않음) |
+| 4 | 기존 pytest · Phase 1 ~ 5 통합 회귀 | ✅ pytest **325건**(기존 282 + 43, 기존 기대값 1곳 갱신 — `external.meshy` 가 이제 구현됨). 같은 에디터에서 `anim_gen_phase1_test.py` · `phase2` · `phase3` · `phase4` · `phase5`(실제 Kimodo 2건) 실패 0 — Phase 5 수치는 개정 8 과 같다(각속도 p99 비 0.954 · 루트 691.83 cm · Yaw 189.81°, 같은 seed). C++ 변경 없음 — 빌드 생략. `real` 섹션 리허설(더미 키 · 비대화형): 승인 화면(본문 · 10 크레딧 × $0.02 · 사슬 · 위험) → plan_id 미입력 = 호출 0 |
+
+### Phase 7 — AnimBP 연결 · 승격
+
+기존 Tool 조합 + `promote_animation`.
+
+**진행 (개정 10):** 엔진 소스 대조(AssetRenameManager · MessageDialog) → 설계 초안 → 사용자 결정 3건(① 기존 쓰기 Tool 옵트인 `generation_guard` ② 승격 실제 이동 테스트 폴더 `/Game/Animation/Hero/Vesper/_P7PromoteTest/`(끝나고 목록 확인 후 휴지통) ③ **운영 AnimBP 실제 적용은 완료 기준에서 제외** — 미리보기 · revision · 복제본 검증 · 메커니즘까지) → "추천안으로 착수"(2026-10-25) → 구현 → 스파이크(rename 실측 · `ABP_Hero_Combat` 복제 더티 · 복제본 시나리오) → 통합 · 회귀.
+
+**시그니처:**
+
+```
+promote_animation(assets[{source, dest}], dry_run=false, confirm=false, allow_referencers=[])   # 플러그인 C++ — Tool 39 → 40
+<create_anim_montage | set_montage_sections | create_blendspace | set_sequence_additive | duplicate_animation_blueprint | apply_graph_operations>(…, generation_guard=false)
+plan_motion_generation(request{…, package?, integrate_anim_bp, anim_bp?})   # anim_gen — 단계 package_* · anim_bp_test · anim_bp_prepare
+```
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Plugins/AnimGraphMcp/…/Core/AnimMcpPromote.{h,cpp}` · `Tools/AnimMcpTools_Promote.cpp` | `promote_animation` — 요청 파싱 · dest 규칙(`ValidateDest`) · 내용 해시(`ContentHash`) · 참조자 분류 · 네이티브 CDO 하드 참조 사전 검사 · `RenameAssets`(unattended) · 저장 패키지 추적(`PackageSavedWithContextEvent`) · 리디렉터 fixup · 옛 파일 · 해시 · 참조(저장 파일 재스캔) · 더티 / 저장 집합 검사 |
+| `Core/AnimMcpGeneration.{h,cpp}` | `FSettings::PromotionPaths` · `NormalizePromotionPaths`(겹침 · 마운트 루트 무시) · `IsUnderAnyPrefix` · `IsPromotionPathAllowed` · `DescribeSettings.promotion_paths` · `FDirtyGuard` 추가 허용 집합 · `FWriteGuard`(옵트인 가드) |
+| `Tools/AnimMcpTools_{Montage, Assets, Sequence, Graph}.cpp` · `Core/AnimMcpOperations.{h,cpp}` | 6개 Tool 에 `generation_guard` — 핸들러 첫 줄 스냅샷 → 경로 · 덮어쓰기 → 작업 → 저장 직전 `Check` → `guard{}`. `Apply` 는 컴파일 뒤 · 저장 전 |
+| `Bridge/AnimMcpTypes.{h,cpp}` · `AnimGraphMcpEditor.Build.cs` · `AnimGraphMcpEditorModule.cpp` · `Config/DefaultEngine.ini` | `PROMOTE_FAILED`(400) · 의존 모듈 `AssetTools` · Tool 등록 · `+PromotionPaths=/Game/Animation/Hero/` |
+| `Tests/AnimMcpGenerationTests.cpp` | `AnimGraphMcp.Generation.Promote` · `.WriteGuard`(쓰기 Tool 6개를 로컬 디스패처로 — 애셋을 만들지 않는다) |
+| `Tools/mcp/anim_graph_mcp/server.py` | 6개 함수 `generation_guard: bool = False` · 새 `promote_animation` |
+| `Tools/mcp/anim_gen/providers/integrate.py` | `PackagePipe`(additive · 몽타주 · BlendSpace) · `AnimBpPipe`(복제본 검증 — 시나리오 비동기 poll · 운영 미리보기 · 적용 페이로드) · `promotion_proposal` |
+| `anim_gen/{request, router, executor, envelope, registry, service, server}.py` · `providers/base.py` · `providers.json` | 요청 `package` · `anim_bp` · 자리표시 · 단계 결합(`_integrate` — 계획 안 1회) · `StepResult.deliverables` · `INTEGRATION_FAILED`(details) · Job `package` · `anim_bp` · `promotion` · 비동기 대기 전 복제본 기록 · 파이프 2개 |
+| `anim_gen/tests/test_integrate.py` · `conftest.py` · `test_router.py` | pytest 41건 · FakeEditor 에 포장 · AnimBP · 스모크 · 시나리오 흉내 · 기존 기대값 3곳(Provider 목록 · `ANIM_BP_NOT_INTEGRATED` 폐지) |
+| `Tools/mcp/anim_gen_phase7_test.py` | 통합 — hashes · plan · chain_bs · chain_montage · independent · guard · apply_mech · promote · dirty |
+
+완료 기준 (설계 확정본 §9):
+
+1. 생성 → 몽타주/BlendSpace → (요청 시에만) AnimBP 연결을 독립 · 연속으로 실행하고, 스모크 · `run_anim_scenario` 로 재생 · 전이를 확인한다.
+2. 애셋만 요청하면 AnimBP 를 수정하지 않는다(읽지도 않는다).
+3. 승격은 원본(내용) 무변경 · 리디렉터 0 · 참조 유지.
+4. 운영 AnimBP 는 미리보기 · revision 까지 — 적용은 사용자 승인 사항(§12 절차).
+5. 회귀 없음 — pytest · Phase 1 ~ 6 통합 · `AnimGraphMcp.Smoke` · `AstralBreak.*` · Development · DebugGame 빌드 경고 0.
+
+**결과 (2026-10-25 — `anim_gen_phase7_test.py` 실패 0 · 체크 85, 56.6초):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 독립 · 연속 연결 + 재생 · 전이 | ✅ **연속 B(chain_bs)**: Vesper 걷기 `retime 1.25` → `BS_Vesper_Common_WalkFastP7`(생성물 @300 + `AS_Vesper_Rifle_Idle` @0) → `ABP_McpRuntimeTest` 복제본의 Run 상태 SequencePlayer 를 BlendSpacePlayer(`$blendspace`, X ← Speed)로 교체 → 컴파일 0/0 · 스모크 통과 · 시나리오 Speed 300 → `Run`(+ 복제본 Speed 0 → `Idle`), 잡 5.9초. **연속 C(chain_montage)**: `AS_Vesper_Rifle_Recoil` concat ×3(0.70초) → additive `LocalSpaceBase`/`LocalAnimFrame 0` · UpperBody `Loop → Loop` 몽타주 → `ABP_Hero_Combat` 복제본 `slots_active[UpperBody]` 참 · 운영 미리보기 valid, 잡 7.1초. **독립(independent)**: 유지한 Kimodo 칼 애셋 재사용(새 시퀀스 없음 · 원본 SHA-256 불변) → DefaultSlot 몽타주 → `ABP_Hero_Combat` 복제본 `slots_active[DefaultSlot]` 참, 잡 5.6초. 플러그인 Tool 직접 호출도 같은 가드(guard 섹션) |
+| 2 | 애셋만 = AnimBP 무변경 | ✅ 계획 단계에 `anim_bp_*` 없음 · 운영 revision 불변(통합) · AnimBP Tool 호출 0(pytest FakeEditor 호출 기록) |
+| 3 | 승격 원본 무변경 · 리디렉터 0 · 참조 유지 | ✅ `_P7PromoteTest/P7Run…/` 로 4개(BS → 샘플 시퀀스 → 몽타주 + 시퀀스 한 배치): 내용 해시 같음 · 리디렉터 0 · 옛 .uasset 없음(엔진이 지움 — `removed_files` 0) · 레지스트리에 옛 경로 애셋 없음 · 복제본 ABP 파일이 새 BS 경로를 담고 옛 경로는 없음 · BS 샘플 · 몽타주 세그먼트가 새 시퀀스를 가리킴 · 복제본 재컴파일 0 오류. BS 1개 0.59초. dry_run 거부 사유 10종(`MISSING_CONFIRM` · `SOURCE_NOT_CANDIDATE` · `UNSUPPORTED_CLASS` · `DEST_IS_CANDIDATE_PATH` · `OUTSIDE_PROMOTION_PATHS` · `DEST_PROTECTED` · `DEST_EXISTS` · `DEST_NOT_ASSET_PATH` · `DUPLICATE_DEST` · `REFERENCER_DIRTY`) + 후보 밖 참조자(승격한 BS → 그 샘플) 거부 → `allow_referencers` 통과. 맵 참조 · CDO 참조는 이 프로젝트에 해당 애셋이 없어 통합에서 재현하지 않았다(코드 경로 · 사유만) |
+| 4 | 운영 AnimBP = 미리보기 · revision | ✅ 운영 4개(`ABP_Hero_Combat` · `ABP_HeroLayers_Rifle` · `ABP_Hero_Base` · `ALI_HeroCombat`) · 스켈레톤 · `ABP_McpRuntimeTest` · 소스 4개 SHA-256 전후 같음 · revision 불변. 적용 페이로드 `{asset_path, operations, expected_revision, compile}` · 복제본에 낡은 `expected_revision` → `REVISION_MISMATCH` 무변경, 맞는 revision → 적용(같은 메커니즘). 가드 켜면 운영 AnimBP · 운영 시퀀스 · 운영 몽타주 쓰기 거부(`OUTPUT_PATH_NOT_ALLOWED`) |
+| 5 | 회귀 없음 | ✅ pytest **366건**(기존 325 + `test_integrate.py` 41, 기존 기대값 3곳 갱신 — Provider 목록 2 · `ANIM_BP_NOT_INTEGRATED` 폐지 1) · Automation `AnimGraphMcp.Generation` 6/6(새 `.Promote` · `.WriteGuard`) · 같은 에디터에서 `anim_gen_phase1` · `phase2` · `phase3`(Provider 수 기대값 7 → 9 갱신 후) · `phase4` · `phase5`(실제 Kimodo 2건 — 각속도 p99 비 0.954 · 루트 691.83 cm · Yaw 189.81°, 개정 8 과 같다) · `phase6`(외부 호출 0) 실패 0 · `AnimGraphMcp.Smoke` 41/41 · `AstralBreak.*` 31/31 · Development · DebugGame 빌드 코드 경고 0(UBT 의 "VS 2022 not a preferred version" 안내만) |
+
+**스파이크 실측 (2026-10-25):** rename — BS 1개 0.61초 · 저장 = 새 패키지만 · 리디렉터 0 · 옛 파일 없음 · 시퀀스 승격(참조자 BS · 몽타주)은 그 둘까지 저장. `ABP_Hero_Combat` 을 `generation_guard` 로 복제하면 새로 더티 = 복제본 1개(ALI · 공급자 ABP 무변경), 컴파일도 추가 더티 없음. 복제본 시나리오: PIE 10프레임 ≈ 0.47 ~ 0.57초 — 0.23초 반동 몽타주는 5프레임 뒤 끝나 슬롯이 꺼진다(루프 섹션이면 활성).
+
+### Phase 8 — 품질 · 세그먼트
+
+세그먼트 생성·연결, 손 IK·무기 파지 보정(`control_rig`), 프리뷰 프레임 캡처, 다양한 스켈레톤.
+
+**로드맵 (개정 9 — 2026-10-25 사용자 합의, 상세 시그니처 · 완료 기준은 착수 때 개정 10):** 목표는 "AI 가 품질을 최대한 끌어올리고, 사람은 결과를 보고 판정 · 말로만 지시한다"(사람이 키를 직접 만지는 애니메이터 작업이 아니다 — 남는 수작업은 출시용 핵심 동작처럼 기준이 아주 높을 때의 선택지). 지시는 Claude Code 가 편집 · 보정 op 로 바꿔 원본을 둔 채 새 애셋으로 적용한다(§16-9 — 시각 판정은 사람). 단위마다 설계 확인 → 구현 → 검증 → 사용자 판정, 효과 대비 비용 순서.
+
+| 단위 | 내용 | 겨냥하는 문제 | 무게 |
+| :--- | :--- | :--- | :--- |
+| 8-1 생성 품질 (개정 11 — 구현 · 검증, 아래) | 요청 제약 플래그(`two_hand_weapon_grip` · `foot_contact`)를 생성 제약(Kimodo 손 · 발 end-effector · `root_path`)으로 자동 변환 · seed 별 후보 여러 개 생성 · 수치 자동 선별(양손 간격 · 발 간격 · 휘두르는 손 속도 정점 · 관통 · 깨짐 — `validate_animation profile_positions` 측정) · 팔-몸통 관통 보정이 양손 파지를 깨지 않게(양손 무기면 보조 손 팔 보정 제한 또는 측정만) | 처음부터 덜 틀린 동작 | Python 위주 |
+| 8-2 Vesper 캡처 (개정 12 — 구현 · 검증, 아래) | 리타깃 결과를 **대상 메시 모습**으로 찍은 프레임 시트 · 짧은 영상(지금 `review.render` 는 변환된 소스 골격) — Persona 를 열지 않고 채팅에서 판정 | "보고 말하기" 단계의 근거 | C++ 조금(에디터 캡처) |
+| 8-3 자동 보정 (개정 13 — 구현 · 검증, 아래) | 휘두르는 구간 자동 탐지(손 속도) 후 가속(`retime`) · 정지 머리/꼬리 트림 — 리타깃 뒤 대상(모든 경로) · blender `fix.ops` 사전 채우기: 발 고정 · 발 간격 좁히기(IK, 발 접지 유지 — 리타깃된 다리의 모델로 풀이) · 스무딩 | 넓은 다리 · 흐느적거림 · 발 미끄러짐 | Blender 스크립트 + Python + C++ 1곳(비교 칸 루트) |
+| 8-4 대상 쪽 보정 — 몸 전체 관통 · 무기 파지 (범위 보강 2026-10-26 밤, 사용자 제안 — 아래 근거. 개정 14: 총괄 설계 확정 — 4단위 a → b → c → d, **a · b · c · d 모두 구현 · 검증(2026-10-28 ~ 30)**, 아래 · '8-4 정리') | 리타깃이 끝난 **대상(Vesper) 애니 위에서** 한 풀이로: ① 몸 전체 자기 관통 — 특정 부위(손-손잡이 · 팔-몸통)만이 아니라 손 · 아래팔 · 위팔 ↔ 머리 · 목 · 몸통 · 가슴 · 골반 · 넓적다리(필요하면 다리끼리 · 양손끼리)를 대상 메시 기준으로 밀어낸다 ② 무기 파지 — 손 IK 로 손을 무기 손잡이 · 소켓에 붙인다(무기 정보는 요청이 무기 메시 · 소켓으로 준다, §8). 파지 · 발 접지 · 원래 동작을 제약으로 함께 지킨다(부위별로 차례로 고치면 서로 깬다 — E1: 위팔만 돌린 `resolve` 가 양손을 벌렸다). 수단 `control_rig`(UE Control Rig 베이크) 또는 Blender IK — 지금 Blender `fix.ops` 자리는 리타깃 **전** 소스 골격이라 대상 체형에서 커지는 관통을 못 본다(Vesper FBX 입력이 필요). 측정은 지금 지표(`body_clearance` · `head_near` · `arm_cross` · `hand_contact`)를 한 원천으로 넓혀 쓴다. 생성 애니만이 아니라 기존 Vesper 애니에도 쓸 수 있다. 착수 때 설계에서 ① · ② 를 나눌지 정한다. ③ (8-3 후속에서 넘김 — 사용자 결정 2026-10-27) 펴진 다리의 무릎 떨림 — 8-3 다리 보정(`fix.ops` 간격 전환 · 발 고정 블렌드)이 공중 발 경로에 만드는 엉덩 → 발목 거리 꺾임이 거의 편 무릎을 흔든다(검 선택 `P81Run1026_180733` 다리 보정본 0.5 ~ 0.57초 오른 무릎, 떨림 0.56 → 1.89 > 기준 1.56). 대상 쪽 풀이에서 발 접지를 제약으로 지키면서 공중 발 경로를 디딤 사이 매끈한 곡선으로 다시 짠다 — 8-3 안에서의 블렌드 5 · 7 프레임 · 공중 보정량 스무딩 · C2 블렌드 · 최소 굽힘 25° 는 줄이지 못했다(§14 '8-3 후속') | 몸 관통 · 머리 관통 · 양손 무기 완성도 · 펴진 다리 무릎 떨림 | 가장 무겁다 |
+| (후보 — 8-4 범위 밖, 착수는 사용자 승인 뒤) 키 포즈 제약 · 역리타깃 | 운영 Vesper 애니 · 대상 쪽에서 편집한 자세를 SOMA 골격으로 되돌려 Kimodo 생성의 키 포즈 제약으로 — 사이 동작은 모델이 채운다. 대상 쪽 보정(8-4)이 '고치기'라면 이쪽은 '동작 자체를 바꾸는 큰 변경'의 경로(샘플 전이 S3 처럼 파지와 맞지 않는 팔 · 무기 부착과 맞는 오른손 방향 · 다리 묶음 샘플도 여기서) | 큰 동작 변경 · 생성 두 손 자세 | Python + Kimodo 제약 |
+| (후보 — 별도 트랙) 영상 포즈 추정 타당성 조사 — **닫힘: §14 '9-5d'(키 포즈 원천 후보로만 · 시험 없음)** | 모델 · 라이선스(SMPL 계열 상업 제약 가능성) · 상용 서비스 데이터 정책 · 시험 영상 1 ~ 2개 오프라인 품질 — 파이프라인 변경 없음, 결과를 보고 Provider 여부 결정 | 참조 영상에서 동작 | 조사만 |
+
+세그먼트 생성(준비 → 베기 → 복귀를 따로 만들어 연결)과 다양한 스켈레톤은 8-1 ~ 8-4 결과를 보고 필요하면 뒤에 붙인다. Phase 7(AnimBP 연결)은 2026-10-25 먼저 끝냈다(개정 10).
+
+**8-4 범위 보강 근거 (2026-10-26 밤 — 낫 정정 뒤 사용자 Persona: "팔이 머리를 약간 통과하고 배 · 가슴도 약간 통과한다"):** 관통은 한 부위 · 한 동작의 문제가 아니다. 사례(Vesper 측정 — 지표 정의는 §14 Phase 8 '8-1 낫 정정'):
+
+| 사례 | 부위 | 수치 | 원인 쪽 |
+| :--- | :--- | :--- | :--- |
+| 낫 정정 선택 `P81Run1026_192547/AS_Vesper_Sickle_KimodoSlashPick`(seed 28) — 8-1 상한 안이라 통과했지만 눈에 보인다 | 손 → 머리 · 목 | 5 / 120 프레임(1.53초부터) 머리 본 10 cm 안, 최소 3.0 cm | 소스에서도 4.8 cm 까지 → Vesper 에서 3.0 cm(체형 차가 키움) |
+| 같은 애니 | 왼 아래팔 → 배(`spine_01`) | 8 프레임(6.6%), 최대 7.4 cm(2.43초) | 양손으로 자루를 몸 앞에 쥔 자세 |
+| 같은 실행 seed 27 | 손 → 머리 | 55.8% 프레임, 최소 1.4 cm | 1차 생성부터 손이 머리 2.5 cm(소스 15.7%) — 리타깃이 키움 |
+| 같은 실행 seed 25 · 26 | 팔 → 몸통 | 55.4 · 70.2% | 자루 파지 자세 |
+| 검 기준 선택(8-1 E2 · 수정안 A · B · C) | 모은 양 아래팔 → 가슴(`breast_r` · `spine_02`) | 72 ~ 84% 프레임, 최대 6.3 cm | 손잡이를 가슴 앞에 모은 자세 |
+| 이전 낫(축 결함, `P81Run1026_184807`) — 원인은 고쳤지만 실패 모양의 기록 | 팔 꼬임 · 손 → 머리 · 팔 → 몸통 | 91.7 · 41.7 · 75.2% | 파지 목표 축(8-1 정정) |
+| 운영 Vesper 애니(사람이 만든 것) | 팔 → 몸통 · 옷 | Neutral Walk/Run · Rifle Idle 18 ~ 35%, 운영 낫 0 ~ 34.4% | 다른 체형에서 리타깃 · 옷 부피(부록 B) |
+
+공통점: ① 리타깃이 체형 차(Vesper 팔 47.7 vs SOMA 55.9 cm · 어깨 반폭 12.0 vs 17.3 cm · 가슴 · 옷 부피)로 손-몸 거리를 바꾼다 — 소스에서 피한 것이 대상에서 닿는다(FK 는 양손 간격도 × 0.79) ② 생성 모델은 무기 · 몸 부피를 모른다 ③ 지금 보정은 부위 하나씩이다 — `body_clearance resolve` 는 위팔만 돌려 양손을 벌리고(E1), 머리는 재기만 하고(`head_near`) 고치지 않는다, Blender `fix.ops` 는 소스 골격 단계. → 8-4 는 대상 메시 기준 몸 전체 관통을 파지 · 접지와 함께 한 풀이로 보정한다. 완료 기준은 착수 때 이 사례들(같은 애셋)을 전후 비교 대상으로 정한다 — 수치와 함께 사람 Persona 판정.
+
+**근거 — Kimodo 칼 휘두르기 시험 (2026-10-25):** "A person holds a sword with both hands, raises it over the right shoulder, slashes diagonally down to the left, then returns to a fighting stance." · 4초 · seed 20261025 · `weapon_action` · `provider: local_ai` → `/Game/Animation/Test/AIAnimation/KimodoSword1025_185815/AS_Vesper_Sword_KimodoSlash`(저장, 사용자 확인용으로 유지). 잡 98.5초(Kimodo 80초). 자동 검증 `PASSED`(121프레임 · 최대 44.6°/프레임 · 관통 0 · 손가락 경고 0). **사용자 Persona 판정: 다리가 많이 벌어지고 베기가 흐느적거린다.** 원인 측정:
+- 넓은 다리 = Kimodo 원본 동작 자체(소스 골격 렌더 시트 0.8초 큰 내디딤, 1.6 ~ 4초 넓은 자세 유지) — 리타깃은 다리 각도를 그대로 옮긴다
+- 양손 파지 없음 = 생성 모델이 무기 없이 몸만 만든다(손이 붙지 않음 · `FINGERS_STATIC`)
+- 우리 후처리 영향 가능성 = `body_clearance resolve` 가 **왼 위팔을 98.3% 프레임에서 최대 15.5° 바깥으로** 돌렸다(관통 프레임 39.7% → 0) — 양손으로 모아야 할 팔을 벌렸을 수 있다(가설: 같은 seed · `body_clearance: measure` 비교로 확인 — 8-1 첫 실험)
+- 휘두르는 구간이 짧고 나머지는 자세 유지 — 4초 중 동작 구간 비율이 낮다(8-3 의 구간 탐지 · 가속 · 트림 대상)
+- 상대 각속도 p99 비 0.688 은 공통 본 3개 기준이라 근거로 쓰지 않는다
+- **사전 측정(8-1 설계, Kimodo 원본 NPZ):** 양손 손목 간격 최소 45.8 · p50 64.6 cm(20 cm 안 0%) · 발 좌우 간격이 엉덩 관절 폭의 4.45(p50) · 4.81(p90)배 · 오른손 옆 파지 목표는 왼 어깨에서 82.6 cm(왼팔 55.8 cm — 도달 0%) · 오른손 정점 543 cm/s(0.83초), 정점 50% 이상 20% 프레임
+- **E1 판정(8-1 첫 실험, 2026-10-26):** 파지가 처음부터 없었다 — 같은 seed 를 `measure` 로 만들면 Vesper 손목 간격 최소 36.5 · p50 51.0 cm(20 cm × scale 안 0%), `resolve` 는 간격을 p50 1.9 cm 더 벌렸을 뿐 깨진 파지 프레임 0(§10). 같은 seed 결정성 확인(관통 39.7% · 3.5 cm 같음)
+
+#### 8-1 생성 품질 (개정 11 — 2026-10-26 구현 · 검증)
+
+**진행:** 설계 확정본(공유 노트 `phase8-1-design.md`) 사용자 승인 → 사용자 결정 ① 관통 A안(파지 플래그 = 측정만, Python 만) + ② 비파지 관통 기록 지표 ③ 파지 목표 기본 `meet`(`lead` 는 비교) ④ 발 간격은 고르기만(좁히기는 8-3) ⑤ 8-1 만 ⑥ 수치 선별은 근거와 함께 보이고 시각 판정은 사람 → E1(제품 코드 무변경, 통합 `exp1`) → 순수 모듈 + pytest → Kimodo 스파이크(제약 형식 정정 — 아래) → Provider · 라우터 · select → E2 · E2' · E3 + 회귀. C++ 변경 없음, MCP Tool 추가 · 변경 없음.
+
+**시그니처(요청 · 계획 · 결과):**
+
+```jsonc
+"constraints": { "two_hand_weapon_grip": true, "foot_contact": true },
+"generation": { …, "candidates": 4,
+  "refine": { "mode": "auto", "grip": { "lead_hand": "right", "target": "meet", "spacing_cm": null, "from_s": null, "to_s": null }, "keyframe_step": 3 },
+  "select": { "weights": { "grip": 3, "stance": 2, "swing": 2, "clearance": 1, "breakage": 1 } } }
+// 계획 generate.inputs: seeds[] · candidates · refine{mode, passes 1|2, rules[{flag, kimodo, frames, target, lead_hand, spacing_cm, spacing_from, reach}], keyframe_step, flags}
+//                       · metric_window · diffusions · timeout_s (= 정책 + 25 × (확산 − 1)) · timeout_extra_s
+//   보강 4 — 자루 무기 간격이 있으면 규칙에 spacing_cm(= 생성 간격 — 러너가 읽는다) · target_spacing_cm · band_cm(소스 띠) · target_band_cm · spacing_map
+// 계획 select.inputs: candidates[{index, seed}] · metrics · weights · thresholds · metric_version · grip_on · swing_on · grip_window_s · bones{from, hand_l …, arm_dims} · body_clearance
+//   보강 4 — grip_spacing{from, source_cm, target_cm, tolerance_cm{source, target}, source_band_cm, target_band_cm, map{source_shoulder_cm, target_shoulder_cm, arm_ratio}}
+// Job: selection{metric_version, weights, thresholds, best_swing_cm_s, bones, body_clearance, retargeter,
+//                candidates[{index, seed, source, asset, status, metrics{grip, stance, swing, clearance, non_grip, breakage}, penalties, score, rank, excluded}],
+//                picked{index, seed, score, reason}} · cursor.values.generated.candidates[{index, seed, bvh, npz, pass1_npz, source_metrics{pass1, pass2}, refine{constraints, follow, grip, foot}}]
+```
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/local_ai/refine.py` | 순수 Python — 프레임(키 프레임 · 파지 구간 · 접지 구간 ≥ 4 · 요청 제약이 고정한 부위 건너뛰기) · 계획 규칙(`plan`) · 팔 2본 IK(`two_bone`, 1차 팔꿈치 굽힘 평면 유지) · `meet` 최소 평행 이동(구 교집합 해석해 — 보조 어깨 쪽 → 어깨 중점 쪽 → 가장 가까운 곳) · `solve_grip`(주 손 너클 축 · 간격, 손 회전 = 새 아래팔 × 1차 손목 로컬 — keep, 수정안 B. 처음 규칙 = 보조 손 '손목 → MiddleEnd' 를 주 손에 맞춘 최소 회전, 손 끝 관절 강체) · 2차 출력 스무딩(`gaussian_kernel` · `smooth_series` · 쿼터니언 부호 연속 `smooth_rotations` — 수정안 A) |
+| `Tools/mcp/anim_gen/motion_metrics.py` | 순수 Python — 손목 간격 · `grip_pct` · 발 좌우 비 · 앞뒤 보폭 · 휘두름 정점 · 동작 구간 · 비파지 관통 상한(§13). 버전 2(수정안 C): 궤적 폭 · 손 들기(`attack`) · 떨림(`zigzag`) · 손목 굽힘(`wrist_bend`) · 접지 발 미끄러짐(`contact_slide`), 역할에 어깨 · 팔꿈치(· 중지 첫 마디). Kimodo 쪽(m · y-up)과 Vesper 쪽(cm · z-up)이 같이 쓴다 |
+| `Tools/mcp/anim_gen/selection.py` | 순수 Python — 벌점 · 점수 · 순위 · 근거 한 줄 · 가중치 검사(아래 표 — 수정안 C 뒤 표는 '수정안 A · B · C' 절) |
+| `local_ai/kimodo_run.py` | 후보 경로(`candidates_mode`): seed 마다 1차 → 77 → SOMA30 FK → `refine` → 일반 EE · root2d 제약 → 같은 seed 2차 → 계획 σ 로 2차 출력 스무딩(77 관절 FK, 수정안 A), 1차 NPZ(`kimodo_<n>_pass1.npz`) · 소스 수치(1차 · 스무딩 전 2차 · 2차) · 제약 추종(목표 손목 · 접지 발 · 루트 차) 기록. 기존 경로는 그대로 |
+| `providers/local_ai.py` · `request.py` · `router.py` | 요청 `candidates` · `refine` · `select` 검사 · 계획 규칙 · seed 목록 · 기한 · 한계 교체 · `REFINE_WITH_SAMPLES` · `FOOT_CONTACT_WITHOUT_POSTPROCESS` · select 단계 삽입 · 처리한 플래그의 한계 빼기 |
+| `providers/builtin.py` | `body_clearance` 기본값 결정(모든 Provider) · `plan_select`(측정 본 = 대상 템플릿 체인) · 후보 임포트(`Import/Motion/C<번호>/`) · `_rigs`(select · 최종 리타깃 공유) · `_select` · `candidate_metrics` |
+| `providers/blender.py` · `blender/bvh_to_fbx.py` | 후보 BVH 를 한 Blender 실행으로(`items` — 기준 포즈 FBX 는 첫 후보만, 렌더 비교는 `frames/c<번호>/`) |
+| `executor.py` · `service.py` · `providers/base.py` · `subprocess_step.py` · `meshy.py` · `server.py` | Job `selection` · `RunContext.steps` · 기한 연장(`extra_timeout_s`) · Meshy 무시 설정에 `candidates` · `refine` · Tool 설명 |
+| `tests/test_refine.py` · `test_select.py` · `conftest.py` · `test_local_ai.py` · `test_blender.py` · `test_meshy.py` | pytest 40건 추가(순수 모듈 15 · 요청 · 계획 · 라우터 · 실행 25) · FakeEditor profile · 관통 · 이름 규칙 · 빈 폴더 임포트 흉내 · 가짜 Kimodo 후보 · 가짜 Blender items |
+| `Tools/mcp/anim_gen_phase8_1_test.py` | 통합 — hashes · exp1 · plan · refine · lead · select · e3 · dirty, 요약 `anim_gen_phase8_1_state.json` |
+
+**설계 정정 (Kimodo 소스 · 스파이크 실측 — 감사 §18):**
+1. 손 · 발 제약 = **일반 end-effector**(`EndEffectorConstraintSet(joint_names=[LeftHand, RightHand])` · `[LeftFoot]` · `[RightFoot]`) + `root2d`. Kimodo 후처리는 고정 마스크를 클래스 이름(`left-hand` · `left-foot` …)으로만 만들고 목표를 제약의 회전 FK + 매끈한 루트로 다시 계산한다(`postprocess.extract_input_motion_from_constraints`) — `left-hand` · `right-hand` 로 고정하면 처음 · 끝 12프레임이 1차 손 간격으로 되돌아가고(810 cm/s 순간 이동), 발을 고정하면 미끄러진다(p95 34 ~ 45 cm/s). 일반 EE 면 확산이 따르고 후처리는 표준 접지 정리만 한다.
+2. 제약 포즈는 팔 2본 IK 로 FK 와 맞춘다(손 회전 · 손 끝 위치가 팔과 어긋나지 않는 실제 골격 포즈).
+3. 발 좌우 비 벌점 폭 2.5 → 5.0(Vesper 비 포화).
+4. 후보 임포트는 후보마다 빈 하위 폴더(`import_animation_file` 은 빈 폴더만 — 첫 4후보 실행이 `DEST_NOT_EMPTY` 로 실패해 정정, FakeEditor 도 같은 검사).
+
+**선별 점수 (`selection.py`, 첫 값 — 사용자 소견 뒤 수정안 C 로 바꿨다, 지금 표는 아래 '수정안 A · B · C' 절):** score = Σ wᵢ·pᵢ / Σ wᵢ(0 = 좋음, 낮은 쪽 · 동률은 낮은 번호). 원 수치는 Job 에 다 남긴다.
+
+| 지표 | 벌점 pᵢ | 가중치 |
+| :--- | :--- | :---: |
+| 양손 파지 | 1 − grip_pct / 100 | 3 (`two_hand_weapon_grip` 일 때만) |
+| 발 간격 | clamp((Vesper 발 좌우 비 p90 − 2.5) / 5.0, 0, 1) | 2 |
+| 휘두름 정점 | 1 − 정점 / 후보 중 최고(상대) | 2 (`weapon_action` 일 때만) |
+| 관통 | 보정 전 관통 % / 100 (팔 중 큰 쪽) | 1 |
+| 깨짐 | `FAILED` = 제외 · `PASSED_WITH_WARNINGS` = 0.5 · `PASSED` = 0 | 1 |
+
+**8-1 완료 기준:**
+
+1. 플래그 변환 — local_ai 계획이 `two_hand_weapon_grip` · `foot_contact` 를 Kimodo 2차 생성 제약(양손 · 발 end-effector · root2d 의 규칙 · 프레임 · 목표)으로 모델을 띄우지 않고 보이고, 실행 결과를 소스와 Vesper 양쪽에서 잰다: 파지 구간 손목 간격 ≤ 20 cm × scale 프레임 ≥ 80%, 접지 구간 발 위치가 1차와 같다(수치).
+2. 후보 · 선별 — N 후보를 한 Kimodo 실행으로 만들고 전부 Vesper 리타깃 · `validate_animation profile_positions` · `body_clearance` 로 재서 점수로 하나를 고른다. Job `selection` 에 후보별 수치 · 벌점 · 순위 · 근거, 같은 기록으로 다시 계산하면 같은 선택.
+3. 관통-파지 — 파지 플래그면 기본 측정만(위팔 보정 0), 명시 resolve 는 위험 표시. 첫 실험(같은 seed measure vs resolve) 판정과 비파지 관통 상한을 기록.
+4. 기본 동작 불변 — 플래그 · 후보 설정이 없으면 계획 · 결과가 개정 10 과 같다.
+5. 회귀 없음 — pytest(366 + 신규) · Phase 1 ~ 7 통합 실패 0 · C++ 무변경(바뀌면 Development · DebugGame 경고 0).
+6. 사람 판정 — Persona 확인 목록을 보고하고, 수치 통과를 품질 합격으로 보고하지 않는다(§16-9).
+
+**결과 (2026-10-26 — `anim_gen_phase8_1_test.py` 전 섹션 PASS, 실행 `P81Run1026_145046`(E1) · `_153634`(plan) · `_153646`(E2 ① · E2' · E3) · `_154722`(E2 ②)):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 플래그 변환 | ✅ 계획(Kimodo 안 띄움 · 애셋 0 · 더티 0): 규칙 3개(양손 EE 41 키 프레임 · 발 EE · root2d) · seed 4개 · 8 확산 · 기한 475초 · 측정 본 = Vesper 템플릿 체인. **E2 ①(seed 20261025 · meet):** 소스 손목 간격 p50 64.6 → 7.6 cm, 20 cm 안 0 → **100%**(목표 간격 6.96 cm, 목표 손목 오차 p50 2.5 / 1.8 cm), 접지 발 1차와 최대 3.0 / 2.2 cm, 루트 차 ≤ 3.9 cm · Vesper 손목 간격 p50 6.0 cm, 21.05 cm 안 **100%** · 검증 `PASSED_WITH_WARNINGS`(관통 경고), 잡 93초(Kimodo 80 — 2회 확산) |
+| 2 | 후보 · 선별 | ✅ **E2 ②(seed 20261025 ~ 28, meet):** 한 Kimodo 실행(117 ~ 128초 — 후보당 1 · 2차 합 19 ~ 24초) → Blender 한 실행 → 후보 4개 리타깃 · 측정 → seed 20261026 선택(아래 표), 기록한 수치로 다시 계산 = 같은 선택, 최종 애셋 = 잰 후보(간격 p50 6.6 = 6.6 cm, 검증 `PASSED`), 잡 152초. 두 번 실행 결과가 소수 둘째 자리까지 같다 |
+| 3 | 관통-파지 | ✅ 파지 플래그 → `measure`(`body_clearance_from: grip_flag` · 위팔 보정 0 · 한계 `BODY_CLEARANCE_MEASURED_FOR_GRIP`), 명시 `resolve` → `CLEARANCE_MAY_BREAK_GRIP`(pytest). E1 판정 = 파지 없음 · 보정은 벌렸을 뿐(§10). **비파지 관통 상한 = 0%**(E2 ① · ② 모두 전 프레임 파지 — 관통은 전부 파지 프레임: E2 ① 72.7% · 최대 6.3 cm, 아래팔 → 가슴) → **B안(파지 프레임 마스크 C++)은 불필요가 확정** — 남은 관통은 양손을 모은 팔이 몸에 들어가는 것이라 C안(8-4)의 몫 |
+| 4 | 기본 동작 불변 | ✅ 플래그 · 후보가 없으면 사슬 5단계 · `body_clearance resolve` · `GRIP_NOT_VALIDATED` 그대로(통합 `plan` · pytest), `refine.mode off` 면 플래그는 지금처럼 한계 · Kimodo 인자에 후보 경로 없음(pytest). Phase 5 수치 회귀는 아래 5 |
+| 5 | 회귀 없음 | ✅ pytest **406건**(기존 366 + `test_refine.py` 15 · `test_select.py` 25 — 기존 기대값 변경 없음, FakeEditor 에 profile · 관통 · 이름 규칙 · 빈 폴더 임포트 흉내 추가). 같은 에디터에서 `anim_gen_phase1_test.py` 113 · `phase2` 62 · `phase3` 35(+1 = 기대된 변화: 카타나 + `two_hand_weapon_grip` → `body_clearance measure` · `BODY_CLEARANCE_MEASURED_FOR_GRIP`) · `phase4` 27 · `phase5` 57(실제 Kimodo 2건 — 각속도 p99 비 0.954 · 루트 691.83 cm · Yaw 189.81°, 개정 8 과 같다) · `phase6` 20(외부 호출 0) · `phase7` 85 확인 실패 0. C++ 변경 없음 — 빌드 생략 |
+| 6 | 사람 판정 | ⏳ Persona 확인 목록(아래)을 보고 — 수치 통과는 품질 합격이 아니다. 기준값 · 가중치는 사용자 판정으로 고친다 |
+
+**E2 ② 선별 근거 (Vesper 측정 — 원 수치 · 벌점 · 점수):**
+
+| 후보 · seed | 순위 · 점수 | Vesper 파지 % · 간격 p50 | 발 좌우 비 p90 | 휘두름 정점 cm/s | 관통 % | 비파지 관통 상한 | 최대 °/프레임 | 벌점 (grip · stance · swing · clearance · breakage) | 소스 파지 1 → 2차 · 휘두름 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 1 · 20261026 | **1 · 0.220** | 100 · 6.6 cm | 5.63 | 210.7 | 0 | 0 | 17.1 | 0 · 0.63 · 0.36 · 0 · 0 | 0 → 100% · 232.5 |
+| 0 · 20261025 | 2 · 0.275 | 100 · 6.0 cm | 5.63 | **330.6** | 72.7 | 0 | 44.4 | 0 · 0.63 · 0 · 0.73 · 0.5 | 0 → 100% · 401.3 |
+| 3 · 20261028 | 3 · 0.292 | 100 · 5.2 cm | 4.92 | 278.0 | 84.3 | 0 | 114.6 | 0 · 0.48 · 0.16 · 0.84 · 0.5 | 0 → 100% · 352.6 |
+| 2 · 20261027 | 4 · 0.295 | 100 · 6.0 cm | **4.23** | 217.4 | 77.7 | 0 | 28.9 | 0 · 0.35 · 0.34 · 0.78 · 0.5 | 0 → 100% · 296.5 |
+
+근거 한 줄(Job): "score 0.220 vs #0 0.275 — ahead on clearance +0.73, breakage +0.50". 읽는 법: 네 후보 모두 2차에서 파지 100% 라 파지는 가르지 못했고, 관통 0% · 경고 없는 seed 20261026 이 뽑혔다 — **그 대신 휘두름이 가장 느리다**(210.7 cm/s, 최고 330.6). `PASSED_WITH_WARNINGS` 는 관통 경고에서 와 관통이 '관통'과 '깨짐'에 이중으로 잡혔다(Job `breakage.all_warnings` 로 근거를 남김 — 기준 보정 후보). 발 간격은 seed 20261027 이 가장 좁다(4.23). 휘두름을 중시하면 `select.weights.swing` 을 올린다(같은 기록으로 다시 계산 가능).
+
+**E2'(lead) · E3:** `lead`(같은 seed) — 보조 목표가 팔 밖이라 소스 파지 21.5%(간격 p50 27.8 cm) · Vesper 62.5% · 비파지 관통 상한 37.5% → 수치로는 `meet` 가 낫다(기본 `meet` 유지 — 사용자 눈 비교로 확정). E3(프롬프트 끝을 "…ready stance with feet shoulder-width apart." 로, 플래그 없이 같은 seed) — Vesper 발 좌우 비 p90 5.45(기준 5.55) — **넓은 다리는 이 프롬프트 표현 탓이 아니다**(좁히기는 8-3).
+
+**발견:** ① 양손을 붙이면 휘두름이 느려진다(소스 정점 543 → 401, 365 → 233 cm/s — 사용자 판정 "흐느적" 과 같은 방향, 8-3 가속 · 프롬프트 · 선별 가중치 후보) ② 양손을 모은 팔은 Vesper 가슴 · 옷에 들어간다(관통 72 ~ 84%, 최대 6.3 cm — 8-4 C안) ③ seed 20261028 은 최대 114.6°/프레임(깨짐 의심 — 눈 확인 대상).
+
+**Persona 확인 목록:** 기준(유지) `/Game/Animation/Test/AIAnimation/KimodoSword1025_185815/AS_Vesper_Sword_KimodoSlash` · E1 measure `…/P81Run1026_145046/AS_Vesper_Sword_KimodoSlashMeasure` · E2 ① meet `…/P81Run1026_153646/AS_Vesper_Sword_KimodoSlashMeet` · E2' lead `…/P81Run1026_153646/AS_Vesper_Sword_KimodoSlashLead` · E2 ② 선택 `…/P81Run1026_154722/AS_Vesper_Sword_KimodoSlashPick` · 상위 후보 `…/P81Run1026_154722/Work/job_20261026_154723_c49a83/A1/Candidates/Cand_BVH_kimodo_01`(1위 = 선택과 같은 동작) · `…/Cand_BVH_kimodo_00`(2위) · E3 `…/P81Run1026_153646/AS_Vesper_Sword_KimodoSlashStance`.
+
+**남은 것(부록 B):** 사람의 Persona 판정 · 점수 기준값(2.5 · 폭 5.0) · 가중치 · 깨짐 이중 계산 보정 · `meet`/`lead` 기본값 확정 · 손 방향 · 손가락 · 무기 소켓(8-4) · 관통 C안(8-4) · Vesper 캡처(8-2). (깨짐 이중 계산 · 공격다움은 아래 수정안 C 로 처리)
+
+#### 8-1 수정안 A · B · C (개정 11 보강 — 2026-10-26 Persona 소견 후)
+
+**진행:** 사용자 Persona 소견 4가지(① 양손 · 한손 모두 처음 · 끝 메시 떨림 ② "이게 공격 자세가 맞나?" ③ 손이 꺾여 보인다 ④ 한손 공격이 여전히 흐느적) → 하위 세션이 측정으로 원인 확정 · 수정안 스파이크(공유 노트 `phase8-1-quality-spike.md` — 제품 코드 무변경) → 사용자 지시: A · B · C 적용 + 같은 4 seed 재생성. D(프롬프트 '빠르게 · 힘있게' + 2.5초 — 요청만)는 범위 밖, 휘두름 구간 자동 가속은 8-3, 칼을 나란히 쥐는 손 방향 · 파지 프레임 관통은 8-4. C++ · MCP Tool 변경 없음.
+
+| # | 소견 | 원인 (측정) | 수정 | 바꾼 곳 |
+| :---: | :--- | :--- | :--- | :--- |
+| A | ① 떨림 | **2차 생성 소스의 프레임 진동** — 지그재그 p95 1차 ≤ 0.09 vs 2차 0.18 ~ 1.23 cm/프레임². 리타깃 · 관통 보정 · 루트 몫 0(소스 NPZ · UE 소스 · Vesper 가 1.0 ~ 1.03배로 같다). 손 · 발 end-effector 를 3프레임마다 조건으로 주면 separated CFG 의 제약 항이 키 프레임 사이를 진동하며 메운다(매 프레임 키면 정지 구간 1차 수준 — 감사 §18) | 2차 출력의 로컬 회전(쿼터니언 — 부호 연속) · 루트 위치에 시간 가우시안 σ 1프레임 → 77 관절 FK 로 전역 회전 · 관절 위치를 다시 만든다(1차는 그대로, NPZ · BVH · 소스 수치는 스무딩 뒤). σ 의 단일 원천 = 계획 `refine.smooth_sigma_frames`(러너는 받기만) · report `refine.smooth{sigma_frames, fk_check_m, joint_moved_cm}` · 스무딩 전 수치 `source_metrics.pass2_unsmoothed`. 스무딩 전 FK 가 모델 출력과 1 cm 넘게 다르면 `SMOOTH_FK_MISMATCH` 로 멈춘다 | `local_ai/refine.py`(`gaussian_kernel` · `smooth_series` · `smooth_rotations` · `plan`) · `kimodo_run.py`(`smooth_output`) |
+| B | ③ 손 꺾임 | 처음 파지 규칙(보조 손 '손목 → MiddleEnd' 를 주 손에 맞추는 최소 회전 · 주 손 전역 회전 고정)이 **IK 목표에서 이미 보조 손목을 96 ~ 99° 꺾었고** 2차가 그대로 따랐다 | 손 전역 회전 = 새 아래팔 × 1차 손목 로컬(keep — 주 · 보조 모두 `_move_arm` 한 규칙). 목표 포즈 통계 `grip.stats.hand_align_deg` · `support_wrist_bend_deg`, `grip.hand_rule: keep`. 한계 `GRIP_POSITION_ONLY` 문구(손 방향은 1차 손목 굽힘 유지 — 나란히 쥐기는 8-4) | `refine._move_arm` · `solve_grip` · `providers/local_ai.py` |
+| C | ② 공격 자세 | 기록 Job c49a83 이 seed 26('양손 모아 서 있기' — 손이 머리 위로 한 번도 안 감, 궤적 폭 0.40)을 골랐다: 관통 경고가 깨짐 0.5 로 **이중 계산** · 양손을 모으면 아래팔이 가슴에 닿는 **파지 프레임 관통**(72 ~ 84%)을 벌점으로 셈 → 움직임이 작은 후보가 유리 · **공격다움 지표 없음** | ① 깨짐 = 관통 검사(`body_clearance`) 밖 경고만(`breakage.scored_warnings`) ② 파지 플래그면 관통 = 비파지 프레임 상한(`non_grip`) ③ `attack`: 궤적 폭 = 엉덩 관절 중점(≈ 펠비스) 기준 손목 중점 궤적 상자 대각선 / 팔 길이(위팔 + 아래팔), 벌점 = max(1 − 폭 / 후보 최고, (1.0 − 폭) / 1.0) · 가중치 2(`weapon_action` 일 때만). 손 들기(어깨 위 높이)는 수평 베기에 안 맞아 기록만, 떨림도 기록만(빠른 타격 순간도 잡는다). 측정 본에 어깨(템플릿 체인 LeftArm/RightArm 시작) · 팔꿈치(손목 본의 부모) | `motion_metrics.py`(버전 2) · `selection.py` · `providers/builtin.py`(`selection_bones` · `candidate_metrics`) · `kimodo_run.METRIC_JOINTS` |
+
+**지표 정의 (`motion_metrics` 버전 2 — Kimodo · Vesper 공용):** 떨림 = 지그재그(가속도 a_f = p[f+1] − 2p[f] + p[f−1] 이 앞 프레임과 반대 방향이면 min(\|a_f\|, \|a_f−1\|)) 를 측정 관절마다(소스 12 · Vesper 10) 재서 처음 0.67초 · 중간 · 끝 0.67초 p95 · 손목 굽힘 = 아래팔(팔꿈치 → 손목)과 손(손목 → 중지 첫 마디 — SOMA `{Side}HandMiddle2` · Vesper `middle_01`) 방향의 각 · 궤적 폭 · 손 들기(위) · 접지 발 미끄러짐 = 앞 · 뒤 표본이 모두 접지인 발목 수평 속도 p95(Kimodo 접지 라벨 — 소스만). 스파이크 노트의 손목 굽힘은 다른 마디로 재 절대값이 다르다 — 아래 표는 모두 같은 정의로 다시 잰 값.
+
+**결과 (2026-10-26 — `anim_gen_phase8_1_test.py --only hashes,plan,recompute,select,dirty` PASS · 실패 0, 실행 `P81Run1026_180733` · Job `job_20261026_180741_c0f5be`, 잡 209초 · Kimodo 179초):** 같은 프롬프트 · seed 20261025 ~ 28 · `meet`. 수정 전 = 기록 Job c49a83(소스 NPZ 는 제품 지표 · 스무딩 함수로, Vesper 후보는 통합 `recompute` 로 다시 잼). 1차 생성은 같은 seed 라 수정 전후 같다(결정성 — 1차 수치 일치).
+
+소스(Kimodo NPZ — 1차 → 수정 전 2차 → 수정 후 2차):
+
+| seed | 떨림 p95 처음 / 중간 / 끝 | 보조(왼) 손목 굽힘 최대 ° | 파지 20 cm 안 · 간격 p50 / 최대 cm | 휘두름 정점 cm/s | 접지 발 미끄러짐 p95 L / R cm/s |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 20261025 | 0.00 / 0.01 / 0.03 → 1.01 / 0.59 / 0.63 → **0.02 / 0.06 / 0.08** | 22.8 → 111.5 → **39.7** | 0% → 100% · 7.6 / 12.0 → 100% · 7.2 / 14.0 | 542.8 → 401.3 → 400.9 | 0.7 / 0.9 → 3.0 / 2.8 → 1.2 / 1.3 |
+| 20261026 | 0.03 / 0.01 / 0.02 → 0.35 / 0.69 / 0.67 → **0.06 / 0.07 / 0.08** | 39.9 → 97.5 → **16.1** | 0% → 100% · 7.2 / 9.1 → 100% · 9.2 / 11.2 | 365.2 → 232.5 → 243.8 | 2.1 / 0 → 0 / 1.5 → 0.8 / 0.2 |
+| 20261027 | 0.09 / 0.01 / 0.01 → 1.23 / 0.74 / 0.66 → **0.13 / 0.07 / 0.07** | 82.7 → 41.8 → **84.4** | 0% → 100% · 8.1 / 10.5 → 100% · 7.8 / 9.1 | 457.1 → 296.5 → 279.0 | 1.6 / 0.7 → 2.4 / 0 → 2.0 / 0.9 |
+| 20261028 | 0.01 / 0.01 / 0.02 → 0.22 / 0.27 / 0.18 → **0.04 / 0.02 / 0.03** | 38.5 → 63.0 → **22.3** | 0% → 100% · 6.4 / 8.8 → 100% · 8.8 / 10.4 | 657.4 → 352.6 → 326.4 | 0.7 / 0 → 0 / 0 → 0.9 / 0.8 |
+
+Vesper(수정 전 → 수정 후):
+
+| seed | 순위 · 점수 | 떨림 p95 처음 / 중간 / 끝 | 보조 손목 굽힘 p50 / 최대 ° | 궤적 폭(팔 길이 대비) | 휘두름 정점 cm/s | 간격 p50 · 파지 | 관통 %(비파지 상한) | 최대 °/프레임 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 20261025 | 2 · 0.275 → **1 · 0.102** | 0.99 / 0.56 / 0.60 → 0.00 / 0.06 / 0.07 | 43.6 / 112.8 → 37.4 / 41.5 | 1.65 → 1.63 | 330.6 → 321.4 | 6.0 → 5.2 cm · 100% | 72.7 → 77.7 (0) | 44.4 → 25.7 |
+| 20261026 | **1 · 0.220** → 4 · 0.307 | 0.32 / 0.64 / 0.64 → 0.06 / 0.07 / 0.08 | 78.3 / 94.3 → 8.5 / 17.1 | 0.40 → 0.43 | 210.7 → 220.4 | 6.6 → 7.3 · 100% | 0 → 0 | 17.1 → 22.8 |
+| 20261027 | 4 · 0.295 → 3 · 0.199 | 1.03 / 0.74 / 0.65 → 0.21 / 0.08 / 0.08 | 37.3 / 42.7 → 62.5 / 86.6 | 1.03 → 1.02 | 217.4 → 206.2 | 6.0 → 5.0 · 100% | 77.7 → 80.2 (0) | 28.9 → 20.7 |
+| 20261028 | 3 · 0.292 → 2 · 0.193 | 0.21 / 0.28 / 0.21 → 0.04 / 0.03 / 0.04 | 61.4 / 63.4 → 20.4 / 24.9 | 1.08 → 1.01 | 278.0 → 261.2 | 5.2 → 7.1 · 100% | 84.3 → 74.4 (0) | 114.6 → 42.4 |
+
+**새 선별 근거 (수정 후 Job — 원 수치 · 벌점 · 순위):**
+
+| 후보 · seed | 순위 · 점수 | Vesper 파지 % | 발 좌우 비 p90 | 휘두름 정점 | 궤적 폭 (손 들기) | 관통 % → 벌점에 쓴 값 | 깨짐 근거 (점수용 / 전체) | 벌점 grip · stance · swing · attack · clearance · breakage |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 0 · 20261025 | **1 · 0.102** | 100 | 5.30 | **321.4** | **1.63** (+0.63) | 77.7 → 비파지 0 | 없음 / `BODY_PENETRATION` | 0 · 0.56 · 0 · 0 · 0 · 0 |
+| 3 · 20261028 | 2 · 0.193 | 100 | 4.96 | 261.2 | 1.01 (+0.29) | 74.4 → 0 | 없음 / `BODY_PENETRATION` | 0 · 0.49 · 0.19 · 0.38 · 0 · 0 |
+| 2 · 20261027 | 3 · 0.199 | 100 | **4.30** | 206.2 | 1.02 (+0.12) | 80.2 → 0 | 없음 / `BODY_PENETRATION` | 0 · 0.36 · 0.36 · 0.37 · 0 · 0 |
+| 1 · 20261026 | 4 · 0.307 | 100 | 5.71 | 220.4 | 0.43 (+0.07) | 0 → 0 | 없음 / 없음 | 0 · 0.64 · 0.31 · 0.73 · 0 · 0 |
+
+근거 한 줄(Job): "score 0.102 vs #3 0.193 — ahead on attack +0.76, swing +0.37". 지금 벌점 표:
+
+| 지표 | 벌점 pᵢ | 가중치 |
+| :--- | :--- | :---: |
+| 양손 파지 | 1 − grip_pct / 100 | 3 (`two_hand_weapon_grip` 일 때만) |
+| 발 간격 | clamp((Vesper 발 좌우 비 p90 − 2.5) / 5.0, 0, 1) | 2 |
+| 휘두름 정점 | 1 − 정점 / 후보 중 최고 | 2 (`weapon_action` 일 때만) |
+| 궤적 폭 (attack — 신규) | max(1 − 폭 / 후보 중 최고, clamp((1.0 − 폭) / 1.0)) — 하한 = 팔 길이 1.0(운영 공격 최저 1.46 · 기록의 '서 있기' 0.40) | 2 (`weapon_action` 일 때만) |
+| 관통 | 보정 전 관통 % / 100 (팔 중 큰 쪽) — **파지 플래그면 비파지 프레임 관통 상한**(손목 트랙이 없어 못 재면 전체) | 1 |
+| 깨짐 | `FAILED` = 제외 · `NEEDS_REVIEW` 0.5 · `PASSED_WITH_WARNINGS` 0.5 — **경고가 관통 검사에서만 왔으면 0**(`scored_warnings` 가 기록에 없으면 상태대로) · `PASSED` 0 | 1 |
+
+**읽는 법:**
+- A — 소스 떨림이 네 seed 모두 1차 수준(≤ 0.08, seed 27 처음 0.67초만 0.13 — 빠른 디딤 구간)으로 내려가고 Vesper 도 같다(리타깃이 그대로 옮긴다). 파지 100% 유지 · FK 대응 0.0 m · 관절 이동 p95 0.7 ~ 1.6 · 최대 5.7 cm. 대가 = 휘두름 정점 −3 ~ −10%(같은 실행 스무딩 전 412.8 / 271.8 / 308.9 / 360.3 → 400.9 / 243.8 / 279.0 / 326.4). 접지 발 미끄러짐 p95 ≤ 2.0 cm/s(수정 전 ≤ 3.0).
+- B — 보조 손목 최대가 1차 수준 근처로(seed 25 111.5 → 39.7°, 26 97.5 → 16.1°, 28 63.0 → 22.3° — Vesper 도 112.8 → 41.5 · 94.3 → 17.1 · 63.4 → 24.9°). **seed 27 은 1차부터 82.7° 꺾인 생성이라 keep 이 그 꺾임을 지킨다(수정 전 aim 이 오히려 41.8° 로 폈다 — 84.4°)** — 손목 절대 상한 또는 8-4. 양손 방향 정렬은 맞추지 않는다(목표 포즈 양손 방향 차 p50 23 ~ 86° — 나란히 쥐기는 8-4).
+- C — 통합 `recompute`: 수정 전 기록 후보 4개를 새 측정 · 점수로 다시 재면 **seed 20261025**(0.114 vs 2위 seed 28 0.179 — attack +0.68 · swing +0.32). 관통 경고만 있던 후보 3개(seed 28 포함 — 114.6°/프레임은 경고를 만들지 않았다)의 깨짐 0.5 → 0, 파지 프레임 관통 72.7 ~ 84.3% → 비파지 상한 0. 궤적 폭 · 손 들기가 스파이크 값과 같다(1.646 / 0.395 / 1.028 / 1.083 vs 1.65 / 0.38 / 1.02 / 1.08, 손 들기 ±0.01). 새 실행도 seed 20261025 를 고르고 '서 있기'(seed 26, 궤적 폭 0.43)는 4위.
+- 그대로 남은 것: ④ 흐느적 — 고른 후보 정점 321 cm/s(운영 공격 1,200 ~ 2,600, 이 프롬프트 · 4초는 정지 꼬리 2.2 ~ 2.5초 — 스파이크 ⑤) → D(요청 — 프롬프트 · 2.5초) · 8-3 가속 · 트림. 양손을 모은 팔의 몸 관통(파지 프레임 74 ~ 80%, 아래팔 → `breast_r`) → 8-4 C안. seed 27 손목. **수치 통과는 품질 합격이 아니다 — 사람의 Persona 판정 대기.**
+
+**Persona 확인 목록 (수정 후):** 선택 `/Game/Animation/Test/AIAnimation/P81Run1026_180733/AS_Vesper_Sword_KimodoSlashPick`(seed 20261025 — 1위 `Cand_BVH_kimodo_00` 과 같은 동작) · 2위 `…/P81Run1026_180733/Work/job_20261026_180741_c0f5be/A1/Candidates/Cand_BVH_kimodo_03`(seed 20261028) · 3위 `…/Cand_BVH_kimodo_02`(seed 20261027 — 발 간격 가장 좁음 · 손목 꺾임 남음) · 비교(수정 전) `…/P81Run1026_154722/AS_Vesper_Sword_KimodoSlashPick`(수정 전 선택 seed 26) · `…/P81Run1026_153646/AS_Vesper_Sword_KimodoSlashMeet`(수정 전 seed 25 — 새 선택과 같은 seed).
+
+#### 8-1 낫 기준 보정 (개정 11 보강 2 — 2026-10-26 저녁)
+
+**진행:** 사용자 Persona 재확인 — "의도한 동작이 맞나 · 시작 손 모양 · 손끼리 겹침" → 측정: 생성물은 검 손잡이 기준(손목 간격 4 ~ 14 cm, 손 겹침 7.5% 프레임 · 처음 1.37초)인데 **Vesper 의 근접 무기는 낫**(로드아웃 `WD_Sickle1` + `WD_Rifle1` — `AstralPlayerController.h:50`)이고 운영 낫 애니는 양손으로 자루를 쥐는 구간의 손목 간격이 50 ~ 78 cm(p50 55 ~ 66)다. 스켈레톤에 무기 본은 없다(소켓 `WeaponHandR` · `DisplayHip` · `DisplayBack` 만 — Persona 의 낫은 애니가 움직이지 않는다). 사용자 결정: 기준 = 낫, 8-1 안에서 보정(한손으로 바뀌어도 맞게). C++ · MCP Tool 변경 없음.
+
+| 항목 | 바꾼 것 | 곳 |
+| :--- | :--- | :--- |
+| 파지 간격 상한 | `grip.spacing_cm` (0, 30] → **(0, 100]** — 비우면 검 손잡이(너클 폭 + 1 cm) 그대로, 낫 요청은 60 | `request.py` · `server.py` · §9 |
+| 파지 판정 띠 | 요청 간격 s 가 있으면 파지 = \|간격 − s·scale\| ≤ 13·scale(`motion_metrics.grip_band` — 검 기준 '≤ 20 cm' 이 7 cm 손잡이에 준 여유 13 cm 와 같다). 소스 수치(kimodo_run) · Vesper 선별 · 비파지 관통 · `GRIP_NOT_REACHED` 가 같은 띠 — 계획 select 에 `grip_spacing_cm` | `motion_metrics.py` · `kimodo_run.py` · `local_ai.py` · `builtin.py` |
+| 궤적 폭 일반화 (`motion_metrics` 버전 3) | 손별 궤적 폭 중 큰 쪽(한손 공격에서 빈 손이 가만있으면 두 손 중점은 절반쯤 — 중점 값은 `width_mid_arm_ratio` 로 기록), 손 들기도 손별 큰 쪽 | `motion_metrics.attack` · `selection.py` 문구 |
+| 양손 겹침 (기록) | `hand_contact` — 손 본 아래 자손(손가락 · 메타카팔, 이름을 보지 않고 부모 관계로)의 뼈 선분 사이 최단 거리 < 2.5 cm × scale 프레임 % · 처음 시각 · 최소. 측정 본 = `selection_bones.hand_tree_l/r` | `motion_metrics.hand_contact` · `builtin.selection_bones` · `profile_bones` · `candidate_metrics` |
+| 테스트 | pytest **426**(417 + 9 — 한손 궤적 폭 · 손 겹침 · 파지 띠 · 낫 간격 select · 간격 상한 4) · 통합 새 섹션 `scythe`(운영 낫 애니 4개를 같은 측정으로 비교) | `test_refine.py` · `test_select.py` · `anim_gen_phase8_1_test.py` |
+
+**결과 (`anim_gen_phase8_1_test.py --only hashes,plan,recompute,scythe,dirty` PASS · 실패 0, 실행 `P81Run1026_184807` · Job `job_20261026_184814_ad275a`, 잡 294초 · Kimodo 265초):** 프롬프트 "A person holds a long-handled scythe with both hands, raises it over the right shoulder, slashes diagonally down to the left, then returns to a fighting stance." · seed 20261025 ~ 28 · `meet` · `spacing_cm` 60. 기록 후보 재계산(`recompute`, 버전 3 궤적 폭 1.698 / 0.403 / 1.110 / 1.097)도 seed 20261025.
+
+| 후보 · seed | 순위 · 점수 | Vesper 파지 %(띠 49.5 ~ 76.8) · 간격 p50 | 발 좌우 비 p90 | 휘두름 정점 cm/s | 궤적 폭(손별 큰 쪽) | 관통 % → 벌점 값(비파지) | 보조 손목 최대 ° | 벌점 grip · stance · swing · attack · clearance · breakage |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 0 · 20261025 | **1 · 0.096** | 93.3 · 51.1 cm | 4.48 | **492.6** | **2.24** | 75.2 → 6.7 | 39.0 | 0.07 · 0.40 · 0 · 0 · 0.07 · 0 |
+| 1 · 20261026 | 2 · 0.193 | 96.7 · 50.5 | **4.00** | 313.2 | 1.50 | 79.3 → 3.3 | 59.2 | 0.03 · 0.30 · 0.36 · 0.33 · 0.03 · 0 |
+| 3 · 20261028 | 3 · 0.337 | 67.5 · 49.9 | 4.11 | 262.1 | 1.31 | 73.6 → 32.5 | 109.2 | 0.33 · 0.32 · 0.47 · 0.41 · 0.33 · 0 |
+| 2 · 20261027 | 4 · 0.359 | 35.0 · 49.0 | 4.18 | 366.9 | 2.05 | 71.1 → 65.0 | 55.1 | 0.65 · 0.34 · 0.26 · 0.08 · 0.65 · 0 |
+
+검 기준(같은 seed 25 선택, 실행 `P81Run1026_180733`) → 낫 기준: Vesper 손목 간격 p50 5.2 → **51.1 cm** · 양손 겹침 7.5% → **0%**(최소 48 cm) · 휘두름 정점 321.4 → **492.6 cm/s**(소스 400.9 → 604.0) · 발 좌우 비 p90 5.30 → 4.48 · 보조 손목 최대 41.5 → 39.0° · 떨림 p95 0.00 / 0.06 / 0.07 → 0.08 / 0.00 / 0.04 · 소스 접지 발 미끄러짐 p95 L/R 1.2 / 1.3 → 5.8 / 2.6 cm/s(1차 2.0 / 2.8 — 왼발이 커졌다). 검증 `PASSED_WITH_WARNINGS`(관통 경고뿐), `GRIP_NOT_REACHED` 없음.
+
+운영 낫 애니(같은 측정 — `candidate_metrics` · 간격 60 띠):
+
+| 애셋 | 손목 간격 p50 (범위) | 양손 구간(간격 일정) % · 그 간격 p50 | 띠 안 % | 궤적 폭 손별 (중점) | 손 들기 | 휘두름 정점 cm/s | 양손 겹침 % |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Sickle Attack1 | 72.2 (8 ~ 104) | 24 · 54.8 | 26.7 | 3.38 (2.36) | 0.81 | 2,068 | 4.0 |
+| Sickle Attack2 | 15.2 (9 ~ 60) | 24 · 54.9 | 28.4 | 2.71 (2.47) | 0.36 | 1,221 | 15.8 |
+| Sickle Attack3 | 49.0 (11 ~ 78) | 47 · 63.3 | 44.6 | 3.65 (3.21) | 0.58 | 1,947 | 1.1 |
+| Sickle Finisher1 | 33.2 (4 ~ 90) | 32 · 66.2 | 40.3 | 4.64 (4.48) | 0.90 | 1,967 | 33.3 |
+| **Kimodo 낫 선택 (seed 25)** | 51.1 (p90 53.2) | 내내(클립 전체 파지) | 93.3 | 2.24 | 0.40 | 493 | 0 |
+
+**읽는 법:**
+- 낫 프롬프트 · 간격으로 양손이 자루 간격으로 벌어졌고(겹침 0), 휘두름 정점이 +53%(검 기준 대비) · 궤적 폭이 커졌다 — 그래도 운영 낫의 1/2.5 ~ 1/4 속도다(흐느적 → D · 8-3).
+- **FK 리타깃이 간격을 줄인다:** 소스 58 ~ 60 cm → Vesper 49 ~ 51 cm(−9 ~ −11 cm, 어깨 반폭 차 — 검 기준 7 → 5 cm 와 같은 현상). Vesper 띠(60 × 1.05 ± 13.65 = 49.5 ~ 76.8)의 아래 끝에 걸려 seed 27 · 28 은 파지 35 · 67.5% 로 깎였다(소스는 100%). 운영 낫 간격(p50 55 ~ 66)에 맞추려면 요청 간격을 70 안팎으로 올리는 것이 후보 — **검증 안 함**. 정확히 맞추는 것은 대상 쪽 IK(8-4).
+- 운영 낫은 양손 구간이 24 ~ 47% 뿐이고 손이 모이거나(겹침 최대 33%) 왼손이 떨어진다 — 클립 전체를 같은 간격으로 쥐게 하는 지금 규칙은 단순화다(구간은 `grip.from_s` · `to_s`, 구간별 전환은 8-4).
+- seed 28 보조 손목 109° 는 1차부터(107°) — keep 이 그대로 지킨다(B 의 알려진 한계).
+- **수치 통과는 품질 합격이 아니다** — 낫이 손에 없고(무기 본 없음) 손가락은 고정 포즈라, Persona 에서는 몸 · 팔 궤적과 손이 붙는 자리를 본다.
+
+**Persona 확인 목록 (낫 기준):** 선택 `/Game/Animation/Test/AIAnimation/P81Run1026_184807/AS_Vesper_Sickle_KimodoSlashPick`(seed 20261025) · 2위 `…/P81Run1026_184807/Work/job_20261026_184814_ad275a/A1/Candidates/Cand_BVH_kimodo_01`(seed 20261026 — 발 간격 가장 좁음) · 3위 `…/Cand_BVH_kimodo_03`(seed 20261028 — 손목 109°) · 비교: 검 기준 선택 `…/P81Run1026_180733/AS_Vesper_Sword_KimodoSlashPick` · 운영 `/Game/Animation/Hero/Vesper/Sickle/Actions/AS_Vesper_Sickle_Attack1`.
+
+#### 8-1 낫 정정 — 팔 꼬임 · 머리 · 배 관통 (개정 11 보강 3 — 2026-10-26 밤)
+
+**진행:** 사용자 Persona — 낫 선택 애니(`P81Run1026_184807/AS_Vesper_Sickle_KimodoSlashPick`)가 팔 꼬임 · 머리 관통 · 배 관통으로 망가졌다. 지난 실행은 이 수치 이상을 PASS 로 넘겼다(통합 `scythe` 에 꼬임 · 머리 · 관통 검사가 없었다). 사용자 승인 수정 방향으로 고치고 같은 4 seed 를 다시 만들었다. C++ · MCP Tool 변경 없음.
+
+**원인 (측정):**
+1. `refine.solve_grip` 의 손잡이 축 = 주 손 너클(`RightHandIndex2 → Pinky2`). 무기 없이 만든 Kimodo 1차의 펼친 손에서 이 축은 실제 두 손목 방향과 **84 ~ 128°** 어긋났다. 간격 7 cm(검)에서는 목표가 조금 비켜날 뿐이지만 60 cm(낫)에서는 보조 손 목표가 몸 반대편에 찍혔다 — 손 좌우 뒤바뀜 1차 0 ~ 5% → 목표 85 ~ 93%(seed 25 · 26 · 28) → 2차 46 ~ 93%, 목표 이동 p50 34 ~ 59 cm(팔 길이 1.5 ~ 2배), 손이 머리 15 cm 안 48 ~ 88% 프레임(seed 26 최소 1.2 cm). 검 실행(`job_20261026_180741_c0f5be`)도 목표 단계 24 ~ 32% 뒤바뀜 — 같은 결함.
+2. 선별 `clearance_pct` 가 파지 플래그면 '비파지 프레임 관통'만 셌다(검 손잡이처럼 양손을 가슴 앞에 모으면 아래팔이 가슴에 닿는 게 정상이라는 가정). 낫에서는 몸 관통 71 ~ 79% 를 0 으로 뺐다. 머리 관통 · 팔 꼬임은 지표가 없었다(플러그인 `body_clearance` 는 몸통 · 골반 · 넓적다리만).
+
+| 항목 | 바꾼 것 | 곳 |
+| :--- | :--- | :--- |
+| 손잡이 축 | 축 = 1차 '주 손목 → 보조 손목' 단위 벡터(프레임별 — 보조 손이 이미 있는 쪽). 두 손목이 `AXIS_MIN_CM` 2 cm 안이면 주 손 너클 축. 간격 규칙(요청 `spacing_cm` 또는 너클 폭 + 1 cm) · `meet` · 손 회전 keep 은 그대로. 계획 규칙에 `axis` 문구, 목표 통계에 `axis_from` · `knuckle_vs_wrist_line_deg`(처음 규칙이었다면 어긋났을 각) · `crossed_pct{pass1, targets}`(어깨 축 기준 — 보조 손목이 주 어깨 쪽으로 넘어간 프레임). 검 기준에도 같이 적용 | `local_ai/refine.py` · `local_ai.py`(`GRIP_POSITION_ONLY` 문구) · `request.py` · `server.py` |
+| 자루 무기 관통 | 측정이 쓴 요청 간격(`metrics.grip.spacing_cm` — 같은 기록으로 다시 계산해도 같은 선택)이 있으면 관통 = 전체 프레임(`clearance_basis` `all_polearm`). 비파지만 세는 규칙은 검 손잡이(간격 없음)에만 | `selection.clearance_pct` |
+| 팔 꼬임 (`motion_metrics` 버전 4) | `arm_cross` — 프레임마다 엉덩 관절 축(왼 − 오른, 수평) 위 (왼 손목 − 오른 손목). 10 cm × scale(손 폭) 넘게 넘어간 프레임 % = `crossed_pct`(점수), 조금이라도 = `swapped_pct`(기록 — 검 손잡이는 손목을 포개 88 ~ 100%), 깊이 p50 · 최대 · 처음 시각 | `motion_metrics.arm_cross` · `measure` |
+| 손-머리 근접 (버전 4) | `head_near` — 손 점(양 손목 + 손가락 · 손바닥 관절)과 머리 본(두개 바닥) 사이 최소 거리 < 10 cm × scale 프레임 % · 최소 · p10 · p50. 손 점: Kimodo = SOMA77 손목 아래 손 관절 24 × 2, Vesper = 손 본 자손(손 트리 — 이름을 보지 않는다) 19 × 2. 머리 본: Vesper = 템플릿 체인 `Head` 시작(없으면 `Neck` 끝, 없으면 기본 이름 `head` · `SELECTION_BONES_DEFAULTED`), Kimodo = `Head`(`METRIC_JOINTS`). 떨림 · 다른 지표에는 머리를 안 쓴다 | `motion_metrics.head_near` · `builtin.selection_bones` · `profile_bones` · `candidate_metrics` · `kimodo_run.METRIC_JOINTS` · `source_metrics` |
+| 선별 벌점 | `cross` = clamp((꼬임 % − 20) / 50) — 파지 플래그일 때만(한손 베기 · 팔짱은 원래 교차), `head` = clamp((근접 % − 5) / 25) — 모든 동작. 가중치 각 2(합 15). 기준값 = 운영 낫 애니 4개가 0 이 되는 곳(아래 표) | `selection.py` · `server.py` 문구 |
+| 통합 검사 | `scythe` — 고른 후보(Vesper · 소스 2차)의 꼬임 ≤ 20% · 머리 ≤ 5% · 관통 ≤ 40%(`SCYTHE_LIMITS` — 꼬임 · 머리는 선별 벌점 시작값, 관통은 운영 최대 34.4 + 5 반올림)가 아니면 **FAIL**. 운영 낫 애니 자신도 그 상한 안인지(상한이 과하지 않다) · 2차 목표가 1차보다 손을 더 뒤바꾸지 않는지(≤ +5%) · 후보별 꼬임 · 머리 · 관통 출력. `plan` 은 버전 4 · 머리 본 · 축 문구, `recompute` 는 머리 · 손 트리 본까지 잰다 | `anim_gen_phase8_1_test.py` |
+| 테스트 | pytest **432**(426 + 6 — 축 = 1차 손목 방향 · 손목이 겹치면 너클 · 꼬임 · 머리 근접 · 자루 무기 관통 · 꼬임/머리 벌점이 운영 낫을 깎지 않음, 기존 기대값: 축 · 버전 4 · 벌점 8키 · 측정 본에 `head` · 머리 본 체인/대체). 회귀: Phase 5 통합 PASS(57 — 0.954 · 691.83 cm · 189.81° 불변, `kimodo_run` 변경) | `test_refine.py` · `test_select.py` |
+
+**기준값 근거 — 운영 낫 애니 4개 vs 망가진 낫 후보(Job `job_20261026_184814_ad275a`, Vesper · 지금 측정 `candidate_metrics` 버전 4):**
+
+| 애셋 | 꼬임 %(> 10 cm) · 조금이라도 | 손-머리 10 cm 안 % · 최소 cm | 관통 % | 벌점 cross · head |
+| :--- | :--- | :--- | :--- | :--- |
+| Sickle Attack1 | 2.7 · 14.7 | 0 · 11.6 | 13.2 | 0 · 0 |
+| Sickle Attack2 | 7.4 · 42.1 | 0 · 36.1 | 34.4 | 0 · 0 |
+| Sickle Attack3 | 16.3 · 32.6 | 0 · 25.5 | 0 | 0 · 0 |
+| Sickle Finisher1 | 0 · 4.2 | 0 · 15.0 | 12.3 | 0 · 0 |
+| 이전 낫 seed 25 (선택) | 91.7 · 93.3 | 41.7 · 2.8 | 75.2 | 1.0 · 1.0 |
+| 이전 낫 seed 26 | 28.3 · 94.2 | 90.0 · 0.6 | 79.3 | 0.17 · 1.0 |
+| 이전 낫 seed 27 | 12.5 · 20.0 | 59.2 · 1.1 | 71.1 | 0 · 1.0 |
+| 이전 낫 seed 28 | 82.5 · 94.2 | 69.2 · 1.6 | 73.6 | 1.0 · 1.0 |
+
+margin 0(조금이라도 뒤바뀜)은 운영 낫도 4 ~ 42%(낫 베기는 원래 팔이 교차한다)이고 검 손잡이(손목 5 ~ 7 cm)는 88 ~ 100%(손목을 포갠다)라 점수에 못 쓴다 → 손 폭 10 cm × scale. 머리 15 cm 는 운영 Attack1 4% · Finisher1 2.8% 가 걸려 10 cm(운영 최소 11.0). 기록 후보 재계산으로 새 점수는 낫 Job 에서 seed 26 을 고른다(넷 다 머리 벌점 1.0 — 고를 후보가 없다, 그래서 통합 상한 검사로 막는다) · 검 Job c0f5be 는 seed 25 그대로(머리 벌점 seed 26 0.07 만) · 검 Job c49a83(`recompute`)도 seed 25 그대로(0.084 vs 0.133).
+
+**새 축의 오프라인 확인(기록 1차 NPZ 에 새 `solve_grip` — Kimodo venv, 생성 없음):** 낫 4 seed · 검 4 seed 모두 축 = 1차 손목 방향 41/41 키 프레임(손목 2 cm 안 0), 처음 축과의 차 p50 27 ~ 128°. 목표 뒤바뀜(어깨 축) = 1차와 같음(낫 4.9 / 0 / 0 / 0%, 검 0%), 엉덩 축 10 cm 넘게 뒤바뀐 목표 0 ~ 2%, 손목 목표가 머리 10 cm 안 0%, 목표 이동 p50 0 ~ 19.6 · 최대 28.0 cm(처음 34 ~ 59), IK 늘어남 0.
+
+**요청 간격 60 유지(70 으로 올리지 않음):** ① Vesper 간격 = 소스 × 0.79(새 실행 4 seed 48.2 / 48.6 / 48.2 / 49.3 ÷ 60.1 ~ 62.7 — 어깨 폭 · 팔 길이 차, Vesper 팔 47.7 vs SOMA 55.9 cm)인데 띠 아래 끝은 (요청 − 13) × 1.052(pelvis scale)라 **요청이 52 cm 를 넘으면 간격을 어떻게 잡아도 Vesper 가 띠 밖**이다 — 70 이면 Vesper ≈ 55 cm 가 띠 [60.0, 87.3] 밖. ② 기록 1차로 푼 목표 이동이 60 → 70 에서 p50 0 ~ 19.6 → 0 ~ 28.5 · 최대 28.0 → 44.5 cm, 도달 비 최대 1.27 → 1.43 으로 커진다(1차에서 멀어질수록 2차가 비튼다). 띠를 팔 길이 비로 재는 정의 정정과 운영 낫 간격(Vesper 55 ~ 66 → 요청 ≈ 76)은 후속 → 아래 '파지 띠 정정'(보강 4)에서 정정(대상 60 → 생성 75.2).
+
+**결과 (`anim_gen_phase8_1_test.py --only hashes,plan,recompute,scythe,dirty` — FAIL 2 · 나머지 통과, 실행 `P81Run1026_192547` · Job `job_20261026_192555_f991aa`, 잡 402초 · Kimodo 374초):** 같은 프롬프트 · seed 20261025 ~ 28 · `meet` · 간격 60. **FAIL 2건 = 파지 띠**(고른 후보 Vesper 띠 [49.5, 76.8] 안 37.5% < 80 · `GRIP_NOT_REACHED`) — 위 ①의 정의 문제다. 꼬임 · 머리 · 관통 상한, 운영 낫 4개가 상한 안(상한이 과하지 않다), 목표가 1차보다 손을 뒤바꾸지 않음(4 seed 모두 ≤ +5%), 소스 파지 97.5 ~ 100%, 스무딩, 최종 = 잰 후보, 해시 · 더티 · Content 는 통과.
+
+같은 seed 전 → 후 (Vesper, 소스는 2차):
+
+| seed | 꼬임 % Vesper (소스) | 손-머리 10 cm 안 % Vesper · 최소 cm (소스) | 관통 % | 파지 % · 간격 p50 Vesper (소스 p50) | 휘두름 정점 cm/s | 떨림 p95 Vesper 처음 / 중간 / 끝 | 보조 손목 최대 ° (소스 2차) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 25 | 91.7 → **5.0** (91.7 → 4.1) | 41.7 · 2.8 → **0 · 11.6** (41.3 → 0) | 75.2 → 55.4 | 93.3 · 51.1 → 4.2 · 48.3 (60.3 → 61.1) | 492.6 → 508.5 | 0.08 / 0 / 0.04 → 0.02 / 0 / 0.01 | 42.3 → 64.6 |
+| 26 | 28.3 → **0** (9.1 → 0) | 90.0 · 0.6 → **2.5 · 9.6** (86.8 → 0) | 79.3 → 70.2 | 96.7 · 50.5 → 10.8 · 48.6 (60.2 → 61.8) | 313.2 → 261.2 | 0.02 / 0.03 / 0.04 → 0.02 / 0.02 / 0.03 | 57.2 → 62.1 |
+| 27 | 12.5 → **0** (11.6 → 0) | 59.2 · 1.1 → 55.8 · 1.4 (38.0 → 15.7) | 71.1 → 34.7 | 35.0 · 49.0 → 26.7 · 48.2 (60.0 → 60.1) | 366.9 → 443.0 | 0.01 / 0.04 / 0.05 → 0.01 / 0.04 / 0.06 | 52.0 → 58.1 |
+| 28 | 82.5 → **0** (81.8 → 0) | 69.2 · 1.6 → **4.2 · 3.0** (34.7 → 2.5) | 73.6 → **6.6** | 67.5 · 49.9 → 37.5 · 49.3 (58.0 → 62.7) | 262.1 → 527.6 | 0.02 / 0 / 0.02 → 0.02 / 0 / 0.01 | 106.5 → 88.9 |
+
+새 선별 (가중치 grip 3 · stance 2 · swing 2 · attack 2 · clearance 1 · breakage 1 · cross 2 · head 2, 관통 근거 `all_polearm`):
+
+| 순위 · seed · 점수 | 벌점 grip · stance · swing · attack · clearance · breakage · cross · head | Vesper 원 수치 (발 좌우 비 p90 · 궤적 폭 · 꼬임 · 머리 · 관통) | 상한 안 |
+| :--- | :--- | :--- | :--- |
+| **1 · 20261028 · 0.196** | 0.63 · 0.31 · 0 · 0.19 · 0.07 · 0 · 0 · 0 | 4.05 · 2.17 · 0 · 4.2% (최소 3.0 cm) · 6.6% | 예 (유일) |
+| 2 · 20261025 · 0.285 | 0.96 · 0.37 · 0.04 · 0.02 · 0.55 · 0 · 0 · 0 | 4.35 · 2.64 · 5.0 · 0 · 55.4% | 관통 초과 |
+| 3 · 20261027 · 0.368 | 0.73 · 0.33 · 0.16 · 0 · 0.35 · 0 · 0 · **1.0** | 4.15 · 2.68 · 0 · 55.8% (1.4 cm) · 34.7% | 머리 초과 |
+| 4 · 20261026 · 0.403 | 0.89 · 0.29 · 0.50 · 0.53 · 0.70 · 0 · 0 · 0 | 3.97 · 1.26 · 0 · 2.5% · 70.2% | 관통 초과 |
+
+파지 벌점(망가진 띠)을 빼도 순위가 같다(0.089 · 0.117 · 0.277 · 0.280) — 선택은 띠에 기대지 않는다. 운영 낫 대비: 고른 후보 휘두름 정점 528 cm/s(운영 1,221 ~ 2,068), 궤적 폭 2.17(운영 2.71 ~ 4.64), 꼬임 0(운영 0 ~ 16.3), 머리 4.2%(운영 0), 관통 6.6%(운영 0 ~ 34.4).
+
+**검 기준 재실행(`--only hashes,select,dirty` PASS · 실패 0, 실행 `P81Run1026_193811` · Job `job_20261026_193812_763264` — 검증용, 애셋 · Job 은 정리했다):** 새 축(41/41 키 프레임 손목 방향, 목표 뒤바뀜 0%)으로도 **seed 20261025** 선택(0.076 · 2위 seed 27 0.131 · '서 있기' seed 26 4위) — 이전(`P81Run1026_180733`)과 같은 선택. Vesper 파지 100% · 간격 p50 4.96 cm · 휘두름 정점 321.4 → 332.8 cm/s · 꼬임 0 · 머리 0(최소 20.5 cm) · 관통 69.4%(비파지 0 — 검 손잡이 규칙 그대로) · 보조 손목 최대 41.6°. 머리 근접은 seed 26 · 28 이 4.2%(최소 9.4 · 3.5 cm).
+
+**읽는 법:**
+- 팔 꼬임은 축 정정으로 사라졌다(4 seed Vesper 0 ~ 5%, 소스 2차 0 ~ 4.1% — 1차 수준). 남은 seed 25 의 5% 는 1차부터의 4.9%.
+- 손-머리는 3 seed 가 운영 수준에 가까워졌지만 **seed 27 은 1차부터 손이 머리 2.5 cm 까지 왔고(4.1%) 목표 이동(보조 어깨 쪽 p50 19.6 cm)이 키워 Vesper 55.8%** — 지표가 잡아 3위로 밀렸다. **seed 28 도 5 프레임(4.2%)은 머리 3 cm 안** — 상한 5% 안이지만 Persona 에서 볼 곳.
+- 관통은 seed 마다 크게 다르다(6.6 ~ 70.2%). 낫을 양손으로 몸 앞에 쥐면 위팔이 몸통에 닿는 자세가 남는다 — 파지를 지키며 관통을 없애는 것은 8-4. 사용자 Persona(같은 날 밤): 선택 애니도 팔이 머리 · 배 · 가슴을 약간 통과한다 → 8-4 범위를 부위별이 아닌 **몸 전체 관통 보정**(머리 포함)으로 보강했다(로드맵 표 · '8-4 범위 보강 근거').
+- seed 28 보조 손목 89° 는 1차부터(107°) — keep 이 지킨다(B 의 알려진 한계).
+- **수치 통과는 품질 합격이 아니다** — 이번 결함도 수치 검사가 못 잡아 사용자가 눈으로 찾았다. 머리 지표는 머리 본(두개 바닥) 한 점과의 거리라 메시 접촉이 아니고, 관통은 위팔-몸통 · 골반 · 넓적다리만 본다.
+
+**Persona 확인 목록 (낫 정정):** 선택 `/Game/Animation/Test/AIAnimation/P81Run1026_192547/AS_Vesper_Sickle_KimodoSlashPick`(seed 20261028) · 2위 `…/P81Run1026_192547/Work/job_20261026_192555_f991aa/A1/Candidates/Cand_BVH_kimodo_00`(seed 20261025 — 이전 선택과 같은 seed, 관통 55%) · 3위 `…/Cand_BVH_kimodo_02`(seed 20261027 — 머리 지표 55.8%: 지표가 눈과 맞는지) · 비교(망가진 이전 결과) `/Game/Animation/Test/AIAnimation/P81Run1026_184807/AS_Vesper_Sickle_KimodoSlashPick`(seed 20261025).
+
+#### 8-1 파지 띠 정정 — 대상 메시 기준 간격 (개정 11 보강 4 — 2026-10-26 밤)
+
+**진행:** 낫 정정의 FAIL 2건(파지 띠)은 띠 정의 문제였다 — 띠 = (요청 간격 ± 13) × 대상 pelvis scale(Vesper 1.052)인데 FK 리타깃은 관절 회전을 복사해 손 간격이 어깨 폭 · 팔 길이를 따른다(Vesper = 소스 × 0.79). 1.052 × (s − 13) > 0.79 s ⇔ s > 52 라 낫 간격은 어떻게 잡아도 Vesper 가 띠 밖이고, 어깨가 넓은 메시는 반대로 띠를 넘친다 — Vesper 전용이 아닌 범용 정의 문제. 사용자 결정(같은 밤): ① 띠를 각 대상 메시의 골격 치수로 계산(측정만 바뀌고 애니는 그대로) ② 요청 간격을 대상 메시 기준으로도 받아 계획 단계에서 생성 간격으로 변환(근사). 정확한 손 부착 · 몸 전체 관통은 8-4. C++ · MCP Tool 변경 없음, `kimodo_run.py` 변경 없음.
+
+**측정 (기록 Job `job_20261026_192555_f991aa` — 소스 2차 NPZ 와 Vesper 후보 4개 profile, 생성 없음):** 기준 포즈 치수(관절 사이 거리) — SOMA(Kimodo BVH 표준 T 포즈 오프셋) 어깨 관절(LeftArm ↔ RightArm) 32.96 · 위팔 28.74 · 아래팔 27.11 cm(팔 55.85), Vesper(`inspect_skeleton` ref_component · 템플릿 체인 LeftArm/RightArm) 어깨 관절(upperarm_l ↔ r) 23.96 · 위팔 24.38 · 아래팔 23.28 cm(팔 47.66). 비 = 어깨 0.727 · 위팔 0.848 · 아래팔 0.859 · 팔 0.853 · pelvis 1.052. 실측 Vesper / 소스 손목 간격 p50 비 0.792 / 0.786 / 0.801 / 0.786(seed 25 ~ 28), 파지선(손목 L − R)과 어깨선의 cos p50 0.79 ~ 0.97(낫을 몸 앞에 가로로 쥔다).
+
+| 대안 (소스 2차 간격 → Vesper 간격 예측) | p50 오차 (4 seed) | 프레임별 \|오차\| p50 · p90 (4 seed 평균) | 계획 때 쓸 수 있나 |
+| :--- | :--- | :--- | :--- |
+| 지금 — × pelvis scale 1.052 | +15.1 ~ +16.7 cm | 16.1 · 16.5 cm | 예 |
+| A1 단일 비 — 팔 길이 비 0.853 | +3.2 ~ +4.3 | 3.8 · 4.0 | 예 |
+| A2 단일 비 — 스팬(어깨 + 2 × 팔) 0.825 | +1.4 ~ +2.5 | 2.1 · 2.3 | 예 |
+| **B 사상 — 대상 = W_대상 + k × (생성 − W_생성)**(어깨 관절은 그 폭대로, 나머지 팔 부분은 팔 길이 비 k) | **−1.0 ~ +0.1** | **0.45 · 0.92** | **예 — 두 골격 치수 4개** |
+| C 프레임별 — \|k_어깨 · 어깨 차 + k_위팔 · 위팔 차 + k_아래팔 · 아래팔 차\|(소스 트랙) | −0.3 ~ −0.1 | 0.20 · 0.45 | 아니오 — 생성 뒤 소스 트랙이 있어야 |
+
+- C 가 프레임마다 0.2 cm 로 맞는다 = FK 리타깃(per_bone 정렬) 모델 확인: 대상 본 벡터 = 소스 본 벡터 × 길이 비. B 는 C 에 '파지선 ∥ 어깨선'을 둔 닫힌 식(\|k · g + (k_어깨 − k) · D_어깨\|, g ∥ D) — 파지선이 세로에 가까울수록 대상 간격을 낮게 본다(Vesper 생성 75 cm 에서 최대 −4.3 cm, 어깨가 넓은 메시 W 40 · k 1.04 에서 −6.6 cm). 띠 폭(대상 ±11 cm) 안이고 결과는 select 가 대상에서 직접 잰다 — 빗나가면 `GRIP_NOT_REACHED` 로 드러난다.
+- C 를 refine 목표(키 프레임마다 정확한 생성 간격)나 소스 수치(대상 간격 예측)에 쓰면 ≤ 1 cm 더 맞지만 `kimodo_run` · `solve_grip` 이 대상 치수를 받아야 하고 소스 띠가 프레임마다 달라진다 → 이번엔 **B**, C 는 근거 · 8-4 후보로 남긴다.
+- 요청 필드: `spacing_cm` 의 뜻(생성 골격 간격)을 바꾸지 않고 새 필드 `target_spacing_cm`(대상 메시 간격)를 넣었다 — 기록 Job 재계산 재현성 유지, 둘 다 주면 `CONFLICTING_FIELDS`.
+
+| 항목 | 바꾼 것 | 곳 |
+| :--- | :--- | :--- |
+| 간격 사상 (`motion_metrics` 버전 5) | `arm_dims`(역할 본 기준 포즈 위치 → 어깨 관절 폭 · 팔 길이) · `gap_map`(두 골격 치수 → {생성 어깨 · 대상 어깨 · 팔 길이 비}) · `map_gap` · `grip_spacing`(요청 하나 → 생성 · 대상 간격, 허용 생성 13 · 대상 13 × k, 두 띠, 사상 — 대상 띠 = 생성 띠의 상). `grip_band` 는 자루 무기면 '그 골격 간격 ± 허용'(scale 을 곱하지 않는다), 검 손잡이는 그대로 ≤ 20 × pelvis scale. `grip` 기록에 `tolerance_cm` | `motion_metrics.py` |
+| 생성 골격 치수 | `SOMA_ARMS = {shoulder_width_cm 32.96, arm_cm 55.85}` — SOMA77 은 고정 골격이라 상수(기록 Job BVH 오프셋 실측 · 근거 주석). 통합 `scythe` 가 그 실행 BVH 와 같은지 본다 | `providers/local_ai.py` |
+| 대상 치수 | `RetargetPipe.selection_bones` 가 같은 `inspect_skeleton details` 로 `arm_dims`(어깨 = LeftArm 체인 시작, 팔꿈치 = 손목 부모, 손목 = 체인 끝의 ref_component) | `providers/builtin.py` |
+| 계획 (단일 원천) | local_ai 가 간격 요청이 있으면 대상 측정 본 → 사상 → `grip_spacing` 을 한 번 풀어 generate 규칙(`spacing_cm` = 생성 간격 — 러너 그대로 · `target_spacing_cm` · `band_cm` · `target_band_cm` · `spacing_map` · `spacing_from` 문구)과 select 입력(`grip_spacing` · `bones` — 다시 재지 않는다)에 싣는다. 한계 `GRIP_SPACING_MAPPED`(두 간격 · 두 띠 · 근사 설명). 에디터 없음 → `PROVIDER_UNAVAILABLE EDITOR`, 대상 팔 위치 없음 → `TARGET_ARMS_UNKNOWN`, 생성 골격 두 팔(어깨 폭 + 팔 × (0.98 + 0.92) = 139.1 cm)이 닿지 않으면 `GRIP_SPACING_OUT_OF_RANGE` | `providers/local_ai.py` · `local_ai/refine.py`(`plan(spacing=…)`) |
+| select | 대상 띠 = 계획의 `grip_spacing.target_cm ± tolerance_cm.target`. 버전 4 계획(`grip_spacing_cm`)은 실행 때 `PLAN_OUTDATED`(폴백 없이 멈춤 — 다시 계획). `GRIP_NOT_REACHED` 문구 = 대상 띠 · 근거(자루 무기 / 검 손잡이), `band_cm` 필드 | `providers/builtin.py` |
+| 요청 · 설명 | `generation.refine.grip.target_spacing_cm` (0, 100] · `spacing_cm` 과 배타 | `request.py` · `server.py` · §9 · `Tools/mcp/README.md` |
+| 테스트 | pytest **442**(432 + 10 — 기록 Job 수치로 사상 · 역사상 · 띠, 요청 하나 → 두 띠, 다른 체형 3개(Vesper · 어깨 넓은 메시 · 좁고 팔 긴 메시 — FK 모델로 옮긴 대상 간격이 요청 0.5 cm 안, 파지선 30° 기울어도 띠 안), 대상 기준 요청의 계획 → 러너 → select, 생성 기준 요청의 대상 띠 · `GRIP_NOT_REACHED` 문구, 에디터 없음 · 팔 위치 없음 · 닿지 않는 간격, 옛 계획 `PLAN_OUTDATED`, 요청 필드 2 · 기존 기대값 수정: 버전 5 · 띠에 scale 없음). FakeEditor 가짜 Vesper 에 팔 본(실제 기준 포즈 위치). 통합 새 섹션 `regrip`(애셋 0 — 기록 Job f991aa 후보를 새 띠로) · `scythe` 대상 기준 60 cm · SOMA 상수 = BVH · 사상이 Vesper 간격 p50 을 3 cm 안으로(`MAP_TOLERANCE_CM`) · `plan` 버전 5 · 대상 팔 치수 | `test_refine.py` · `test_select.py` · `conftest.py` · `anim_gen_phase8_1_test.py` |
+
+**결과 ① 기록 재계산 (`--only hashes,plan,recompute,regrip,dirty` PASS · 실패 0, 애셋 0):** Job f991aa(생성 간격 60)의 Vesper 띠 [49.46, 76.83](버전 4) → **[35.95, 58.13]**(47.04 ± 11.09). 4 후보 Vesper 파지 4.2 / 10.8 / 26.7 / 37.5 → **100 / 100 / 100 / 100%**, 사상 예측 vs 실측 Vesper 간격 p50 47.95 / 48.58 / 47.15 / 49.37 vs 48.32 / 48.57 / 48.17 / 49.28(오차 −1.02 ~ +0.09 cm). 선택은 그대로 seed 20261028(0.196 → 0.071 — 파지 벌점 0.63 → 0), 순위 같음(seed 25 0.093 · 27 0.222 · 26 0.224) — FAIL 원인이 풀렸다. 검 기록 `recompute`(간격 없음)도 그대로(seed 25 0.0835 vs 0.1329).
+
+**결과 ② 낫 재생성 (`--only hashes,plan,recompute,scythe,dirty` PASS · 실패 0, 실행 `P81Run1026_205832` · Job `job_20261026_205840_56d522`, 잡 241초 · Kimodo 219초):** 같은 프롬프트 · seed 20261025 ~ 28 · `meet` · **`target_spacing_cm` 60** → 생성 75.19 cm(규칙 · select 띠가 한 값, 한계 `GRIP_SPACING_MAPPED`). SOMA 상수 = 이 실행 BVH 기준 포즈(32.96 · 55.85). 사상 예측 vs Vesper 간격 p50: 60.15 / 61.52 / 59.59 / 62.29 vs 60.92 / 61.36 / 60.50 / 62.23(오차 −0.91 ~ +0.16 cm, 비 0.797 ~ 0.810).
+
+같은 seed 전(`P81Run1026_192547`, 생성 간격 60 · 버전 4 띠) → 후(대상 60 → 생성 75.19 · 버전 5 띠), Vesper(소스는 2차):
+
+| seed | 파지 % · 띠 | 손목 간격 p50 Vesper (소스) | 꼬임 % | 손-머리 10 cm 안 % · 최소 cm | 관통 % | 휘두름 정점 cm/s | 궤적 폭 | 발 좌우 비 p90 | 보조 손목 최대 ° Vesper (소스 2차) | 목표 이동 p50 · 최대 cm |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 25 | 4.2 [49.5, 76.8] → **100** [48.9, 71.1] | 48.3 (61.1) → **60.9** (75.4) | 5.0 → 5.0 | 0 · 11.6 → 0 · 16.3 | 55.4 → 65.3 | 508.5 → 592.5 | 2.64 → 2.68 | 4.35 → 4.37 | — (64.6) → 70.9 (67.9) | 0 · 27.9 → 11.3 · 47.3 |
+| 26 | 10.8 → **100** | 48.6 (61.8) → **61.4** (77.0) | 0 → 0 | 2.5 · 9.6 → 3.3 · 5.9 | 70.2 → 58.7 | 261.2 → 251.7 | 1.26 → 1.26 | 3.97 → 3.95 | — (62.1) → 67.8 (65.7) | 2.3 · 12.4 → 15.8 · 27.3 |
+| 27 | 26.7 → **100** | 48.2 (60.1) → **60.5** (74.7) | 0 → 0 | 55.8 · 1.4 → **5.8 · 2.1** | 34.7 → 9.1 | 443.0 → 454.8 | 2.68 → 2.77 | 4.15 → 4.18 | — (58.1) → 57.8 (57.0) | 19.6 · 28.0 → 33.2 · 42.0 |
+| 28 | 37.5 → **100** | 49.3 (62.7) → **62.2** (77.9) | 0 → 0 | 4.2 · 3.0 → **0 · 13.6** | 6.6 → **0.8** | 527.6 → **636.8** | 2.17 → 2.68 | 4.05 → 3.98 | — (88.9) → 103.1 (100.0) | 0 · 2.8 → 0 · 13.8 |
+
+(목표 이동 '전' 은 같은 1차에 생성 간격 60 으로 푼 값 — 실행 기록과 같다. 손 뒤바뀜 목표 = 1차 그대로 4.9 / 0 / 0 / 0%, IK 늘어남 0, 소스 파지 97.5 ~ 100%, 떨림 Vesper p95 ≤ 0.06.)
+
+새 선별 (가중치 그대로, 관통 근거 `all_polearm`):
+
+| 순위 · seed · 점수 | 벌점 grip · stance · swing · attack · clearance · breakage · cross · head | 상한(꼬임 20 · 머리 5 · 관통 40%) 안 |
+| :--- | :--- | :--- |
+| **1 · 20261028 · 0.044** | 0 · 0.30 · 0 · 0.03 · 0.01 · 0 · 0 · 0 | 예 (유일) |
+| 2 · 20261027 · 0.093 | 0 · 0.34 · 0.29 · 0 · 0.09 · 0 · 0 · 0.03 | 머리 5.8% 초과 |
+| 3 · 20261025 · 0.107 | 0 · 0.37 · 0.07 · 0.03 · 0.65 · 0 · 0 · 0 | 관통 65.3% 초과 |
+| 4 · 20261026 · 0.231 | 0 · 0.29 · 0.60 · 0.55 · 0.59 · 0 · 0 · 0 | 관통 58.7% 초과 |
+
+운영 낫 대비(같은 측정 — 새 띠 [48.91, 71.09]): 운영 양손 구간 간격 p50 54.8 / 54.9 / 63.3 / 66.2 cm · 띠 안 24.0 / 28.4 / 35.9 / 33.3%(양손 구간만 쥔다) · 휘두름 정점 1,221 ~ 2,068 cm/s · 궤적 폭 2.71 ~ 4.64 · 꼬임 0 ~ 16.3% · 머리 0% · 관통 0 ~ 34.4%. 고른 후보: 간격 p50 62.2(운영 범위 안) · 클립 전체 띠 안 · 정점 637(운영의 1/1.9 ~ 1/3.2) · 궤적 폭 2.68 · 꼬임 0 · 머리 0(최소 13.6 cm) · 관통 0.8%.
+
+**결과 ③ 검 기준 재생성 (`--only hashes,select,dirty` PASS · 실패 0, 실행 `P81Run1026_210325` · Job `job_20261026_210326_971ad6` — 검증용):** 간격 요청이 없으면 계획 · 러너 · 띠가 그대로다 — seed 20261025 선택(0.076 · 2위 seed 27 0.131 · '서 있기' seed 26 4위), Vesper 파지 100%(≤ 21.05 cm) · 간격 p50 4.96 cm · 정점 332.8 cm/s · 관통 69.4%(비파지 0) — 보강 3 의 검 재실행(`P81Run1026_193811`)과 같은 수치.
+
+**읽는 법:**
+- 띠 FAIL 은 정의 문제였고 측정만 고쳐 풀렸다(기록 재계산 — 애니 그대로). 새 생성은 Vesper 손목 간격이 요청 60 근처(60.5 ~ 62.2 cm, 사상 오차 ≤ 0.9 cm)에 떨어졌다 — 운영 낫 양손 구간(55 ~ 66)과 같은 폭.
+- 대가: 생성 간격이 60 → 75 로 넓어져 목표 이동이 커졌다(seed 25 최대 47 cm · seed 27 p50 33 cm). seed 25 관통 55 → 65% · 왼발 접지 미끄러짐 p95 5.3 cm/s, seed 28 보조 손목 최대 103°(1차부터 107° — keep 이 지킨다)는 남았다. seed 27 은 머리 근접이 55.8 → 5.8%(최소 2.1 cm)로 크게 줄었지만 상한 5% 를 넘는다.
+- 선택(seed 28)은 이전 선택과 같은 seed 이고 머리 · 관통이 줄고(4.2 → 0%, 6.6 → 0.8%) 정점 · 궤적 폭이 커졌다(528 → 637, 2.17 → 2.68) — 그래도 운영 낫의 1/2 ~ 1/3 속도(흐느적 → D · 8-3).
+- 사상은 '파지선 ∥ 어깨선' 근사다 — 이번 낫(가로로 쥠)에서 오차 ≤ 1 cm, 세로로 세운 자루 · 어깨가 넓은 메시에서는 몇 cm 커진다(띠 안 · 통합이 3 cm 넘으면 FAIL). 키 프레임마다 정확히 맞추는 것(위 표 C)과 손을 자루에 붙이는 것은 8-4.
+- **수치 통과는 품질 합격이 아니다** — 낫은 손에 없고(무기 본 없음) 손가락은 고정 포즈다. 머리 · 관통 지표는 근사(머리 본 한 점 · 위팔-몸통 · 골반 · 넓적다리만)라 Persona 에서 눈으로 본다.
+
+**Persona 확인 목록 (파지 띠 정정):** 선택 `/Game/Animation/Test/AIAnimation/P81Run1026_205832/AS_Vesper_Sickle_KimodoSlashPick`(seed 20261028 — Vesper 손목 간격 p50 62.2 cm) · 2위 `…/P81Run1026_205832/Work/job_20261026_205840_56d522/A1/Candidates/Cand_BVH_kimodo_02`(seed 20261027 — 머리 5.8%, 최소 2.1 cm) · 3위 `…/Cand_BVH_kimodo_00`(seed 20261025 — 관통 65%) · 비교(직전 선택, 생성 간격 60 · Vesper 간격 49 cm) `/Game/Animation/Test/AIAnimation/P81Run1026_192547/AS_Vesper_Sickle_KimodoSlashPick`(seed 20261028) · 운영 `/Game/Animation/Hero/Vesper/Sickle/Actions/AS_Vesper_Sickle_Attack3`(양손 구간 간격 p50 63.3 cm).
+
+#### 8-2 Vesper 캡처 (개정 12 — 2026-10-26 구현 · 검증)
+
+**진행:** 설계 초안(캡처 방식 비교 · Tool 시그니처 · anim_gen 연결 · 출력 · 표시 · 테스트 · 커밋 단위 — 공유 노트 `phase8-2-design.md`) → 사용자 "추천안으로 착수"(결정: 캡처 루트 `Tools/mcp/results/capture/` · 움직임은 APNG 만 — MP4 는 Blender 4.4 내장 FFmpeg 로 필요하면 후속) → C++ Tool · 두 구성 빌드 → `-unattended` 에디터 스파이크 4회(엔진 함정 3건 정정 — 감사 §19) → anim_gen 연결 · pytest → 통합 · 회귀.
+
+**방식:** 임시 `FPreviewScene`(트랜지언트) 안에 스켈레탈 메시(단일 노드 — `SetPosition` → `RefreshBoneTransforms` → `RecreateRenderState`) · 무광 배경판 · 바닥 판(엔진 `LevelColorationUnlitMaterial` 동적 인스턴스) · 카메라 왼쪽 위 주광(그림자) + 보조광 + 썸네일 환경 큐브맵, `USceneCaptureComponent2D` 정사영 · `FinalColorLDR` · ShowOnly 목록 · Lumen · SSR · TAA(→ FXAA) · 모션 블러 · 블룸 · 자동 노출 · DOF · 비네트 끔 · 노출 고정 · 2배 슈퍼샘플 → 읽기 → 줄임 → PNG. 썸네일 렌더러(원근 · 프리뷰 메시 · 가운데 시각 고정) · 하이레즈 스크린샷(창 의존) · Movie Render Queue(레벨 시퀀스 · 플러그인)는 기각.
+
+**시그니처:**
+
+```jsonc
+capture_animation(asset, mesh, facing ("+Y"|"-Y"|"+X"|"-X"), output_dir (CaptureOutputRoots 아래 새 · 빈 폴더),
+  times?[] | count? (1 ~ 12, 기본 4), views? (front · side), label?,
+  cell_height_px 512, max_aspect 2, margin 0.08, bounds_max_samples 600, sheet_max_px 3000, supersample 2,   // 앞 5개 = blender REVIEW_RENDER
+  sequence? {fps 15, cell_height_px 320, start?, end?, max_frames 150} | null,
+  compare? {label?, rows[[이미지 …] 행마다]} (ImportSourceRoots 아래), lighting? {exposure_bias, key, fill, sky}, max_seconds 120,
+  focus? {bones[1 ~ 64], margin_cm 4, near_cut true})   // 9-5c — §14 '9-5c'
+→ {asset, mesh, facing, length, frame_rate, frames_total, dir, frames[{row, time, frame, frame_time, view, path, sha1, subject_px, coverage_pct, touches_edge}],
+   sheet, compare{path, label, own_columns, compare_columns, size, scale} | null, sequence{dir, fps, count, frames[], times[], size, truncated, seconds} | null,
+   layout{rows[{time, frame, frame_time, clamped, pose_center}], columns[], cell_height, gap, size, scale},
+   camera{view: {look, right, ortho_width_cm, ortho_height_cm, resolution, cm_per_px}}, bounds{min, max, frames_sampled, from, boxed_bones}, render{…}, cells_touching_edge, seconds}
+// 오류: BAD_REQUEST(SKELETON_MISMATCH · OUTPUT_DIR_NOT_EMPTY · RELATIVE_PATH · CONFLICTING_FIELDS …) · OUTPUT_PATH_NOT_ALLOWED(CAPTURE_ROOT) · IMPORT_SOURCE_NOT_ALLOWED ·
+//       ASSET_NOT_FOUND · CAPTURE_FAILED(NO_SCENE · RENDER_TARGET · READBACK · WRITE_FAILED · IMAGE_UNREADABLE · NO_POSE) · UNEXPECTED_DIRTY(새 더티 하나라도 — 파일은 남음, details.dir)
+// 경고: CAPTURE_TRUNCATED(max_seconds) · CAPTURE_SUBJECT_AT_EDGE(잘린 칸)
+// anim_gen: request.review.capture → 계획 단계 capture{asset "$asset", mesh, facing, rows_from render|request, times, count, views, sequence, compare, label, layout, dir}
+//           → Job review.capture{ok, shows target_mesh, sheet, compare_sheet, animation{path, frames, fps, delay, size, bytes}, frames, sequence, camera, layout, bounds, rows_from, …}
+```
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Plugins/AnimGraphMcp/…/Core/AnimMcpCapture.{h,cpp}` | 장면 · 범위(LOD0 정점 → 본 로컬 상자, 정점 없는 본 제외) · 카메라 맞춤(`FitView` = `review_render.py frame_view`) · 셀 렌더 · 라벨(`FCanvas`) · 시트 · 비교 시트 · 연속 프레임 · 피사체 범위 · 가드 |
+| `…/Tools/AnimMcpTools_Capture.cpp` · `AnimMcpTools.h` · 모듈 등록 | Tool `capture_animation`(41번째) |
+| `…/Core/AnimMcpGeneration.{h,cpp}` · `Bridge/AnimMcpTypes.{h,cpp}` · `AnimGraphMcpEditor.Build.cs` | ini `CaptureOutputRoots` · `ResolveCaptureDir` · `get_editor_status.generation.capture_output_roots` · 오류 `CAPTURE_FAILED` · ImageCore 의존 |
+| `…/Tests/AnimMcpCaptureTests.cpp` | Automation `AnimGraphMcp.Generation.Capture` — 카메라 맞춤 · 시트 축소 · 시각 펼치기 · 샘플 프레임(Blender 수식 손 계산값) · 출력 폴더 규칙 |
+| `Config/DefaultEngine.ini` | `+CaptureOutputRoots=Tools/mcp/results/capture/` |
+| `Tools/mcp/anim_graph_mcp/server.py` | 프록시 함수 `capture_animation` |
+| `Tools/mcp/anim_gen/apng.py` | APNG 조립(재압축 없이 IDAT → fdAT, CRC · 순번) · 검사 |
+| `Tools/mcp/anim_gen/providers/review.py` · `providers.json` · `registry.py` · `router.py` · `executor.py` · `request.py` · `server.py` | 파이프 `review` · capture 단계 · Job `review.capture` · 요청 `review.capture` · Tool 설명 |
+| `tests/test_capture.py` · `conftest.py` · `test_router.py` | pytest 37건(APNG · 요청 · 계획 · 실행 · blender 경로 비교 칸) · FakeEditor 캡처 흉내(작은 진짜 PNG) · Provider 목록에 `review`(기대된 변화) |
+| `Tools/mcp/anim_gen_phase8_2_test.py` | 통합 — hashes · automation · tool · guard · existing · chain · dirty |
+
+**8-2 완료 기준:**
+
+1. 캡처 Tool — 대상 메시를 시각 × 뷰 정사영(전 프레임 고정 카메라) PNG · 시트로, 애셋 0 · 새 더티 0 · 원본 SHA-256 불변 · 같은 입력 = 같은 픽셀, `-unattended` 에디터에서 동작.
+2. 소스 골격과 나란히 — `review.render` 와 같은 행 · 열 · 셀 규칙, render 가 있으면 비교 시트.
+3. 움직임 — 프레임 연속 이미지 + APNG(설치 없음).
+4. anim_gen 연결 — 모든 경로 capture 단계 · Job `review.capture` · 캡처 실패는 한계만.
+5. 채팅 표시 — 시험 대상 3건 시트 · 비교 시트 · APNG 를 SendUserFile 로 보고에 첨부.
+6. 회귀 없음 — pytest · Phase 1 ~ 7 · 8-1 통합 실패 0 · 두 구성 빌드 경고 0.
+7. 사람 판정 — 캡처는 근거일 뿐 품질 합격이 아니다(§16-9).
+
+**결과 (2026-10-26 — `anim_gen_phase8_2_test.py` 전 섹션 PASS):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 캡처 Tool | ✅ DebugGame `-unattended` 에디터에서 칼 시험 4초 클립 6행 × 2뷰 1.1초(+ 15 fps 61장 1.7초 — 한 번 3.0초, 첫 호출 준비 0.9 ~ 2.9초) · 미저장 0 → 0 · Content 변경 0(캡처) · 시험 대상 3개 · 스켈레톤 · 메시 SHA-256 불변 · 같은 입력 두 번 = 모든 칸 SHA-1 같음 · 잘린 칸 0 · 행마다 포즈 다름(`pose_center`). 거부(루트 밖 · 루트 자체 · 상대 · 비지 않음 · 루트 밖 비교 이미지 · 잘못된 정면 · times + count · 없는 애셋)는 파일 · 더티 0. Automation `AnimGraphMcp.Generation.Capture` 통과 |
+| 2 | 소스 골격과 나란히 | ✅ 정면(몸 왼쪽 = 화면 오른쪽) · 측면(정면 = 화면 오른쪽) 축 · 셀 512 · 폭 비율 · 바닥 띠가 Blender 와 같다. 비교 시트(행 = 같은 시각, 열 = Vesper 정면 · 측면 + 소스 골격 정면 · 측면) — 시험 대상 3건 + chain Job. 행은 시각으로 맞는다(프레임 번호는 각 fps — CMU 120 · 애셋 30, 캡처 시각 차 ≤ 0.011초) |
+| 3 | 움직임 | ✅ 연속 프레임(뷰를 나란히 526 × 320) → APNG 61장 · 6.6 ~ 8.0 MB(4초 · 15 fps) — 설치 없음 |
+| 4 | anim_gen 연결 | ✅ pytest 37건(재사용 · 편집 · blender 경로, 루트 없음 = 단계 없음, 에디터 없음 = 실행 때, 포장 앞, 실패 = 한계 · Job SUCCEEDED, `UNEXPECTED_DIRTY` = 중단, 렌더 실패 = count 행). 통합 chain: CMU 01_01 0 ~ 3초 BVH → blender(render 4) → 리타깃 → capture — Job 15초 SUCCEEDED · `review` 맨 위 = 소스 골격 · `review.capture` = 같은 행 8칸 · 비교 시트 · APNG 46장 · 출력 `CaptureOutputRoots/<job>/A1` |
+| 5 | 채팅 표시 | ✅ Saved 밖 캡처 루트의 비교 시트 · APNG(시험 대상 3건 · 6파일)를 SendUserFile 로 전달(같은 경로가 Saved 아래면 거부 — 설계 단계 실측). APNG 가 채팅 미리보기에서 움직이는지는 사용자 눈 확인 |
+| 6 | 회귀 없음 | ✅ pytest **479건**(기존 442 + `test_capture.py` 37 — 기존 기대값 변경 1: Provider 목록에 파이프 `review`). Development · DebugGame 빌드 코드 경고 0(툴체인 버전 안내만). 통합 `anim_gen_phase1_test.py` · `phase2` · `phase4` · `phase6` · `phase7`(Tool 수 검사 `== 40` → `≥ 40` — 기대된 변화) · `phase3`(Provider 수 9 → 10 — 기대된 변화) · `phase5`(실제 Kimodo) PASS · `phase8_1` 전 섹션 실행에서 plan 1건만 FAIL — 기본 섹션 순서가 exp1(실행 폴더에 애셋을 만듦) → plan(실행 폴더가 없어야 함)이라 생기는 테스트 순서 문제(8-2 와 무관), `--only hashes,plan,dirty` 단독 PASS. 첫 회귀 시도에서 Phase 5 도중 에디터가 종료 코드 3 으로 내려갔다(같은 에디터로 Phase 1 ~ 7 · 캡처를 연달아 돈 뒤 — 크래시 로그는 Saved 라 세션이 못 읽음), 새 에디터로 다시 돌려 PASS |
+| 7 | 사람 판정 | ⏳ 캡처 결과(아래)를 보고 — 캡처가 나왔다고 품질 합격이 아니다 |
+
+**시험 대상 캡처(통합 `existing` — 실행 `P82Run1026_232446`, 출력 `Tools/mcp/results/capture/P82Run1026_232446/<이름>/{sheet.png, compare.png, animation.png}`):** `kimodo_sword_1025`(기준 칼 시험) · `p81_sword_pick`(8-1 수정안 뒤 검 선택 seed 20261025) · `p81_scythe_pick`(8-1 파지 띠 정정 뒤 낫 선택 seed 20261028). 비교 칸 = 그 애셋을 만든 Job 의 Blender 소스 골격 프레임.
+
+**읽는 법 · 한계:**
+- 캡처는 시퀀스를 메시에 그대로 입힌 프리뷰다 — 무기가 없고(8-4), 옷 · 머리카락 물리가 돌지 않으며(천 시뮬레이션 끔 — 스키닝 그대로), 게임 AnimBP 레이어(왼손 IK · 조준 보정 · 레이어 블렌드)가 없고, 조명은 프리뷰 조명이다. 게임 화면과 다를 수 있다.
+- 카메라는 전 프레임 범위에 고정이라 루트 이동이 큰 클립은 캐릭터가 작게 보인다(칼 시험 0.43 cm/px). 손 · 손가락 · 머리는 `focus`(9-5c).
+- APNG 는 크다(4초 6.6 ~ 8.0 MB) — 필요하면 `sequence.fps` · `cell_height_px` 를 낮춘다. MP4 는 하지 않는다(U0-5 — APNG 가 움직임, 9-5c 에서 기록으로 닫음).
+
+#### 8-3 자동 보정 (개정 13 — 2026-10-27 구현 · 검증)
+
+**진행:** 설계 초안(구간 탐지 · 가속 · 트림 · op 사전 · 보정 위치 · 연결 · 시그니처 · 테스트 — 공유 노트 `phase8-3-design.md`) → 사용자 "추천안으로 착수"(A 위치 분리: 시간 = 대상 · 다리 = 소스 Blender, B 낫 시험 대상 둘 다(`P81Run1026_192547` · `_205832`), C 가속 기본값, D C++ 비교 칸 루트) → **E0**(제품 코드 무변경 — 운영 Vesper 애니 · 시험 대상 측정, 기준 재현) → 사용자 결정 2건(발 간격 = **두 발 디딘 구간의 상한 3.0**(대상 기준 — 클립 p90 은 운영 공격과 구별이 안 됐다) · 정지 머리 트림 기본 켬 0.2초) → timing 구현 · 시험 대상 적용 → 다리 구현 · Blender 스파이크(무릎이 밖으로 빠짐 → 엉덩 둘레 회전 후 길이 맞춤) → 첫 실측에서 **Vesper 접지 미끄러짐이 줄지 않음**(소스만 고정) → 엔진 `PelvisMotionOp` 대조 → **리타깃된 다리의 모델**로 풀이(설계 정정 — 아래) → C++ 비교 칸 루트 · 두 구성 빌드 → 통합 · 회귀.
+
+**설계 정정 (실측):**
+1. 발 간격 지표 = 클립 p90 → **두 발을 디딘 프레임의 상한**. E0: 운영 낫 공격 타격 중 p50 4.1 ~ 5.0 · p90 4.9 ~ 7.4 로 생성물(3.7 ~ 5.1)과 비슷했고, 차이는 처음부터 끝까지 넓은 자세를 유지하는 것(운영 공격 끝 2.1 · 대기 1.9).
+2. 다리 풀이 공간 = 소스 골격 → **리타깃된 다리의 모델**(대상 엉덩 관절 = 대상/소스 골반 높이 s × 소스 골반 절대 위치 + 골반 회전 변화 · 대상 엉덩 오프셋, 다리 = 소스 뼈 방향 · 대상 길이 — `PelvisMotionOp.cpp:297-325` · FK 체인 복사). 소스 발만 고정하면 Vesper p95 가 그대로이거나 늘었다(검 7.3 / 9.2 → 7.4 / 8.2, 낫 왼발 10.3 → 16.2 cm/s). 모델 풀이로 4건 모두 0.0 — 대신 소스 발이 움직인다(의도, 소스 p95 0.7 ~ 3.4 → 5.3 ~ 15.8 cm/s). 완료 기준 2 의 '소스 접지 미끄러짐 ≤ 0.5' 는 '대상 모델 예측 0 · Vesper 실측 ≤ 전' 으로 바꿨다.
+3. 다리 IK = 원래 무릎 평면 → **엉덩 둘레로 먼저 돌린 뒤 길이만**(`foot_fix.swing_two_bone`). 원래 평면이면 발을 모을 때 무릎이 밖으로 빠졌다(무릎 간격 57.7 → 60.0 cm).
+
+**시그니처:**
+
+```jsonc
+"fix": {
+  "ops": [ { "op": "smooth", "sigma_frames": 1.0, "bones": "all", "root": true, "from_s": null, "to_s": null },
+           { "op": "stance_width", "max_ratio": 3.0, "min_ratio": 1.2, "max_shift_cm": 25, "blend_s": 0.2, "keep_knee_bend": true },
+           { "op": "foot_lock", "feet": ["left", "right"], "contacts": "auto", "height_ratio": 0.04, "speed_ratio": 0.25, "min_frames": 4,
+             "blend_frames": 3, "bridge_frames": 2, "lock_rotation": false } ],
+  "timing": { "mode": "auto", "target_peak_cm_s": 1200, "max_rate": 2.0, "recovery_rate": 1.5,
+              "antialias": 1.0,   // 개정 13 보강 — time_warp 의 앤티에일리어싱(ramp_pieces 는 없앴다)
+              "swing": { "core_ratio": 0.5, "edge_ratio": 0.2 },
+              "still": { "speed_cm_s": 30, "min_s": 0.3, "trim_head": true, "keep_head_s": 0.2, "trim_tail": true, "keep_tail_s": 0.3 } } }
+// 계획 convert.inputs.fix{ops(기본값 · 순서), legs{left{hip, knee, ankle}, right}, target_dims{hip_width_cm, leg_cm, thigh_cm, shin_cm, pelvis_height_cm, rest{pelvis, hip_l, hip_r}}}
+// 계획 timing{step, provider direct_key, inputs{…timing, loop, root_motion, bones{hands, body}}, resolved{signal, windows, rate, recovery_rate, segments, ops, warp, cut, length, before, preview} | null}
+// Job: timing{…plan, source, asset, bones, before, after} · fix{source[{op: smooth, …} | {op: legs, space, scale, contacts, stance, pins, ik, before, after, source_before, source_after}], target{bones, leg_dims, ratio, contact_pct, slide_p95, knee_gap_min_cm}}
+// capture_animation compare.rows 이미지 = ImportSourceRoots ∪ CaptureOutputRoots (C++ AnimMcpGeneration::ResolveCompareImage)
+```
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/timing.py` | 순수 — 요청 정규화 · 신호(profile → 손목 · 전신 속도) · 탐지(핵심 · 휘두름 · 정지 머리 / 꼬리) · rate · 배율 곡선(보강 — 처음 판은 정수 프레임 retime 조각) · op(trim + time_warp) · warp(Hermite) · 전후 수치 · C++ trim/retime/time_warp 시뮬레이션(pytest 대조용) |
+| `Tools/mcp/anim_gen/fix_ops.py` · `foot_fix.py` | op 사전(이름 · 기본값 · 범위 · 순서 · 다리 본) · 다리 풀이(접지 구간 상수 오프셋 · 배율 · 최소 간격 · 고정 · 대상 모델 · 엉덩 둘레 2본 IK) — 순수 |
+| `Tools/mcp/anim_gen/blender/fix_legs.py` · `bvh_to_fbx.py` | Blender 안 실행 — 포즈 읽기 · 부모 순 로컬 회전 키 쓰기(오일러 연속), smooth · legs, 보고(대상 예측 · 소스) |
+| `Tools/mcp/anim_gen/motion_metrics.py` | `detect_contacts` · `leg_dims`(+ 넓적다리 · 정강이 · 골반 높이) · `stance_map` · `legs_report` · `runs` |
+| `Tools/mcp/anim_gen/soma.py` | SOMA77 상수(골반 · 체인 · 발 · 팔 치수)와 `is_soma` — `providers/local_ai.py` 에서 옮김(다시 내보냄) |
+| `providers/blender.py` · `builtin.py` · `router.py` · `executor.py` · `request.py` · `review.py` · `service.py` · `server.py` | fix op 검사 · SOMA BVH 기본값 · 다리 본 · 대상 치수 · `fix_legs` 인자 · Job `fix` / `DirectKey` timing 단계 · `selection_bones` 다리 치수 · `legs_on_target` / 단계 순서 · 재사용 판정 / `_PRODUCING` · 최종 이름 · `DURATION_MISMATCH` 대체 / `fix.timing` / 비교 칸 생략 / Job 기본 필드 / Tool 설명 |
+| `Plugins/AnimGraphMcp/…/Core/AnimMcpGeneration.{h,cpp}` · `AnimMcpCapture.cpp` · `Tests/AnimMcpCaptureTests.cpp` · `README.md` | `ResolveCompareImage`(캡처 루트도) · Automation 4건 추가 |
+| `tests/test_timing.py` · `test_fix_legs.py` · `conftest.py` · `test_review.py` | pytest 58건 추가(timing 29 · 다리 29) · FakeEditor 속도 열 · retime/trim 길이 · 기대된 변화 3건(사전이 비어 있지 않음 — 사전 밖 op 로 막기 · 확장점 · 생성 경로가 op 를 싣는다) |
+| `Tools/mcp/anim_gen_phase8_3_test.py` | 통합 — hashes · automation · plan · baseline · timing · legs · smooth · combined · capture · dirty |
+
+**8-3 완료 기준:**
+
+1. 흐느적 — `fix.timing` 계획이 탐지 규칙 · 매개변수를 보이고(기존 애셋은 구체 op · 결과 길이 미리보기까지), 시험 대상마다 새 애셋: Vesper 휘두름 정점 = 원 정점 × 계획 rate ± 10%(목표 1,200 · 상한 ×2.0), 정지 꼬리 ≤ 0.3초 + 1프레임, `SEAM_JUMP` 0 · 검증 FAILED 0. Job `timing` 에 신호 · 구간 · op · warp · 전후 길이.
+2. 다리 — `fix.ops`(stance_width + foot_lock, smooth 단독 1건): Vesper 두 발 디딘 발 좌우 비 ≤ 3.2(상한 3.0 + 0.2), 대상 모델 예측 접지 미끄러짐 0 · Vesper 실측 ≤ 전, 상체 · 골반 불변(≤ 0.1 cm), IK 늘어남 0, 검증 FAILED 0. Job `fix.source` · `fix.target`.
+3. 기준 재현 — fix 없는 재실행 = 기존 애셋(≤ 0.1 cm).
+4. 합본 — 한 Job(BVH → fix.ops → 리타깃 → timing → 검증 → capture) SUCCEEDED, 한계 `FIX_ON_SOURCE_SKELETON` · `TIMING_CHANGED_LENGTH`.
+5. 전후 캡처 — 시험 대상마다 전 · 후 시트(같은 동작 위상 행) · 비교 시트 · APNG 둘 → SendUserFile.
+6. 비파괴 · 회귀 — 시험 대상 · 스켈레톤 · 메시 SHA-256 불변 · 새 더티 0 · Content 변경 = 실행 폴더뿐, pytest · Phase 1 ~ 7 · 8-1 · 8-2 통합 실패 0, Development · DebugGame 경고 0.
+7. 사람 판정 — 수치 · 캡처는 근거, 판정은 사람(§16-9).
+
+**결과 (2026-10-27 — `anim_gen_phase8_3_test.py` 전 섹션 PASS · 실패 0, 실행 `P83Run1027_153224` · 225초):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 흐느적 | ✅ 계획(애셋 0 · 더티 0): 검 선택 → 사슬 `resolve_source → timing → validate` · rate 2.0 · op 7개 · 미리보기 길이 1.1667초, 실행 op = 계획 op(4건). 정점 × 1.84 ~ 1.88(계획 ×2.0 · 1.95 의 92 ~ 95%), 정지 꼬리 2.4 · 2.43 → 0.3 · 0.27초(검), 정지 머리 0.9 → 0.2초(낫), 검증 `PASSED` 4건 · 이음매 경고 0. 손목 · 발목 궤적 상자 차 0.02 ~ 2.65 cm — 트림한 머리 · 꼬리의 느린 움직임이 빠져 정보로만(설계의 '≤ 1 cm' 는 트림이 없을 때) |
+| 2 | 다리 | ✅ 대상 모델 풀이(s 1.047 · IK 늘어남 0 · 오차 0.0 cm). Vesper 두 발 디딘 발 좌우 비 5.24 / 5.25 / 4.17 / 4.14 → **3.04 / 3.02 / 3.07 / 3.04**, 접지 미끄러짐 p95 (7.33, 9.2) / (8.29, 5.76) / (10.28, 16.64) / (11.43, 16.52) → **0.0 / 0.0 (4건)**, 무릎 간격 최소 52.5 / 55.1 / 41.2 / 43.2 → 40.3 / 43.7 / 30.2 / 31.5 cm, 손목 · 머리 · 골반 궤적 차 0.0 cm. 모델 예측 = Vesper(디딘 최대 ±0.01). smooth 단독: 관절 이동 p95 1.56 · 최대 5.93 cm · `PASSED`. 검증 `PASSED` · `PASSED_WITH_WARNINGS`(전과 같은 관통 경고) |
+| 3 | 기준 재현 | ✅ 4건 모두 0.0 cm(손목 · 발목 · 넓적다리 · 무릎 · 골반 · 머리) — 저장된 Kimodo BVH + SOMA 기본값 자동 |
+| 4 | 합본 | ✅ 4건 SUCCEEDED(10 ~ 17초 — Blender 포함), Job `fix` · `timing` · `review.capture`, 한계 `FIX_ON_SOURCE_SKELETON` · `TIMING_CHANGED_LENGTH` · `REVIEW_CAPTURE_PREVIEW_ONLY` |
+| 5 | 전후 캡처 | ✅ 4건 — 전(기존 애셋 6행) · 후(합본 — 행 = warp(전 행 시각)) · 비교 시트(후 \| 전) · APNG 전 61 · 후 19 ~ 37장, 잘린 칸 0 · 더티 0. 채팅 표시는 보고에서 |
+| 6 | 비파괴 · 회귀 | ✅ 시험 대상 4 · 스켈레톤 · 메시 SHA-256 불변 · 미저장 0 → 0 · Content 변경 = 실행 폴더뿐. pytest **537건**(479 + 58, 기대된 변화 3). Development · DebugGame 빌드 경고 0. 통합 회귀 `anim_gen_phase1_test.py` 113 · `phase2` 62 · `phase3` 35 · `phase4` 27 · `phase5` 57(실제 Kimodo — 각속도 p99 비 0.954 · 루트 691.83 cm · Yaw 189.81°, 개정 8 과 같다 · 기대된 변화 1: 'fix op 사전이 비어 있음' 검사 → 사전 밖 op 로 막기) · `phase6` 20 · `phase7` 85 · `phase8_1` 100(`--only hashes,plan,exp1,…` — plan 을 exp1 앞에, 8-2 기록의 순서 문제 회피) · `phase8_2` 52 확인 실패 0. 첫 Kimodo 회귀는 에디터 재기동 때 이전 에디터가 미저장 패키지로 `quit_editor` 를 거절한 채 남아 토큰 파일이 엇갈려 `UNAUTHORIZED` — 에디터 하나로 다시 돌려 PASS(코드 무관) |
+| 7 | 사람 판정 | ✅ 사용자 판정 통과(2026-10-27 — 후속 수정 뒤 전후 캡처 `P83Run1027_190338` 기준, '8-3 후속' 절) |
+
+시험 대상별 (전 → 후, Vesper):
+
+| 대상 | 길이 초 | 휘두름 정점 cm/s | 정지 머리 / 꼬리 초 | 두 발 디딘 발 좌우 비 · p50 | 접지 미끄러짐 p95 L / R cm/s | 무릎 간격 최소 cm |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 칼 시험 `KimodoSword1025_185815` | 4.0 → 1.23 | 425 → 794 | 0 / 2.4 → 0 / 0.3 | 5.24 · 5.12 → 3.04 · 2.89 | 7.3 / 9.2 → 0 / 0 | 52.5 → 40.3 |
+| 검 선택 `P81Run1026_180733` | 4.0 → 1.17 | 322 → 604 | 0.07 / 2.43 → 0.03 / 0.27 | 5.25 · 5.08 → 3.02 · 2.81 | 8.3 / 5.8 → 0 / 0 | 55.1 → 43.7 |
+| 낫 정정 선택 `P81Run1026_192547` | 4.0 → 2.40 | 527 → 972 | 0.9 / 0.03 → 0.2 / 0.03 | 4.17 · 3.72 → 3.07 · 2.48 | 10.3 / 16.6 → 0 / 0 | 41.2 → 30.2 |
+| 낫 띠 정정 선택 `P81Run1026_205832` | 4.0 → 2.37 | 637 → 1,177 | 0.9 / 0.03 → 0.2 / 0.03 | 4.14 · 3.66 → 3.04 · 2.48 | 11.4 / 16.5 → 0 / 0 | 43.2 → 31.5 |
+
+(운영 Vesper 낫 공격: 길이 1.25 ~ 2.4초 · 정점 1,098 ~ 1,821 · 끝 자세 2.1 · 접지 미끄러짐 p95 6 ~ 22 cm/s — E0.)
+
+**전후 캡처:** `Tools/mcp/results/capture/P83Run1027_154153/<대상>/{before, after}/{sheet.png, animation.png}` · `after/compare.png`(행마다 after 정면 · 측면 | before 정면 · 측면, 같은 동작 위상 — `--only hashes,capture,dirty` 로 라벨을 붙여 다시 찍었다, 애셋은 `P83Run1027_153224` 합본). 잘린 정지 꼬리 · 머리의 전 행은 후의 끝 · 처음 프레임으로 모인다.
+
+**읽는 법 · 한계:**
+- 검은 4초 중 2.4초가 정지 꼬리라 길이가 1.2초로, 낫은 정지 머리 0.7초 · 복귀 ×1.5 로 2.4초로 줄었다. 검의 정점은 상한 ×2.0 에 걸려 운영 최저(1,098)에 못 미친다(604 · 794) — 더 빠르게는 `max_rate` 를 올린다(사람 판정 뒤).
+- 다리는 두 발을 디딘 구간이 상한 3.0 안이고 Vesper 발이 미끄러지지 않는다. 그 대신 소스 발은 움직인다(대상 기준으로 고정했다) — 다른 대상 메시로 같은 애니를 리타깃하면 그 메시 치수로 다시 보정해야 한다(계획이 대상 치수를 싣는다).
+- 낫은 디딘 구간 안에 두 발이 가까운 프레임이 있어 최소 간격(1.2 × 엉덩 폭) 때문에 3.07 에서 멈췄다.
+- 모델은 바닥 제약 · 골반 오프셋 설정이 기본값인 리타기터를 가정한다(`match_existing` — 지금 anim_gen 의 RTG). 다른 RTG 구성이면 모델 예측 ≠ 실측일 수 있다 — `fix.target` 실측으로 드러난다.
+- 무기 · 손 · 몸 관통은 그대로(8-4). **수치 통과는 품질 합격이 아니다** — 전후 캡처를 사람이 본다.
+
+#### 8-3 후속 — 가속 구간 끊김 · 무릎 굽힘 (개정 13 보강 — 2026-10-27 밤)
+
+**진행:** 8-3 보고 뒤 품질 탐침(원본 · 다리만 · 시간만 · 합본)에서 8-3 이 새로 만든 문제 2건(가속 구간 떨림 0.5 ~ 3.4 → 7.4 ~ 12.5 cm/프레임² · 무릎 굽힘 p50 37 ~ 42° → 48 ~ 60°) → 사용자 지시로 새 세션 → **설계 전 실측**(제품 코드 무변경 — 공유 노트 `phase8-3-followup-design.md` §0): 떨림 최댓값은 속도 경계가 아니라 원본의 빠른 꺾임(발볼 디딤 · 손가락 끝 · 아래팔)을 2배로 접은 것이고, 매끈한 사상 · 3차 보간만으로는 줄지 않으며(위치 공간 흉내), 앤티에일리어싱이 줄인다 → 사용자 결정(A 떨림 기준 = 균일 r 배 기대값 × 0.8 · B 앤티에일리어싱 · C 무릎 = 두 다리 중 작은 필요량) → 구현 → 실측에서 C++ 앤티에일리어싱이 흉내보다 약해 c 0.7 은 기준 A 를 3건 넘김 → **c 1.0**(기준 A 를 지키는 쪽, 정점 손실은 설계 때 보인 범위 안 — 사용자 확정 2026-10-27). 전후 캡처 사용자 판정 통과(2026-10-27).
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Plugins/AnimGraphMcp/…/Core/AnimMcpAnimEditOps.{h,cpp}` · `AnimMcpAnimEdit.cpp` · `Tests/AnimMcpEditTests.cpp` · `README.md` | 새 op `time_warp{knots, rates?, antialias?}` — `FWarpCurve`(Hermite · PCHIP · 정방향 이분 탐색) · `EvaluateFiltered`(선형 보간 트랙 ∗ 가우시안을 닫힌 식으로 — 키 가중치 = E[hat(T − j)], `erfc`) · `Resample` 키별 σ(기존 `retime` 은 σ 0 — 결과 그대로) · Automation `AnimGraphMcp.Generation.Edit` time_warp 블록(항등 · 2배 = retime · 램프 속도 변화 ≤ 0.25 · antialias 지그재그 · 거부 8종 · 이음매) |
+| `Tools/mcp/anim_gen/timing.py` | VERSION 2 — 배율 곡선 매듭(`rate_marks`) · 매듭 사이 출력 길이 = 원 길이 / 두 끝 배율 평균(Hermite 끝 기울기 = 매듭 배율 → 출력 시각에 선형인 램프) · 새 길이 정수 프레임 올림(배율이 상한을 넘지 않게) · op = trim 하나 + time_warp 하나 · `WarpCurve` · `warp_time`(Hermite) · `simulate`(time_warp) · `max_rate_step` · `fix.timing.antialias` 1.0, `swing.ramp_pieces` 삭제 |
+| `fix_ops.py` · `foot_fix.py` · `blender/fix_legs.py` · `providers/blender.py` | `stance_width.keep_knee_bend` · `pelvis_raise`(프레임별 필요 상승 → 두 다리 중 작은 쪽 → σ 2 → 다시 상한) · `raised` · solve(골반 올린 프레임도 IK) · `raise_pelvis`(골반 위치 키 — 루트면 기준 회전의 역, 부모가 있으면 부모 포즈 · 기준 상대 회전의 역, 부모에 붙은 본은 `PELVIS_CONNECTED`) · IK 는 올린 엉덩 · 무릎 · 발목(방향 그대로)에서 · 진단에 골반 상승 |
+| `motion_metrics.py` | `knee_bend` · `legs_report.knee_bend`(Job `fix.target` 에도) · `zigzag_at_rate`(균일 r 배 기대값 — 위상 0 · r/2 중 큰 쪽) |
+| `tests/test_timing.py` · `test_fix_legs.py` · `conftest.py` | pytest 546(537 + 9, 기대된 변화: retime 조각 · ramp_pieces → 배율 곡선 · time_warp, stance_width 기본값에 keep_knee_bend) |
+| `Tools/mcp/anim_gen_phase8_3_test.py` | automation 에 Edit · timing(op = trim + time_warp · 정점 ≥ ×0.75 · 속도 단차 ≤ 램프 + 0.05) · legs(골반 기준 상체 · 골반 수평 · 골반 상승 = 계획 ± 0.5 · 무릎 p50 ≤ +5°) · 새 `quality` 섹션(4 대상 × 원본 · 다리 · 시간 · 합본) |
+
+**설계 정정 (실측):**
+1. 떨림의 원인 = 계단 경계가 아니라 원본의 빠른 꺾임의 에일리어싱(위 진행). 기준 = 균일 r 배 기대값 × 0.8(원본 × r² 는 13.7 / 2.2 / 5.8 / 5.8 — 지킬 수 없다).
+2. 앤티에일리어싱 강도 — C++ 실측(같은 op, c 만 바꿔): 떨림 c 0 → 0.7 → **1.0** → 1.5 = 칼 8.8 → 5.2 → **3.8** → 2.3 · 검 선택 7.4 → 6.3 → **2.3** → 1.6 · 낫 정정 24.3 → 21.0 → **3.4** → 1.8 · 낫 띠 12.8 → 10.3 → **2.6** → 1.9, 정점 ×1.85 ~ 1.92 → ×1.77 ~ 1.84 → **×1.67 ~ 1.78** → ×1.44 ~ 1.64. 로컬 회전을 거르는 실제 결과는 위치 공간 흉내(c 0.7 이 충분)보다 약하다 → 1.0.
+3. 무릎 — 시간 보정이 머리 · 꼬리를 잘라 무릎 굽힘 p50 의 모집단이 바뀐다 → 합본의 무릎은 '같은 시간 보정의 원본(시간만)'과 비교(시간 보정은 자세를 바꾸지 않는다).
+
+**결과 (2026-10-27 — `anim_gen_phase8_3_test.py` 전 섹션, 실행 `P83Run1027_190338` · 253초 · 실패 1):**
+
+| 대상 | 정점 cm/s (×비) | 떨림 시간만 · 합본 (첫 판) | 균일 기대값 × 0.8 | 다리 떨림 (원본) | 무릎 p50 L/R 다리 (원본 · 첫 판) | 골반 상승 p50 · 최대 cm |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 칼 시험 | 425 → 720 (×1.69) | 3.81 · 3.87 (10.78 · 12.5) | 12.09 | 3.33 (3.42) | 38.4 / 37.8 (38.2 / 36.8 · 57.8 / 57.6) | 6.67 · 11.6 |
+| 검 선택 | 322 → 571 (×1.77) | 2.25 · 2.38 (7.43 · 9.21) | 6.47 | **1.89 (0.56) ✗** | 42.7 / 38.5 (42.4 / 36.3 · 59.0 / 57.6) | 6.33 · 10.95 |
+| 낫 정정 | 527 → 884 (×1.68) | 3.43 · 3.45 (11.78 · 11.78) | 20.74 | 1.97 (1.44) | 40.1 / 40.7 (37.1 / 40.7 · 47.7 / 49.1) | 2.45 · 3.70 |
+| 낫 띠 | 637 → 1,084 (×1.70) | 2.61 · 3.32 (11.08 · 11.08) | 9.56 · 9.64 | 1.59 (1.53) | 40.9 / 41.2 (38.3 / 41.2 · 48.1 / 49.3) | 2.35 · 3.51 |
+
+- 그대로 지킨 것: 길이 1.2 / 1.2 / 2.33 / 2.33초 · 정지 꼬리 ≤ 0.3초 · 이음매 경고 0 · 검증 FAILED 0 · 속도 단차 ≤ 램프 기울기(0.25 / 0.29 / 0.20 / 0.20 — 첫 판은 조각 경계에서 0.5 이상) · Vesper 두 발 디딘 발 좌우 비 3.04 / 3.02 / 3.07 / 3.04 · 접지 미끄러짐 0 · IK 늘어남 0 · 상체의 골반 기준 위치 0.01 cm · 골반 수평 0.0 cm · 골반 상승 = 계획(±0.01) · 합본 무릎 ≤ 시간만 + 2.8° · 관통 · 손목 굽힘 · 손-머리 · 꼬임 원본 대비 나빠짐 0(12 변형) · 기준 재현 0.0 cm · 시험 대상 · 스켈레톤 · 메시 SHA-256 불변 · 미저장 0 · Content 변경 = 실행 폴더뿐 · 두 구성 빌드 경고 0 · C++ Automation Capture · Edit 통과.
+- **기준 미달 1건 — 검 선택 다리만 떨림 1.89 > 원본 + 1.0(1.56).** 오른 무릎 0.5 ~ 0.57초, 원본이 다리를 11° 까지 펴는 자리. 다리 보정의 간격 전환 · 발 고정 블렌드가 공중 발 경로에 만드는 엉덩 → 발목 거리 꺾임(+1.2 → −2.7 cm/프레임² — 첫 판에도 같은 자리, 떨림 1.32)이, 원래 굽힘을 되찾아 거의 펴진 다리에서 무릎을 더 흔든다. 시도(블렌드 5 · 7 프레임, 공중 보정량 스무딩 2가지, C2 블렌드, 최소 굽힘 25° 상한)는 모두 줄이지 못했다(2.05 · 9.5 · 1.63 · 2.33 · 3.94 · 2.01) — 공중 발 경로를 디딤 사이 곡선으로 다시 짜는 것을 **8-4 범위로 넘겼다**(사용자 결정 2026-10-27 — 대상 쪽 풀이가 발 접지를 제약으로 함께 지킨다). 1.89 는 운영 공격 떨림 범위(0.6 ~ 5.6) 안.
+- 회귀: pytest 546 · 통합 `phase1` · `phase2`(retime 결과 그대로 — `Resample` σ 0) · `phase3` · `phase4` · `phase5`(실제 Kimodo) · `phase6` · `phase7` · `phase8_1`(`--only hashes,plan,exp1,…`) · `phase8_2` 실패 0. 회귀 뒤 에디터를 다시 띄울 때 테스트 경로 미저장 55개를 버리고 종료했는데 프로세스가 종료 중 응답 없음으로 남아(13.8 GB) 강제 종료했다(코드 무관 — 다시 띄운 에디터 인증 확인 후 Phase 5 · 8-1).
+
+**읽는 법 · 한계:**
+- 원본 숙임이 평평해졌다 — 검 2건은 원본이 넓은 다리로 골반을 8 cm 숙이는 구간에서 골반 상승이 최대 11 cm 라, 좁힌 다리로 원래 굽힘을 지키면 골반 높이가 거의 일정해진다(기하로는 맞다 — 눈 판정 대상).
+- 앤티에일리어싱은 빠른 손가락 · 손목 꺾임을 흐리게 한다 — 정점 −8 ~ −10%(c 0 대비). 더 빠르게는 `max_rate` 를 올린다.
+- 전후 캡처: `Tools/mcp/results/capture/P83Run1027_190338/<대상>/{before, after}/` — 비교 시트(후 | 전) · APNG 둘. **사용자 판정 통과(2026-10-27).**
+
+#### 8-4a 기반 — 측정 한 원천 · 입출력 · 무기 부착 캡처 · E0 (개정 14 — 2026-10-27 ~ 28 구현 · 검증)
+
+**진행:** 8-4 총괄 설계(공유 노트 `phase8-4-design.md` — 결정 A ~ G 추천안 확정: A 수단 = Python 한 풀이 + C++ 얇은 입출력(UE Control Rig 베이크 · Blender IK on Vesper FBX 기각, C++ PBIK 는 차선) · B 4단위 a → b → c → d 하나씩 · C 낫 손잡이 = 요청의 무기 공간 선분(E0 제안 — 운영 애셋 무변경) · D 몸통 자유도 기본 끔 · E 새 측정 옵트인(기본 결과 · 검증 상태 · 선별 점수 불변) · F 지시 목표 soft · G 샘플 전이 같은 스켈레톤만) → 8-4a 상세 시그니처 · 정정안 11건(사용자 승인 — `phase8-4a-design.md`) → 옛 빌드로 비교 대상 16개 기본 `body_clearance` 를 state 에 찍음(`baseline`) · DA 값(시작 스크립트) → C++ 5개 · Automation · Python · 통합 1차 → (컴퓨터 강제 종료 뒤 마무리 세션) 머리 꼭대기 정정 · E0 낫 축 · 왼손 파지 판정 정정 → 통합 · 회귀. **C++ 는 8-4 전체에서 이 단위에만 있다**(8-4b ~ d 는 이 op · 측정으로 Python 만).
+
+**C++ (전부 옵트인 — 주지 않으면 개정 13 결과 그대로):** ① `validate_animation body_clearance` v2 `parts: "all"` · `legs` · `per_frame` · `model`(§13) ② `profile_rotations`(§13) ③ 편집 op `bone_deltas{space: parent}`(§14 Phase 2 op 표) ④ `capture_animation attachments[{mesh (SkeletalMesh | StaticMesh), socket | bone, offset{location, rotation[pitch, yaw, roll], scale}}]` ≤ 4 — 부착 = `AttachToComponent(KeepRelative)` + 상대 offset, 렌더 · ShowOnly · 범위(정점 상자)에 포함, 결과 `attachments[{mesh, class, socket | bone, offset, local_bounds_cm}]`, 오류 `BAD_REQUEST`(`SOCKET_NOT_FOUND` · `BONE_NOT_FOUND` · `CONFLICTING_FIELDS` · `NOT_A_MESH`) ⑤ `inspect_skeleton geometry`(§8). 플러그인은 프로젝트 이름을 모른다 — 부위 · 좌우 · 중앙선은 이름 없이 기하로.
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Plugins/AnimGraphMcp/…/Core/AnimMcpBodyClearance.{h,cpp}` | 부위 그룹(위팔 · 머리 · 종아리 — 지금 None 인 본에만, 기존 점 · 지도 불변) · 몸통 칸 t 경계 · 정수리(축선 5 cm 안 최대 투영) · 머리 · 종아리 지도 · 쌍 통계 · 다리끼리 · 프레임별 깊이 · 모델 내보내기(base64) |
+| `…/Core/AnimMcpAnimValidator.{h,cpp}` · `Tools/AnimMcpTools_Validate.cpp` | `profile_rotations` · body_clearance 새 키 파싱(`retarget_animations` 에는 `per_frame` · `model` 없음) |
+| `…/Core/AnimMcpAnimEdit.cpp` · `AnimMcpAnimEditOps.{h,cpp}` | op `bone_deltas`(키 수 검사 · 부모 공간 회전 벡터 · 0 키 그대로 · Animated 트랙만) |
+| `…/Core/AnimMcpCapture.{h,cpp}` · `Tools/AnimMcpTools_Capture.cpp` | `attachments`(offset 해석 · 소켓/본 · 범위 포함 · 포즈마다 렌더 상태) |
+| `…/Core/AnimMcpSkeletonGeometry.{h,cpp}` · `AnimMcpSkeletonInspector.{h,cpp}` · `Tools/AnimMcpTools_Skeleton.cpp` | 주축(3×3 야코비) · 단면 · 본별 범위 — `geometry` |
+| `…/Tests/AnimMcp{BodyClearance,Edit,Capture,Geometry}Tests.cpp` · `README.md` · `Tools/mcp/anim_graph_mcp/server.py` | Automation(반경 지도 · 몸통 칸 · 어깨 제외 · base64 왕복 / bone_deltas 항등 · 한 본 · 거부 / offset 해석 / 야코비) · 문서 · 프록시 인자 |
+| `Tools/mcp/anim_gen/body_model.py` · `tests/{test_body_model.py, model_fixture.py}` · `conftest.py` | 순수 Python 몸 모델(디코드 · 쿼터니언 · FK · LBS · 지도 조회 · 델타 · 통계 · 대조) · pytest 14 · FakeEditor(profile_rotations · body_clearance parts/per_frame/model · bone_deltas 키 수) — pytest 560(546 + 14, 기존 기대값 변경 0) |
+| `Tools/mcp/anim_gen_phase8_4_test.py` · `Tools/mcp/e0_weapon_attach.py` | 통합 `hashes · baseline · automation · model · e0 · dirty`(state `Tools/mcp/anim_gen_phase8_4_state.json`) · DA 값 시작 스크립트(결과 `Tools/mcp/results/p84_weapon_attach.json`) |
+
+**설계 정정 (실측 — 상세 감사 §21):**
+1. 무기 부착 = 변환 2단(`AttachOffset` · `AttachTransform` · 소켓 · 손) — 캡처 `offset` 은 합성 한 변환. (8-4c 정정) 요청 `weapon.attach.offset` 도 합성 한 변환(Claude Code 가 두 값을 합성해 넣는다 — 낫 · 라이플 모두 `AttachTransform` 항등).
+2. `bone_deltas.space` 이름 = `parent`(`offset_bone` 의 `local` 과 반대 뜻), 몸 모델이 자기 포즈(모든 프레임)를 함께 낸다(profile 은 표본 ≤ 240 · 0번 프레임 없음), 모델은 측정 점 전부(줄이면 재현 ≠ 측정 — base64 로 크기를 잡았다).
+3. 머리 꼭대기 — 최대 투영은 Vesper 뿔 끝이었다 → 정수리 규칙 + 머리 지도 t ≤ 1.0(뿔 줄기가 t 1.0 ~ 1.05 칸을 15.6 cm 로 채워 정수리 위 손을 13.2 cm 로 셌다).
+4. 낫 손잡이 축 — 첫 주축은 길이가 둘째(날 142.7 cm)의 2배가 안 된다, 자루는 저폴리 원기둥이라 가운데 단면에 정점이 없다 → 자루 선 = 좁은 단면 중심 직선. 낫 메시 `Root` 기준 포즈가 (−27.73, 0, −131.13) 이동이라 Trace 소켓 선은 자루에서 27.3 cm 떨어진 판정용 선이다(손잡이 선분이 아니다).
+5. 왼손 파지 판정 — 손바닥 점(뼈 선 위)은 쥔 오른손도 자루에서 12.4 cm → '오른 손바닥 거리 + 3 cm · 자루 범위 안'.
+
+**결과 (2026-10-28 — `anim_gen_phase8_4_test.py --only hashes,automation,model,e0,dirty`, 실행 `P84Run1028_000654` · 85초 · 실패 0, baseline 은 옛 빌드 `P84Run1027_225342`):**
+
+| 완료 기준 | 결과 |
+| :--- | :--- |
+| 1 기본 결과 불변 | 비교 대상 16/16 — 키 없는 `body_clearance` = 옛 빌드(`arms[]` · `body` · 상태 · 경고), `parts` 를 켜도 `arms[]` · `body` 그대로(5건) |
+| 2 부위 쌍 | 36 쌍 · 모든 몸 부위가 잡힘(낫 정정 선택 걸림 % pelvis 6.6 · belly 10.7 · chest 100 · thigh 14.9 / 47.1 · head_neck 52.1). 소견 자리 1.53초 손 → head_neck 11.86 cm · 2.43초 왼 아래팔 → belly 6.53 cm. `head_near` 와 같은 방향 — 상관 0.952, 최근접 1.6초(3.0 cm) · 최심 1.533초 둘 다 소견 창 안. 몸통 칸 경계 belly 0.181 · chest 0.327(spine_01 · spine_02), 위팔 어깨 제외 9.75 cm, 정수리 `crown`(반경 5.26 cm) |
+| 3 Python 재현 | 5건(낫 정정 · 검 선택 · 낫 띠 · 운영 낫 Attack2 · 검 다리 보정본(다리 포함)) 쌍별 깊이 차 p95 0.0047 ~ 0.0048 · 최대 ≤ 0.0055 cm · 걸림 불일치 0 · 관통 % 같음 |
+| 4 bone_deltas · profile_rotations | 0 델타 = 원본(회전 0° · 위치 0 cm) · `trim{}` 항등과 내용 해시 같음 · `upperarm_l` 15° = 자손만(아래팔 6.4 · 손 11.2 cm, 나머지 ≤ 0.01) · 거부 `BAD_OP`(키 수) · `BONE_NOT_FOUND` · `OUT_OF_RANGE` · 원자성 `BAD_REQUEST`(애셋 0) · 미리보기 통과. profile_rotations = 위치 시각(자식의 부모 기준 위치 퍼짐 0.023 cm, 한 표본 밀면 19.7 cm) |
+| 5 무기 부착 캡처 | 낫을 `WeaponHandR` 에 붙인 '전' 시트 · APNG 3건(낫 정정 · 낫 띠 · 운영 Attack1) — 잘린 칸 0 · 더티 0 · `Tools/mcp/results/capture/P84Run1028_000654/<이름>/before/{sheet.png, animation.png}` |
+| 6 E0 | 아래 표 — 16개 '전' 수치 · 부착값 · 자루 선 · 왼손 파지 선분 제안 · 모델 크기 · 풀이 시간 예측 · 사건. 시험 대상 · 운영 낫 · 스켈레톤 · 메시 · 무기 메시 · DA 24개 SHA-256 불변 · 미저장 0 · Content 변경 = 실행 폴더뿐 |
+| 7 회귀 | 두 구성 빌드 경고 0(툴체인 안내만) · Automation `AnimGraphMcp.*` 35/35 · pytest 560 · 통합 phase1 · phase2 · phase8_2 실패 0 · phase8_3 `quality` 39/40 — 남은 1건은 8-3 때부터의 알려진 기준 미달(검 선택 다리 떨림 1.891 > 1.56, 값 그대로 — 8-4 범위 ③ = 8-4d 기준 1), 나머지 떨림 · 무릎 · 관통 · 손목 · 손-머리 · 꼬임 값은 8-3 결과 표와 같다 |
+
+**E0 — 비교 대상 '전' 수치(parts all, 관통 = 깊이 > 2.1 cm, 접촉 1.05 cm):**
+
+| 대상 | 단위 | 관통 쌍 상위(쌍 프레임 % · 최대 cm) | 손 → 머리 · 목 % · 최대 | head_near % | 위팔 → 몸통 접촉 % | 파지 % | 떨림 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| scythe_pick (낫 정정) | b · c | 왼 위팔 → 가슴 8.3 · 4.79 / 왼 손 → 머리 7.4 · 11.86 / 왼 아래팔 → 배 3.3 · 6.53 | 7.4 · 11.86 | 4.2 | 13.2 | 72.5 | 1.44 |
+| scythe_s25 | b | 오른 아래팔 → 가슴 50.4 · 12.74 / 오른 손 → 가슴 47.9 · 14.7 | 0.8 · 3.92 | 0 | 26.4 | 14.2 | 2.65 |
+| scythe_s26 | b | 오른 손 → 가슴 70.2 · 6.32 / 오른 아래팔 → 가슴 70.2 · 5.87 | 2.5 · 3.16 | 2.5 | 21.5 | 25.8 | 0.27 |
+| scythe_s27 | b | 오른 위팔 → 가슴 64.5 · 5.7 / 오른 손 → 머리 57 · 11.08 | 57 · 11.08 | 55.8 | 76 | 27.5 | 2.36 |
+| sword_pick (검 선택) | b | 왼 위팔 → 가슴 90.9 · 11.48 / 왼 아래팔 → 가슴 77.7 · 6.69 / 오른 손 → 머리 5 · 10.18 | 5 · 10.18 | 0 | 90.9 | 100 | 0.56 |
+| scythe_regrip (낫 띠) | c · b | 왼 위팔 → 가슴 5 · 4.17 / 오른 위팔 → 가슴 1.7 · 2.4 | 0 · 1.82 | 0 | 10.7 | 100 | 1.53 |
+| scythe_axis_bug | b 스트레스 | 오른 위팔 → 가슴 100 · 8.42 / 왼 위팔 → 가슴 89.3 · 13.44 / 왼 아래팔 → 가슴 75.2 · 13.16 | 43.8 · 9.11 | 41.7 | 100 | 97.5 | 1.48 |
+| 운영 Walk | b 기존 | 오른 위팔 → 가슴 76 · 3.28 / 왼 위팔 → 가슴 46.3 · 4.32 / 오른 손 → 오른 넓적다리 22.3 · 7.93 | 0 | 0 | 92.6 | 0 | 2.27 |
+| 운영 Run | b 기존 | 왼 손 → 배 15.8 · 4.26 / 오른 위팔 → 가슴 13.2 · 2.94 / 왼 손 → 골반 11.8 · 10.84 | 0 | 0 | 42.1 | 0 | 8.02 |
+| 운영 Rifle Idle | b 기존 | 왼 위팔 → 가슴 98.1 · 4.64 / 왼 아래팔 → 가슴 34.5 · 3.25 | 0 | 0 | 100 | 0 | 0.29 |
+| 운영 낫 Attack2 | b 기존 | 왼 위팔 → 가슴 42.7 · 7.24 / 오른 위팔 → 가슴 37.5 · 6.81 / 왼 손 → 왼 넓적다리 27.1 · 6.43 | 0 | 0 | 65.6 | 28.4 | 8.16 |
+| legs_sword · legs_scythe_pick · legs_scythe_regrip | d | 각 원본과 같은 쌍(상체 불변) — 다리끼리 쌍 0 | 5 · 10.18 / 7.4 · 11.86 / 0 · 1.82 | 0 / 4.2 / 0 | 90.9 / 13.2 / 10.7 | 100 / 72.5 / 100 | 1.89 / 1.97 / 1.59 |
+| legs_kimodo_sword · kimodo_sword_1025 | d · b 대조 | 오른 위팔 → 머리 2.5 · 4.0 | 0 | 0 | 0.8 | 0 | 3.33 / 3.42 |
+
+**E0 — 낫(무기 공간 = `SKM_Hero_Sickle` 메시 컴포넌트 공간 cm):**
+- 부착값: `DA_WD_Sickle1.MeshInfo.AttachOffset` 이동 (−8.582, 3.961, 56.356) · 회전 0 · `DA_EF_Sickle.ActorsToSpawn[0].AttachTransform` 항등 · `AttachSocket = WeaponHandR`(`hand_r` 상대 (−3.509, 3.388, −1.033) · pitch −0.817 · yaw 4.743 · roll −12.853) · `LeftHandGripSocket = None`(런타임 왼손 IK 없음) → 캡처 offset = 이동 (−8.582, 3.961, 56.356) · 회전 0 · 스케일 1.
+- 기하: 정점 범위 x −98.2 ~ 42.8 · y ±5.0 · z −131.1 ~ 88.5, 무게중심 (−5.79, 0, 23.41), 첫 주축 (−0.047, 0, 0.999) 219.5 cm · 둘째 (0.999, 0, 0.047) 142.7 cm(날) · 셋째 9.9 cm. **자루 선** = 점 (−0.98, 0, −49.27) · 방향 (−0.006, 0, 1.000), 좁은 단면 9칸(끝 고리 u −155 ~ −118 · 목 −45 ~ 1 — 가운데 −118 ~ −45 는 정점 0), 자루 범위 선 위 −81.9 ~ 73.7 cm. 자루 ∥ 첫 주축 2.31° · ∥ TraceStart → End 0.35°(Trace 선은 자루에서 27.3 cm — 판정용).
+- **왼손 파지 선분 제안**(운영 낫 4개 — 왼 손바닥 자루 선 거리 ≤ 오른 손바닥(12.4 cm) + 3 cm · 자루 범위 안, Attack1 5.3 · Attack2 31.6 · Attack3 5.4 · Finisher1 16.7%, 51 표본): 자루 선 위 좌표 p5 ~ p95 = −21.0 ~ 12.5 cm → **선분 (−0.85, 0, −70.32) → (−1.05, 0, −36.74)**(자루 중심선 위), 손바닥 점 기준 평균 반경 오프셋 (10.78, −1.79, 0.07)(10.9 cm)을 더하면 (9.93, −1.78, −70.26) → (9.72, −1.78, −36.67). 손바닥 점이 뼈 선 위라 8-4c 파지 잔차의 기준점(손바닥 점 vs 손바닥 면)에 따라 둘 중 하나를 쓴다 — 요청 `weapon.grips[].segment` 로 준다(운영 애셋 무변경).
+- 사건(`timing` 신호 · `detect_contacts`): scythe_pick 정점 1.933 · 휘두름 [1.433, 2.633] · 두 발 [[0.033, 1.833], [2.433, 4]] / sword_pick 0.867 · [0.033, 1.533] · [[0.033, 0.233], [0.933, 4]] / scythe_regrip 1.933 · [1.4, 2.667] · [[0.033, 1.867], [2.433, 4]] / 운영 Attack1 0.333 · [0.1, 0.583] · [[0.417, 0.65]] · Attack2 0.583 · [0, 0.883] · 없음 · Attack3 0.567 · [0.233, 0.783] · 없음 · Finisher1 0.7 · [0, 1.067] · [[0.967, 1.133], [1.967, 2.167]] — 표준 지시 T1 ~ T5 · 샘플 S1 ~ S3 이 쓰는 사건은 전부 잡힌다(운영 Attack2 · 3 은 두 발 디딘 구간 없음).
+- 모델 크기 · 시간: model JSON 1.8 ~ 3.0 MB(73 ~ 81 본 · 1,171 ~ 2,139 점) · C++ 모델 0.9 ~ 1.1초 · Python 평가 5.5 ~ 9.9 ms/프레임 → 감쇠 GN 8 × 재검사 3 = 24 평가 예측 28.8초(121 프레임 · 다리 포함 최대).
+
+**발견 — 위팔 → 가슴이 운영 애니에서도 높다:** Rifle Idle 왼 위팔 → 가슴 98.1% · 4.64 cm, Walk 오른 76% · 왼 46.3%, 운영 낫 Attack2 42.7 · 37.5%, 검 선택 90.9% · 11.48 cm(위팔 → 몸통 접촉 % 는 운영 42 ~ 100). 겨드랑이 · 옆구리 눌림과 몸통 지도 위쪽(어깨 · 가슴 옆) 정점의 근사일 가능성이 크다 — **8-4b 는 운영 수준 기준(운영 애니 분포) 또는 위팔 쌍 기본 제외를 설계에서 정한다**(8-4b 완료 기준 1 '모든 쌍 관통 ≤ 2%' 는 위팔 쌍에서 운영 애니도 못 지킨다).
+
+**읽는 법 · 한계:**
+- 반경 지도는 칸 안을 꽉 찬 몸으로 본다 — 뿔 뿌리가 정수리 아래 칸(t 0.96 ~ 1.0)에 반경 ≈ 12 cm 로 남아, 손이 정수리 근처 그 방향이면 깊이를 키울 수 있다(낫 정정 2.07 · 2.1초 5.6 · 7.1 cm — 정수리 바로 아래 칸, 최심 11.86 보다 작다). 머리카락 · 옷 물리는 없다.
+- 손바닥 점(`hand_l` · `middle_01_l` 중점)은 뼈 선 위 — 파지 선분 제안은 이 점 기준이다.
+- 낫 붙인 '전' 캡처는 판정 근거(§16-9) — 무기를 쥔 손 모양 · 왼손 파지는 8-4c.
+
+#### 8-4b ① 몸 전체 관통 — 한 풀이 엔진 + 지시 목표 (개정 14 — 2026-10-28 구현 · 검증)
+
+**진행:** 상세 설계(공유 노트 `phase8-4b-design.md` — 사용자 승인: Python 순수 풀이 + C++ 얇은 입출력 · 양손끼리 = C++ 소폭 · 지시 목표 기본 soft · 새 측정 옵트인 · 몸통 자유도는 목표 구간만 · 코트 자락 기록만 · 손목은 파지 방향을 맞출 때만) → 순수 풀이 · 파이프 · 요청 · 라우터 · Job · pytest(단위 세션) → 실제 모델 12개 오프라인 조율 · 실제 Job 프로브 → (컨텍스트 부족으로 마무리 세션) C++ 손끼리 · 두 구성 빌드 · 통합 · 회귀 · 문서. 총괄 정정(착수 전): 기준 1 의 위팔 쌍 = '전보다 나빠지지 않음'만(운영 애니도 42 ~ 100%), 손 · 아래팔 쌍 ≤ 2% · 최대 ≤ 2 cm × scale, 머리목 하드.
+
+**풀이 (`anim_gen/body_fit.py` — 순수 Python, numpy 없음, 상수 · 독스트링에 실측 근거):**
+- 자유도(프레임마다, 부모 공간 회전 벡터 = `bone_deltas` 와 같은 뜻): 팔마다 쇄골 swing 2(≤ 10°) · 위팔 swing 2(뼈 축에 수직 — 비틀림 0, ≤ 45°) · 팔꿈치 경첩 1(굽힘 평면 법선, 굽힘 2 ~ 155°, ≤ 60°) · **파지 프레임만 두 손목** 3(≤ 30°). 지시 목표 구간만: 척추 마디 · 목/머리(합 ≤ 20°) · 골반 이동 3 + 회전 3(→ 다리 닫힌 식 IK 로 원래 발목 · 발 전역 회전, 곧은 다리는 몸 앞으로 굽힘).
+- 잔차(같은 감쇠 GN 안의 층 가중 — 하드 목표 1000 > 관통 30 · 다리 늘어남 > keep 10 > 소프트 목표 10 > 소프트 1): 관통 = 손 · 아래팔 점(LBS)의 max(0, 깊이 + margin) ↔ 몸통 칸 · 넓적다리 · 머리목 · 반대 팔 손 · 아래팔(손끼리는 맞닿음 contact 까지 허용 — **후속: 몸통 · 넓적다리도 `allow_contact` 기본으로 max(0, 깊이 − contact), 머리목은 margin 그대로** — 아래 '8-4b 후속'), 위팔 점 = 원래 깊이보다 안 깊어짐(후속 2차: 관통 층 30 → keep 층 10 · 재검사 위반에서 뺌 — 아래 '8-4b 후속'), keep = 보조 손바닥 점 · 회전의 주 손목 기준 상대 변환(11.5 cm/rad), 주 손 · 손목 위치 충실도(어깨 바탕 본 기준), 관절 변화 충실도 100 cm/rad · 시간 연속(앞 프레임 보정 쪽). 바깥 방향 = 지도 축에서 점 쪽(C++ Resolve 의 ω × r 와 같은 선형화), 야코비안 = 조상 관절마다 ω × (가중 점 − 관절).
+- 지도는 기준 본(몸통 = t 칸별 펠비스 · 척추 마디, 넓적다리, 머리 = 목 · 머리, 손 = 손목, 아래팔 = 팔꿈치)에 붙어 강체로 따라간다 — 풀이 포즈의 점을 T원래 · T풀이⁻¹ 로 되돌려 원래 지도에 묻는다(기준 본이 안 움직이면 C++ 규칙 그대로).
+- 한 프레임 = LM(μ 0.1 시작) ≤ 12 회 · 한 걸음 ≤ 8°(상한을 넘는 관절은 그 걸음만 상한까지), 목표가 있으면 x_T(목표 · keep · 충실도) → x(전부) 두 번(10-29 (가) 뒤로는 목표 없는 풀이를 먼저 하고 완급 > 0 블록만 — 아래 '지시 목표 경로 (가)'). 시간 = 관통 몫 Δ = x − x_T 만 **가중 매끈화 스플라인**(보정 프레임 가중 30 · 그 밖 10(후속 — 처음 판 1) · λ = (1.5 R)⁴), 목표 몫은 완급(smoothstep)이라 그대로, 원본이 루프(`numeric.loop`)면 순환(후속). 재검사 = 하드 잔차가 남은 프레임만 두 팔 함께 → 증분을 같은 스플라인으로(그 밖 가중 1 — 후속, passes 3 + 3). 쓰기 = `bone_deltas{space: parent}`(바꿀 것이 없으면 항등 `trim{}` — 최종 이름 애셋은 만든다).
+
+**C++ (8-4b — 옵트인, 기본 결과 불변):** `body_clearance.hands`(§13 손끼리 행) — 공개 `FArmAxes`(손 · 아래팔 지도) · `HandTip`, `MeasureParts` 가 프레임마다 두 팔 점을 먼저 스킨해 몸 지도 조회와 손끼리가 함께 쓴다(기본 값 그대로), `parts.hands` · `HAND_PENETRATION` · per_frame · 모델 지도 `hand_l/r` · `forearm_l/r` · `roles.arms[].hand_tip_local_cm`. Automation `AnimGraphMcp.Generation.BodyClearance` 에 손끼리(손 끝 · 두 원통 겹침 깊이 ≈ 1.0 · 떨어지면 ≈ −2.0 · 손 끝 밖).
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/body_fit.py` | 요청 정규화 · 몸 기준틀 · 사건 → 목표 · 파지 가중 · 감쇠 GN · 스플라인 · 재검사 · 다리 IK · 예측 측정 · `bone_deltas_op` |
+| `Tools/mcp/anim_gen/providers/body_fit.py` | 파이프 `BodyFitPipe`(control_rig 자리) — 계획 미리보기(측정 · 사건 · 목표) · 실행(측정 + 모델 → 풀이 → 쓰기 → C++ 재측정 → Job `fix.body` · 한계) |
+| `timing.py` · `request.py` · `router.py` · `executor.py` · `registry.py` · `providers.json` · `providers/builtin.py` · `providers/inactive.py` · `server.py` | `timing.events`(사건 한 원천) · `fix.body` · 단계 위치 · 재사용 판정 · 생산 단계 · 레지스트리 · 매니페스트(control_rig → body_fit) · 리타깃 관통 measure 전환 · `apply_edits` 모듈 함수 · 문구 · Tool 설명 |
+| `Tools/mcp/anim_gen/body_model.py` · `tests/conftest.py`(8-4a 파일) | 손끼리 지도 조회(`has_hands` · `pair_depths` · `series`) · FakeEditor `hands` → `parts.hands.pairs` |
+| `tests/{body_fit_fixture.py, test_body_fit.py, test_body_fit_pipe.py}` · `test_body_model.py` · `test_router.py` | 합성 몸 모델(양팔 · 척추 · 목 · 다리 · 손 지도) · 풀이 · 파이프 · 손끼리 조회 · Provider 이름(기대된 변화) — pytest 603(560 + 43) |
+| `Plugins/AnimGraphMcp/…/Core/AnimMcpBodyClearance.{h,cpp}` · `Tests/AnimMcpBodyClearanceTests.cpp` · `Tools/AnimMcpTools_Validate.cpp` · `README.md` · `Tools/mcp/anim_graph_mcp/server.py`(8-4a 파일) | 손끼리(위) · Tool 설명(16 KB 리터럴 한도 — 두 리터럴로) · 문서 |
+| `Tools/mcp/anim_gen_phase8_4_test.py` | 통합 `plan · clearance · targets · existing`(+ automation 의 손끼리) |
+
+**결과 (2026-10-28 — `anim_gen_phase8_4_test.py`: `hashes,automation,plan,dirty` 실패 0 · `hashes,clearance,dirty` 실행 `P84Run1028_181805` · `hashes,targets,existing,dirty` 실행 `P84Run1028_183211`, Job 16/16 SUCCEEDED · 비파괴(24 파일 SHA-256 · 새 더티 0 · Content = 실행 폴더) 통과, 실패 = 기준 미달 39건 — 시험 오류 0):**
+
+| 완료 기준 | 결과 | 충족 |
+| :--- | :--- | :---: |
+| 1 관통 | 손 · 아래팔 ↔ 몸 쌍: 낫 정정 7.4% · 11.86 → 0 · 2.1 cm · s26 70.2 · 6.32 → 0 · 0.86 · 검 선택 77.7 · 10.18 → 0 · 1.28 · 띠 정정 0.8 · 2.73 → 0 · 0.84 · 칼 시험 0 · 1.19 → 0 · 0 · 운영 걷기 22.3 · 7.93 → 0 · 0 · 달리기 15.8 · 10.84 → 0 · 1.93 · 라이플 34.5 · 3.25 → 0 · 0 · 낫 Attack2 27.1 · 6.43 → 0 · 2.02. **못 맞춤:** s25 50.4 · 14.7 → 0.8 · 2.41(머리 1 프레임 — NOT_RESOLVED) · s27 57 · 11.08 → 3.3 · 10.07(머리 — JOINT_LIMIT, 인계 위험). 머리목 관통 0 · head_near ≤ 5% 는 s25 · s27 밖 전부(s27 head_near 55.8 → 3.3). 손끼리: 검 선택 62.8 · 5.09 → 0 · 1.87(사용자 Persona f0 소견 자리) · **낫 Attack2 7.3 · 5.31 → 12.5 · 5.23(나빠짐 — 파지 프레임 손끼리 · keep 충돌, 모델도 남김)**. 위팔 쌍 '나빠지지 않음' 전부(검 선택 90.9 · 11.48 → 82.6 · 4.86, 라이플 98.1 → 28.1%) | 부분 |
+| 2 파지 keep | `grip_pct` 줄지 않음 전부. keep 상대 위치 최대 ≤ 1 cm × scale 은 **못 맞춤** — 모델 최대 1.07 ~ 2.66 cm(p95 0.74 ~ 2.44) · C++ 손목 실측 1.0 ~ 2.6 cm, 방향 ≤ 5° 는 검 선택(9.4°) 밖 전부. s27 10.9 cm(머리 속 손 — 인계 위험). 한계 `GRIP_RELAXED` | 아님 |
+| 3 발 | 접지 미끄러짐 p95 · 두 발 디딘 발 좌우 비 전 = 후(다리 자유도 없음 — 목표 없으면 다리 불변) | 예 |
+| 4 충실도 | 보정 구간(± 2·폭) 밖 관절 변화 0 · 검증 FAILED 0 · 꼬임 나빠짐 0 · 떨림 기준 안(라이플 대기 0.29 → 0.81 밖 전부). **못 맞춤:** 휘두름 ± 5% — 낫 정정 +6.5 · s25 −9.4 · 검 선택 −16.6(인계 위험 — 아래팔 가슴 속 6.7 cm 라 두 손을 함께 앞으로) · s27 +8.2 · 라이플 대기 +59(정지 동작 — 작은 값 비율) · 낫 Attack2 +16, 궤적 폭 — 낫 정정 +5.3 · 검 선택 −12 · 걷기 +7.9 · 달리기 +7.0 · 라이플 +47, 보조 손목 굽힘 최대 ≤ +5° — 낫 정정 +11 · s27 +13 · 검 선택 +12(파지 프레임은 두 손목을 연다 — keep 방향을 맞추느라 더 굽는다) | 부분 |
+| 5 예측 vs 실측 | 손 · 아래팔 목표 쌍은 전부 일치(쌍별 관통 % 차 ≤ 1 · p95 차 ≤ 0.3 — 낫 Attack2 손끼리 1.0 · T3 손끼리 하나 빼고). **기록만 하는 위팔 쌍 `l\|upper_arm\|chest` 가 9 Job 에서 어긋남**(예측 0 ~ 72% vs 실측 1.3 ~ 74% — 원인 추정: 겨드랑이 몸통 정점은 팔 본 가중이 섞여 C++ 지도에서는 팔과 함께 움직이는데 Python 은 기준 본 강체로 본다) | 부분 |
+| 6 기존 Vesper 애니 | 걷기 · 달리기 · 라이플 대기 · 낫 Attack2 — 새 애셋, 원본 SHA-256 불변 · 기준은 위 1 ~ 4 행에 함께 | 예(기준은 위) |
+| 7 스트레스 | 이전 낫(축 결함) — FAILED 0 · 다리 0 · 꼬임 91.7 → 31.7%, 손 · 아래팔 75.2 · 16.9 → 42.1 · 10.81(머리 — JOINT_LIMIT) | 예 |
+| 8 지시 목표 | 계획이 목표를 풀어 보임(T1: swing_end 2.667초 → 프레임 80 ~ 89 · ease 4 · hand_r · Δ (0, 0, −15)) · 오류 4종 막음. T2(spine_05 yaw 15°) 2.26° 닿음 · T3(골반 −5 cm) 0.007 cm 닿음 · 발 고정 0.0 cm · 늘어남 0 · T4 관통에 막힘(`blocked_by` clearance · grip, 새 관통 0) · `SEAM_JUMP` T1 · T2 · T4 0. **못 맞춤:** T1 못 닿음(4.19 cm — clearance · grip · joint_limit), T3 프레임 0 `SEAM_JUMP` 3.07, **구간 ± ease 밖 변화(목표 없는 같은 Job 대비) T1 1.81 · T2 5.05 · T3 23.35 · T4 10.41 cm**, 떨림 T1 1.53 → 5.44 · T2 1.44 → 11.96 · T3 0.46 → 5.47 · T4 0.46 → 5.98, T3 keep 10.8 cm. **→ (가) 10-29: 구간 ± ease 밖 T1 ~ T4 0.000 cm · SEAM_JUMP 0 · T1 닿음(0.90 cm) · T4 새 관통 0 — 남은 구간 안 떨림 T1 3.10 · T4 1.82(아래 '지시 목표 경로 (가)')** | 아님 → 대부분 |
+| 9 전후 캡처 | 16건 후 \| 전(목표는 후 \| 목표 없음) 비교 시트 · APNG — 낫은 `WeaponHandR` 부착, 잘린 칸 0 · 더티 0 — `Tools/mcp/results/capture/P84Run1028_181805/<이름>/` · `P84Run1028_183211/<이름>/`(두 캡처 폴더는 10-29 휴지통으로 정리 — 애셋은 Content 에 그대로) | 예 |
+
+**사용자 Persona 자리(깊이 cm, + 안쪽 — 전 → 후):** 낫 정정 f46 손 → 머리 11.86 → 0.32 · f50/51 손 → 가슴 6.76 → 1.85 · f70/73 손 · 아래팔 → 허리 · 다리 5.54 → −8.47(틈), 코트 자락(secondary) 왼팔 2.5% · 7.45 → 0 · 0.9 / 검 선택 f34 손 → 머리 7.22 → 지도 밖 · f0/f46 아래팔 → 가슴 6.69 → −2.97 · 위팔(기록) 11.03 → 3.69 · f0 손끼리 2.2 → 1.19(맞닿음 1.05 수준) / 운영 걷기 f22 손 → 넓적다리 6.52 → −3.95 / 라이플 대기 f51 왼 위팔(기록 — 측정 과대) 3.84 → 2.33 · 왼 손 · 아래팔 1.11 → −4.01.
+
+**회귀:** Development · DebugGame 빌드 경고 0(툴체인 안내만) · Automation `AnimGraphMcp.*` 35/35 · pytest 603 · 통합 phase1 · phase2 · phase3 · phase8_2 실패 0 · phase8_4 `model`(기본 결과 = 옛 빌드 16/16 · 재현 p95 ≤ 0.0048 cm) 실패 0 · phase8_3 `quality` 1건 = 알려진 검 선택 다리 떨림 1.891 > 1.56(8-4d 기준 1, 값 그대로).
+
+**풀이 시간:** 17.7 ~ 196.5초(8 대상) · 22.8 ~ 85.4(운영) · 22.2 ~ 286.5(목표 — T3 골반 · 다리), 측정 · 쓰기 · 재측정은 합쳐 5 ~ 6초.
+
+**지시 목표 경로의 문제 (원인 조사 — 10-29 수정안 (가)로 해결, 아래 '지시 목표 경로 (가)'):**
+- 구간 안 관통 몫은 ρ 블렌드로 그 프레임 Δ 를 매끈화 없이 그대로 쓴다(목표가 관통에 막힌 되돌림이 이웃으로 번지지 않게 한 설계) → 프레임마다 다른 관통 해가 그대로 남아 구간 안 떨림이 커진다(T2 11.96).
+- 구간 밖 변화는 목표 몫이 아니다(x_T 는 구간 밖 0) — ① 재검사 '±1 프레임 받침'이 ρ 를 안 봐 구간 가장자리 증분이 밖으로 복사된다(오프라인 T1: (1 − ρ) 로 줄이면 1.81 → 1.69 cm) ② 관통 몫 스플라인이 목표 자세가 바꾼 관통 보정에 반응한다(구간을 스플라인에서 비우면 먼 프레임 0.1 cm 안팎 · 구간 ± 6 프레임 1.5 ~ 1.8 그대로) ③ 위반 프레임이 이어지는 대상(검 선택 — 거의 전 프레임)은 앞 프레임 해로 시작하는 사슬이 구간 끝의 다른 상태에서 출발해 뒤쪽 전체가 다른 국소 해로 간다(T3 프레임 47 23 cm · T4 10 cm).
+- 수정 후보(사용자 결정 10-29 — (가) 채택): 목표 없는 풀이를 먼저 하고 구간 ± (ease + 2·폭) 밖은 그 해를 그대로 잇기(기준 8 을 정의대로) · 구간 안 관통 몫도 약한 매끈화 · 받침 (1 − ρ).
+
+**읽는 법 · 한계:** 관통은 반경 지도 근사(§13 · 부록 B), 판정은 사람(캡처 — §16-9). 휘두름 · 궤적 폭 비율은 정지 동작(라이플 대기)에서 작은 값이라 과장된다. keep 은 모델(손바닥 점) · C++(손목) 두 값을 남겼다.
+
+#### 8-4b 후속 — 루프 이음매 · 팔 벌어짐 (2026-10-28 밤)
+
+**사용자 소견(Persona):** 운영 걷기 보정본(`P84Run1028_183211/AS_Vesper_Neutral_P84bOpWalkFit`) 등의 팔이 몸에서 지나치게 떨어지고, 걷기 루프의 시작 · 끝이 달라 끊긴다.
+
+**진단(오프라인 — 8-4a 모델 사본, 처음 판 = 에디터 결과와 같은 수치 재현):** 걷기 손목이 121 프레임 전부 3 cm 넘게 움직였다(p50 13.9 · p95 21.0 · 최대 24.2 cm — 관통 없던 f0 도 19 cm). 깊이는 과대가 아니다(f22 최심 = 엄지 끝이 넓적다리 축에서 3.6 cm). 주원인은 스플라인이다 — 바깥 프레임 가중 1 이 λ 에 비해 약해, 반 주기마다 넓적다리를 스치는 걷기에서 사이 프레임까지 팔을 벌린 채 이었다. 첫 · 끝 프레임 보정 차 15.3°(왼 아래팔) — 스플라인 · 프레임 사슬이 순환이 아니다(달리기 8.1°).
+
+**수정(사용자 승인 ① ② ③ — 구현에서 다듬은 것 둘은 굵게):**
+- ① **루프 순환** — 원본 측정의 `numeric.loop`(C++ bLoop 한 원천 — 요청 `loop` 아님)면 끝 프레임 = 첫 프레임(같은 시점)으로 보고 스플라인을 순환으로(끝을 뺀 열을 앞뒤로 8 × 폭 감아 붙여 풀고 가운데를 쓴다 — 두 관측은 보정한 쪽 값으로 합침), 재검사 받침 · 앞 프레임 연속 항도 감아 돈다, 결과 첫 · 끝 상태 같음. Job `fix.body.loop{source, seam_deg(첫 · 끝 델타 차 °), boundary_max_deg[전, 후](C++ 첫 · 끝 포즈 차)}`, 통합 기준 `c4_loop`(원본 루프면 후 경계 ≤ 전 + 0.5° 또는 이음매 ≤ 0.5°).
+- ② **바깥 프레임 가중** `SPLINE_QUIET_WEIGHT` 1 → 10(포락선 · λ · 보정 가중 30 그대로). **재검사 증분만 `SPLINE_RECHECK_QUIET_WEIGHT` 1** — 재검사는 남은 1 ~ 3 프레임 위반의 작은 증분이라 10 이면 절반쯤 묽어져 패스가 끝나도 못 풀었다(오프라인 걷기 손 → 넓적다리 1.7% · 4.44 cm · 달리기 1.3% · 2.47 → 0, 손목 p50 +0.9 cm).
+- ③ **맞닿음 허용** `fix.body.clearance.allow_contact`(기본 true) — 몸 지도 관통 잔차 `깊이 + margin` → `깊이 − contact_cm`(≤ 접촉은 정상, 관통 판정 2.1 cm 그대로 — 손끼리와 같은 규칙), false 면 처음 판. **몸통 · 넓적다리만(`CONTACT_MAPS`) — 머리목은 margin 그대로**: 맞닿음(1.05)과 관통 판정(2.1) 사이 여유가 1 cm 뿐이라 매끈화로 묽어진 프레임이 넘는다(오프라인 검 선택 손 → 머리 2.5% · 8.26 cm, 머리목 margin 이면 0.8% · 2.19). 넓적다리만은 안 된다 — 걷기 손은 골반 쪽 몸통에도 스친다(손목 p50 13.7 그대로). 후보 점 문턱은 허용 깊이와 무관(−(margin + 3 cm)).
+- 범위 밖(사용자 결정): ④ 손가락 끝 점 가중 낮추기, 지시 목표 경로(위 '지시 목표 경로의 문제').
+
+**오프라인 변형 비교(모델 예측 — 손끼리 지도 없는 8-4a 사본, 손목 이동 p50 / p95 / 최대 cm · 남은 손 · 아래팔 관통 % · cm):**
+
+| 대상 | 처음 판 | ② 만 | ③ 만(모든 지도) | ② + ③(모든 지도) | 채택(② + 재검사 1 + ③ 머리목 margin + ①) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 운영 걷기 | 13.9 / 21.0 / 24.2 · 0 · 이음매 15.3° | — | — | 6.5 / 14.4 / 15.6 · 1.7% · 4.44 · 0° | 7.4 / 14.9 / 15.8 · 0 · 0° ‡ |
+| 운영 달리기 | 6.6 / 13.7 / 16.7 · 0 · 8.1° | — | — | 2.1 / 8.0 / 10.1 · 1.3% · 2.47 · 0° | 2.8 / 9.2 / 11.3 · 0 · 0° ‡ |
+| 낫 정정 | 1.9 / 16.2 / 22.1 · 0 · keep 1.87 | 1.5 / 14.5 / 21.8 · 0 | 0.7 / 10.4 / 16.6 · 머리 1.7% · 3.51 † | 0.2 / 10.1 / 16.2 · 머리 0.8% · 4.08 | 0.3 / 13.1 / 21.3 · 머리 1.7% · 2.37 · 가슴 0.8% · 2.98 · keep 1.91 |
+| 검 선택 | 17.7 / 23.0 / 24.3 · 머리 1.7% · 2.96 | — | — | 11.9 / 17.8 / 23.0 · 머리 2.5% · 8.26 | 11.9 / 22.0 / 24.3 · 머리 0.8% · 2.19 |
+| 낫 Attack2 | 7.2 / 13.4 / 19.2 · 넓적다리 1.0% · 2.22 · keep 3.57 | 5.7 / 13.7 / 19.3 · 1.0% · 2.35 | 5.5 / 13.3 / 24.6 · 2.1% · 3.26 † | — | 4.8 / 13.1 / 24.6 · 2.1% · 3.23 · keep 3.64 |
+| 띠 정정 | 0.1 / 6.7 / 11.2 · 0 · keep 1.37 · 떨림 0.89 | — | — | 0.0 / 2.2 / 4.5 · 0 · keep 0.46 · 1.00 † | 0.0 / 3.4 / 5.3 · 0 · keep 0.54 · 떨림 1.03 |
+
+† 후보 점 문턱을 '허용 깊이 − 3 cm' 로 좁혔던 중간 판 실행(정정 전 — 참고값). ‡ 재검사 가중 1 · 맞닿음 모든 지도(걷기 · 달리기는 머리와 무관 — 걷기는 채택 조합으로 다시 돌려 같은 값). 처음 판 = 마무리 세션 표와 같다(걷기 13.89 / 21.03 / 24.19 재현).
+
+**결과(통합 — `hashes,clearance,dirty` 실행 `P84Run1028_205745` 실패 17 · `hashes,targets,existing,dirty` 실행 `P84Run1028_211420` 실패 30, 전부 기준 미달 · 시험 오류 0 · 비파괴 통과, `model` 회귀 `P84Run1028_212754` 실패 0 · pytest 609):** C++ 실측, 지난 실행(`P84Run1028_181805` · `_183211`) → 이번. 손목 이동 = 두 손목 중 큰 쪽의 원본 대비 위치 차.
+
+| 대상 | 손목 이동 p50 / p95 / max cm | 루프 경계 ° (원본 → 지난 → 이번) | 손 · 아래팔 ↔ 몸 % · cm | 그 밖 |
+| :--- | :--- | :--- | :--- | :--- |
+| 운영 걷기 | 13.87 / 21.06 / 24.18 → **7.39 / 14.86 / 15.77** | 0.03 → 18.96 → **0.03**(이음매 0) | 0 · 0 → 0 · 2.02(접촉) | 궤적 폭 +7.9 → +1.6% |
+| 운영 달리기 | 6.8 / 13.65 / 16.69 → **2.76 / 9.19 / 11.25** | 0 → 8.8 → **0** | 0 · 1.93 → 0 · 1.84 | 폭 +7.0 → +1.8% |
+| 라이플 대기 | 5.52 / 7.62 / 10.38 → 2.42 / 6.69 / 8.62 | — | 0 · 0 → 0 · 1.15 | 떨림 0.81 → 0.42(원본 0.29) · 휘두름 +59 → +26% |
+| 띠 정정 | 0.11 / 6.75 / 11.18 → 0.0 / 3.38 / 5.27 | — | 0 · 0.84 → 0 · 0 | keep 1.37 → **0.54**(기준 안) · 떨림 1.27 → 1.45 |
+| 낫 정정 | 1.93 / 16.26 / 22.1 → 0.36 / 13.14 / 21.3 | — | 0 · 2.1 → **1.7 · 3.1** | 머리목 0 → **1.7% · 2.37** · 떨림 1.74 → 1.90 |
+| 검 선택 | 17.85 / 22.32 / 23.25 → 17.99 / 22.68 / 23.55 | — | 0 · 1.28 → 0 · 1.04 | 손끼리 0 · 1.87 → 0.8 · 2.11 · 폭 −12.1 → −3.3% |
+| 낫 Attack2 | 5.91 / 15.08 / 15.42 → 4.36 / 12.49 / 18.87 | — | 0 · 2.02 → **2.1 · 2.33** | keep 모델 2.66 → 3.56(C++ 손목 2.61 → 2.15) |
+| s25 · s26 · s27 | > 3 cm 표본 91 → 43 · 108 → 92 · 95 → 93 | — | s25 2.41 → **4.05** · s26 0.86 → 1.51 · s27 10.07 → 9.67 | s27 keep 10.9 → 8.4 |
+| T1 ~ T4 | — | — | T2 0 → 0.8% · 2.26 · **T3 · T4 0 → 3.3% · 9.3(머리 — 구간 밖 f34 ~ 38)** | T1 오차 4.19 → 2.71 · 구간 밖 T1 1.81 → 1.20 · T2 5.05 → 3.64 · T3 23.35 → 17.93 · T4 10.41 → 24.71 · T3 SEAM_JUMP 1 → 0 · 떨림 T3 5.47 → 2.04 |
+
+- **읽는 법:** 루프 두 대상과 띠 정정 · 라이플은 좋아졌다. 빠른 무기 휘두름은 맞닿음 허용 뒤 1 ~ 2 프레임 관통이 새로 남는다(부록 B). 걷기 손목 p95 14.9 cm 는 인계 조건(≈ 14)이라 ④(손가락 끝 점 가중) 여부는 사용자 판정 뒤.
+- **T3 · T4 머리 관통:** 위 '지시 목표 경로의 문제' ③(위반 프레임 사슬이 다른 국소 해 — 쇄골 상한 JOINT_LIMIT)이 머리 안에서 멈춘 것이다. 목표 없는 같은 Job 은 머리 0.
+- **캡처:** `Tools/mcp/results/capture/P84Run1028_205745/` · `P84Run1028_211420/<대상>{, _vs_prev}/`(이번 | 원본 · 이번 | 지난 보정본) — 후속 2차가 대신해 정리했다(Content · 캡처 휴지통, 수치는 위 표).
+
+**후속 2차 — 위팔 '안 깊어짐' 층 (2026-10-29, 사용자 Persona 재판정 뒤):**
+
+- **소견:** 걷기 보정본의 팔이 주기마다 달라 중간(f32 · f39)에 허리에서 더 멀어졌다 돌아온다. 낫 정정 f72 손목이 크게 꺾인다. 나머지는 통과.
+- **진단(오프라인):** 원본 관통은 4 주기가 비슷하다(30 프레임마다 접촉 넘는 프레임 6 ~ 9). 그런데 왼손목 바깥 이동 최대는 10 / 13.6 / 13.4 / 7 cm 로 주기마다 달랐다. 가장 먼 f30 ~ 33 은 원본이 넓적다리에서 3.7 ~ 5.8 cm 떨어진 프레임이다(위팔 보정 6.2 → 17.6 → 4.4°). 위팔 '안 깊어짐' 위반이 65 프레임(손 44 보다 많다)이었다. 사이로 이어진 보정이 위팔을 조금 깊게 만들고, 재검사가 그것을 하드 층으로 다시 풀며 팔을 벌렸다.
+- **효과 없던 것:** 재검사 가중 1 ↔ 10, 위팔 허용 폭 +0.5 · +1 cm · 바닥 1.8 cm.
+- **수정:** `TIER["upper"]` 10(keep 층 — 관통의 1/3), `_violations` 에서 위팔 제외(풀 때만 함께 맞춘다).
+- **손목:** 낫 정정 f72 왼손목은 원본 91.1° → 100.5°(파지 프레임은 두 손목이 자유도) — 원본 탓이 대부분이라 8-4c(부록 B '파지 keep · 보조 손목').
+- **결과(통합 — `hashes,clearance,dirty` `P84Run1029_152335` 실패 15 · `hashes,targets,existing,dirty` `P84Run1029_154526` 실패 31, 전부 기준 미달 · 시험 오류 0 · 비파괴 통과 · pytest 610):** 아래 표는 1차 후속 → 2차.
+
+| 대상 | 손목 이동 p50 / p95 / max cm | 손 · 아래팔 ↔ 몸 % · cm | 그 밖 |
+| :--- | :--- | :--- | :--- |
+| 운영 걷기 | 7.39 / 14.86 / 15.77 → **4.70 / 6.61 / 6.98** | 0 · 2.02 → **1.7 · 4.58**(오른손 → 넓적다리 2 프레임) | 주기마다 바깥 최대 3.9 ~ 5.7 cm(오프라인) · 루프 0.03° · 이음매 0 · 궤적 폭 +1.6 → +8.6% |
+| 운영 달리기 | 2.76 / 9.19 / 11.25 → 3.06 / 9.23 / 11.05 | 0 · 1.84 → 0 · 1.75 | 루프 0° |
+| 라이플 대기 | 2.42 / 6.69 / 8.62 → 1.53 / 4.18 / 5.43 | 0 · 1.15 → 0 · 1.46 | 떨림 0.42 → 0.30(원본 0.29) · 휘두름 · 폭 기준 안으로 |
+| 낫 정정 | 0.36 / 13.14 / 21.3 → 0.33 / 12.89 / 21.49 | 1.7 · 3.1 → 1.7 · 3.09 | **머리목 1.7% · 2.37 → 0** · 떨림 1.90 → 2.01 |
+| s25 · s26 · s27 | s25 p95 12.6 → 17.2 · s26 8.6 → 7.8 · s27 23.8 → 24.7 | s25 4.05 → 2.71 · s26 1.51 → 1.52 · s27 9.67 → 10.15 | s25 머리목 0.8% → 0 · s27 keep 8.4 → 6.6 · 위팔(기록) 왼 → 가슴 s25 14 → 19% · s26 10.7 → 19% |
+| 검 선택 | 17.99 / 22.68 / 23.55 → 18.21 / 22.01 / 23.26 | 0 · 1.04 → 0 · 1.7 | 손끼리 2.11 → 2.17 |
+| 띠 정정 | 0 / 3.38 / 5.27 → 0 / 3.2 / 4.67 | 0 → 0 · 0.63 | keep 0.54 → 0.45 |
+| 축 결함(스트레스) | 21.82 / 25.4 → 19.42 / 25.37 | **49.6 · 10.4 → 3.3 · 3.34** | 머리목 49.6% → 0 · keep 6.19 → 2.20 |
+| 낫 Attack2 | 4.36 / 12.49 / 18.87 → 4.11 / 10.01 / 21.13 | 2.1 · 2.33 → 2.1 · 2.74 | keep 3.56 → 3.33 |
+| T3 · T4 | — | **T3 3.3 · 9.37(머리) → 0 · 0.28** · T4 3.3 · 9.28 → 2.5 · 10.63(머리 — 구간 밖) | 구간 밖 변화 T3 17.9 → 4.9 · T4 24.7 → 30.5 cm |
+
+- **읽는 법:** 걷기는 주기가 고르고 팔이 붙었다(사용자 소견의 원인). 대신 오른손이 넓적다리에 2 프레임 4.58 cm 남는다 — 재검사가 수렴하지 못한 자리다. 위팔 쌍은 기록만 하는 쌍이지만 일부 대상(s25 · s26 · 검 선택)에서 '나빠지지 않음'이 미달이다.
+- **캡처:** `Tools/mcp/results/capture/P84Run1029_152335/` · `P84Run1029_154526/<대상>{, _vs_prev}/`(이번 | 원본 · 이번 | 1차 후속).
+
+**지시 목표 경로 (가) — 8-4b 마지막 (2026-10-29, 사용자 결정 '(가) 수정 후 종료'):**
+
+- **설계(공유 노트 `phase8-4b-target-path-design.md` — 사용자 승인):**
+  - 목표가 있으면 목표 없는 풀이(`base` — 목표 없는 Job 과 같은 코드 · 입력)를 먼저 끝낸다.
+  - 그다음 완급 > 0 프레임(구간 ± ease)의 블록만 base 를 출발점 · 기준으로 다시 푼다.
+  - 블록 밖 = base 상태 복사 → 본 델타가 목표 없는 Job 과 같다.
+  - 인계안의 '± (ease + 2·폭)'은 통합 판정(구간 ± ease 밖 ≤ 0.1 cm)과 어긋나, 블록을 ± ease 로 좁혔다. 매끈화 · 재검사도 블록 안이고, 블록 앞뒤 2 프레임을 0 으로 고정한다(`spline_block`).
+- **블록 안의 기준 = base:**
+  - 목표 오프셋 · 회전 · away 거리의 기준 자세(원본 아님).
+  - 관절 · 손목 · 주 손 충실도.
+  - keep 상대 변환(보고는 원본 관계).
+  - 관통 바닥 max(허용, base 깊이) — 목표가 base 보다 깊게 만들지 못하고, base 에 남은 한계는 다시 풀지 않는다.
+  - 완급이 0 으로 가면 해가 base 로 돌아가 이음매가 이어진다.
+- **구현에서 정한 것(실측 근거 — 코드 주석에 같이):**
+  - **x_T 시작 = base + 앞 프레임 목표 증분 × 완급 비, 시간 연속 항 없음.**
+    - 앞 프레임 증분 그대로 시작하면 LM(≤ 12 회)이 다 못 돌아와, T4 블록 끝(완급 0.10)에 4.98 cm 가 남았다(base 시작이면 1.39 · 비용 2270 vs 102).
+    - base 에서만 시작하면 합성 목표가 관절 상한의 다른 국소 해로 갔다(오차 0.34 → 1.38 cm).
+    - 관통 몫 x 는 앞 프레임 관통 증분을 잇는다(시간 연속 항 유지).
+  - **관통 몫 = (1 − ρ)·S_E((1 − ρ)Δ) + ρ·Δ** (블록 안 고정 스플라인 + 그 프레임 몫). 버린 두 변형:
+    - 전부 S_E — 짧은 블록 가장자리 관통 2.0 cm(합성).
+    - 그 프레임 몫까지 반경 2 매끈화 — T4 떨림은 1.82 → 1.21 이지만, 합성 완급 프레임에 관통 0.6 cm 가 남았다.
+  - **목표 완급 smoothstep → smootherstep**(양끝 가속 0) — 블록 끝 변화 T1 2.82 → 1.57 cm · T1 오차 p95 1.05 → 0.90 cm.
+  - 루프 원본은 완급 · 블록이 감아 돈다(끝 = 첫).
+- **검증:**
+  - pytest 616(610 + 새 6: 구간 밖 그대로 · 이음매 · 사슬 시작 · 바닥 · 루프 + 목표 · 블록 고정).
+  - 목표 없는 경로 비트 동일 — HEAD 사본 대비 합성 6 개 + 실제 모델 3 개(띠 정정 · 낫 정정 · 검 선택)의 `deltas` · 상태 · 자세가 `==`. 그래서 통합 clearance 재실행은 생략했다.
+  - 오프라인 변형 비교(실제 모델 3).
+- **결과(통합 `hashes,targets,dirty` 실행 `P84Run1029_181323`):** 비파괴 통과, 실패 15 = 기준 미달 · 시험 오류 0. 지난 = `P84Run1029_154526`.
+
+| # | 목표(지난 → 이번) | 구간 ± ease 밖 cm | SEAM_JUMP | 떨림 원본 · 목표 없는 Job · 지난 → 이번 | 그 밖 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| T1 띠 정정 | 못 닿음 3.11 → **닿음 0.90 cm** | 0.88 → **0.000** | 0 | 1.53 · 1.46 · 6.27 → **3.10** | keep 최대 0.40 → 0.45 · 관통 0 |
+| T2 낫 정정 | 0.33 → 0.35° 닿음 | 3.57 → **0.000** | 0 | 1.44 · 2.01 · 11.08 → 2.00 | 미달 5 건(손 → 가슴 1.7% · 3.09 · 휘두름 +5.9% · 보조 손목 102° · 위팔 쌍 예측) = 목표 없는 Job 과 같은 꼴 |
+| T3 검 선택 | 0.13 → 0.008 cm 닿음 · 발 0.0 cm | 4.93 → **0.000** | 0 | 0.46 · 0.46 · 4.39 → 0.49 | keep 1.69 → 1.52(= 목표 없는 Job) · 미달 4 건(손끼리 0.8% · 2.17 · 위팔 쌍 · 손목 · 예측) = 목표 없는 Job |
+| T4 검 선택 | 막힘(clearance · grip) 5.90 → 2.54 cm | 30.49 → **0.000** | 0 | 0.46 · 0.46 · 6.56 → **1.82** | **머리 관통 2.5% · 10.63 → 0** · 새 관통 0(손 · 아래팔 1.7 cm) · 미달 = T3 와 같은 4 건 |
+
+- **남은 것(원인):**
+  - **떨림 T1 3.10 · T4 1.82** — 이음매가 아니라 구간 안이다.
+    - T1(f79, 목표 몫 단계): 휘두름 끝 가속 위에 0.15 초 완급으로 15 cm(보조 손 18.8 cm)를 얹었다. 그 동안 보조 팔이 위팔 → 팔꿈치로 넘어가며 꺾인다(위팔 37 → 17° · 팔꿈치 1 → 24°).
+    - T4(f8, 관통 몫): 관통에 막힌 목표의 되돌림이 프레임마다 다른 활성 집합으로 풀린다(재검사 f8 · f9 5 회).
+    - 완급을 늘리면(요청 `ease_s`) 준다. 기준(× 1.1 · + 0.3)까지는 그 프레임 몫 매끈화가 필요한데, 짧은 블록의 관통과 맞바꿈이라 넣지 않았다.
+  - **T2 떨림 2.00 · T2 ~ T4 의 관통 · 손끼리 · 위팔 · 손목 · 예측 미달** — 목표 없는 Job 의 값 그대로다(구간 밖 = base). 8-4b 기준 1 · 4 · 5 의 남은 몫.
+- **비용:** Job 42 ~ 345 s(목표 없는 풀이 + 블록 — 검 선택은 목표 없는 풀이만 ≈ 340 s).
+- **캡처:** `Tools/mcp/results/capture/P84Run1029_181323/T1 ~ T4/`(목표 | 목표 없음).
+
+#### 8-4c ② 무기 파지 — c1 (개정 14 — 2026-10-29 구현 · 검증)
+
+**진행:** 단위 세션이 시그니처 · 결정 ① ~ ⑤ 를 보이고 사용자 확인(전부 추천안 — ① 손바닥 점(손목 · 가운데 손가락 뿌리 중점 — E0 와 같은 점) → E0 선분 ② 보조 손목 자유도 · 회전 = 운영 평균 ± 10° · 손목 굽힘 상한 ③ weapon 모드 손끼리 하드(미끄러져 피함) ④ `weapon_tip` = 요청 `weapon.tip` ⑤ **c1(이 절)** / c2(샘플 전이 `pose_from` · 손가락 쥔 모양 — 기준 5 · 7)는 c1 확인 뒤 새 세션) → 구현 · 합성 시험 → **실제 모델 실측에서 전제가 어긋남**(아래) → 사용자 결정 2회: '가 — 범위 좁힘'(무기 파지는 원래 보조 손이 손잡이 근처인 구간만 · 회전은 원래 상대 회전 · 쥠 축은 기록) → 운영 Attack2 에서도 붙이면 동작이 망가져 **'기반 완성 · 무기 파지는 옵트인'**(auto = keep + 손잡이 관계 기록, weapon 은 요청이 명시할 때만). C++ 변경 없음(무기-몸 기록 = `inspect_skeleton geometry` 단면 근사).
+
+**실측 — 전제가 어긋난 것(읽기 전용 validate · 스크래치 오프라인 — 인계 노트 `phase8-4c-handover.md` §3):**
+
+| 항목 | 설계 가정 | 실측 |
+| :--- | :--- | :--- |
+| 운영 낫 왼손의 무기 공간 회전 | E0 '손잡이 위' 51 표본의 평균이 왼손 쥔 자세 | 평균에서 p50 50.8° · p95 99.2° 퍼짐. 쥠 축(검지 → 새끼 뿌리) ∠ 자루 p50 51.9° · p95 85.3°, 손바닥 법선 ∠ 자루 방향 p50 71 ~ 91° — **운영 왼손은 자루를 감아 쥐지 않는다**(E0 '손잡이 위' = 손바닥 점이 근처일 뿐). 왼 손목 굽힘 최대 Attack1 36 · Attack2 80.9 · Attack3 62.7 · Finisher1 93.6° |
+| 생성 낫 애니의 왼손 ↔ 붙인 낫 자루 | 보조 손이 손잡이 근처(보정 = 몇 cm) | 낫을 오른손 `WeaponHandR` · 운영 offset 으로 붙이면 왼 손바닥 ↔ 자루 중심선 p50 띠 정정 43.3 · 낫 정정 30.2 cm, ↔ E0 선분 53.8 · 39.3 cm, **두 손 선 ∠ 자루 p50 62.8 · 61.8°** — 생성물은 두 손을 ≈ 50 ~ 60 cm 벌려 '자루'를 쥐지만 그 선이 붙인 낫과 ≈ 60° 어긋난다(생성 오른손 방향 ≠ 운영 오른손 방향 — 8-4a '전' 캡처의 '왼손은 자루에 없음') → 붙이면 보정이 아니라 30 ~ 50 cm 재배치 |
+| 운영 낫 Attack2 에 붙이기('가') | 손잡이 15 cm × scale 안 프레임만 다듬기 | 무기 파지 64 프레임 · 손잡이 거리 p95 13.8 → 7.0 · 최대 23 cm(기준 1 미달) · zigzag 8.16 → 19 ~ 23 · 관절 Δ 최대 48 ~ 52° · 풀이 240 ~ 280 s(문턱 6 cm · 주 손 자리 빼기도 같은 꼴) — 왼손은 쥔 게 아니라 빠른 휘두름 중 근처를 지나간다(1 ~ 2 프레임 31 cm 까지 벗어남) |
+
+**요청 · 원천:** 요청 `weapon`(§9 — 장비 데이터는 Claude Code 가 읽어 넣는다) + 메시 사실(대상 메시 부착 소켓 · 손가락 체인 제안, 무기 메시 소켓 · 기하 — 계획(에디터가 있으면) · 실행이 `inspect_skeleton` 동기 호출) → 새 순수 모듈 `anim_gen/weapon.py`(정규화 · `resolve` · `handle_line`(E0 규칙) · 기록 점 · 캡처 `attachment`). `fix.body.grip.mode` auto = keep(무기가 있어도 — 손잡이 거리 · 두 손 선 각도를 기록하고 `GRIP_NOT_APPLICABLE{OPT_IN}`), weapon = 옵트인, 런타임 IK grip(라이플) = keep + `GRIP_RUNTIME_IK`. **무기 없는 요청 · 옵트인 없는 무기 요청은 지금 풀이 그대로**(HEAD `body_fit.py` 사본과 합성 8 시나리오 비트 비교 SAME · 통합에서 무기 요청 Job = 8-4b Fit 프로필 비교).
+
+**풀이 (`body_fit.py` — `WeaponRig` · weapon 잔차 가족 — 옵트인일 때만 제약):**
+- 무기 = 부착 본(주 손목)의 강체: 무기 메시 → 본 공간 = compose(offset, 소켓)(E0 · 캡처와 같은 식). 손잡이 선분 · 무기 끝 · 기록 점을 본 공간에 둔다.
+- 무기 파지 구간(`grip_weights(…, weapon)`) = 원래 보조 손바닥 점 ↔ 손잡이 ≤ `WEAPON_NEAR_CM` 15 × scale(요청 window 안 — 양손 간격 띠는 보지 않는다), 블렌드 0.2초. keep 가중 = 띠 − 무기 파지(먼 띠 프레임은 keep), 손잡이에서 주 손목 자리 ± 7 cm × scale 를 뺀 조각(결정 ③).
+- 잔차(무기 파지 가중 > 0): 보조 손바닥 점 − 손잡이 위 가장 가까운 점(미끄러짐 — 그 점의 움직임은 무기 강체로) · 보조 손 회전 오차(요청 회전, 없으면 원래 상대 회전 — 허용각 밖만) — keep 과 같은 층 · 가중, 보조 손목 굽힘 − max(원래 최대, `wrist_bend_max_deg`)(관통 층 hinge), 주 손 방향 충실도 = 파지 층(무기 방향 — lead_hand 가중으로만 올리면 합성에서 무기가 5.2° 돌았다).
+- **마무리(`_snap_weapon`):** 매끈화 · 재검사 뒤 무기 파지 구간 전체를 보조 팔만으로 다시 푼다 — 관절 델타 스플라인이 비선형 파지를 묽혀 0.4 ~ 1.2 cm 를 남겼다(합성, 프레임 풀이 0.02). 구간 전체를 같은 규칙으로 이어 고쳐 8-4b 의 '위반 프레임만 마무리' 떨림이 없다(합성 최대 1.15 → 0.011 cm · zigzag 0.44 → 0.03). 재검사에서 무기 위반을 빼 보니 합성 회전 10.1 → 14.9° 로 나빠져 되돌렸다(시간 이득 12%).
+- 무기 끝 목표 = 부착 본의 강체 점(`_target_point`), 주 손 팔 자유도. 기록(제약 아님): 파지 오차 전 · 후(`weapon_report` — 무기 파지 프레임 거리 · 미끄러짐 · 회전 · 쥠 축(기록) · 손목 굽힘, 모든 프레임 거리 · 두 손 선 각도), 무기-몸 관통(`weapon_body` — 기록 점 ↔ 몸통 칸 · 넓적다리 · 머리목, 깊이 + 점 반경).
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| 새 `Tools/mcp/anim_gen/weapon.py` | 요청 `weapon` 정규화 · `resolve`(소켓 → 메시 공간 · 손잡이 · 끝 · 손가락 체인 · 기록 점) · `handle_line`(E0 규칙) · `attachment`(캡처) |
+| `Tools/mcp/anim_gen/body_fit.py` | `grip.mode weapon` · `blend_s` · `wrist_bend_max_deg` · `grip_mode`(옵트인) · `_flag_weights` · `grip_weights(…, weapon)` · `WeaponRig` · weapon 잔차 · 주 손 방향 층 · `_snap_weapon` · `weapon_tip` · `weapon_report` · `weapon_body` |
+| `providers/body_fit.py` · `providers/review.py` · `request.py` · `server.py` | `resolve_weapon`(계획 · 실행) · Job `grip.weapon` · `weapon` · `weapon_body` · 한계 `GRIP_NOT_REACHED` · `GRIP_NOT_APPLICABLE` · `GRIP_RUNTIME_IK` · `WEAPON_BODY_RECORDED` · 캡처 attachments · 요청 `weapon`(lead_hand 충돌) · Tool 설명 |
+| `tests/conftest.py` · 새 `tests/test_weapon.py` · `tests/test_body_fit_pipe.py` · `tests/test_body_fit.py` | FakeEditor `mesh_inspect` · 무기 단위 27 · 파이프 6 · 기대된 변화 1(`grip.mode: weapon` 이 이제 받힌다) — pytest 649(616 + 33) |
+| `Tools/mcp/anim_gen_phase8_4_test.py` | 통합 `grip` 섹션(운영 낫 왼손 통계 · 무기 요청 Job 3 · 옵트인 Job · T5 · 라이플) |
+
+**결과 (2026-10-29 — 통합 `hashes,grip,dirty` 실행 `P84Run1029_224202`, Job 6/6 SUCCEEDED · 비파괴(25 파일 SHA-256 · 미저장 수 그대로 · Content = 실행 폴더) 통과, 실패 3 = 모두 T5 기준 미달 · 시험 오류 0. pytest 649):**
+
+| 완료 기준(c1) | 결과 | 충족 |
+| :--- | :--- | :---: |
+| 1 낫 파지 | 옵트인(운영 Attack2 · 요청 구간 0.6 ~ 1.05 s, 무기 파지 30 프레임): 손바닥 점 ↔ 손잡이 p95 11.7 → **2.0** · 최대 12.6 → **3.5 cm**(기준 1.05 · 2.1 — 미달), 회전(원래 상대) p95 10.9°(허용 10°), 쥠 축은 기록만(52.8 → 50.8° — 사용자 결정). 생성물은 붙일 대상이 아니다(왼 손바닥 ↔ 선분 p50 띠 정정 53.8 · 낫 정정 39.3 cm, 두 손 선 ∠ 자루 64.9 · 64.8° — `GRIP_NOT_APPLICABLE`) | 아님 |
+| 2 8-4b 기준 · 보조 손목 | 무기 요청(옵트인 없음) 3 Job = 무기 없는 8-4b Fit 과 C++ 프로필 차 **0.0 cm**(띠 정정 · 낫 정정 · 운영 Attack2 — 8-4b 기준 결과 그대로). 옵트인: 왼 손목 굽힘 최대 80.9 → 79.0°(≤ 상한 93.6 — 운영 Finisher1), 손 · 아래팔 ↔ 몸 27.1% · 6.43 → 2.1% · 2.58 cm, 손끼리 7.3% · 5.31 → 7.3% · 5.80, 떨림 8.16 → 9.10(기준 8.98 — 미달), 휘두름 +10.8% · 궤적 폭 −0.2% | 부분 |
+| 3 무기-몸 기록 | 낫 기록 점 174(자루 33 · 날 141). 붙인 낫 자루 ↔ 몸(후): 띠 정정 가슴 45.5% · 18.15 cm · 머리목 8.3% · 5.37, 낫 정정 가슴 47.1% · 14.77 · 머리목 16.5% · 6.37 — **생성 오른손 방향으로 붙인 자루가 몸을 지난다**(부착 어긋남의 다른 증거), 운영 Attack2 배 3.1% · 4.66 · 넓적다리 4.2% · 4.31, 옵트인 최악 배 8.95 cm(f12). 캡처 근거 | 예(기록) |
+| 4 파지 구간 · 이음매 | 요청 window 0.6 ~ 1.05 s → 무기 파지 구간 [0.567, 1.05](시작 1 프레임 앞 — 8-4b 빈틈 잇기 규칙, 부록 B), 경계 4 곳 SEAM_JUMP 0. auto(원래 손이 손잡이 15 cm × scale 안)는 합성 · 오프라인(Attack2 64 프레임)에서 동작 | 예 |
+| 6 라이플 | 운영 라이플 대기 + 라이플 요청(부착 `hand_r` · 왼손 `LeftHandIK` runtime_ik) → keep + `GRIP_RUNTIME_IK` | 예 |
+| 8 무기 끝(T5) | 띠 정정 · `TraceEnd` · swing_peak(1.933 ~ 2.133 s) · 몸 앞 +10 cm: 오차 p95 **2.04** · 최대 2.17 cm(기준 2 cm × scale 2.10 안 — 내부 '닿음'(1 cm)은 아님, blocked_by grip), 구간 ± ease 밖 변화 0.000 cm · SEAM_JUMP 0, keep 파지 p95 0.42 · 최대 1.49 cm(8-4b keep 과 같은 꼴). **미달:** 구간 안 떨림 1.53 → 8.46 · 휘두름 +7.3%(8-4b T1 과 같은 꼴 — 빠른 휘두름 위 0.15초 완급) | 부분 |
+| 9 전후 캡처 | 무기 요청 3 · 옵트인 · T5 시트(후 \| 전) · APNG, 낫 부착, 잘린 칸 0 · 새 더티 0 — SendUserFile | 예 |
+| 5 · 7 | 손가락 쥔 모양 · 샘플 전이 — c2(새 세션) | — |
+
+- **Job 시간:** 무기 요청 띠 정정 27.6 · 낫 정정 43.8 · 운영 Attack2 99.2 s, 옵트인 128.1 s(풀이 123 s), T5 27.1 s, 라이플 68.9 s.
+- **운영 낫 왼손 통계(읽기만):** 51 표본(Attack1 4 · Attack2 30 · Attack3 5 · Finisher1 12), 무기 공간 회전 퍼짐 p50 50.8 · p95 100.6°, 왼 손목 굽힘 최대 36 · 80.9 · 62.7 · 93.6°.
+
+**후속 수정 (2026-10-30 — `P84Run1029_224202` 의 사용자 Persona 소견 2건, 사용자 결정 '둘 다 고치기' · 새 단위 세션):**
+- **① 옵트인 블렌드 아웃 손 겹침**(`…P84cOpSickleAttack2WeaponOptIn` f63 ~ f75): window 끝 뒤 원래 왼손은 0.2초에 자루에서 7 → 43 cm 떠나는데 결과 손은 자루에 붙어 있었다(f68 손목 간격 35.9 → 5.4 · 손끼리 −27 → +5.8 cm) — 가중만 줄이면 0.05 에도 손잡이 잔차가 충실도를 이겨 붙임/놓음 둘 중 하나. → 무기 파지 가중 > 0 이면 잔차는 **가득 가중**, 목표 점 = 원래 손바닥(부착 본 공간 — 무기 강체로 따라감) → 손잡이 위 가장 가까운 점을 **smootherstep(가중) 보간**(요청 회전도 원래 상대 회전 → 요청 회전 slerp — 8-4b 지시 목표 완급과 같은 방식). `_snap_weapon` · 재검사 위반 · `weapon_report`(새 `blend` — 블렌드 프레임 목표 오차)가 같은 목표를 쓴다. 실제 모델에서 더 찾아 같은 수정에 넣은 것:
+  - **주 손 자리 건너기:** 원래 손이 window 안(f59 ~ f61)에서 손잡이를 따라 주 손 자리(± 7 cm × scale — 결정 ③)를 건너가, 가장 가까운 조각 끝이 한 프레임에 14.7 cm 를 건너뛰었다(목표가 반대 손을 꿰뚫음 — 떨림 8.16 → 21.8). → 조각은 원래 손바닥 투영이 고르고(`piece_f`), **건너는 구간**(자리 안 연속 프레임 중 조각이 바뀌는 것)만 통과 비(자리 끝에서 든 깊이 / 반폭 → smootherstep)만큼 목표를 원래 손바닥 쪽으로(`pass_f` — `weapon_report.lead_pass`). 한쪽에 머무는 자리 안 프레임(두 손이 가까운 파지)은 그대로 조각 끝으로 끈다 — 처음 판(자리 안 전부)은 합성 파이프 장면의 파지를 통째로 껐다.
+  - **마무리 둘째 출발점:** 매끈화가 빠른 블렌드 아웃 · 통과를 이웃과 섞어 손이 반대 손을 꿰뚫은 채 마무리에 들어오면 갇혔다 → `_snap_weapon` 이 앞 프레임 마무리 증분을 이어 받은 출발점도 풀어 비용이 낮은 쪽(f61 · f62 손끼리 4.75 · 5.38 → 4.31 · 1.78 cm, 구간 파지 p95 3.36 → 1.28 cm, 떨림 8.16 → 8.88).
+- **② 파지 프레임 보조 손목 추가 굽힘**(keep — 낫 정정 8-4b 실측 원본 91.1 → 102.1°, 띠 정정 f72 +3°): 손목을 여는 파지 프레임마다 **상한 = 원래 굽힘 + `BEND_KEEP_TOL_DEG` 2°**(관통 층 hinge — weapon 의 굽힘 hinge 와 같은 식, 새 잔차 가족 `bend`), 무기 파지 프레임은 max(원래 최대, `wrist_bend_max_deg`)(결정 ② 그대로)와 smootherstep(가중)으로 잇는다. 손가락 뿌리 = 대상 메시 손가락 체인 제안 `{Side}Middle` 시작(이름 추측 없음) — 무기 없는 Job 도 계획(에디터가 있으면) · 실행이 `inspect_skeleton skeletal_mesh=target_mesh suggest_finger_chains=true` 로 받는다(단계 `inputs.fingers`, 체인이 없으면 끄고 경고 진단 `GRIP_WRIST_BEND_OFF`). Job `fix.body.grip.wrist_bend`(파지 프레임 원래 대비 증가 최대 · p95 · 상한 넘은 프레임 · 모든 프레임 증가 최대 · 굽힘 최대 전 · 후 · 주 손 증가 — 기록) · `grip.fingers`. **기본 동작이 바뀐다**(무기 없는 낫 · 검 keep Job) — 손가락 뿌리가 없으면 c1 과 비트 동일(합성 8 시나리오 SAME, 스크래치 `bitcmp.py`). 원본 자체의 손목 꺾임(띠 정정 f70 55 → f72 102°)은 생성 쪽 몫이라 고치지 않는다. **→ 2차에서 본 풀이 뒤 보조 손목 다듬기로 옮겼다(아래 '후속 수정 2차').**
+
+| 오프라인(실제 모델 — 스크래치 `fix_diag.py`) | c1 | 후속 |
+| :--- | :--- | :--- |
+| 운영 Attack2 옵트인 f63 ~ f75 손끼리 최대 | +5.84 cm(f68) | **+0.83**(f64 — 맞닿음 안), f68 −8.55(원래 −26.88) |
+| f75 손바닥 ↔ 자루(원래 43.5) | 10.1 cm | **43.5** — 원래 손을 따라 떠난다 |
+| 구간 파지 p95 · 최대 | 1.46 · 8.3 cm | **1.28** · 7.8(f62 — 통과 직후 주 손에 막힘) |
+| 떨림(원래 8.16 · 8-4b 기준 8.98) | 12.65 | **8.88** |
+| 손끼리 관통 프레임(> 2.1 cm) | f16 · 20 · 21 · 36 · 68 ~ 70(최대 5.84) | f15 ~ 17(원본부터) · f61(원본 3.57 → 4.31 — 원래 손이 주 손을 꿰뚫고 지나는 통과 프레임) |
+| 보조 · 주 손목 증가 최대(무기 파지 프레임 — 상한 93.6°) | +23.2 · +9.4° | +10.4 · +6.5° |
+| 띠 정정 keep 보조 손목 증가 최대 | +3.04°(f72, 최대 103.1 → 105.3) | **+2.26°**(→ 104.5), 주 손 +0.35 → +0.18, keep 최대 0.45 → 0.41 cm, 떨림 1.45 → 1.48(원래 1.53) |
+
+**통합 1회차 `P84Run1030_000509`(`hashes,clearance,existing,dirty` — 수정 2 가 keep Job 을 바꾸므로 grip 보다 앞 실행으로, Job 12/12 SUCCEEDED · 비파괴 통과 · 실패 21 — 8-4b(`P84Run1029_152335` · `154526`) 대비):**
+
+| 대상 | 8-4b 미달 → 후속 미달(새 것 굵게) | 보조 손목 최대 원본 → 8-4b → 후속(C++) | 비고 |
+| :--- | :--- | :--- | :--- |
+| 낫 정정 | body · swing · zigzag · wrist · c5 → body · **head** · swing · zigzag · **off_wrist** · c5 (wrist 통과) | 91.1 → 102.0 → **95.2** | 머리목 0% · 2.07 → **1.7% · 2.88 cm**(f61 — 아래 '읽는 법') |
+| s25 | body · upper → body · **head** (upper 통과) | 67.6 → 68.3 → 68.0 | 머리목 0% · 1.76 → **0.8% · 3.47** |
+| s26 | upper · c5 → c5 (upper 통과) | 64.1 → 63.9 → 63.9 | |
+| s27(알려진 위험) | upper · grip_pct → upper · grip_pct · **wrist**(주 손 59.8 → 66.6) | 59.7 → 59.9 → 62.0 | 주 손목 증가 +28.9° 는 경첩 없이도 +29.3(오프라인) — 최대가 넘은 것만 새 것 |
+| 검 선택 | hands · upper · wrist(주 손 55.9) · c5 → upper · wrist(주 손 55.7) · c5 (hands 통과) | 41.5 → 38.3 → 38.7 | |
+| 띠 정정 | (c5 known) → 같음 | 103.1 → 105.4 → **104.5** | 보조 손목 증가 +2.26° |
+| axis_bug(스트레스 c7) | 통과 → 통과 | 39.0 → 49.5 → 41.5 | keep 최대 2.2 → **17.2 cm**(기록 — c7 은 폭주 여부만) |
+| kimodo 칼 · 걷기 · 달리기 · 라이플 대기 | 같음(걷기 body · width · c5, 달리기 · 라이플 c5) | 바뀜 없음(파지 프레임 0 — 라이플 대기 포함) | |
+| 운영 Attack2 | (c1 알려진 미달) → **꼬임 7.4 → 13.7%** | 80.9 → 81.1 → 81.0 | 손끼리 11.5% · 5.49 → 12.5% · 5.61 |
+
+- **읽는 법:** 손목은 의도대로 줄었다(낫 정정 +10.9 → +4.1°, 띠 정정 +2.3 → +1.4°). 새 머리목 관통은 **프레임 풀이는 풀지만(낫 정정 f48 −0.45 · f61 −0.15 cm, 관절 상한 안 걸림) 매끈화 뒤 재검사 5 회가 끝까지 못 따라가는** 8-4b 의 느린 수렴이 경첩으로 바뀐 팔 보정 경로에서 문턱(2.1)을 넘은 것이다 — 8-4b 도 낫 정정 f48 이 4.9 → 2.07 cm 로 문턱 바로 밑이었다. 오프라인으로 가른 대안(스크래치 `keep_diag.py`): 경첩 층 10(keep 층) — 낫 정정 f61 2.85 그대로 · s25 1.82(통과), 두 손목 경첩 — s27 keep 9.1 → 20.7 cm 로 망가짐, 재검사를 늘리면(패스 9 · 12) 낫 정정 머리 0% 지만 s25 는 경첩 없이도 2.31 cm 로 넘는다(전체 Job 의 8-4b 상수라 범위 밖). → 지시대로의 설계(관통 층 · 보조 손만)를 두고 경계 회귀는 한계로 남겼다(판정은 사용자 — 캡처). **→ 2차(아래)에서 상한을 본 풀이 뒤 다듬기로 옮겨 낫 정정 0% · 1.39 cm 로 해소, s25 는 모델 근사 한 프레임이 남음.**
+
+**통합 2회차 `P84Run1030_004012`(`hashes,grip,dirty` — 1회차 보정본과 비교, Job 6/6 SUCCEEDED · 비파괴 통과 · 실패 3 = 모두 T5):**
+- 무기 요청 3 Job(auto = keep) = 1회차 무기 없는 Fit 과 프로필 차 **0.0 cm**(띠 정정 · 낫 정정 · 운영 Attack2).
+- **옵트인(운영 Attack2 · window 0.6 ~ 1.05 s):** 블렌드 아웃 f63 ~ f75 손끼리 최대 −3.37 → **+1.26 cm**(맞닿음 1.05 + 0.3 안 — `c1_blend_out` 통과, c1 은 f68 +5.8). 구간 파지 p95 2.0 → **1.28** · 최대 3.5 → 7.8 cm(f62 — 주 손 자리 통과 직후, 알려진 미달), 블렌드 목표 오차 p95 2.10, 주 손 자리 통과 3 프레임. 손 · 아래팔 ↔ 몸 2.1% · 2.58 → **0% · 1.43**, 손끼리 7.3% · 5.80 → 5.2% · 4.87, 떨림 9.10 → **8.89**(기준 8.98 안 — c1 미달이 통과로), 꼬임 0, 보조 손목 최대 79.0 → 83.2°(상한 93.6 안), SEAM_JUMP 0, 무기 ↔ 몸(기록) 최악 배 8.95 → 10.31 cm.
+- **T5(무기 끝 · keep):** 오차 p95 2.04 → **2.45** · 최대 2.61 cm(2.10 넘음 — blocked_by grip: keep 과 보조 손목 상한이 주 손 팔을 묶는다), 떨림 8.46 → 5.24(미달 그대로), 휘두름 +7.3 → +2.5%(통과로), 위팔 쌍 l|upper_arm|chest 나빠짐(새 미달), 구간 ± ease 밖 0.000 · SEAM_JUMP 0.
+- 라이플 = keep + `GRIP_RUNTIME_IK`(파지 프레임 0 — 바뀜 없음).
+- **캡처:** `Tools/mcp/results/capture/P84Run1030_000509/<대상>/`(후 \| 원본) · `<대상>_vs_prev/`(후 \| 8-4b `P84Run1029_152335` — 낫 정정 · 띠 정정 · 검 선택 · 걷기 · 달리기), `P84Run1030_004012/op_sickle_attack2_weapon_opt_in_vs_prev/`(후 \| c1 `P84Run1029_224202`) — 판정은 사용자.
+
+- **시험:** 합성 — 블렌드 아웃(원래 손이 4 → 34 cm 떠남 — c1 은 f40 ~ f42 손잡이에 0.05 ~ 2.2 cm, 블렌드 뒤 꼬리 5 ~ 9 cm) · 주 손 자리 건너기(조각 점 한 프레임 13.3 cm 건너뜀 → 목표 걸음 ≤ 원래 손 걸음 × 2) · 손목 상한 경첩(잔차 · 위반 · 파지 프레임만) · keep 손목(허용 0° 로 좁히면 2.27 → 0.05°) · 파이프 손가락 뿌리(계획 → 실행 기록 · 체인 없으면 끔). 기대된 변화 3(이음매 시험 — 꼬리 밖 0.01 → 0.1 cm(꼬리 프레임 손끼리 맞닿음 재검사) · 걸음 차 경계 = smootherstep 1.875 × smoothstep 1.5 기울기 · 무기 없는 Job 과 무기 Job 이 같은 메시 사실을 보게 순서). pytest 654.
+
+**후속 수정 2차 (2026-10-30 — 1차 통합 · 사용자 Persona 에서 나온 회귀 ③ ~ ⑨, 새 단위 세션 · 사용자 '원래 맡은 것 + 작업 중 발견한 문제를 고치면 끝'):**
+- **③ 옵트인 f58 ~ f64 팔 튐**(손목 걸음 f60 4.2 · f63 6.5 cm, 팔꿈치 f63 7.1 — 원본 0.5 · 1.2): 1차 통과 비(`pass_f`)는 위치만 봐서 원래 손이 자리를 2 ~ 3 프레임에 건너는 동안 목표를 손잡이 → 원래 손 → 손잡이로 바꿨다 → 통과 비를 **± `GRIP_BLEND_WEAPON_S`(0.2 s) 시간으로 넓힌다**(떨어진 만큼 smootherstep 으로 묽힌 최솟값 — 블렌드와 같은 폭으로 드나든다). 마무리 둘째 출발점은 유지.
+- **④ ~ ⑨ 손목 상한의 부작용**(머리목 · s27 주 손목 · Attack2 꼬임 · T5 · axis_bug keep · 낫 정정 +4.1°): 상한을 본 풀이 잔차(`bend` 가족)에 걸면 팔 보정 경로가 바뀌어 매끈화 뒤 재검사가 못 따라갔다 → **본 풀이(`_solve_states` · `_solve_targets` · 재검사 위반)에서 빼고, 본 풀이 · 무기 마무리 뒤 파지 프레임 전부를 보조 손목만 다시 푼다**(`_finish_wrist` — 무기 파지 프레임은 `_snap_weapon` 이 보조 팔 전체로 상한까지 풀어 건너뛴다). 팔 · 주 손은 본 풀이 해 그대로(오프라인 — 다듬기 전 = 8-4b 값, 주 손 · 보조 팔꿈치 이동 0). 오프라인으로 가른 세부(실제 모델 — 스크래치 `wrist_diag.py`):
+  - **관통 = 쌍 단위 바닥**(그 상태보다 깊어지지 않게만 — 쌍(쪽 · 부위 · 지도) 최대 깊이를 그 쌍의 모든 점에, `_floor_at(pair)`): 바닥이 없으면 s25 f55 머리 1.76 cm 를 손목을 14° 펴서 빼 떨림 2.17 → 6.06, 점마다 바닥이면 낫 정정 f48 · f51 이 갇히거나(+6.1°) 머리 근처에서 상한보다 4° 더 펴 떨림 2.75, 관통을 빼면 s25 머리 1.76 → 2.71 로 새로 든다.
+  - **keep 은 두지 않는다**: 같은 손목을 상한과 반대로 당겨 상한이 안 맞았다(낫 정정 +3.6° · 최대 94.6, s25 +3.3°). 대가 = keep 회전(편 만큼 — 낫 정정 2.6 → 10.7°, 인계 노트 예상 ≈ 8°).
+  - **시간 연속 = 앞 프레임 다듬기 증분**: 앞 프레임 상태 자체를 기준으로 하면 keep 없는 다듬기가 손목을 늦춰 상한이 안 걸린 s27 에서도 keep 12.2 → 21.2°.
+  - **무기 상한(max(원래 최대, `wrist_bend_max_deg`))은 c1 처럼 본 풀이 `weapon` 잔차로 되돌림** — 1차가 `bend` 가족으로 옮겨 같이 빠지면 합성 상한 0° 장면 손목 1.9° · 파이프 쥠 축 p95 16.2°(운영 Attack2 옵트인은 상한 93.6 이 안 걸려 값 그대로).
+  - **(보강 — 같은 날 사용자 '시험해 보기') 다듬기 동안 지도 각도 칸은 C++ 처럼 그 자세의 어깨로**(`live_lateral` · `_lateral_x` — 각도 0 방향 = `upperarm_l − upperarm_r` 를 축에 수직으로, 반경은 모델 지도의 같은 번호 칸, `RadialMap.locate/depth(x=)`). 원래 자세면 저장된 축과 같다(실제 모델 8 지도 차 ≤ 1e-6). 본 풀이는 원래 축 그대로 — 아래 s25 f55 를 푼다. 각도 이웃 칸까지 보는 보수 판은 다듬기 전부터 이웃 칸 깊이(3.18)가 바닥이 되어 효과가 없었다.
+
+| 오프라인(실제 모델 — 다듬기 전 = 8-4b) | 보조 손목 증가 최대 전 → 후 | 머리목 최대 | keep 최대 cm · ° | 떨림 |
+| :--- | :--- | :--- | :--- | :--- |
+| 낫 정정 | +10.9 → **+2.2°**(최대 91.1 → 93.3) | 2.07 → 1.39 | 1.98 · 2.6 → 2.13 · 10.7 | 1.99 → 2.08 |
+| s25 · s27 · 검 선택 | +6.9 → +2.1 · +1.2 그대로 · +2.4 → +2.0 | 1.76 → 1.53 · 그대로 · 0 | s25 2.7 → 6.6°, s27 · 검 그대로 | 그대로 |
+| 띠 정정 · 운영 Attack2(keep) | +3.0 → +2.0 · +0.5 그대로 | 0 | 띠 0.6 → 1.3°, Attack2 그대로 | 그대로 |
+| 옵트인(③ 포함) | 무기 상한 93.6 안(83.4) | — | 파지 p95 · 최대 1.28 · 7.8 → 0.99 · 1.11 cm | 8.89 → 8.16(원본) |
+
+**2차 통합 1회차 `P84Run1030_094005`(`hashes,clearance,existing,dirty`, Job 12/12 · 비파괴 통과 · 실패 20 — 8-4b 와 같은 수, 새 것 1 · 풀린 것 1) → 보강 뒤 재실행 `P84Run1030_110902`(실패 19 — s25 c1_head 풀림, 나머지 수치 같음):**
+
+| 회귀(1차 §9-3) | 8-4b → 1차 → **2차**(C++) | |
+| :--- | :--- | :--- |
+| ④ 머리목 낫 정정 | 0% · 2.07 → 1.7% · 2.88 → **0% · 1.39** | 8-4b 보다 좋음 |
+| ④ 머리목 s25 | 0% · 1.76 → 0.8% · 3.47 → 0.8% · 2.81(f55 — 첫 2차) → **0% · 1.50**(보강 — 재실행 `P84Run1030_110902`) | 8-4b 보다 좋음 |
+| ⑤ s27 주 손목 | 59.8 → 66.6 → **59.8** | c4_wrist 통과 |
+| ⑥ 운영 Attack2 꼬임 | 7.4 → 13.7 → **7.4%**(keep 3.33 · 4.46 = 8-4b) | |
+| ⑧ axis_bug keep(c7 기록) | 2.2 → 17.2 → **2.97 cm**(회전 8.9 → 21.4 → 27.1°) | c7 통과 |
+| ⑨ 낫 정정 보조 손목 | 102.0 → 95.2 → **93.2°**(원본 91.1) | c4_off_wrist 전 대상 통과, 낫 정정 c4_wrist 도 풀림 |
+| 그 밖 | 검 선택 손끼리 · s26 위팔은 8-4b 미달 그대로(1차에 풀렸던 것), 낫 정정 떨림 2.005 → 2.077(8-4b 부터 미달), keep 회전(c2_keep — 8-4b 부터 알려진 미달) 낫 정정 10.7 · s25 6.6 · 띠 1.3° | |
+
+- **s25 f55 머리 2.81(첫 2차)의 원인과 보강:** 같은 점(검지 `index_01_l` 점 24 — 위치 차 0.00 cm)을 모델은 −2.13, C++ 는 +2.81 로 봤다. C++ 는 지도의 각도 0 방향을 프레임마다 **편집된 자세의 어깨**에서 다시 잡고, Python 모델은 원래 축을 기준 본 강체로 따라간다 — 본 풀이(8-4b)가 쇄골을 옮긴 f55 에서 축이 1.3° 돌아, 각도 칸 경계(±180°)의 점이 C++ 로는 칸 0(얼굴 쪽 반경), 모델로는 칸 35 에 든다(8-4b 에서도 그 점은 C++ 1.72 · 모델 −1.76). 다듬기는 쇄골을 안 움직이므로 어떤 다듬기 판이든 C++ 지도는 결과 애셋의 것과 같다 → 그 지도로 판마다 C++ 실측을 오프라인 재현(통합과 같은 2.81)해 고른 것이 위 보강(재현 1.50 = 재실행 실측). 본 풀이에 같은 규칙을 넣으면 모델이 C++ 에 더 가까워지지만 모든 Job 의 해가 바뀐다 — 별도 단위 후보.
+
+**2차 통합 2회차 `P84Run1030_100526`(`hashes,grip,dirty`, Job 6/6 · 비파괴 통과 · 실패 3 = 모두 T5 — c1 과 같은 셋):**
+- 무기 요청 3 Job = 1회차 무기 없는 Fit 프로필 차 **0.0 cm**.
+- **옵트인:** 무기 파지 구간 p95 · 최대 **0.677 · 0.701 cm**(1차 1.28 · 7.8 — `c1_grip` 이 처음 통과), 블렌드 목표 오차 p95 1.70 · 최대 1.94, 블렌드 아웃 f63 ~ f75 손끼리 최대 −3.37 → **−2.29 cm**(1차 +1.26 — 안 닿음), 떨림 **8.16**(= 원본, 1차 8.89), 꼬임 7.4 → 0%, 몸 0% · 1.75, 보조 손목 최대 83.3(상한 93.6), SEAM_JUMP 0. 오프라인 왼팔 걸음 f58 ~ f64 손목 1.4 · 2.0 · 1.1 · 2.5 · **4.1(f62 — 한 번 남음, 출발점 하나 판은 고르지만 파지 p95 2.48)** · 0.2 · 0.8 cm(1차 f60 4.2 · f63 6.5), 팔꿈치 최대 2.5(1차 7.1).
+- **T5:** 오차 p95 **2.039** · 최대 2.165 cm(= c1, 1차 2.45 · 2.61), 휘두름 +7.3%(= c1), 위팔 쌍 새 미달 없음(1차 l|upper_arm|chest). **대가:** c1 경로에서 목표 블록이 보조 손목을 원본보다 18.5° 더 꺾던 것을 +2.3° 로 펴서 keep 최대 1.49 → 2.16 cm · 3.6 → 16.1°, 구간 안 떨림 8.46 → 9.67(f60 왼 손가락 끝 — 손목 위치 걸음은 c1 과 같다, 오프라인 `t5_diag.py`).
+- 라이플 = keep + `GRIP_RUNTIME_IK`(바뀜 없음).
+- **캡처:** 통합 자동(`P84Run1030_094005/<대상>/` 후 \| 원본 · `<대상>_vs_prev/` 후 \| 1차, `P84Run1030_100526/op_sickle_attack2_weapon_opt_in_vs_prev/` 후 \| 1차 · `T5/`) + 판정용 문제 프레임 시트(`P84Run1030_100526/op_sickle_attack2_weapon_opt_in_vs_fix1_f55_f64/` 후 \| 1차, `P84Run1030_094005/scythe_pick_vs_8_4b_f48_f72/` · `scythe_s25_vs_8_4b_f55/` 후 \| 8-4b) — 판정은 사용자.
+- **시험:** 합성 — 빠른 자리 통과(3 프레임 — 통과 비 하나의 골 · 프레임 변화 ≤ 0.3, 위치만 보면 0.46) · 어깨 기준 각도(원래 자세 = 저장 축, 쇄골을 돌리면 달라짐, 다듬기 뒤 꺼짐). 기대된 변화 2 — 손목 상한 시험(본 풀이 가족 · 재검사 위반에 `bend` 없음), keep 손목 시험(다듬기 뒤 팔꿈치 · 손목 위치 · 주 손 = 상한 없는 풀이, keep 은 편 만큼까지). pytest 656.
+
+#### 8-4c ③ 샘플 전이 · 손가락 쥔 모양 — c2 (개정 14 — 2026-10-30 구현 · 검증)
+
+**진행:** 단위 세션이 시그니처(§9 `fix.body.pose_from[]`)와 결정 A ~ I 를 보이고 사용자 확인(전부 추천안) → 구현 · 합성 시험 → 실제 모델 오프라인(에디터로 몸 모델만 읽어 S1 ~ S3) → 통합 → 캡처. C++ 변경 없음(샘플 몸 모델 = `validate_animation body_clearance{model}`, 손가락 경고 = 기존 `fingers`). **샘플 전이가 없는 요청은 풀이가 그대로**(HEAD `body_fit.py` 사본과 합성 11 시나리오 비트 비교 SAME · 통합 1회차 실패 수 · 항목이 직전과 같다).
+
+**결정(사용자 확인 — 추천안):** A 묶음 = 템플릿 체인 · 손 트리(이름 추측 없음 — §9 행) · 메타카팔 빼기 · legs 는 8-4d B 손가락 = 부모 공간 로컬 그대로, 참조 = source 시각 샘플(시간 slerp) C (가) 블록 재사용 — '덮은 자세' 출발점 · 충실도 기준, 손가락 자유도 아님 · 척추 · 목머리 그 구간 3축 · 팔 기존 자유도, 상한은 덮은 자세에서, 하드(관통 바닥 = base · keep = base 관계 · 발)가 이긴다 D 완급 = 지시 목표와 같은 smootherstep, motion 의 ease = 구간 끝 자세 E 사건 = 샘플 · 대상 각자 `timing.events`, motion 사상 = 끝 + 같이 든 점 사건 구간별 선형 F 같은 본은 요청 순서로 겹쳐 덮고 지시 목표와 같은 블록 G 기준 측정 = 샘플 없는 같은 대상 Fit 대비 H 손가락 경고 = `validate_animation fingers{mesh}` I 다른 스켈레톤 = `SAMPLE_SKELETON_MISMATCH`.
+
+**실측에서 고친 것(설계 → 구현):**
+
+| 항목 | 처음 판 | 실측 | 고친 것 |
+| :--- | :--- | :--- | :--- |
+| 팔 묶음의 '트위스트' | 위팔 · 아래팔의 체인 밖 자식 가지(C++ 몸 모델 twist 규칙) | Vesper 위팔 아래 재킷 자락 2마디(`streetdemon_f_jacket_off_side_01/02`)가 들고 끝 마디는 몸 모델 밖 | 체인 밖 **잎** 자식만(트위스트) — 가지(옷 자락)는 대상 그대로 |
+| 관통 몫 결합 | 지시 목표처럼 완급 ρ 만큼 그 프레임 값 | 낫 정정 S2 — 목을 덮어 손-머리가 f62 · f63 에만 닿아 두 팔을 12° 고쳤다 되돌림(떨림 1.28 → **6.87**) | 샘플 전이만 있는 프레임은 블록 안 스플라인(목표 없는 풀이와 같은 규칙 — 1.29) |
+| keep · 충실도 몫(x_T)까지 스플라인 | — | 덮기가 두 손 관계를 0.13 s 에 바꾸는 S3 블록 시작에서 keep 이 이웃까지 묽어짐(f78 **10.6 cm**) | x_T 는 늘 프레임마다 그대로 |
+| 재검사 | 스플라인만 / 전부 그 프레임 값 | 스플라인만: 몸 안 10 cm 샘플(합성)의 완급 가장자리 관통 3.0 cm 남음 · 전부 그 프레임 값: S2 · S3 떨림 3.44 · 5.75 · 첫 재검사부터 '새 깊은 관통'만: S2 손-머리를 한 번에 고쳐 4.36 | **마지막 재검사에서만** 덮기가 새로 만든 깊은 관통(깊이 > 관통 판정 · 쌍(쪽 · 부위 · 지도) base 최대 + 관통 여유 — 점 단위면 몸통이 손에 대해 돈 프레임까지 듦)을 완급만큼 그 프레임 값 → 합성 관통 0 · S2 1.29 |
+| 파지 띠 깜빡임 | keep 가중 그대로 | 생성 손 간격이 띠 끝을 넘나들어 가중 1 → 0.16 → 1(S3 f110 ~ 114) — 덮은 두 손 관계가 keep 과 다르면 그 몇 프레임만 팔이 샘플 쪽으로 튐(3.81) | 덮은 프레임만 짧은 띠 빈틈(앞뒤 0.2 s 안 가득 파지)을 메움 |
+| 보조 손목 굽힘 상한 | 덮은 자세 굽힘 + 2° | 척추만 덮어도 base 의 + 2° 위에 또 쌓임(S2 증가 4.05°) | 보조 손목을 덮은 프레임만 max(원래, 덮은 자세) + 2° |
+| 막은 것 판정 | 결과 상태의 관통만 | 덮은 자세가 관통이라 고쳐진 본이 'smoothing' 으로 보임 | 덮은 자세의 관통(base 바닥 너머)도 clearance 로 |
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/body_fit.py` | 정규화(`_pose_from` · `_span_spec`) · `bundle_bones` · `pose_from_spans` · `_map_time` · `_sample_local` · `resolve_pose_from` · Solver `pose_from`(자유도 · 상한 기준 `ref_rot` · `ref_bend` · 충실도 배율 · `_overlay` · `_fill_grip_gaps` · `_pair_depths` · 블록 결합 규칙 · `pose_from_report`) · `_ease_ramp`(지시 목표와 공유) |
+| `providers/body_fit.py` | 계획: `resolve_bundles`(대상 메시 inspect) · `sample_of`(샘플 스켈레톤 · 사건) · 미리보기 · 위험 `POSE_FROM_RESOLVED_AT_RUN`. 실행: 샘플 몸 모델 · `resolve_pose_from` · 손가락 경고 전 · 후 · Job `pose_from` · `fingers` · `seconds.samples` · 한계 `POSE_FROM_PARTIAL` · 진단 `POSE_FROM_FINGER_WARNINGS` |
+| 새 `tests/test_pose_from.py` · `tests/test_body_fit_pipe.py` | 순수 32(요청 · 묶음 · 사건 정렬 · pose/motion · 손가락 0° · 블렌드 · 관통 · keep 우선 · 다른 스켈레톤 · 건너뜀 · 루프 · 샘플 없으면 그대로) · 파이프 5(계획 미리보기 · 다른 스켈레톤 · 오류 · Job 기록 · 한계). 기존 기대값 변화 0 |
+| `Tools/mcp/anim_gen_phase8_4_test.py` | 섹션 `samples`(S1 ~ S3 · 계획 미리보기 · 다른 스켈레톤 거부), `RECORD_ONLY`(요청한 동작 변화는 기록만), known miss 를 Job 키로도 |
+
+**결과 (통합 — 1회차 `P84Run1030_170001` `hashes,clearance,existing,dirty`: Job 12/12 · 실패 19 = 직전 실행과 같은 수 · 항목(8-4b 부터), 2회차 `P84Run1030_173223` `hashes,targets,grip,samples,dirty`: 지시 목표 · grip 값 그대로(T1 0.896 cm · T2 0.354° · T3 0.008 · T4 막힘 2.54 · 옵트인 0.677 / 0.701 · T5 2.039 · 무기 요청 = Fit 0.0 cm · 라이플 keep), samples 는 시험 코드 오류(변수 가림)로 판정 중단 → 3회차 `P84Run1030_180618` `hashes,samples,dirty`: Job 3/3 · 실패 5 — 4 개는 샘플 없는 Fit 과 같은 값(8-4b 부터), 1 개는 S3 위팔 쌍 모델 근사. 비파괴(SHA-256 25 · 미저장 0 · Content = 실행 폴더) 세 번 모두 통과. pytest 693):**
+
+| 기준 | S1 띠 정정 ← Attack3 `fingers_l` pose(0.125 s → 클립 전체, w 1) | S2 낫 정정 ← Attack1 `spine` + `neck_head` pose(swing_peak 0.333 → 1.933 s, hold 0.2, w 0.5) | S3 낫 정정 ← Attack1 `arm_l` + `arm_r` motion([swing_end, end] → [swing_end, end], w 0.5) |
+| :--- | :--- | :--- | :--- |
+| 7 블렌드(막히지 않은 본 ≤ 0.5° — C++ 몸 모델) | **0.000°**(15/15) | **0.365°**(spine_04) · 막힘 7 — 목 · 머리 2.7 ~ 3.5°(손-머리 관통) · 척추 0.5 ~ 0.76°(smoothing) | 막힘 8(두 팔 전부 — 파지 keep, 위팔 최대 45° 상한) · 막히지 않은 트위스트 8 = 0.000° |
+| 7 묶음 밖 · 구간 ± ease 밖(≤ 0.1 cm — 샘플 없는 Fit 대비) | 0.0019 · 0.0000 | 0.0000 · 0.0000 | 0.0000 · 0.0000 |
+| 7 사건 정렬(≤ 1 프레임) | 0.0 | 0.001 | 0.001(swing_end · still_start · end) |
+| 5 손가락 = 샘플 · 경고 0 | **0.0000°** · [] → [] | — | — |
+| 7 막힌 본 = `POSE_FROM_PARTIAL` | 없음 = 없음 | 7 본 · clearance · smoothing | 8 본 · grip · joint_limit |
+| SEAM_JUMP | — (클립 전체) | 0 | 0 |
+| 8-4b 1 ~ 3(관통 · keep · 발) | 통과(몸 0.8% · 2.73 → 0% · 0.63, keep 0.46 cm) | 샘플 없는 Fit 과 같은 값(몸 1.7% · 3.0 cm · keep 2.13 — 8-4b 부터) | 같음 |
+| 떨림(C++) | 1.533 → **1.455** | 1.44 → 2.077(= 샘플 없는 Fit) | 1.44 → **2.365**(known — f77 한 프레임) |
+| 기록만 | 휘두름 −0.7% | 휘두름 +3.1% · 궤적 폭 +5.4% | 휘두름 +5.4% · 폭 +6.0% · 보조 손목 91.1 → 93.2° |
+| Job 시간 · 풀이 | 48.8 s · 41.7 s | 111 s · 104 s | 145 s · 138 s |
+
+- **다른 스켈레톤 샘플**(UE4 마네킹 `Anim_SAS_V2_ComboAttack01_IP`) → 계획 후보 `UNSUPPORTED_REQUEST SAMPLE_SKELETON_MISMATCH`. **S2 계획 미리보기** — 묶음 8 본 · 1.9333 ~ 2.1333 s(58 ~ 64, ease 4) · 샘플 0.3333 s · 정렬 0.001 프레임, 위험에 `POSE_FROM_RESOLVED_AT_RUN` 없음, 계획은 아무것도 안 만든다.
+- **실패 5:** S2 · S3 `c1_body`(1.7% · 3.0 cm) · S2 `c4_zigzag`(2.077) · S2 `c5`(위팔 쌍) — 샘플 없는 같은 대상 Fit 과 같은 값(8-4b 부터의 낫 정정 미달). S3 `c5` — 위팔 ↔ 가슴 모델 4.1% · 5.22 vs C++ 0.8% · 2.39(덮은 두 팔에서 위팔 반경 지도 근사가 C++ 보다 비관 — 위팔 쌍은 관통 목표 밖).
+- **오프라인(실제 모델 — 스크래치 `offline_pf.py`)이 통합과 같다:** S1 0.000° · S2 떨림 1.292 · S3 2.33(통합 2.365), 묶음 밖 · 구간 밖 0.0, keep = 샘플 없는 풀이(2.128 cm). S3 ease 0.3 s 시험은 휘두름 안으로 들어가 떨림 10.4 · 오른손-머리 새 관통 0.8% · 2.95 cm 로 더 나빴다.
+- **캡처:** `Tools/mcp/results/capture/P84Run1030_180618/{S1, S2, S3}/after/compare.png`(후 \| 샘플 없는 Fit, 낫 부착) · `animation.png` — SendUserFile. S1 은 손가락이라 전신 시트에선 작다(수치가 주 근거 — Persona · APNG 로 눈 확인).
+
+| 완료 기준(8-4c — c2 범위) | 결과 | 충족 |
+| :--- | :--- | :---: |
+| 5 손가락 쥔 모양 덮기 | 참조(샘플 0.125 s) 손가락 로컬 = 결과 0.0000°(C++ 몸 모델, 15 본 · 클립 전체), 손가락 경고 0(전 · 후) | 예 |
+| 7 샘플 전이 S1 ~ S3 | 블렌드(막히지 않은 본) ≤ 0.365° · 묶음 밖 ≤ 0.0019 cm · 구간 밖 0.0 · 정렬 ≤ 0.001 프레임 · 손가락 0° · 발 · 파지 · 관통 = 샘플 없는 Fit · 막힌 본 `POSE_FROM_PARTIAL` · 다른 스켈레톤 거부. 남은 것: S3 떨림 2.365(f77) | 예(S3 떨림 기록) |
+
+#### 8-4d ③ 펴진 다리 무릎 떨림 + 마무리 (개정 14 — 2026-10-30 구현 · 검증)
+
+**진행:** 단위 세션이 착수 전 실측(에디터로 다리 보정본 4건 · 원본 · 8-4b/c 대상 · 운영 애니 16개의 프로필 · 몸 모델을 읽기만 → 스크래치 위치 시험)으로 원인 · 방식 · 켜는 조건을 좁혀 결정 ① ~ ⑤ 를 보이고 사용자 확인(전부 추천안) → 구현 · 합성 시험 → 실제 모델 오프라인 → HEAD 비트 비교 → 통합(`legs` · `combined`) → 통합 나머지 · 회귀 전체. C++ 변경 없음.
+
+**원인(실측):** 검 선택 다리 보정본의 오른 다리 공중 구간(f8 ~ 16, 모델 프레임 f9 ~ 17)에서 엉덩 → 발목 거리 가속 d″ 가 −1.31 · −0.99 · **+1.20** · −0.55 · **−2.67** · −1.26(원본은 −1.02 ~ −0.66 로 매끈) — 8-3 다리 보정의 접지 블렌드 · 골반 상승(keep_knee_bend)이 만든 꺾임이 착지 직전 무릎을 흔든다(calf_r f16 1.891). 발목 경로 자체에는 부호 반전이 없다. 낫 2건의 최대는 공중 시작(f58)의 발목 · 발볼 경로 꺾임(1.97 · 1.59), 칼 시험은 원본 Kimodo 자체의 발 튐(ball_r 3.33 — 원본 3.42).
+
+**결정(사용자 확인 — 추천안):** ① `swing_path` auto = 같은 Job 의 `fix.ops` 에 다리 op 가 있을 때만(기존 애셋은 on) · 곡선 = 무릎 · 발목 저크 풀이(충실도 0.5) · 소프트 무릎 0.97 / 0.03 공중 프레임만 · 다리만 고치는 요청용 `clearance.mode` ② `pose_from` 다리 · 골반 묶음과 발 회전 목표는 넣지 않음(후속 후보) ③ 합본 BVH = 8-3 합본과 같은 저장된 Kimodo BVH(낫 정정 선택 kimodo_03 — 낫 부착 캡처 · 검 선택 kimodo_00) ④ 회귀 순서(pytest → 통합 legs · combined → 통합 나머지 → Phase 1 ~ 8-3, Kimodo 쓰는 5 · 8-1 은 에디터를 다시 띄워 하나씩) ⑤ 8-4c 까지의 남은 대가는 고치지 않고 기록(아래 '8-4 정리').
+
+**실측에서 고친 것(설계 → 구현):**
+
+| 항목 | 설계 | 실측 | 고친 것 |
+| :--- | :--- | :--- | :--- |
+| 공중 경로 곡선 | 엉덩 → 발목 거리 d(t) 를 디딤 경계 값 · 기울기에 맞춘 매끈한 곡선으로 | d 만 매끈하게(경계 고정 폭 · 반경 · 굽힘 평면 매끈화 어느 것으로도) 검 선택 1.891 → **1.635**(기준 1.561 미달) — 착지 뒤 접지 프레임 f17 ~ 19 의 무릎 가속(pin · 엉덩 고정이라 못 바꿈, \|a\| = 1.635 × scale)과 마지막 공중 프레임의 무릎이 반대 방향 | 공중 구간 발목 목표(3축/프레임)를 **무릎 · 발목 위치 3차 차분(저크) 최소 + 충실도**로(경계 밖 접지 3 프레임 포함 — 값 · 기울기 · 가속 연속) — 위치 시험 1.27 · 제품 1.259. d(t) 는 그 결과 |
+| 충실도 가중 | — | 0.3: 1.19 · 발목 이동 ≤ 5.7 cm / **0.5: 1.27 · ≤ 4.1** / 0.7: 1.45 / 1.0: 1.62(미달) | 0.5 |
+| 켜는 조건(auto) | 펴진 다리 떨림을 탐지할 때만 | 공중 구간 무릎 · 발목 떨림 — 다리 보정본 1.06 ~ 1.97 vs 운영 걷기 1.5 ~ 2.3 · 달리기 5.0 ~ 6.8(접지 0%) · Attack2 8.16 · 원본 칼 시험 2.00, d/다리도 운영이 크다(0.995 ~ 1.0) — 신호로 못 가른다 | 같은 Job 의 `fix.ops` 다리 op(꺾임의 원인)일 때만 · 기존 애셋은 `on` — 기본 동작 불변 |
+| 소프트 무릎 | 완전 폄 근처를 누그러뜨림 | 다리 보정본의 공중 d/다리 최대 0.958 ~ 0.989 — 효과 작음(검 선택 오른 다리 0.23 cm) | 설계값 그대로 · 공중 프레임만 · 저크 풀이 안(경계 연속) — 거의 편 다리가 순간 쭉 펴져 튀는 것의 안전장치 |
+| 상체 불변 0.0 cm | 다리만 고치면 0 | 다리 본만 썼는데 손가락 · 머리 등 0.01 cm(C++ 쓰기 잡음 — 8-4a `bone_deltas` 한 본 시험의 자손 밖 0.01 과 같다) | 허용 0.05(표기 0.0) |
+| 합본 접지 미끄러짐 ≤ 0.1 | 다리 보정본처럼 0 | 합본은 body_fit 입력(timing 뒤)부터 3.71 / 7.80 · 9.82 / 5.45 cm/s — `time_warp antialias` 가 고정한 발도 거른다(8-3 의 시간 보정 몫), body_fit 은 그대로 둔다(3.71 / 7.91 — 오른발은 손대지 않았고 +0.11 은 쓰기 잡음) | 합본 판정 = body_fit 전 + 0.5(8-4b 기준 3) · 시간 보정의 발 미끄러짐은 후속 후보 |
+| 무기 캡처 기록 | review.capture 가 무기를 붙여 찍는다(8-4c) | Job `review.capture` 에 부착 정보가 없어 판정 근거가 안 남음 | `review.capture.attachments`(C++ 결과 그대로) |
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/body_fit.py` | 요청 `clearance.mode` · `legs`(`_legs` 검사) · `swing_mode` · `soft_reach` · `_solve_banded` · `_air_windows`(루프 감아 돎 · 접지 없음 건너뜀) · `swing_paths` · `_swing_window`(GN — 프레임별 3×3 수치 미분 · 띠 연립 · 반감 선 탐색) · Solver `leg_path`(`ankle_target` · `legs_active` → `pose()` 다리 IK) · `clear_on` · 결과 `leg_path` · `_leg_ik` 위치 반환 · `NOT_SUPPORTED` 문구(후속) |
+| `providers/body_fit.py` · `providers/review.py` · `server.py` | 계획 `inputs.legs_swing` · 실행 `swing_paths` → `solve(leg_path)` · Job `fix.body.legs` · 한계 `LEGS_PATH_REDESIGNED` · `LEG_PATH_SKIPPED` · summary `feet.knee_bend` / review 캡처 `attachments` 기록 / Tool 설명 |
+| 새 `tests/test_body_fit_legs.py` · `tests/test_body_fit_pipe.py` · `tests/test_body_fit.py` | 순수 20(요청 · auto 규칙 · 소프트 무릎 · 공중 구간 · 꺾임 감소 · pin 정확 · 다리 본만 · 손이 다리에서 멀면 팔 결과 = 다리 없는 풀이 · 손이 넓적다리 옆이면 같은 풀이에서 새 넓적다리를 피함 · clearance off · 루프 · 다리 없음 · 결정성) · 파이프 2(계획 이유 · 생성 경로 auto · Job 기록 · 한계 · 접지 델타 0) · 기대된 변화 1(기본값) |
+| `Tools/mcp/anim_gen_phase8_4_test.py` | 섹션 `legs`(기준 1) · `combined`(기준 2 — 8-3 합본과 비교 · 캡처) |
+
+**결과 (통합 `P84Run1030_220441` — `hashes,legs,combined,dirty`, 실패 0. 첫 실행 `P84Run1030_215710` 의 실패 7 = 시험 기준 3 가지(위 표 '상체' · '합본 미끄러짐' · '무기 캡처 기록') — 고친 뒤 다시):**
+
+| 다리 보정본(8-3 `P83Run1027_190338`) | 떨림 원본 → 8-3 다리 → **8-4d** | 다리 본만 | 다시 짠 구간(모델 무릎 · 발목 떨림 전 → 후 · 발목 이동 최대) | 접지 미끄러짐 · 두 발 디딘 좌우 비 | 무릎 p50 L/R 원본 → 후 | 상체 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 검 선택 `…P81SwordPickLegs` | 0.561 → 1.891 → **1.259**(≤ 1.561) | 1.891 → 1.259 | l f14 ~ 26 0.68 → 0.71 · 1.3 cm / r f9 ~ 17 **1.89 → 1.23** · 3.6 cm | 0.0 → 0.0 · 3.02 → 3.02 | 42.4 / 36.3 → 42.7 / 38.4 | 0.01 cm |
+| 칼 시험 `…KimodoSword1025Legs` | 3.42 → 3.326 → **1.414** | 3.326 → 1.414 | l 0.62 → 0.59 · 3.8 / r 1.70 → 1.42 · 4.1 | 0.0 · 3.04 | 38.2 / 36.8 → 38.4 / 37.8 | 0.01 |
+| 낫 정정 `…P81ScythePickLegs` | 1.44 → 1.967 → **1.435**(= 원본 손가락) | 1.967 → 0.523 | l f57 ~ 71 1.96 → 0.18 · 2.9 | 0.0 · 3.07 | 37.1 / 40.7 → 40.1 / 40.7 | 0.01 |
+| 낫 띠 `…P81ScytheRegripLegs` | 1.533 → 1.585 → **1.52**(= 원본 손가락) | 1.585 → 0.377 | l f57 ~ 71 1.06 → 0.28 · 2.8 | 0.0 · 3.04 | 38.3 / 41.2 → 40.8 / 41.2 | 0.01 |
+
+- Job 10.4 ~ 11.5 s(다리 경로 0.02 ~ 0.06 s · 풀이 4 ~ 5 s — 팔 관통 끔), 새 애셋 · 원본 그대로 · 새 더티 0 · 검증 `PASSED_WITH_WARNINGS`(전과 같음). 무릎 p50 의 원본 대비 +2 ~ +3° 는 8-3 다리 보정(골반 상승)부터 — 8-4d 는 ±0.1.
+- **합본(기준 2)** — 낫 정정: 60 s, 사슬 `blender → retarget → direct_key(timing) → body_fit → review`, 다리 auto → 켬(이유 `fix.ops ['foot_lock', 'stance_width']`) · l f30 ~ 38 모델 3.23 → 1.67, 다리 본 떨림 8-3 합본 3.217 → **1.67**, review 캡처 낫 부착 1. 검 선택: 142 s, l · r 두 구간, 다리 본 떨림 2.376 → **1.597**, 전체 2.376 → 1.843(머리 1 프레임 2.37 cm 남음 → 머리목 마무리 뒤 머리 0 · 전체 3.88 — 아래 '진단 · 수정'). 한계(낫) `FIX_ON_SOURCE_SKELETON` · `TIMING_CHANGED_LENGTH` · `BODY_FIT_APPROXIMATE` · `REVIEW_CAPTURE_PREVIEW_ONLY` · `LEGS_PATH_REDESIGNED` · `BODY_PENETRATION_REMAINS` · `GRIP_RELAXED` · `GRIP_NOT_APPLICABLE` · `WEAPON_BODY_RECORDED` · `BODY_FIT_SECONDARY_RECORDED` · `GRIP_NOT_VALIDATED`.
+- **합본 낫의 전체 떨림 3.449 → 5.171** — 왼손가락(pinky · ring 5.1)이 팔 블록(관통 · keep)에서 생긴다: 같은 body_fit 입력을 오프라인으로 다리 켬 · 끔 풀이하면 팔 델타가 0.0° 같고 손가락 떨림도 같다(다리와 무관). 시간 보정으로 빨라진(×1.68) 휘두름 위의 팔 보정 — 8-4b 의 낫 정정 `c4_zigzag`(1.44 → 2.08)와 같은 종류, 운영 공격 범위(0.6 ~ 5.6) 안.
+- **비트 비교:** 다리 경로를 켜지 않은 요청(swing_path 기본 auto · fix.ops 없음)은 HEAD 와 같다 — 합성 3(파지 · 골반 목표 + 걸음 · 루프) + 실제 모델 2(다리본 검 · 낫 띠 — 기본 fix.body 전체 풀이) 5/5 SAME.
+- **캡처:** `Tools/mcp/results/capture/P84Run1030_220441/<다리본>/after/{compare.png, animation.png}`(옆 모습만 · 다시 짠 구간 ± 0.1 s 8 시각 · APNG 30 fps 구간 ± 0.4 s — 후 \| 8-3 다리), `<scythe_pick | sword_pick>_combined/after/compare.png`(후 \| 8-3 합본, 낫 부착). 8-4d 실행(`P84Run1030_215710` · `220441` · `221236` · `P84Run1031_004752` · `012054` · `013918`)의 캡처 · Content 실행 애셋과 회귀 산출물은 8-4d ~ f 판정 뒤 11-01 휴지통으로 정리했다(같은 통합 명령으로 다시 만든다).
+
+| 완료 기준(8-4d) | 결과 | 충족 |
+| :--- | :--- | :---: |
+| 1 ③ 다리 보정본 4건 | 검 선택 1.891 → 1.259 ≤ 1.561 · 나머지 3건 3.326 → 1.414 · 1.967 → 1.435 · 1.585 → 1.52(나빠짐 없음 — 개선), 4건 접지 미끄러짐 0.0 · 좌우 비 ±0.00 · 무릎 p50 ≤ 원본 + 3.0° · 상체 0.01 cm(쓰기 잡음) | 예 |
+| 2 합본 | 낫 정정 · 검 선택 한 Job 씩 SUCCEEDED(BVH → fix.ops → 리타깃 → timing → body_fit(관통 · 파지 · 다리 auto) → 검증 → 캡처, 낫 부착), 한계 목록(위) | 예 |
+| 3 비파괴 · 회귀 | 시험 대상 · 스켈레톤 · 메시 · 무기 메시 SHA-256 25 불변 · 새 더티 0 · Content 변경 = 실행 폴더뿐(통합 세 실행 모두), pytest 715(693 + 22), 통합 phase8_4 전 섹션(baseline 뺌) 새 실패 0(알려진 미달만 — '8-4 정리'), Phase 1 · 2 · 3 · 4 · 6 · 7 · 8-2 실패 0 · 8-3 = 알려진 1건(8-3 자기 다리본 1.891 — 8-4d 가 대상 쪽에서 1.259), Phase 5(실제 Kimodo — 각속도 p99 비 0.954 · 루트 691.83 cm · Yaw 189.81°, 개정 8 과 같다) · 8-1(`--only hashes,plan,exp1,…`) 실패 0(Kimodo 쓰는 둘은 에디터를 미저장 버림 · 프로세스 소멸 확인 뒤 다시 띄워 하나씩). C++ 변경 없음(빌드 불필요) | 예 |
+| 4 지침서 · 감사 · 정리 | 이 절 · '8-4 정리' · 부록 B · 감사 §21-4 · 정리 목록(보고서) | 예 |
+| 5 사람 판정 | 전후 캡처 SendUserFile — 판정은 사용자 | 대기 |
+
+**진단 · 수정 — 머리목 마무리 (2026-10-31, 사용자 Persona '검 선택 합본이 머리를 관통' → 진단 → 결정 '머리목만'):**
+- **원인(실제 모델 재현):** 시간 보정(×1.77) 뒤 휘두름이 머리 옆에서 꺾이는 f21(손 이동 7 ~ 16 cm/프레임)의 오른손 → 머리 — 재검사마다 프레임 풀이는 −0.5 cm 로 빼지만 관통 몫 매끈화(폭 ≈ 6 프레임)가 고립 보정을 묽혀 4.20 → 2.16 cm 에서 패스가 끝났다. ±1 이웃에 같은 증분을 주는 규칙은 빠른 휘두름에서 f20 을 다시 넣기도 했다(8.68). 관절 상한 · 모델 근사가 아니라 수렴 부족(`NOT_RESOLVED`).
+- **대안(오프라인):** 패스 + 2 → 1.77 cm · 매끈화 폭 절반 → 4.18 · 마지막에 그 프레임 값 → 0.0 · 떨림 3.00 → 4.76 · 같고 이웃 × 0.3 → 0.0 · 4.25 · × 0.5 → 이웃이 다시 듦(1.77).
+- **수정:** `_finish_head` — 맨 끝에 머리목 관통(> penetration_cm)의 짧은 고립 구간(≤ 2 프레임 · ≤ 4 cm × scale)만 그 프레임 값 + 이웃 × 0.3. 첫 판(문턱 = 맞닿음 · 원래 각도 축 · 구간 제한 없음)은 통합 `P84Run1031_004752` 에서 s25 떨림 2.65 → 5.03(맞닿음 1.5 cm 잔여를 튐) · s27 2.36 → **41.9** · keep 19 cm(머리 속 5.4 ~ 10.2 cm 4 프레임을 한 프레임씩) → 판정 · 풀이를 C++ 각도 축(어깨 — `_finish_wrist` 와 같다)으로 · 문턱 = 관통 판정 · 구간 제한. 원래 축이면 모델이 s25 f56 을 2.65(C++ 1.50) · 합본 f21 을 2.16(C++ 2.37)으로 봐 문턱 양쪽에서 틀렸다.
+- **결과:** 통합 `P84Run1031_012054`(clearance · existing) 실패 19 · `P84Run1031_013918`(targets · grip · samples · combined) 실패 22(14 · 3 · 5) = 앞 실행과 같은 수 · 항목(비교 대상 · 지시 목표 · 무기 · 샘플 Job 에서 마무리가 걸린 곳 없음 — s27 f61 ~ 64 는 건너뛰고 기록, 무기 요청 = 무기 없는 Fit 0.0 cm). **검 선택 합본: 머리 8.1% · 9.46 cm → 0 · 0(C++, `BODY_PENETRATION_REMAINS` 없어짐), 대가 = 전체 떨림 1.84 → 3.88**(오프라인 모델 추정 + 0.9 보다 크다 — 0.70 s 둘레 오른팔, 운영 공격 범위 0.6 ~ 5.6 안) — 캡처 `Tools/mcp/results/capture/P84Run1031_013918/sword_pick_combined/after/`(11-01 정리 — 8-4e 로 대체). 낫 합본은 그대로(머리 0 · 1.66). pytest 719(+ 4: 마무리 · 깨끗하면 그대로 · clearance off · 긴/깊은 구간 건너뜀, + 한 프레임 해소).
+
+#### 8-4e 빠른 구간 매끈화 (개정 14 — 2026-10-31 구현 · 검증, 8-4d 진단의 근본 해결)
+
+**진행:** 단위 세션이 설계(폭을 무엇에 맞출지 · 이웃 복사 · `_finish_head` · 기본 동작 범위)를 보이고 사용자 확인(추천안 — 손 속도) → 실제 몸 모델 오프라인(7 대상 · 변형 50 여 개)으로 상수 · 규칙을 좁힘 → 구현 · pytest · 비트 비교 → 통합(모든 요청에 켬) → **새 미달 4 항목이 나와 사용자 결정 'timing Job 만 auto'** → 좁힌 규칙으로 통합 다시. C++ 변경 없음.
+
+**규칙:** 요청 `fix.body.smooth_speed: auto | on | off`(기본 auto).
+- on — 프레임마다 폭 배율 k = clamp(6 / v, 0.5, 1), v = 몸 기준틀(`Rig.body_frame`) 손목 이동(두 손 중 빠른 쪽 · 앞뒤 걸음 중 큰 쪽, cm/프레임 ÷ scale — 원래 포즈라 풀이와 무관, 두 팔 한 값). 관통 몫 스플라인(`spline` · `spline_block`)의 2차 차분 벌점을 행마다 (폭 × k)⁴, 꼬리 포락선 거리를 지나온 프레임 폭 단위로, 재검사 ±1 이웃 몫을 k 배로. 모든 프레임이 k = 1 이면 고정 폭과 비트 같다.
+- **auto = 같은 Job 에 `fix.timing` 이 있을 때만 켠다**(8-4d `swing_path` auto 와 같은 꼴 — 계획 `inputs.smooth_fast{mode, on, reason}`). 시간 보정이 휘두름을 ×1.7 쯤 줄이면 고정 폭(0.13 s × 30 × 1.5 = 6 프레임)이 섞는 손 이동이 그만큼 길어진다(합본 검 f21 둘레 손 8 ~ 16 cm/프레임 — 6 프레임 ≈ 80 cm). 기존 애셋 · 원 속도 생성물은 `on` 으로 요청한다.
+- off = 고정 폭(8-4d 와 비트 같음). `_finish_head` 는 안전망으로 그대로(빠른 구간 매끈화가 짧은 머리 관통을 풀면 걸리지 않는다).
+- Job `fix.body.smooth_speed{mode, on, reason, frames (폭을 줄인 프레임), k_min}` · stats `smooth_fast`.
+
+**실측에서 고친 것(설계 → 구현):**
+
+| 항목 | 설계 | 실측(실제 몸 모델 오프라인 — 떨림 = 모델 zigzag, C++ 와 3.87 / 3.88 · 5.177 / 5.17 · 3.218 / 3.214 로 같다) | 고친 것 |
+| :--- | :--- | :--- | :--- |
+| 폭 배율 | v_ref 4 · k_min 0.25(후보 4 · 6 · 8 / 0.25 · 0.4) | 4 · 0.25: 합본 검 머리 0.34(마무리 없이) · keep 3.23 → 1.55 이지만 떨림 3.87 → **5.89**. 4 · 0.5 8.87 · 6 · 0.4 16.1 · 5 · 0.6 14.5 · 6 · 0.6 ~ 0.8 낫 정정 9.0 ~ 10.1 — 좁힌 해에 새로 남은 짧은 머리 관통을 `_finish_head` 가 한 프레임 값으로 빼며 튐. 7 · 0.6 · 8 · 0.5 · 6.5 · 0.5 는 합본 검 머리 7.3 ~ 8.5 cm(건너뜀) | **6 · 0.5**(폭 6 → 3 프레임): 합본 검 3.87 → 3.12 · 합본 낫 5.18 → 4.20 · s25 2.17 → 1.53 · T4 구간 안 3.23 → 2.42, 대가 s27 keep 6.6 → 9.8 |
+| 이웃 몫 × k | 빠른 프레임에서 같은 증분 복사가 이웃을 다시 관통으로 넣는다(8-4d 진단) | 합본 검: 이웃 몫만 바꾸면 고정 폭과 결과가 같고(재검사 이웃이 함께 위반 프레임 — 복사가 일어나지 않음), 폭만 바꾸면 둘 다 바꾼 것과 같다 | 그대로 둠(k = 1 이면 같은 규칙 — 해 없음) |
+| 다른 방법 | — | 재검사에서만 좁힘 8.3 ~ 10.5 · 남은 고립 프레임 고정 가중(재검사 보정 가중 300 · 3000) 머리 5.9 ~ 6.2 cm · 재검사 패스 + 3 / + 6 머리 2.03 / 1.70 | 쓰지 않음 |
+| 갈림길 | 배율에 따라 매끈하게 바뀐다 | 6 · 0.5 둘레 ± 0.05(k) · ± 0.5(v): 합본 낫 4/4 개선(4.16 ~ 4.29), 합본 검 v6.5 머리 7.3 · k0.45 머리 1.8, 낫 정정 k0.45 5.57 · k0.55 9.88(f61 마무리) — 빠른 프레임 두세 곳(합본 검 f20 ~ 21 · 낫 정정 f61)에서 해가 갈린다 | 기본은 시간 보정한 Job 만(아래 범위 결정) |
+| 기본 범위 | 모든 요청(손이 빠른 프레임만 바뀜) | 통합(모두 켬 — `P84Run1031_120935` · `123827`): 실패 19 → 18 · 22 → 18 이지만 **새 항목 4** — s25 휘두름 정점 +11.5% · 운영 달리기 몸 1.3% · 2.61 cm · 운영 Attack2 팔 교차 7.4 → 14.7% · T5 왼 위팔 ↔ 가슴 | **auto = 같은 Job 의 fix.timing**(사용자 결정) — 비교 대상 · 지시 목표 · 무기 · 샘플은 8-4d 와 비트 같다 |
+
+**결과 — 합본(통합 `P84Run1031_142757` combined, C++ — 모두 켠 `123827` 과 같은 값):**
+
+| 합본 | 머리목 전 → 후 | 몸 | 손끼리 | 전체 떨림(8-4d → 8-4e) | 다리 본 떨림 | 한계 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 검 선택(timing ×1.77) | 8.1% · 9.46 → 0% · 0.8 cm(맞닿음) — `_finish_head` 없이 | 0% · 0.8 | 0 · 1.62 | **3.88 → 1.60**(머리목 마무리 전 1.84 보다도 낮다) | 1.597 | `BODY_PENETRATION_REMAINS` 없음 |
+| 낫 정정(timing ×1.68 · 낫 부착 캡처) | 7% · 8.7 → 0% · 0.88 | 0% · 1.99 | 0 | **5.17 → 4.19** | 1.67 | `BODY_PENETRATION_REMAINS` 없어짐 |
+
+- 빠른 프레임 수(오프라인 모델): 합본 검 14 / 37 · 합본 낫 23 / 70. 휘두름 정점은 기록만(합본 검 body_fit 전 555 → 474 cm/s).
+- **on 으로 요청한 기존 애셋**(첫 통합 — 모두 켬): T4 구간 안 떨림 3.23 → 2.43 · T5 9.67 → 3.86(무기 끝 p95 2.04 → 1.69) · s25 2.65 → 1.52(몸 0.8% · 2.71 → 0% · 1.82) · 낫 정정 몸 1.7% · 3.0 → 0.8% · 2.16 cm, 대가는 위 '기본 범위' 행 4 항목 · s27 keep.
+- **비트 비교(기준 = 8-4d 작업 트리 사본):** `off` · Job 밖 기본값(auto → 끔) 모두 합성 3(파지 · 골반 목표 + 걸음 · 루프) + 실제 모델 2(합본 검 · T4) 5/5 SAME.
+- **통합(timing Job 만 auto):** `P84Run1031_135449`(hashes · clearance · existing · dirty) 실패 19 · `P84Run1031_142757`(hashes · targets · grip · samples · combined · dirty) 실패 22 — 8-4d(`P84Run1031_012054` · `013918`)와 같은 수 · 항목 · 값(T1 3.214 · T4 3.233 · T5 9.67 · 낫 정정 몸 1.7% · 3 cm). 합본 둘 다 `auto → on (fix.timing)`(빠른 프레임 검 14 · 낫 23 · k_min 0.5) · 값은 위 표와 같다(모두 켠 실행과 비트 같은 풀이). SHA-256 25 불변 · 새 더티 0 · Content = 실행 폴더뿐.
+- pytest 726(719 + 새 `test_body_fit_speed.py` 6 · 파이프 1).
+- **캡처:** `Tools/mcp/results/capture/P84Run1031_142757/{sword_pick, scythe_pick}_combined/after/{compare.png, animation.png}`(후 \| 8-3 합본) — 8-4d 머리목 마무리 판은 `P84Run1031_013918/…`(11-01 정리). 8-4e 실행(`120935` · `123827` · `135449` · `142757`)의 캡처 · Content 실행 애셋은 8-4f 판정 뒤 10-31 휴지통으로 정리했다(같은 통합 명령으로 다시 만든다).
+- **사용자 판정(10-31 Persona — 최종 애셋, `Work/…_Timing` 은 body_fit 입력이라 판정 대상 아님):** 합본 낫 통과(f24 머리 손가락 없음). 합본 검은 f17 손끼리 · f20 머리 통과, **f25 왼 위팔(코트 소매) ↔ 가슴 관통이 보인다** — 기록 `l|upper_arm|chest` 86.5% · 11.28 → 81.1% · 6.82 cm. 위팔 쌍은 관통 목표 밖('나빠지지 않음'만 — 8-4b 결정, 운영 애니도 42 ~ 100%)이라 body_fit 이 곁가지로 4.5 cm 줄였을 뿐이다 → '8-4 정리' 후보 '위팔 ↔ 가슴 깊이' → **8-4f**. (10-31 정정: 처음엔 '운영 최대(라이플 대기 4.64 cm)보다 깊다'고 적었지만 운영 원본 C++ 최대는 낫 Attack2 7.24 cm 다 — 라이플 대기 4.64 · 걷기 4.32 · 달리기 2.94. 6.82 cm 는 운영 최대 안이지만 정면 프레이밍의 소매가 가슴에 묻혀 보인다.)
+
+#### 8-4f 위팔 마무리 (개정 14 — 2026-10-31 구현 · 검증, 8-4e 사용자 판정 후속)
+
+**진행:** 사용자 판정(검 선택 합본 f25 왼 위팔 ↔ 가슴이 보인다) → 단위 세션이 원인과 방식(A 풀이 안 상한 · B 재검사부터 상한 · C 마무리 — 팔꿈치 궤도)을 보이고 사용자 확인(**C · 모든 요청 기본**) → 실제 몸 모델 오프라인(합본 검 · s25 · s27 · 낫 정정 · 합본 낫 · T4 — 스크래치 `diag_upper.py` · `proto_swivel.py`)으로 규칙을 좁힘 → 구현 · pytest · 비트 비교 → 통합 → **새 미달 1 항목(검 선택 보조 손목 `c4_off_wrist` +6.4° · T4 +9.8°)이 나와 사용자 결정 '보조 손목 상한 따름'** → 고쳐 통합 다시. C++ 변경 없음.
+
+**원인:** 위팔 쌍은 8-4b 부터 관통 목표 밖('점마다 원래보다 안 깊어짐'만 — `_limit` 의 TIER upper)이다. 검 선택 합본 f23 ~ 36 은 손 · 아래팔이 몸에 닿지 않아 풀이가 팔을 옮길 까닭이 없어 원래 깊이(6 ~ 6.8 cm — 모델 = C++)가 그대로 남았다.
+
+**규칙:** 요청 `fix.body.clearance.upper_arm: cap | no_worse | off`(기본 cap) · `upper_cap_cm`(1 ~ 20, 기본 4.0 — §9 표).
+- 모든 마무리(`_snap_weapon` → `_finish_wrist` → `_finish_head`) 뒤 `_finish_upper` — 위팔 ↔ 몸(몸통 · 넓적다리 · 머리목) 깊이가 `upper_cap_cm` × scale 를 넘는 프레임만 그 팔의 위팔 아래(손 아래는 뺀다)를 어깨 ↔ 손목 축으로 θ 돌린다. 상태에는 위팔 · 손 로컬 둘만 바뀐다(손 컴포넌트 변환 그대로 — 파지 · keep · 무기 · 머리 · 휘두름 불변).
+- θ = 2° 격자의 가장 작은 |θ|(≤ 46°) — 위팔 ≤ 상한, 그 팔의 손 · 아래팔 ↔ 모든 지도 · 위팔 ↔ 반대 팔은 max(허용, 그 상태 깊이) + 허용 오차 이하(허용 = 손 지도 관통 문턱 · 몸 지도 맞닿음), 손목 굽힘 ≤ max(원래 + 10°, 그 상태) — **보조 손목 상한이 걸린 파지 프레임은 min(원래 + 10°, 그 상한(원래 + 2°))**, 손가락 뿌리가 없으면 θ ≤ 10°. 못 맞추면 조건 안에서 위팔이 가장 얕은 각(blocked) + `UPPER_ARM_REMAINS`.
+- 시간: 상한을 넘는 프레임 묶음(±4 프레임 램프가 겹치면 하나)마다 방향 하나(막힌 프레임이 적은 쪽 → 최대 |θ| 가 작은 쪽), smoothstep 램프(겹치면 |θ| 큰 쪽). 램프 프레임도 같은 조건으로 확인해 넘으면 0 쪽으로 줄인다. 지도 각도 칸은 다듬기처럼 그 자세의 어깨로(`live_lateral`).
+- `no_worse` = 8-4e 까지의 동작(비트 같음), `off` = 풀이 안의 '안 깊어짐'도 없음.
+
+**실측에서 고른 것(합본 검 왼 위팔 ↔ 가슴 최대 · 모델 — 8-4e 6.82 cm · 머리 0 · 떨림 3.12 · keep 1.61):**
+
+| 방식 | 결과 | 판단 |
+| :--- | :--- | :--- |
+| A 풀이 안 상한(첫 풀이부터 · 위반으로 셈) | 4 cm: 4.10 · **머리 7.65 · 떨림 7.37 · keep 4.87**, 4.5 cm: 5.10 · 떨림 4.59, 3.5 cm: 3.94 · 떨림 2.17, 위팔 가중 30 + 4 cm: 4.30 · 떨림 3.73 | 상한 값마다 빠른 휘두름 프레임(f20 ~ 23)의 해가 갈린다 — 쓰지 않음 |
+| B 재검사부터 상한 | 4 cm: 4.62 · 머리 0 · 떨림 2.62 이지만 4.5 cm 머리 7.26, **s25 떨림 2.17 → 4.90(머리목 마무리 f55)** | 같은 갈림길 — 쓰지 않음 |
+| C 팔꿈치 궤도(반대 팔 허용 = 맞닿음) | 6.49 — f29 ~ 33 이 아래팔 ↔ 오른손 +0.1 cm 에 막힘 | 반대 팔 허용을 관통 문턱으로 |
+| C(관통 문턱 · 손목 + 10°) | 4.65(f36 하나 막힘) · 머리 · 손 · 떨림 · keep 그대로, s25 4.89 → 4.17 | 묶음 안 방향이 프레임마다 바뀌면 s25 떨림 2.17 → 3.00(f50 −8° · f51 +14°) → **묶음마다 한 방향**(2.169) |
+| **C + 보조 손목 상한(채택)** | **5.11**(f25 4.05 그대로 · 끝 f30 ~ 36 4.35 ~ 5.11 막힘 7) · 보조 손목 + 7.5 → 2.0° · s25 왼 4.89(막힘) · T4 6.43 | 통합 새 미달 0 — 사용자 결정 |
+
+**결과 — 통합(C++):**
+- 합본 검(`P84Run1031_195059`): 왼 위팔 ↔ 가슴 86.5% · 11.28 → **78.4% · 5.12 cm**(8-4e 81.1% · 6.82, p95 4.90) · 궤도 프레임 18 · 최대 24° · 팔꿈치 5.27 cm · 막힘 7(`UPPER_ARM_REMAINS` — 남은 5.11 cm 모델). 머리목 0 · 0.8 · 몸 0.8 · 손끼리 0 · 1.75(8-4e 1.62) · 전체 떨림 1.597 · keep 1.61 — 8-4e 와 같다. 합본 낫: 입력 3.89 cm 라 궤도 0(→ 2.57 cm).
+- 그 밖: 검 선택 Fit 손끼리 0.8% · 2.17 → 0% · 1.82(T3 · T4 같음 — `c1_hands` 통과로), 보조 손목 41.5 → 43.2°(8-4e 38.3 — + 2° 안), 운영 라이플 대기 왼 위팔 ↔ 가슴 최대(모델 · C++) 8-4e 4.43 · 4.44 → 3.88 · 3.87 cm · s25 왼 위팔 `c1_upper` 8-4e 와 같은 미달(파지 프레임이라 막힘).
+- **통합:** `P84Run1031_193202`(hashes · clearance · existing · dirty) 실패 **18**(8-4e 19 — 검 선택 손끼리 통과) · `P84Run1031_195059`(hashes · targets · grip · samples · combined · dirty) 실패 **20**(8-4e 22 — T3 · T4 손끼리 통과) — 남은 항목은 모두 8-4e 목록 안(새 항목 0). 합본 확인 `upper_arm cap` 통과. SHA-256 25 불변 · 새 더티 0 · Content = 실행 폴더뿐. 첫 판(손목 + 10° 만 — `P84Run1031_175510` · `183314`)은 18 · 22 에 새 `c4_off_wrist` 1(A) · 2(B — T3 · T4).
+- **비트 비교(기준 = 8-4e 작업 트리 사본):** `no_worse` 합성 3 + 실제 4(합본 검 · T4 · s25 · 낫 정정) 7/7 SAME, 기본(cap) — 위팔이 상한을 안 넘는 합성 3 · 낫 정정 SAME · 나머지 셋은 위팔만 바뀜(keep 같음).
+- pytest 734(726 + 새 `test_body_fit_upper.py` 7 · 파이프 1, 기본값 시험은 기대 변경).
+- **캡처:** `Tools/mcp/results/capture/P84Run1031_195059/{sword_pick, scythe_pick}_combined/after/{compare.png, animation.png}`(후 \| 8-3 합본). Persona 판정 애셋 `/Game/Animation/Test/AIAnimation/P84Run1031_195059/AS_Vesper_Sword_P84dSwordPickCombined` — **사용자 판정 통과(10-31)**. 판정 뒤 8-4f 실행(`175510` · `183314` · `193202` · `195059`)의 캡처 · Content 실행 애셋은 휴지통으로 정리했다(같은 통합 명령으로 다시 만든다).
+
+#### 8-4 정리 (개정 14 — 2026-10-30, 8-4d 마무리)
+
+**단위별 최종:**
+
+| 단위 | 범위 | 완료 기준 최종 | 커밋 |
+| :--- | :--- | :--- | :--- |
+| 8-4a 기반 | 측정 한 원천(`body_clearance` parts · hands · model) · `profile_rotations` · `bone_deltas` · 캡처 부착 · 무기 기하 · E0 | 1 ~ 7 예 | `aa3b795` |
+| 8-4b ① 관통 · 지시 목표 | 한 풀이 엔진 · 파이프 `body_fit` · `fix.body` · `targets[]` · (가) 블록 | 3 · 6 · 7 · 9 예 / 1 · 4 · 5 부분 / 2 아님(→ 8-4c) / 8 대부분 | `aa3b795` · `73e87e5` |
+| 8-4c c1 ② 무기 + 후속 | 요청 `weapon` · 옵트인 무기 파지 · `weapon_tip` · 무기-몸 기록 · 라이플 keep · 블렌드 아웃 · keep 보조 손목 상한(다듬기) | 3 · 4 · 6 · 9 예 / 1 옵트인에서만 / 2 · 8 부분 | `980ae2b` |
+| 8-4c c2 샘플 전이 | `pose_from[]` · 손가락 쥔 모양 | 5 · 7 예 | `849e502` |
+| 8-4d ③ 다리 + 마무리 | `fix.body.legs` · `clearance.mode` · 합본 · 통합 · 회귀 · 문서 | 1 · 2 · 3 · 4 예 / 5 사용자 종료 확인(11-01 — 후속 8-4e · f 판정 뒤) | `12cc032` |
+| 8-4e 빠른 구간 매끈화 | `fix.body.smooth_speed`(auto = 같은 Job fix.timing) — 합본 검 3.88 → 1.60 · 합본 낫 5.17 → 4.19, 머리목 마무리 없이 머리 0 | 합본 개선 · 새 미달 0(timing Job 만) / 판정 — 낫 통과 · 검 f25 왼 위팔 ↔ 가슴(목표 밖 쌍 — 8-4f) | `12cc032` |
+| 8-4f 위팔 마무리 | `clearance.upper_arm: cap`(기본) · `upper_cap_cm` 4 — 팔꿈치 궤도(손 고정), 합본 검 C++ 6.82 → 5.12 cm | 통합 새 미달 0(19 → 18 · 22 → 20) / 판정 통과 | `12cc032` |
+
+**통합 알려진 미달(phase8_4 회귀 `P84Run1030_221236` · 머리목 마무리 뒤 `P84Run1031_012054` · `013918` — 항목 · 값이 앞 단위와 같다, `[known]` 과 기준 미달 `[FAIL]` 을 함께):**
+- clearance · existing 19 — 낫 정정 c1_body 1.7% · 3.0 cm · 휘두름 +5.4% · 떨림 1.44 → 2.08 · 위팔 쌍 예측, s25 c1_body 0.8% · 2.71 · 위팔, s26 위팔 · 예측, s27 위팔 · 파지 % 27.5 → 24.2(머리 속 11 cm 대상 — known 여럿), 검 선택 손끼리 0.8% · 2.17 · 위팔 · 오른 손목 43.1 → 55.9° · 예측, 운영 걷기 c1_body 1.7% · 4.58 · 궤적 폭 +8.6% · 예측, 달리기 · 라이플 대기 예측(위팔 쌍).
+- targets 14 — 목표 없는 같은 대상 Fit 에서 물려받은 것 + T1 · T4 구간 안 떨림 3.214 · 3.233(8-4b 마지막 3.10 · 1.82 → 8-4c 후속 2차부터의 값 — HEAD 와 작업 트리 풀이 비트 동일로 확인).
+- grip 3 — T5(무기 끝 p95 2.039 · 떨림 9.67 · 휘두름 +7.3%). samples 5 — S2 · S3 = 샘플 없는 Fit 과 같은 값 4 + S3 위팔 쌍 모델 근사 1.
+- (8-4f) 위 목록에서 검 선택 손끼리(0.8% · 2.17 → 0% · 1.82)와 T3 · T4 손끼리가 통과로 — clearance · existing 18 · targets 12(`P84Run1031_193202` · `195059`). 나머지 항목은 같고 값은 위팔 쌍(라이플 대기 예측 4.43 → 3.88 cm 등)과 검 선택 보조 손목(41.5 → 43.2° — + 2° 안)만 바뀐다.
+- 시험 코드 충돌 2(이번에 고침) — e0 · clearance 를 한 실행에서 돌리면 낫 '전' 캡처 폴더가 겹쳤다(`OUTPUT_DIR_NOT_EMPTY` — e0 캡처를 `OUT/e0/<대상>` 으로).
+
+**남은 대가 · 후속 후보(8-4d 결정 ⑤ — 고치지 않고 기록, 착수는 사용자 승인 뒤):**
+
+| 후보 | 지금 | 근거 · 방향 |
+| :--- | :--- | :--- |
+| keep 회전 대가 | 낫 정정 keep 회전 최대 10.7° · T5 16.1°(8-4c 후속 2차 — 보조 손목 다듬기가 keep 을 빼서) | 다듬기에 약한 keep 회전 · 손목 상한과의 우선순위 재설계. **9-4b 로 해소**(손 부근 마무리 한 풀이 — 팔이 손목 펴짐을 받음): 낫 정정 7.33 → 4.77° · T5 16.6 → 8.4°, keep 회전 기준 10°(운영 퍼짐) |
+| T5 무기 끝 | 구간 안 떨림 9.67 · 옵트인 f62 손목 걸음 4.1 cm 한 번 · 무기 끝 p95 2.04 cm(`blocked_by grip`) | 짧은 완급에 큰 이동 — 지시 목표 긴 완급 기본값 · keep 과의 우선순위. (8-4e) `smooth_speed: on` 이면 떨림 3.86 · 무기 끝 p95 1.69(대가 왼 위팔 ↔ 가슴 미달 1). **9-4b 로 부분 해소** — p95 2.06 → 1.69 cm · 떨림 9.73 → 5.67(`reached` 프레임 조건 · 휘두름 + 6 % 는 그대로 — 완급은 9-4c U5-b). **9-4c** — smooth 기본 켬 · 마무리 매끈화로 떨림 5.67 → 3.85 · 휘두름 + 6.0 → + 5.1 %, 무기 끝 p95 1.69 → 1.84 cm(`c8_reach` 그대로 미달 — 완급 자동은 E0 에서 효과 없음) |
+| 지시 목표 구간 안 떨림 | T1 3.21 · T4 3.23 | (가) 블록의 짧은 완급 · 막힌 목표 되돌림 — 같은 후보. (8-4e) `on` 이면 T4 2.43 · T1 3.20. **9-4c 확인(T1 1.98 · T4 구간 안 3.38):** 원인은 목표 몫(x_T)의 위팔 ↔ 팔꿈치 해 갈림 — 완급 · 막힌 목표 · x_T 연속 · 목표 몫 매끈화 모두 효과 없음(부록 B '지시 목표 경로') → 구현 안 함. 후보: 관절 간 몫 넘김을 막는 항 |
+| 파지와 맞지 않는 팔 샘플 | S3 반쯤 섞인 팔 · f77 2.365 | 구간 keep 기준을 샘플 두 손 관계로 · 한 팔만 덮기 · 생성 키 포즈 제약(로드맵) |
+| 위팔 쌍 모델 | 예측 vs C++ 어긋남(겨드랑이 몸통 정점의 팔 본 가중 추정) | 모델 보강 — 위팔 쌍은 관통 목표 밖이라 판정 영향 없음. **9-4a 로 해결**(지도 규칙 2 — p95 0.005 cm) |
+| (8-4e 판정) 위팔 ↔ 가슴 깊이 | 검 선택 합본 f25 왼 위팔 ↔ 가슴이 눈에 보인다 — 81.1% · 6.82 cm(입력 86.5% · 11.28, `clearance.upper_arm: no_worse` 라 목표 밖) | **8-4f 로 부분 해소** — 마무리 팔꿈치 궤도(상한 4 cm × scale)로 C++ 5.12 cm(f25 모델 4.05). 남은 것: 보조 손목 상한에 막힌 끝 f30 ~ 36(4.35 ~ 5.11) · 위팔 쌍 모델 근사(위 행) — 부록 B '위팔 마무리의 한계'. **9-4b** — 손 부근 마무리(쇄골 포함)로 C++ 최대 11.48 → 5.30 cm(9-4a 측정 6.51), 위팔 상한 = keep 층이라 21 프레임은 상한 위에 남음(사용자 결정 — 층 30 이면 4.6 cm 대신 keep 위치가 미끄러짐) |
+| 본 풀이의 지도 각도 | 다듬기만 C++ 처럼 어깨 기준 | 본 풀이에도 — 모든 Job 의 해가 바뀌어 별도 단위. **9-4a 로 해결**(반대 방향 — C++ 각도 0 방향을 기준 본에 붙여 풀이 · 다듬기 · C++ 가 한 규칙, `live_lateral` 은 규칙 1 모델에서만) |
+| 생성 쪽 두 손 · 부착 | 생성 오른손 방향 ≠ 운영 부착(두 손 선 ∠ 자루 ≈ 60°) | 부착에 맞춘 생성 · 두 손용 부착 데이터(운영 애셋 변경 — 별도 승인) |
+| (8-4d) 다리 묶음 샘플 · 발 회전 목표 | `NOT_SUPPORTED` | 발 pin 과의 규칙(접지 프레임에서 샘플 다리를 IK 로 되돌리는 법) · 발 컴포넌트 회전 오버라이드 + 완급 — **9-4d 해결**(U6-c — 프리셋 `leg_l` · `leg_r` · `legs` · 발 회전 목표 발볼 중심, §14 '9-4d') |
+| (8-4d) 시간 보정의 발 미끄러짐 | 합본 3.7 ~ 9.8 cm/s(timing antialias) | 시간 보정 뒤 대상 쪽 발 고정 · time_warp 가 접지 발을 거르지 않게(부록 B) — **9-4d 해결**(U6-a — `pins: hold`, auto = fix.timing + 다리 op) |
+| (8-4d) 합본 빠른 구간의 팔 떨림 | 합본 낫 왼손가락 3.45 → 5.17(팔 블록) | **8-4e 로 해소(시간 보정한 Job)** — 합본 낫 4.19 · 합본 검 1.60(머리목 마무리 없이 머리 0). 원 속도 클립 기본 적용은 새 미달 4 · 갈림길 민감성으로 보류(`on` 옵트인) |
+| (8-4d) 공중 경로의 땅 · 다른 다리 | 위치 최적만(간섭은 안 봄) | 다리끼리 지도 · 바닥 높이를 다리 블록 잔차로 — **9-4d**: 바닥 하한은 넣음(U6-b), 다리끼리는 측정만(E0 관통 0) |
+| 그 밖(8-4a ~ c) | 파지 구간 빈틈 잇기 ≤ 2 프레임 앞당김(**9-4b 해결**) · `head_near` vs 메시 머리 지표의 선별 반영 · 캡처 부분 프레이밍 | 부록 B |
+
+로드맵 후보 두 줄(키 포즈 제약 · 영상 포즈 추정)은 Phase 8 로드맵 표에 넣었다. 위 후보 · 부록 B 의 열린 행 · Phase 8 로드맵 후보는 [후속 로드맵](FollowUpRoadmap.md)에서 단위 U0 ~ U10 으로 묶었다(출처 대응표 §13 · 결정 모음 §14 — 2026-11-01).
+
+### Phase 9 — 후속 로드맵 단계 (개정 15)
+
+[후속 로드맵](FollowUpRoadmap.md) §1-1 의 다섯 단계(9-1 생성 선별 · 기준 · 9-2 세그먼트 · 9-3 키 포즈 · 역리타깃 · 9-4 대상 쪽 보정 품질 · 9-5 범위 확장 · 조사 · 결정)를 단계마다 사용자 승인 뒤 단위 세션으로 진행한다(2026-11-01 사용자 확정). 단위 정의 · 완료 기준은 로드맵이 원천이다.
+
+#### 9-1 생성 선별 · 기준 (개정 15 — 2026-11-01 구현 · 검증, U1 + U6-e)
+
+**진행:** 로드맵 §3 U1 · §9 U6-e → 착수 전 확인(추천안 — 사용자 "(가) 만 · 제안대로 · 기대된 변화로 수용 · 8-3 기준값 유지") → **E0**(제품 코드 무변경 — 운영 낫 5개 + 기록 후보 16개의 손목 굽힘 분포 · 메시 머리목 per_frame 연속 구간 · 자루 ↔ 왼손, `Saved` 밖 스크래치 스크립트) → 기준 정정 1건(아래 ①) → 구현(Python 만) → pytest → 통합 phase8_1 → Kimodo 새 생성(검 · 낫, 새 seed 20261101 ~ 04) → 캡처. C++ · MCP Tool 변경 없음 — 빌드 없음.
+
+**E0 와 설계 정정:**
+1. **손목 기준 — '운영 최댓값 위' 가 아니라 '파지 프레임 보조 손목'.** 운영 낫도 손목을 크게 꺾는다(모든 프레임 양손 중 큰 쪽 80° 넘는 프레임 Attack2 12.6 % · 최대 Finisher1 93.6°, 검 seed 27 은 86.6° · 3.3 %) — 모든 프레임 · 최댓값으로는 '1차부터 꺾인' seed 27 을 운영과 못 가른다. 파지 띠 안 프레임만 보면 운영 **보조(왼) 손목은 p50 6.0 ~ 16.2° · p90 ≤ 26.8° · 60° 넘는 프레임 0 %**(주 손은 25 % 까지), 생성 후보 보조 손목 p50 8.5 ~ 62.5°, seed 27 은 **60° 넘는 프레임 95.8 %**. 제안한 규칙('운영이 5 % 넘게 넘지 않는 가장 낮은 5° 단위')을 그대로 쓰면 30° 근처가 되어 생성 후보 대부분(보통 p50 37 ~ 54°)을 깎는다 → **60°**(운영 0 % · 생성 보통 범위 위 — 1차부터 꺾인 생성만 걸린다). 파지가 아니면 양손 > 90°(운영 0 ~ 1.4 %). **사용자 판정(2026-11-01): 낫 새 생성 seed 20261102 · 20261103 의 손목이 괜찮다** — seed 03(60° 넘는 프레임 13.3 % · 최대 80.9°)을 처음 시작값 5 % 가 밀어냈으므로 **벌점 시작 5 → 15 %**(60° 는 유지 — 1차부터 꺾인 낫 seed 01 45 % · 검 seed 27 95.8 % 는 그대로 1).
+2. **메시 머리목 시작값 15 %.** 운영 Finisher1 이 손 ↔ head_neck 10.4 cm · 12.3 % 프레임(머리 본에서 15 cm — `head_near` 0 %)이라 '운영 0' 이 아니다 — 정수리 · 뿔 쪽 머리 지도 과대(부록 B '몸 모델 근사 · 머리 지도', U7-a). 길거나 깊은 구간만 세도 그대로라 시작값을 15 %(운영 최대 위 5 단위)로. 이 값에서 걸리는 것은 낫 seed 27 두 건(31.4 · 62.8 %)뿐 — 검 선택 seed 25 의 5 %(f33 ~ 38 · 10.2 cm — `head_near` 는 11.3 cm 로 0 %)는 8-4 합본에서 머리목 0 으로 고쳐졌다. **(9-4a 재측정)** 지도 규칙 2 로도 Finisher1 12.3 % 그대로이고 뾰족한 칸을 잘라도 그대로 — 최심 f13 은 공중제비에서 두 팔이 머리 · 머리카락을 감싼 자세(축에서 1 ~ 2.6 cm)라 지도 과대가 아니다 → 시작값 15 % 유지. **사용자 판정(11-02): 소매 · 아래팔이 긴 머리카락을 실제로 지나간다 → 15 % 확정**(§14 '9-4a' 판정 ③).
+3. **자루 ↔ 왼손은 기록만(확인).** 운영 낫 4개의 파지 띠 프레임(24 ~ 36 %) 왼 손바닥 ↔ 붙인 자루 p50 50.7 ~ 66.5 cm · 두 손 선 ∠ 자루 71 ~ 78° — 생성 후보(28.4 ~ 64.7 cm · 52.6 ~ 85.9°)보다 멀다. 8-4c 수치와 같다(띠 정정 선택 43.7 vs 43.3 · 낫 정정 선택 30.4 vs 30.2 cm, 64.9 · 65.1°).
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/motion_metrics.py` | 버전 6 — `bends`(프레임별 손목 굽힘) · `wrist_check`(파지 띠 안 보조 손목 > 60° / 양손 > 90°) · `head_deep`(per_frame 손 · 아래팔 ↔ head_neck 의 길거나 깊은 구간 %) · `measure(support=)` · 상수 `WRIST_GRIP_DEG` · `WRIST_FREE_DEG` · `HEAD_PEN_CM` · `HEAD_DEEP_MAX_RUN` · `HEAD_DEEP_MAX_CM` |
+| `Tools/mcp/anim_gen/selection.py` | 가중치 11 키(stance 0.5 · swing 1 · head 1 · wrist 2 · head_deep 2 · handle 0) · 기준값(wrist 15 / 25 % — 사용자 판정 · head_deep 15 / 25 % · handle 15 / 40 cm × scale) · 벌점 3개 · 문서 |
+| `Tools/mcp/anim_gen/weapon.py` | `handle_report`(부착 본 profile 위치 · 회전 + resolve local → 자루 선, 보조 손바닥 거리 · 두 손 선 각 — body_fit `grip_state` 와 같은 정의) |
+| `Tools/mcp/anim_gen/providers/builtin.py` | `lead_hand` · `select_hands`(대상 메시 `suggest_finger_chains` → finger_l/r, 요청 weapon → resolve — 못 풀면 `HANDLE_NOT_MEASURED` 진단만) · plan_select(`lead_hand` · `weapon` · 손가락 뿌리 · 위험 `SELECTION_HANDS_AT_RUN`) · _select(`body_clearance parts · per_frame` · weapon 이면 `profile_rotations` · 계획에 손가락이 없으면 실행 때 풀기) · `candidate_metrics(support, weapon)` · `profile_bones` |
+| `Tools/mcp/anim_gen/body_fit.py` | `HEAD_FINISH_MAX_RUN` · `HEAD_FINISH_MAX_CM` = `motion_metrics` 상수(값 그대로 — 선별과 한 원천) |
+| `Tools/mcp/anim_gen/server.py` | `generation.select.weights` 설명 |
+| `tests/test_refine.py` · `test_select.py` · `test_weapon.py` · `conftest.py` | pytest **740**(734 + 6 — 손목 꺾임 · 머리목 깊은 관통 · 새 벌점 · 자루 기록 · select 파이프(손가락 뿌리 · weapon · 측정 옵션 · 같은 기록 = 같은 선택) · 체인 없는 메시 · 자루 없는 무기). 기대된 변화 5: 지표 버전 6 · 벌점 키 11 · head 가중 1 · 기록 c49a83 점수(순위 그대로 — 옛 가중치 기록이면 옛 점수 그대로도 확인). FakeEditor `prof.bend_l/r`(중지 뿌리 트랙) |
+| `Tools/mcp/anim_gen_phase8_1_test.py` | 새 섹션 `rescore`(기록 Job 4건 v5 점수 vs 9-1 점수 · 운영 낫 새 벌점 0) · `--seed` · `plan`(버전 6 · 가중치 11 · 중지 뿌리) · `recompute` · `regrip`(지금 기본 가중치) · `scythe`(요청 weapon — 자루 기록 · 운영 기준선) |
+
+**결과 ① 기록 재계산 (`anim_gen_phase8_1_test.py --only hashes,plan,recompute,regrip,rescore,dirty` PASS · 실패 0, 애셋 0):** 후보별 원 수치(Vesper — 지금 측정)와 v5 점수(8 지표 · 옛 가중치) → 9-1 점수 · 순위(손목 시작 15 % — 판정 뒤 다시 잰 값, 순위 · 선택은 처음 5 % 와 같다).
+
+| 기록 · seed | 발 비 p90 · 정점 · 궤적 폭 · 관통 % · 머리(뼈) % | 보조 손목 > 60° % (p50 · 최대) | 머리목 깊은 % (구간) | 자루 p50 cm · ∠ | 순위 v5 → 9-1 (점수) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 검 수정 전 c49a83 · 25 | 5.63 · 331 · 1.70 · 72.7 · 0 | 11.7 (43.6 · 112.8) | 5.0 (f32 ~ 37) | — | **1 → 1** (0.084 → 0.020) |
+| · 26 '서 있기' | 5.63 · 211 · 0.40 · 0 · 0 | 100 (78.3 · 94.3) | 0 | — | 4 → 4 (0.234 → 0.271) |
+| · 27 | 4.23 · 217 · 1.11 · 77.7 · 0 | 0 (37.3 · 42.7) | 0 | — | 3 → 2 (0.138 → 0.078) |
+| · 28 | 4.92 · 278 · 1.10 · 84.3 · 3.3 | 56.7 (61.4 · 63.4) | 3.3 | — | 2 → 3 (0.133 → 0.201) |
+| 검 선택 c0f5be · 25 | 5.30 · 321 · 1.71 · 77.7 · 0 | 0 (37.4 · 41.5) | 5.0 (f33 ~ 38) | — | **1 → 1** (0.075 → 0.018) |
+| · 26 | 5.71 · 220 · 0.46 · 0 · 6.7 | 0 (8.5 · 17.1) | 0 | — | 4 → 3 (0.235 → 0.140) |
+| · 27 | 4.30 · 206 · 1.03 · 80.2 · 0 | **95.8** (62.5 · 86.6) | 0 | — | 3 → 4 (0.149 → 0.215) |
+| · 28 | 4.96 · 261 · 1.06 · 74.4 · 4.2 | 0 (20.4 · 24.9) | 4.1 | — | 2 → 2 (0.141 → 0.077) |
+| 낫 정정 f991aa · 25 | 4.35 · 509 · 2.64 · 55.4 · 0 | 6.7 (41.8 · 67.6) | 0 | 37.6 · 75.7° | 2 → 2 (0.093 → 0.052) |
+| · 26 | 3.97 · 261 · 1.26 · 70.2 · 2.5 | 6.7 (51.8 · 64.1) | 2.5 | 28.4 · 52.6° | 4 → 3 (0.224 → 0.156) |
+| · 27 | 4.15 · 443 · 2.68 · 34.7 · 55.8 | 0 (54.1 · 59.7) | **62.8** (f26 ~ 38 · 55 ~ 66 · 70 ~ 120) | 60.4 · 85.9° | 3 → 4 (0.222 → 0.237) |
+| · 28 | 4.05 · 528 · 2.17 · 6.6 · 4.2 | 4.2 (22.1 · 91.1) | 9.9 | 30.4 · 64.9° | **1 → 1** (0.071 → 0.039) |
+| 낫 띠 정정 56d522 · 25 | 4.37 · 593 · 2.68 · 65.3 · 0 | 8.3 (40.8 · 70.9) | 0 | 51.2 · 83.0° | 3 → 2 (0.107 → 0.063) |
+| · 26 | 3.95 · 252 · 1.26 · 58.7 · 3.3 | 6.7 (53.2 · 67.8) | 4.1 | 43.8 · 62.3° | 4 → 4 (0.231 → 0.157) |
+| · 27 | 4.18 · 455 · 2.77 · 9.1 · 5.8 | 0 (54.1 · 57.8) | **31.4** (f55 ~ 65 · 11.7 cm 외) | 64.7 · 65.8° | 2 → 3 (0.093 → 0.122) |
+| · 28 | 3.98 · 637 · 2.68 · 0.8 · 0 | 5.8 (32.6 · 103.1) | 0 | 43.7 · 65.1° | **1 → 1** (0.044 → 0.014) |
+
+- **선택 변화 없음(4건)** — 같은 기록을 다시 계산해도 같은 선택. 순위는 못 고치는 결함 쪽으로 움직였다: 검 seed 27(1차부터 꺾인 손목) 3 → 4 · 낫 seed 27(머리 속 긴 구간) 2 → 3 · 3 → 4, 발 간격 · 휘두름만 나빴던 후보는 올라갔다(검 수정 전 seed 27 3 → 2).
+- 운영 낫 4개: 보조 손목 > 60° 0 % · 머리목 깊은 0 / 0 / 0 / 12.3 % → 새 벌점 **0**(완료 기준 3). 자루 기록 p50 50.7 · 51.1 · 66.5 · 66.1 cm(벌점이었다면 0.83 ~ 1.0 — 가중 0 인 이유).
+- 낫 seed 28(띠 정정 선택)의 보조 손목 최대 103° 는 순간(60° 넘는 프레임 5.8 % — 벌점 0)이라 깎이지 않는다 — 눈 판정에서 그 순간이 거슬리면 최대값 쪽 규칙을 더한다.
+
+**결과 ② Kimodo 새 생성 (새 seed 20261101 ~ 04 — Kimodo 는 결정적이라 같은 seed 면 기록과 같은 후보가 나온다, 10-30 회귀 = 10-26 수치):** 검 `--only hashes,select,dirty --seed 20261101` PASS · 실패 0(실행 `P81Run1101_134325` · Job `job_20261101_134327_a9c179`, 잡 157초 · Kimodo 125초) · 낫 `--only hashes,scythe,dirty --seed 20261101` PASS · 실패 0(실행 `P81Run1101_134656` · Job `job_20261101_134658_88e863`, 잡 132초 · Kimodo 104초 — 요청 weapon 으로 자루 기록 4/4, 운영 낫 4개 새 벌점 0 · 상한 안).
+
+| 후보 · seed | 9-1 순위 · 점수 | v5 점수 (순위) | 발 비 p90 · 정점 · 궤적 폭 · 관통 %(원) · 머리(뼈) % | 보조 손목 > 60° % (p50 · 최대) | 머리목 깊은 % | 자루 p50 cm · ∠ |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 검 · 20261101 | 2 · 0.043 | 0.095 (2) | 4.09 · 246 · 1.60 · 19 · 0 | 0 (17.8 · 38.8) | 0 | — |
+| 검 · 20261102 | 3 · 0.045 | **0.091 (1)** | 3.96 · 260 · 1.53 · 0 · 0 | 0 (10.4 · 19.5) | 0 | — |
+| 검 · 20261103 | **1 · 0.026** | 0.095 (3) | 5.60 · 307 · 1.82 · 66.9 · 0 | 0 (20.6 · 28.2) | 0 | — |
+| 검 · 20261104 | 4 · 0.060 | 0.103 (4) | 4.55 · 338 · 1.15 · 66.9 · 0 | 0 (38.0 · 39.7) | 0 | — |
+| 낫 · 20261101 | 4 · 0.206 | 0.110 (3) | 3.63 · 315 · 2.08 · 41.3 · 0 | **45.0** (56.5 · 121.9 — 1차부터 101.8°) | 0 | 54.1 · 82.7° |
+| 낫 · 20261102 | 2 · 0.027 (처음 5 % 로는 1) | 0.034 (2) | 2.32 · 325 · 2.41 · 0.8 · 0.8 | 0 (25.6 · 35.7) | 0 | 55.3 · 79.7° |
+| 낫 · 20261103 | **1 · 0.008** (처음 5 % 로는 2 · 0.051) | **0.028 (1)** | 3.50 · 357 · 2.87 · 2.5 · 0 | **13.3** (40.5 · 80.9 — 2차가 48.5 → 79.0°) | 0 | 49.1 · 62.4° |
+| 낫 · 20261104 | 3 · 0.104 | 0.161 (4) | 3.18 · 228 · 1.56 · 4.1 · 10.8 | 2.5 (16.0 · 68.9) | 12.4 (f17 ~ 31 · 11.4 cm) | 73.2 · 81.6° |
+
+- **검은 선택이 바뀌었다(기대된 변화):** v5 는 발 간격이 가장 좁은 seed 02, 9-1 은 궤적 폭이 가장 큰 seed 03(발 간격 5.6 은 8-3 이 좁힌다) — 차이는 작다(v5 0.091 vs 0.095).
+- **낫은 판정으로 기준을 고쳤다:** 처음 시작값 5 % 로는 seed 02(실행 때 선택 — 애셋 `…KimodoSlashPick` 은 seed 02)였고 seed 03 은 2차 파지 생성이 키운 보조 손목 꺾임(13.3 % · 최대 80.9°)으로 밀렸다. 사용자 판정 'seed 02 · 03 손목 괜찮다'(2026-11-01)로 시작 15 % → 다시 계산하면 **seed 03**(v5 와 같은 선택 — 정점 357 · 궤적 폭 2.87 로 가장 큼). seed 01(1차부터 101.8° → 121.9°, 45 %)은 그대로 4위 — 대상 쪽 보정은 보조 손목을 원래 + 2° 안에서 지키므로 고치지 못한다.
+- **캡처 소견(판정 아님):** 낫은 v5 쪽(seed 03)의 대각선 베기가 눈에 더 분명하고, 9-1 선택(seed 02)은 낫이 머리 위에 머무는 시간이 길다 — 궤적 폭 벌점(0.16 × 2) 대 손목 벌점(0.33 × 2)의 맞바꿈이라 사람 판정이 손목 기준을 정했다(위 — 시작 15 %). 검은 새 seed 후보가 모두 손이 가슴 높이에 머무는 작은 동작이다(궤적 폭 1.15 ~ 1.82 — 기록 seed 25 는 1.71). 붙인 낫이 손과 어긋나 보이는 것은 알려진 생성 쪽 문제(두 손 선 ∠ 자루 62 ~ 83° — 9-3).
+- 캡처(같은 시각 9 행 — 왼쪽 9-1 선택 정면 · 측면 | 오른쪽 v5 선택, 낫은 운영 부착 `WeaponHandR` · `DA_WD_Sickle1`)는 판정 뒤 정리했다(2026-11-01 — 휴지통).
+
+**Persona 확인 목록 (9-1 — 판정은 사용자):**
+- 앞선 판정(8-1 — 기록 대기): 검 선택 `/Game/Animation/Test/AIAnimation/P81Run1026_180733/AS_Vesper_Sword_KimodoSlashPick`(seed 25) · 3위 `…/Work/job_20261026_180741_c0f5be/A1/Candidates/Cand_BVH_kimodo_02`(seed 27 — 보조 손목 95.8 % > 60°: 눈에도 꺾여 보이는가) · 낫 선택 `/Game/Animation/Test/AIAnimation/P81Run1026_205832/AS_Vesper_Sickle_KimodoSlashPick`(seed 28 — 왼손목 최대 103° 순간) · 2위 `…/Work/job_20261026_205840_56d522/A1/Candidates/Cand_BVH_kimodo_02`(seed 27 — 머리목 깊은 31.4 %) · 직전 `P81Run1026_192547/AS_Vesper_Sickle_KimodoSlashPick` · 운영 `/Game/Animation/Hero/Vesper/Sickle/Actions/AS_Vesper_Sickle_Attack3`.
+- 새 생성(애셋 `P81Run1101_134325` · `P81Run1101_134656` 는 판정 뒤 정리 — 2026-11-01 휴지통, 같은 seed 로 다시 만들 수 있다: `anim_gen_phase8_1_test.py --only hashes,select,scythe,dirty --seed 20261101`): 검 선택 `/Game/Animation/Test/AIAnimation/P81Run1101_134325/AS_Vesper_Sword_KimodoSlashPick`(seed 20261103) · v5 선택 `…/P81Run1101_134325/Work/job_20261101_134327_a9c179/A1/Candidates/Cand_BVH_kimodo_01`(seed 20261102) / 낫 실행 때 선택 `/Game/Animation/Test/AIAnimation/P81Run1101_134656/AS_Vesper_Sickle_KimodoSlashPick`(seed 20261102) · 새 기준 선택 = v5 선택 `…/P81Run1101_134656/Work/job_20261101_134658_88e863/A1/Candidates/Cand_BVH_kimodo_02`(seed 20261103 — 손목 13.3 %) — **두 후보 손목 괜찮음(사용자 11-01)** · 손목 1차부터 꺾인 `…/Cand_BVH_kimodo_00`(seed 20261101 — 121.9°, 판정 대기).
+
+**8-3 기준값 (U6-e — 바꾸지 않음, 사용자 결정 2026-11-01):**
+
+| 항목 | 생성 (Vesper — 8-1 후보) | 8-3 뒤 (판정 통과 · `P83Run1027_190338`) | 운영 Vesper 낫 |
+| :--- | :--- | :--- | :--- |
+| 휘두름 정점 cm/s | 검 206 ~ 333 · 낫 252 ~ 637 | 검 선택 322 → 571 (×1.77) · 낫 띠 637 → 1,084 (×1.70) · 칼 425 → 720 | 1,098 ~ 2,068 |
+| 길이 (초) | 4.0 | 검 1.2 · 낫 2.33 | 1.25 ~ 2.4 |
+| 두 발 디딘 발 좌우 비 | 4.1 ~ 5.3 | 3.02 ~ 3.07 | 타격 중 p50 4.1 ~ 5.0 · 끝 2.1 · 대기 1.9 |
+| 정지 머리 / 꼬리 (초) | 낫 0.9 / 검 2.4 | 0.2 / 0.3 | 0 / 0 |
+| 접지 미끄러짐 p95 cm/s | 5.8 ~ 16.6 | 0 (다리 보정본) | 6 ~ 22 |
+
+- 목표 정점 1,200 · 상한 ×2.0 · 복귀 ×1.5 · 발 간격 3.0 · 남김 0.2 / 0.3초 · antialias 1.0 그대로. 검은 상한에 걸려 운영 최저(1,098)의 52 % — 4초 중 2.4초가 정지 꼬리인 생성 쪽 문제라 손잡이는 9-2(세그먼트 — 동작 구간 비율). 상한을 올리면 준비 동작이 뭉개지는지 미측정이고 8-3 · 8-4 합본 결과 · 판정이 바뀐다.
+- 느린 휘두름 = **시간 보정이 살린다**, 선별은 swing 1(상대)로 빠른 쪽을 계속 선호한다(상한 때문에 보정 뒤에도 상대 차가 남는다).
+
+**완료 기준 (로드맵 §3 U1 · U6-e):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 검 · 낫 사람 판정 기록 | 부분 — 낫 새 생성 seed 02 · 03 손목 괜찮음(사용자 2026-11-01 → 손목 벌점 시작 15 %), 8-4 보정 뒤에도 손목 꺾임이 남는 것 확인(사용자 — 9-3 · 9-4b 몫). 검 · 낫 기록 선택 · seed 01 · 머리목 판정은 대기 |
+| 2 | 기록 Job 재계산 표 · 같은 기록 = 같은 선택 | ✅ 결과 ① — 4건 선택 그대로 · 재계산 일치 |
+| 3 | 새 지표 운영 벌점 0 | ✅ 운영 낫 4개 wrist · head_deep 0(통합 `rescore` · `scythe`) |
+| 4 | 회귀 없음 | ✅ pytest 740 · 통합 phase8_1 plan · recompute · regrip · rescore · select · scythe 실패 0(기대된 변화: 지표 버전 6 · 가중치 11 · 기록 점수). 8-3 기준값 · body_fit 동작은 바뀌지 않아(상수 값 그대로) phase8_3 · phase8_4 회귀는 돌리지 않았다 |
+| 5 | Kimodo 새 생성 · 사람 판정 | ✅ 결과 ② — 검 · 낫 각 4 seed · 캡처 · 낫 손목 판정 반영(검 선택 변화 · 낫은 판정 뒤 v5 와 같은 seed 03). 검 새 생성 판정 대기 |
+| U6-e | 바꿨다면 분포 표 · 회귀 | 바꾸지 않음 — 분포 표만(위) |
+
+#### 9-2 세그먼트 (개정 15 — 2026-11-01 구현 · 검증, U2-a)
+
+**진행:** 로드맵 §4 U2 · §14 U2 행 → 착수 전 확인(사용자 — 전부 추천안: ① `segments` 와 `prompt` 둘 중 하나만 ② 몽타주 섹션은 옵트인 ④ 전이 기본 5 · 요청 1 ~ 10 · `swing` 힌트 · 시험 계획 제안대로, ③ U2-b 는 9-3) → Kimodo 소스 대조(`kimodo_model.py` `_multiprompt` · `__call__` · CLI 문서) → 구현(Python 만) → pytest · 비트 비교 → 통합(새 `anim_gen_phase9_2_test.py` — 표준 시험 2건 × 세그먼트 / 한 프롬프트, 전이 5 · 10) → 회귀 → 캡처. C++ · MCP Tool 변경 없음 — 빌드 없음.
+
+**Kimodo 소스에서 확인한 것:** `_multiprompt` 는 세그먼트를 순서대로 만들고, 둘째부터 길이 N + T(전이)로 생성해 처음 T 프레임에 앞 세그먼트 끝 T 프레임의 전신(FullBody) + 손발(EndEffector) 자세 제약을 건다 — 그 T 프레임이 앞 끝 T 프레임을 **대신**하므로 이은 프레임 = 세그먼트 프레임 합. 후처리를 켜면(우리 기본) 블렌드 대신 '전이 + 세그먼트'를 한 번에 후처리한다. 전역 제약은 `crop_move` 로 세그먼트마다 잘라 쓰므로 이은 타임라인 프레임 번호 그대로 걸린다. 지금 호출이 이미 `multi_prompt=True, num_transition_frames=5` 에 프롬프트 1개라 segments 없는 요청은 같은 호출이다. `seed_everything` 한 번 뒤 세그먼트마다 잡음을 이어 뽑는다(같은 seed · 같은 길이 = 같은 결과). 세그먼트마다 확산을 따로 돌아 계획 기한도 세그먼트 수만큼(후보 4 × 2패스 × 3 = 확산 24회 · +575초).
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/segments.py` (새) | 순수 Python — `plan_frames`(세그먼트마다 round(길이 × fps), 마지막 + 1) · `swing_window`(swing 세그먼트 ± 전이) · `map_times`(timing `warp` 로 최종 타임라인) · `sections`(next = 다음 섹션, 트림으로 지워진 섹션은 건너뜀) · `step_ratio`(C++ `SeamStepRatio` 와 같은 식) · `speed_seams`(속도 앞뒤 비 · 속도 변화 비) · 상수(2 ~ 6개 · ≥ 0.5초 · 합 ≤ 10초 · 전이 5 / 1 ~ 10 · 판정 3.0) |
+| `Tools/mcp/anim_gen/request.py` | `segments`(줄 때만 키 — `OPTIONAL`) · `generation.transition_frames`(segments 와만) · `prompt` 와 둘 중 하나 · `duration_seconds` 생략 = 합 · `package.montage.sections: "segments"`(segments 와만 · edits 와 함께면 거부) |
+| `Tools/mcp/anim_gen/providers/local_ai.py` | `takes_segments` · `_plan_segments`(계획에 세그먼트 · 경계 · swing 창 · 한계 `SEGMENT_TRANSITIONS` · 기한) · 확산 수 × 세그먼트 · 실행 인자(`prompts` · `segment_frames` · `transition_frames` · `boundaries_s`) · 결과 기록(`generated.segments` · 후보별 `segments`) |
+| `Tools/mcp/anim_gen/local_ai/kimodo_run.py` | `call_inputs`(segments 면 목록 · 아니면 지금 그대로) · `source_seams`(관절 로컬 회전 평균 변화의 단계 비 + 손목 · 발목 · 골반 · 바닥 루트 속도) · `segment_follow`(같은 seed 1차 ↔ 2차 — 세그먼트마다 몸 · 손목 · 루트) |
+| `Tools/mcp/anim_gen/router.py` | 다른 Provider 는 `SEGMENTS_UNSUPPORTED` · 사슬 끝(검증 앞)에 `seams` 단계 · timing 에 swing 창 |
+| `Tools/mcp/anim_gen/providers/builtin.py` | `plan_timing(swing_window)` · `plan_seams` · `seam_bones`(손목 · 발목 = select 와 같은 원천, 골반 = 엉덩 본 부모, 루트 = 부모 없는 본) · `_seams`(최종 시퀀스 `validate_animation(seams · profile_positions)` 한 번 → Job `segments`, 넘으면 진단 `SEGMENT_SEAM_JUMP`) |
+| `Tools/mcp/anim_gen/timing.py` | `detect(fps)` — `params.swing_window_s` 가 있으면 정점 · 핵심 · 휘두름을 그 창 안에서만(정지 머리 · 꼬리는 전체), 계획 `swing_search_s` |
+| `Tools/mcp/anim_gen/providers/integrate.py` · `executor.py` · `server.py` | 섹션 "segments" → 이음매 단계 결과 · Job `segments` · Tool 설명 |
+| `tests/test_segments.py` (새) · `conftest.py` | pytest **767**(740 + 27): 프레임 · 창 · 사상 · 섹션 · C++ 식 · 속도 이음매 · 요청 검증 10종 · Kimodo 인자 · 계획(사슬 · 기한 · 300 프레임 초과) · 실행(인자 · 이음매 · 섹션) · 창 탐지. FakeEditor `request.seams` |
+| `Tools/mcp/anim_gen_phase9_2_test.py` (새) | 섹션 hashes · plan · sword · sword1 · runstop · runstop1 · compare · capture · dirty, `--seed` · `--transition`(기본 아닌 값은 `_t<N>` 키 — 기본 기록을 덮지 않는다) |
+
+**비트 비교 (segments 없는 요청):** 9-2 전 작업 트리 사본(9-1 미커밋 상태)과 지금 사본에서 같은 FakeEditor 시험을 돌려 계획 7종(단일 · 후보 4 + 플래그 · timing + body · 몽타주 섹션 목록 · 캡처 · root_path · 기존 모션 direct_key) · Kimodo 인자 2종(단일 · 후보) · Job 을 JSON 으로 비교 — 다른 것은 사본 폴더 경로(`package_dir`) 두 줄뿐. Kimodo 쪽 결과 불변은 회귀 Phase 5 · 8-1 `select --seed 20261101`(9-1 기록 점수 재현)으로 본다(아래).
+
+**결과 ① 표준 시험 (`anim_gen_phase9_2_test.py` — 실행 `P92Run1101_152157`(전이 5) · `P92Run1101_154540`(전이 10), 실패 0 · 애셋은 실행 폴더뿐 · 더티 0):** seed 20261025 ~ 28 · 후보 4 · 파지 + 발 플래그. 비교는 같은 seed 후보끼리 **리타깃 뒤 · 시간 보정 전**(Vesper — `timing.summary` · `motion_metrics.swing` 정의) 중앙값.
+
+| 시험 (길이) | 동작 구간 % | 휘두름 정점 cm/s | 정지 머리 / 꼬리 초 | 이음매 회전 단계 비 최대 | 이음매 속도 변화 비 최대 | 1차 ↔ 2차 몸 · 손목 · 루트 p95 cm |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 검 '준비 → 베기 → 복귀' 한 프롬프트 (3.0초 — 8-1 표준 프롬프트) | 29.5 | 294 | 0.42 / 0.63 | (대조) 1.21 | (대조) 1.33 | 8.9 · 62.2 · 2.8 |
+| 검 세그먼트 1.0 · 0.7 · 1.3초 (베기 swing, 전이 5) | **18.9** | **196** | 0.43 / 0.78 | 0.81 | 1.92 | **17.1** · 80.9 · 2.3 |
+| 검 세그먼트 (전이 10) | 11.7 | 206 | 0.43 / 0.63 | 0.87 | 2.74 | 12.5 · 81.2 · 1.4 |
+| '달리기 → 멈춤 → 공격' 한 프롬프트 (3.5초) | 45.3 | 410 | 0 / **1.12** | (대조) 1.02 | (대조) 1.68 | 12.7 · 59.9 · 7.1 |
+| 달리기 세그먼트 1.5 · 0.8 · 1.2초 (공격 swing, 전이 5) | 50.0 | 418 | 0 / **0.12** | 0.77 | **5.61** | 13.8 · 61.9 · 5.4 |
+| 달리기 세그먼트 (전이 10) | 48.1 | 424 | 0 / 0.32 | 0.75 | 4.71 | 14.0 · 60.7 · 5.1 |
+
+- **검은 나빠졌다:** 세그먼트로 나누면 손이 덜 빠르고(정점 −33 %) 동작 구간이 줄었다 — 4 seed 모두 정점이 낮다(344 → 228 · 266 → 205 · 238 → 185 · 323 → 188). 같은 seed 2차(파지) 생성이 1차에서 더 멀어졌다(몸 p95 8.9 → 17.1 cm — 둘째 세그먼트부터 2차의 앞 끝을 따라가 차이가 쌓인다, 로드맵이 짚은 위험). 캡처: 세그먼트는 1.3초에 손을 머리 위로 올리고 1.7초부터 깊게 내딛은 자세로 끝난다 · 한 프롬프트는 0.4초에 넓게 디딘 뒤 손을 올렸다 가슴 높이로. 0.7초 베기 세그먼트는 처음 5 프레임이 준비 끝 자세에 묶여 실제 자유 구간이 0.53초다 — 원인 확인은 안 했다(후보: 베기 세그먼트 길이 · 프롬프트에 'quickly' · 준비 세그먼트를 줄이는 쪽).
+- **달리기는 좋아졌다:** 한 프롬프트는 2.5초 무렵 동작을 끝내고 웅크린 채 서 있다(정지 꼬리 1.12초 — 캡처에서도 베는 동작이 거의 안 보인다), 세그먼트는 3.5초를 다 쓰고 3.0초에 크게 내딛으며 벤다(꼬리 0.12초). 휘두름 정점은 둘 다 달리기 팔 흔들기(0.5 ~ 1.0초)다.
+- **swing 힌트가 갈랐다(시간 보정):** 세그먼트는 공격 창 [2.13, 3.5]초에서 핵심 [2.7, 3.13]을 찾아 **공격만** ×2 — 길이 3.5 → 3.03초. 한 프롬프트는 창이 없어 달리기 팔 흔들기를 휘두름으로 잡고 핵심 [0, 2.23]초(달리기 전체)를 ×2 · 꼬리 트림 → 3.5 → 1.63초 — 달리기가 두 배 빨라진다.
+- **이음매:** 회전 단계 비(C++ `SEAM_JUMP` 와 같은 식)는 후보 · 최종 모두 ≤ 1.36(Kimodo 쪽 ≤ 1.36) — 자세가 튀지 않는다(완료 기준 1). 속도 변화 비는 달리기 후보 4개 중 3개가 3 을 넘는다(2.96 ~ 6.83): 달리기 → 멈춤 경계에서 발이 410 → 4 cm/s 로 서고, 멈춤 → 공격 경계에서 손 · 골반이 10 ~ 50 → 150 cm/s 로 출발한다 — **새 프롬프트가 경계에서 바로 시작하는 속도 꺾임**(대조군 = 한 프롬프트 같은 시각은 8 이음매 중 1곳 4.01). 회전 비는 각속도의 튐이라 이 꺾임(가속도)을 못 본다. 최종본은 시간 보정의 antialias 가 꺾임을 펴서 2.29 ~ 2.30(전이 5) — 전이 10 은 달리기 3.67 · 검 12.09(시간 보정 배율 경계가 이음매와 겹친 곳, 손 260 → 133 cm/s).
+- **전이 10 은 고치지 못했다:** 달리기 속도 변화 비 5.61 → 4.71(아직 3 초과) · 검은 동작이 더 줄었다(동작 구간 18.9 → 11.7 %). → 기본 5 유지(결정 ④ 그대로).
+- **몽타주 섹션:** `AM_Vesper_Sword_SegSlash`(DefaultSlot) — `Windup 0 → Slash 0.636 → Recover 0.990초`(생성 경계 1.0 · 1.7초를 시간 보정 warp 로 옮긴 값 = Job `segments.boundaries_s`, 길이 1.867초)(완료 기준 3).
+- 시간 · 비용: Kimodo 검 세그먼트 195초(확산 150 — 한 프롬프트 121 · 77초), 달리기 220초(한 프롬프트 144초) — 세그먼트 수만큼 확산이 늘어 약 2배. 잡 389 · 248초.
+
+**결과 ② 검 세그먼트 변형 (판정 '검이 느리다' 뒤 원인 가르기 — 실행 `P92Run1101_165116`, 실패 0, 시간 · 대상 쪽 보정 없이 · 대조 = 같은 seed 한 프롬프트):**
+
+| 변형 | 동작 구간 % | 정점 cm/s | 정지 머리 / 꼬리 초 | 이음매 회전 · 속도 변화 비 | 1차 ↔ 2차 몸 p95 cm |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 한 프롬프트 (대조) | 29.5 | 294 | 0.42 / 0.63 | (1.21 · 1.33) | 8.9 |
+| 처음 세그먼트 1.0 · 0.7 · 1.3초 | 18.9 | 196 | 0.43 / 0.78 | 0.81 · 1.92 | 17.1 |
+| **길이** 0.7 · 1.0 · 1.3초 (베기 길게) | 13.9 | **114** | 0.33 / 1.17 | 0.79 · 2.88 | 13.0 |
+| **프롬프트** "quickly … in one fast motion" (길이 처음 그대로) | 13.3 | 216 | 0.43 / 0.65 | 0.84 · 2.06 | 16.1 |
+
+- **베기 세그먼트를 길게 하면 더 느려진다**(정점 196 → 114) — 모델이 늘린 시간을 같은 동작으로 천천히 채운다. **'빠르게' 문장은 조금만 낫다**(196 → 216, 동작 구간은 오히려 18.9 → 13.3 %). 어느 쪽도 한 프롬프트(294)에 못 미친다 — Kimodo 는 앞뒤 맥락 없이 '베기'만 받은 짧은 세그먼트를 빠른 공격으로 만들지 않는다.
+- **쓰임 지침(9-2 결론):** 한 동작 안의 단계(준비 → 베기 → 복귀)는 **한 프롬프트 + `fix.timing`**(속도는 시간 보정이 살린다), **이동 · 정지가 끼는 여러 동작**(달리기 → 멈춤 → 공격)은 **`segments` + 공격 세그먼트 `swing`** — 한 프롬프트가 일찍 끝나 서 있는 문제를 세그먼트가 고친다(정지 꼬리 1.12 → 0.12초).
+- Kimodo 시간이 처음 실행의 약 2배(427 · 450초 — 후보당 약 100초 vs 37초)였다 — 같은 머신 · 같은 확산 수라 GPU · 메모리 상태 차로 보인다(미확인).
+
+**Persona 확인 목록 (9-2 — 판정은 사용자 · 위임 판정 뒤 애셋 · 캡처는 2026-11-01 휴지통으로 정리, 같은 seed 로 다시 만들 수 있다: `anim_gen_phase9_2_test.py --only hashes,sword,sword1,runstop,runstop1,sword_long,sword_quick,compare,capture,dirty`):** 전이 5 실행 `/Game/Animation/Test/AIAnimation/P92Run1101_152157/` — 검 세그먼트 최종 `AS_Vesper_Sword_SegSlash`(+ `AM_Vesper_Sword_SegSlash` 섹션 3) · 한 프롬프트 최종 `AS_Vesper_Sword_SegSlashOne`, 달리기 `AS_Vesper_Sword_SegRunSlash` · `AS_Vesper_Sword_SegRunSlashOne`, 후보(시간 보정 전)는 `Work/<job>/A1/Candidates/`. 전이 10 실행 `P92Run1101_154540/`(같은 이름). 캡처 `Tools/mcp/results/capture/P92Run1101_152157/{sword, run}/{segments/compare.png (세그먼트 | 한 프롬프트 같은 시각 8 행), segments · one · final/animation.png}` · `P92Run1101_154540/{sword, runstop}/…`. 판정이 정할 것: ① 달리기 → 멈춤 · 멈춤 → 공격 경계의 속도 꺾임이 눈에 거슬리는가(속도 변화 비를 판정 기준으로 쓸지) ② 검 세그먼트의 느림 — 세그먼트 길이 · 프롬프트로 고칠 시도를 할지 ③ 달리기 세그먼트의 공격이 공격으로 보이는가.
+
+**회귀:** 통합 **Phase 5**(`--only hashes,state,plan,generate,constraint,cancel,dirty` PASS · 실패 0 — 한 프롬프트 Kimodo 경로, 기록 수치 그대로: Kimodo 루트 660.78 cm · −189.81° · Vesper 691.83 cm · 189.81° · root_path 397.2 · 1.1 cm · 182.5°) · **8-1**(`hashes,plan,recompute,regrip,rescore` 39 항목 통과 + `select --seed 20261101` PASS · 실패 0 — 후보 · 2차 생성 경로, 9-1 기록 Job `job_20261101_134327_a9c179` 와 순위 · 선택(seed 20261103) · 원 수치(발 비 · 정점 · 궤적 폭 · 관통, 표시 자리)가 같고 점수만 두 후보에서 ±0.0001(0.0432 → 0.0433 · 0.0258 → 0.0259 — GPU 확산의 부동소수 차로 본다, 미확인)). **8-3 · 8-4 는 돌리지 않았다**(사용자 '추천대로' — 2026-11-01): 두 통합은 기존 애셋 · 저장된 BVH(blender 경로)로 돌아 segments · select 단계를 타지 않고, 그 경로(timing · body_fit 포함)의 계획은 비트 비교로 같으며, 9-4 가 `body_fit` 기본 동작을 바꾸며 통합 8-4 전체 · Phase 1 ~ 8 회귀를 어차피 묶어 돈다. 처음 묶음 실행은 통합 4건 뒤 한 에디터(21 GB)와 8-1 Kimodo(15 GB)가 겹쳐 메모리 98 % 가 되어 멈췄다 — 무거운 묶음 사이 에디터 재기동.
+
+**완료 기준 (로드맵 §4 U2 — U2-b 제외):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 표준 시험 2건 한 Job 씩 · 경계 시각 · 이음매 비 ≤ 3 · 손 · 발 · 루트 속도 수치 · 캡처 | ✅ 경계(생성 · 최종) · 회전 단계 비 ≤ 1.36 · 속도 앞뒤 비 · 변화 비(달리기 후보는 > 3 — 속도 꺾임, 판정 대기) · 비교 캡처 |
+| 2 | 한 프롬프트와 비교 — 동작 구간 비율 · 정점 · 정지 꼬리 | ✅ 위 표 — 달리기는 좋아짐(꼬리 1.12 → 0.12초), 검은 나빠짐(정점 −33 %) |
+| 3 | 몽타주 섹션이 경계에 맞음 | ✅ 시간 보정 뒤 경계 0.636 · 0.990초 = 섹션 시작 |
+| 4 | segments 없는 요청 계획 · 결과 불변 · 회귀 0 | ✅ 비트 비교(계획 7 · Kimodo 인자 2 · Job) · pytest 767 · 통합 Phase 5 · 8-1(select 포함) 실패 0 — 8-3 · 8-4 는 9-4 전체 회귀로(위 '회귀') |
+| 5 | 사람 판정 | **위임 판정(사용자 → Claude, 2026-11-01 — 연속 프레임 15 fps · 비교 시트 기준, 움직임 체감은 아님):** ① 달리기 경계 속도 꺾임 — 1.40 ~ 1.60 · 2.20 ~ 2.47초 프레임에 튐 · 순간 정지가 보이지 않는다(발은 걸음 착지로, 2.3초 뒤는 넓게 디딘 자세에서 공격 준비로 이어진다) → 속도 변화 비는 **기록만**(판정 기준 아님) ② 달리기 공격 — **공격으로 보인다**(2.8초 오른 어깨 준비 → 3.0초 내딛으며 왼쪽 아래로 → 3.2 ~ 3.47초 깊게 숙인 마무리), 한 프롬프트는 공격 없이 웅크림 → 세그먼트 통과 ③ 검 — **세그먼트가 느리다**(1.0 ~ 1.27초 머리 위에 멈췄다가 1.8초에야 가슴 높이로 · 큰 내딛기는 더 공격답다). 단 한 프롬프트도 깔끔한 대각선 베기가 아니다(0.87초 정점은 앞으로 내미는 동작, 1.07초 머리 위 → 1.33초 가슴) |
+
+#### 9-3 키 포즈 · 역리타깃 (개정 15 — 2026-11-01, 9-3a = U3-a · U3-b 구현 · 검증)
+
+**진행:** 로드맵 §5 U3 · §4 U2-b · §14 U3 · U2 행 → 착수 전 확인(사용자 — 전부 추천안: **9-3a(U3-a 역리타깃 · 왕복 + U3-b 요청 · 추종) → 확인 → 9-3b(U3-c 활용 시험 + U2-b)** · ① SOMA 애셋 Job 마다 Work · ② part 생략 = 전신 · 배치 auto · ③ 낫 오른손 = 생성 파지 규칙에 운영 부착 자루(9-3b) · ④ 기준값은 시작값 → 실측 뒤 확정) → Kimodo 소스 대조(`docs/user_guide/constraints.md` · `constraints.py` · `skeleton/transforms.py` · `exports/bvh.py` · `motion_rep/feature_utils.py`) → **E0(제품 코드 무변경 — 8-1 기록 Job `P81Run1026_180733` 의 Work 애셋으로 역 RTG · profile)** → 구현(Python 만) → pytest · 비트 비교 → 러너 연기 시험(Kimodo venv · 모델 없이) → 통합(새 `anim_gen_phase9_3_test.py`). C++ · MCP Tool 변경 없음 — 빌드 없음.
+
+**Kimodo · 엔진에서 확인한 것:**
+- `fullbody` 는 30 관절 FK **위치** · 엉덩 높이 · 바닥 루트(smooth_root_2d, 없으면 엉덩 xz) · 방향(엉덩 관절 벡터)을 조건으로 건다 — 로컬 회전 자체는 묶지 않는다. 손 · 발 end-effector 는 그 관절 위치 · 전역 회전 + 엉덩. 77 관절로 주면 로더가 30 으로 줄인다(`_convert_constraint_local_rots_to_skeleton`). **모든 제약이 그 프레임의 루트 · 방향까지 묶어** 키를 생성 타임라인 어디에 어떤 방향으로 둘지(배치)가 설계의 중심이 됐다.
+- NPZ 로컬 회전은 표준 T 포즈 관례(전역 회전 0 = T 포즈) — 우리 BVH 도 `standard_tpose=True` 라 UE SOMA 기준 포즈가 그 T 포즈다(E0 — 오프셋 77 관절 ≤ 0.001 cm). 설치본에 `assets/skeletons/somaskel77/somaskel77_standard_tpose.bvh`(Root 래퍼 + 77, 1 프레임 — 생성 BVH 와 같은 계층)가 있어 SOMA 스켈레톤을 Kimodo 없이 만든다.
+- heading = atan2(d_z, −d_x), d = RightLeg − LeftLeg(`compute_heading_angle` — 0 = +Z 정면, R_y(φ) 면 +φ).
+- 역 RTG 는 기존 IK Rig 둘을 거꾸로 써서 된다(§10 '역방향'). `validate_animation profile` 은 프레임 0 을 내지 않고(표본 = 프레임 1 부터) 240 표본을 넘으면 묶는다 → `hold_pose{at 0, 1 프레임}` 로 민 사본을 잰다(이동 일치 0.01, C++ 무변경).
+
+**요청 · 계획 · 실행 (§9 `key_pose` 행):**
+- 계획: 원천 애셋(대상 스켈레톤 · 길이 · fps → 원천 프레임) · T 포즈 SHA-256 · 리그 규칙(요청 ops · align_mode · SOMA 체인)을 고정한 `key_pose` 단계를 **생성 앞**에(`plan_generate` 의 `pre_steps` → 라우터), 생성 단계 `inputs.key_pose{passes, pass1_items, items}` · pass1 이면 기한 + 확산 1 × 세그먼트(후보면 확산 = 후보 × max(파지 2차, 키 2 패스) × 세그먼트). 막힘: `SAMPLE_SKELETON_MISMATCH` · `CONSTRAINT_OUT_OF_RANGE`(원천 길이 · 생성 길이) · `DUPLICATE_FRAME`(부위가 겹칠 때만) · `KEY_POSE_WITH_SAMPLES` · `KEY_POSE_TPOSE_MISSING` · `DEPENDS_ON_BLENDER` · `MISSING_INPUT target_mesh`.
+- 실행 `key_pose` 단계(retarget 파이프, `providers/key_pose.py`): T 포즈 2 프레임 BVH → Blender(동기 — 생성 convert 와 같은 `bvh_to_fbx` 인자 · 정면 규칙) → 기준 포즈 FBX 임포트(`<work>/KeyPose/Import`) → IK Rig(SOMA 수동 · 대상 자동) → 역 RTG → 원천마다 `retarget_animations`(검증 끔 · 손가락 끔) → `apply_animation_edits`(hold — 길면 키 구간 trim 먼저) → profile(SOMA 78 본) → `key_pose.convert`(Root 래퍼 빼고, Hips 로컬 = 전역) → `key_pose.json`(배치 전 값). 생성 단계는 그 파일의 SHA-256 을 확인해 러너에 넘긴다(`KEY_POSE_FILE_MISSING`).
+- 러너(`kimodo_run.py`): 키마다 바닥 루트(원천 엉덩 궤적 `hips_track` → Kimodo `get_smooth_root_pos`)를 붙이고, origin 항목은 1차부터 제약(바닥 루트 = 원점 · heading 0), pass1 항목은 1차(키 없이) 뒤 그 프레임의 `smooth_root_pos` · heading 에 항목 강체 배치 → 같은 seed 2차(파지 · 발 2차가 있으면 그 2차에 함께 — 자동 제약은 키 프레임을 `pinned` 로 건너뛴다). 최종 출력에 σ 1 스무딩(파지 · 발 2차가 이미 했으면 한 번만). 손 · 발은 일반 end-effector(`joint_names`). 기록 `key_pose{placements, follow}` — 키 프레임 관절 위치(전신 = SOMA30 몸 23 관절 · 손 = 손목 · 발 = 발목 + 발끝) · 손발 전역 회전 차 · 키 둘레 ± 10 프레임 지그재그 p95(2 패스면 1차 같은 창).
+
+**구성:**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/key_pose.py` (새) | 순수 Python — Kimodo 설치본 T 포즈 찾기(일반 · 편집 설치) · `two_frame_bvh` · UE → Kimodo 회전 · 위치 · `convert` · `heading` · `place`(항목 강체) · `constraint`(part → fullbody · end-effector) · `edit_ops`(hold · trim) · `key_jitter` · 상수(몸 관절 · part 관절) |
+| `Tools/mcp/anim_gen/providers/key_pose.py` (새) | `plan`(원천 · T 포즈 · blender · 막힘 · 한계 `KEY_POSE_RETARGETED` · `KEY_POSE_PLACED`) · `run_blender`(동기) · `run`(임포트 · 리그 · 역 RTG · 리타깃 · hold · profile · 파일 · Job `key_pose`) |
+| `request.py` · `local_ai/constraints.py` | `key_pose{asset, times, at, part, placement}` 검사 · 기본값 / 생성 프레임 · 배치(auto) · Kimodo 종류 |
+| `providers/local_ai.py` · `router.py` · `executor.py` · `providers/builtin.py` | 계획(`pre_steps` · 패스 · 기한) · 실행 인자 `key_pose_file` · 결과 기록 · 진단 `KEY_POSE_FOLLOWED` / 생성 앞 단계 / Job `key_pose` / `RetargetPipe.run` → key_pose |
+| `local_ai/kimodo_run.py` | `build_constraints(key_pose)` · `key_pose_items` · `place_on_pass1` · `key_follow` · 키만 2 패스 · 파지 2차와 함께 |
+| `tests/test_key_pose.py` (새) · `tests/conftest.py` | pytest **789**(767 + 22: 수식 · 배치 · 편집 op · 떨림 · T 포즈 찾기 · 요청 · 변환 · 계획 · 막힘 · 실행 · 파일 변경) — FakeEditor validate `skeleton` · profile `tracks` · `default_bones` |
+| `Tools/mcp/anim_gen_phase9_3_test.py` (새) | 섹션 hashes · plan · src · roundtrip · follow · multi · ee · nokey · capture · dirty |
+
+**비트 비교 (key_pose 없는 요청):** HEAD 사본(`git show`)과 지금 사본에 같은 FakeEditor 시험(같은 conftest)을 돌려 6 요청(단일 · 후보 4 + 파지 · 발 · segments · root_path · timing + body · 기존 모션)의 계획 · Kimodo 인자 · Job(5건 실행)을 JSON 으로 — 시각 · 임시 경로를 지우면 **바이트 같음**. 러너의 key_pose 없는 경로는 코드상 같은 호출(`[]` 를 더할 뿐)이고 통합 회귀(아래)로 본다.
+
+**결과 ① 왕복 (Kimodo NPZ → Vesper → SOMA — `anim_gen_phase9_3_test.py` 실행 `P93Run1101_202324`, 실패 0):** 검 8-1 표준 프롬프트 · 3초 · seed 20261025 · 한 패스 · 관통 보정 off(순수 FK) Job `job_20261101_202330_dde402`(69초) → 그 Vesper 의 91 프레임 전부를 전신 키로(origin) Job `job_20261101_202439_4025e9`(79초) → key_pose 파일(배치 전)을 원천 NPZ 와 비교(Kimodo venv · SOMA77 FK). 제외 규칙: SOMA30 중 손 끝(HandMiddleEnd · ThumbEnd) · 눈 · 턱은 체인 밖이라 빼고, 손가락 · 메타카팔은 Kimodo 30 관절 밖이라 뺀다 — 몸 23 관절.
+
+| 지표 | p50 | p95 | 최대 |
+| :--- | ---: | ---: | ---: |
+| 로컬 회전 ° | 0.04 | 1.89 | 2.80 |
+| FK 관절 위치 cm | 0.18 | 0.36 | 0.38 |
+| 엉덩 기준 자세 위치 cm | 0.18 | 0.36 | 0.37 |
+| 엉덩 위치 cm | 0.00 | 0.01 | 0.01 |
+| 방향 ° | 0.0 | 0.0 | 0.0 |
+| (참고) 91 전신 키로 다시 만든 생성 ↔ 원천 관절 cm | 3.66 | 4.02 | 4.24 |
+
+- 관절별: 다리 ≤ 0.14° · 손 ≤ 0.04° · 엉덩 · Spine1 · 목 · 머리 · 쇄골 ≈ 0, **팔 · 아래팔 1.68°(모든 프레임 같은 값) · Spine2 · Chest 2.16 ~ 2.80°** — E0 의 UE 안 왕복과 같은 **고정 편향**(리타깃 포즈 정렬이 양방향에서 정확한 역이 아님 · 척추는 3 ↔ 5 마디 보간). 위치로는 0.4 cm 안이라 보정하지 않았다(후속 후보: 역 RTG 의 리타깃 포즈를 정방향의 역으로 맞추기).
+- 엉덩 위치 · 방향이 0 — **축 · 원점 · 바닥 관례가 맞다**(UE 컴포넌트 cm = Kimodo 세계 m 의 (x, z, y), 루트 트랙 · 바닥 맞춤이 세계 위치를 바꾸지 않는다).
+- 기준값(④ 시작값): FK 위치 p95 ≤ 2 · 최대 ≤ 5 cm, 로컬 각 p95 ≤ 3° — 둘 다 넉넉히 통과 → **확정 제안: FK 위치 p95 ≤ 1 · 최대 ≤ 2 cm, 로컬 각 p95 ≤ 3°**(편향이 2.8° 라 각은 그대로).
+- 촘촘한 키(91 프레임 전부 전신)로 다시 만든 생성은 키 오차 0 · 떨림 0.02(원천과 같음) — '재현 3.66 cm' 는 origin 배치의 강체 이동(4.1 cm · −0.7°)이 든 값이다.
+
+**결과 ② 추종 · 떨림 (운영 낫 Attack1 — 60 fps, 휘두름 정점 0.317초(`timing.summary`) → 낫 8-1 프롬프트 · 3초 · seed 20261025 · 관통 보정 off, 생성 1.2초에 · pass1, 최종 실행 `P93Run1101_205009`):**
+
+| 시험 | Job | 키 프레임 오차 cm (p50 · 최대) | 손발 회전 ° | Kimodo 키 둘레 떨림 p95 (1차) | Vesper 키 둘레 떨림 최대 | Vesper 자세 ↔ Attack1 정점 p50 · 최대 cm |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| follow — 전신 키 1 | `job_20261101_205011_404f9f` (107초) | 0.22 · 0.66 | — | 0.0 (0.021) | 0.91 | **0.49 · 0.83** |
+| multi — 전신 키 3(± 0.3초) | `job_20261101_205159_95adc9` (102초) | 0.76 · 2.52 | — | 0.0 (0.022) | 4.10 | — |
+| ee — 오른손 · 왼발 · 오른발 EE(같은 프레임) | `job_20261101_205342_1b0087` (113초) | 손 2.32 · 왼발 2.80 / 3.43 · 오른발 3.09 / 3.19 | 14.4 · 10.0 · 4.4 | 0.0 (0.021) | 0.36 | 6.48 · 60.4(왼팔은 자유 — 오른손 2.1) |
+| nokey — 대조(키 없음 = follow 의 1차) | `job_20261101_204607_112571` (78초) | — | — | — | 1.07 (같은 창) | 16.45 · 49.9 |
+
+- **키가 동작을 바꾼다:** 1.2초 Vesper 자세가 Attack1 정점과 p50 16.5 → 0.5 cm. 캡처(`follow/compare.png` — 키 \| 키 없음 같은 시각 8 행)에서 1.2초에 오른팔을 앞으로 뻗고 깊게 내딛은 Attack1 정점 자세, 키 없는 1차는 손이 머리 근처. 배치는 1차의 그 프레임 heading 44° 에 맞춰 yaw +52.9°.
+- **키 둘레 떨림 — 원인과 처리(사용자 결정 2026-11-01 'σ 1 출력 스무딩 기본'):** 스무딩 전 Kimodo 쪽 떨림 p95 follow 0.50 · multi 1.37 · ee 0.90(1차 0.02), **multi 는 Vesper 오른손 속도가 첫 키에서 809 → 347 → 856 cm/s 톱니(지그재그 최대 19.9)**. 원인 가르기: ① 전신 키는 Kimodo 후처리가 FullBody 마스크로 키 프레임을 제약 자세에 강제로 맞춘다(오차 0.0) — **후처리를 끄면(multi_nopp) 키 추종이 p50 15.5 · 최대 27.7 cm 로 무너지고 떨림은 2.33 그대로** → 떨림은 후처리가 아니라 **확산 쪽 키 조건**(8-1 수정안 A 의 '성긴 손 · 발 키가 키 사이를 진동' 과 같은 원인) ② 바닥 루트를 원천 엉덩 궤적의 Kimodo 매끈화로 준 수정은 떨림을 바꾸지 않았다(0.50 → 0.54 · 1.37 → 1.71 — 의미가 맞고 손 키 추종이 2.15 → 1.31 cm 로 좋아져 남김) ③ 오프라인 σ 스무딩(`jitter` 섹션 — 생성 없이 최종 NPZ 에): σ 1 전체 → 떨림 0 · 키 오차 p50 0.2 ~ 1.0 · 최대 0.7 ~ 4.5 cm · 손 정점 −2 ~ −6 %(multi −15 % — 정점에 톱니가 섞임), 키 둘레 ± 12 창만은 결과가 거의 같아 이점 없음, σ 2 는 키 오차 최대 11 ~ 13 cm. → **키가 있으면 최종 출력에 σ 1 스무딩**(8-1 수정안 A 의 `smooth_output` 그대로 · 파지 · 발 2차가 이미 하면 한 번만) — 위 표가 그 결과(Vesper 떨림 최대 19.9 → 4.1, 운영 공격의 빠른 타격 구간 0.6 ~ 5.6 범위).
+- **손발 end-effector 추종 = E2 손목 목표 오차(p50 1.8 ~ 2.5 · 최대 6.4 cm)와 같은 수준**(위치 2.3 ~ 3.4 cm). 회전은 스무딩 뒤 오른손 8.8 → 14.4° — 손 방향이 중요한 키(9-3b 낫)는 이 값을 판정 수치로 본다.
+- 시간: 키 Job 95 ~ 113초(2 패스 — key_pose 단계 약 7초: Blender 2.5초), 대조 한 패스 69 ~ 78초.
+
+**회귀 (에디터 재기동 뒤 하나씩):** 통합 **Phase 5**(`--only hashes,state,plan,generate,constraint,cancel,dirty` — `P5Run1101_210113`) PASS · 실패 0, 기록 수치 그대로(Vesper 루트 691.83 cm · Yaw 189.81° · 각속도 비 0.954 · 골반 1.047 · root_path 406.5 · 1.69 cm · Yaw Δ −181.98°) · **8-1**(`hashes,plan,select,dirty --seed 20261101` — `P81Run1101_210429`) PASS · 실패 0, 9-1 기록과 같은 선택(seed 20261103 · 점수 0.0258)과 순위 · **9-2**(`hashes,plan,runstop,dirty` — `P92Run1101_210809`) PASS · 실패 0, 기록과 같은 순위 · 원 수치(seed 27 1위 · 정점 445.4 · 동작 구간 41.9 % · 최종 이음매 속도 변화 비 2.29). 세 회귀가 러너의 key_pose 없는 경로(한 프롬프트 · root_path · 후보 + 파지 2차 · 세그먼트)를 탄다. 8-3 · 8-4 는 9-2 와 같은 이유로 9-4 전체 회귀로.
+
+**완료 기준 (로드맵 §5 U3 — 9-3a 몫):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 왕복 오차 표 · 제외 규칙 | ✅ 결과 ① — FK 위치 p95 0.36 · 최대 0.38 cm · 로컬 각 p95 1.89°(고정 편향), 확정 제안 위치 p95 ≤ 1 · 최대 ≤ 2 cm · 각 p95 ≤ 3° |
+| 2 | 키 포즈 추종(전신 · 손 · 발) · E2 비교 · 키 둘레 떨림이 운영 범위 | ✅ 결과 ② — 전신 0.22 ~ 0.76 cm · 손발 2.3 ~ 3.4 cm(E2 수준) · σ 1 뒤 떨림 0 · Vesper 최대 4.1 |
+| 3 | 낫 두 손(∠ 자루 · 왼손 ↔ 자루) | ⏭ 9-3b(U3-c — 결정 ③) |
+| 4 | 제약 없는 요청 불변 · pytest · 회귀 · 해시 | ✅ 비트 비교 · pytest 790 · Phase 5 · 8-1 · 9-2 실패 0 · 해시 불변 |
+| 5 | 사람 판정 | ✅ **사용자 Persona 판정(2026-11-01): 통과 — 단 `AS_Vesper_Sickle_KeyHandFeet`(손 · 발 EE 키)의 손목 각도가 아쉽다(0.86초 · 프레임 25 둘레 손목 꺾임 — σ 1 뒤 오른손 회전 키 대비 14°) → 9-3b 로 넘김.** 전신 키 1 · 3 은 통과(튐 없음) |
+
+**판정 목록 (9-3a — 판정 뒤 2026-11-01 사용자 지시로 실행 애셋 · 캡처 · 스크래치를 휴지통으로 정리 — 같은 seed 로 다시 만들 수 있다: `anim_gen_phase9_3_test.py --only hashes,src,roundtrip,follow,multi,ee,nokey,capture,dirty`):** 캡처 `Tools/mcp/results/capture/P93Run1101_205009/{follow/compare.png (Attack1 정점 키 \| 키 없음, 같은 시각 8 행), follow · nokey · multi · ee/animation.png, attack1/sheet.png}`(σ 1 뒤 — 스무딩 전은 `P93Run1101_203902/`). 애셋 `/Game/Animation/Test/AIAnimation/P93Run1101_205009/AS_Vesper_Sickle_Key{Full, Multi, HandFeet}` · 대조 `P93Run1101_203902/AS_Vesper_Sickle_KeyNone` · 후처리 끔 `…/AS_Vesper_Sickle_KeyMultiNoPP` · 왕복 `P93Run1101_202324/AS_Vesper_Sword_Key{Src, RoundTrip}`. 판정이 정할 것: ① 1.2초 자세가 Attack1 정점처럼 보이고 앞뒤가 자연스러운가 ② σ 1 뒤 키 둘레 튐이 남았는가(multi 오른손) ③ 손 키의 오른손 방향(키 대비 14°)이 거슬리는가.
+
+**남은 것 (9-3b — 사용자 지시 때 새 세션):** **손 키의 손목 각도(9-3a 판정 — 손 EE 키 회전 오차 14° · 0.86초 손목 꺾임: 후보 = 손 키의 회전 비중 · 키 둘레 스무딩이 손 회전을 묽히는 대가 · 손 키를 손목 굽힘 상한과 함께)** · U3-c 낫 생성 파지 규칙(결정 ③ — E0 손 본 대응 상수) · Attack1 정점 키로 검 · 낫 선택 재생성 · `fix.body` 결과를 키로 재생성 · U2-b. 후속 후보: 역리타깃 고정 편향 보정 · 다른 운영 애니 · 큰 이동 동작의 키 추종(부록 B).
+
+#### 9-3b 손 키 손목 · 낫 생성 파지 규칙 · 키 포즈 활용 (개정 15 — 2026-11-02, U3-c)
+
+**진행:** 9-3a 판정에서 넘어온 ⓪ + 로드맵 §5 U3-c ① ~ ③. 착수 전 확인(사용자 — 전부 추천안): 진행 = **⓪ + U3-c 먼저 → 판정 → U2-b 는 새 세션(9-3c)** · ⓪ = E0 진단(제품 코드 무변경) 뒤 원인별 적용 · ① = 옵트인 `generation.refine.grip.handle: "weapon"` + 손 방향 대응은 Job 마다 측정 · ②③ = 제안한 시험. Python 만(C++ · MCP Tool 변경 0, 빌드 없음). 통합 `Tools/mcp/anim_gen_phase9_3b_test.py`.
+
+**⓪ E0 — 0.86초 손목 꺾임의 원인(섹션 ee · e0wrist · e0twist · vwrist · e0capture, 실행 `P93bRun1102_091249` ~ `_092337`):** 9-3a `ee`(오른손 · 왼발 · 오른발 EE 키, 1.2초 · pass1)를 같은 seed 로 재현(오른손 회전 14.35° — 기록 그대로) → 그 Kimodo 실행을 같은 인자로 다시 돌려(스무딩 함수만 감싸 스무딩 전 출력을 남김 — 재실행 = 기록 0.0 cm, 결정적) 1차 · 스무딩 전 · 후의 프레임별 양 손목을 쟀다.
+
+| 관찰 | 값 |
+| :--- | :--- |
+| **0.86초의 꺾임 = 자유로 둔 왼손목의 아래팔 축 비틀기** | SOMA 왼손목 비틀기 1차(키 없음) −34 → **−105°**(f25), 손 · 발 키 2차 **−128°**(f26), σ 1 은 무관(−125°). Vesper 왼손목 비틀기 82° → 189°(0.83초) → 88°. 캡처: 왼손바닥이 가슴 앞에서 위로 뒤집힌다 |
+| 운영 낫 범위 | 왼손목 비틀기 폭 Attack1 36° · Attack2 147° · Attack3 159° · Finisher1 138° — 각도 크기는 범위 안. 아래팔 트위스트 본은 운영 · 생성 모두 고정(3.3°) — 차이 아님. 자유 팔이 낫을 쥐는 대신 손바닥을 든 자세가 문제 |
+| 오른손(키) | 키 프레임 손목 굽힘 **58.7°**(키 자세 자체 27.8°, Vesper 54.7° — 운영 Attack1 최대 61°): 생성 아래팔이 Attack1 과 30° 달라 전역 손 회전을 맞추려 손목이 굽는다. 14° 오차 = 키 둘레 손 회전 22°/프레임을 σ 1 이 평균한 대가(스무딩 전 8.8°). 1차 아래팔은 키와 117° 달라 '1차 아래팔 기준 상한'은 쓸 수 없다 |
+
+**⓪ 처리(사용자 결정 2026-11-02 '키 패스 자유 손 고정'):** pass1 배치 키로 2차를 만들 때 **키 · 파지가 묶지 않은 손을 1차 손(위치 · 회전, 일반 end-effector, 3 프레임마다)에 묶는다** — 키가 자유 팔을 1차보다 더 비틀지 않게. 계획 `inputs.key_pose.hold_free_hands{hands, keyframe_step, window_frames 15, around_frames}`(전신 키 · origin 키 · 양손 파지 2차면 없음 — 그 계획은 9-3a 와 비트 같다) · 한계 `KEY_POSE_HANDS_HELD` · 러너 `hold_constraints`(요청 · 키가 이미 묶은 프레임은 건너뜀) · 기록 `key_pose.hold{hands, follow_cm}`. **창(키 ± 15 프레임)** 은 실측으로 정했다 — 클립 전체를 묶으면 키 뒤(1.4 ~ 1.6초) 동작까지 1차 쪽으로 끌렸다.
+
+| ee (같은 seed) | 왼손목 비틀기 이탈(f15 ~ 35, 1차 f10 기준) | 오른손 키 위치 · 회전 | 키 둘레 떨림 | 오른손목 굽힘 최대 (SOMA · Vesper 키 프레임) |
+| :--- | :--- | :--- | :--- | :--- |
+| 1차(키 없음) | −71.0° | — | 0.021 | 28.7° |
+| 9-3a(묶음 없음) | −91.0° | 2.32 cm · 14.35° | 0.0 | 56.3° · 54.7° |
+| 클립 전체 묶음 | −77.5° | 1.28 cm · 9.59° | 0.057 | 73.3° · 65.4° |
+| **키 ± 15 프레임 묶음(채택)** | **−75.4°** | **1.80 cm · 5.86°** | 0.0 | 71.0°(f39) · 61.6° |
+
+- 키가 키운 몫(−20°)은 거의 없어졌고(−4.4° 남음) 오른손 키 추종은 좋아졌다. **대가:** 키 직후 오른손목 굽힘이 커졌다(Vesper 키 프레임 54.7 → 61.6° — 운영 Attack1 최대 61° 수준). Kimodo 는 클립 전체를 한 번에 만들어 제약 하나가 키 뒤 동작도 바꾼다. 1차부터 있던 비틀기(−71°)는 생성 특성으로 남는다 — 후속 후보: 선별 지표 '자유 손목 비틀기'(U1).
+
+**① 낫 생성 파지 규칙 — 운영 부착 자루 (`generation.refine.grip.handle: "weapon"`, 옵트인 — 결정 ③):**
+- **요청 · 계획:** `refine.grip.handle`(줄 때만 키 — `wrist_line` 기본 = 지금 규칙, 요청 비트 같음). `weapon` 은 요청 weapon(보조 손 grip) · 파지 플래그 · 간격(`target_spacing_cm` | `spacing_cm`) · 주 손 일치가 필요하다(막힘 `GRIP_HANDLE_NEEDS_WEAPON` · `GRIP_HANDLE_NEEDS_GRIP` · `GRIP_HANDLE_NEEDS_SPACING` · `HANDLE_NOT_MEASURED` · `CONFLICTING_FIELDS` · 에디터 없음 `EDITOR`). 계획(`local_ai._grip_handle`)이 select 기록과 같은 풀이(`RetargetPipe.select_hands` → `weapon.resolve`)로 자루를 부착 본(대상 주 손) 공간 cm 로 고정 — `dir_bone` · 손목에서 가장 가까운 자루 점 `anchor_bone_cm` · 범위 `extent_cm` · 체형 비 `arm_ratio`(간격 사상) · `wrist_cap_deg` 60 → 파지 규칙 `rule.handle` · 한계 `GRIP_HANDLE_BASIS`.
+- **손 방향 대응(hand_basis):** 생성 앞 단계(키가 있으면 key_pose 단계에, 없으면 새 `hand_basis` 단계) — SOMA T 포즈(전역 회전 0)를 정방향 리타기터(SOMA → 대상, 생성 리타깃과 같은 ops · align_mode)로 옮겨 부착 본의 컴포넌트 회전 R_T 를 잰다. FK 리타깃은 전역 회전 변화를 복사하므로 R_대상(t) = S·G(t)·S·R_T → 부착 본 공간 x 는 Kimodo 손 공간 S·R_T·x(S = y ↔ z). Job `hand_basis` · 실측 `hand_r` 회전 (−0.730, 0.145, −0.228, 0.627) · 표본 퍼짐 0°(T 포즈 임포트 애니 `SOMA_TPose_Rest_Anim` — 기준 포즈 FBX 가 애니도 낸다).
+- **러너(`refine.solve_handle_grip`):** 파지 키 프레임마다 1차 주 손에 붙인 자루를 '자루 점 → 1차 보조 손바닥' 쪽으로 최소 회전하되 **주 손목 굽힘 ≤ max(1차, 60°) · 아래팔 축 비틀기 ≤ 60°**(`HANDLE_WRIST_CAP_DEG` · `HANDLE_TWIST_CAP_DEG`, 이분)까지만, **보조 손바닥 목표 = 돌린 자루 위**에서 두 손목 간격 = 생성 간격(select 파지 띠와 같은 정의, 자루 범위 안) · 보조 손목 = 그 점 − 손바닥 오프셋(IK 뒤 손 회전으로 세 번 맞춤) · meet 면 두 손목을 함께 평행 이동(자루가 손과 같이) · 보조 손 회전 keep · 주 손 회전 = 돌린 전역 회전(손 끝 관절도) — 양팔 2본 IK, 확산 조건만. 자루 방향 부호는 파지 구간 전체에서 하나. 기록 `refine.grip.stats.handle`(필요 · 적용 회전 · 상한 걸린 % · 주 손목 굽힘 · 비틀기 · 목표 ∠ · 손바닥 ↔ 자루) · 소스 쪽 `refine.follow.handle{pass1, pass2}`(파지 구간 모든 프레임).
+
+**① 결과 (섹션 scythe · handle, 실행 `P93bRun1102_094403`, 실패 0) — 9-1 낫 새 생성과 같은 요청(낫 프롬프트 · 4초 · seed 20261101 ~ 04 · 파지 + 발 2차 · 대상 간격 60):**
+
+| 후보 (seed) | 대조(지금 규칙) ∠ 자루 · 손바닥 ↔ 자루 | **자루 규칙** ∠ · 손바닥 ↔ 자루 | 소스 쪽 2차 ∠ · cm (1차) | 규칙: 필요 → 적용 회전 p50 · 상한 % | 보조 손목 p50 · > 60° % (대조 → 규칙) | 정점 cm/s |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 01 | 82.7° · 54.1 cm | **10.4° · 5.1 cm** | 13.0° · 4.6 (78.1° · 44.7) | 90.9 → 66.8° · 66 % | 56.5° · 45.0 → 60.4° · 51.7 % | 315 → 327 |
+| 02 | 79.7° · 55.3 | **11.1° · 9.5** (선택) | 11.3° · 9.7 (74.4° · 51.4) | 98.9 → 38.5° · 100 % | 25.6° · 0 → 38.8° · 8.7 % | 325 → 668 |
+| 03 | 62.4° · 49.1 (대조 선택) | **14.1° · 5.6** | 14.9° · 8.5 (74.4° · 27.5) | 63.3 → 44.9° · 54 % | 40.5° · 13.3 → 42.4° · 16.7 % | 357 → 367 |
+| 04 | 81.6° · 73.2 | **20.2° · 9.7** | 19.9° · 12.5 (83.1° · 70.8) | 89.9 → 79.1° · 51 % | 16.0° · 2.5 → 20.6° · 0 % | 228 → 258 |
+
+- **완료 기준 3 충족:** 고른 후보 ∠ p50 11.1° ≤ 20° · 손바닥 ↔ 자루 9.46 cm ≤ 10 cm, 후보 중앙값 81.6 → 14.1° · 55.3 → 9.5 cm. 운영 낫(같은 지표 p50 71 ~ 78° · 51 ~ 67 cm)보다 붙인 자루에 맞는다. 목표의 ∠ 바닥 ≈ 12.5° 는 자루가 손목이 아니라 손바닥 쪽(부착 소켓 — 약 13 cm)을 지나서 생기는 기하(정의가 '손바닥 − 부착 본')라 0 이 되지 않는다.
+- 생성 손(SOMA — 소스 쪽 2차)과 Vesper 수치가 3° · 3 cm 안에서 같다 → 손 방향 대응(hand_basis)이 맞다.
+- **대가:** 필요한 회전(p50 63 ~ 99°)의 절반 이상이 손목 상한에 걸렸다(54 ~ 100 % — 남는 몫은 보조 손이 자루로 옮겨 맞춤) · 주 손목 굽힘이 상한 60° 까지 · 보조 손목 꺾임이 조금 늘었다(seed 02 0 → 8.7 % · 01 45 → 52 %) · 선택이 바뀌었다(대조 seed 03 → 02 — 휘두름 정점 668 cm/s 로 점수 앞섬). 캡처 `Tools/mcp/results/capture/job_20261102_095030_9e3c8b/A1/sheet.png`(자루 규칙 — 낫 부착) · `job_20261102_094405_d15fed/A1/sheet.png`(대조).
+
+**② Attack1 정점 자세를 전신 키로 검 · 낫 선택 다시 생성 (S3 의 대안 — 섹션 sword · key2 · posectl, 실행 `P93bRun1102_095711`, 대조 낫 = ① scythe):** 8-1 표준 프롬프트(검 · 낫) · 4초 · seed 20261101 ~ 04 · 파지 + 발 2차 + 운영 낫 Attack1 휘두름 정점(0.317초) 전신 키 하나(생성 1.2초 · pass1). 키 프레임은 요청 키가 묶어 파지 2차가 건너뛴다(pinned) · 파지 2차가 손을 맡아 자유 손 고정은 없다.
+
+| 시험 | 고른 후보 (대조) | 1.2초 Vesper 자세 ↔ Attack1 정점 p50 · 최대 | 고른 후보 정점 cm/s | 파지 띠 % (후보) | 보조 손목 > 60° % · 관통 % (고른 후보) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 낫 대조(키 없음) | seed 03 | 12.0 · 54.3 cm | 357 | 100 | 13.3 · 2.5 |
+| **낫 + Attack1 키** | seed 03 (같음) | **0.85 · 1.89** | 423 | 88 ~ 97 | **0 · 0** |
+| 검 대조(키 없음) | seed 03 (9-1 기록과 같은 선택 · 점수 0.0258) | 12.3 · 69.1 | 307 | 100 | 0 · 66.9 |
+| **검 + Attack1 키** | **seed 01** | **1.39 · 3.28** | **557** | 88 ~ 96 | 0 · 13.2 |
+
+- 키 자세가 후보 선별 · 파지 2차와 함께 지켜진다(p50 ≤ 1.4 cm). 낫은 같은 후보를 고르면서 손목 꺾임 · 관통이 0 으로, 검은 정점 246 → 557 cm/s 인 seed 01 로 바뀌었다(키 없는 seed 01 은 4위).
+- **대가:** 키 프레임 둘레 두 손 간격이 Attack1(왼손이 자루에서 떨어진 운영 자세) 쪽으로 벌어져 파지 띠가 100 → 88 ~ 97 % — 검은 낫 자세를 받아 더 크다. 검 운영 애니가 없어 낫 Attack1 을 썼다 — 검 타격 자세 원천이 생기면 같은 경로로.
+- 캡처 `Tools/mcp/results/capture/job_20261102_100606_51fda5/A1/sheet.png`(낫 + 키) · `job_20261102_101206_e3f24a/A1/sheet.png`(검 + 키) · `job_20261102_100040_ecfe32/A1/sheet.png`(검 대조).
+
+**③ `fix.body` 결과를 키로 다시 생성 (섹션 fixbody, 실행 `P93bRun1102_095711`):** A = 8-4 합본 낫(저장 Kimodo BVH `job_20261026_192555_f991aa/kimodo_03` → fix.ops 다리 → 리타깃 → timing → body_fit 파지 · 관통, 길이 2.33초) → B = 같은 낫 프롬프트로 A 최종 자세를 0.5초 간격 전신 키 5개(origin)로 생성(대상 쪽 보정 없음). 같은 측정(select candidate_metrics — body_clearance parts · per_frame · 자루):
+
+| 애셋 | 팔-몸통 관통 % | 머리목 깊은 관통 % | 파지 띠 % (간격 p50) | 보조 손목 p50 · > 60° % | 자루 ∠ · 손바닥 ↔ 자루 | 휘두름 정점 cm/s |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| A 보정 전(timing 뒤) | 1.4 | 7.0 | 67.1 (49.2) | 23.4° · 6.4 | 70.9° · 35.0 cm | 889 |
+| A 최종(body_fit) | **0** | **0** | 68.6 (49.2) | 23.5° · 6.2 | 70.7° · 34.9 | 921 |
+| B 키 재생성 | 5.6 | **0** | 60.0 (50.2) | 25.2° · 0 | 63.6° · 36.9 | **290** |
+
+- **키 프레임에서는 남고 키 사이에서는 남지 않는다:** B ↔ A 자세 p50 키 0.3 ~ 0.5 cm · 키 사이 2.4 ~ 17.7 cm(빠른 베기 0.75 ~ 1.25초가 가장 큼). 머리목 깊은 관통 0 % 는 남았지만 팔-몸통 관통은 돌아왔다(0 → 5.6 %) — 모델이 키 사이를 자기 분포로 채운다.
+- **시간 보정이 남지 않는다:** 정점 921 → 290 cm/s — 0.5초(15 프레임) 간격 키 사이를 천천히 잇는다(9-2 '세그먼트가 느림'과 같은 성질). 고친 동작을 생성에 남기려면 키를 촘촘히(9-3a 왕복 — 모든 프레임이면 그대로 복사) 주거나, 재생성 뒤 timing · body_fit 을 다시 돈다 → **쓰임: `fix.body` 결과의 재생성은 '자세 · 구성 유지'용이고 속도 · 관통 보정은 재생성 뒤 다시 건다.**
+- 캡처 `Tools/mcp/results/capture/P93bRun1102_095711/fixbody_b/compare.png`(B \| A, 낫 부착).
+
+**구성 (9-3b):**
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `anim_gen/request.py` | `refine.grip.handle`(줄 때만 — `REFINE_HANDLES`) |
+| `anim_gen/providers/local_ai.py` | ⓪ `_plan_key_pose` 의 `hold_free_hands` · `HOLD_WINDOW_FRAMES` · 한계 `KEY_POSE_HANDS_HELD` · 인자 `key_pose_hold` / ① `_grip_handle` · `hand_basis` 단계 계획 · 실행 때 규칙에 `basis` |
+| `anim_gen/providers/key_pose.py` | `plan_hand_basis` · `_hand_basis`(정방향 RTG · 퍼짐 검사) · 키 없으면 역 RTG · 파일 생략 |
+| `anim_gen/local_ai/refine.py` | `plan(handle=)` · `handle_in_hand` · `_turn` · `solve_handle_grip` · 상한 상수 2 |
+| `anim_gen/local_ai/kimodo_run.py` | `hold_constraints` · `hold_follow` · `handle_metrics` · 자루 규칙 분기 · `follow.handle` |
+| `anim_gen/providers/builtin.py` · `executor.py` · `server.py` | `hand_basis` 실행 · Job `hand_basis` · 요청 설명 |
+| `tests/test_handle_grip.py` (새) | pytest **801**(790 + 11) |
+| `Tools/mcp/anim_gen_phase9_3b_test.py` (새) | 섹션 hashes · ee · e0wrist · e0twist · vwrist · e0capture · eehold · scythe · handle · sword · key2 · fixbody · posectl · dirty |
+
+**비트 비교 (새 필드 없는 요청):** HEAD 사본 vs 지금 사본(같은 conftest)에서 계획 8종(단일 · 후보 + 파지 · 세그먼트 · root_path · weapon + 대상 간격 · 전신 키 · origin 손 키 · 손 + 발 pass1 키) · Kimodo 인자 3 · Job 3 — 같다(Job 은 시각만). 다른 것은 **손 + 발 pass1 키 계획의 `hold_free_hands` · 한계 1개**(⓪ 결정 — 기대된 변화).
+
+**회귀 (에디터 재기동 뒤 하나씩, 실패 0):** Phase 5(`--only hashes,state,plan,generate,constraint,cancel,dirty` — `P5Run1102_101540`) 기록 그대로(Vesper 루트 691.83 cm · Yaw 189.81° · 각속도 비 0.954 · root_path 406.5 · 1.69 cm · Yaw Δ −181.98°) · 8-1(`hashes,plan,select,dirty --seed 20261101` — `P81Run1102_101911`) 9-1 기록과 같은 선택(seed 20261103 · 0.0258) · 9-2(`hashes,plan,runstop,dirty` — `P92Run1102_102540`) 같은 순위 · 원 수치(seed 27 · 정점 445.4 · 동작 구간 41.9 % · 이음매 속도 변화 비 5.49 · 2.96 · 5.72 · 6.83 → 최종 2.29) · 9-3a(`hashes,plan,follow,dirty` — `P93Run1102_103440`) 같은 추종(전신 키 0.22 · 0.66 cm · 배치 yaw 52.887° · 떨림 0 — 전신 키라 자유 손 고정이 없다). 8-3 · 8-4 는 9-4 전체 회귀로(이 경로는 key_pose · 자루 규칙을 타지 않고 계획이 비트 같다).
+
+**완료 기준 (로드맵 §5 U3 — 9-3b 몫):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 3 | 낫 두 손 ∠ 붙인 자루 p50 ≤ 20° · 왼손 ↔ 자루 p50 ≤ 10 cm + 무기 부착 캡처 | ✅ 고른 후보 11.1° · 9.46 cm(대조 62.4° · 49.1 cm) · 후보 중앙값 81.6 → 14.1° · 55.3 → 9.5 cm · Job 캡처(낫 부착) |
+| 4 | 제약 없는 요청 불변 · pytest · 회귀 · 해시 | ✅ 비트 비교(기대된 1곳) · pytest 801 · Phase 5 · 8-1 · 9-2 · 9-3a 실패 0 · 해시 불변 · 미저장 0 |
+| 5 | 사람 판정 | ✅ **사용자 Persona 판정(2026-11-02): 통과.** ⓪ `KeyHandFeetHold` 1.56초(프레임 46) 왼팔이 어깨부터 크게 꺾이는 것은 원본 생성 모션(키 없는 1차부터 왼손목 비틀기가 프레임 47 → 48 에 −0.5 → 110 → 158° 로 뒤집힘 — 리타깃은 왕복 p95 0.36 cm 로 자세를 바꾸지 않는다, 프레임 46 은 자유 손 고정 창 안이라 1차 손으로 당기기가 섞였을 수 있음)이라 넘어감. 나머지(①②③)는 넘어감 |
+
+**판정 목록 (9-3b — 판정 뒤 2026-11-02 사용자 지시로 실행 애셋 · 캡처 · 스크래치를 휴지통으로 정리, 같은 seed 로 다시 만들 수 있다: `anim_gen_phase9_3b_test.py --only hashes,ee,eehold,scythe,handle,sword,key2,fixbody,posectl,dirty`):** ⓪ `/Game/Animation/Test/AIAnimation/P93bRun1102_093346/AS_Vesper_Sickle_KeyHandFeetHold`(채택) vs `P93bRun1102_091249/AS_Vesper_Sickle_KeyHandFeet`(9-3a 재현) — 캡처 `Tools/mcp/results/capture/P93bRun1102_093346/eehold/{compare, animation}.png` · ① `P93bRun1102_094403/AS_Vesper_Sickle_Handle` vs `…/AS_Vesper_Sickle_HandleCtl` — 캡처 `job_20261102_095030_9e3c8b` \| `job_20261102_094405_d15fed` · ② `P93bRun1102_095711/AS_Vesper_{Sickle, Sword}_KeySelect` · `AS_Vesper_Sword_KeySelectCtl` · ③ `…/AS_Vesper_Sickle_FixBody{A, B}`.
+
+**남은 것:** 9-3c(U2-b — 사용자 지시 때 새 세션, 방식은 착수 때 확인 · 9-2 남은 것 함께) · 후속 후보: 선별 지표 '자유 손목 비틀기'(U1) · 손 키 자체의 손목 굽힘(전신 키 · 파지 2차와 함께 쓰는 지침) · ① 기본 켜기 여부(판정 뒤) · ② 검 타격 원천 · ③ 촘촘한 키 / 재생성 뒤 보정 재적용.
+
+#### 9-3c Provider 를 섞은 세그먼트 (개정 15 — 2026-11-02, U2-b)
+
+**진행:** 로드맵 §4 U2-b · §14 U2 ③ → 착수 전 확인(사용자 — 전부 추천안: ③ + 정정 — 이음매 키 T 프레임 · 겹침 크로스페이드 · E0 결과에 따른 골반 맞춤 · 기존 이웃 쪽 timing 트림 끔 · `seam_keys` 대조 / 표준 시험 M1 + 대조 M1c / 9-2 남은 것 = 검 정점 키 1회 + 달리기 꺾임 기록만 / 기준값 시작값) → C++ `concat` · `rotate_root` · `offset_bone` 소스 대조 → **E0(제품 코드 무변경)** → 구현(Python 만) → pytest · 비트 비교 → 통합(새 `anim_gen_phase9_3c_test.py`) → 실측 뒤 수정 2건(아래) → 회귀. C++ · MCP Tool 변경 없음 — 빌드 없음.
+
+**C++ 에서 확인한 것:** `concat` 은 붙는 구간을 클립 fps 로 다시 샘플(운영 60 fps + 생성 30 fps 가능 — 이은 fps = 주 소스)하고, `blend` 는 클립 끝 B 키와 붙는 구간 첫 B 키를 smoothstep 으로 겹쳐(길이 = 합 − blend), `align_root` 는 **루트 본(본 0)** 의 위치 · Yaw 만 맞춘다(붙는 첫 키 ↔ 겹침 시작 키). `rotate_root{start 0, end 1 프레임}` = 키 1 부터 첫 키 루트 둘레 강체 회전(키 0 만 안 돈다 — 겹침 블렌드 가중 0 이라 보이지 않는다). `offset_bone` 루트 이동(component) = 루트 위치 + W·T, W = smoothstep 램프 — 크로스페이드와 같은 램프라 (1 − W)·앞 + W·(뒤 + T) 가 정확.
+
+**E0 (2026-11-02, 운영 낫 — `search_animations details` · `validate_animation profile`):** 루트는 움직인다(이동 157 ~ 301 cm, Yaw 변화는 모두 0) — 그러나 **루트 ↔ 골반 수평 거리** Attack1 첫 16.9 · 끝 1.67 · 중앙 12.8 · 최대 16.9 cm, Attack2 첫 1.92 · 끝 1.67 · 중앙 13.6 · 최대 18.7 cm(몸이 도는 동안 루트 Yaw 는 0 그대로). 생성물 루트 = Kimodo 바닥 루트(엉덩 투영 6 cm 안) → `align_root` 로 이으면 구간 중간을 자르거나 몸이 돈 끝에서 골반이 그 차만큼 튀고 몸 방향이 어긋난다(M1 앞 이음매 실측: 루트 Yaw 는 둘 다 0 인데 몸 방향 차 19°). Attack1 → Attack2 `concat`(blend 0.133 · align_root) 미리보기 이음매 비 0.73 · 0.79. → 사용자 규칙('2 cm · 2° 넘으면 골반 맞춤')대로 join 을 골반 · 몸 방향 기준으로.
+
+**구성 (요청 · 계획 · 실행):**
+- 요청 `segments[]` 기존 항목 · `generation.seam_keys`(§9 행). 생성 세그먼트는 붙어 있는 덩어리 하나.
+- 계획(`local_ai.plan_generate`): 기존 항목을 에디터로 잰다(스켈레톤 · fps · 길이 → 구간) → 생성 덩어리 프레임 = 생성 세그먼트(9-2 규칙) + 기존 이웃 쪽마다 **겹침 K = 전이 − 1**(기본 4) → 이음매 자동 키 2개(`segments.seam_key_constraints` — 앞 = 이웃 끝 K + 1 프레임(1/30 간격) → 생성 0 ~ K · origin, 뒤 = 이웃 첫 K + 1 프레임 → 생성 끝 K + 1 · pass1)를 `kc.convert` → key_pose 단계(역리타깃)가 원천 프레임으로. `inputs.mixed{names, pieces, overlap_frames, blend_s, seam_keys, lead, trail, joined_length_s, align}` · 한계 `SEGMENTS_JOINED`. 사슬 = key_pose → generate → convert → import → [select] → retarget → [timing] → [body_fit] → **join** → seams → validate → [capture] → [package].
+- timing(`plan_timing(seam_ends)`): 기존 이웃 쪽 정지 트림 끔(`seam_trim_off`) + **겹침 키 구간 배율 1**(`seam_keep_s` → `timing.keep_seams` — 휘두름 · 핵심 창을 [K, 끝 − K] 안으로, 뒤 매듭 `seam_tail` 배율 1 이 같은 프레임의 다른 매듭보다 이긴다, 복귀 배율은 키 구간 K 앞까지).
+- join(새 `DirectKey._join` — direct_key, 최종 이름을 쓰는 단계): 조각마다 validate profile(골반 · 엉덩 관절 · 손발 · 머리 · 루트) → 붙는 조각의 **몸 방향 = 겹친 구간 표본 짝의 방향 차(엉덩 관절 선) 원형 평균** → 0.05° 넘으면 그 조각만 Work 복사(`<name>_JoinP<k>`: [trim] + `rotate_root{start 0, end 1 프레임}`) → **골반 = 겹친 구간 골반 수평 차의 평균**(`segments.overlap_fit`) → 주 소스 = 첫 조각, op = [trim] + 조각마다 `concat{asset, blend (K/30 을 이은 fps 프레임으로), align_root false}` + `offset_bone{root, translation, component, start = 겹침 시작(preview 로 잰다), blend_in = blend, blend_out 0}` → `apply_animation_edits`. Job `join`(조각 · 이음매마다 방향 · 이동 · 겹친 구간 자세 차(이은 좌표) · 맞춤 표본).
+- seams(`_seams_joined`): 이음매 = join 겹침 시작 · 끝 + 생성 덩어리 안 경계(warp + 덩어리 시작) → C++ 회전 단계 비 · 속도 앞뒤 비 · 속도 변화 비 + **골반 잔차**(겹침 끝 — join 이 계산한 자리 ↔ 이은 결과), 섹션 = 모든 세그먼트(기존 조각 시작 = 겹침 시작).
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `anim_gen/segments.py` | `SOURCES` · `MIXED_TRANSITION_MIN` · `GAP_ROLES` · `is_mixed` · `layout` · `overlap_frames` · `mixed_frames` · `seam_key_constraints` · `heading_deg` · `wrap_deg` · `sample_index` · `overlap_pairs` · `overlap_fit` · `overlap_gap` |
+| `anim_gen/request.py` | 기존 항목 검사(`EXISTING_SEGMENT_KEYS` · `_existing_segment` · `_check_mixed` — 덩어리 하나 · duration 생략 · edits 금지 · 전이 ≥ 2) · `seam_keys` — 생성 항목 검사 순서는 9-2 그대로 |
+| `anim_gen/providers/local_ai.py` | `_plan_mixed`(기존 구간 측정) · 덩어리 프레임 · 자동 키 · `_mixed_inputs` · 생성 세그먼트 하나면 `SEGMENT_TRANSITIONS` 없음 |
+| `anim_gen/timing.py` | `keep_seams` · `rate_marks(seam_tail)` · `plan` 의 `seam_keep_s`(없으면 9-2 와 같은 경로) |
+| `anim_gen/providers/builtin.py` | `plan_timing(seam_ends)` · `plan_join` · `_join` · `_piece_profile` · `_join_pose` · `join_bones` · `plan_seams` 섞음 입력 · `_seams_joined` |
+| `anim_gen/router.py` · `executor.py` · `server.py` | join 단계 배치 · `_PRODUCING` · `_is_final` · Job `join` · Tool 설명 · 섞은 요청의 `SEGMENTS_UNSUPPORTED` 문구 |
+| `tests/test_mixed_segments.py` (새) · `conftest.py` | pytest **829**(801 + 28: 배치 · 겹침 · 자동 키 · 방향 · 겹친 구간 맞춤 · 자세 차 · timing 겹침 키 배율 1 · 요청 검사 13 · 계획 6 · join 실행 2(기존 → 생성 → 기존 · 생성 → 기존) · Kimodo 인자) · FakeEditor concat 길이 · 범위(preview · apply) |
+| `Tools/mcp/anim_gen_phase9_3c_test.py` (새) | 섹션 hashes · plan · m1 · m1c · sword · compare · capture · dirty |
+
+**비트 비교 (새 필드 없는 요청):** 9-3c 전 작업 트리 사본(9-3b 미커밋 상태 — 바꾼 파일을 되돌린 사본)과 지금 사본에서 같은 FakeEditor 하네스(같은 conftest): 계획 10종(단일 · 후보 + 파지 · 세그먼트 + 섹션 · 세그먼트 + timing + 후보 · root_path · 전신 키 · 손 + 발 키 · 세그먼트 + 키 · timing + body · 기존 모션 concat 편집) · Kimodo 인자 3 · Job 5(단일 · 후보 · 세그먼트 · **세그먼트 + fix.timing 실행 — time_warp 포함** · 기존 편집) · 에디터 호출 전부 — Job id · 시각을 지우면 **19 항목 모두 같다**.
+
+**결과 ① 표준 시험 M1 · 대조 M1c (`anim_gen_phase9_3c_test.py` — 최종 실행 `P93cRun1102_115523`, 같은 seed 20261101 ~ 04 · 후보 4 · 파지 + 발 · 대상 간격 60 · fix.timing · fix.body · 낫 weapon · 섹션 "segments"):** [운영 낫 Attack1 1.25초] → [생성 'spins … slashes horizontally, returns to a fighting stance' 1.5초 swing — 덩어리 54 프레임] → [운영 낫 Attack2 1.583초].
+
+| | M1 (이음매 키) | M1c (크로스페이드만) |
+| :--- | :--- | :--- |
+| Job · Kimodo | `job_20261102_115529_f5dab9` 330초 · 257초(확산 8) · 고른 seed 20261104 | `job_20261102_120107_b64219` 325 · 265초 · seed 20261102 |
+| 이은 길이 | 3.833초(덩어리 1.767 → 시간 보정 1.267초) | 3.633초 |
+| 앞 이음매 Attack1 → 생성: 겹친 구간 자세 차 이은 좌표 p50 · max / 골반 기준 | **0.38 · 3.11 / 0.51 cm** | 20.39 · 45.74 / 19.58 cm |
+| 뒤 이음매 생성 → Attack2: 같은 수치 | **2.80 · 6.49 / 1.57 cm** | 23.07 · 54.86 / 22.54 cm |
+| 회전 단계 비 최대(앞 · 뒤) | 0.86 · 0.77 | 0.41 · 0.58 |
+| 속도 변화 비 최대(앞 · 뒤) | 1.50 · 6.13 | 9.74 · 9.29 |
+| 골반 잔차(겹침 끝) | 0.01 · 0.01 cm | 0.0 · 0.0 cm |
+| 맞춤 몸 방향 · 골반 이동 | 19.0° · 11.0° / (−8.4, 141.4) · (−15.9, 160.1) cm | 1.6° · −0.2° |
+| Kimodo 키 추종 p50 · p95 · max(앞 origin · 뒤 pass1) | 0.46 · 2.17 · 3.67 / 2.62 · 5.70 · 6.78 cm | — |
+
+- **이음매 키가 잇는다:** 키 쪽은 겹친 구간이 사실상 같은 자세라 크로스페이드가 자세를 섞지 않는다(대조는 20 ~ 23 cm 다른 자세를 0.133초에 섞는다 — 비교 시트 1.25 · 2.25초 칸). 회전 단계 비는 둘 다 ≤ 0.86(크로스페이드가 각속도 튐은 막는다), **속도 변화 비는 키 쪽이 낮다**(앞 1.50 vs 9.74 · 뒤 6.13 vs 9.29).
+- **뒤 이음매가 앞보다 크다:** 골반 기준 자세 차 1.57 cm(리타깃 · 시간 보정 · 대상 쪽 보정 단계마다 같음 — 보정 탓 아님) + 겹침 동안 골반 궤적 모양 차 = 이은 좌표 2.80 cm. 원천 = Kimodo 의 pass1 뒤 키 추종(p50 2.62 cm — 앞 origin 0.46)과 생성 휘두름이 키 직전까지 빠르게 와서 멈추는 감속(뒤 겹침 시작 속도 변화 비 6.13 — 대조도 9.29, 9-2 '경계 속도 꺾임'과 같은 꼴).
+- **실측 뒤 수정 2건(같은 seed 재실행 — Kimodo 결정적):** (1) 첫 실행(`P93cRun1102_113321`)은 생성 덩어리 전체가 swing 창이라 시간 보정 핵심 ×1.96 이 뒤 겹침 키 구간까지 이어져 뒤 이음매 자세 차 p50 6.99 cm → timing `seam_keep_s`(겹침 키 구간 배율 1) → 3.51 cm(`P93cRun1102_114046`). (2) 겹침 끝 한 순간에 골반 · 방향을 맞추던 것을 **겹친 구간 평균**으로 → 2.80 cm(최종). 앞 이음매는 0.43 → 0.38 cm.
+- 생성 부분 모양(사람 판정): 키 쪽 생성 덩어리는 Attack1 끝 → 낫을 왼쪽 위로 들었다 Attack2 첫 자세로 돌아오는 작은 동작이다 — 프롬프트의 '회전'은 거의 안 보인다(두 끝을 운영 자세에 묶은 1.5초 + 시간 보정). 대조는 더 크게 움직이지만 이음매에서 자세가 섞인다.
+
+**결과 ② 9-2 남은 것 — 검 세그먼트 + Attack1 정점 키 (실행 `P93cRun1102_120811` · `job_20261102_120813_ece569` 201초, 9-2 와 같은 요청 · seed 20261025 ~ 28 · 보정 없이, 키 = Attack1 0.317초 → 1.35초 · pass1):** 후보(시간 보정 전) 중앙값 — **정점 563 cm/s**(9-2 세그먼트 196 · 한 프롬프트 294) · **동작 구간 5.6 %**(18.9 · 29.5 %) · 이음매 회전 단계 비 0.98 · 속도 변화 비 2.50(9-2 세그먼트 1.92) · 키 추종 p50 1.1 ~ 3.0 cm. 고른 seed 28 은 정점 1,337 cm/s(운영 Attack 1,098 ~ 1,821 범위) — 캡처(`Tools/mcp/results/capture/P93cRun1102_120811/sword_key_s28/sheet.png`)에서 1.27 → 1.30초 한 프레임에 머리 위 → 앞으로 뻗는 베기가 생기고 1.33 ~ 1.43초 Attack1 정점 자세에 머문다. **키가 베기 순간(정점)을 만든다 — 대신 준비 · 마무리는 그대로 느려 휘두름이 한두 프레임에 몰린다.** 쓰임 지침(9-2)은 그대로(한 동작 안의 단계는 한 프롬프트 + `fix.timing`), 정점 키는 세그먼트를 꼭 써야 할 때의 보조 수단 — 사람 판정으로. 달리기 → 멈춤 경계 속도 꺾임은 위임 판정대로 기록만(같은 수치를 U2-b 이음매에 단다 — 위 표).
+
+**회귀 (에디터 재기동 뒤 하나씩, 실패 0):** Phase 5(`--only hashes,state,plan,generate,constraint,cancel,dirty` — `P5Run1102_121934`) 기록 수치 그대로(Vesper 루트 691.83 cm · Yaw 189.81° · 각속도 비 0.954 · root_path 406.5 · 1.69 cm · Yaw Δ −181.98°) · 8-1(`hashes,plan,select,dirty --seed 20261101` — `P81Run1102_122337`) 9-1 기록과 같은 선택(seed 20261103 · 0.0259) · **8-3 timing**(`hashes,plan,timing,dirty` — `P83Run1102_122926`, `timing.py` 를 바꿔서 여기서) 4 대상 계획 ops = 실행 ops · trim + time_warp · 정점 ×1.68 ~ 1.77(개정 13 범위) · 속도 단차 없음 · 9-2(`hashes,plan,runstop,dirty` — `P92Run1102_122957`) 같은 순위 · 원 수치(seed 27 · 정점 445.4 · 동작 구간 41.9 % · 이음매 속도 변화 비 5.49 · 2.96 · 5.71 · 6.83 → 최종 2.29) · 9-3a(`hashes,plan,follow,dirty` — `P93Run1102_123827`) 같은 추종(전신 키 0.22 · 0.66 cm · yaw 52.887° · Vesper 떨림 최대 0.91) · 9-3b(`hashes,key2,dirty` — `P93bRun1102_124110`) 같은 선택 · 자세(낫 seed 03 · Attack1 정점 0.85 cm · 검 seed 01 · 1.39 cm). 8-4 는 9-4 전체 회귀로(body_fit 은 바꾸지 않았고 그 경로 계획이 비트 같다).
+
+**완료 기준 (로드맵 §4 U2 — U2-b 몫):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 표준 시험 한 Job · 경계 시각 · 이음매 비 ≤ 3 · 손 · 발 · 루트 속도 수치 · 캡처 | ✅ M1 한 Job — 이음매(겹침 시작 · 끝) 4 · 회전 단계 비 ≤ 0.86 · 속도 앞뒤 비 · 변화 비 · 골반 잔차 0.01 cm · 섹션 3 · 비교 시트 · APNG |
+| 2 | 대조와 비교 | ✅ 겹친 구간 자세 차 키 0.38 · 2.80 vs 크로스페이드 20.4 · 23.1 cm · 속도 변화 비 1.50 · 6.13 vs 9.74 · 9.29. **시작값 '겹침 자세 차 p50 ≤ 2 cm': 앞 ✅ · 뒤 ❌(이은 좌표 2.80 — 골반 기준 1.57 ✅)** → 확정 제안: 골반 기준 p50 ≤ 2 cm + 이은 좌표 p50 ≤ 3 cm(판정 때) |
+| 4 | 새 필드 없는 요청 불변 · pytest · 회귀 · 해시 | ✅ 비트 비교 19 같음 · pytest 829 · 회귀 6 실패 0 · 해시 불변 · 미저장 0 |
+| 5 | 사람 판정 | **보류(2026-11-02 사용자)** — 아래 |
+
+**판정 목록 (9-3c — 판정 뒤 애셋 · 캡처는 휴지통으로 정리, 2026-11-02):** M1 `/Game/Animation/Test/AIAnimation/P93cRun1102_115523/AS_Vesper_Sickle_MixJoin`(+ `AM_Vesper_Sickle_MixJoin` 섹션 3) vs M1c `…/AS_Vesper_Sickle_MixJoinCtl` — 비교 시트 `Tools/mcp/results/capture/P93cRun1102_115523/m1/compare.png`(이음매 둘레 8 행 · 낫 부착) · APNG `…/{m1, m1c}/animation.png` · Job 캡처 `job_20261102_115529_f5dab9` \| `job_20261102_120107_b64219`. 정할 것: ① 이음매(1.12 ~ 1.25 · 2.25 ~ 2.38초)가 끊김 없는가 ② 키를 준 생성 부분의 동작이 너무 작은가(프롬프트의 '회전'이 거의 안 보임) ③ 뒤 이음매 기준 확정. 검 + 정점 키 `P93cRun1102_120811/AS_Vesper_Sword_SegSlashKey` · 캡처 `…/P93cRun1102_120811/sword_key_s28/sheet.png` — 1.27 → 1.30초 한 프레임 베기가 공격인가 튐인가.
+
+**사용자 판정 (2026-11-02): 보류.** Persona 로 이음매 · 생성 부분을 보고 "기능이 의미 없어 보인다" — 이음매가 이상해 보이고(측정상 뒤 이음매 키 직전 감속 · 속도 변화 비 6.13) 키를 준 생성 부분의 동작이 작다. 기준값은 확정하지 않는다. 코드 · 테스트는 남긴다(사용자 결정 — 옵트인이라 새 필드 없는 요청은 비트 같다). 판정 애셋 · 캡처는 정리했다 — 통합 `--only compare` 는 Work 애셋이 없어 `m1,m1c` 부터 다시 돌려야 한다.
+
+**남은 것:** 쓸 일이 생길 때만 — 후속 후보(뒤(pass1) 이음매 키 추종 · 키 직전 감속(이음매 속도 맞춤) · 키를 준 생성 덩어리의 동작 크기 · 생성 덩어리 둘 이상 · 관성화). **9-3 전체 종료**(9-3a · 9-3b 판정 통과 · 9-3c 보류) — 다음 9-4 는 사용자 지시 때.
+
+#### 9-4a 측정 규칙 — 몸 지도 = 기준 본 강체 (개정 15 — 2026-11-02, U7-a · U7-b · U5-d)
+
+**진행:** 로드맵 §6 U7 · §8 U5-d → 착수 전 확인(사용자 — 전부 추천안: ① U7-a = C++ 옵트인 + 파이프라인 기본 ② U7-b = 실측 뒤 작으면 기록만 ③ U5-d = 각도 0 방향을 기준 본에 고정(로드맵의 '본 풀이도 어깨 기준' 대신 — 단일 원천) ④ HEAD 출발 기록 먼저) → 출발 기록 → **E0(제품 코드 무변경)** → C++ 설계 확인(사용자 — 설계안대로 · U7-b 기록만 · 회귀 = phase8_4 전체 + 8-1 rescore) → 구현(C++ 옵트인 + Python) → 두 구성 빌드 · w 훑기 · 오프라인 대조 · 비트 비교 → 통합 · 회귀 → 새 미달 처리(사용자 — 규칙 2 기본 유지 · 9-4c 로).
+
+**출발 기록 (HEAD `3d92cbc` — 9-1 select · 9-3c timing 변경 뒤 이월 회귀):** 시험 하네스 한 곳만 고침 — 지난 실행 애셋(8-4f 정리로 지운 `P84Run1031_*` · 8-3 합본 `P83Run1030_230125`)을 다시 재다 `SystemExit` 로 멈추던 것을 '파일이 없으면 그 비교만 건너뜀'(`gone()` — fit_and_judge · grip · opt-in · combined). A `P84Run1102_145807`(hashes · automation · model · e0 · plan · clearance · existing · legs · dirty) 실패 **18** · B `P84Run1102_154044`(hashes · targets · grip · samples · combined · dirty) 실패 **20** — 항목 · 값이 '8-4 정리' 통합 알려진 미달(8-4f 18 · 20)과 같다(새 항목 0). automation · model · e0 · plan · legs · combined 통과.
+
+**E0 (제품 코드 무변경 — 출발 기록 애셋 재측정 · 시험 애셋 1 · 캡처 1):**
+- **위팔 쌍 어긋남의 원인 = 지도 정점 이동이 주.** Fit 12건 원본 · 결과를 C++ 몸 모델로 받아 예측(원본 지도 · 기준 본 강체 · 원래 각도 축)을 C++ 와 분해: 위팔 ↔ 몸통 23 쌍 차 p95 0.995 · 최대 4.9 cm 중 각도 칸 몫(예측 − 그 자세 어깨 축 예측) p95 0.133 — 어깨 축만 맞추면 미달 쌍 12 → 10. 어깨선이 그대로인 프레임에도 나머지가 남는다(라이플 대기 왼 아래팔 ↔ 가슴 f124 3.8 · 검 선택 오른 아래팔 2.45 cm). 풀이는 쇄골을 최대 10° 움직여 어깨선이 5.3° 까지 돈다.
+- **한 본 시험(`P84DeltaUpperArm` — 위팔 15° · 새 `P94aDeltaClavicle` — 쇄골 8°, 원본 띠 정정):** 위팔만 돌리면 어깨선 그대로(x 0°)인데 몸통 지도 실효 반경(이웃 채움 포함)이 프레임마다 79 칸(p50) · 최대 12.1 cm 바뀐다 — 가슴 t 0.35 ~ 1.03, 맨 위 앞 · 뒤 칸 7.2 ↔ 19.3 cm(어깨 · 겨드랑이 정점 하나가 칸을 채운다). 쇄골만 돌리면 어깨선이 0.7°(최대 1.8°) 돌아 움직이지 않은 넓적다리 칸 37 ~ 41(최대 2.6 cm) · 머리 105(최대 12.5 cm — 정수리 칸 1.7 ↔ 14.3) · 몸통 171 칸이 바뀐다. 손 · 아래팔 지도는 위팔을 돌린 만큼 칸 나눔이 손에 대해 14 ~ 38° 돈다(어깨선을 축에 직교화한 방향은 팔 비틀림을 모른다).
+- **팔 벌림(U7-b — 합본 2건의 SOMA 동작 ↔ Vesper 리타깃, 몸통 기준 = 어깨선 · 목 − 척추 아래):** 정면 벌림 p95 1.0 ~ 2.9°, 시상면 굽힘 평균 +3.8 · +5.7°(두 팔 같음) = 몸통 앞기울기 차 +4.0 · +5.5°(⓪ 중립 몸통 — 팔은 월드로 소스와 같다). → 기록만(사용자 결정).
+- **머리:** 뿔은 따로 본이 없다(머리 아래 47 본 = 머리카락 체인 · 귀걸이 · 눈 · 턱) — `head` 직스킨이라 본 가중으로 못 거른다. 칸 반경을 t 줄 중앙값 + 2 cm 로 잘라도 손 · 아래팔 ↔ head_neck 은 Finisher1 12.3 % 그대로(최대 10.39 → 8.89) · s27 62.8 → 60.3 · 낫 정정 9.9 → 9.1 % → 머리 부속 거르기는 하지 않는다. Finisher1 최심(f13 오른 아래팔 10.39 cm)은 축에서 1 ~ 2.6 cm — 공중제비에서 두 팔이 머리 · 머리카락을 감싼 자세(캡처 `Tools/mcp/results/capture/P94aE0_Finisher1/`). 9-1 머리목 깊은 시작값 15 % 는 그대로(아래 rescore).
+
+**구성 (C++ 옵트인 + 파이프라인 기본):**
+- C++ `body_clearance.map_rule 2` · `arm_weight_max`(§13 행) — `FModel` 에 팔 사슬 뿌리(위팔에서 척추 끝 바로 아래까지 — 쇄골) · 기준 포즈 어깨선 · 강체 점(`RigidCore` — 몸통 축 점만, 넓적다리 축 점은 다리끼리 측정 점이라 그대로 · `RigidHeads`). `RigidInfluences`(팔 사슬 가중 합 > w → 0, 아니면 떼고 다시 정규화) · `AnchoredLateral`(기준 본 회전으로 옮긴 기준 어깨선) · `FFrameBody` · `FPartBody` · `FArmAxes::Init` 이 지도마다 각도 기준을 받는다. 규칙 1 경로 코드는 그대로(바이트 같음).
+- w 훑기(원본 12 + Finisher1, 몸통 축 점 1,577 중 팔 사슬 가중 368): w 0.05 · 0.15 는 거의 같고 규칙 1 과 비슷하거나 낮다(s25 위팔 17.4 → 8.3 % · s26 17.4 → 5.8 %), **0.5 이상은 어깨 정점이 기준 포즈(A 포즈)에 굳어 없는 몸**이 생긴다(라이플 대기 위팔 4.64 → 8.14 · Attack2 7.24 → 11.88 cm · 걷기 76 → 95 %) → **0.15**(뺀 217 · 뗀 151, 머리목 46 · 26).
+- Python: `body_model.MAP_RULE = 2` · `BodyModel.map_rule`(모델에 없으면 1) · `fix.body.clearance.map_rule`(기본 2, 1 = 키를 안 보냄) · `Solver.probe` 는 규칙 2 모델이면 `live_lateral` 을 쓰지 않는다 · select 측정(`providers/builtin.py`) 같은 규칙. 통합 시험 `measure()` 도 파이프라인 규칙으로 잰다(model 섹션은 규칙 1 재현을 따로).
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Plugins/AnimGraphMcp/…/Core/AnimMcpBodyClearance.{h,cpp}` | 규칙 2 머리말 · `FSpec::MapRule` · `ArmWeightMax`(기본 0.15) · `ParseSpec`(`map_rule` 1 \| 2 · `arm_weight_max` 0 ~ 1, 규칙 2 와만) · `FModel` 강체 점 · `Anchored` · `MeasureParts` 지도마다 각도 기준 · `parts.map_rule{…}` · `model.map_rule` · `RigidInfluences` · `AnchoredLateral` · `FArmAxes::Init`(손 · 아래팔 각도 따로) |
+| `…/Tests/AnimMcpBodyClearanceTests.cpp` | 정점 처리(뗌 · 뺌 · 그대로 · 전부 팔) · 기준 본에 붙인 각도(기준 자세 · 30° 회전) · 손 지도가 팔 축 비틀림을 따라가는지(규칙 1 은 안 따라감) |
+| `…/Tools/AnimMcpTools_Validate.cpp` · `Tools/mcp/anim_graph_mcp/server.py` | Tool 설명 `map_rule` · `arm_weight_max` |
+| `Tools/mcp/anim_gen/body_model.py` · `body_fit.py` · `providers/body_fit.py` · `providers/builtin.py` · `server.py` | 위 Python |
+| `tests/test_body_fit.py` · `test_body_fit_pipe.py` · `test_select.py` | 기본값 · 거부 2 · 규칙 2 모델은 어깨 축 계산을 부르지 않음 · 요청 spec `map_rule 2`(body_fit · select) — pytest **832**(829 + 3) |
+| `Tools/mcp/anim_gen_phase8_4_test.py` | `gone()`(지난 실행 애셋 없으면 그 비교만 건너뜀) · `measure()` 파이프라인 규칙 · model 섹션 규칙 2 점 수 · 규칙 1 재현 · 9-4a 알려진 미달 5(사유 — 아래) |
+
+**검증:**
+- 빌드: Development · DebugGame 경고 0(두 번 — 단위 시험 하나를 고친 재빌드 포함). Automation `AnimGraphMcp.Generation.{BodyClearance, Edit, Capture, Geometry}` 4/4. 처음 빌드의 BodyClearance 시험 하나(수직축 회전에서는 어깨선 직교화 방향이 회전 방향과 같아진다 — 갈리는 것은 팔 축 비틀림)를 비틀림으로 고쳐 통과.
+- 바꾸지 않는 경로: C++ 규칙 1(키 없음) 출력이 옛 빌드 E0 측정과 **24/24 바이트 같음**(seconds 만 뺌 — Fit 12 원본 · 결과, parts · hands · per_frame · model) · 기본 결과(parts 없음) 16/16 = baseline · Python 규칙 1 풀이(HEAD zip 사본 vs 작업 트리 `map_rule: 1` — 낫 정정 · 검 선택 · 걷기 루프) 델타 · 예측 · 위팔 마무리 **3/3 같음** · pytest 832.
+- **모델 vs C++(완료 기준 U7-1):** 출발 기록 Fit 12건을 규칙 2 로 다시 재면 몸 지도 쌍 전부 p95 0.005 · 최대 0.01 cm(아래팔 ↔ 몸통 최대 0.24), 손끼리 미달 0. 규칙 2 로 푼 새 Fit 12 + 합본 2 도 몸 지도 쌍 전부 p95 0.005 · 최대 0.01 cm. 남은 차는 손 · 아래팔 지도 쌍(손 ↔ 손 p95 0.12 · 최대 1.08, 아래팔 ↔ 손 p95 0.57 · 최대 7.0) — 그 지도 점은 팔 측정 점 그대로라 두 본(손목 · 트위스트)에 걸친다.
+- **문턱 프레임(U5 기준 4 · U7 기준 3):** s25 f55 · f56 모델 / C++ 0.15 / 0.16 · −0.20 / −0.21 cm, 합본 검 f21 왼 아래팔 ↔ 머리목 5.71 / 5.72. 합본 검 f25 왼 위팔 ↔ 가슴 **4.07 / 4.07 cm**(상한 4 — 8-4f 모델 4.05 vs C++ 5.12 가 맞춰졌다), 막힌 끝 f30 ~ 36 4.62 ~ 5.33(모델 = C++).
+- **통합(규칙 2):** A `P84Run1102_162942` 실패 **12**(출발 18) · B `P84Run1102_170555` **15**(출발 20) — 모델 예측 미달(c5) A 6 · B 6 이 모두 사라지고 낫 정정 휘두름 · s25 · s26 위팔 · s27 파지 % · T2 휘두름도 통과로, T1 떨림 3.21 → 1.95. **새 미달:** s25 떨림 2.65 → 5.06 · 검 선택 떨림 0.46 → 3.22(T3 물려받음) · s27 오른 손목 59.6 → 64.9°(+ 5.3 > + 5) · Attack2 팔 교차 7.4 → 13.7 %, 낫 정정 떨림 2.08 → 8.37(T2 · S2 물려받음). 합본 검 위팔 마무리 C++ 11.48 → 6.51 cm(궤도 36 · 막힘 23 · 남은 6.01 — 모델 = C++, 8-4f 의 5.12 는 규칙 1 측정), 합본 낫 5.13 → 2.59. SHA-256 25 불변 · 새 더티 0 · Content = 실행 폴더뿐.
+- **새 미달의 원인(오프라인 재현):** 낫 정정 f61 · s25 f55 · 검 선택 f37 — 원 속도 클립의 빠른 휘두름 한 프레임에 머리목 마무리(`_finish_head`)가 걸려 그 프레임만 빠진다(낫 정정 왼 위팔 로컬 13.6 → 33.5°). 규칙 2 에서 원본 f61 왼손은 머리 지도 맨 위 칸(t 0.96 ~ 1.0, 축에서 3.85 cm)이 반경 8.46 칸(+ 4.61 관통)이고 규칙 1 은 같은 자리가 반경 0.5 칸(− 3.35)이었다 — 머리가 어깨에 대해 ≈ 30° 돈 프레임이라 칸 나눔이 3 칸 다르다. 정수리 칸은 뿔 뿌리 · 머리카락으로 각도마다 0.4 ~ 10 cm. 규칙 1 해도 규칙 2 로 재면 머리목 0 % 라(낫 정정 · 검 선택) 측정 규칙이 아니라 **원 속도 한 프레임 관통을 본 풀이가 못 푸는 것**(로드맵 U5 '머리목 마무리의 원 속도 대가' — 오프라인 낫 정정 f61 9.0 ~ 10.1 로 예견) → 사용자 결정: 규칙 2 기본 유지 · 9-4c(U5-a · U5-c) 로, s27 손목 · Attack2 교차는 9-4b(U4) 로 — 통합 시험 알려진 미달에 사유와 함께(다음 실행부터 `[known]`).
+- **8-1 rescore**(`--only hashes,plan,recompute,regrip,rescore,dirty` — select 측정이 규칙 2) PASS · 기록 Job 4 선택 그대로 · 운영 Finisher1 head_deep 12.3 %(규칙 1 과 같다) → 9-1 시작값 15 % 유지.
+
+**완료 기준 (로드맵 §6 U7 · §8 U5-d):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| U7-1 | 원인 표 + 모델 vs C++ 위팔 쌍 차 ≈ 손 · 아래팔 쌍 수준 | ✅ E0 원인(정점 이동 주 · 각도 칸 부) · 위팔 ↔ 몸통 p95 0.005 · 최대 0.01 cm(9 Job 이상 · S3 c5 통과 · 합본 검 f25) |
+| U7-2 | 옵트인 끔 = 기준선 16/16 · 켬 = 바뀐 수치 표 | ✅ 16/16 · 바이트 24/24 · w 훑기 표(보고서) |
+| U7-3 | 8-4f 위팔 마무리 상한 4 cm 가 C++ 에서도 | ✅ 합본 검 f25 4.07 / 4.07 cm(막힌 끝 f30 ~ 36 은 9-4b) |
+| U7-5 | 빌드 경고 0 · Automation · 통합 회귀 0 | 경고 0 · 4/4 ✅ · 통합 새 미달 5(A) + 1(B 물려받음) → **사용자 결정으로 9-4c · 9-4b** |
+| U5-4 | 문턱 근처 판정 일치(s25 f56 · 합본 검 f21) | ✅ 0.15 / 0.16 · −0.20 / −0.21 · 5.71 / 5.72 |
+| U7-b | 효과가 작으면 기록만 | ✅ 기록만(정면 ≤ 2.9° · 시상면 = ⓪ 몸통 기울기) |
+
+**판정 목록:** ① 규칙 2 로 푼 낫 정정 `/Game/Animation/Test/AIAnimation/P84Run1102_162942/AS_Vesper_Sickle_P84bScythePickFit` f61(2.03초) 한 프레임 튐 — 9-4c 전까지 남는 대가 ② 합본 검 `/Game/Animation/Test/AIAnimation/P84Run1102_170555/AS_Vesper_Sword_P84dSwordPickCombined` f25 왼 위팔 ↔ 가슴(4.07 cm) · 끝 f30 ~ 36(5.1 ~ 5.3 — 보조 손목 상한에 막힘) ③ 운영 Finisher1 f13(0.43초) 두 팔 ↔ 머리 겹침이 운영 동작의 실제 겹침인가(캡처 `Tools/mcp/results/capture/P94aE0_Finisher1/side_00013.png` 등 — 9-1 시작값 15 % 근거).
+
+**사용자 판정 (2026-11-02): 통과.** ① 낫 정정 — 괜찮음. 휘두르기 시작(1.70 ~ 1.77초, f51 ~ f53)의 왼손가락이 가슴을 약간 통과한다 — 측정 2.77 · 0.77 · 2.15 cm(원본 6.9 · 규칙 1 Fit 2.45 · 3.0), 통합의 알려진 미달 `c1_body` 1.7 % 그대로라 9-4a 의 새 결과가 아니다(9-4c U5-c '맞닿음 허용 뒤 짧은 관통'). ② 합본 검 — 괜찮음. ③ Finisher1 — 공중제비 중 소매 · 아래팔이 **긴 머리카락 덩어리를 실제로 지나간다**(운영 원본 그대로 — 이 세션은 읽기만) → 생성 선별 머리목 깊은 시작값 15 %(운영 12.3 %) 확정. 운영 애니의 이런 겹침은 일괄 보정하지 않고 PIE 에서 거슬리는 클립만 기존 애셋 `fix.body`(지시 목표)로 고친다(추천 — U0-9 와 같은 방향: 길고 깊은 머리 관통을 대상 쪽에서 밀면 동작이 찢어진다). 후속 후보: 머리 지도 두 겹(두개 = 하드 · 머리카락 = 맞닿음 허용 — C++ 가 메시 섹션 정보가 필요, 생성 애니에서 머리카락만 스친 겹침이 선별 · 보정을 잘못 일으킬 때). 판정 뒤 9-4a 실행 애셋(`P84Run1102_*` 6 폴더) · 캡처 · 스크래치는 휴지통으로 정리했다(같은 통합 명령으로 다시 만든다 — 위 판정 목록의 경로는 기록용).
+
+**남은 것 (→ 9-4b · 9-4c · 기록):** 원 속도 머리목 마무리 한 프레임 튐(9-4c U5-a · U5-c) · s27 오른 손목 · Attack2 교차(9-4b U4) · 손 · 아래팔 지도 점이 두 본에 걸친 잔차(손끼리 예측 p95 0.1 ~ 0.6 cm — 9-4b 후보) · 정수리 칸의 뿔 · 머리카락 뾰족함(측정은 일치, 해의 갈림 원인 — 기록) · 몸통 지도 골반 쪽 정점의 넓적다리 가중(다리 보정이 넓적다리를 돌리면 C++ 지도가 따라 움직인다 — 규칙 2 는 팔 사슬만, 다리 Job 에서 손 ↔ 골반 예측 차 가능 — 기록).
+
+#### 9-4b 손 부근 마무리 한 풀이 (개정 15 — 2026-11-02 ~ 03, U4-a · U4-b · U4-c)
+
+**진행:** 로드맵 §7 U4 → 착수 전 확인(사용자 — 전부 추천안: ① 한 풀이 ② 보조 손목 상한 우선 ③ E0 뒤 확정 ④ 빈틈 규칙 바꿈 · C++ 손 · 아래팔 지도는 E0 뒤 · 출발 기록 A → B · 회귀 = phase8_4 body_fit 섹션 전부) → 출발 기록(HEAD `82a518e` — A 7 · B 11) → **E0(제품 코드 무변경 — 내보낸 C++ 몸 모델로 단계별 오프라인 풀이 · 운영 keep 퍼짐 · 손 지도 모델 ↔ C++)** → 시제품(제품 Solver 상속) 판 대조 → 설계 확인(사용자 — 위팔 층 10 · keep 회전 10° · 새 항목 (가) ~ (라) · C++ 는 하지 않음, '추천대로') → 구현(Python 만) → pytest · 비트 비교 → 통합(A 두 번 · B 두 번 — 위팔 ↔ 반대 팔 쌍 누락 · 지시 목표 블록의 주 손목 상한을 고침). 긴 에디터 실행 사이 에디터 재기동(사용자 — 메모리).
+
+**E0 (HEAD — 오프라인 풀이 = 통합과 같은 해):**
+- keep 회전 대가는 **보조 손목 다듬기**에서 생긴다(손목만 돌려 keep 을 뺌) — 낫 정정 본 풀이 2.53 → 다듬기 7.33° · s25 3.3 → 7.48 · axis_bug 2.3 → 19.0. 검 선택 8.2° 는 본 풀이 몫.
+- 주 손목: 검 선택 + 18.4° · s27 + 27.8° 는 본 풀이 파지 프레임(keep 이 팔을 옮긴 만큼 손목이 떠안음). s27 클립 최대 + 5.3° 는 **파지 밖** f89 ~ f94 — 본 풀이 첫 회가 위반 프레임을 앞 프레임 해에서 시작하며 파지 끝 f67 의 오른손 델타 27° 를 손목이 닫힌 프레임으로 실어 날랐다.
+- 운영 낫 4개 파지 띠의 보조 손 상대 회전: 프레임 변화 p50 4.5 ~ 10° · 구간 평균에서 p50 22 ~ 30°(왼손은 자루를 쥐지 않고 간격만 띠 안). 생성 안정 파지(s26) 0.6 · 2.9°.
+- 손 · 아래팔 지도 모델 ↔ C++(출발 A Fit 의 C++ per_frame): 차 p95 0.02 ~ 0.34 cm, 관통 판정 갈림 0(5 대상) → **C++ 규칙은 바꾸지 않음**.
+- Attack2 교차 13.5 % · 손끼리 11.5 % 는 본 풀이 몫 — f57 ~ f62 손끼리 관통을 빼는 증분이 f42 ~ f55 에 번져 아래팔을 몸 좌우로 떼어 좌우 차 −5 → −11.5 cm(문턱 −10.5).
+
+**구성:**
+- **손 부근 마무리 `_finish_hands`**(보조 손목 다듬기 `_finish_wrist` · 위팔 마무리 `_finish_upper` 를 대신) — 무기 마무리 → 손 부근 → 머리목(9-4c 몫 — 그대로). 처리 프레임(손목 상한이 있는 파지 프레임 · 위팔 > 상한 · 팔 교차가 cross_floor 보다 깊음 · 앞 프레임 증분 꼬리 > 0.2°)마다 두 팔 쇄골 · 위팔 · 팔꿈치 · 손목을 그 상태에서 다시 푸는 작은 GN. 층(`HAND_TIER`, √가중 = weights × 층): 관통(손 · 아래팔 — 그 상태보다 안 깊어짐 · 쌍 바닥) 300 · 보조 손목 상한(원래 + 2°) 1000 > 주 손목 상한(파지 프레임 원래 + 4.5° · `LEAD_BEND_TOL_DEG` — 지시 목표 · 샘플 블록은 그 블록 상태의 굽힘까지) · 팔 교차(`cross_floor` = min(문턱 안쪽 1 cm × scale, 원본)) 300 > keep(그 상태의 두 손 관계 — 위치 · 회전 같은 층) = 손 붙들기(주 손 · 파지 밖 보조 손의 컴포넌트 위치 · 회전) = 위팔(몸은 상한 넘으면 상한 · 아니면 그 상태, 반대 팔은 그 상태) 100 > 관절 충실도 · 시간 연속. 상한 없는 손목 ≤ max(그 상태, 원래 + 5° · `FREE_WRIST_DEG`). 위팔을 GN 으로 못 맞춘 프레임은 8-4f 궤도 격자 각이 둘째 출발점. 기록: stats `hand_finish{frames, upper_over, cross, second_start}` · `upper_finish`(8-4f 모양) · `wrist_bend.lead{tol_deg, increase_deg_max, over_cap_frames}` · Job `fix.body.hand_finish`(수).
+- **(가) 닫힌 손목 이어 받기 막기 `_open_start`** — 본 풀이 첫 회(목표 블록 관통 사슬 포함)가 앞 프레임 해를 이어 받을 때 그 프레임에서 닫힌 손목의 델타는 그 프레임 자신의 값.
+- **U4-c** `_flag_weights` — 빈틈 ≤ 2 프레임은 앞 프레임이 파지일 때만 잇는다.
+- **통합 시험:** `c2_keep`(위치 1 cm × scale — 그대로, '*' 알려진 미달) · 새 `c2_keep_rot`(≤ 10° — `KEEP_ROT_DEG`, 사용자 결정). 9-4a 알려진 미달 2(s27 `c4_wrist` · Attack2 `c4_cross`)를 뺐다(고쳐짐).
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/body_fit.py` | 위 구성 · 머리말 · `_finish_wrist` · `_finish_upper` · `UPPER_FINISH_RAMP` 지움 |
+| `Tools/mcp/anim_gen/providers/body_fit.py` · `server.py` | Job `hand_finish` · `UPPER_ARM_REMAINS` 문구 · 설명 |
+| `tests/test_body_fit_hands.py`(새 5) · `test_body_fit_upper.py` · `test_body_fit.py` · `test_weapon.py` | 빈틈 · 이어 받기 · 교차 · 주 손목 상한 · 기록 / 기대된 변화(위팔은 상한 쪽으로 · 손 붙들기 · 처리 밖 같음 · keep 은 팔이 받음 · window 시작 27) — pytest **837**(832 + 5) |
+| `Tools/mcp/anim_gen_phase8_4_test.py` · `Tools/mcp/README.md` | `c2_keep_rot` · 알려진 미달 정리 · 빈틈 문구 |
+
+**검증:**
+- 바꾸지 않는 경로: 걷기 · 달리기 · 라이플 대기 · Kimodo 검(파지 없음) · 다리만 4(legs) **8/8 바이트 같음**(HEAD zip import). C++ 변경 없음(빌드 불필요).
+- **통합:** A `P84Run1102_232201` 실패 **6**(출발 7) · B `P84Run1103_004521` **9**(출발 11). 통과로: s25 `c1_body`(2.34 → 1.89) · 검 선택 · T3 · T4 `c4_wrist`(55.7 → 47.8°) · s27 `c4_wrist`(64.9 → 59.6, 원래 59.6) · Attack2 `c4_cross`(13.7 → 6.3 %) · s25 `c4_zigzag`(5.06 → 1.89 — 머리목 마무리가 안 걸림). `c2_keep_rot` 전부 통과(최대 검 선택 9.0°). **새 미달 1: s25 `c4_swing` 508.5 → 472.0 cm/s(−7.2 %)** — U4-c 빈틈 규칙(짧은 파지 구간 다섯 개의 시작이 2 프레임씩 늦어 본 풀이 해가 바뀜, 휘두름 정점 f50 = 구간 [50, 53] 첫 프레임 — (가)를 꺼도 같음). 같은 기준 · 값만 바뀜: 낫 정정 `c1_body` 2.77 → 3.22 cm(T2 · S2 · S3 도) · s27 `c1_upper` 쌍(오른 위팔 ↔ 머리목 11.96 → 2.47 이 풀리고 왼 위팔 ↔ 오른손 0.8 % · 2.35 가 새로). 구간 밖 변화 0 · `SEAM_JUMP` 0 · SHA-256 25 불변 · 새 더티 0 · Content = 실행 폴더뿐.
+- 수치(모델 keep 회전 최대 · C++): 낫 정정 7.33 → **4.77°** · s25 7.48 → 2.48 · T5 16.6 → **8.4** · Attack2 몸 2.1 → 1.0 % · 손끼리 11.5 → 9.4 % · T5 무기 끝 p95 2.06 → **1.69 cm**(`reached` 프레임 조건으로 `c8_reach` 는 그대로 미달) · 떨림 9.73 → 5.67 · T1 무기 끝 · 손 0.865 → 0.707 cm · **합본 검 위팔 ↔ 몸통 C++ 11.48 → 5.30 cm**(9-4a 6.51 — 21 프레임 상한 못 뺌, 위팔 층 = keep 층이라 부분 · 보조 손목 + 2.02° · keep 위치 5.66 → 6.49 cm) · 합본 낫 2.58(그대로). **대가: 합본 검 떨림 C++ 1.84 → 7.91**(9-4a 5.58 — 빠른 휘두름 f22 오른 아래팔, 시제품에서 주 손목 상한 4.5 ↔ 5° 만으로 1.6 ↔ 8.7 로 갈린 갈림길 — 9-4c U5-a 성격, 운영 Attack2 8.16 안) · 합본 낫 4.65 → 4.70.
+- 판정 캡처('9-4b | 9-4a(HEAD)' 같은 시각 6 행 · APNG): `Tools/mcp/results/capture/P94bJudge/{comb_sword, scythe_pick, t5, attack2, s25}/`.
+
+**완료 기준 (로드맵 §7 U4 — 비교 = 9-4a 뒤 알려진 미달):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | `c2_keep` · `c4_wrist` · `c4_off_wrist` · `c1_hands`(Attack2) · T5 가 줄거나 같고 새 항목 0 | `c4_wrist` 4 → 0 · `c4_off_wrist` 0 · Attack2 손끼리 known 11.5 → 9.4 % · T5 3 항목 그대로(값 개선) · `c2_keep` 위치 '*' known 그대로 · 실패 합 18 → 15. 새 1(s25 휘두름 — U4-c 대가) → **사용자 결정: known 으로 기록**(판정 통과) |
+| 2 | 합본 검 위팔 끝이 상한 근처 · 보조 손목 ≤ + 2° | 부분 — C++ 11.48 → 5.30 cm(21 프레임 남음) · 보조 손목 + 2.0°. 위팔 층 = keep 층(사용자 결정) |
+| 3 | keep 회전 대가가 2.6 · 3.6° 근처, 또는 새 기준 근거 표 | 낫 정정 4.77 · T5 8.4°(대가 절반 이하) + 근거 표(운영 퍼짐 → 10°) |
+| 4 | 머리목 0 유지 · 떨림 운영 범위 · 지시 목표 구간 밖 변화 0 | 머리목 c1_head 미달 0(s27 known) · 떨림 s25 · s27 · T5 줄어듦(낫 정정 · 검 선택 9-4c 그대로) · **합본 검 1.84 → 7.91**(운영 Attack2 8.16 안 — 갈림길, 판정) · 구간 밖 0 · SEAM 0 |
+| 5 | pytest · 비트 비교 · 통합 · 8-1 · 8-3 회귀 · 사람 판정 | pytest 837 · 비트 8/8 · phase8_4 body_fit 섹션 전부. 8-1 · 8-3(body_fit 안 씀) · 9-2 · 9-3b · 9-3c 는 9-4 끝 묶음(사용자 결정). 사람 판정 통과 |
+
+**사용자 판정 (2026-11-03): 통과** — 합본 검 · 낫 정정 · T5 · Attack2 · s25 의 '9-4b | 9-4a(HEAD)' 비교. 새 미달 s25 `c4_swing`(−7.2 % — U4-c 빈틈 규칙 대가)은 **알려진 미달로 기록**(통합 시험 `KNOWN_MISSES` — 사유와 함께), 합본 검 떨림 1.84 → 7.91 은 판정에서 받아들임(9-4c U5-a 갈림길 사례로 남김). 판정 뒤 이 단계의 실행 애셋(`P84Run1102_195252` · `203110` · `223614` · `232201` · `P84Run1103_000423` · `004521`) · 캡처(실행 6 · 합본 Job 6 · `P94bJudge`) · 스크래치는 휴지통으로 정리했다(같은 통합 명령으로 다시 만든다 — 위 경로는 기록용).
+
+#### 9-4c 빠른 구간 · 지시 목표 — 국소 수렴 · 마무리 매끈화 (개정 15 — 2026-11-03, U5-a · U5-c · U5-b 조사)
+
+**진행:** 로드맵 §8 U5 → 착수 전 확인(사용자 — 전부 추천안: ① 원 속도 smooth 기본 켜기를 목표로 시험 · E0 뒤 확정 ② 완급 요청값 하한 · 자동 늘림 ④ U5-c 국소 패스 · 맞닿음 여유 유지 · 출발 기록 A → B · 회귀 = phase8_4 body_fit 섹션 전부) → 출발 기록(HEAD `e752f31` — A `P84Run1103_091049` 5 · B `P84Run1103_101732` 9 = 9-4b 최종과 같은 항목 · 값, s25 휘두름은 known) → **E0(제품 코드 무변경 — 내보낸 C++ 몸 모델 14 대상 · 합본 2 로 Job 과 같은 입력의 오프라인 풀이, 낫 정정 8.372 ↔ C++ 8.377)** → 시제품(제품 Solver 상속) 판 대조 → 설계 확인(사용자 — (가) 국소 수렴 + (나) 마무리 증분 매끈화 + (다) smooth 기본 켬 · ② 를 '구현 안 함 · 원인 기록'으로) → 구현(Python 만) → pytest · 비트 비교 → 통합(A → B, 사이 에디터 재기동) → 판정 캡처.
+
+**E0 (원인):**
+- **머리목 튐 · 짧은 관통은 같은 꼴** — 재검사 증분은 넓은 스플라인(폭 6 프레임 · 고립 프레임 자료 가중 30 vs λ 1296)에 묽어져 빠른 휘두름의 1 ~ 2 프레임 관통을 패스 안에 못 뺀다: 머리(낫 정정 f61 · 검 선택 f37 → 머리목 마무리가 그 프레임만 빼 떨림 8.37 · 3.16) · 가슴(낫 정정 f51 · f53 3.22 cm) · 넓적다리(걷기 f97 · f98 2.82 · Attack2 f13 2.33).
+- **원 속도 떨림의 다음 원인은 손 부근 마무리(9-4b)** — 검 선택은 본 풀이까지 0.448(기준 0.76 안), `_finish_hands` 가 위팔 상한 · 주 손목 상한이 걸린 거의 모든 프레임을 따로 풀며 쇄골 · 위팔 · 손목이 몫을 엇갈려 나눠 2.63(왼 쇄골 4.6 → 2.2 → 3.8 → 2.7°). 낫 정정 f74 ~ 75 는 보조 손목 상한 위반이 끝나는 프레임에서 마무리 증분이 한 번에 0. 합본 검 7.91(주 손목 4.5 ↔ 5° 1.6 ↔ 8.7)도 같은 뿌리.
+- **원 속도 smooth on:** 8-4e 새 미달 4 중 s25 휘두름(−7.2 → + 1.4 %) · 달리기 몸(0 % · 1.48) · Attack2 교차(6.2 %)는 HEAD 에서 재현되지 않는다(9-4a · 9-4b 가 막음). s27(known) 떨림 5.76 → 8.13, 축 결함(스트레스) 2.98 → 4.17.
+- **지시 목표 구간 안 떨림(U5-b)은 완급 · 막힌 목표가 아니다** — T1 완급 0.15 → 0.3 → 0.45초: 1.89 → 3.48 → 6.37, T4 막힌 목표 줄이기: 구간 안 3.27 → 3.22 · 오차 2.76 → 3.73 cm. 목표 몫(x_T)을 프레임마다 따로 풀 때 위팔 ↔ 팔꿈치가 몫을 넘겨준다(T1 블록 두 위팔 0 → 35° 를 4 프레임에 · 유지 구간 왼 위팔 36 → 12° · 팔꿈치 8 → 27°). x_T 시간 연속(T1 3.80 · T4 2.56) · 목표 몫 매끈화 반경 1 ~ 3(4.37 · 1.90 · 4.86)도 다른 프레임으로 옮길 뿐.
+
+**시제품 대조(제품 Solver 상속 — 오프라인):**
+
+| 판 | 바꾼 것 | 결과 · 판단 |
+| :--- | :--- | :--- |
+| 국소 수렴 W 2 · 3 · 4 | 남은 관통 > 판정 구간(≤ 2 프레임)을 그 프레임 풀이에 고정 · ± W 혹 | 낫 정정 8.37 → 3.13 · 2.40 · 2.42, 몸 1.7 % → 0, keep 위치 2.2 → 2.7 · 3.5 · 4.5 cm → **W 3**(0.1초) |
+| 연쇄 · 구간 증분 하나 · 빈틈 잇기 | 구간 안 프레임을 앞 프레임 풀이에 이어 풂 | 따로 풀면 걷기 손가락 2.27 → 3.14, 연쇄 2.27(채택), 빈틈 한 프레임 함께 풀기는 4.2(버림) |
+| 손끼리 구간 판정 | 손 · 아래팔 지도 관통도 구간에 | Attack2 긴 손끼리 구간(known)이 그 안의 짧은 넓적다리 관통까지 건너뜀 → 몸 지도만 |
+| 깊이 · 길이 상한 | ≤ 2 프레임 · ≤ 4 cm 대 3 프레임 · 8 cm | 넓히면 합본 검 f19 ~ 21 머리 6.3 cm 를 풀지만 떨림 27 · keep 13.8 cm, s27 keep 5.5 → 9.2 → 머리목 마무리와 같은 상한 |
+| 마무리 잦아듦 FW 3 · 5 | 위반 프레임만 고정 · 이웃 ± 3 혹 | 낫 정정 f74 ~ 75 2.47 → 1.98, 검 선택 f97 그대로(2.63) |
+| **마무리 매끈화 FS 2** · 4 | 마무리 증분 전체 반경 2 · 4 스플라인 | 검 선택 2.63 → **0.448**(본 풀이 값) · 낫 정정 1.98, 반경 4 는 국소 수렴 프레임까지 묽혀 가슴 관통 되살아남(0.8 % · 2.31) |
+| FS 2 + 고정 | 매끈화가 손목 굽힘을 max(상한, 마무리 해) + 0.5° 넘긴 프레임은 마무리 해 고정 · 다시 | 낫 정정 보조 손목 클립 + 4.83 → + 2.06°(`c4_off_wrist` 안), 검 선택 주 손목 + 4.6 → + 2.6° |
+| 완급 · 목표 줄이기 · x_T 연속 · 목표 몫 매끈화 | U5-b 후보 | 모두 효과 없음 · 나빠짐(위 E0) → 구현 안 함(사용자 결정) |
+
+**구성 (Python 만 — C++ · MCP Tool 변경 없음):**
+- **`_converge` · `_bump` · `spline_fixed`(U5-c)** — 재검사 뒤 · 무기 마무리 앞. 몸 지도(몸통 · 넓적다리 · 머리목) 관통 > penetration_cm 구간 ≤ `CONVERGE_MAX_RUN`(2) · ≤ `CONVERGE_MAX_CM`(4) × scale(= `HEAD_FINISH_*` — 선별 `head_deep` 과 한 원천)만 그 프레임 풀이(FAMILIES · 앞 프레임 연속 — 구간 안 연쇄)에 고정, ± `CONVERGE_TAPER_S`(0.1초) 를 2차 차분 최소(자유 프레임 자료 가중 ≈ 0 · 그 밖 0 고정)로, `CONVERGE_ROUNDS` 3. 루프는 감아 돌고, 지시 목표 블록은 블록 안만(블록 밖 쪽 0 고정). stats `converge{frames, rounds, skipped}`. 머리목 마무리는 그대로(안전망).
+- **`_smooth_finish`(U5-a)** — `_finish_hands` 끝. 처리 프레임 증분을 반경 `FINISH_SMOOTH_S`(0.067초) 가중 스플라인(처리 프레임 30 · 그 밖 10), 손목 굽힘 > max(상한, 마무리 해) + `FINISH_PIN_DEG`(0.5°) 프레임은 마무리 해 고정 · 다시(`FINISH_PIN_ROUNDS` 3), 무기 파지 프레임 그대로. stats `hand_finish.smooth_pinned`.
+- **`smooth_mode` auto = 켬**(reason: `fix.timing` 이 있으면 그것, 아니면 `default (9-4c — every clip)`).
+- 요청 `fix.body.converge` · `finish_smooth`(기본 true — §9), Job `fix.body.converge{on, frames, skipped}` · `hand_finish.smooth`.
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/body_fit.py` | 머리말 · DEFAULTS · normalize · 상수(`FINISH_*` · `CONVERGE_*` · `HAND_FINISH_KEYS` + smooth_pinned) · `spline_fixed` · `smooth_mode` · `Solver.__init__`(`converge_on` · `finish_smooth`) · `_converge` · `_bump` · `_finish_hands`(pins · 끝에 `_smooth_finish`) · `_smooth_finish` · `_solve_states` · `_solve_targets`(블록 pins) · `run`(목표 Job converge stats 합치기) |
+| `Tools/mcp/anim_gen/providers/body_fit.py` · `server.py` | Job `converge` · `hand_finish.smooth` · 설명 |
+| `tests/test_body_fit_converge.py`(새 6) · `test_body_fit_speed.py` · `test_body_fit_upper.py` · `test_body_fit_pipe.py` | 새 스위치 · auto 켬 · spline_fixed · 국소 수렴(고정 · 혹 · 건너뜀 · 끔) · 마무리 매끈화 / 기대된 변화(auto 켬 · 처리 밖 프레임은 매끈화 꼬리 밖에서 같음) — pytest **843**(837 + 6) |
+| `Tools/mcp/anim_gen_phase8_4_test.py` · `Tools/mcp/README.md` | 풀린 알려진 미달(검 선택 `c4_zigzag` · s25 `c4_swing`) 뺌 · 낫 정정 `c4_zigzag` 사유 갱신 |
+
+**검증:**
+- 바꾸지 않는 경로: 새 스위치 끔(`smooth_speed off` · `converge false` · `finish_smooth false`) 낫 정정 · 검 선택 · 띠 정정 · 걷기 · 칼 시험 + 기본 라이플 대기 + 시간 보정 판(smooth 켬 + 새 스위치 끔) Attack2 · s25 **8/8 바이트 같음**(HEAD zip import).
+- 갈림길 안정성(제품 구현 · 오프라인): 낫 정정 배율 0.45 · 0.55 · 기준 5.5 · 6.5 — 떨림 2.58 · 1.97 · 2.73 · 2.68(기본 1.98), 머리 0 · 몸 0(구현 전 10.31 · 9.10 · 2.71 · 2.75). 검 선택 네 판 0.448. 합본 검 주 손목 상한 4.5 · 5° 둘 다 1.60.
+- **통합:** A `P84Run1103_111953` 실패 **3**(출발 5 — 낫 정정 · 걷기 `c1_body` 통과로) · B `P84Run1103_120915` **7**(출발 9 — T2 · S2 · S3 `c1_body` 통과로, 새 1 = T4 `c5`: 손끼리 쌍 `r|forearm|hand_l` 예측 p95 0.76 vs C++ 1.08 cm — 관통 0, 9-4a 기록의 손 · 아래팔 지도 모델 근사). SHA-256 25 불변 · 새 더티 0 · Content = 실행 폴더뿐 · 구간 ± 완급 밖 0 · SEAM 0 · 다리 섹션 4 통과.
+
+| 항목 | 출발(HEAD) | 9-4c |
+| :--- | :--- | :--- |
+| 낫 정정 `c1_body` · 떨림 | FAIL 1.7 % · 3.22 · known 8.38(f61 머리목) | 통과 0 % · 2.06 · known 1.98(f52 본 풀이 — 기준 1.74) |
+| 검 선택 떨림 | known 3.16(f37 머리목) | **통과 0.459**(원본 0.459) |
+| 걷기 `c1_body` | FAIL 1.7 % · 2.82 | 통과 0 % · 1.82 |
+| Attack2 몸 · 손끼리 · 교차 | 1.0 % · 2.33 · 9.4 % · 7.4 % | 0 % · 1.93 · 6.3 % · 7.4 % |
+| s25 휘두름 · 떨림 | known − 7.2 % · 1.89 | 통과 + 2.1 % · 1.52 |
+| 합본 검 떨림(C++) | 7.91 | **1.60**(입력 1.84) |
+| 합본 낫 떨림 | 4.70 | 4.68 |
+| T1 · T4 구간 안 떨림 | 1.886 · 3.27 | 1.982 · 3.38(U5-b 미구현) |
+| T5 떨림 · 휘두름 · 무기 끝 p95 | 5.67 · + 6.0 % · 1.69 | 3.85 · + 5.1 % · 1.84 |
+| s27(known) 떨림 · 머리 | 5.76 · 7.36 | 6.89 · 5.64 |
+
+- 남은 것: 합본 검 f19 ~ 21 머리목 6.3 cm(3 프레임 — 9-4a 부터 · 범위 밖) · 낫 정정 f52 가슴 보정 떨림 · T1 · T4 구간 안 떨림(U5-b) · s27.
+- 판정 캡처('9-4c | 9-4b(HEAD)' 같은 시각 6 행 · APNG): `Tools/mcp/results/capture/P94cJudge/{comb_sword, scythe_pick, sword_pick, t1, t4, walk, attack2, s25}/`.
+
+**사용자 판정 (2026-11-03): 통과.**
+- 합본 검: 떨림이 사라졌고, f19 ~ 21 관통은 괜찮다.
+- T1 · T4: 괜찮다.
+- 낫 정정 2.40초 왼 손목('손목이 돌았다 돌아오는 느낌')은 **원본 생성 애니의 동작**이다.
+  - 원본 굽힘 f68 → f72 26 → 91° · 프레임당 최대 57°, 보정 몫은 4 ~ 8° · 굽힘 + 2° 안이다(8-4b 기록과 같은 자리).
+  - 9-1 선별 손목 지표(벌점 시작 15 %)는 이 클립(4 %)을 거르지 못한다 — 생성 쪽 후속 후보.
+- T1 · T4 구간 안 떨림과 T4 `c5`(손끼리 예측 근사)는 통합 시험 알려진 미달로 기록했다(사유와 함께). 그 목록으로 다시 센 B 는 5다.
+- 판정 뒤 이 단계의 실행 애셋(`P84Run1103_091049` · `101732` · `111953` · `120915`) · 캡처(실행 4 · 합본 Job 4 · `P94cJudge`) · 스크래치는 휴지통으로 정리했다(같은 통합 명령으로 다시 만든다 — 위 경로는 기록용).
+
+#### 9-4d 다리 · 시간 보정 연결 — 접지 고정 · 바닥 · 다리 샘플 · 발 회전 (개정 15 — 2026-11-03, U6-a ~ d)
+
+**진행:** 로드맵 §9 U6 → 착수 전 확인(사용자 — 전부 추천안) → 출발 기록(작업 트리 = HEAD `e752f31` + 9-4c 미커밋 — 통합 `P84Run1103_135015` `hashes,legs,combined,dirty` 실패 0 · 8-4d 기록과 같은 값) → **E0(제품 코드 무변경 — 몸 모델을 `legs` 를 켜 17 대상 내보냄: 합본 입력 · 합본 · 다리 보정본 4 · 그 출력 4 · 운영 3 · 원본 생성 2)** → 시제품(제품 함수 빌림) 판 대조 → 설계 확인(사용자 — 설계안 그대로 + E0 정정 1 ~ 3 · 루트 모션 루프 버그 범위에 넣음) → 구현(Python 만) → pytest · 비트 비교 → 통합 → 판정 캡처.
+
+**결정(착수 전 — 사용자):** ① U6-a = (가) `fix.body.legs.pins: hold`(Python), auto = 같은 Job 에 `fix.timing` 과 `fix.ops` 다리 op 가 함께일 때만(다리 op 없는 시간 보정 Job 은 원본 발이 고정된 적이 없어 고정은 다른 요청 — hold 옵트인) ② 바닥 = 클립 접지 프레임 높이(→ E0 뒤 '중앙값' 대신 '최저'로 정정) ③ 발 회전 목표의 접지 중 중심 = 발볼(본이 있는 접지점 — 뒤꿈치는 범위 밖) ④ 발끝 접지 = 대상 쪽만(Blender `foot_fix` 는 바꾸지 않음 — 8-3 판정 통과 결과 그대로). 9-4 끝 묶음 회귀(phase8_4 전체 + 8-1 · 8-3 · 9-2 · 9-3b · 9-3c · Phase 1 ~ 7)는 9-4d 판정 뒤 이 세션에서.
+
+**E0 (원인 · 분포):**
+- **합본 접지 미끄러짐 = 작은 흔들림** — 발목 p95 3.53 / 7.78(낫) · 9.5 / 5.45 cm/s(검)는 접지 구간 안 0.1 ~ 0.86 cm 흔들림(시간 보정 재샘플 · antialias). 8-3 다리 보정본은 0.0.
+- **발볼 미끄러짐(새 발견)** — 접지 중 발볼이 2 ~ 4 cm 쓸린다(9 ~ 22 cm/s) — 합본 · 8-3 다리 보정본 · 원본 생성물 모두. 발이 발목 둘레로 돈다(피벗 — 낫 오른발은 몸을 돌리는 동안 100 % 접지). 운영 걷기는 반대로 발볼이 고정점(퍼짐 0.5 cm) · 발목이 뒤꿈치 구름으로 2 cm 움직인다.
+- **발끝 접지(뒤꿈치 듦)** — 합본 0 · 1 프레임, 8-3 다리 보정본 0 ~ 1, 원본 생성물 1 ~ 6, 운영 9 ~ 12(걷기 · 달리기는 발끝만 15.8 %).
+- **바닥** — 접지 판정에 뒤꿈치 듦(구간 안 높이 범위 ≤ 3.4 cm)이 섞여 접지 '중앙값'을 바닥으로 하면 원본 공중 발볼도 0.4 ~ 0.57 cm '관통'. 접지 '최저' 기준이면 원본은 ≥ 0, **8-4d 공중 경로가 발볼을 0.34 ~ 0.5 cm 더 낮춘다**(합본 낫 · 낫 정정 다리 보정본). 발목은 모두 위.
+- **다리끼리** — 17 대상 모두 관통 0(운영 걷기 넓적다리끼리 맞닿음 0.39 cm). **루트 모션 루프(8-4d 버그)** — 운영 걷기(904 cm/주기)에 `swing_path on` 을 주면 이음매를 넘는 공중 구간이 다른 주기 위치를 이어 떨림 860.
+- **발볼 = 발 로컬 고정** — C++ 몸 모델엔 발볼 본이 없다. 프로필 발볼의 발 로컬 위치 퍼짐 0.01 cm, 대상 메시 기준 포즈(ref_component)로 구한 오프셋과 0.0013 cm 안.
+
+**시제품 대조(다리만 풀이 — 합본 입력):**
+
+| 판 | 바꾼 것 | 낫 떨림 · 미끄러짐 | 검 떨림 · 미끄러짐 | 판단 |
+| :--- | :--- | :--- | :--- | :--- |
+| 8-4d | 접지 = 원래 키 | 1.666 · 3.5 / 7.8 | 1.598 · 9.5 / 5.5 | 출발 |
+| 발목 xyz 고정 | 구간 중앙값 | 1.684 · 0 / 0 | **2.586** · 0 / 0 | 접지 끝 뒤꿈치 듦(2 cm)을 눌러 공중 시작이 급함 |
+| + 발 회전 고정 | 구간 평균 회전 | 1.684 · 0 / 0 · 발 회전 최대 19° 바뀜 | 2.586 | 피벗을 지움(낫 정정 다리본 32.5°) |
+| 접지점 평면 고정 | 발목 · 발볼 수평 + 수평 회전 | 1.69 · 발볼 2.6 / 3.0 | 2.696 | 피벗 지움 · 검 나빠짐 |
+| **발목 수평 고정** | 수평 = 구간 중앙값, 높이 · 회전 원래 | **1.69** · 0 / 0 | 1.61 · 0 / 0 | 8-3 foot_lock 과 같은 뜻 |
+| 대표 = 공중 쪽 경계 프레임 | 중앙값 대신 | 1.663 | 1.656 | 섞임 |
+| **+ 발끝 접지 발볼 잇기** | 발볼 = 붙은 발목 접지 프레임(고친 자세)의 발볼 | 1.69 | **1.269** | 채택(발끝 구간 중앙값이면 2.38 까지 나빠짐) |
+
+**구성 (Python 만 — C++ · MCP Tool 변경 없음):**
+- **`pins: auto | hold | keep`(U6-a · d)** — `pins_mode` · `leg_modes`(hold 는 공중 경로도 켠다 — 이유 `pins hold`, `hold` + `swing_path off` 는 요청 오류). `_hold_targets`: 발목 접지 구간마다 발목 수평 = 구간 중앙값(높이 · 발 회전 원래), 발끝 접지(발볼 접지 · 발목 아님)는 발볼 수평 = 붙은 발목 접지 프레임(고친 자세)의 발볼(없으면 그 구간 중앙값) — 발은 원래 회전 그대로 평행 이동. 접지 프레임도 다리 목표(→ pose() 다리 IK), 공중 경로는 고친 접지값을 패드(경계 3 프레임)로 받는다. Job `legs.pins{mode, on, reason}` · `legs.hold{sides[{runs, frames, toe_frames, moved_cm_max}], pin_error_cm_max}` · 한계 `LEGS_PINS_HELD`.
+- **바닥(U6-b)** — `_floor_levels` = 접지 프레임 최저(발목 · 발볼 각각, 두 발 중 낮은 쪽). `_swing_window` 잔차에 공중 프레임 발목 높이 ≥ max(min(바닥_발목, 기준), min(바닥_발볼, 기준 발볼) − 그 프레임 발볼 높이 오프셋)(가중 `LEG_FLOOR_W` 30 — 원래보다 높이 들지는 않는다). 창 보고 `floor_margin_cm{ankle, ball}[전, 후]` · `floor_frames`, Job `legs.floor`. 다리끼리는 **측정 · 기록만**(E0 0 건 — 시험할 사례가 없다, 사용자 결정): 통합 `d2_legs`(C++ `body_clearance legs`).
+- **발볼 오프셋** — `ball_offsets`(대상 메시 inspect_skeleton details — 발 본의 가장 먼 자식, 발 로컬). 파이프는 `needs_balls`(다리 경로 · 발 회전 목표 · 다리 샘플)일 때 inspect(손가락 뿌리 `needs_target_info` 와 따로 — 넓히면 다리만 요청의 손목 상한이 바뀐다). Job `legs.balls`.
+- **루트 모션 루프(8-4d 버그 수정)** — `_loop_seam`(끝 프레임 = 다음 주기 첫 프레임 — 루트 변화 수직축 회전 + 이동) · `_seam` · `_cycles`: 공중 경로 · 접지 고정이 이음매를 넘는 프레임을 같은 주기로 옮겨 풀고 되돌린다. 루트가 안 움직이면 None(이전 풀이와 같음).
+- **다리 샘플 전이(U6-c)** — 프리셋 `leg_l` · `leg_r` · `legs`(템플릿 Leg 체인 + 넓적다리 · 종아리 트위스트 잎 + 발 아래 자손), 다리 본 이름도 받는다(골반 · 그 조상은 여전히 NOT_SUPPORTED). `Solver._leg_samples`: 블록 안 덮은 프레임 중 접지(발목 또는 발볼)는 발목을 지금 목표(hold 고정값 · 원래 키)에 IK(무릎 방향만 샘플), 공중 묶음은 덮은 자세의 무릎 · 발목 · 발 회전을 기준으로 공중 경로 풀이(앞뒤 3 프레임 고정 · 바닥 · 이음매 그대로), 발 회전은 접지 패드 쪽에서 smootherstep 으로 잇는다. 보고 `pose_from[].blocked_by` 에 `pins` · Job `leg_samples[]`.
+- **발 회전 목표(U6-c · 결정 ③)** — `targets[foot_l | foot_r].rotation` 을 받는다: 발 컴포넌트 회전 = 목표(완급), 디딘 프레임(발목 또는 발볼 접지)은 발목 = 목표 없는 발의 발볼 자리 − R(목표)·발볼 오프셋(발볼 중심), 공중은 발목 중심. 발볼 오프셋이 없으면 발목 중심. 보고 `targets[].pivot{point, planted_frames, ball_cm_max, air_frames, ankle_cm_max}`.
+- `Solver.leg_targets` 는 쪽마다 사본(목표 없는 풀이와 공유하지 않는다), `foot_rotation` · `ankle_target` · `legs_active`(발 위치 · 회전 목표) · `pose()`(발 회전 덮기).
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/body_fit.py` | `_legs`(pins) · `LEG_FLOOR_W` · `pins_mode` · `leg_modes` · `ball_offsets` · `_loop_seam` · `_seam` · `_cycles` · `_flag_runs` · `_floor_levels` · `_hold_targets` · `swing_paths`(hold · balls · floor · seam) · `_swing_window`(held 패드 · 바닥 잔차 · 이음매 · ref) · `LEG_PRESETS` · `bundle_bones`(다리 프리셋) · `_target`(발 회전) · Solver(`balls` · `foot_rot` · `leg_chain` · `_ground` · `foot_rotation` · `ankle_target` · `legs_active` · `pose` · `_leg_samples` · `_pivot_report` · 보고 pins) · `solve(balls)` |
+| `Tools/mcp/anim_gen/providers/body_fit.py` · `server.py` | 계획 `legs_pins` · `needs_balls` · 실행 hold · balls · Job `legs.pins` · `hold` · `floor` · `balls` · `leg_samples` · 한계 `LEGS_PINS_HELD` · 설명 |
+| `tests/test_body_fit_feet.py`(새 10) · `test_body_fit_pipe.py`(+1) · `test_pose_from.py` · `test_body_fit.py` · `body_fit_fixture.py`(`root_t`) | 요청 · 모드 · 발볼 오프셋 · hold(수평 고정 · 높이 · 회전 그대로) · 발끝 잇기 · 바닥 최저 · 바닥 하한 · 루프 이음매 · 다리 샘플 · 발 회전(발볼 · 발목) / 기대된 변화(다리 프리셋 · 발 회전 목표 받음) — pytest **853** |
+| `Tools/mcp/anim_gen_phase8_4_test.py` · `Tools/mcp/README.md` | legs · combined 에 바닥 `d2_floor` · 다리끼리 `d2_legs`, combined 에 hold auto · `d1_slide` ≤ 1 cm/s · `d1_zigzag` ≤ 지난 실행 + 0.05 · 옆 모습 '후 \| 지난 실행' 캡처, 새 섹션 `feet`(U6-c L1 · L2) |
+
+**오프라인(제품 코드 — 다리만):** 합본 낫 hold 1.672 · 0 / 0(8-4d 1.666) · 합본 검 1.269 · 0 / 0(1.598) · pin 오차 0. 다리 보정본 4건(공중 경로 + 바닥)은 8-4d 와 같은 떨림(1.261 · 0.531 · 1.415 · 0.377), 바닥 하한은 낫 둘에서 1 프레임만. 운영 걷기 루프(swing on) 이음매 860 → 정상(떨림 2.266 → 1.648), 운영 걷기에 hold 를 주면 2.935(뒤꿈치 구름을 누른다 — auto 대상 아님).
+
+**검증:**
+- pytest **853**(843 + 새 12 − 기대된 변화로 뺀 매개변수 2).
+- **바꾸지 않는 경로(비트 비교 — 작업 트리에서 9-4d 만 되돌린 사본 ↔ 작업 트리, 같은 E0 몸 모델):** 다리 경로를 켜지 않는 Job — 낫 정정 · 검 선택 · 운영 걷기(루프) · 운영 낫 Attack2 기본 풀이 · 손 목표(T4 꼴) · 척추 목표(T2 꼴) · 골반 목표(T3 꼴 — 다리 IK 경로) + 다리 경로를 켠 다리 보정본 · 합본 입력 둘(발볼 오프셋 · hold 없이 — 발목 바닥 하한은 걸리지 않는다) **10/10 바이트 같음**(9-4d 전 사본은 8-4d 기록 1.892 → 1.228 · 3.228 → 1.666 을 그대로 재현). 바뀌는 몫은 발볼 바닥 하한(Job 은 발볼 오프셋을 준다 — 낫 다리 경로 1 프레임) · hold · 다리 샘플 · 발 회전 목표뿐(기대된 변화).
+- 발볼 오프셋: 대상 메시 기준 포즈 ↔ 프로필 실측 0.0013 cm 안(왼 (−6.537, 11.933, 0.727)).
+- **통합:** `P84Run1103_143750`(`hashes,legs,combined,feet,dirty`) — legs · combined 실패 0, feet 2 = 시험 버그(프로필 표본은 프레임 1 부터인데 표본 번호를 프레임으로 씀 — 블록 시작 앞 프레임이 '구간 밖'으로 잡힘, 풀이 델타는 그 프레임 0 · C++ 계단 쓰기 시험으로 확인) → 하네스 정정 뒤 `P84Run1103_145027`(`hashes,feet,dirty`) 실패 0. SHA-256 25 불변 · 새 더티 0 · Content = 실행 폴더뿐.
+
+| 대상 | 출발(`P84Run1103_135015` — 8-4d 경로) | 9-4d |
+| :--- | :--- | :--- |
+| 합본 낫 접지 미끄러짐 p95 | 3.71 / 7.80 → 3.71 / 7.91 cm/s | **3.71 / 7.80 → 0.0 / 0.0**(hold — 구간 3 · 133 프레임 · 수평 이동 ≤ 0.87 cm · pin 오차 0) |
+| 합본 검 접지 미끄러짐 p95 | 9.82 / 5.45 → 9.82 / 5.45 | **→ 0.0 / 0.0**(구간 4 · 발끝 접지 1 프레임 · ≤ 0.73 cm) |
+| 합본 다리 본 떨림 · 전체 | 낫 1.67 · 4.684 / 검 1.597 · 1.597 | 낫 **1.673** · 4.684 / 검 **1.268** · 1.268 |
+| 합본 공중 경로(모델 무릎 · 발목 떨림 · 발목 이동) | 낫 l 3.228 → 1.666 · 2.68 / 검 l 1.679 → 1.598 · 3.36, r 1.826 → 1.245 · 4.83 | 낫 3.228 → 1.672 · 2.58 / 검 l [11, 17] 1.679 → 0.913 · 4.08, r 1.826 → 1.269 · 4.63 |
+| 합본 국소 수렴 프레임 | 0 · 0(검 [19, 21] 건너뜀) | 0 · 0(같음 — 9-4c 인계 확인) |
+| 합본 바닥 여유(C++ — 공중 최소 − 접지 최저) 발목 / 발볼 | 낫 1.46 / 0.01 · 검 0.78 / 1.17(입력) | 낫 1.40 / 0.38 · 검 0.71 / 0.33 |
+| 다리 보정본 4 떨림(8-4d 기준 1) | 1.259 · 1.414 · 1.435 · 1.52 | 같음(바닥 하한은 낫 둘 1 프레임 — 발볼 여유 0.3 → 0.0 · 0.28 → −0.01) |
+| 다리끼리(C++ legs) | — | 합본 2 · 다리 보정본 4 · L1 · L2 모두 관통 0 |
+| L1 다리 샘플(Attack2 왼다리 pose → 검 선택 다리본 0.3 ~ 1.2초) | — | 디딘 발목 0.0 cm · 공중 발목 21.2 cm(샘플 쪽) · 공중 구간 모델 떨림 29.6 → 1.65 · 블렌드 p95 54.0° · 최대 57.1° · ease 53.6°(덮은 자세 대비 — 다리 본은 발 pin IK) · blocked_by `pins` · `clearance`(재기만) · 구간 ± 완급 밖 0.01 cm |
+| L2 발 회전(디딘 오른발 바깥 20° · 1.6 ~ 2.6초) | — | 회전 오차 0.0° · 발볼 중심(디딘 39 프레임 발볼 0.0 · C++ 0.01 cm) · 발목 쓸림 3.77 cm · 구간 ± 완급 밖 0.01 cm |
+
+- **판정 캡처**(옆 모습 8 시각 · APNG 30 fps):
+  - 합본: `Tools/mcp/results/capture/P84Run1103_143750/{scythe_pick, sword_pick}_combined_legs/after/{compare.png, animation.png}`(후 \| 9-4c 합본).
+  - 다리 보정본: `…/P84Run1103_143750/legs_*/after/`(후 \| 8-3 다리).
+  - L1 · L2: `…/P84Run1103_145027/feet_{L1, L2}/after/`(L2 는 앞 · 옆, 후 \| 8-3 다리).
+
+**완료 기준(로드맵 §9 U6):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 합본 2건 미끄러짐 ≤ 1 cm/s · 무릎 떨림 · 공중 경로 8-4d 보다 나빠지지 않음 | ✅ 0.0 / 0.0 · 0.0 / 0.0, 다리 본 떨림 낫 1.67 → 1.673(+ 0.003 — 고정값을 공중 경로가 잇는 몫, 허용 + 0.05) · 검 1.597 → 1.268, 무릎 p50 낫 같음 · 검 42.2 / 41.2 → 41.8 / 41.0°(최대 52.6 / 56.6 → 50.7 / 56.4) |
+| 2 | 바닥 · 다리끼리 관통 0(측정) · 공중 경로 변화 표 | ✅ 공중 프레임 발목 · 발볼 ≥ min(접지 최저, 원래) − 0.1(C++), 다리끼리 0, 공중 경로 표는 위 |
+| 3 | 다리 샘플 · 발 회전 목표 표준 시험 각 1건 | ✅ L1 · L2(pin 오차 0 · 구간 밖 0.01 cm · 블렌드 수치) |
+| 4 | 비트 비교 · pytest · 통합 phase8_4(legs · combined) · 8-3 회귀 · 사람 판정 | 비트 10/10 같음 · pytest 853 · 통합 ✅ · 8-3 회귀는 9-4 끝 묶음(11-03 ✅ — 알려진 1 건 그대로, 아래 '9-4 끝 묶음 회귀') · **사람 판정 통과(2026-11-03)** |
+
+**사용자 판정 (2026-11-03): 통과**(합본 낫 · 검 · L1 다리 샘플 · L2 발 회전 — '괜찮다'). 판정 뒤 이 단계의 실행 애셋(`P84Run1103_135015` · `143750` · `145027` · 진단 `P94dDiag`) · 캡처(실행 3 · 합본 Job 4) · 스크래치는 휴지통으로 정리했다(같은 통합 명령으로 다시 만든다 — 위 경로는 기록용).
+
+**9-4 끝 묶음 회귀 (2026-11-03, HEAD `d27f0f5` — 9-4a ~ d 커밋 뒤, 코드 변경 없이):** 사용자 결정(9-4c · 9-4d 착수 때)대로 9-4 의 기본 동작 변경 파급을 한 번에 본다. 하네스마다 기본 `--only`, 실행마다 에디터를 새로 띄웠다(미저장은 테스트 경로뿐일 때만 버림 · 프로세스 소멸 확인). 보고 = 공유 노트 `phase9-4-regression-report.md`.
+
+| 하네스 | 실행 | 실패 | 대조 |
+| :--- | :--- | :---: | :--- |
+| phase8_4 A(`hashes,automation,model,e0,plan,clearance,existing,dirty`) | `P84Run1103_151511` | 3 | 9-4c 최종 A 와 같은 항목(s27 · 검 선택 `c1_upper` · 걷기 `c4_width`) · known 14 메시지 같음 · model 16/16 · Python ↔ C++ p95 0.0048 |
+| phase8_4 B(`hashes,targets,grip,samples,legs,combined,feet,dirty`) | `P84Run1103_155954` | 5 | 9-4c 최종 B(판정 뒤 known 반영)와 같은 항목 · 값(T3 · T4 `c1_upper` · T5 휘두름 + 5.1 % · 떨림 3.847 · 끝 p95 1.837), legs · combined · feet = 9-4d 값(합본 미끄러짐 0 / 0 · 다리 본 떨림 1.673 · 1.268 · L1 · L2 같음) |
+| 8-1(전체) | `P81Run1103_164220` | 1 | 생성 결과 기록과 같음(exp1 39.7 % · 3.5 cm · select seed 20261025 · scythe 20261028 · rescore 같은 선택). 실패 = `plan` 의 '실행 폴더 없음' — 기본 순서가 exp1 → plan(지난 전체 실행은 plan 을 앞에), `hashes,plan,dirty` 단독 PASS |
+| 8-3(전체) | `P83Run1103_170327` | 1 | 알려진 1 건(8-3 검 선택 다리본 떨림 1.891 — 8-4d 가 대상 쪽 1.259) · timing 정점 ×1.68 ~ 1.77 · 기준 재현 0.0 cm |
+| 9-2(전체) | `P92Run1103_170823` | 0 | 후보 중앙값 9-2 표와 같음(검 18.9 % · 196 · 한 프롬프트 29.5 % · 294 · 달리기 50.0 % · 418 · 길게 114 · 빠르게 216) · sword(timing + body) 최종 섹션 0.636 · 0.990 |
+| 9-3b(전체) | `P93bRun1103_180456` | 2 | `ee` · `eehold` = E0 기대값 노후(9-3b 가 자유 손 고정을 기본으로 바꿔 `ee` 가 채택값 5.86° · −75.4° 를 냄 — 9-4 무관). scythe · handle · sword · key2 기록과 같음, fixbody A 최종 · B 는 9-4 몫만(A 관통 0 · 머리 0 그대로) |
+| 9-3c(전체) | `P93cRun1103_184243` | 1 | 알려진 1 건(뒤 이음매 이은 좌표 p50 ≤ 2 cm — 판정 '보류') 2.80 → 2.64 cm, 골반 기준 1.57 · 앞 0.38 같음 |
+| Phase 1 · 2 · 3 · 4 · 5 · 6 · 7 | `Run1103_190255` · `P2Run1103_190440` · `P3Run1103_190559` · `P4Run1103_190659` · `P5Run1103_190852` · `P6Run1103_191130` · `P7Run1103_191137` | 0 | Phase 1 확인 113 · `RTG_KatanaToH` 대비 0° · 0 cm · Smoke 29/29 · `AstralBreak.*` 31/31 · Phase 5 기록 수치 그대로(691.83 cm · 189.81° · root_path 406.5 · 1.69 cm) · Phase 7 운영 AnimBP SHA-256 불변 |
+
+- **9-4 탓 새 실패 0 — 9-4 종료.**
+- 모든 실행에서 다음이 지켜졌다: 해시 불변 · 미저장 그대로 · Content 변경 = 실행 폴더뿐.
+- 새로 보인 실패 3(8-1 `plan` · 9-3b `ee` · `eehold`)은 하네스 쪽이다. **고침(사용자 '추천대로'):**
+  - 8-1: `SECTIONS` 순서를 hashes → plan → exp1 … 로(기본 `--only` 그대로 plan 이 애셋 전에).
+  - 9-3b: ⓪ E0 섹션 6(ee · e0wrist · e0twist · vwrist · e0capture · eehold)을 기본 `--only` 에서 뺐다(명시할 때만 — phase8_4 baseline 과 같은 방식).
+  - 9-3b 기대값은 지금 기본에 맞췄다 — `ee` = 채택값 5.86° · `eehold` = 묶음 없는 9-3a 기록 −91.0° 대비 10° 넘게 줄어듦.
+  - 재확인: AST 로 두 하네스의 기본 순서를 출력했고, 9-3b `--only hashes,ee,eehold,dirty`(`P93bRun1103_194005`)는 PASS · 실패 0 이었다(5.86° · −91.0 → −75.4°).
+- 사용자 확인(9-3b fixbody · 9-3c M1 비교 시트) 뒤, 이 회귀의 실행 애셋(Content 14 폴더) · 캡처 19 · 스크래치는 휴지통으로 정리했다. 위 실행 경로는 기록용이고, 같은 하네스 명령으로 다시 만든다.
+
+#### 9-5a 다양한 스켈레톤 — 표준 대상 · 손 속도 기준 · 리타기터 구성 (개정 15 — 2026-11-03 ~ 04, U8-a · U8-b · U8-d = U7-c)
+
+**진행:** 로드맵 §1-1 '9-5' 를 하위 단계로 나눔(사용자 승인 — 9-5a U8-a · U8-b · U8-d → 9-5b U8-c 비표준 → 9-5c U7-d → 9-5d U9 + U10) → 결정 확인 → 출발 기록(HEAD `1b20e62` — pytest 853) → **E0(제품 코드 무변경 — 새 하네스로 대상 조사 · 합본 · 기존 애니 · 리타기터 구성, 본별 떨림 · 손 회전 각속도, 같은 프로세스에서 상수만 바꾼 환산 시험 6)** → 설계 확인(사용자) → 구현(Python 만) → pytest · 통합 → 판정 캡처.
+
+**결정(사용자 — 전부 추천안):** ① 대상 = IdaFaber 남성 `SKEL_UE5_M` + `SK_StreetDemon_M_01`(Vesper `F_01` 의 짝) · UE5 Manny `SK_Mannequin` + `SKM_Manny_Simple`, 비표준은 9-5b 에서 Narmaya ② 기준값 프로필 자리 = 정책(키 = 대상 스켈레톤) ③ 무기 부착 = 요청만(운영 소켓 · DA 변경 없음 — 하네스가 Vesper 소켓의 손 기준 변환을 offset 에 합쳐 `attach{bone: hand_r}`) ④ U7-c = 기존 RTG 재사용 · `ops: default` 를 재고 바닥 제약은 요청 경로가 없으면 기록만.
+
+**E0:**
+
+| 대상 | 본 | 어깨 폭 · 팔 | 골반 높이 | 팔 / 골반 | 템플릿 · 정면 | 무기 소켓 |
+| :--- | ---: | :--- | ---: | ---: | :--- | :--- |
+| Vesper | 172 | 23.96 · 47.66 | 105.24 | 0.453 | 100 % · +Y | 있음 |
+| IdaFaber 남성 | 143 | 31.01 · 52.49 | 95.9 | 0.547 | 100 % · +Y | 없음 |
+| UE5 Manny | 161 | 38.02 · 55.02 | 95.9 | 0.574 | 100 % · +Y | 없음 |
+
+- **그대로 돈다** — 합본 6 · 운영 낫 Attack2 → 대상 + `fix.body` 3 모두 Job 성공, 코드 변경 없이. 다리 모델 예측 = 실측(두 발 디딘 비 Δ ≤ 0.01 · 미끄러짐 Δ ≤ 0.31 cm/s), 접지 고정 · 바닥 · 다리끼리 통과. 무기 소켓이 없어도 요청 부착으로 돈다.
+- **기준값 대부분은 이미 정규화돼 있다** — 거리 × scale · 발 좌우 비 = 엉덩 폭 배수 · 파지 허용 = 팔 길이 비. 남는 대상 의존은 **손 속도 기준** 둘(`target_peak_cm_s` · `SPEED_REF_CM`)이다. FK 리타깃은 회전을 복사하므로(리타깃 결과 손 41.7° · 아래팔 33.5°/프레임으로 세 대상이 같다) 손 속도 / scale 은 팔 / scale 에 비례한다.
+- **대상 탓 문제 2:** 같은 낫 동작의 시간 보정 배율 ×2.0 · ×1.91 · ×1.77 → 시간 보정 단계 왼손가락 떨림 8.59 · 9.50(Vesper 3.45) · 매끈화 프레임 23 · 31 · 33. IdaFaber 남성 검 떨림 2.10 → 6.23(0.83초 `lowerarm_r` — 9-4c 갈림길과 같은 꼴) · 남은 머리목 4.4 cm.
+- **환산 시험(`SPEED_REF_CM` · 정점 목표 × 몸 비율 1.2087 · 1.2669 — 코드 무변경):** 낫 배율 ×2.0 · timing 떨림 3.39 · 2.49 · IdaFaber 남성 검 6.23 → 1.57 · 머리목 0. Manny 검 7.56 은 환산으로 안 없어진다.
+- **Manny 검 튐의 원인(구현 뒤 시험 5 — 코드 환산 위에서):** 기본 7.56(0.833초 `lowerarm_r`) · `smooth_speed off` **1.65** · 위팔 `no_worse` 7.55 · `finish_smooth false` 7.57 · `converge false` 7.56. 즉 빠른 구간 매끈화가 좁힌 폭에서 한 프레임 보정이 그대로 남는 것이고, 끄면 대신 손 ↔ 아래팔 관통이 남는다(10 % · 3.97 cm · `NOT_RESOLVED`) — 떨림과 손끼리 관통의 맞교환이다. 위팔 마무리 · 마무리 매끈화 · 국소 수렴은 무관.
+- **리타기터 구성:** match_existing 예측 = 실측. `ops: default` = 세 대상 모두 리타깃 검증 FAILED(`ROTATION_JUMP` — Vesper `lowerarm_twist_01_r` 93° · IdaFaber 남성 `lowerarm_r` 179° · Manny `lowerarm_l` 107°)로 실패 출력이 미저장으로 남는다. 다른 소스 RTG(`RTG_KatanaToH`) 재사용은 계획을 통과했다. 바닥 제약은 `create_ik_retargeter` 인자가 없어 요청으로 켤 수 없다.
+
+**구성 (Python 만 — C++ · MCP Tool 변경 없음):**
+- **정책 `style`** — `reference_skeleton`(기본 Vesper) · `profiles{<스켈레톤>: {timing_target_peak_cm_s?, stance_max_ratio?}}`(기본 빈 사전, 검사 `_check_profiles`). 기준 몸은 프로필을 읽지 않는다.
+- **`anim_gen/target_style.py`** — `is_reference` · `profile` · `proportion`(팔 / scale) · `ratio` · `peak`(요청 > 프로필 > 몸 비율 > 기준값) · `apply_stance` · `reference_values`.
+- **시간 보정** — `timing.normalize` 가 요청 값에 `target_peak_given` 표시. `DirectKey.styled_peak` 이 대상 ≠ 기준 몸이면 `inputs.target_peak{value, from, factor}` · `target_peak_cm_s` 를 정한다(계획 · 에디터 없으면 실행). Job `timing.target_peak`.
+- **빠른 구간 매끈화** — `speed_factors(rig, loop, ref_cm)` · Solver `cfg.speed_ref_cm`, `BodyFitPipe.styled_speed`(애셋을 만들 때만). Job `smooth_speed.speed_ref_cm` · `factor`.
+- **기준 몸 측정** — `RetargetPipe.style_ratio` 가 그 스켈레톤을 `selection_bones` 로 잰다(숫자를 정책에 적지 않는다). 못 재면 경고 `STYLE_REFERENCE_UNMEASURED` · 환산 안 함.
+- **한계 `TARGET_STYLE_FROM_REFERENCE`** — 대상 ≠ 기준 몸이고 요청 · 프로필이 안 정한 스타일 값(정점 목표 · 발 좌우 비 상한 · 선별 기준)을 쓸 때. `fix.body` 만의 Job 은 없다(몸 비율은 스타일이 아니다).
+- **리타기터 구성** — 다리 op + (`ops: default` 또는 `existing_retargeter`) → 계획 거부 `FIX_LEGS_NEEDS_MATCH_EXISTING`(`plan_fix_legs`). 임포트 경로(BVH · 생성)의 재사용 → 위험 `RETARGET_REUSE_SOURCE_UNCHECKED`, `ops: default` → 위험 `RETARGET_OPS_DEFAULT_UNVERIFIED`.
+- **설계 정정(구현 중):** 승인된 설계는 임포트 경로의 재사용을 전부 거부했다(근거 '구조상 성립 안 함'). 구현 중 C++ 호환 검사(`IsSkeletalMeshCompatible`)가 본 이름 기준임을 확인해 다리 op 와 함께일 때만 거부로 좁혔다 — 통합에서 같은 소스 RTG 재사용 3 대상 성공 · 다른 소스 RTG 는 실행 때 `RETARGET_FAILED`(`BAD_REQUEST`, 소스상 `INCOMPATIBLE_MESH`) · 미저장 0.
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Tools/mcp/anim_gen/target_style.py`(새) · `policy.py` · `policy.default.json` | 대상별 기준값 · 정책 `style` |
+| `Tools/mcp/anim_gen/timing.py` · `providers/builtin.py` | `target_peak_given` · `styled_peak` · `style_ratio` · Job `timing.target_peak` · 임포트 경로 위험 2 |
+| `Tools/mcp/anim_gen/body_fit.py` · `providers/body_fit.py` | `speed_factors(ref_cm)` · `styled_speed` · Job `smooth_speed.speed_ref_cm` |
+| `Tools/mcp/anim_gen/providers/blender.py` · `router.py` · `server.py` | 계획 거부 · 프로필 발 좌우 비 · 한계 · 설명 |
+| `tests/test_target_style.py`(새 32) | 정책 · 몸 비율 · 순서 · 비트 같은 계획 · 다른 대상 · 실행 때 풀기 · 거부 · 위험 — pytest **885** |
+| `Tools/mcp/anim_gen_phase9_5_test.py`(새) · `Tools/mcp/README.md` | hashes · targets · combined · existing · rtg · dirty(판정 미달은 `[miss]` — 실패 수 밖, 실패 = 무결성) |
+
+**검증:**
+- pytest **885**(853 + 새 32).
+- **대상 = 기준 몸 불변:** Vesper 합본 2 · Attack2 출력의 프로필(54 본 위치 · 회전)이 E0 출력과 **정확히 같음**(`same_output`). 계획 · Job 에 새 키 없음(`style_none`). phase8_4 `hashes,combined,dirty` 회귀.
+- **통합:** A `P95Run1104_082819`(`hashes,targets,combined,dirty`) 실패 0 · 미달 2(Vesper 검 머리목 — 알려진 'f19 ~ 21 6.3 cm') · B `P95Run1104_083723`(`hashes,existing,rtg,dirty`) 실패 0 · 미달 7(Attack2 손끼리 · keep · 휘두름 — Vesper 도 같은 항목). SHA-256 11 불변 · 새 더티 0 · Content = 실행 폴더뿐.
+
+| 합본 | 대상 | E0 배율 · timing 떨림 → 최종 떨림 · 머리목 잔여 | 9-5a 배율 · timing 떨림 → 최종 떨림 · 머리목 잔여 |
+| :--- | :--- | :--- | :--- |
+| 낫 | Vesper | ×2.0 · 3.45 → 4.68 · 0 | 같음 |
+| 낫 | IdaFaber 남성 | ×1.91 · 8.59 → 8.28 · 0 | ×2.0 · **3.39 → 5.41** · 0 |
+| 낫 | Manny | ×1.77 · 9.50 → 9.13 · 0 | ×2.0 · **2.49 → 7.14** · 0 |
+| 검 | Vesper | ×2.0 · 1.84 → 1.27 · 5.4 % 6.28 cm | 같음 |
+| 검 | IdaFaber 남성 | ×2.0 · 2.10 → 6.23 · 2.6 % 4.4 cm | ×2.0 · 2.10 → **1.57** · **0** |
+| 검 | Manny | ×2.0 · 2.30 → 7.64 · 0 | ×2.0 · 2.30 → 7.56 · 0 |
+
+| 항목 | Vesper | IdaFaber 남성 | Manny |
+| :--- | :--- | :--- | :--- |
+| 몸 비율 · 정점 목표 · 매끈화 기준 | 기준 몸 | 1.2086 · 1450.3 · 7.25 | 1.2669 · 1520.2 · 7.60 |
+| 낫 파지 띠 안 % · 손목 간격 p50 | 68.6 · 49.2 cm | 100 · 59.6 cm | 100 · 65.1 cm |
+| 합본 미끄러짐 p95(후) | 0 / 0 · 0 / 0 | 0 / 0 · 0 / 0.31 | 0 / 0.31 · 0 / 0 |
+| 다리 모델 Δ(비 · 미끄러짐) | 0 ~ 0.01 · 0 | 0.01 · ≤ 0.31 | 0 ~ 0.01 · ≤ 0.31 |
+| Attack2 관통(전 → 후) · 휘두름 · keep 최대 | 27.1 % 6.43 → 0 % 1.93 cm · + 10.7 % · 1.28 cm | 19.8 % 9.99 → 0 % 1.86 cm · + 13.0 % · 0.80 cm | 4.2 % 3.31 → 0 % 1.65 cm · + 4.0 % · 1.12 cm |
+
+- **판정 캡처:** `Tools/mcp/results/capture/job_20261104_{083051_eb11c7(IdaFaber 남성 낫), 083129_0a7082(IdaFaber 남성 검), 083249_9611bf(Manny 낫), 083345_1aae3f(Manny 검), 083932_863710(IdaFaber 남성 Attack2), 084039_004dc8(Manny Attack2)}/A1/{sheet.png, animation.png}`.
+
+**남은 것(고치지 않음 — 후속 후보):** Manny 검 0.83초 오른 아래팔 튐 7.56(빠른 구간 매끈화의 한 프레임 보정 — 끄면 1.65 대신 손 ↔ 아래팔 3.97 cm. **사용자 결정 2026-11-04: 기본 켬 유지**, 요청 `fix.body.smooth_speed: off` 로 고를 수 있다) · Manny 낫 body_fit 뒤 왼손가락 떨림 7.14(Vesper 4.68 — 원인 미확인) · 새 대상 공중 발볼이 접지 최저보다 0.65 ~ 1.34 cm 낮다(리타깃 단계부터 — body_fit 은 더 낮추지 않는다).
+
+**완료 기준(로드맵 §10 U8 — 9-5a 몫):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 대상 × (생성 합본 · 기존 애니) 결과 표 · 새 실패 원인 분류 | ✅ 표준 2 — 위 표. 분류: 기준값(손 속도 — 고침) · 메시 · 몸(Manny 빠른 구간 · 발볼 — 기록) · 체인 · 정면 0 |
+| 2 | 대상 이름 가정 0 · 기준값 프로필 분리 또는 위험 표시 | ✅ 정책 `style` · 한계 `TARGET_STYLE_FROM_REFERENCE` |
+| 3 | 비표준 대상 1개 | 9-5b |
+| 4 | Vesper 불변 · pytest · 통합 회귀 · 사람 판정 | 프로필 정확히 같음 · pytest 885 · 통합 실패 0 · **사람 판정 대기** |
+| U7-c | 세 구성 예측 vs 실측 | ✅ match_existing 예측 = 실측(3 대상) · 다른 구성은 계획 거부 · 바닥 제약 = 요청 경로 없음(기록) |
+
+#### 9-5b 비표준 대상 — 대상 리그 단일 원천 · 기준 스케일 (개정 15 — 2026-11-04, U8-c)
+
+**진행:** 출발 기록(HEAD `1b20e62` + 9-5a 미커밋 — pytest 885) → **E0(제품 코드 무변경 — Narmaya · SB 기준 포즈 조사, 수동 체인 리그 · 리타깃 · 측정 · 캡처)** → 설계 확인(사용자 '설계안대로 착수') → C++ · Python 구현 → 통합 → 통합에서 나온 C++ 정정 2(`per_bone` 최소 길이 · 펠비스 높이) → 회귀.
+
+**결정(사용자 — 설계안대로):** ① 측정 본 원천 = 요청 `retarget.existing_target_rig`(새 요청 키 없음) ② 기준 스케일 복원 = C++ `retarget_animations` 안(새 편집 op · 엔진 패치 대신) ③ 무기 = 요청만(운영 소켓 · DA 변경 없음) ④ 시험 = Narmaya 전체 + SB(+X) 리타깃 · 캡처 ⑤ 프로필 비움 · 몸 비율 자동. 9-5a 미커밋 위에서 이어 갔다.
+
+**E0 — 코드에 없던 전제:**
+
+| 항목 | Narmaya `pl1400` | SB `CH_P_EVE_01_Body` | Vesper |
+| :--- | :--- | :--- | :--- |
+| 본 · 템플릿 · 소켓 | 343 · 0 % · 0 | 300 · 0 % · 0 | 172 · 100 % · 있음 |
+| **루트 기준 스케일** | **100** | **100** | 1 |
+| 골반 높이 · 팔 · 몸 비율 | 82.16 · 37.13 · 0.998 | 98.87 · 48.77 · 1.0 | 105.24 · 47.66 · 기준 몸 |
+| 정면 | +Y(정면 맞춤을 타지 않는다) | +X | +Y |
+| 펠비스 부모 | 원점(`Null_900`) | 기준 위치(`Bip001`) | 원점 근처 |
+| 손가락 제안 | 14 | 10 | 18 |
+
+- **스케일이 먼저 막는다.** 수동 체인 리그 · RTG 는 되지만 결과가 **1/100 로 접힌다**: 전 본 스케일 1 · `_000 → _0031` 0.15 cm(기준 14.9) · 골반 높이만 81 cm. 엔진 `FResolvedRetargetPoseSet::AddOrUpdateRetargetPose` 가 스케일을 지운 뒤 로컬로 전역을 다시 계산하고(IKRetargetProcessor.cpp:45-50 · 78), 배치는 스케일 1 트랙을 쓴다(IKRetargetBatchOperation.cpp:498). 메시는 스케일 100 으로 바인드돼 있다.
+- 검증은 이것을 못 잡고(`PASSED_WITH_WARNINGS`), 되돌리면 `ABNORMAL_SCALE` 로 FAILED 다.
+- 그 밖의 틈: `selection_bones` 기본 이름 · `target_rig` 전달 끊김(`_select` 만) · 발목 = 체인 끝(체인은 발볼에서 끝난다) · 이름 기본값(`pelvis` · `foot_l/r`)이라 `numeric.pelvis_height_cm` null → scale 1.0 폴백.
+
+**구현 — C++:**
+- `AnimMcpBatchRetarget`: `HasRefScale`(로컬 스케일이 모두 1 ± 1e-3 이면 아무것도 안 함) · `PelvisHeightFix` · `RestoredPelvisLocal` · `RestoreRefScale` — `RunRetarget` 뒤 · 관통 · 검증 앞에서 모든 본 스케일 트랙 = 기준 로컬 스케일, 펠비스 = 맞춘 전역 위치를 복원한 부모 공간으로, 루트 이동 × 높이 배. 진단 `TARGET_REF_SCALE_RESTORED`.
+- `AnimMcpAnimValidator`: `ABNORMAL_SCALE` 은 기준 포즈 스케일 대비.
+- `AnimMcpRetargetPoseAlign`: 대상 구간 최소 길이를 cm 로(`TargetToCm` = 루트 기준 스케일). 안 그러면 `per_bone` 이 접힌 포즈의 다리를 `ZERO_LENGTH` 로 건너뛴다.
+- `AnimMcpRetargetAssets` · `AnimMcpTools_Retarget`: 옵트인 `create_ik_retargeter exclude_bones`(템플릿 목록에 더한다).
+- Automation `AnimGraphMcp.Generation.RefScale`.
+
+**구현 정정 3 + 추가 1(통합에서 — 설계안과 다름):**
+1. 설계안의 '펠비스 이동 ÷ 부모 스케일'은 부모가 원점이 아닌 SB 에서 틀린다 → 복원 전 전역 위치를 복원 후 부모 공간으로 옮기는 식으로 바꿨다.
+2. Pelvis Motion op 는 초기 높이를 리타깃 포즈에서 읽는데(PelvisMotionOp.cpp:217-224), SB 는 펠비스도 부모와 함께 접혀 높이 0.99 → 골반이 바닥에 놓였다(첫 판 캡처). → `PelvisHeightFix`(기준 높이 / 엔진 높이 — Narmaya 1 · SB 100)를 전역 위치 · 루트 이동에 곱한다.
+3. Narmaya 다리 모델 어긋남(두 발 디딘 비 예측 3.03 vs 실측 2.47 · 미끄러짐 14.8 cm/s)의 원인은 `per_bone` 최소 길이였다 — 소스 ↔ 대상 다리 뼈 방향이 일정하게 13.3°(척추 기울기 차 — ⓪ 몸통 중립이 골반을 되돌린 값) 어긋났고, 팔은 0.02° 였다. 고친 뒤 예측 = 실측.
+4. **추가:** 캡처에서 발이 뜬 것을 보고 찾았다 — 엔진 템플릿은 모두 발목을 자동 정렬에서 빼는데(IKRigAutoCharacterizer.cpp 'exclude feet from auto-pose') 템플릿 없는 대상은 목록이 비어 발이 소스 방향으로 눕고 굽 높이가 사라졌다(발볼 접지 5.5 cm, 기준 1.9). C++ 에서 일괄 적용하면 역리타깃(대상 = SOMA)이 바뀌므로 옵트인 인자 `create_ik_retargeter exclude_bones` 로 하고 `_rigs` 가 대상 리그 경로에서만 발목을 넘긴다 → 발볼 0.86 cm.
+
+**구현 — Python:**
+- `RetargetPipe.rig_of` · `rig_chains`(`create_ik_rig existing_rig` — 만들지 않고 설명) · `request_bones` · `plan_bones` · `selection_bones(rig=)` — 체인 원천 = 리그, 발목 = 다리 체인 셋째 본(C++ 몸 지도 `Feet` 와 같은 규칙), 골반 = 리그 펠비스(엉덩의 부모가 아니다 — SB 넓적다리는 `Bip001-Spine` 아래). 리그가 없으면 경로 · 키 그대로.
+- 체인이 아예 없거나 리그 체인이 모자란데 기본 이름도 스켈레톤에 없으면 계획 거부 `TARGET_CHAINS_UNKNOWN`.
+- `pelvis_arg` — 리그 경로의 `validate_animation` 크기 보정. `_revalidate` 는 대상 리그가 있어도 돌고 `pelvis` · `feet` 를 넘긴다.
+- `body_fit`: 계획 `inputs.ik_rig` · `spec` · `inspect_target`(template_match 자리에 리그 체인 — `bundle_bones` 한 원천) · `skeleton_facing`(리그 체인으로 교차 확인).
+- `BodyModel` — 기준 스케일이 있으면 포즈 스케일을 빼고 본 공간 값(스킨 점)을 cm 로 옮겨 풀이 · 스킨 · 지도는 스케일 없는 강체로, `bone_deltas` 이동만 `local_translation` 으로 트랙 단위로 되돌린다. 없으면 비트 같음.
+- `weapon.resolve` — 부착 값은 본의 실제 변환 기준(`capture_animation` 과 같다), 기준 스케일이 있는 본은 풀이용 `local` 에 곱한다.
+- 하네스: 수동 체인 Narmaya · SB · 손 기하 틀(손목 → 중지 · 소지 → 검지) · `facing` 섹션 · 표준 대상도 `same_output`. `upper_cap` 판정은 마무리 프레임 수를 보지 않는다(본 풀이가 풀면 0).
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Plugins/AnimGraphMcp/…/Core/AnimMcpBatchRetarget.{h,cpp}` · `AnimMcpAnimValidator.cpp` · `AnimMcpRetargetPoseAlign.cpp` · `AnimMcpRetargetAssets.{h,cpp}` · `Tools/AnimMcpTools_Retarget.cpp` · `Tests/AnimMcpGenerationTests.cpp` | 기준 스케일 복원 · 검증 · `per_bone` 길이 · `exclude_bones` · Automation |
+| `Tools/mcp/anim_gen/providers/builtin.py` · `body_fit.py` · `blender.py` · `local_ai.py` | 대상 리그 단일 원천 · 전달 · `TARGET_CHAINS_UNKNOWN` |
+| `Tools/mcp/anim_gen/body_model.py` · `body_fit.py` · `weapon.py` | 스케일 없는 풀이 · 트랙 단위 · 부착 |
+| `tests/test_target_rig.py`(새 18) · `conftest.py` · `test_select.py` | 측정 본 · 전달 · 스케일 — pytest **903** |
+| `Tools/mcp/anim_gen_phase9_5_test.py` · `README.md` · `anim_graph_mcp/server.py` · `anim_gen/server.py` | 하네스 · 설명 |
+
+**검증:**
+- pytest **903**(885 + 새 18) · Automation `AnimGraphMcp.Generation` 9/9(새 `RefScale`) · Dev · DebugGame 빌드 경고 0.
+- **표준 대상 불변:** Vesper · IdaFaber 남성 · Manny 합본 6 · Attack2 3 출력 프로필(54 · 60 본 위치 · 회전)이 9-5a 실행과 **정확히 같음**(`same_output` 9/9). 합본 6 은 `exclude_bones` 추가 전 빌드(`P95Run1104_103157`), Attack2 · 다리 · phase8_4 는 최종 빌드다 — `exclude_bones` 는 인자가 있을 때만 갈린다.
+- **통합 실패 0:** Narmaya · SB 최종 `P95Run1104_104945` 미달 2(Attack2) · 표준 합본 `P95Run1104_103157` 미달 2(알려진 Vesper 검 머리목) · 표준 Attack2 · 다리 `P95Run1104_105500` 미달 7(9-5a 와 같은 항목 · 값) · phase8_4 `hashes,combined,dirty` `P84Run1104_110707`(값 그대로) · Phase 1 `Run1104_111153` · Phase 2 `P2Run1104_111243`(`RTG_KatanaToH` 결과 0° · Smoke 26/26 · `AstralBreak.*` 31/31). SHA-256 불변 · 새 더티 0 · Content = 실행 폴더뿐.
+
+| 항목 | Narmaya 낫 합본 | Narmaya 검 합본 | Narmaya Attack2 |
+| :--- | :--- | :--- | :--- |
+| 몸 관통 전 → 후 | 7 % 6.44 → 0 % 0.84 cm | 56.8 % 12.7 → 0 % 1.13 cm | 10.4 % 4.11 → 0 % 1.36 cm |
+| 손끼리 | 0 | 10.8 % 2.82 → 0 % 1.38 cm | 5.2 % 4.26 → **1 % 3.1 cm** |
+| 머리목 잔여 | 0 | 0 % 0.36 cm | 0 |
+| 떨림 전 → 후 | 3.32 → 6.55 | 1.88 → 1.24 | 7.10 → 7.10 |
+| 시간 보정 | ×2.0 · 정점 목표 1197.5 | ×2.0 · 1197.5 | 없음 |
+| 접지 미끄러짐 p95 | 4.17 / 10.64 → 0 / 0 | 2.92 / 4.99 → 0 / 0 | 19.8 / 19.4 그대로(요청 안 함) |
+| 다리 모델 Δ(비 · 미끄러짐) | 0 · ≤ 0.18 | 0 · ≤ 0.37 | — |
+| 발볼 접지 높이(기준 1.89 cm) | 0.86 cm | 0.83 cm | — |
+| 손목 간격 p50 · 파지 띠 안 % | 36.6 cm · **0** | 7.0 cm · 100 | 14.2 cm · 0 |
+
+- SB(+X): Attack2 정면 yaw −90 · 골반 이동 방향 차 0.0° · 높이 / scale 98.6(Vesper 98.6) · 거리 / scale 248.1(248.1), 저장된 BVH(blender 정면 맞춤) 성공 · 캡처 정면 +X.
+- **판정 캡처:** `Tools/mcp/results/capture/job_20261104_{104952_be79d3(낫 합본), 105052_777bc2(검 합본), 105204_acfc5b(Attack2), 105357_9399b0(SB Attack2), 105408_137c22(SB BVH)}/A1/{sheet.png, animation.png}`.
+
+**새 실패 원인 분류:**
+
+| 분류 | 내용 | 처리 |
+| :--- | :--- | :--- |
+| 메시 · 스켈레톤 | 루트 기준 스케일 100 — 결과 1/100 · 펠비스 높이 · `ABNORMAL_SCALE` | 고침(C++) |
+| 체인 | 측정 본 · 리그 전달 · 발목 = 체인 끝 · 골반 = 엉덩의 부모(SB) | 고침(Python 단일 원천) |
+| 리타깃 포즈 | `per_bone` 최소 길이로 다리 13.3° · 발목을 자동 정렬해 굽 높이 사라짐(발볼 5.5 cm) | 고침(C++ · `exclude_bones`) |
+| 기준값 | 낫 파지 띠 51.4 ~ 68.6 cm 에 손목 간격 33 ~ 41 cm — 파지 프레임 0 · `GRIP_NOT_APPLICABLE`. 팔 37 cm 인 몸에 무기가 크다(운영 낫 크기 그대로) | 기록 |
+| 정면 | Narmaya 0 · SB 맞춤 확인 | 없음 |
+| 풀이 품질 | Attack2 손끼리 3.1 cm · 휘두름 + 6.9 % — 표준 대상도 같은 항목(Vesper 5.71 cm · + 10.7 %) | 기록 |
+
+**돌리지 않은 것:** 8-1 · 8-3 · 9-x · Phase 3 ~ 7 회귀(새 코드는 대상 리그가 있거나 기준 스케일이 있을 때만 갈린다) · 비표준 대상의 Kimodo 생성 경로(`local_ai` · `key_pose` 역리타깃 · select — 저장된 BVH 만 썼다) · SB `fix.body`(머리가 분리 메시).
+
+**남은 것(고치지 않음 — 후속 후보):** 비표준 대상용 수동 체인 제안은 사람 또는 Claude Code 몫(Phase 1 그대로) · 무기 크기 · 파지 띠의 대상별 기준(몸에 비해 큰 무기) · 기준 스케일이 있는 대상의 `apply_animation_edits offset_bone` 등 cm 인자 op 는 트랙 단위 그대로(`bone_deltas` 만 환산 — 파이프는 다른 cm op 를 대상에 쓰지 않는다).
+
+**완료 기준(로드맵 §10 U8 — 9-5b 몫):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 1 | 대상 표 · 새 실패 원인 분류 | ✅ Narmaya 추가 — 위 표 |
+| 2 | 대상 이름 가정 0 · 기준값 프로필 또는 위험 | ✅ 리그 경로는 이름을 안 본다(기본 이름 폴백은 템플릿 경로만) · 한계 `TARGET_STYLE_FROM_REFERENCE` |
+| 3 | 비표준 대상 1개의 리타깃 · 보정 · 캡처 | ✅ Narmaya 3 Job + SB 리타깃 · 캡처 2 |
+| 4 | Vesper 불변 · pytest · 통합 회귀 · 사람 판정 | 프로필 정확히 같음 9/9 · pytest 903 · 통합 실패 0 · 사용자 판정 완료(11-04) |
+
+#### 9-5c 리뷰 도구 — 캡처 부분 프레이밍 (개정 15 — 2026-11-04, U7-d)
+
+**진행:** 출발 기록(HEAD `b8a9ee5` · 작업 트리 깨끗 · 에디터 없음 · pytest 903) → U0-5 질문(시험 APNG 를 채팅에 보내 사용자 확인) → **E0(제품 코드 무변경 — 대상별 손 · 머리 본 · S1 손 이동 · 손바닥 방향 · 가림 · `focus` 없는 호출의 기준 PNG)** → 설계 확인(사용자 '설계안대로 착수' — C++ · 두 구성 빌드 · Tool 스키마 변경 포함) → C++ · Python 구현 → 스파이크에서 정정 3 → 통합 → 판정 캡처.
+
+**결정:** ① U0-5 = **움직임**(사용자 2026-11-04 — 작은 APNG 를 채팅 미리보기로 확인) → **MP4 는 구현하지 않고 기록으로 닫는다.** ② 프레이밍 원천 = 지정 본의 정점 상자(전신 범위와 같은 `BoneVertexBoxes`), 정점이 없는 본은 본 위치 ③ 카메라 = 칸마다 따라가기 · 배율은 클립 하나 · 방향은 기존 `views` ④ `near_cut` 기본 켬 ⑤ anim_gen = `review.capture.focus[]`, 초점 하나당 C++ 호출 한 번 ⑥ 회귀 = pytest · 두 구성 빌드 · Automation · `focus` 없는 PNG 비교 · `anim_gen_phase8_2_test.py`.
+
+**E0:**
+
+| 항목 | 측정 | 뜻 |
+| :--- | :--- | :--- |
+| 전신 캡처의 손 | S1 0.42 cm/px · 손 → 손끝 8.2 cm = 약 20 px | 손가락을 눈으로 못 본다 |
+| 손 이동 | S1 왼손 이동 범위 78.7 × 52.7 × 93.4 cm | 클립 전체 고정으로는 확대가 안 된다 → 따라간다 |
+| 가림 | 몸 오른쪽 측면에서 왼손이 가슴 뒤 64/120 프레임 · 정면 0/120(본 위치 어림) | 측면 사진 절반이 가린다 → 앞 자르기 |
+| 손바닥 방향 | \|손바닥 법선 · 시선\| 정면 · 측면 중 나은 쪽 p50 0.75 · 0.5 미만 12/120 | 새 시점은 필요 없다 |
+| 근평면 | `BuildOrthoMatrix` NearPlane 0 · `bUpdateOrthoPlanes` 기본 false(SceneCaptureRendering.cpp:511-521 · 862) | 카메라 앞만 그린다 |
+| 스케일 100 대상 | 프로필 위치가 cm(손 → 손끝 Narmaya 7.8 · SB 12.5 cm) | 환산 불필요 |
+| SB | 머리 없는 메시(목 구멍) · `Bip001-Head` 본은 있다 | 정점 없음 경고 |
+
+**구현 — C++(옵트인 — `focus` 없으면 지나지 않는다):**
+- `FFocus` · `ParseFocus` · `FitFocus`(전 프레임 초점 범위 최대 폭 · 높이 + 양쪽 `margin_cm` 를 `FitView` 로 — v 를 0 부터 주어 바닥 규칙이 안 걸린다) · `FollowFocus`(한 포즈의 범위로 중심 · 앞 자름 깊이만 바꾼다) — Automation `AnimGraphMcp.Generation.Capture` 에 손 계산 기대값.
+- `Capture`: 범위 표본마다 뷰별 최대 폭 · 높이, `Posed(View)` 가 준비 · 행 · 연속 프레임의 칸 뷰를 만든다. `FViewFit.NearCutD` · `RenderCell` 카메라 깊이, `SubjectStats` 배경색 인자(칸 구석도 몸일 수 있어 피사체 위 1000 cm 에서 따로 잰다 · `touches_edge` 안 잼) · 라벨 뒤 덮개 · 결과 `focus{}` · `frames[].focus_center · near_cut_depth` · 경고 `CAPTURE_FOCUS_NOT_SKINNED` · `CAPTURE_FOCUS_EMPTY`.
+
+**구현 — Python:** `_review_focus`(요청 — 줄 때만 키 · 계획 · Job 비트 같음) · `focus_bones`(프리셋 → 본: 손 · 손가락 = 대상 메시 손가락 체인 제안 · `bundle_bones`, 머리 = `RetargetPipe.request_bones`) · `ReviewPipe._capture_focus`(본 캡처의 호출 인자 그대로 + `focus` · 폴더 · 라벨, `compare` 만 뺀다 · 부위마다 APNG). 연결 · 가드 오류만 중단, 나머지는 그 부위 한계 `REVIEW_NOT_CAPTURED{focus}`.
+
+**스파이크에서 고친 것(1 · 3 은 승인 설계와 다름 — 사용자 '그대로 유지' 2026-11-04, 2 는 설계의 '확인할 것'대로):**
+1. **앞 간격:** 설계는 '상자 앞면에서 `margin_cm` 앞'이었다. 4 cm 면 Narmaya 측면 손 앞에 머리카락이 남았다(1 cm 로 재면 손이 드러남) → **고정 1 cm**(`FocusNearGapCm`), `margin_cm` 은 화면 여백만.
+2. **주광 그림자:** 잘린 몸도 그림자를 드리운다(주광이 카메라 쪽에서 온다) — S1 측면 왼손이 통째로 어두웠다 → `near_cut` 이면 주광 그림자 끔(설계의 '확인할 것' 대로). `near_cut: false` 는 그림자 유지.
+3. **라벨:** 검은 소매 위에서 안 읽혔다 → 초점 칸만 글자 뒤를 배경색으로 덮는다.
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Plugins/AnimGraphMcp/…/Core/AnimMcpCapture.{h,cpp}` · `Tools/AnimMcpTools_Capture.cpp` · `Tests/AnimMcpCaptureTests.cpp` · `README.md` | `focus` · Tool 설명 · Automation |
+| `Tools/mcp/anim_graph_mcp/server.py` | 프록시 인자 `focus` |
+| `Tools/mcp/anim_gen/request.py` · `providers/review.py` · `server.py` · `README.md` | 요청 · 프리셋 풀이 · 부위별 캡처 · 설명 |
+| `tests/test_capture.py` · `conftest.py` | pytest 23 추가(60) · FakeEditor `focus` 흉내 |
+| `Tools/mcp/anim_gen_phase8_2_test.py` | 섹션 `focus` — S1 손 · 머리 · 같은 입력 = 같은 픽셀 · near_cut 켬 · 끔 · 샘플 없는 Fit 비교 시트 · Narmaya · SB · 거부 · Job |
+
+**검증:**
+- pytest **926**(903 + 23) · Automation `AnimGraphMcp` 36/36 · Dev · DebugGame 빌드 코드 경고 0(툴체인 안내 1줄).
+- **기존 호출 불변:** `focus` 없는 네 세트(Vesper 칼 시험 + 연속 프레임 · S1 · Narmaya · SB)를 E0 빌드와 새 빌드에서 찍어 **PNG 바이트 38/38 같음**(스파이크 두 번 모두, 최종 C++ 포함). 기준 SHA-1 목록은 E0 스크립트가 상태 파일을 덮어써 잃었고, 바이트 비교가 더 엄격해 그것으로 대신했다.
+- 통합 `P82Run1104_122632`(`hashes,automation,tool,guard,focus,chain,dirty`) 실패 0 · SHA-256 불변 7 · 새 더티 0 · Content = 실행 폴더뿐(chain).
+
+| 대상 | 부위 | cm/px (전신 대비) | 상자 · 범위 | 비고 |
+| :--- | :--- | :--- | :--- | :--- |
+| Vesper S1 | 왼손 | 0.044 (0.42) | 범위 15.2 × 14.6 cm · 16/16 본 | 칸 10 · 0.7초, + 61장 2.7초 · APNG 10.6 MB |
+| Vesper S1 | 머리 | 0.102 | `head` 31 × 23 × 25 cm(뿔 포함) | |
+| Narmaya | 왼손 | 0.043 (0.48) | 범위 11.9 × 14.0 cm | 칼 · 치마 영향 없음 |
+| Narmaya | 머리 | 0.077 | `_0051` 20 × 21 × 21 cm | **긴 머리카락에 안 넓어짐**(머리카락 본이 따로) |
+| SB | 왼손 | 0.045 (0.24) | 범위 14.8 × 14.8 cm | 스케일 100 정상 |
+| SB | 머리 | 0.016 | 정점 없음 → 본 위치 + 여백(8 cm 창) | 경고 `CAPTURE_FOCUS_NOT_SKINNED` |
+
+- `near_cut`: S1 측면 칸 피사체 24 → 72 %(끔 — 가슴 · 머리카락이 채움) · 칸 10/10 다름.
+- 비교 시트(샘플 없는 Fit | S1): 샘플 없는 왼손은 펴져 있고 S1 은 쥔 모양 — 부록 B 의 '0.0000° 인데 눈으로 못 본다'가 사진으로 구분된다.
+- anim_gen Job `job_20261104_122659_e6e5b0`(재사용 경로 · `hand_l` · `head` · 없는 본): 앞 둘 성공 · 없는 본은 그 부위만 `REVIEW_NOT_CAPTURED` · Job SUCCEEDED.
+
+**읽는 법 · 한계:**
+- 앞 자르기 자국: 잘린 면 안쪽이 비어 보인다(S1 2.67초 측면 소매 구멍 · SB 소매 고리). 메시를 뚫은 것이 아니다 — 실제로 가까운 몸이 보고 싶으면 `near_cut: false`.
+- `near_cut` 이면 주광 그림자가 없어 손가락 사이 접촉 그림자도 없다. 게임 조명 판정에 쓰지 않는다.
+- 카메라가 따라가므로 칸 안에서 손의 이동은 안 보인다(이동은 전신 시트 · APNG).
+- 부착 무기는 그려지지만 프레이밍에는 안 든다(긴 무기로 넓어지지 않게). 비교 칸의 배율은 그 클립 기준이라 다를 수 있다(샘플 없는 Fit 0.054 · S1 0.044).
+- 손바닥 방향 고정 시점은 없다(E0 — 정면 · 측면 중 나은 쪽이 p50 0.75). 12/120 프레임은 옆에서 본다.
+
+**돌리지 않은 것:** phase8_4 · 8-1 · 8-3 · 9-x · Phase 1 ~ 7 회귀(캡처는 애니 데이터를 바꾸지 않고 `focus` 없는 호출이 바이트 같음) · 통합 `existing` 섹션 · 생성 경로(Kimodo · 리타깃) Job 에 `focus` · `head` 프리셋의 대상 리그 경로(`existing_target_rig` — 원천 `request_bones` 는 9-5b 시험) · IdaFaber 남성 · Manny 의 `focus` · Development 구성으로 에디터 실행(빌드만).
+
+**남은 것(고치지 않음 — 후속 후보):** 고정 프레이밍(발 미끄러짐처럼 움직임 자체를 볼 때 — 지금은 따라가기만) · 손바닥 기준 시점.
+
+**완료 기준(로드맵 §6 U7 기준 4 · 5 — 9-5c 몫):**
+
+| # | 기준 | 결과 |
+| :---: | :--- | :--- |
+| 4 | 부분 프레이밍 캡처 시트(손가락 S1) · (했다면) MP4 | ✅ S1 왼손 시트 · 비교 시트 · APNG, 머리, Narmaya · SB · MP4 는 U0-5 답으로 안 함 |
+| 5 | C++ 변경 시 두 구성 경고 0 · Automation · 회귀 | ✅ 경고 0 · 36/36 · 통합 실패 0 · 기존 호출 바이트 같음(phase8_4 는 위 근거로 안 돌림) |
+| — | 사람 판정 | 판정용 캡처 전달 뒤 사용자가 설계 차이 2건 유지 · 산출물 정리를 지시(2026-11-04) — 판정 결과는 따로 말하지 않아 기록 없음. 다시 보려면 `anim_gen_phase8_2_test.py --only focus` |
+
+**정리(2026-11-04 — 사용자 지시):** 실행 폴더 `P82Run1104_122632` · 캡처 9 폴더 · 스크래치 파일 휴지통(복원 가능). `Saved/AnimGen/TestRuns/…` 는 세션 권한 밖(사용자 몫).
+
+#### 9-5d 영상 포즈 조사 + 메시 트랙 결정 (개정 15 — 2026-11-04, U9 · U10)
+
+코드 · 하네스 변경 없음. 내려받기 · 설치 · 가입 · 업로드 0건. 단위 근거 = 로드맵 §11 · §12, 조사 원문 · 출처 = [VideoPoseSurvey.md](VideoPoseSurvey.md).
+
+| 결정 (사용자, 2026-11-04) | 내용 |
+| :--- | :--- |
+| U9 범위 | 로컬 모델 + 상용 서비스(공개 문서 · 약관만) · 시험 영상은 조사 뒤 · 내려받기 · 가입은 지금 없음 |
+| U9 권고 | **Provider 채택 안 함 · GEM-X 는 키 포즈 원천 후보로만** — 판단 V-1 · V-2 는 열어 둠 |
+| U9 시험 | **시험 없이 닫음** — 적법 · 호환 후보는 있으나 시험 영상 · 내려받기 승인 조건이 맞지 않음. 품질 · Windows · 12 GB 미측정 |
+| U10 | **검토 · 미채택**(9-5 하위 단계 승인 — 새 웹 조사 · 가입 없음). 재검토 조건 = 아래 '별도 트랙' |
+
+**경로 근거(코드 대조):** `soma.is_soma()` 가 BVH 관절 이름으로 SOMA 를 알아보면 `providers/blender.py` `plan_convert` 가 `local_ai` 리타깃 기본값을 채운다. GEM-X 를 쓰려면 `motion.pt` → SOMA77 BVH 변환만 있으면 된다(시험용 스크래치 — 파이프라인 코드 아님). 키 포즈는 결과 `AS_` 를 `generation.constraints[] key_pose.asset` 로 준다.
+
+**재검토 조건(U9):** 공식 내보내기 또는 Windows 문서 · 메인테이너의 SAM · DINOv3 조건 명시 · 비상업 데이터가 아닌 기본 검출기 · 사용자 시험 영상 · UE 5.8 업그레이드 · Kimodo 가 못 내는 동작이 필요해짐.
+
+### 별도 트랙 — 3D 메시(에셋) 생성 (개정 9 메모)
+
+애니 파이프라인(이 지침서의 Phase 1 ~ 8) 밖의 별도 작업으로 둔다 — **애니 자동화 뒤**에 착수(사용자 결정 2026-10-25). Phase 6(외부 AI **애니메이션**)에 넣지 않는 이유: 완료 기준이 모션(`AS_` · 리타깃 · 검증)이고, 요청 스키마(대상 스켈레톤 · 동작 분류 · 애니 이름)와 맞지 않으며, 메시 임포트는 재질 · 텍스처가 핵심이라 지금 `import_animation_file`(리타깃 소스용 — 재질 · 텍스처를 끈다)과 다른 경로가 필요하다.
+
+- 후보: Tripo3D — 텍스트 · 이미지 → 3D 메시(공식 CLI · API), 자동 리깅. 무료 크레딧 · 가격 · 출력 리그 · 약관은 그 트랙에서 다시 확인. 조사 · 설계 초안(모션 Provider 로는 채택 안 함 결론 포함): 공유 노트 `phase6-tripo-survey-design.md`(Tripo 세션) — **참조 끊김: 2026-11-04 공유 노트 · `.claude` 에서 찾지 못함, [로드맵](FollowUpRoadmap.md) §12 요약이 남은 기록**
+- 재사용: Phase 6 의 외부 API 공통 구조(승인 · 장부 `(plan_id, attempt)` · 요청 로그 · 비동기 Job · 키는 환경 변수만 · 기본 URL 고정)
+- 애니 쪽과 만나는 곳: 생성 · 리깅한 캐릭터를 새 대상 스켈레톤으로 삼아 Vesper 애니를 리타깃(Phase 8 "다양한 스켈레톤")
+
+**결정(2026-11-04 — 9-5d, U10): 검토 · 미채택 — 트랙을 열지 않는다.** 모션 Provider 로는 쓸 곳이 없고, 출력을 쓰려면 유료여야 하며(약관 §5.2.1), 메시 · 재질 임포트 C++ · 외부 Provider · U8 연계로 무겁다. 다른 대상 검증은 기존 애셋으로 끝났다(9-5a · b). 새 웹 조사 · 가입 없이 2026-10-25 시점 요약으로 기록했다. **다시 열 조건:** ① 마켓 · 기존 애셋으로 못 채우는 캐릭터가 실제로 필요해진다 ② 유료 사용을 정한다 ③ 메시 · 재질 · 텍스처 임포트 경로가 다른 이유로 필요해진다. 열 때는 Tripo 사실을 먼저 재확인한다(로드맵 §12).
+
+---
+
+## 15. 테스트 시나리오
+
+| 원본 | 개정 | Phase | 종류 |
+| :--- | :--- | :---: | :--- |
+| A 무료 기본 동작 | 기존 공격에서 트림·편집으로 공격 준비·복귀 생성 | 2 | 에디터 통합 |
+| B 기존 모션 수정 | 그대로 + 원본 패키지 해시 불변 확인 | 2 | 에디터 통합 |
+| C 커스텀 스켈레톤 | Narmaya 또는 SB ↔ `SKEL_UE5_F`, 수동 체인 폴백 포함 | 1 | 에디터 통합 |
+| D 폴백 | Mock Provider 실패 → 다른 Provider · 경로 기록 | 3 | Mock (pytest) |
+| E 비용 통제 | `FREE_ONLY` + 유료 요청 → `APPROVAL_REQUIRED`/`BUDGET_EXCEEDED`, 외부 호출 0 | 3 · 6 | Mock → 실제 어댑터 |
+| F AnimBP 연결 | 명시 요청(`integrate_anim_bp` + `anim_bp`) 시에만 기존 AnimBP MCP로 연결 — 개정 10: 운영 AnimBP 는 복제본에서 적용 · 컴파일 · 스모크 · 시나리오, 운영은 revision · 미리보기 · 적용 페이로드까지(SHA-256 불변). 연속(생성 → BS → 전이 · 생성 → additive 몽타주 → 슬롯) · 독립(기존 애셋 재사용 → 몽타주 → 슬롯) · 승격(리디렉터 0 · 참조 유지) — `anim_gen_phase7_test.py` | 7 | 에디터 통합 + pytest(`test_integrate.py`) |
+| (신규) G 회귀 비교 | Tool이 만든 리타기터 결과 vs 기존 RTG 결과 | 1 | 에디터 통합 |
+| (신규) I 대상 메시 캡처 (개정 12) | 기존 애셋(칼 시험 · 8-1 검 · 낫 선택)을 Vesper 로 캡처 + 소스 골격 비교 시트 · APNG · 가드(루트 · 폴더 · 이미지 · 더티 0) · BVH → blender render → 리타깃 → capture Job · 9-5c 섹션 `focus`(S1 손 · 머리 · near_cut · Narmaya · SB · 거부 · Job `review.capture.focus`) — `anim_gen_phase8_2_test.py` | 8 · 9 | 에디터 통합 + pytest(`test_capture.py`) + Automation(`AnimGraphMcp.Generation.Capture`) |
+| (신규) K 대상 쪽 보정 기반 (개정 14 — 8-4a) | 비교 대상 16개(8-1 · 8-3 결과 · 운영 Vesper) — 기본 body_clearance = 옛 빌드 baseline · parts all(소견 자리 · head_near 방향) · Python 몸 모델 재현 = C++ · bone_deltas · profile_rotations · E0(낫 부착값 · 자루 선 · 왼손 파지 선분 · 사건 · 낫 붙인 '전' 캡처) — `anim_gen_phase8_4_test.py`(baseline 은 코드 바꾸기 전 빌드에서 한 번) | 8 | 에디터 통합 + pytest(`test_body_model.py`) + Automation(`AnimGraphMcp.Generation.{BodyClearance, Edit, Capture, Geometry}`) |
+| (신규) L 한 풀이 · 지시 목표 (개정 14 — 8-4b) | 비교 대상 8개 + 운영 Vesper 4개를 기존 애셋 경로 `fix.body` Job 으로 — 기준 1 ~ 5 · 스트레스 7 · 사용자 Persona 자리 전후 · 전후 캡처(낫 부착), 표준 지시 T1 ~ T4(목표 오차 · `SEAM_JUMP` · 목표 없는 같은 Job 대비 구간 밖 변화 · 발 고정 · 막힘), 계획(목표 풀어 보임 · 생성 경로 단계 순서 · 오류 4종) — `anim_gen_phase8_4_test.py --only plan,clearance,targets,existing`(targets 는 clearance 뒤) | 8 | 에디터 통합 + pytest(`test_body_fit.py` · `test_body_fit_pipe.py` · `test_body_model.py` 손끼리) + Automation(`BodyClearance` 손끼리) |
+| (신규) M 무기 · 샘플 전이 · 다리 · 합본 (개정 14 — 8-4c · d) | 무기 요청 · 옵트인 파지 · `weapon_tip` · 라이플(`grip`), 샘플 전이 S1 ~ S3 · 다른 스켈레톤 거부(`samples`), 8-3 다리 보정본 4건에 다리만 — 떨림 · 미끄러짐 · 좌우 비 · 무릎 · 상체 불변(`legs`), 저장된 Kimodo BVH → fix.ops → 리타깃 → timing → body_fit → 검증 → 낫 부착 캡처 한 Job(`combined`) — `anim_gen_phase8_4_test.py --only grip,samples,legs,combined`(samples · grip 은 clearance 뒤). 9-4d: legs · combined 에 바닥 · 다리끼리 · 합본 접지 고정(미끄러짐 ≤ 1 cm/s), 섹션 `feet`(다리 샘플 L1 · 발 회전 목표 L2) | 8 · 9 | 에디터 통합 + pytest(`test_weapon.py` · `test_pose_from.py` · `test_body_fit_legs.py` · `test_body_fit_feet.py` · `test_body_fit_pipe.py`) |
+| (신규) N 다른 대상 (개정 15 — 9-5a · 9-5b) | Vesper · IdaFaber 남성 · UE5 Manny · Narmaya(수동 체인 대상 리그 · 루트 스케일 100)에 phase8_4 합본 2 · 운영 Attack2 → 대상 + `fix.body` · 다리만 Job — 대상별 기준값(몸 비율 · 배율 = Vesper) · 표준 대상 출력 = 지난 실행 · 리타기터 구성(계획 거부 · 같은 소스 재사용 성공 · 다른 소스 실행 거부) · SB(+X) 대상 쪽 정면 맞춤 · 크기 — `anim_gen_phase9_5_test.py` | 13 | 에디터 · Blender 통합 + pytest(`test_target_style.py` · `test_target_rig.py`) + Automation `AnimGraphMcp.Generation.RefScale` |
+| (신규) J 자동 보정 (개정 13) | 시험 대상 4개(칼 시험 · 8-1 검 · 낫 선택 둘) — 저장된 Kimodo BVH 재리타깃 = 기존(기준 재현) · `fix.timing`(기존 애셋) · `fix.ops` 다리(BVH — 대상 모델 풀이) · smooth · 합본 Job · 전후 캡처(warp 행 · 비교 시트 · APNG) — `anim_gen_phase8_3_test.py` | 8 | 에디터 · Blender 통합 + pytest(`test_timing.py` · `test_fix_legs.py`) + Automation(`AnimGraphMcp.Generation.Capture`) |
+| (신규) H 생성 품질 (개정 11) | 양손 칼 베기 프롬프트 + `two_hand_weapon_grip` · `foot_contact` → 2차 생성(meet · lead) · seed 후보 4개 선별 · 같은 seed measure vs resolve(E1) · 프롬프트만 바꿈(E3) — `anim_gen_phase8_1_test.py` | 8 | 실제 Kimodo · Blender · 에디터 + pytest(`test_refine.py` · `test_select.py`) |
+
+- Mock 테스트와 실제 에디터 통합 테스트를 구분한다(원본 유지).
+- Python 통합 테스트는 `Tools/mcp/`의 기존 방식(`phaseN_test.py` + `*_state.json`)을 따른다.
+
+---
+
+## 16. 원칙과 금지 사항
+
+원본 12개:
+
+1. 기존 AnimBP MCP를 불필요하게 다시 쓰지 않는다.
+2. 기존 스켈레톤과 원본 애니메이션을 기본적으로 수정하지 않는다.
+3. UE 5.7.4에서 확인하지 않은 API를 가정하지 않는다. §2.3 표에 없는 API는 헤더를 확인한 뒤 표에 추가하고 쓴다.
+4. 로컬 모델의 라이선스와 지역 제한을 무시하지 않는다.
+5. 승인되지 않은 외부 유료 API를 호출하지 않는다.
+6. 무료 폴백이 원 요청과 같은 품질을 보장한다고 주장하지 않는다.
+7. 특정 AI Provider를 필수 의존성으로 만들지 않는다.
+8. 스켈레톤 정보만으로 무기 제약을 다 파악할 수 있다고 가정하지 않는다.
+9. 애셋 생성 성공과 시각 품질 검증 성공을 혼동하지 않는다. 개정 11: **선별은 수치, 판정은 사람** — 후보 선별(select)은 근거(Job `selection` 의 원 수치 · 벌점 · 순위)와 함께 보이고 한계 `SELECTED_BY_NUMBERS` 를 단다. 수치 기준 통과를 품질 합격으로 보고하지 않는다. 개정 12: 대상 메시 캡처(`review.capture`)는 판정의 **근거**다 — 캡처가 나왔다는 것을 품질 합격으로 보고하지 않고, 한계 `REVIEW_CAPTURE_PREVIEW_ONLY`(무기 · 물리 · AnimBP 레이어 없음)를 함께 보인다.
+10. 에디터 전용 제작 기능을 런타임 모듈에 넣지 않는다.
+11. 외부 서비스에 캐릭터 데이터나 애셋을 보낼 때는 그 서비스의 데이터 정책을 확인한다.
+12. 미완성 기능이나 Mock 동작을 실제 구현 완료로 보고하지 않는다.
+
+추가:
+
+13. 기존 응답 봉투와 오류 체계를 깨지 않는다.
+14. 게임 스레드에서 네트워크 호출·서브프로세스·대기를 하지 않는다.
+15. `anim_graph_mcp/server.py`에 로직을 넣지 않는다(프록시만).
+16. API 키를 저장소·로그·Tool 인자·Job 기록에 남기지 않는다(환경 변수만).
+17. 생성물은 허용 목록 경로에만 쓴다. 정식 경로 이동은 사용자 확인 후 — `promote_animation` 의 `dry_run` → 확인 → `confirm`, 대상은 ini `PromotionPaths` 안만(개정 10). 운영 AnimBP 적용도 사용자 승인 뒤 사람이 한다(anim_gen 은 복제본까지 — §12).
+18. 플러그인에 프로젝트 고유 이름·경로를 하드코딩하지 않는다.
+
+---
+
+## 17. Claude Code 작업 지시
+
+1. 한 번에 한 Phase만 진행한다(Phase 0 · 1 · 2 · 3 · 4 · 5 · 6 · 7 완료 — 6 의 실제 유료 1건은 미실행, 7 의 운영 AnimBP 실제 적용은 범위 밖. 8-1 구현 · 검증 + 수정안 A · B · C 2026-10-26 — 사람 재판정 대기, 8-2 구현 · 검증 2026-10-26 — 캡처 결과는 사람 판정 대기, 8-3 구현 · 검증 2026-10-27 + 후속 수정 2건(같은 날 밤) — 전후 캡처 사용자 판정 통과 · antialias 1.0 확정, 8-4a 기반 구현 · 검증 2026-10-28 — 낫 붙인 '전' 캡처는 사람 판정 근거, 8-4b 한 풀이 구현 · 검증 2026-10-28 · 10-29 (가), 8-4c 무기 파지 기반(옵트인) · 후속 · 샘플 전이 2026-10-29 ~ 30, 8-4d 다리 공중 경로 · 합본 · 회귀 전체 2026-10-30 — **8-4 전 단위 종료**, 후속 8-4e 빠른 구간 매끈화 · 8-4f 위팔 마무리 2026-10-31 — 사용자 판정 통과(11-01 종료 확인), 남은 미달 · 후속 후보는 §14 '8-4 정리'). 다음 Phase는 사용자 승인 후 착수한다. Phase 8 은 단위(8-1 ~ 8-4)마다, 8-4 는 하위 단위(a ~ f)마다 승인한다.
+2. 각 Phase는 코드 편집 전에 Tool 시그니처 · 커밋 단위 · 구현 순서를 보여 주고 **사용자 확인을 받는다.** 문서와 엔진 API가 어긋나면 문서 수정안을 함께 낸다.
+3. 에디터 확인용 애셋은 `/Game/Animation/Test/AIAnimation/`에 만들고, 끝나면 정리 목록을 보고한다.
+4. 순서: 구현 → 정적 검증(두 구성 빌드 · Python 문법) → 에디터 통합 테스트(`Tools/mcp/anim_gen_phaseN_test.py`) → 결과 기록.
+5. 보고에 포함할 것(원본 유지): 수정·추가된 파일 · 새 MCP Tool · 구현된 기능 · 실제 테스트 여부 · 실패·미검증 사항 · 기존 AnimBP MCP에 미친 영향 · 후속 Phase 작업. 여기에 **그 Phase 완료 기준 각각의 충족 여부**를 더한다.
+
+---
+
+## 부록 A. 출처
+
+- 엔진 소스: `D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/` 아래, §2.3 표의 경로
+- 기존 플러그인: [Plugins/AnimGraphMcp/README.md](../../Plugins/AnimGraphMcp/README.md) · `Tools/mcp/anim_graph_mcp/server.py` · `bridge.py`
+- HY-Motion 1.0 라이선스: <https://raw.githubusercontent.com/Tencent-Hunyuan/HY-Motion-1.0/master/License.txt> · <https://huggingface.co/tencent/HY-Motion-1.0>
+- Meshy Text-to-Motion API: <https://docs.meshy.ai/vi/api/text-to-motion> · 개정 9(2026-10-25 열람): <https://docs.meshy.ai/en/api/text-to-motion> · 가격(크레딧) <https://docs.meshy.ai/en/api/pricing> · Rate Limit <https://docs.meshy.ai/en/api/rate-limits> · 오류 · `task_error` <https://docs.meshy.ai/en/api/errors> · 잔액 <https://docs.meshy.ai/en/api/balance> · 사용 내역(Studio · Enterprise) <https://docs.meshy.ai/en/api/usage> · 태스크 수명 · poll · 타임아웃 <https://docs.meshy.ai/api/task-lifecycle.md> · 결과 보존 3일 <https://docs.meshy.ai/api/asset-retention.md> · 인증(`msy_` 키 · IP 허용 목록) <https://docs.meshy.ai/api/authentication.md> · 변경 이력(2026-08-21 출시 · 2026-09-16 테스트 키 폐지) <https://docs.meshy.ai/api/changelog.md> · 메타데이터 태그(Studio · Enterprise) <https://docs.meshy.ai/api/metadata.md> · 문서 색인 <https://docs.meshy.ai/llms.txt> · 요금제(KRW 표시) <https://www.meshy.ai/pricing> · 크레딧 안내 <https://www.meshy.ai/tutorials/meshy-credits-guide> · 약관(2026-09-19) <https://www.meshy.ai/terms-of-use> · 개인정보(2026-09-19) <https://www.meshy.ai/privacy-policy>
+- DeepMotion SayMotion REST API: <https://github.com/DeepMotion/SayMotion-REST-API> · <https://deepmotion.com/post/saymotion-api-now-available-for-free-trials>
+- Phase 5 로컬 모델 조사(개정 8): [LocalModelSurvey.md](LocalModelSurvey.md) 부록(2026-10-24 열람 — 데이터셋 · 모델 · 라이선스 원문 전체 목록). 채택 근거만 여기 다시 적는다:
+  - Kimodo 저장소 · 라이선스: <https://github.com/nv-tlabs/kimodo> · <https://github.com/nv-tlabs/kimodo/blob/main/LICENSE> · 출력 형식 <https://research.nvidia.com/labs/sil/projects/kimodo/docs/user_guide/output_formats.html> · BVH 내보내기 `kimodo/exports/bvh.py`
+  - 모델 카드: <https://huggingface.co/nvidia/Kimodo-SOMA-RP-v1.2> · NVIDIA Open Model License <https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/>
+  - 텍스트 인코더: Meta Llama 3 Community License <https://www.llama.com/llama3/license/> · <https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct>(게이트) · LLM2Vec 어댑터 <https://huggingface.co/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp>
+  - 공개 T2M 학습 데이터: AMASS License <https://amass.is.tue.mpg.de/license.html> · SMPL Model License <https://smpl.is.tue.mpg.de/modellicense.html> · HumanML3D <https://github.com/EricGuo5513/HumanML3D>
+- U9 영상 포즈 조사(개정 15 — 9-5d): [VideoPoseSurvey.md](VideoPoseSurvey.md) 부록(2026-11-04 열람 — 모델 · 서비스 약관 전체 목록). 결정 근거만 여기 다시 적는다:
+  - GEM-X: <https://github.com/NVlabs/GEM-X> · 모델 카드 <https://huggingface.co/nvidia/GEM-X> · 체크포인트 라이선스 · 초기화 답변 <https://github.com/NVlabs/GEM-X/issues/32> · SOMA 골격 <https://nvlabs.github.io/SOMA-X/stable/api/somalayer.html>
+  - 남은 판단: SAM License <https://github.com/facebookresearch/sam-3d-body/blob/main/LICENSE> · DINOv3 License <https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md> · Human-Art <https://github.com/IDEA-Research/HumanArt>
+  - 서비스 약관: Move One API EULA <https://move.ai/move-one-api-eula> · DeepMotion <https://www.deepmotion.com/terms-of-use> · Rokoko <https://www.rokoko.com/studio-term-of-use> · Rokoko 개인정보 <https://www.rokoko.com/privacy-policy> · Plask <https://plask.ai/docs/100002>
+  - UE 5.8: <https://dev.epicgames.com/documentation/metahuman/metahuman-animation-from-mono-video-capture-in-unreal-engine> · SMPL 라이선스 창구 <https://www.mpg.de/26082348/max-planck-spin-off-meshcapade-draws-epic-games-to-tuebingen>
+- 엔진 소스(개정 8 추가 행): `Plugins/Animation/IKRig/Source/IKRig/Private/Retargeter/{IKRetargetProcessor.cpp, IKRetargetChainMapping.cpp, RetargetOps/RunIKRigOp.cpp, RetargetOps/FKChainsOp.cpp, RetargetOps/RootMotionGeneratorOp.cpp}` · `…/IKRigEditor/Private/RetargetEditor/IKRetargeterPoseGenerator.cpp` · `Plugins/Interchange/Runtime/Source/Import/Private/Mesh/InterchangeSkeletalMeshFactory.cpp`
+
+## 부록 B. 미확인 항목
+
+| 항목 | 확인 시점 |
+| :--- | :--- |
+| ~~Interchange로 애니만 기존 스켈레톤에 임포트하는 파이프라인 설정 키~~ | Phase 0 확인 (감사 §1) |
+| ~~비표준 스켈레톤(Narmaya · SB)에 대한 자동 캐릭터라이즈 결과~~ | Phase 0 확인 — 전부 실패 (감사 §2) |
+| ~~5.7 리타기터 기본 op 목록~~ | Phase 0 확인 — `AddDefaultOps` 5개, 기존 RTG는 Pin Bones 추가 7개 (감사 §4) |
+| ~~임포트가 기존 스켈레톤을 수정하는지~~ | 문서 검토에서 확인 — 커브 메타데이터 추가 시 더티, `bAddCurveMetadataToSkeleton=false`로 차단 |
+| ~~동기 Interchange 임포트를 게임 스레드 HTTP 핸들러에서 대기해도 되는지~~ | Phase 1 확인 — 정상(메시째 1.3초) |
+| ~~일괄 리타깃 애셋당 소요 시간~~ | Phase 1 확인 — 1.6~2.4ms/프레임, 상한 50 |
+| ~~상대 검증 허용 비율 초기값~~ | Phase 2 확인 — 3계열 9건(UE4 HK · HS1 · UE5 Manny)이 모두 초기값 안(공통 본 각속도 p99 비 1.00~1.05 · 착지 발 0.94~2.26 · 루트 1.00) → 유지 (감사 §13) |
+| ~~루트 op 기본값과 Run IK Rig 활성 여부의 품질 차이~~ | Phase 2 측정 — `default`(Run IK Rig 켬)는 IK 본·손 위치를 바꾼다(본별 회전 차 p50 6.6° · p99 98.7°), Narmaya 에서는 179°/프레임 뒤집힘으로 `FAILED`. 생성 흐름은 `match_existing` 이 기준 (감사 §13) |
+| 얼굴 방향이 다른 스켈레톤(Narmaya) 리타깃 품질 | Phase 2 — `match_existing` 이면 자동 검증 `PASSED`(각속도 비 1.09, 최대 12°/프레임). **사람의 시각 확인은 남음** — 테스트 산출물은 정리했으므로 `anim_gen_phase2_test.py --only appendix` 로 다시 만들어 본다. 개정 7: Vesper 정면은 −Y 가 아니라 **+Y**(기준 포즈 `foot_l` → `ball_l`)로 정정. **개정 7 보강(2026-10-24) — 해결:** 소스 스켈레톤 12개 실측 — Vesper · IdaFaber M · UE4 마네킹 4 · UE5 Manny 2 · Greystone · Narmaya `pl1400`/`fp1400` = +Y, **SB `CH_P_EVE_01_Body` 만 +X**(3ds Max Biped, 왼쪽 −Y. 예전 `bvh.facing` 은 FX 본 z −2217cm 때문에 발 선분 0개 → 외톨이 제외로 해결). **Narmaya 는 Vesper 와 정면이 같다**(발 `_014` → `_015` +Y, 왼팔 +X) — "Narmaya ↔ Vesper 정면 차이"는 Vesper −Y 오기에서 나온 것. 소스 리타깃 포즈 루트 회전은 소스 현재 포즈에 걸리지 않아 결과가 소스 정면을 보므로(§2.3) 리타기터 대상 쪽에서 맞춘다(§10 `facing_yaw_deg`). SB `Evefin`(10.4초) → Vesper 손 궤적(펠비스 기준, 각자 몸 좌표): 맞춤 전 주축 각 85° · 44°, 소스의 앞뒤가 Vesper 의 좌우로 감(소스 앞 ↔ 대상 왼쪽 상관 0.98 · 0.97 — 세계 방향을 그대로 따름) → 맞춤 후 주축 각 15° · 13°, 몸 좌표 앞 · 왼쪽 상관 0.96 ~ 0.996, 출력 정면 +Y · 루트 원점 유지(정면이 같은 Narmaya 기준선 7 ~ 8°). 자동 검증은 맞춤 전후 둘 다 `PASSED`(각속도 비 0.896) — **평면 오류는 상대 비율 검증으로 안 보인다**. 계획은 SB 에 위험 `FACING_DIFFERS` + 한계 `FACING_ALIGNED`(yaw +90), Narmaya 는 정면 위험 없음. **사람 시각 확인 — 2026-11-04 통과**(`FacingRun1024_012108` 맞춤 전후 비교, 애셋은 판정 뒤 정리). **9-5b — 대상 쪽:** SB 를 대상으로 운영 Attack2(리타기터 `facing_yaw_deg` −90 · `FACING_ALIGNED`) · 저장된 BVH(blender 가 대상 정면으로 돌림) 성공 — 골반 이동 방향 차 0.0° · 높이 / scale 98.6(Vesper 98.6) · 거리 / scale 248.1(248.1). Narmaya 는 +Y 라 이 경로를 타지 않는다 |
+| ~~오래된 버전으로 저장된 마켓 애셋에 "Number of Frames" · "Source Frame Rate" 레지스트리 태그가 있는지~~ | Phase 2 확인 — 마켓 시퀀스 1,237개 전부 있음 |
+| ~~Blender 출력의 단위·축~~ · Meshy 출력의 단위·축 · 리그 | Blender — Phase 4 확인(§2.3 · §10). Meshy — 공식 문서에 없음(개정 9). Phase 6 실제 1건이 **미실행**(Free 요금제, 2026-10-25)이라 여전히 미확인 — 유료 요금제에서 `anim_gen_phase6_test.py --real` 이 임포트 스켈레톤 · 자동 IK Rig 템플릿 · 정면을 `real.rig` 에 기록한다. prime FBX 에 스킨 메시가 없으면 Interchange 가 스켈레톤을 만들지 못한다(§2.3) — 그때는 blender FBX 변환 경로가 후속 |
+| ~~`import_animation_file` + `sample_rate` 의 경계 안 맞는 길이~~ | Phase 4 발견(Interchange 가 애니를 건너뛰어 `IMPORT_FAILED NO_ANIMATION`) → 개정 7 보강 2 해결 — `ConfigurePipeline` 이 `bSnapToClosestFrameBoundary` 를 항상 켜고, 맞춘 트랙은 `warning LENGTH_SNAPPED`. 경계 안 맞는 CMU 01_01 FBX `sample_rate=30` → 689키 · 22.9333초(§2.3). 다른 FBX(Meshy 등)도 같은 경로로 임포트된다. blender 의 범위 정렬(`bvh.align_to_rate`)은 그대로 둔다(반 프레임 늘림·줄임 없이 소스 프레임 그대로 — `RANGE_ALIGNED` 문구도 이에 맞춰 정정). 생성 잡도 이 진단을 받는다 — 실행기가 단계 안 에디터 진단을 `tool` · `step` 과 함께 Job `diagnostics` 에 남긴다(§3.4) |
+| cgspeed CMU BVH 의 0번 프레임 | Phase 4 확인 — 회전 거의 없는 기준 포즈(T 비슷)라 1번 프레임에 최대 179.8° 튐(`ROTATION_JUMP_INHERITED`). `motion_file.range.start` = 1프레임으로 뺀다. 다른 CMU 클립도 같은 형식일 것(미확인) |
+| ~~Meshy 길이 범위 · 가격 · 결과 파일 만료 · 데이터 정책~~ | Phase 6 확인(개정 9, §2.4 · 부록 A): 2 ~ 10초 · 0.5초 단위 · 프롬프트 ≤ 400자 · prime 10 / swift 3 크레딧(실패 환불) · 결과 3일 · 약관 수용(사용자). **크레딧의 돈 값은 공식 문서로 확정 불가**(요금제마다 다름) → 정책 `usd_per_credit`(사용자) |
+| Meshy 크레딧의 돈 값 (개정 9) | 사용자 요금제가 정한다 — 월 크레딧을 다 쓰기 전에는 추가 지출이 없고, 크레딧 팩 가격은 공개되지 않았다. 정책 `external.meshy.usd_per_credit` 는 사용자가 정한 환산값이고 장부 USD 는 그 값 기준이다 |
+| ~~공개 Text-to-Motion 모델의 학습 데이터 라이선스~~ | Phase 5 확인(개정 8, [조사](LocalModelSurvey.md) §2 · §3.1 · §4) — HumanML3D 계열의 학습 데이터 AMASS(와 SMPL)는 "commercial use of any kind" 를 위한 신경망 학습을 금지 → **상업 이용 부적법**. 개인 포트폴리오가 허용 범위(비상업 연구 · 교육 · 예술)에 드는지 · 가중치만 받은 사용자에게 미치는지는 원문이 정하지 않는다(사용자 판단, 채택하지 않음). HumanAct12 · KIT-ML · SnapMoGen 데이터 라이선스는 원문을 못 찾았지만 AMASS 로 이미 판정돼 결론에 영향 없음. **적법 · 호환 후보 Kimodo-SOMA-RP-v1.2 채택**(§2.4) |
+| "Built with Meta Llama 3" 표시가 생성 애셋만 쓰는 게임 · 문서에도 필요한지 (개정 8) | 원문(Llama 3 License §1.b.i "a product or service that uses any of them")이 정하지 않는다 — 출시 · 배포 전 사용자 판단([조사](LocalModelSurvey.md) §4 K-1). 필요하다고 보면 표시를 넣는다 |
+| Phase 5 결과의 사람 시각 확인 (개정 8) | 자동 검증(소스 대비 상대 비 · 손가락 · 관통 · 루트 궤적)과 소스 골격 렌더 시트까지 확인. **Vesper 메시로 Persona/PIE 에서 보는 것은 남음** — 통합 테스트 산출물(`P5Run…/AS_Vesper_Kimodo_WalkTurnBackP5` · `AS_Vesper_Kimodo_RootPathP5`)은 2026-10-25 휴지통으로 정리했다. 다시 보려면 `anim_gen_phase5_test.py --only hashes,generate,constraint,dirty` 로 만든다(같은 seed 면 같은 동작). 같은 계열로 이전 세션들이 남긴 확인용 애셋(관통 보정 CMU 오른팔 최대 27° 벌림 · SOMA 양손 상대 위치 · 손가락 메타카팔 상대 정렬)도 Persona 눈 확인 남음. **2026-11-04 사용자 눈 확인 — 통과 · 지적 1:** `WalkTurnBackP5` 2.54 ~ 3.25초 왼발 버벅임. 원인은 리타깃이 아니라(프레임 76 ~ 97 Vesper ↔ 소스 발 속도 상관 0.994) **Kimodo 발 후처리**다 — 앞꿈치가 바닥에 붙은 채 프레임 82 · 83 에 발 속도가 5 → 110 → 9 cm/s 로 튄다. 같은 seed 에 `generation.postprocess: off` 면 사라진다(프레임 간 속도 변화 최대 100.3 → 42.1 · 사람 판정 '더 자연스러움'). 왼다리 구간 `smooth`(σ 2 · 2.4 ~ 3.2초 · root 끔)도 29.5 로 줄인다. **`foot_lock` 은 튐을 없애지 못한다** — 튐이 접지를 `[70, 81]` · `[83, 86]` 로 쪼개 각각 고정하면 약 7 cm 이동이 한 프레임에 몰렸다(206 cm/s). → `foot_lock.bridge_frames`(기본 2 — 빈틈이 그 이하인 이웃 접지의 두 고정 프레임 사이를 smoothstep 으로): 같은 seed 프레임 83 206 → 16.4 · 그 구간 최고 53.5 cm/s · 프레임 간 속도 변화 최대 206 → 99.2, 바뀐 프레임 78 ~ 82 뿐 · 오른발 · 골반 불변. 대가: 접지 미끄러짐 p95 왼 11.77 → 17.49(보정 전 17.16 — 튐 7 cm 가 접지 안 미끄러짐으로 잡힌다). 남은 것: 프레임 87 ~ 92 왼발이 앞꿈치를 바닥 가까이(2.4 ~ 4.4 cm) 둔 채 0.2초에 약 23 cm 이동한 뒤 프레임 93 에서 멈춘다(사용자 지적 — 미끄러지듯 순간 이동, 방향은 재지 않음). 빨라서 접지로 판정되지 않아 `foot_lock` 밖이고, 고정 해제 따라잡기로 최고 196 cm/s(보정 전 147 · 후처리 끔 115). **사용자 결정: 이 클립은 후처리 끔으로 마감**, 이 구간은 고치지 않는다 · 대상 쪽 `pins: hold` 는 별도 경로라 그대로(쪼개짐 영향 미확인). 합본 2(phase8_4 `combined`)는 값 1,409 개가 수정 전과 같다 — 이 경로에는 쪼개진 접지가 없었다. 후처리 기본값(auto = 켬)은 그대로다(사용자 결정 2026-11-04): 판정은 걷기 1 클립뿐이고, 끈 판의 클립 전체 발 미끄러짐은 재지 않았다 |
+| 기존 Vesper 애니의 팔-몸통 관통 (개정 8) | 다른 체형에서 리타깃된 원래 애니(Neutral Walk/Run · Rifle Idle)도 관통 프레임 18 ~ 35%(옷 부피 포함). 사용자 결정(2026-10-25)으로 일괄 보정하지 않음 — PIE 에서 거슬리면 재검토(확인 장면 `Neutral_Run_Loop_F` 1.9 s · `Walk_Loop_F` 0.23 s). 런타임 레이어가 팔을 덮으므로 고친다면 ABP · Control Rig 쪽도 후보 |
+| Phase 8-1 결과의 사람 판정 · 기준 보정 (개정 11) | 수치 선별(§14 Phase 8 표)까지 확인 — **Persona 눈 확인은 사용자**. 소견 4가지 중 ①②③ 은 수정안 A · B · C 로 수치가 바뀌었다(재판정 대기), ④ 흐느적은 D(요청) · 8-3. 남은 보정 후보: 발 좌우 비 기준(2.5 · 폭 5.0) · 궤적 폭 하한(1.0) · 가중치 · `meet`/`lead` 기본값(수치는 `meet`) · 1차부터 꺾인 손목(seed 27 — 손목 상한). 원 수치는 Job `selection` 에 있어 다시 계산할 수 있다. **개정 15(9-1) 기준 보정:** 가중치 stance 2 → 0.5 · swing 2 → 1 · head 2 → 1 + wrist 2 · head_deep 2 · handle 0(기록) — 1차부터 꺾인 손목(seed 27)은 `wrist`(파지 프레임 보조 손목 > 60° — 운영 0 %, seed 27 95.8 %), 발 좌우 비 기준(2.5 · 5.0) · 궤적 폭 하한(1.0)은 그대로(가중만 낮춤), `meet` 기본 유지. 기록 Job 4건 재계산 = 선택 그대로(§14 '9-1'). **사용자 판정(2026-11-01): 낫 새 생성 seed 02 · 03 손목 괜찮음 → 손목 벌점 시작 15 %. 검 수정안 뒤 · 낫 파지 띠 정정 선택의 판정은 아직 대기** |
+| 2차 생성의 손 방향 · 손가락 · 무기 · 관통 (개정 11) | 손목 위치만 맞춘다(`GRIP_POSITION_ONLY`) — 손 회전은 1차 손목 굽힘 유지(수정안 B — 처음 규칙의 보조 손 '손목 → 중지 끝' 맞춤은 손목을 96 ~ 116° 꺾었다), 양손을 손잡이에 나란히 맞추지 않는다, 손가락은 고정 포즈. FK 리타깃은 양손 상대 위치를 보존하지 않는다(SOMA 어깨 반폭 17.3 vs Vesper 12.0 cm — Vesper 에서 간격 p50 5.2 ~ 6.6 cm 로 소스 7.2 ~ 8.1 보다 가깝다). 모은 팔의 몸 관통(72 ~ 84%)은 C안 — 모두 8-4. 8-4 는 머리 · 가슴 · 배를 포함한 몸 전체 관통 보정으로 범위를 보강했다(2026-10-26 밤, §14 Phase 8 '8-4 범위 보강 근거') |
+| 2차 생성이 목표를 얼마나 따르는지 (개정 11) | 이 프롬프트 · seed 4개에서 목표 손목 오차 p50 1.8 ~ 2.5 · 최대 6.4 cm, 접지 발 ± 3.4 cm. 다른 동작(걷기 · 회전 · 큰 이동)과 `lead` 처럼 팔 밖 목표는 따르지 않을 수 있다(E2' 소스 파지 21.5%) — 동작 종류별 실측 남음. 비파지 프레임 관통의 프레임별 측정(C++)은 상한이 0% 라 필요 없었다(필요해지면 후속) |
+| 대상 메시 캡처와 게임 화면의 차이 (개정 12) | 캡처는 시퀀스를 메시에 그대로 입힌 프리뷰다 — 무기 없음(개정 14: `attachments` 로 소켓에 붙여 찍는다 — 8-4a) · 옷 · 머리 물리 없음(천 시뮬레이션 끔) · 게임 AnimBP 레이어(왼손 IK · 조준 보정 · 레이어 블렌드) 없음 · 프리뷰 조명. 판정은 캡처로 하고, 게임 안 모습이 필요하면 PIE · 운영 ABP 복제본 시나리오(Phase 7)로 본다. 무기를 붙여 찍는 것은 8-4(무기 메시 · 소켓)와 함께 |
+| APNG 의 채팅 표시 · 영상 (개정 12) | **닫음(9-5c — U0-5 사용자 확인 2026-11-04: 채팅에서 움직임).** MP4 는 구현하지 않는다. 다시 필요해지면 Blender 4.4 에 들어 있는 FFmpeg(`avcodec-60.dll`)로 설치 없이 만들 수 있다(Blender 단계 하나 추가 — 시도하지는 않았다). APNG 4초 · 15 fps 6.6 ~ 10.6 MB |
+| Phase 8-3 결과의 사람 판정 · 기준값 (개정 13) | 수치(정점 · 꼬리 · 발 간격 · 미끄러짐)와 전후 캡처 — **사용자 판정 통과(2026-10-27, 후속 수정 뒤 캡처)**. 남은 보정 후보: 가속 상한(검은 ×2.0 에서 운영 최저에 못 미침) · 복귀 배율 1.5 · 발 간격 상한 3.0 · 머리 · 꼬리 남김 0.2 · 0.3초 · antialias 1.0(보강 — 정점 −8 ~ −10%, 사용자 확정 2026-10-27). 매끈한 시각 사상 op(C++ `time_warp`)는 보강에서 들어왔다(§14 '8-3 후속'). 공중 발 경로의 거리 꺾임(검 선택 다리 떨림 1.89 — 무릎을 원래대로 펴면 커진다)은 **8-4 범위 ③**(사용자 결정 2026-10-27). **개정 15(9-1 · U6-e): 기준값 유지**(사용자 결정 2026-11-01) — 생성 · 8-3 뒤 · 운영 분포 표는 §14 '9-1'. 검은 ×2.0 에서 571 cm/s(운영 최저 1,098)라 남는 차는 생성 쪽(4초 중 정지 꼬리 2.4초 — 9-2 세그먼트) |
+| 다리 보정의 대상 모델 (개정 13) | 리타기터 `match_existing` 구성(Pelvis Motion 바닥 제약 0 · 회전 알파 1 · FK 회전 복사 · per_bone 정렬)을 가정한다 — 이 구성에서 예측 = 실측(디딘 발 좌우 비 ±0.01 · 미끄러짐 ±1 cm/s). 다른 RTG(기존 RTG 재사용 · `ops: default` · 바닥 제약)는 미측정 — `fix.target` 실측으로 확인. 보정은 그 대상 메시 치수 기준이라 다른 메시로 리타깃하면 다시 보정. 발끝 접지(뒤꿈치 듦)는 고정하지 않는다(발목만) · 손 · 몸 관통과 함께 푸는 대상 쪽 풀이는 8-4. **9-4d:** 발끝 접지는 대상 쪽(`fix.body.legs.pins: hold` — 발볼을 붙은 발목 접지 프레임 자리에)만, Blender 보정은 그대로(사용자 결정 ④ — 합본은 시간 보정이 다시 거르므로 마지막 고정은 어차피 대상 쪽). 8-3 다리 보정본도 발볼은 접지 중 2.5 ~ 4 cm 쓸린다(발목만 고정 — 아래 '발볼 미끄러짐'). **9-5a(U7-c):** match_existing 이면 Vesper · IdaFaber 남성 · UE5 Manny 모두 예측 = 실측(두 발 디딘 비 Δ ≤ 0.01 · 미끄러짐 Δ ≤ 0.31 cm/s). 다른 구성은 계획이 거부한다(`FIX_LEGS_NEEDS_MATCH_EXISTING` — `ops: default` · 재사용 RTG). `ops: default` 는 Kimodo SOMA 소스에서 세 대상 모두 팔 뒤집힘으로 검증 FAILED. 바닥 제약은 요청 경로가 없어 미측정. **9-5b:** Narmaya(비표준 · 다리 체인 끝 = 발볼) 예측 = 실측(비 Δ 0.0 · 미끄러짐 Δ ≤ 0.37 cm/s) — `per_bone` 최소 길이를 고치기 전에는 다리 뼈가 소스와 13.3° 어긋나 비 Δ 0.56 · 미끄러짐 14.8 cm/s 였다 |
+| 새 대상의 공중 발볼 높이 (9-5a) | IdaFaber 남성 · UE5 Manny 는 공중 프레임 발볼이 접지 최저보다 0.65 ~ 1.34 cm 낮다(Vesper 합본 + 0.33 ~ 0.38). 리타깃 단계부터 있고 body_fit 은 더 낮추지 않는다(`d2_floor`) — 발 기하 차이로 보임, 사람 판정에서 보이면 후속 |
+| Manny 빠른 구간 떨림 (9-5a) | Manny 검 0.83초 `lowerarm_r` 7.56 = 빠른 구간 매끈화가 좁힌 폭의 한 프레임 보정 — `smooth_speed off` 면 1.65 대신 손 ↔ 아래팔 관통 10 % · 3.97 cm(맞교환), 위팔 마무리 · 마무리 매끈화 · 국소 수렴은 무관. **기본(켬) 유지(사용자 결정 2026-11-04).** Manny 낫 왼손가락 7.14 는 원인 미확인 |
+| 몸 모델 근사 · 머리 지도 (개정 14) | 반경 지도(축 둘레 칸마다 최대 반경)는 칸 안을 꽉 찬 몸으로 본다 — 뿔 · 큰 머리카락 · 옷자락처럼 축에서 튀어나온 부분이 있는 칸은 깊이를 키운다. 정수리 규칙 · 머리 지도 t ≤ 1.0 으로 뿔 끝 · 줄기는 뺐지만 뿔 뿌리(정수리 아래 t 0.96 ~ 1.0)는 남았다. 옷 · 머리카락 물리 없음. 8-4b 풀이는 이 모델을 쓰고 최종 판정은 C++ 실측 + 사람(§16-9). 8-4b 손 지도는 쥔 주먹을 축 둘레 별 모양으로 보고 오목한 손바닥 면은 바깥 면으로 메운다(맞닿음 contact 까지는 정상으로 둔다). **(9-4a)** 뿔은 따로 본이 없어(`head` 직스킨) 본 가중으로 못 거른다 — 칸을 t 줄 중앙값 + 2 cm 로 잘라도 Finisher1 12.3 % 그대로 · 낫 정정 9.9 → 9.1 % 라 거르지 않았다. 대신 정수리 칸(t 0.96 ~ 1.0)이 각도마다 0.4 ~ 10 cm 로 뾰족해, 칸 나눔 방향(규칙 1 어깨선 · 규칙 2 머리)에 따라 정수리 근처 손의 판정이 뒤집힌다(낫 정정 f61 − 3.35 ↔ + 4.61) — 측정은 모델 = C++ 지만 해가 갈리는 프레임의 원인(9-4c) |
+| 낫 왼손 파지 선분 (개정 14) | E0 제안(운영 낫 4개 51 표본 — 손바닥 뼈 선 점 기준, 반경 오프셋 포함 (9.93, −1.78, −70.26) → (9.72, −1.78, −36.67))을 8-4c 요청 `weapon.grips[].segment` 로 썼다(기준점 = 손바닥 뼈 선 점 — 결정 ①). **8-4c 실측:** 운영 왼손은 자루를 감아 쥐지 않고(쥠 축 ∠ 자루 p50 52° · 무기 공간 회전 퍼짐 p50 51°), 선분은 주 손 자리(선분 위 ≈ 14 cm)를 지난다 — 무기 파지는 옵트인으로 남겼다(§14 '8-4c'). 두 손으로 쥐는 낫 파지 선분 · 회전은 두 손 파지가 있는 애니(생성 쪽에서 부착과 맞춘 것)가 생기면 다시 잰다 |
+| 낫 부착과 생성 두 손 자세 (개정 14 — 8-4c) | 낫을 운영 부착(오른손 `WeaponHandR` · `DA_WD_Sickle1.AttachOffset`)으로 붙이면 생성 낫 애니의 두 손 선이 붙인 자루와 p50 ≈ 60° 어긋나 왼손이 자루에서 30 ~ 43 cm(p50) 떨어진다 — 생성 오른손 방향이 운영 오른손과 다르다. 대상 쪽 보정으로는 재배치(왼손 30 ~ 50 cm 또는 주 손목 ≈ 60°)라 하지 않았다. **후속 후보(사용자 승인 뒤):** ① 생성 단계에서 오른손 방향을 부착에 맞추기(8-1 2차 생성 제약 · 선별 지표 '자루 ↔ 왼손 거리' — 로드맵 '키 포즈 제약'과 함께) ② 두 손용 부착 데이터(운영 애셋 · DA 변경 — 별도 승인) ③ 무기를 두 손 선에 맞추는 대상 쪽 풀이(주 손목 + 아래팔 비틀림 자유도 — 결정 ④ '손목 원래대로'와 충돌). **개정 15(9-1) — ① 의 지표 쪽:** select 기록 `handle`(요청 `weapon` — 파지 띠 프레임 왼 손바닥 ↔ 붙인 자루 p50 · 두 손 선 ∠ 자루 p50). 기록 Job 낫 후보 28.4 ~ 64.7 cm · 52.6 ~ 85.9°, 운영 낫 4개 50.7 ~ 66.5 cm · 71 ~ 78°(운영도 그 프레임 왼손이 자루에 없다) → 가중 0(기록), 생성 제약 쪽은 9-3(U3) |
+| 파지 구간 빈틈 잇기 (개정 14 — 8-4c 발견 · 개정 15 — 9-4b 해결) | `body_fit._flag_weights`(8-4b `grip_weights` 의 규칙 그대로)는 빈틈 ≤ 2 프레임을 잇는데, 앞 프레임이 파지가 아니어도 이어 요청 window · 띠 구간 시작이 ≤ 2 프레임 앞당겨진다(합성 window 27 → 25). **(9-4b U4-c — 사용자 결정)** 앞 프레임이 파지일 때만 잇는다 → 합성 window 27 그대로. 대가: 짧은 파지 구간이 여럿인 s25 는 구간 시작이 2 프레임씩 늦어 본 풀이 해가 바뀌어 휘두름 정점 −7.2 %(통합 `c4_swing` — §14 '9-4b') |
+| 위팔 → 가슴 기준 (개정 14) | 운영 애니도 위팔 → 가슴 접촉 42 ~ 100% · 관통 최대 98.1% — **8-4b 확정: 위팔 쌍은 관통 목표 밖 · '점마다 원래보다 안 깊어짐'만**(총괄 정정). 남은 것: 그 쌍(`l\|upper_arm\|chest`)의 모델 예측이 C++ 실측과 9 Job 에서 어긋남 — 겨드랑이 몸통 정점의 팔 본 가중(C++ 지도는 팔과 함께 움직임) 추정, 확인 · 모델 보강은 후속. **(9-4a) 확인 · 해결:** 위팔만 15° 돌리면 몸통 맨 위 앞 · 뒤 칸이 7.2 ↔ 19.3 cm(어깨 · 겨드랑이 정점, 몸통 축 점의 23 % 가 팔 사슬 가중), 각도 칸 몫은 p95 0.13 cm 뿐 → 지도 규칙 2(팔 사슬 가중 > 0.15 정점은 빼고 나머지는 팔 영향을 뗀다 · 각도 0 방향을 기준 본에) — 위팔 쌍 예측 vs C++ p95 1.0 → 0.005 cm(§14 '9-4a') |
+| 지시 목표 경로 (개정 14 — 8-4b, 10-29 (가)) | (가)(목표 없는 풀이를 먼저 하고 완급 > 0 블록만 다시)로 구간 ± ease 밖 변화 T1 ~ T4 0.000 cm · SEAM_JUMP 0 · T4 머리 관통 0(지난 1.8 ~ 30 cm · 머리 10.6 cm). **남은 것:** 구간 안 떨림 T1 3.10 · T4 1.82(짧은 완급에 큰 이동 · 관통에 막힌 목표의 되돌림 — §14 '지시 목표 경로 (가)'). 목표 오프셋의 기준 자세가 목표 없는 보정 결과다(손 목표는 '원본 + 오프셋'과 관통 보정만큼 다르다). **(9-4c U5-b — E0 가 전제를 뒤집음)** HEAD 의 구간 안 떨림은 완급 길이 · 막힌 목표가 아니라 **목표 몫(x_T)을 프레임마다 따로 풀 때 위팔 ↔ 팔꿈치가 몫을 넘겨주는 해 갈림**이다(T1 블록: 두 위팔 0 → 35° 를 완급 4 프레임에 · 유지 구간에 왼 위팔 36 → 12° · 팔꿈치 8 → 27°). 완급을 늘리면 그런 프레임이 늘어 나빠지고(T1 0.15 → 0.3 → 0.45초: 1.89 → 3.48 → 6.37), 막힌 목표 줄이기(T4)는 구간 안 3.27 → 3.22 · 오차 2.76 → 3.73 cm, x_T 시간 연속 · 목표 몫 매끈화(반경 1 ~ 3)도 다른 프레임으로 옮길 뿐(1.90 ~ 4.86) → **구현하지 않음**(사용자 결정 2026-11-03). 후보: 목표 몫 풀이에 관절 간 몫 넘김을 막는 항(앞 프레임 목표 몫과의 관절별 비율 유지) |
+| 맞닿음 허용 뒤 짧은 관통 (개정 14 — 8-4b 후속) | `allow_contact`(몸통 · 넓적다리)는 관통 판정까지 여유가 1 cm 라 빠른 휘두름에서 1 ~ 2 프레임이 남는다(오프라인 낫 정정 머리 1.7% · 2.37 · 가슴 0.8% · 2.98, 낫 Attack2 넓적다리 2.1% · 3.23 — 처음 판은 0 · 1.0% · 2.22). 재검사 패스를 늘리는 것(EXTRA 3 → 8)은 손목 이동을 다시 키워(걷기 p50 6.5 → 7.5 · p95 14.4 → 16.0) 재검사 증분 가중 1 로 대신했다. 합성 몸에서 몸통 맞닿음 자리가 넓적다리 축과 겹치는 우연한 자리는 넓적다리 바깥 방향이 몸 안쪽을 가리켜 갇힌다(정중앙 관통 한계와 같은 꼴 — 4.7 cm). 실제 판정은 통합 C++ 실측 · 캡처(§14 '8-4b 후속'). **후속 2차(위팔 keep 층) 뒤:** 낫 정정 머리 · T3 머리는 0 이 됐고, 남은 것은 걷기 오른손 → 넓적다리 1.7% · 4.58 cm(2 프레임 — 재검사 미수렴) · 낫 정정 손 → 가슴 1.7% · 3.09 · 낫 Attack2 넓적다리 2.1% · 2.74 · T4 머리 2.5% · 10.63(구간 밖 — 지시 목표 경로) · 위팔 기록 쌍 '나빠지지 않음' 미달(s25 · s26 · s27 · 검 선택). **(9-4c U5-c — `fix.body.converge`)** 재검사 증분이 넓은 스플라인에 묽어져 1 ~ 2 프레임 관통을 끝내 못 푸는 것이 원인 — 남은 짧은 몸 관통 구간(≤ 2 프레임 · ≤ 4 cm × scale)만 그 프레임 풀이에 고정하고 ± 0.1초를 혹 모양으로 잇는 국소 패스로 걷기 1.7 % · 2.82 → 0 % · 1.82 cm · 낫 정정 1.7 % · 3.22 → 0 % · Attack2 넓적다리 1.0 % · 2.33 → 0 % · 1.93(모델), 손목 이동 p95 걷기 6.2 → 6.8 cm. 맞닿음 여유(1 cm)는 그대로(사용자 결정) |
+| 파지 keep · 보조 손목 (개정 14 — 8-4b) | keep 최대 1 ~ 2.7 cm(기준 1 cm) · 파지 프레임 두 손목을 열어 손목 굽힘 최대 +11 ~ +13°(기준 +5°) · 낫 Attack2 파지 프레임 손끼리 관통이 안 풀림(7.3 → 12.5%). **8-4c:** 손목 굽힘 상한(max(원래 최대, `wrist_bend_max_deg`) — 관통 층) · 손끼리 하드 · 주 손 자리 빼기는 weapon(옵트인) 모드에만 넣었다 — 무기 파지가 옵트인이 되어 keep 모드(기본)의 이 세 미달은 8-4b 그대로 남는다(후속: keep 모드에도 손목 굽힘 상한을 줄지 — 기본 동작이 바뀌므로 사용자 결정). **8-4c 후속(2026-10-30 — 사용자 '둘 다 고치기'):** keep 파지 프레임 보조 손목 상한 = 프레임별 원래 + 2°(관통 층, 손가락 뿌리 = 대상 메시 체인 제안 — 없으면 끔) → 낫 정정 102.0 → 95.2° · 띠 정정 105.4 → 104.5°(원본 91.1 · 103.1). ~~남은 것: 낫 정정 +4.1° · 문턱 근처 머리목 관통 새로~~ → **2차(같은 날): 상한을 본 풀이 뒤 보조 손목만 다듬기로**(관통 쌍 바닥 · keep 없음 — 팔 · 주 손 = 8-4b 해) → 낫 정정 93.2°(+2.1) · 띠 정정 104.7°, 머리목 낫 정정 0% · 1.39 · s25 0% · 1.50 cm(다듬기 지도 칸 = C++ 처럼 어깨 기준), s27 주 손목 · Attack2 꼬임 · T5 무기 끝 8-4b 값. **남은 것:** keep 회전이 편 만큼 커짐(낫 정정 2.6 → 10.7° · T5 3.6 → 16.1° — c2_keep 은 8-4b 부터 미달), 주 손목은 기록만(검 선택 · s27 주 손목 +18 · +29° 는 8-4b 부터). 원본 자체의 손목 꺾임(띠 정정 f70 55 → f72 102°)은 생성 쪽 몫. **(9-4b — 손 부근 마무리 한 풀이)** 보조 손목 상한을 팔(쇄골 · 위팔 · 팔꿈치)이 받아 keep(그 상태의 두 손 관계)을 지킨다 → keep 회전 낫 정정 7.33 → 4.77° · s25 7.48 → 2.48° · T5 16.6 → 8.4°(오프라인). 주 손목 상한 = 파지 프레임 원래 + 4.5°(지시 목표 · 샘플 블록은 그 블록 상태까지) → 검 선택 클립 최대 43.1 → 47.8°(+ 4.7 — c4_wrist 통과), s27 은 본 풀이 첫 회의 닫힌 손목 이어 받기(파지 밖 f89 ~ f94 원래 46.6 → 64.9°)를 막아 59.6 그대로. keep 기준은 위치 1 cm × scale 그대로 · 회전 10°(운영 낫 파지 띠 상대 회전 프레임 변화 p50 4.5 ~ 10° — 사용자 결정) |
+| `head_near` 와 메시 머리 지표 (개정 14) | 메시 기준 `head_neck` 쌍은 옵트인(결정 E) — 8-1 선별 점수는 `head_near`(뼈 한 점) 그대로. 둘은 같은 방향(낫 정정 상관 0.952)이지만 메시 쪽이 깊이를 준다 — 선별 반영 여부는 8-4b 이후 사용자 판단(8-4b 는 선별을 바꾸지 않았다). **개정 15(9-1) 반영:** 선별에 `head_deep`(메시 머리목 — 8-4 머리목 마무리가 건너뛰는 길고 깊은 구간 % · 시작값 15 %) 가중 2, `head_near` 는 가중 1 로 유지(근접 · 짧은 관통). 메시 쪽은 정수리 · 뿔 쪽을 부풀린다 — 운영 Finisher1 이 12.3 %(머리 본에서 15 cm), 검 선택 seed 25 도 5 %(6 프레임 · 10 cm — 8-4 합본에서 머리목 0 으로 고쳐졌다) → 머리 지도 정점 거르기(U7-a · 9-4a) 뒤 시작값을 다시 본다. **(9-4a)** 규칙 2 · 뾰족한 칸 자르기 모두 Finisher1 12.3 % 그대로(공중제비 중 두 팔이 머리를 감싼 실제 겹침) → 15 % 유지 |
+| 몸통 대비 팔 벌림 (개정 8 · 9-4a 기록으로 닫음) | 위팔은 월드로 소스에 맞추고 몸통은 대상 중립(⓪)이라 몸통 기준 팔 벌림이 소스와 ±2.6°(CMU) 다르다 — 후속 후보: 팔 리타깃 포즈 정렬을 몸통 기준틀 상대로. 미수정. **(9-4a 실측 — Kimodo SOMA → Vesper 합본 2):** 정면 벌림 p95 1.0 ~ 2.9°, 시상면 굽힘 평균 +3.8 · +5.7°(두 팔 같음) = 몸통 앞기울기 차 +4.0 · +5.5° — 팔은 월드로 소스와 같고 차는 ⓪ 중립 몸통에서 온다. 몸통 기준으로 고치면 손이 월드에서 ≈ 4 cm 옮겨져(무기 · 목표와 맞춘 손 위치와 부딪힘) **기록만으로 닫음**(사용자 결정 2026-11-02) |
+| 샘플 전이 — 파지와 맞지 않는 팔 샘플 (개정 14 — 8-4c c2) | 표준 S3(낫 정정 복귀 ← Attack1 두 팔, w 0.5)는 덮은 두 손 관계가 대상의 파지(keep)와 달라 두 팔 묶음 전부가 막히고(`POSE_FROM_PARTIAL{grip, joint_limit}` — 위팔 최대 45° 상한), 블록 시작 ease 의 한 프레임(f77)에 왼손이 튄다(떨림 1.44 → 2.365). ease 를 0.3 s 로 늘리면 휘두름 안으로 들어가 10.4 로 더 나쁘다. 설계대로 '파지가 이긴다'지만 결과는 반쯤 섞인 팔이다. **후속 후보(사용자 결정):** ① 그 구간의 keep 기준을 샘플의 두 손 관계로 옮기는 옵션(파지 자체를 샘플에서 가져옴) ② 한 팔만 덮고 다른 팔은 keep 으로 따라오게(지금도 가능 — `arm_r` 만) ③ 큰 동작 변경은 생성 단계 키 포즈 제약(로드맵) |
+| 손가락 쥔 모양의 눈 확인 (개정 14 — 8-4c c2) | S1 손가락은 C++ 몸 모델로 샘플과 0.0000°(15 본)지만 전신 캡처 시트에선 손이 작아 차이가 거의 안 보였다. **9-5c `capture_animation focus`(0.044 cm/px)로 사진 근거가 생겼다** — 샘플 없는 Fit 은 펴진 손, S1 은 쥔 모양(`anim_gen_phase8_2_test.py` 섹션 `focus` 비교 시트 — 캡처는 판정 근거, 판정 결과는 기록 없음 §14 '9-5c') |
+| 샘플 전이 범위 밖 (개정 14 — 8-4c c2) | 다른 스켈레톤 샘플(`SAMPLE_SKELETON_MISMATCH` — 먼저 리타깃해 Vesper 애셋으로) · 골반 · 그 조상 묶음(`NOT_SUPPORTED` — 몸 전체가 돈다. 다리 묶음은 **9-4d 에 받음**: 접지 프레임은 발 pin 이 이기고(무릎 방향만 샘플) 공중은 샘플 발 경로를 기준으로 공중 경로 풀이) · `space` local 외(`NOT_SUPPORTED`) · 메타카팔(손가락 묶음에서 뺀다 — 손바닥 점 · 손목 굽힘 기준 불변) · 옷 자락 가지(팔 묶음에서 뺀다) |
+| 다리 공중 경로의 근사 (개정 14 — 8-4d) | 다시 짠 공중 경로는 '무릎 · 발목 위치 저크 최소 + 충실도'의 위치 최적이다 — 발이 지나는 길이 몇 cm(다리 보정본 2.8 ~ 4.1 cm) 바뀌고, 땅 · 다른 다리와의 간섭(발이 땅을 스치거나 반대 다리를 지나감)은 보지 않는다(관통 지도는 팔 점만 — 다리끼리 `clearance.legs` 는 측정 옵트인). 발 회전은 원래 컴포넌트 회전 그대로(발볼 · 발끝은 발목과 함께 옮겨진다). 판정은 사람(옆 모습 캡처 · APNG 30 fps). 공중 구간에 접지 경계가 없으면(달리기처럼 접지 0%) 건너뛴다(`LEG_PATH_SKIPPED`). **9-4d:** 바닥 하한을 넣었다(공중 프레임 발목 · 발볼 ≥ min(접지 최저, 원래) — 8-4d 경로는 발볼을 접지 최저보다 0.34 ~ 0.5 cm 낮췄다). 다리끼리는 측정만(E0 17 대상 관통 0 — 잔차는 넣지 않음, 사례가 생기면 `clearance.legs` 지도로) |
+| `swing_path` auto 의 범위 (개정 14 — 8-4d) | auto 는 같은 Job 에 `fix.ops` 다리 op(stance_width · foot_lock)가 있을 때만 켠다 — 그 블렌드가 꺾임의 원인이고, 떨림 신호로는 운영 걷기 · 달리기 · 공격의 자연스러운 빠른 다리와 못 가른다. 이미 다리를 고친 기존 애셋(8-3 다리 보정본)은 요청이 `on` 을 준다. 원본 생성물 자체의 발 튐(칼 시험 3.42)도 `on` 이면 줄지만(1.41) 기본은 아니다. **9-4d:** `pins: hold` 는 공중 경로를 함께 켠다(이유 `pins hold`), `pins` auto(hold)는 `fix.timing` + 다리 op 일 때만 |
+| 시간 보정의 발 미끄러짐 (개정 14 — 8-4d 발견) | 합본(fix.ops 다리 + timing)의 Vesper 접지 미끄러짐 p95 3.7 ~ 9.8 cm/s — 다리 보정이 고정한 발을 `time_warp antialias`(가우시안)가 다시 거른다(8-3 의 다리 보정은 시간 보정 전 · 대상 모델로 0). body_fit 은 접지 프레임을 원래 키로 두므로 그대로 남는다. **후속 후보:** ① 시간 보정 뒤 대상 쪽 발 고정(body_fit 다리 블록의 pin 을 '원래 키'가 아니라 '접지 구간 평균 위치'로 — 기본 동작 변경) ② time_warp 가 접지 구간의 발 본을 거르지 않게(C++ op 옵션). **9-4d 해결(①):** 실체는 접지 구간 안 0.1 ~ 0.9 cm 흔들림 — `pins: hold`(auto = fix.timing + 다리 op)가 발목 수평을 구간 중앙값에(높이 · 발 회전 원래 — 발목 xyz · 발 회전까지 고정하면 뒤꿈치 듦 · 피벗을 지워 나빠짐) |
+| 발볼 미끄러짐 · 피벗 (9-4d 발견 — 기록만) | 접지 중 발볼이 2 ~ 4 cm(9 ~ 22 cm/s) 쓸린다 — 합본 · 8-3 다리 보정본 · 원본 생성물 모두. 발이 발목 둘레로 돈다(몸을 돌리는 동안 디딘 발이 따라 돎 — 실제 피벗은 발볼 둘레). 대상 쪽에서 발 회전을 고정하면 피벗이 지워지고(발 회전 13 ~ 32° 바뀜) 발볼 둘레로 옮기면 발목이 쓸린다(접지 미끄러짐 지표와 부딪힌다). 운영 걷기는 발볼이 고정점(0.5 cm) · 발목이 구름(2 cm) — 그래서 운영 걷기에 hold 를 주면 떨림 2.27 → 2.94. 후속 후보: 접지 판정 · 미끄러짐 지표를 발목 · 발볼 둘로 · 생성 쪽(피벗 중심) |
+| 루프 · 루트 모션 공중 경로 (9-4d 발견 · 수정) | 8-4d 공중 경로는 루프의 이음매를 넘는 구간을 프레임 번호로 감아 돌며 위치를 그대로 이었다 — 루트가 움직이는 루프(운영 걷기 904 cm/주기)에 `swing_path on` 이면 떨림 860. 9-4d: 이음매 변환(끝 프레임 = 다음 주기 첫 프레임 — 루트 변화 수직축 회전 + 이동)으로 같은 주기에 옮겨 풀고 되돌린다(접지 고정도). 루트가 안 움직이는 루프는 그대로 |
+| 합본 낫의 손가락 떨림 (개정 14 — 8-4d 발견) | 합본 낫 정정의 전체 떨림 3.45 → 5.17 은 팔 블록(관통 · keep)이 시간 보정으로 빨라진 휘두름(×1.68) 위에서 왼손가락에 만든 것(다리 켬 · 끔 팔 델타 0.0° 같음 — 다리 무관). 8-4b 낫 정정 `c4_zigzag`(1.44 → 2.08)와 같은 종류 · 운영 공격 범위 안. **8-4e: 시간 보정한 Job 의 빠른 구간 매끈화(`smooth_speed` auto)로 5.17 → 4.19** |
+| C++ 쓰기 잡음 (개정 14 — 8-4d) | `bone_deltas` 로 다리 본만 써도 다른 본 위치가 프레임마다 최대 0.01 cm 바뀐다(8-4a 한 본 시험의 자손 밖 0.01 과 같다 — 키 압축 · 재샘플 추정). 30 fps 속도로는 0.3 cm/s 라 접지 미끄러짐 p95 에 ±0.1 정도로 보인다(합본 낫 오른발 7.80 → 7.91 — 손대지 않은 발). '불변' 판정은 0.05 cm 허용 |
+| 머리목 마무리의 대가 (개정 14 — 8-4d 진단 · 수정) | `_finish_head` 는 머리목 관통의 짧은 고립 구간을 매끈화 없이 그 프레임 값으로 뺀다 — 빠른 휘두름에서는 그 자리 떨림이 는다(검 선택 합본 C++ 1.84 → 3.88 — 머리 9.46 cm → 0). 길거나 깊은 구간(s27 f61 ~ 64 · 5.4 ~ 10.2 cm)은 한 프레임씩 빼면 동작을 찢어(떨림 41.9) 건너뛰고 `BODY_PENETRATION_REMAINS` 로 남긴다. **8-4e:** 시간 보정한 Job 은 빠른 구간 매끈화가 그 관통을 먼저 풀어 마무리가 걸리지 않는다(합본 검 1.60). 원 속도 클립에서 걸리면 대가는 그대로 — 좁힌 폭(`smooth_speed: on`) 위에서 걸리면 더 크게 튄다(오프라인 낫 정정 f61 9.0 ~ 10.1). **(9-4c)** 국소 수렴(`converge`)이 마무리 앞에서 그 프레임을 이웃과 함께 풀어 마무리가 걸리지 않는다 — 낫 정정 f61(떨림 8.37) · 검 선택 f37(3.16) 사라짐. 마무리는 안전망으로 남는다. 길거나 깊은 구간(> 2 프레임 · > 4 cm)은 둘 다 건너뛴다 — 합본 검 f19 ~ 21 머리목 6.3 cm(9-4a 지도 규칙 2 뒤부터 — 8-4e 는 0)는 3 프레임이라 남고, 넓히면(3 프레임 · 8 cm) 동작이 찢어진다(떨림 27 · keep 13.8 cm) |
+| 빠른 구간 매끈화의 갈림길 (개정 14 — 8-4e) | `smooth_speed` on 은 손이 6 cm/프레임보다 빠른 프레임의 폭을 6 / 속도 배(≥ 0.5)로 줄인다. 빠른 휘두름이 머리 옆을 스치는 두세 프레임(합본 검 f20 ~ 21 · 낫 정정 f61)은 배율 ± 0.05 · 기준 ± 0.5 에도 다른 국소 해로 간다(머리 0 ↔ 7 ~ 8 cm 건너뜀, 떨림 2 ↔ 10). 모든 요청에 켜면 원 속도 공격 · 달리기에서 휘두름 정점 · 몸 관통 · 팔 교차 · 위팔 미달이 새로 생긴다(통합 4 항목) · s27 keep 6.6 → 9.8 — 기본은 시간 보정한 Job 만(auto). 근본 후보: 갈림길 프레임에서 두 해(좁힌 · 고정 폭)를 다 풀어 비용이 낮은 쪽 · 손 속도 대신 관통 지도에 대한 상대 속도. **(9-4c U5-a)** 두 해 비교 대신 **해를 모은다** — 국소 수렴이 갈림길 어느 쪽 해에서든 남은 짧은 관통을 풀어(낫 정정 배율 ± 0.05 · 기준 ± 0.5: 떨림 2.47 ~ 10.31 → 1.97 ~ 2.73, 머리 0) · 검 선택 네 판 모두 0.448. 갈림길의 다른 뿌리는 손 부근 마무리(9-4b)의 프레임별 해였다(합본 검 주 손목 상한 4.5 ↔ 5° 1.6 ↔ 8.7 — `finish_smooth` 로 둘 다 1.60). HEAD 에서 8-4e 새 미달 4 중 셋(s25 휘두름 · 달리기 몸 · Attack2 교차)은 재현되지 않아 **모든 요청 기본 켬**(사용자 결정) — s27(known)은 떨림 5.76 → 6.89 |
+| 위팔 마무리의 한계 (개정 14 — 8-4f) | 팔꿈치 궤도 하나만 쓴다 — 손이 고정이라 위팔이 몸 쪽으로 붙은 자세(손이 가슴 앞)는 궤도를 돌려도 위팔이 가슴을 스친다. 보조 손목 파지 프레임은 손목 굽힘 + 2° 에 막혀 검 선택 합본 끝 f30 ~ 36 이 4.35 ~ 5.11 cm(모델)로 남는다(+ 10° 면 4.19 ~ 4.65 — 대신 보조 손목 + 7.5°, c4_off_wrist 미달). 풀이 안에 상한을 두는 길은 빠른 휘두름 프레임에서 해가 갈렸다(머리 7.3 ~ 7.7 cm 건너뜀 · s25 떨림 4.90). 위팔 쌍 모델 근사(예측 vs C++ — 겨드랑이 정점)는 그대로다. 후보: 쇄골(어깨 올림) 자유도를 마무리에 더하기 · 보조 손목과 함께 푸는 작은 풀이. **(9-4a)** 모델 근사는 지도 규칙 2 로 해결 — 합본 검 f25 모델 4.07 = C++ 4.07 cm(상한이 C++ 에서도 맞음), 막힌 끝 f30 ~ 36 은 4.62 ~ 5.33(모델 = C++)로 남는다(9-4b U4-a). **(9-4b)** 손 부근 마무리 한 풀이가 쇄골 · 손목과 함께 풀어 보조 손목 + 2° 를 지키며 합본 검 C++ 최대 6.51 → 5.30 cm. 상한까지 못 가는 것은 이제 손목이 아니라 위팔 층(= keep · 손 붙들기 층)과 관절 충실도의 맞섬 — 합성 장면 4.26 → 4.13(8-4f 궤도는 < 3.96), 층 30 이면 검 선택 4.64 · 합본 검 4.57 이지만 keep 위치 1.5 → 3.2 · 5.7 → 7.7 cm(사용자 결정 10). 처리 프레임의 상한 없는 손목은 원래 + 5°(8-4f + 10° 대신) |
+| 세그먼트 경계의 속도 꺾임 (개정 15 — 9-2) | Kimodo 다중 프롬프트는 앞 끝 자세를 제약으로 잇기 때문에 자세는 튀지 않는다(회전 단계 비 ≤ 1.36) — 그러나 새 프롬프트가 경계에서 바로 시작해 속도가 꺾인다: 달리기 → 멈춤에서 발 410 → 4 cm/s · 멈춤 → 공격에서 손 · 골반 10 ~ 50 → 150 cm/s(속도 변화 비 2.96 ~ 6.83, 후보 4개 중 3개 > 3 · 대조 한 프롬프트 8 이음매 중 1곳). 전이 10 프레임으로도 5.61 → 4.71(검은 동작이 더 줄었다). 시간 보정이 있으면 antialias 가 꺾임을 펴 최종 2.3 이지만 배율 경계가 이음매와 겹치면 커진다(검 전이 10 최종 12.09). **눈에 거슬리는지 · 속도 변화 비를 판정 기준으로 쓸지는 사람 판정**(지금은 기록 + 진단). 고치는 후보: 전이 구간 속도 제약(Kimodo 제약은 위치 · 회전만) · 경계 둘레 시간 매끈화 · 세그먼트 길이에 여유. **9-3c:** 위임 판정대로 기록만 — 섞은 세그먼트 이음매에도 같은 수치를 단다(M1 뒤 이음매 6.13 · 대조 9.29: 생성 휘두름이 이웃 키 직전까지 빠르게 와서 멈추는 같은 꼴) |
+| 세그먼트가 공격을 느리게 만드는 경우 (개정 15 — 9-2) | 검 '준비 → 베기 → 복귀' 를 1.0 · 0.7 · 1.3초 세그먼트로 나누면 4 seed 모두 한 프롬프트보다 휘두름 정점이 낮다(중앙 294 → 196 cm/s · 동작 구간 29.5 → 18.9 %) · 같은 seed 2차(파지) 생성이 1차에서 더 멀다(몸 p95 8.9 → 17.1 cm). 같은 날 '달리기 → 멈춤 → 공격' 은 반대로 좋아졌다(정지 꼬리 1.12 → 0.12초). 원인 미확인 — 후보: 0.7초 베기 세그먼트의 자유 구간(처음 5 프레임은 준비 끝 자세에 묶여 0.53초) · 세그먼트 프롬프트에 앞뒤 맥락이 없음(Kimodo 는 문장마다 따로 읽는다) · 둘째 세그먼트부터 2차가 2차의 앞 끝을 따라가 차이가 쌓임. **변형 실험(판정 뒤 — `P92Run1101_165116`):** 베기 세그먼트를 0.7 → 1.0초로 늘리면 정점 196 → 114(더 느림 — 늘린 시간을 천천히 채운다), "quickly … in one fast motion" 은 196 → 216(조금) — 어느 쪽도 한 프롬프트 294 에 못 미친다. 결론: 한 동작 안의 단계는 나누지 말고 한 프롬프트 + `fix.timing`(§11 '언제 쓰나'). 남은 확인: 2 세그먼트(준비 + 베기 / 복귀)처럼 베기를 앞 동작과 한 문장에 두는 나눔 · 키 포즈(U3)로 베기 자세를 고정. **9-3c 키 포즈 확인:** 같은 요청 · seed 에 Attack1 정점 전신 키(1.35초 · pass1) → 후보 정점 중앙값 196 → 563 cm/s(고른 seed 28 은 1,337 — 운영 범위) · 동작 구간 18.9 → 5.6 % — 키가 정점(베기 순간)을 만들지만 휘두름이 키 둘레 한두 프레임에 몰리고 준비 · 마무리는 느린 채. 결론 그대로(한 동작은 한 프롬프트 + `fix.timing`), 정점 키는 세그먼트를 꼭 써야 할 때의 보조 — 9-3c 와 함께 판정 보류(2026-11-02) |
+| 섞은 세그먼트의 이음매 (개정 15 — 9-3c) | 운영 애니 루트는 움직이지만 골반과 수평 1.7 ~ 19 cm 떨어지고(끝은 1.7 ~ 1.9 · 몸이 도는 중간은 13 ~ 19) 몸이 돌아도 루트 Yaw 는 0 이다(E0) — `concat align_root`(루트 본)로 생성 조각을 이으면 골반이 튀고 몸 방향이 어긋난다(M1 앞 이음매 19°). 그래서 join 은 골반 · 몸 방향(엉덩 관절 선)을 **겹친 구간 평균**으로 맞춘다(한 순간 맞춤은 뒤 이음매 3.51 → 평균 2.80 cm). 이음매 키(이웃 끝 · 첫 T 프레임 전신)가 겹친 구간 자세 차를 대조 20 ~ 23 → 0.4 ~ 2.8 cm 로 줄인다. 남는 몫: 뒤(pass1) 키 추종이 앞(origin)보다 나쁘다(p50 2.62 vs 0.46 cm — 생성 휘두름이 키 직전까지 빠르게 와서 멈춘다) · 키를 준 생성 덩어리는 두 끝이 운영 자세에 묶여 동작이 작아진다(M1 '회전' 이 거의 안 보임). 시간 보정은 겹침 키 구간을 배율 1 로 둬야 한다(안 그러면 뒤 이음매 6.99 cm — 9-3c 수정). 사용자 판정 보류(2026-11-02 — "의미 없어 보임", 코드는 옵트인으로 남김) · 기준값 미확정(시작값 이은 좌표 2 cm — 뒤 이음매 2.80, 골반 기준 1.57) |
+| 역리타깃 왕복의 고정 편향 (개정 15 — 9-3) | 대상 → SOMA 역 RTG 로 되돌린 SOMA 로컬 회전은 원래 Kimodo 와 팔 · 아래팔 1.68° · Spine2 · Chest 2.2 ~ 2.8° 다르다 — 모든 프레임 같은 값(리타깃 포즈 정렬이 양방향에서 정확한 역이 아님 · 척추 3 ↔ 5 마디 보간). 위치로는 0.4 cm 안(SOMA 체형 그대로 FK)이라 키 포즈에는 영향이 작다. 보정 후보(필요해지면): 역 RTG 의 대상(SOMA) 리타깃 포즈를 정방향 리타깃 포즈의 역으로 맞추거나, 같은 Job 의 SOMA 기준 포즈를 정방향 → 역방향으로 한 번 돌린 편향을 빼기 |
+| 키 포즈 둘레 떨림 (개정 15 — 9-3) | Kimodo 키 조건(전신 · 손발 EE 모두)이 키 둘레를 진동시킨다 — 1차 0.02 → 키 0.5 ~ 1.7(Kimodo 지그재그 p95), 성긴 전신 키 3개는 Vesper 손 속도 톱니(809 → 347 → 856 cm/s, 최대 19.9). 후처리를 끄면 추종만 무너지고(p50 15.5 cm) 떨림은 그대로 · 바닥 루트를 맞춰도 그대로 → 원인은 확산 쪽(8-1 수정안 A 와 같다). 처리: 키가 있으면 출력 σ 1 스무딩(사용자 결정 2026-11-01) — 떨림 0 · Vesper 최대 4.1 · 키 오차 p50 ≤ 1 cm. 대가: 손 회전 키 8.8 → 14.4°(EE) · 손 정점 몇 %. **사용자 판정(11-01): 전신 키 튐 없음 통과 · 손 · 발 EE 키의 손목 각도가 아쉽다(0.86초 손목 꺾임) → 9-3b** |
+| 손 · 발 키의 자유 팔 · 키 손목 (개정 15 — 9-3b) | 손 · 발 end-effector 키만 주면 나머지 팔은 자유다 — 9-3a ee 의 0.86초 손목 꺾임은 자유 왼손목 비틀기(1차 −105° → 키 2차 −128°, 손바닥이 위로)였다. 처리: 키 2차에서 키 · 파지가 묶지 않은 손을 1차 손에 묶는다(키 ± 15 프레임, 9-3b) — 키가 키운 몫만 막고 1차의 비틀기는 남는다(후속 후보: 선별 지표 '자유 손목 비틀기'). 키를 준 손은 생성 아래팔이 원천과 다르면(실측 30°) 전역 손 회전을 맞추려 손목이 굽는다(키 27.8° → 58.7 ~ 71°) — 손 방향이 중요한 키는 전신 키나 양손 파지 2차와 함께 쓴다 |
+| 학습 분포 밖 키 자세의 추종 (개정 15 — 9-3, 로드맵 U3-b '확인할 것') | 운영 낫 Attack1 정점 자세를 키로 주면 확산만으로는 p50 15.5 · 최대 27.7 cm 떨어진다(후처리 끔 — multi_nopp), Kimodo 후처리(FullBody 마스크)가 키 프레임을 제약 자세로 맞춰 0 이 된다 — 그래서 후처리 끔(`generation.postprocess: off`)과 전신 키는 함께 쓰지 않는다. 손 · 발 EE 는 후처리 고정이 없어(일반 end-effector) 확산 추종 그대로 2.3 ~ 3.4 cm. 다른 운영 애니 · 큰 이동 동작의 추종은 미측정 |

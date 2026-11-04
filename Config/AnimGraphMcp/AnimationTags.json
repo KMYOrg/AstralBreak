@@ -1,0 +1,12 @@
+{
+  "description": "search_animations 수동 태그 ([AnimGraphMcp] AnimationTagFiles). 키 = 애셋 경로 또는 '/'로 끝나는 폴더 접두(하위 전부), 값 = 태그(대소문자 무시). 애셋 메타데이터에는 쓰지 않는다 — 이 파일을 고친다.",
+  "tags": {
+    "/Game/Animation/Hero/Vesper/Sickle/Actions/": ["melee", "attack"],
+    "/Game/Animation/Hero/Vesper/Rifle/": ["ranged"],
+    "/Game/Animation/Hero/Vesper/Rifle/Aim/": ["aim", "upper_body"],
+    "/Game/Animation/Hero/Vesper/Rifle/Actions/": ["upper_body"],
+    "/Game/Animation/Hero/Vesper/Rifle/Locomotion/": ["locomotion"],
+    "/Game/Animation/Hero/Vesper/Rifle/TurnInPlace/": ["turn", "in_place"],
+    "/Game/Animation/Hero/Vesper/Common/Locomotion/": ["locomotion"]
+  }
+}

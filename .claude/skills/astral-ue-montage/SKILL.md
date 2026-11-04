@@ -71,10 +71,20 @@ BP CDO의 구조체 배열(예: `combo_stages`) 원소의 `EditDefaultsOnly` 필
 
 # 금지사항
 
-- **슬롯 이름 변경 금지.** `slot_anim_tracks` 는 Python에 노출되지 않는다. DefaultSlot 고정이다.
-- **다중 섹션 구성 금지.** `composite_sections` 미노출. 몽타주 1개 = 1섹션.
-  콤보는 몽타주를 쪼개고 GA에서 체이닝한다.
-- **AnimGraph / EventGraph 노드 생성 시도 금지.** Python 경로가 없다.
+- **이 스킬(Python)로 슬롯 이름 변경 · 다중 섹션을 시도하지 않는다.** `slot_anim_tracks` · `composite_sections` 가 Python 에 노출되지
+  않는 것은 Python API 한계일 뿐이다(2026-10-25 정정). 슬롯 · 섹션은 AnimGraph MCP 플러그인 Tool 로 한다:
+  `set_montage_slots`(슬롯 트랙 이름 — 스켈레톤에 등록된 슬롯만, 등록은 `add_skeleton_slot` + 사용자 확인) ·
+  `set_montage_sections`(섹션 목록 전체 교체 · `next` 로 루프 · 체인) · `create_anim_montage`(시퀀스 하나로 몽타주, 슬롯 지정).
+  이 스킬의 `build_from_spec` 은 DefaultSlot · 1섹션 몽타주를 **새로** 만드는 경로라 플러그인이 만든 몽타주에는 쓰지 않는다.
+- **AnimGraph / EventGraph 노드 생성 시도 금지.** Python 경로가 없다(AnimGraph 는 플러그인 `apply_graph_operations`).
+
+# AI 생성 몽타주에 노티파이 달기 (AI 애니 생성 Phase 7 — `Docs/AIAnimation/DevelopmentGuide.md` §12)
+
+순서: 생성(anim-gen-mcp) → 포장(플러그인 — 슬롯 · 섹션 · 블렌드) → 사람 확인 → 승격(`promote_animation` dry_run → 확인 → confirm)
+→ **정식 경로 몽타주에** 이 스킬의 `add_notify` / `add_notify_state`(+ `add_motion_warping_window`) → GA 몽타주 지정(데이터 — 사용자 승인).
+- 후보(`/Game/Animation/Generated/` · `/Game/Animation/Test/`)는 버려질 수 있어 노티파이를 먼저 달지 않는다. 승격(rename)은 몽타주 안의 노티파이를 그대로 옮긴다.
+- `build_from_spec` 은 쓰지 않는다(DefaultSlot 몽타주를 새로 만든다 — 위 금지사항).
+- anim-gen 결과의 한계 `NOTIFIES_NOT_ADDED` 가 이 단계가 남았다는 표시다. 플러그인 · anim_gen 은 프로젝트 노티파이 클래스를 모르므로 부르지 않는다.
 - 태그 문자열을 지어내지 않는다. 프로젝트에 등록된 태그만 쓴다.
   새 태그가 필요해 보이면 사용자에게 확인한다.
 

@@ -6,6 +6,7 @@
 class UAnimBlueprint;
 struct FAnimMcpContext;
 struct FAnimMcpError;
+namespace AnimMcpGeneration { class FWriteGuard; }
 
 /**
  * 변경 계획(operations 배열) 의 검증·적용. Preview 는 그래프를 바꾸지 않고, Apply 는 트랜잭션 안에서 순차 적용한다.
@@ -56,6 +57,9 @@ namespace AnimMcpOperations
 	/**
 	 * 검증 → 트랜잭션 → 적용 → (옵션) 컴파일 → (옵션) 저장.
 	 * ExpectedRevision 이 비어 있지 않고 현재와 다르면 REVISION_MISMATCH. 중간 실패는 보상 롤백 + 검증 후 오류 반환.
+	 * Guard(옵트인 generation_guard, Phase 7)가 켜져 있으면 컴파일 뒤 · 저장 전에 전역 더티를 비교한다 — UNEXPECTED_DIRTY 면 저장하지 않고
+	 * 오류(details 에 applied · revision_before/after — 적용은 메모리에 남는다)
 	 */
-	TSharedPtr<FJsonObject> Apply(UAnimBlueprint* Blueprint, const TArray<FOperation>& Ops, const FString& ExpectedRevision, bool bCompile, bool bSave, FAnimMcpContext& Context, FAnimMcpError& OutError);
+	TSharedPtr<FJsonObject> Apply(UAnimBlueprint* Blueprint, const TArray<FOperation>& Ops, const FString& ExpectedRevision, bool bCompile, bool bSave, FAnimMcpContext& Context, FAnimMcpError& OutError,
+		AnimMcpGeneration::FWriteGuard* Guard = nullptr);
 }

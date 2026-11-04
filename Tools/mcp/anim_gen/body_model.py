@@ -34,6 +34,7 @@ HAND_MAP_KINDS = ("hand", "forearm")   # 손끼리(8-4b) 지도 — f"{kind}_{�
 SIDES = ("l", "r")
 EMPTY_I16 = -32768
 ANGLE_BINS = 36
+SCALE_EPS = 1e-3   # 기준 스케일 판정 — C++ AnimMcpBatchRetarget::RefScaleFix 와 같은 값
 
 
 class ModelError(ValueError):
@@ -250,14 +251,39 @@ class BodyModel:
                 v = flat[(f * n_bones + b) * 10:(f * n_bones + b + 1) * 10]
                 row.append(((v[0], v[1], v[2], v[3]), (v[4], v[5], v[6]), (v[7], v[8], v[9])))
             self.poses.append(row)
+        self.bone_scale = self._strip_scale()
         self.points = []
         for pt in model["points"]:
-            infl = [(int(i[0]), float(i[1]), (float(i[2]), float(i[3]), float(i[4]))) for i in pt["influences"]]
+            infl = [(int(i[0]), float(i[1]), self._local_cm(int(i[0]), (float(i[2]), float(i[3]), float(i[4])))) for i in pt["influences"]]
             self.points.append({"side": pt["side"], "part": pt["part"], "dominant": int(pt["dominant"]), "ref": tuple(pt["ref_cm"]), "influences": infl})
         bounds = model["torso_t_bounds"]
         self.belly_t, self.chest_t = float(bounds["belly"]), float(bounds["chest"])
         self.leg_thigh_t_min = float(model.get("leg_thigh_t_min") or 0.2)
         self.maps = {m["part"]: RadialMap(m, n_frames) for m in model["maps"]}
+
+    # ---- 기준 스케일 ----
+    def _strip_scale(self) -> list | None:
+        """기준 포즈에 스케일이 있는 스켈레톤(9-5b — 루트 스케일 100): 포즈 스케일을 빼고 본 공간 값은 cm 로 옮긴다(_local_cm) — 풀이 · 스킨 · 지도는 스케일 없는 강체로
+        돈다. → 본별 스케일 | 모두 1 이면 None(포즈를 건드리지 않는다 — 비트 같음)."""
+        if not self.poses or all(abs(c - 1.0) <= SCALE_EPS for _, _, s in self.poses[0] for c in s):
+            return None
+        scales = [s for _, _, s in self.poses[0]]
+        self.poses = [[(q, t, (1.0, 1.0, 1.0)) for q, t, _ in row] for row in self.poses]
+        return scales
+
+    def _local_cm(self, bone: int, p: tuple) -> tuple:
+        if self.bone_scale is None:
+            return p
+        s = self.bone_scale[bone]
+        return (p[0] * s[0], p[1] * s[1], p[2] * s[2])
+
+    def local_translation(self, bone: int, delta_cm) -> tuple:
+        """부모 공간 cm(풀이 — 스케일 없는 포즈) → 실제 트랙 단위(bone_deltas translation_cm 은 트랙 로컬 이동에 더한다) — 부모 스케일로 나눈다."""
+        p = self.parents[bone]
+        if self.bone_scale is None or p < 0:
+            return tuple(delta_cm)
+        s = self.bone_scale[p]
+        return (delta_cm[0] / s[0], delta_cm[1] / s[1], delta_cm[2] / s[2])
 
     # ---- 포즈 ----
     def local_pose(self, f: int) -> list:

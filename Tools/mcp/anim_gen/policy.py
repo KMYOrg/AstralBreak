@@ -48,8 +48,31 @@ SCHEMA = {
             "timeout_seconds": ("number", 60, 86400),  # 제출부터 결과까지 기다리는 한도(Meshy 권장: 60분은 기다릴 것) — 넘으면 TIMEOUT
         },
     },
+    # Phase 9-5a (U8-b) — 대상별 기준값(target_style.py). reference_skeleton = 기준값을 정한 몸(Vesper 운영 애니 E0) · profiles = 대상 스켈레톤 → 스타일 값
+    # {timing_target_peak_cm_s?, stance_max_ratio?}(요청이 주지 않은 것만 — 몸 비율 환산 대신 쓴다)
+    "style": {
+        "reference_skeleton": ("str",),
+        "profiles": ("profiles",),
+    },
 }
+STYLE_PROFILE_KEYS = {"timing_target_peak_cm_s": (50.0, 5000.0), "stance_max_ratio": (1.0, 10.0)}   # 범위 = timing.normalize · fix_ops.normalize_op 와 같다
 _FORBIDDEN = re.compile(r"(output|candidate_root|overwrite|api_key|apikey|token|secret|password)", re.IGNORECASE)
+
+
+def _check_profiles(value) -> str | None:
+    """style.profiles — {대상 스켈레톤 경로: {STYLE_PROFILE_KEYS 의 키: 범위 안의 수}}. 잘못이면 이유."""
+    if not isinstance(value, dict):
+        return "must be an object {skeleton path: {" + ", ".join(sorted(STYLE_PROFILE_KEYS)) + "}}"
+    for skeleton, values in value.items():
+        if not skeleton.startswith("/") or not isinstance(values, dict):
+            return f"entry '{skeleton}' must be a skeleton path → object"
+        for key, number in values.items():
+            limits = STYLE_PROFILE_KEYS.get(key)
+            if limits is None:
+                return f"entry '{skeleton}' has unknown key '{key}' — allowed {sorted(STYLE_PROFILE_KEYS)}"
+            if isinstance(number, bool) or not isinstance(number, (int, float)) or not limits[0] <= number <= limits[1]:
+                return f"entry '{skeleton}'.{key} must be a number in [{limits[0]:g}, {limits[1]:g}]"
+    return None
 
 
 def _check_value(path: str, spec: tuple, value) -> None:
@@ -66,6 +89,8 @@ def _check_value(path: str, spec: tuple, value) -> None:
     elif kind == "positive_or_null" and value is not None:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= spec[1]:
             bad = f"must be null or a number in (0, {spec[1]}]"
+    elif kind == "profiles":
+        bad = _check_profiles(value)
     elif kind in ("number", "int"):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or (kind == "int" and not isinstance(value, int)):
             bad = f"must be {'an integer' if kind == 'int' else 'a number'}"

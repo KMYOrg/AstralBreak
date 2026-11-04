@@ -67,7 +67,10 @@ def set_generation_policy(patch: dict | None = None, reset: bool = False) -> dic
             max_cost_per_job_usd, max_total_cost_usd}, execution{max_generation_attempts 1-10, allow_fallback,
             preserve_intermediate_results, subprocess_timeout_seconds 10-3600}, paths{blender_executable, kimodo_python, kimodo_hf_cache},
             external{meshy{usd_per_credit (the USER's own Meshy plan rate — ask them, never guess; null = cost unconfirmed, so Meshy is
-            never run), timeout_seconds 60-86400}}. Output paths, overwrite switches and API keys are refused
+            never run), timeout_seconds 60-86400}}, style{reference_skeleton (the body the thresholds were set on; on any other target the
+            hand-speed thresholds are multiplied by its (arm length / pelvis scale) ratio), profiles{<skeleton path>: {timing_target_peak_cm_s
+            50-5000, stance_max_ratio 1-10}} (a character's own style values measured from its animations — used instead of the body ratio
+            when the request does not give them)}. Output paths, overwrite switches and API keys are refused
             (BAD_REQUEST FORBIDDEN_KEY); unknown keys are BAD_REQUEST UNKNOWN_KEY.
         reset: Drop the existing local overrides first.
     """
@@ -84,7 +87,10 @@ def plan_motion_generation(request: dict) -> dict:
             weapon_action | full_body_new), duration_seconds?, frame_rate?, loop?, root_motion_mode (auto | on | off),
             reference_animations[] (explicit sources) | search{query, path_prefix, min_length, max_length, root_motion, loop, tags,
             limit}, edits{source?, operations[]} (anim-graph-mcp apply_animation_edits op dictionary), retarget{source_mesh?,
-            existing_source_rig?, existing_target_rig?, existing_retargeter?, source_pelvis?, source_chains?, ops?,
+            existing_source_rig?, existing_target_rig? (needed when the target skeleton matches no template — a manual
+            create_ik_rig with chains named like the source's; it is then the one source of the measured bones, the body model
+            chains and the pose_from presets. Without it such a target is excluded: TARGET_CHAINS_UNKNOWN), existing_retargeter?,
+            source_pelvis?, source_chains?, ops?,
             source_facing? auto|keep|+X|-X|+Y|-Y (the UE axis the SOURCE faces; auto = measured from its reference pose),
             align_mode? per_bone|engine (default per_bone with ops match_existing: chains with matching bone counts copy rotations
             one-to-one and the target pose is aligned bone-to-bone and at chain ends — create_ik_retargeter align_mode; engine = the
@@ -149,7 +155,10 @@ def plan_motion_generation(request: dict) -> dict:
             "auto", height_ratio, speed_ratio, min_frames, blend_frames, lock_rotation} — stance_width and foot_lock are one leg solve in a
             model of the retargeted legs (pelvis × target/source pelvis height, source bone directions, target bone lengths), so the TARGET's
             planted feet stay put (Job fix.source = Blender report, fix.target = measured after retargeting); needs the source leg chains
-            (retarget.source_chains or provider defaults), timing?: true | {target_peak_cm_s 1200, max_rate 2.0, recovery_rate 1.5,
+            (retarget.source_chains or provider defaults) and the retargeter this job builds — with retarget.ops default or
+            existing_retargeter the candidate is excluded (FIX_LEGS_NEEDS_MATCH_EXISTING), timing?: true | {target_peak_cm_s 1200 (on the reference
+            body — policy style; another target gets its policy profile value or 1200 × body ratio unless the request gives one, Job
+            timing.target_peak), max_rate 2.0, recovery_rate 1.5,
             antialias 1.0 (0..1.5), swing{core_ratio 0.5, edge_ratio 0.2}, still{speed_cm_s 30, min_s 0.3, trim_head true, keep_head_s 0.2,
             trim_tail true, keep_tail_s 0.3}} (on the TARGET sequence after retargeting, every route incl. an existing asset: finds the swing by
             wrist speed and speeds it up with one smooth time_warp — rate ramps linearly 1 → core rate → recovery ×1.5 → 1, no speed steps,

@@ -23,6 +23,8 @@ namespace AnimMcpAnimValidator
 			double Length = 0.0;
 			bool bLoop = false;
 			TArray<FName> Bones;
+			/** [bone] 기준 포즈 컴포넌트 스케일 — 기준 스케일이 있는 스켈레톤(루트 스케일 100)은 그 값이 정상이다 */
+			TArray<FVector> RefScale;
 			/** [frame][bone] */
 			TArray<TArray<FTransform>> Component;
 			/** 펠비스의 기준 포즈 높이 (cm) — 길이 비 보정용 */
@@ -105,6 +107,7 @@ namespace AnimMcpAnimValidator
 				if (Frame == 0)
 				{
 					UAnimPoseExtensions::GetBoneNames(Pose, Out.Bones);
+					for (const FName& Bone : Out.Bones) { Out.RefScale.Add(UAnimPoseExtensions::GetRefBonePose(Pose, Bone, EAnimPoseSpaces::World).GetScale3D()); }
 					const FName Pelvis = PelvisHint.IsNone() ? FName(TEXT("pelvis")) : PelvisHint;
 					if (FindBone(Out.Bones, Pelvis) != INDEX_NONE)
 					{
@@ -141,7 +144,7 @@ namespace AnimMcpAnimValidator
 						M.NaNBone = S.Bones[Bone];
 						break;
 					}
-					const FVector Scale = X.GetScale3D();
+					const FVector Scale = X.GetScale3D() / S.RefScale[Bone];
 					if (!M.bBadScale && (Scale.GetAbsMin() < 1e-3 || Scale.GetAbsMax() > 10.0))
 					{
 						M.bBadScale = true;
@@ -702,7 +705,7 @@ namespace AnimMcpAnimValidator
 			}
 			if (MA.bBadScale)
 			{
-				Structural.Add(TEXT("error"), TEXT("ABNORMAL_SCALE"), FString::Printf(TEXT("Scale %.4g on '%s' (allowed 0.001..10)"), MA.BadScale, *MA.BadScaleBone.ToString()));
+				Structural.Add(TEXT("error"), TEXT("ABNORMAL_SCALE"), FString::Printf(TEXT("Scale %.4g × the reference pose on '%s' (allowed 0.001..10)"), MA.BadScale, *MA.BadScaleBone.ToString()));
 			}
 			if (Options.bNumeric)
 			{

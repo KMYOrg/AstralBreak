@@ -61,9 +61,11 @@ def normalize(raw) -> dict | None:
     if not isinstance(raw, dict):
         raise TimingError("fix.timing", "must be true or an object")
     out = copy.deepcopy(DEFAULTS)
+    if "target_peak_cm_s" in raw:
+        out["target_peak_given"] = True   # 9-5a — 요청이 준 값은 대상 몸으로 옮기지 않는다(target_style.peak)
     for key, value in raw.items():
-        if key not in out:
-            raise TimingError(f"fix.timing.{key}", f"unknown key — allowed {sorted(out)}")
+        if key not in DEFAULTS:
+            raise TimingError(f"fix.timing.{key}", f"unknown key — allowed {sorted(DEFAULTS)}")
         if isinstance(out[key], dict):
             if not isinstance(value, dict):
                 raise TimingError(f"fix.timing.{key}", "must be an object")

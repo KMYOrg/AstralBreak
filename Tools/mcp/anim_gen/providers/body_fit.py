@@ -14,7 +14,7 @@ from __future__ import annotations
 import copy
 import time
 
-from .. import body_fit, motion_metrics, timing
+from .. import body_fit, motion_metrics, target_style, timing
 from .. import weapon as weapon_mod
 from ..body_model import BodyModel, ModelError
 from ..editor import EditorCallError
@@ -22,7 +22,7 @@ from ..envelope import diag, limitation
 from ..fallback import from_editor_error
 from ..request import root_motion_flag
 from .base import PlanBlocked, PlanContext, Provider, RunContext, StepFailed, StepResult
-from .builtin import RetargetPipe, apply_edits
+from .builtin import RetargetPipe, apply_edits, pelvis_arg
 
 TOOL = ("validate_animation(profile · body_clearance{parts all, hands, model}) → body_fit.solve → apply_animation_edits(bone_deltas) → "
         "validate_animation(body_clearance parts · hands · per_frame)")
@@ -77,6 +77,9 @@ class BodyFitPipe(Provider):
         produces = cfg["mode"] == "auto"
         inputs = {**copy.deepcopy(cfg), "mesh": request["target_mesh"], "loop": request["loop"], "root_motion": root_motion_flag(request),
                   "bones": None, "produces": produces}
+        rig = RetargetPipe.rig_of(request)
+        if rig:
+            inputs["ik_rig"] = rig["rig"]   # 측정 체인 — 템플릿이 없는 대상은 C++ 자동 캐릭터라이즈가 실패한다(9-5b). 없으면 키도 없다
         # 다리 공중 경로(8-4d) — auto 는 이 Job 의 fix.ops 에 다리 op(stance_width · foot_lock)가 있을 때만 켠다(계획에 이유와 함께 보인다).
         # 접지 고정(9-4d) — auto 는 fix.timing 과 다리 op 가 함께 있을 때만 hold(공중 경로도 켠다)
         modes = body_fit.leg_modes(cfg["legs"], request["fix"].get("ops"), request["fix"].get("timing"))
@@ -107,7 +110,8 @@ class BodyFitPipe(Provider):
         risks = ["BODY_FIT_RESOLVED_AT_RUN"] if produces else []
         if pctx.editor_ok:
             try:
-                inputs["bones"] = RetargetPipe.selection_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics, "body_fit")
+                inputs["bones"] = RetargetPipe.request_bones(pctx.editor, request, pctx.diagnostics, "body_fit")
+                self.styled_speed(pctx.editor, request, pctx.policy, inputs, pctx.diagnostics)
                 target_info = self.inspect_target(pctx.editor, request) if self.needs_target_info(inputs) else None
                 if target_info is not None:
                     inputs["fingers"] = weapon_mod.finger_roots(target_info)
@@ -132,6 +136,16 @@ class BodyFitPipe(Provider):
         return step, risks, lims
 
     @staticmethod
+    def styled_speed(editor, request: dict, policy: dict | None, inputs: dict, diagnostics: list[dict]) -> None:
+        """대상 ≠ 기준 몸(Phase 9-5a) — 빠른 구간 매끈화 기준(SPEED_REF_CM)을 몸 비율로 옮긴다(target_style). 기준 몸이면 키가 없다(풀이 비트 같음)."""
+        skeleton = request["target_skeleton"]
+        if not inputs["produces"] or target_style.is_reference(policy, skeleton):
+            return
+        body_ratio = RetargetPipe.style_ratio(editor, skeleton, policy, inputs["bones"], diagnostics, "body_fit")
+        if body_ratio is not None:
+            inputs["speed_ref_cm"], inputs["speed_ref_factor"] = round(body_fit.SPEED_REF_CM * body_ratio, 4), round(body_ratio, 4)
+
+    @staticmethod
     def resolve_bundles(inputs: dict, target_info: dict) -> None:
         """샘플 전이 묶음을 본 이름으로(body_fit.bundle_bones — 대상 메시 inspect 하나) — 항목마다 resolved_bones · resolved_presets."""
         for i, p in enumerate(inputs["pose_from"]):
@@ -144,7 +158,8 @@ class BodyFitPipe(Provider):
     def sample_of(self, editor, asset: str, request: dict, inputs: dict, *, model: bool, step: str = "body_fit") -> dict:
         """샘플 애셋(8-4c c2) — validate_animation(대상 스켈레톤 기대 · profile, model 이면 body_clearance{대상 메시, model}) → {asset, skeleton, events,
         length_s, fps, model?}. 스켈레톤이 대상과 다르면 BodyFitError(SAMPLE_SKELETON_MISMATCH — 다른 스켈레톤 샘플은 먼저 리타깃, 결정 G)."""
-        params = {"assets": [asset], "skeleton": request["target_skeleton"], "profile_bones": self.profile_bones(inputs["bones"]), "profile_positions": True}
+        params = {"assets": [asset], "skeleton": request["target_skeleton"], "profile_bones": self.profile_bones(inputs["bones"]), "profile_positions": True,
+                  **pelvis_arg(inputs["bones"])}
         if model:
             params["body_clearance"] = self.spec(inputs, model=True)
         try:
@@ -184,11 +199,14 @@ class BodyFitPipe(Provider):
 
     @staticmethod
     def inspect_target(editor, request: dict, step: str = "body_fit") -> dict:
-        """대상 메시 inspect_skeleton(details · suggest_finger_chains — 동기, 폴링 없음) — 부착 소켓 · 손가락 체인 제안."""
+        """대상 메시 inspect_skeleton(details · suggest_finger_chains — 동기, 폴링 없음) — 부착 소켓 · 손가락 체인 제안. 대상 리그가 있으면 template_match 자리에 그
+        체인 · 펠비스(bundle_bones 가 읽는 한 원천)."""
         try:
-            return editor.require("inspect_skeleton", skeletal_mesh=request["target_mesh"], details=True, suggest_finger_chains=True)
+            info = editor.require("inspect_skeleton", skeletal_mesh=request["target_mesh"], details=True, suggest_finger_chains=True)
         except EditorCallError as err:
             raise from_editor_error(step, err)
+        rig = RetargetPipe.rig_of(request)
+        return {**info, "template_match": RetargetPipe.rig_chains(editor, rig, step)} if rig else info
 
     @classmethod
     def resolve_weapon(cls, editor, request: dict, step: str = "body_fit", target_info: dict | None = None) -> dict:
@@ -265,6 +283,7 @@ class BodyFitPipe(Provider):
     def spec(inputs: dict, *, model: bool = False, per_frame: bool = False, ik_rig: str | None = None) -> dict:
         c = inputs["clearance"]
         out = {"mesh": inputs["mesh"], "parts": "all"}
+        ik_rig = ik_rig or inputs.get("ik_rig")
         if ik_rig:
             out["ik_rig"] = ik_rig
         if c["hands"]:
@@ -293,7 +312,8 @@ class BodyFitPipe(Provider):
         extra = {"fingers": {"mesh": request["target_mesh"]}} if fingers else {}
         try:
             res = editor.require("validate_animation", assets=[asset], skeleton=request["target_skeleton"], profile_bones=self.profile_bones(inputs["bones"]),
-                                 profile_positions=True, body_clearance=self.spec(inputs, model=model, per_frame=per_frame, ik_rig=ik_rig), **extra)
+                                 profile_positions=True, body_clearance=self.spec(inputs, model=model, per_frame=per_frame, ik_rig=ik_rig),
+                                 **pelvis_arg(inputs["bones"]), **extra)
         except EditorCallError as err:
             raise from_editor_error(step, err)
         item = (res.get("assets") or [None])[0]
@@ -384,7 +404,8 @@ class BodyFitPipe(Provider):
         diagnostics: list[dict] = []
         t0 = time.time()
         if not inputs.get("bones"):
-            inputs["bones"] = RetargetPipe.selection_bones(editor, request["target_skeleton"], diagnostics, "body_fit")
+            inputs["bones"] = RetargetPipe.request_bones(editor, request, diagnostics, "body_fit")
+            self.styled_speed(editor, request, ctx.policy, inputs, diagnostics)
         ik_rig = ctx.values.get("target_rig")
         # 샘플 전이에 손가락 묶음이 있으면 손가락 경고도 전 · 후로 잰다(기준 5 — 경고 0)
         finger_check = inputs["produces"] and any(n.startswith("fingers_") for p in inputs.get("pose_from") or [] for n in p["bones"])
@@ -512,8 +533,9 @@ class BodyFitPipe(Provider):
             "legs": {"pins": pins, "swing_path": swing, "soft_knee": legs_cfg["soft_knee"], "clearance_mode": inputs["clearance"].get("mode", "auto"),
                      **(solved.get("leg_path") or {"windows": [], "skipped": [], "frames": []}),
                      "knee_bend": {"before": (before.get("feet") or {}).get("knee_bend"), "after": (after.get("feet") or {}).get("knee_bend")}},
-            # 빠른 구간 매끈화(8-4e) — 켬 여부 · 이유 · 폭을 줄인 프레임 수 · 최소 배율(켰어도 손이 기준보다 느리면 frames 0)
-            "smooth_speed": {**smooth, **(solved["stats"].get("smooth_fast") or {"frames": 0, "k_min": 1.0})},
+            # 빠른 구간 매끈화(8-4e) — 켬 여부 · 이유 · 폭을 줄인 프레임 수 · 최소 배율(켰어도 손이 기준보다 느리면 frames 0). 대상 ≠ 기준 몸이면 옮긴 기준 · 몸 비율(9-5a)
+            "smooth_speed": {**smooth, **(solved["stats"].get("smooth_fast") or {"frames": 0, "k_min": 1.0}),
+                             **({"speed_ref_cm": inputs["speed_ref_cm"], "factor": inputs["speed_ref_factor"]} if inputs.get("speed_ref_cm") else {})},
             # 위팔 마무리(8-4f · 9-4b 손 부근 마무리) — 방식 · 상한(cm, × scale 전) · 위팔이 상한을 넘던 프레임 수 · 위팔 방향 변화 최대 · 팔꿈치 이동 · 상한까지
             # 못 뺀 프레임 수와 그 남은 깊이(모델)
             "upper_arm": self.upper_record(inputs["clearance"], solved["stats"].get("upper_finish")),

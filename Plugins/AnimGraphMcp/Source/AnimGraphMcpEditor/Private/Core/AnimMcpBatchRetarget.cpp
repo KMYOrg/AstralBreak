@@ -5,6 +5,8 @@
 #include "AnimMcpGeneration.h"
 #include "AnimMcpLog.h"
 #include "AnimMcpStats.h"
+#include "Animation/AnimData/IAnimationDataController.h"
+#include "Animation/AnimData/IAnimationDataModel.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/Skeleton.h"
@@ -14,12 +16,49 @@
 #include "HAL/PlatformTime.h"
 #include "RetargetEditor/IKRetargetBatchOperation.h"
 #include "Retargeter/IKRetargeter.h"
+#include "Rig/IKRigDefinition.h"
 #include "RigEditor/IKRigController.h"
 #include "UObject/Package.h"
 #include "UObject/StrongObjectPtr.h"
 
 namespace AnimMcpBatchRetarget
 {
+	bool HasRefScale(const TArray<FTransform>& RefLocal)
+	{
+		return RefLocal.ContainsByPredicate([](const FTransform& X) { return !X.GetScale3D().Equals(FVector::OneVector, 1e-3); });
+	}
+
+	double PelvisHeightFix(const FTransform& Pelvis, const TArray<FTransform>& Chain)
+	{
+		FTransform Baked = FTransform::Identity, Folded = FTransform::Identity;
+		for (const FTransform& Link : Chain)
+		{
+			FTransform Plain = Link;
+			Plain.SetScale3D(FVector::OneVector);
+			Baked = Link * Baked;
+			Folded = Plain * Folded;
+		}
+		const FVector Global = (Pelvis * Baked).GetLocation();
+		FTransform BakedPlain = Baked;
+		BakedPlain.SetScale3D(FVector::OneVector);
+		const FVector Engine = Folded.TransformPosition(BakedPlain.InverseTransformPosition(Global));
+		return FMath::Abs(Engine.Z) > UE_KINDA_SMALL_NUMBER ? Global.Z / Engine.Z : 1.0;
+	}
+
+	FVector RestoredPelvisLocal(const FVector& Pelvis, const TArray<FTransform>& Chain, const TArray<FVector>& Scales, double Height)
+	{
+		FTransform Before = FTransform::Identity, After = FTransform::Identity;
+		for (int32 i = 0; i < Chain.Num(); ++i)
+		{
+			FTransform Scaled = Chain[i];
+			Scaled.SetScale3D(Scales[i]);
+			if (i == 0) { Scaled.ScaleTranslation(Height); }
+			Before = Chain[i] * Before;
+			After = Scaled * After;
+		}
+		return After.InverseTransformPosition(Before.TransformPosition(Pelvis) * Height);
+	}
+
 	namespace
 	{
 		struct FPlanned
@@ -28,6 +67,67 @@ namespace AnimMcpBatchRetarget
 			FString ObjectPath;
 			bool bReferenced = false;
 		};
+
+		/** HasRefScale 대상의 새 시퀀스를 복원한다 — 트랙은 RunRetarget 이 대상 본마다 만들어 두었다(복원 전 값을 모두 읽은 뒤 쓴다). 고쳤으면 true */
+		bool RestoreRefScale(UAnimSequence* Sequence, const USkeletalMesh* Mesh, FName Pelvis)
+		{
+			const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
+			const TArray<FTransform>& RefLocal = Ref.GetRefBonePose();
+			if (!HasRefScale(RefLocal))
+			{
+				return false;
+			}
+			const IAnimationDataModel* Model = Sequence->GetDataModel();
+			TArray<TArray<FTransform>> Tracks;
+			Tracks.SetNum(Ref.GetNum());
+			for (int32 Bone = 0; Bone < Ref.GetNum(); ++Bone)
+			{
+				if (Model->IsValidBoneTrackName(Ref.GetBoneName(Bone))) { Model->GetBoneTrackTransforms(Ref.GetBoneName(Bone), Tracks[Bone]); }
+			}
+			const int32 PelvisIndex = Ref.FindBoneIndex(Pelvis);
+			TArray<int32> Chain;
+			TArray<FVector> ChainScales;
+			TArray<FTransform> ChainRef;
+			for (int32 Walk = PelvisIndex == INDEX_NONE ? INDEX_NONE : Ref.GetParentIndex(PelvisIndex); Walk != INDEX_NONE; Walk = Ref.GetParentIndex(Walk))
+			{
+				Chain.Insert(Walk, 0);
+				ChainScales.Insert(RefLocal[Walk].GetScale3D(), 0);
+				ChainRef.Insert(RefLocal[Walk], 0);
+			}
+			const double Height = PelvisIndex == INDEX_NONE ? 1.0 : PelvisHeightFix(RefLocal[PelvisIndex], ChainRef);
+			IAnimationDataController& Controller = Sequence->GetController();
+			constexpr bool bShouldTransact = false;
+			Controller.OpenBracket(NSLOCTEXT("AnimGraphMcp", "RestoreRefScale", "AnimGraphMcp: restore reference scale"), bShouldTransact);
+			for (int32 Bone = 0; Bone < Ref.GetNum(); ++Bone)
+			{
+				TArray<FVector3f> Positions;
+				TArray<FQuat4f> Rotations;
+				TArray<FVector3f> Scales;
+				for (int32 Key = 0; Key < Tracks[Bone].Num(); ++Key)
+				{
+					const FTransform& X = Tracks[Bone][Key];
+					FVector Location = X.GetLocation();
+					if (Bone == PelvisIndex)
+					{
+						TArray<FTransform> Keys;
+						for (const int32 Link : Chain) { Keys.Add(Tracks[Link].IsValidIndex(Key) ? Tracks[Link][Key] : FTransform(RefLocal[Link].GetRotation(), RefLocal[Link].GetLocation())); }
+						Location = RestoredPelvisLocal(Location, Keys, ChainScales, Height);
+					}
+					else if (Bone == 0)
+					{
+						Location *= Height;   // 루트 이동도 Pelvis Motion op 크기에 비례한다(RootMotionGeneratorOp.cpp:295-302)
+					}
+					Positions.Add(FVector3f(Location));
+					Rotations.Add(FQuat4f(X.GetRotation().GetNormalized()));
+					Scales.Add(FVector3f(RefLocal[Bone].GetScale3D()));
+				}
+				if (Positions.Num() > 0) { Controller.SetBoneTrackKeys(Ref.GetBoneName(Bone), Positions, Rotations, Scales, bShouldTransact); }
+			}
+			Controller.CloseBracket(bShouldTransact);
+			Sequence->PostEditChange();
+			Sequence->MarkPackageDirty();
+			return true;
+		}
 
 		/** UIKRetargetBatchOperation::GenerateAssetLists 와 같은 규칙 (IKRetargetBatchOperation.cpp:39-98, AnimBlueprint 분기 제외) */
 		TArray<UAnimationAsset*> CollectAssets(const TArray<UAnimationAsset*>& Inputs, bool bIncludeReferenced)
@@ -249,6 +349,20 @@ namespace AnimMcpBatchRetarget
 			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::RetargetFailed,
 				FString::Printf(TEXT("%d planned asset(s) were not created (cancelled, or the retargeter failed to initialize — see Output Log); %d created asset(s) left unsaved"), Missing.Num(), Generated.Num()), Details);
 			return nullptr;
+		}
+
+		// ---- 기준 스케일 — 아래 관통 · 검증은 복원한 포즈를 잰다 ----
+		{
+			int32 Restored = 0;
+			for (const TPair<UAnimSequence*, UAnimSequence*>& Pair : ToValidate)
+			{
+				Restored += RestoreRefScale(Pair.Key, Params.TargetMesh, TargetRig->GetPelvis()) ? 1 : 0;
+			}
+			if (Restored > 0)
+			{
+				Context.AddDiagnostic(TEXT("info"), TEXT("TARGET_REF_SCALE_RESTORED"), FString::Printf(TEXT("%d sequence(s): %s has a scale in its reference pose — the retargeter drops it, so the scale tracks and the pelvis translation were restored"),
+					Restored, *Params.TargetMesh->GetName()));
+			}
 		}
 
 		// ---- 팔-몸통 관통: 체인은 리타기터의 대상 IK Rig, 몸은 대상 메시 ----

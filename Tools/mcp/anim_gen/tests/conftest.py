@@ -140,6 +140,7 @@ class FakeEditor:
         self.bones = {VESPER: VESPER_BONES, UE4: VESPER_BONES, SB: SB_BONES}
         self.default_bones: list[dict] = []   # 그 밖의 스켈레톤(임포트한 Mock_Skeleton 등) — Phase 9-3 테스트가 SOMA 본을 준다
         self.auto_rig_fail: set[str] = set()
+        self.rigs: dict[str, dict] = {}       # Phase 9-5b — create_ik_rig existing_rig 흉내: 리그 경로 → {asset_path, pelvis, chains}
         self.assets: dict[str, dict] = {
             AIM_IDLE: {"class": "AnimSequence", "skeleton": VESPER, "length": 1.3333, "frame_rate": 30.0, "loop": True, "root_motion": False},
             ATTACK3: {"class": "AnimSequence", "skeleton": VESPER, "length": 1.6, "frame_rate": 60.0, "loop": False, "root_motion": True},
@@ -425,6 +426,8 @@ class FakeEditor:
                 "skeleton": _obj(skel), "mesh": _obj(mesh)}
 
     def _create_ik_rig(self, p):
+        if p.get("existing_rig"):
+            return copy.deepcopy(self.rigs[package_path(p["existing_rig"])])
         if p.get("mode", "auto") == "auto" and package_path(p["skeletal_mesh"]) in self.auto_rig_fail:
             raise _Refuse(err("IKRIG_AUTO_FAILED", "no template", bones=[{"name": "root", "parent": None}]))
         return {"asset_path": _obj(self._new(p["asset_path"], **{"class": "IKRigDefinition"}))}

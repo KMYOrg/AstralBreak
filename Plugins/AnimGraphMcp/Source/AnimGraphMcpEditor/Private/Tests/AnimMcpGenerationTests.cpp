@@ -9,6 +9,7 @@
 #include "Bridge/AnimMcpDispatcher.h"
 #include "Bridge/AnimMcpTypes.h"
 #include "Core/AnimMcpAssetProtection.h"
+#include "Core/AnimMcpBatchRetarget.h"
 #include "Core/AnimMcpGeneration.h"
 #include "Core/AnimMcpPromote.h"
 #include "Curves/CurveFloat.h"
@@ -329,6 +330,46 @@ bool FAnimMcpGenerationWriteGuardTest::RunTest(const FString& Parameters)
 	OutsidePackage->SetDirtyFlag(false);
 	InsidePackage->MarkAsGarbage();
 	OutsidePackage->MarkAsGarbage();
+	return true;
+}
+
+// Phase 9-5b — 기준 스케일이 있는 대상의 리타깃 복원. 실제 시퀀스 · 메시는 anim_gen_phase9_5_test.py(Narmaya · SB) 가 본다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAnimMcpRefScaleTest, "AnimGraphMcp.Generation.RefScale", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FAnimMcpRefScaleTest::RunTest(const FString& Parameters)
+{
+	TArray<FTransform> Ref;
+	Ref.Init(FTransform::Identity, 3);
+	TestFalse(TEXT("unit scale: nothing to restore"), AnimMcpBatchRetarget::HasRefScale(Ref));
+	Ref[2].SetScale3D(FVector(1.0005));
+	TestFalse(TEXT("export noise under 1e-3 counts as unit"), AnimMcpBatchRetarget::HasRefScale(Ref));
+	Ref[0].SetScale3D(FVector(100.0));
+	TestTrue(TEXT("root scale 100: restore"), AnimMcpBatchRetarget::HasRefScale(Ref));
+
+	const FTransform Root(FQuat::Identity, FVector(5, 0, 0));
+	const FTransform Turn(FQuat(FVector::XAxisVector, -UE_HALF_PI), FVector::ZeroVector);
+	const TArray<FVector> Scales = { FVector(100.0), FVector::OneVector };
+	const FVector Global = (FTransform(FVector(0, 80, 0)) * Turn * Root).GetLocation();
+
+	// Narmaya 모양 — 부모가 원점: 이동이 스케일로 나뉘고 전역은 그대로, 엔진 높이가 맞다(배 1)
+	FTransform Scaled = Root;
+	Scaled.SetScale3D(FVector(100.0));
+	const FTransform RefRoot(FQuat::Identity, FVector::ZeroVector, FVector(100.0));
+	TestEqual(TEXT("parent at the origin: engine height is right"), AnimMcpBatchRetarget::PelvisHeightFix(FTransform(FVector(0, 0.82, 0)), { RefRoot, Turn }), 1.0, 1e-6);
+	const FVector Local = AnimMcpBatchRetarget::RestoredPelvisLocal(FVector(0, 80, 0), { Root, Turn }, Scales, 1.0);
+	TestEqual(TEXT("parent at the root: translation / scale"), Local, FVector(0, 0.8, 0));
+	TestEqual(TEXT("global position kept"), (FTransform(Local) * Turn * Scaled).GetLocation(), Global);
+
+	// SB 모양 — 부모가 기준 위치(스케일 없는 단위 0.9)에 있다: 엔진 펠비스 높이도 접혀 0.9, 복원 = 위치 · 루트 이동 × 100
+	const FTransform Offset(FQuat::Identity, FVector(0, 0, 0.9));
+	const double Height = AnimMcpBatchRetarget::PelvisHeightFix(FTransform::Identity, { RefRoot, Offset });
+	TestEqual(TEXT("parent off the origin: engine height is folded"), Height, 100.0, 1e-6);
+	const FVector Folded = (Offset * Root).GetLocation() + FVector(0, 0, 0.1);   // 엔진 펠비스 전역 = 부모 0.9 위로 0.1
+	const FVector Local2 = AnimMcpBatchRetarget::RestoredPelvisLocal(FVector(0, 0, 0.1), { Root, Offset }, Scales, Height);
+	FTransform ScaledMoved = Scaled;
+	ScaledMoved.ScaleTranslation(Height);
+	TestEqual(TEXT("parent off the origin: global position × height"), (FTransform(Local2) * Offset * ScaledMoved).GetLocation(), Folded * Height);
+	TestEqual(TEXT("no chain: position untouched"), AnimMcpBatchRetarget::RestoredPelvisLocal(FVector(1, 2, 3), {}, {}, 1.0), FVector(1, 2, 3));
 	return true;
 }
 

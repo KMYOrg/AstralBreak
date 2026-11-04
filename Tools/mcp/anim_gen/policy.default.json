@@ -22,5 +22,9 @@
       "usd_per_credit": null,
       "timeout_seconds": 3600
     }
+  },
+  "style": {
+    "reference_skeleton": "/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F",
+    "profiles": {}
   }
 }

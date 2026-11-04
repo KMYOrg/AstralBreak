@@ -23,7 +23,7 @@ import json
 import pathlib
 import re
 
-from .. import bvh, fix_ops, soma
+from .. import bvh, fix_ops, soma, target_style
 from ..editor import EditorCallError
 from ..envelope import AnimGenError, diag, limitation
 from ..fallback import from_editor_error
@@ -105,7 +105,7 @@ class BlenderProvider(SubprocessProvider):
                                          f"{rng['aligned_to']:g} fps frame — keeps the source frames exact (Interchange would otherwise "
                                          "snap the length by up to half a frame, LENGTH_SNAPPED)"))
         review = self.plan_review(request, pctx.settings, rng["duration"])
-        ops = self.check_fix(request, pctx.diagnostics)
+        ops = self.check_fix(request, pctx.diagnostics, pctx.policy)
         step = {"step": "convert", "provider": self.name, "tool": _TOOL, "inputs": {**mf, "review": review, "fix": {"ops": ops}},
                 "resolved": resolved, "risks": risks + (["FIX_RESOLVED_AT_RUN"] if ops else []), "sample_rate": resolved["sample_rate"],
                 "expected_limitations": self.limitations(resolved) + ([review_limitation()] if review else []) + ([fix_limitation(ops)] if ops else []),
@@ -128,7 +128,7 @@ class BlenderProvider(SubprocessProvider):
         sample_rate = rate if rate and expected.get("fps") and abs(rate - expected["fps"]) > 0.01 else None
         frames, fps = expected.get("frames"), expected.get("fps")
         review = self.plan_review(request, pctx.settings if pctx else None, (frames - 1) / fps if frames and fps else None)
-        ops = self.check_fix(request, pctx.diagnostics if pctx else None)
+        ops = self.check_fix(request, pctx.diagnostics if pctx else None, pctx.policy if pctx else None)
         step = {"step": "convert", "provider": self.name, "tool": _TOOL,
                 "inputs": {**mf, "path": None, "from_step": "generate", "review": review, "fix": {"ops": ops}},
                 "resolved": None, "expected": dict(expected), "risks": ["CONVERT_RESOLVED_AT_RUN"] + (["FIX_RESOLVED_AT_RUN"] if ops else []),
@@ -144,6 +144,12 @@ class BlenderProvider(SubprocessProvider):
         fix = step["inputs"]["fix"]
         if not any(o["op"] in fix_ops.LEG_OPS for o in fix["ops"]):
             return
+        # Phase 9-5a (U7-c) — 대상 모델(foot_fix.target_model)은 이 Job 이 만드는 match_existing 리타기터(FK 회전 복사 · 바닥 제약 0)를 가정한다. 다른 구성은 예측이
+        # 틀리므로 돌리지 않는다: ops default 는 Run IK Rig 가 발을 옮기고(E0 — SOMA 소스는 검증부터 FAILED), 재사용 리타기터는 구성을 알 수 없다
+        if retarget_inputs.get("ops", "match_existing") != "match_existing" or retarget_inputs.get("existing_retargeter"):
+            raise PlanBlocked("UNSUPPORTED_REQUEST", "FIX_LEGS_NEEDS_MATCH_EXISTING", "fix.ops leg ops are solved in a model of the retargeter this job builds "
+                              "(retarget.ops match_existing) — drop retarget.ops default / existing_retargeter or the leg ops, or fix the legs on the target with "
+                              "fix.body", ops=retarget_inputs.get("ops"), existing_retargeter=retarget_inputs.get("existing_retargeter"))
         fix["legs"], fix["target_dims"] = None, None
         if step.get("resolved"):
             try:
@@ -152,7 +158,7 @@ class BlenderProvider(SubprocessProvider):
                 raise PlanBlocked("UNSUPPORTED_REQUEST", "FIX_LEGS_UNKNOWN", err.args[1]) from None
         if pctx.editor_ok:
             try:
-                fix["target_dims"] = RetargetPipe.selection_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics, "convert").get("leg_dims")
+                fix["target_dims"] = RetargetPipe.request_bones(pctx.editor, request, pctx.diagnostics, "convert").get("leg_dims")
             except StepFailed as failed:
                 raise PlanBlocked(failed.cause, failed.reason, failed.message, editor_error=failed.editor_error) from None
 
@@ -176,9 +182,9 @@ class BlenderProvider(SubprocessProvider):
         return {"times": times, "count": render["count"], "views": list(render["views"]), "reference_images": refs}
 
     @staticmethod
-    def check_fix(request: dict, diagnostics: list[dict] | None = None) -> list[dict]:
+    def check_fix(request: dict, diagnostics: list[dict] | None = None, policy: dict | None = None) -> list[dict]:
         """fix.ops 를 op 사전으로 검사 → 기본값을 채워 정해진 순서로(smooth → 다리 풀이). 모르는 op 가 하나라도 있으면 이 후보를 막는다(무시하고 변환하지
-        않는다), 인자가 틀리면 요청 오류(BAD_REQUEST)."""
+        않는다), 인자가 틀리면 요청 오류(BAD_REQUEST). 정책 프로필의 발 좌우 비 상한은 요청이 주지 않았을 때만(Phase 9-5a)."""
         ops = (request.get("fix") or {}).get("ops") or []
         unknown = [o["op"] for o in ops if o["op"] not in FIX_OPS]
         if unknown:
@@ -198,6 +204,7 @@ class BlenderProvider(SubprocessProvider):
             raise AnimGenError("BAD_REQUEST", f"request.{err.args[0]}: {err.args[1]}", reason="DUPLICATE_FIX_OP", field=err.args[0]) from None
         if moved and diagnostics is not None:
             diagnostics.append(diag("info", "FIX_OPS_REORDERED", f"fix ops run as {[o['op'] for o in out]} (smooth first, then one leg solve)"))
+        target_style.apply_stance(out, ops, target_style.profile(policy, request.get("target_skeleton")))
         return out
 
     def resolve(self, mf: dict, request: dict, settings: dict | None, editor) -> dict:
@@ -341,7 +348,7 @@ class BlenderProvider(SubprocessProvider):
             except fix_ops.FixOpError as err:
                 raise StepFailed("UNSUPPORTED_REQUEST", "FIX_LEGS_UNKNOWN", err.args[1]) from None
         if dims is None:
-            dims = RetargetPipe.selection_bones(ctx.editor, ctx.request["target_skeleton"], notes, "convert").get("leg_dims")
+            dims = RetargetPipe.request_bones(ctx.editor, ctx.request, notes, "convert").get("leg_dims")
             if dims is None:
                 notes.append(diag("warning", "FIX_TARGET_DIMS_UNKNOWN", "target leg dimensions unknown — stance_width max_ratio is read on the source skeleton"))
         return {"legs": legs, "target_dims": dims}

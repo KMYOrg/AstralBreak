@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 import pathlib
 
-from .. import body_model, bvh, motion_metrics, selection, timing
+from .. import body_model, bvh, motion_metrics, selection, target_style, timing
 from .. import segments as segments_mod
 from .. import weapon as weapon_mod
 from ..editor import EditorCallError, asset_name, package_path
@@ -42,6 +42,12 @@ DEFAULT_BONES = {"hand_l": "hand_l", "hand_r": "hand_r", "hip_l": "thigh_l", "hi
                  "shoulder_l": "upperarm_l", "shoulder_r": "upperarm_r", "elbow_l": "lowerarm_l", "elbow_r": "lowerarm_r",
                  motion_metrics.HEAD_ROLE: "head"}
 CANDIDATE_PREFIX = "Cand_"
+
+
+def pelvis_arg(bones: dict) -> dict:
+    """validate_animation 크기 보정 본 — C++ 기본 이름(pelvis)이 없는 대상(리그 경로의 selection_bones · 이음매 측정 본)만 넘긴다. numeric.pelvis_height_cm 이
+    없으면 파이프의 scale 이 1 로 떨어진다."""
+    return {"pelvis": bones["pelvis"]} if bones.get("pelvis") else {}
 
 
 def _measured_from_validation(item: dict | None) -> dict:
@@ -140,14 +146,24 @@ class DirectKey(Provider):
     def timing_bones(bones: dict) -> dict:
         """selection_bones → {hands: [왼 · 오른 손목], body: 전신 정지 판정 본(측정 역할 본 + 머리)}."""
         body = sorted({bones[r] for r in motion_metrics.ROLES if bones.get(r)} | ({bones[motion_metrics.HEAD_ROLE]} if bones.get(motion_metrics.HEAD_ROLE) else set()))
-        return {"from": bones.get("from"), "hands": [bones["hand_l"], bones["hand_r"]], "body": body}
+        return {"from": bones.get("from"), "hands": [bones["hand_l"], bones["hand_r"]], "body": body, **pelvis_arg(bones)}
+
+    @staticmethod
+    def styled_peak(editor, request: dict, policy: dict | None, bones: dict, inputs: dict, diagnostics: list[dict]) -> None:
+        """대상 ≠ 기준 몸(Phase 9-5a) — 정점 목표를 대상으로 옮긴다(target_style.peak), inputs.target_peak = 값 · 원천 · 배율. 기준 몸이면 손대지 않는다(비트 같음)."""
+        skeleton = request["target_skeleton"]
+        if target_style.is_reference(policy, skeleton):
+            return
+        body_ratio = RetargetPipe.style_ratio(editor, skeleton, policy, bones, diagnostics, "timing")
+        inputs["target_peak"] = target_style.peak(inputs, target_style.profile(policy, skeleton), body_ratio)
+        inputs["target_peak_cm_s"] = inputs["target_peak"]["value"]
 
     @staticmethod
     def measure_timing(editor, asset: str, skeleton: str, inputs: dict, step: str = "timing") -> tuple[dict, dict]:
         """대상 시퀀스 한 번 측정 → (timing.plan, timing.summary). inputs = 계획 단계 inputs(timing 설정 + bones)."""
         bones = inputs["bones"]
         try:
-            item = (editor.require("validate_animation", assets=[asset], skeleton=skeleton, profile_bones=bones["body"]).get("assets") or [None])[0]
+            item = (editor.require("validate_animation", assets=[asset], skeleton=skeleton, profile_bones=bones["body"], **pelvis_arg(bones)).get("assets") or [None])[0]
         except EditorCallError as err:
             raise from_editor_error(step, err)
         numeric = (item or {}).get("numeric") or {}
@@ -180,7 +196,9 @@ class DirectKey(Provider):
         if not pctx.editor_ok:
             return step
         try:
-            step["inputs"]["bones"] = self.timing_bones(RetargetPipe.selection_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics, "timing"))
+            bones = RetargetPipe.request_bones(pctx.editor, request, pctx.diagnostics, "timing")
+            step["inputs"]["bones"] = self.timing_bones(bones)
+            self.styled_peak(pctx.editor, request, pctx.policy, bones, step["inputs"], pctx.diagnostics)
             if source_on_target:
                 plan, before = self.measure_timing(pctx.editor, source_on_target, request["target_skeleton"], step["inputs"])
                 env = pctx.editor.call("preview_animation_edits", source=source_on_target, operations=plan["ops"], asset_path=final_asset_path(request),
@@ -240,7 +258,9 @@ class DirectKey(Provider):
         inputs = dict(ctx.step["inputs"])
         diagnostics: list[dict] = []
         if not inputs.get("bones"):
-            inputs["bones"] = self.timing_bones(RetargetPipe.selection_bones(editor, target, diagnostics, "timing"))
+            bones = RetargetPipe.request_bones(editor, ctx.request, diagnostics, "timing")
+            inputs["bones"] = self.timing_bones(bones)
+            self.styled_peak(editor, ctx.request, ctx.policy, bones, inputs, diagnostics)
         plan, before = self.measure_timing(editor, source, target, inputs)
         planned = (ctx.step.get("resolved") or {}).get("ops")
         if planned is not None and planned != plan["ops"]:
@@ -248,7 +268,8 @@ class DirectKey(Provider):
                                     "ops measured now", planned=planned, now=plan["ops"]))
         result = self._apply(ctx, source, plan["ops"], inputs, "timing")
         _, after = self.measure_timing(editor, result.values["asset"], target, inputs)
-        result.values["timing"] = {**plan, "source": source, "asset": result.values["asset"], "bones": inputs["bones"], "before": before, "after": after}
+        result.values["timing"] = {**plan, "source": source, "asset": result.values["asset"], "bones": inputs["bones"], "before": before, "after": after,
+                                   **({"target_peak": inputs["target_peak"]} if inputs.get("target_peak") else {})}
         result.diagnostics = diagnostics + result.diagnostics
         if plan["applied"]:
             result.diagnostics.append(diag("info", "TIMING_APPLIED", f"swing peak {before['peak_cm_s']} → {after['peak_cm_s']} cm/s (core ×{plan['rate']}, "
@@ -275,7 +296,7 @@ class DirectKey(Provider):
         inputs = {k: mixed[k] for k in ("names", "pieces", "overlap_frames", "blend_s", "gen_fps", "seam_keys", "lead", "trail", "joined_length_s", "align")}
         inputs.update(loop=request["loop"], root_motion=root_motion_flag(request), bones=None)
         if pctx.editor_ok:
-            inputs["bones"] = RetargetPipe.join_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics)
+            inputs["bones"] = RetargetPipe.plan_bones(RetargetPipe.join_bones, pctx.editor, request, pctx.diagnostics)
         return {"step": "join", "provider": self.name, "tool": self.JOIN_TOOL, "inputs": inputs}
 
     @staticmethod
@@ -312,7 +333,7 @@ class DirectKey(Provider):
         target = ctx.request["target_skeleton"]
         diagnostics: list[dict] = []
         created: list[str] = []
-        bones = inputs.get("bones") or RetargetPipe.join_bones(editor, target, diagnostics)
+        bones = inputs.get("bones") or RetargetPipe.join_bones(editor, ctx.request, diagnostics)
         pieces = []
         for p in inputs["pieces"]:
             generated = p["source"] == "generated"
@@ -432,6 +453,13 @@ class RetargetPipe(Provider):
         facing_risks, facing_lims = self.facing_notes(inputs["facing"], existing_retargeter=bool(rt.get("existing_retargeter")))
         risks += facing_risks
         step["expected_limitations"] = facing_lims + clearance_lims
+        if from_import:
+            # Phase 9-5a (U7-c) — 소스는 이 Job 이 임포트한다. 재사용 리그와의 호환은 실행 때 C++ 가 본 이름으로 잰다(같은 생성기 소스면 통과, 다른 소스면
+            # INCOMPATIBLE_MESH). ops default 는 Kimodo SOMA → 세 대상 모두 팔 본 뒤집힘(ROTATION_JUMP 93 ~ 179°)으로 검증 FAILED(E0 2026-11-03)
+            if rt.get("existing_retargeter") or rt.get("existing_source_rig"):
+                risks.append("RETARGET_REUSE_SOURCE_UNCHECKED")
+            if rt.get("ops") == "default":
+                risks.append("RETARGET_OPS_DEFAULT_UNVERIFIED")
         if not request["target_mesh"]:
             if conditional:
                 step["blocked_if_needed"] = {"cause": "UNSUPPORTED_REQUEST", "reason": "MISSING_INPUT", "missing": ["target_mesh"]}
@@ -483,7 +511,7 @@ class RetargetPipe(Provider):
         risks: list[str] = []
         bones = spec.get("bones")
         if bones is None and pctx.editor_ok:
-            bones = self.selection_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics)
+            bones = self.plan_bones(self.request_bones, pctx.editor, request, pctx.diagnostics)
         elif bones is None:
             risks.append("SELECTION_BONES_AT_RUN")
         flags = spec.get("flags") or []
@@ -506,22 +534,65 @@ class RetargetPipe(Provider):
         return {"step": "select", "provider": self.name, "tool": "retarget_animations(candidates) → validate_animation(profile_positions · body_clearance)",
                 "inputs": inputs}, risks
 
+    # ---- 대상 리그 (Phase 9-5b — 비표준 대상) ----
     @staticmethod
-    def selection_bones(editor, skeleton: str, diagnostics: list[dict], step: str = "select") -> dict:
-        """대상 템플릿 체인의 LeftArm/RightArm 시작(어깨) · 끝(손목) · 손목의 부모(팔꿈치) · LeftLeg/RightLeg 시작(엉덩) · Head 시작(머리 — 없으면
-        Neck 끝), 발은 foot_l/foot_r(없으면 다리 체인 끝). 못 찾으면 기본 이름. arm_dims = 그 어깨 · 팔꿈치 · 손목 본의 기준 포즈(ref_component)
+    def rig_of(request: dict) -> dict | None:
+        """요청의 대상 IK Rig(retarget.existing_target_rig) · 메시 — 템플릿이 없는 대상의 체인 · 측정 본 한 원천. 없으면 None(템플릿 경로 그대로 — 비트 같음)."""
+        rig = (request.get("retarget") or {}).get("existing_target_rig")
+        return {"rig": rig, "mesh": request.get("target_mesh")} if rig and request.get("target_mesh") else None
+
+    @staticmethod
+    def rig_chains(editor, rig: dict, step: str) -> dict:
+        """대상 리그의 체인 · 펠비스 — create_ik_rig(existing_rig)는 만들지 않고 그 리그를 설명한다(메시 호환은 C++ 가 잰다)."""
+        try:
+            res = editor.require("create_ik_rig", skeletal_mesh=rig["mesh"], existing_rig=rig["rig"])
+        except EditorCallError as err:
+            raise from_editor_error(step, err)
+        return {"chains": res.get("chains") or [], "pelvis": res.get("pelvis")}
+
+    @classmethod
+    def request_bones(cls, editor, request: dict, diagnostics: list[dict], step: str = "select") -> dict:
+        """요청의 대상 측정 본 — 대상 리그가 있으면 그 체인, 없으면 템플릿(selection_bones)."""
+        return cls.selection_bones(editor, request["target_skeleton"], diagnostics, step, cls.rig_of(request))
+
+    @staticmethod
+    def plan_bones(resolve, editor, request: dict, diagnostics: list[dict]) -> dict:
+        """계획 때 측정 본 — 못 구하면(TARGET_CHAINS_UNKNOWN · 에디터 오류) 이 후보를 막는다."""
+        try:
+            return resolve(editor, request, diagnostics)
+        except StepFailed as failed:
+            raise PlanBlocked(failed.cause, failed.reason, failed.message, editor_error=failed.editor_error) from None
+
+    @staticmethod
+    def selection_bones(editor, skeleton: str, diagnostics: list[dict], step: str = "select", rig: dict | None = None) -> dict:
+        """대상 체인의 LeftArm/RightArm 시작(어깨) · 끝(손목) · 손목의 부모(팔꿈치) · LeftLeg/RightLeg 시작(엉덩) · Head 시작(머리 — 없으면
+        Neck 끝), 발은 foot_l/foot_r(없으면 다리 체인 끝). 체인 원천 = rig(rig_of — 대상 IK Rig) 또는 템플릿. 리그는 이름을 보지 않는다: 발목 = 다리 체인 셋째 본
+        (C++ 몸 지도 Feet 와 같은 규칙), 골반 = 리그 펠비스(결과 pelvis — validate_animation 크기 보정, pelvis_arg). 못 찾으면 기본 이름, 체인이 아예 없거나 리그 체인이
+        모자란데 그 이름도 스켈레톤에 없으면 TARGET_CHAINS_UNKNOWN(엉뚱한 본을 재지 않는다). arm_dims = 그 어깨 · 팔꿈치 · 손목 본의 기준 포즈(ref_component)
         치수(motion_metrics.arm_dims — 자루 무기 간격 사상의 대상 쪽, 위치가 없으면 None). select · timing(Phase 8-3) 단계가 같은 측정 본을 쓴다."""
         try:
             info = editor.require("inspect_skeleton", skeleton=skeleton, details=True)
         except EditorCallError as err:
             raise from_editor_error(step, err)
-        chains = {c.get("name"): c for c in ((info.get("template_match") or {}).get("chains") or [])}
+        from_rig = RetargetPipe.rig_chains(editor, rig, step) if rig else None
+        chains = {c.get("name"): c for c in ((from_rig or info.get("template_match") or {}).get("chains") or [])}
         parents = {b.get("name"): b.get("parent") for b in info.get("bones") or []}
         names = set(parents)
+
+        def foot(name: str, chain: dict) -> str | None:
+            if not from_rig:
+                return name if name in names else chain.get("end")
+            path, x = [], chain.get("end")
+            while x is not None:
+                path.append(x)
+                if x == chain.get("start"):
+                    break
+                x = parents.get(x)
+            return path[-3] if len(path) > 2 else chain.get("end")
+
         found = {"hand_l": (chains.get("LeftArm") or {}).get("end"), "hand_r": (chains.get("RightArm") or {}).get("end"),
                  "hip_l": (chains.get("LeftLeg") or {}).get("start"), "hip_r": (chains.get("RightLeg") or {}).get("start"),
-                 "foot_l": "foot_l" if "foot_l" in names else (chains.get("LeftLeg") or {}).get("end"),
-                 "foot_r": "foot_r" if "foot_r" in names else (chains.get("RightLeg") or {}).get("end"),
+                 "foot_l": foot("foot_l", chains.get("LeftLeg") or {}), "foot_r": foot("foot_r", chains.get("RightLeg") or {}),
                  "shoulder_l": (chains.get("LeftArm") or {}).get("start"), "shoulder_r": (chains.get("RightArm") or {}).get("start"),
                  motion_metrics.HEAD_ROLE: (chains.get("Head") or {}).get("start") or (chains.get("Neck") or {}).get("end")}
         for side in ("l", "r"):
@@ -529,14 +600,20 @@ class RetargetPipe(Provider):
             hand = found[f"hand_{side}"]
             found[f"elbow_{side}"] = parents.get(hand) if hand and parents.get(hand) != found[f"shoulder_{side}"] else None
         missing = [k for k, v in found.items() if not v]
+        unknown = [k for k in missing if names and DEFAULT_BONES[k] not in names] if from_rig or not chains else []
+        if unknown:
+            raise StepFailed("UNSUPPORTED_REQUEST", "TARGET_CHAINS_UNKNOWN", f"{skeleton}: no chain for {unknown} and no bone of the default name — a skeleton the "
+                             "template does not match needs a manual IK Rig (create_ik_rig mode manual, chains named like the source's) in retarget.existing_target_rig")
         if missing:
             diagnostics.append(diag("warning", "SELECTION_BONES_DEFAULTED", f"{skeleton}: no template chain for {missing} — measuring "
                                     f"{[DEFAULT_BONES[k] for k in missing]}"))
-        out = {"from": "template_chains" if not missing else "default", **{k: v or DEFAULT_BONES[k] for k, v in found.items()}}
+        out = {"from": "ik_rig" if from_rig else "template_chains" if not missing else "default", **{k: v or DEFAULT_BONES[k] for k, v in found.items()}}
         rest = {b.get("name"): (b.get("ref_component") or {}).get("t") for b in info.get("bones") or []}
         out["arm_dims"] = motion_metrics.arm_dims({k: v for k, v in rest.items() if v}, out)
         # Phase 8-3 — 다리 치수 · 골반 높이 · 기준 포즈(다리 보정의 대상 모델 foot_fix.target_model · 대상 측정 legs_on_target) · 무릎 = 발목 본의 부모
-        knees = {"knee_l": parents.get(out["foot_l"]), "knee_r": parents.get(out["foot_r"]), "pelvis": parents.get(out["hip_l"])}
+        knees = {"knee_l": parents.get(out["foot_l"]), "knee_r": parents.get(out["foot_r"]), "pelvis": (from_rig or {}).get("pelvis") or parents.get(out["hip_l"])}
+        if from_rig:
+            out["pelvis"] = knees["pelvis"]
         out["leg_dims"] = motion_metrics.leg_dims({k: v for k, v in rest.items() if v}, {**out, **knees})
         if out["leg_dims"] and rest.get(knees["pelvis"]):
             # 대상 모델(foot_fix.target_model) — 골반 · 엉덩 관절 기준 포즈 위치(대상 엉덩 = s · 소스 골반 + 골반 회전 변화 · 이 오프셋)
@@ -554,6 +631,20 @@ class RetargetPipe(Provider):
                     pairs.append([node, child])
                     stack.append(child)
             out[f"hand_tree_{side}"] = pairs
+        return out
+
+    @classmethod
+    def style_ratio(cls, editor, skeleton: str, policy: dict | None, bones: dict, diagnostics: list[dict], step: str) -> float | None:
+        """대상 ≠ 기준 몸일 때 손 속도 기준의 배율(target_style.ratio) — 기준 몸 치수는 여기서 잰다(숫자를 정책에 적지 않는다 — 스켈레톤 하나가 원천).
+        못 재면 경고 · None(환산하지 않는다)."""
+        reference = target_style.reference(policy)
+        try:
+            out = target_style.ratio(bones, cls.selection_bones(editor, reference, diagnostics, step))
+        except StepFailed:
+            out = None
+        if out is None:
+            diagnostics.append(diag("warning", "STYLE_REFERENCE_UNMEASURED", f"body proportion of {skeleton} vs the reference {reference} not measured — "
+                                    "hand-speed thresholds stay at the reference values"))
         return out
 
     @staticmethod
@@ -630,7 +721,8 @@ class RetargetPipe(Provider):
             out.update(source=measured["axis"], source_detail=measured)
         else:
             out.update(source=mode, source_detail={"from": "request"})
-        target = self.skeleton_facing(self._inspect(editor, request["target_skeleton"], details=True), None)
+        rig = self.rig_of(request)
+        target = self.skeleton_facing(self._inspect(editor, request["target_skeleton"], details=True), self.rig_chains(editor, rig, "retarget")["chains"] if rig else None)
         out.update(target=target["axis"], target_detail=target)
         if out["source"] and out["target"]:
             out["yaw_deg"] = bvh.ue_yaw_deg(out["source"], out["target"])
@@ -677,27 +769,27 @@ class RetargetPipe(Provider):
             inputs["map"] = "join" + (" + fix.timing warp" if request["fix"].get("timing") else "")
             inputs["mixed"] = {"names": mixed["names"], "generated": [s["name"] for s in segs]}
         if pctx.editor_ok:
-            inputs["bones"] = self.seam_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics)
+            inputs["bones"] = RetargetPipe.plan_bones(self.seam_bones, pctx.editor, request, pctx.diagnostics)
         return {"step": "seams", "provider": self.name, "tool": self.SEAMS_TOOL, "inputs": inputs}
 
     @staticmethod
-    def join_bones(editor, skeleton: str, diagnostics: list[dict]) -> dict:
+    def join_bones(editor, request: dict, diagnostics: list[dict]) -> dict:
         """Phase 9-3c join 측정 본 — 이음매 본(손목 · 발목 · 골반 · 루트) + 엉덩 관절(몸 방향) · 머리(겹친 구간 자세 차). select 와 같은 원천."""
-        bones = RetargetPipe.selection_bones(editor, skeleton, diagnostics, "join")
-        info = RetargetPipe._inspect(editor, skeleton, details=True)
+        bones = RetargetPipe.request_bones(editor, request, diagnostics, "join")
+        info = RetargetPipe._inspect(editor, request["target_skeleton"], details=True)
         parents = {b.get("name"): b.get("parent") for b in info.get("bones") or []}
         root = next((n for n, p in parents.items() if not p), None)
         return {"hand_l": bones["hand_l"], "hand_r": bones["hand_r"], "foot_l": bones["foot_l"], "foot_r": bones["foot_r"],
-                "pelvis": parents.get(bones["hip_l"]) or "pelvis", "root": root or "root", "hip_l": bones["hip_l"], "hip_r": bones["hip_r"],
+                "pelvis": bones.get("pelvis") or parents.get(bones["hip_l"]) or "pelvis", "root": root or "root", "hip_l": bones["hip_l"], "hip_r": bones["hip_r"],
                 "head": bones.get(motion_metrics.HEAD_ROLE) or "head"}
 
-    def seam_bones(self, editor, skeleton: str, diagnostics: list[dict]) -> dict:
-        bones = self.selection_bones(editor, skeleton, diagnostics, "seams")
-        info = self._inspect(editor, skeleton, details=True)
+    def seam_bones(self, editor, request: dict, diagnostics: list[dict]) -> dict:
+        bones = RetargetPipe.request_bones(editor, request, diagnostics, "seams")
+        info = self._inspect(editor, request["target_skeleton"], details=True)
         parents = {b.get("name"): b.get("parent") for b in info.get("bones") or []}
         root = next((n for n, p in parents.items() if not p), None)
         return {"hand_l": bones["hand_l"], "hand_r": bones["hand_r"], "foot_l": bones["foot_l"], "foot_r": bones["foot_r"],
-                "pelvis": parents.get(bones["hip_l"]) or "pelvis", "root": root or "root"}
+                "pelvis": bones.get("pelvis") or parents.get(bones["hip_l"]) or "pelvis", "root": root or "root"}
 
     def _seams(self, ctx: RunContext) -> StepResult:
         """최종 시퀀스 한 번 측정 — 경계를 최종 타임라인으로(timing warp), C++ seams(회전 단계 비 · SEAM_JUMP) + 속도 앞뒤 비 · 속도 변화 비,
@@ -707,7 +799,7 @@ class RetargetPipe(Provider):
         asset = ctx.values["asset"]
         target = ctx.request["target_skeleton"]
         diagnostics: list[dict] = []
-        bones = inputs.get("bones") or self.seam_bones(editor, target, diagnostics)
+        bones = inputs.get("bones") or self.seam_bones(editor, ctx.request, diagnostics)
         timing_rec = ctx.values.get("timing") or {}
         warp = timing_rec.get("warp") if timing_rec.get("applied") else None
         join = ctx.values.get("join") if inputs.get("mixed") else None
@@ -724,7 +816,7 @@ class RetargetPipe(Provider):
             return StepResult(values={"segments": out}, diagnostics=diagnostics)
         try:
             item = (editor.require("validate_animation", assets=[asset], skeleton=target, seams=mapped, profile_bones=sorted(set(bones.values())),
-                                   profile_positions=True).get("assets") or [None])[0] or {}
+                                   profile_positions=True, **pelvis_arg(bones)).get("assets") or [None])[0] or {}
         except EditorCallError as err:
             raise from_editor_error("seams", err)
         numeric = item.get("numeric") or {}
@@ -770,7 +862,7 @@ class RetargetPipe(Provider):
                "thresholds": inputs["thresholds"], "chunk_start_s": chunk, "seams": None, "sections": None}
         try:
             item = (ctx.editor.require("validate_animation", assets=[asset], skeleton=target, seams=times, profile_bones=sorted(set(bones.values())),
-                                       profile_positions=True).get("assets") or [None])[0] or {}
+                                       profile_positions=True, **pelvis_arg(bones)).get("assets") or [None])[0] or {}
         except EditorCallError as err:
             raise from_editor_error("seams", err)
         numeric = item.get("numeric") or {}
@@ -880,9 +972,14 @@ class RetargetPipe(Provider):
             r = editor.require("create_ik_rig", skeletal_mesh=inputs["target_mesh"], asset_path=f"{ctx.work_path}/IK_Target", save=ctx.save)
             target_rig = package_path(r["asset_path"])
             created.append(target_rig)
+        # 대상 리그(템플릿 없음 — 9-5b): 엔진 템플릿이 모두 빼는 발목을 자동 정렬에서 뺀다(대상 고유 발 모양 · 굽 높이). 역리타깃(대상 = SOMA)은 이 경로가 아니다
+        feet = {}
+        if self.rig_of(ctx.request):
+            bones = self.request_bones(editor, ctx.request, [], "retarget")
+            feet = {"exclude_bones": [bones["foot_l"], bones["foot_r"]]}
         r = editor.require("create_ik_retargeter", source_rig=source_rig, target_rig=target_rig, source_mesh=source_mesh,
                            target_mesh=inputs["target_mesh"], asset_path=f"{ctx.work_path}/RTG_Retarget", ops=inputs.get("ops", "match_existing"),
-                           align_mode=inputs.get("align_mode", "engine"), facing_yaw_deg=facing["yaw_deg"] or None, save=ctx.save)
+                           align_mode=inputs.get("align_mode", "engine"), facing_yaw_deg=facing["yaw_deg"] or None, save=ctx.save, **feet)
         retargeter = package_path(r["asset_path"])
         created.append(retargeter)
         return target_rig, retargeter
@@ -933,10 +1030,11 @@ class RetargetPipe(Provider):
         validation = res.get("validation")
         clearance_items = res.get("body_clearance") or []
         diagnostics += self.clearance_notes(clearance_items)
-        if inputs.get("source_pelvis") and validation:
+        target_bones = self.request_bones(editor, ctx.request, diagnostics, "retarget") if self.rig_of(ctx.request) else None
+        if (inputs.get("source_pelvis") or target_bones) and validation:
             body = None if clearance == "off" else {"mesh": target_mesh, **({"ik_rig": target_rig} if target_rig else {})}
             validation = self._revalidate(editor, generated[0], source_anim, ctx.request["target_skeleton"], inputs, validation, diagnostics, body,
-                                          retargeter)
+                                          retargeter, target_bones)
             if validation.get("status") == "FAILED":
                 raise StepFailed("VALIDATION_FAILED", "FAILED", f"{generated[0]} fails validation against its source", created=created + generated)
         first = ((validation or {}).get("assets") or [None])[0]
@@ -944,19 +1042,19 @@ class RetargetPipe(Provider):
                   "measured": _measured_from_validation(first), "retargeter": retargeter, "source_mesh": source_mesh,
                   "facing": {k: facing.get(k) for k in ("mode", "source", "target", "yaw_deg")}, "body_clearance": clearance_items or None}
         if any(o.get("op") in ("stance_width", "foot_lock") for o in (ctx.request.get("fix") or {}).get("ops") or []):
-            values["fix_target"] = self.legs_on_target(editor, generated[0], ctx.request["target_skeleton"], diagnostics)
+            values["fix_target"] = self.legs_on_target(editor, generated[0], ctx.request["target_skeleton"], diagnostics, self.rig_of(ctx.request))
         return StepResult(values=values, created=created + generated, diagnostics=diagnostics, limitations=limitations)
 
     @staticmethod
-    def legs_on_target(editor, asset: str, skeleton: str, diagnostics: list[dict]) -> dict | None:
+    def legs_on_target(editor, asset: str, skeleton: str, diagnostics: list[dict], rig: dict | None = None) -> dict | None:
         """다리 보정(소스 골격)의 대상 쪽 결과 — 발 좌우 비 · 두 발 디딘 최대 · 접지 미끄러짐 · 무릎 간격(motion_metrics.legs_report — 소스 보고와 같은
         정의, 접지는 대상 발목 트랙으로 다시 판정). 측정 실패는 진단만(보정 결과물은 이미 있다)."""
-        bones = RetargetPipe.selection_bones(editor, skeleton, diagnostics, "retarget")
+        bones = RetargetPipe.selection_bones(editor, skeleton, diagnostics, "retarget", rig)
         names = {"hip_l": bones["hip_l"], "hip_r": bones["hip_r"], "foot_l": bones["foot_l"], "foot_r": bones["foot_r"]}
         knees = bones.get("knees") or [None, None]
         try:
             item = (editor.require("validate_animation", assets=[asset], skeleton=skeleton, profile_bones=sorted(set(names.values()) | {k for k in knees if k}),
-                                   profile_positions=True).get("assets") or [None])[0]
+                                   profile_positions=True, **pelvis_arg(bones)).get("assets") or [None])[0]
         except EditorCallError as err:
             diagnostics.append(diag("warning", "FIX_TARGET_NOT_MEASURED", f"validate_animation failed ({err.code}) — Job fix.target is empty"))
             return None
@@ -987,7 +1085,7 @@ class RetargetPipe(Provider):
         if not facing.get("resolved"):
             facing = self.resolve_facing(ctx.request, self._inspect(editor, ctx.values["skeleton"], details=True), editor)
         # 지표 버전 1 계획(역할 6개)도 돈다 — 없는 역할(어깨 · 팔꿈치)은 기본 이름
-        bones = {**DEFAULT_BONES, **(inputs.get("bones") or self.selection_bones(editor, ctx.request["target_skeleton"], diagnostics))}
+        bones = {**DEFAULT_BONES, **(inputs.get("bones") or self.request_bones(editor, ctx.request, diagnostics))}
         weapon = inputs.get("weapon")
         if "finger_l" not in bones and "finger_r" not in bones:
             # 계획 때 에디터가 없었거나(SELECTION_HANDS_AT_RUN) 9-1 전 계획 — 손가락 뿌리 · 무기를 지금 푼다
@@ -1014,7 +1112,7 @@ class RetargetPipe(Provider):
             if missing:
                 raise StepFailed("RETARGET_FAILED", "NOTHING_GENERATED", f"retarget_animations made no candidate for {missing}", created=created)
             params = {"assets": [outputs[c["asset"]] for c in cands], "sources": [c["asset"] for c in cands], "skeleton": ctx.request["target_skeleton"],
-                      "profile_bones": self.profile_bones(bones), "profile_positions": True, "fingers": {"retargeter": retargeter}}
+                      "profile_bones": self.profile_bones(bones), "profile_positions": True, "fingers": {"retargeter": retargeter}, **pelvis_arg(bones)}
             if rt.get("source_pelvis"):
                 params["source_pelvis"] = rt["source_pelvis"]
             if rt.get("source_feet"):
@@ -1138,12 +1236,16 @@ class RetargetPipe(Provider):
 
     @staticmethod
     def _revalidate(editor, asset: str, source: str, target: str, inputs: dict, validation: dict, diagnostics: list[dict],
-                    body_clearance: dict | None = None, retargeter: str | None = None) -> dict:
-        """retarget_animations 의 내장 검증은 소스 골반 이름을 받지 않는다(기본 'pelvis' — BVH · SOMA 의 'Hips' 를 못 찾아 거리 비율을
-        크기 보정하지 않는다, NO_PELVIS_SCALE). 소스 골반을 알면 validate_animation 으로 같은 소스 대비 검증을 다시 해 그 결과를 쓴다.
+                    body_clearance: dict | None = None, retargeter: str | None = None, target_bones: dict | None = None) -> dict:
+        """retarget_animations 의 내장 검증은 골반 · 발 이름을 받지 않는다(기본 'pelvis' · foot_l/r — BVH · SOMA 의 'Hips' · 비표준 대상을 못 찾아 거리 비율을
+        크기 보정하지 않는다, NO_PELVIS_SCALE). 소스 골반이나 대상 리그(target_bones — 대상 골반 · 발목)를 알면 validate_animation 으로 같은 소스 대비 검증을 다시 해 그 결과를 쓴다.
         body_clearance 면 그 재검증도 팔-몸통 관통을 잰다(내장 검증과 같은 대상 메시 · 리그). 손가락 검사(매핑 안 된 손가락 = 기준 포즈,
         굽힘 방향 · 끝 순서)도 내장 검증처럼 그 리타기터의 매핑으로 한다."""
-        params = {"assets": [asset], "sources": [source], "skeleton": target, "source_pelvis": inputs["source_pelvis"]}
+        params = {"assets": [asset], "sources": [source], "skeleton": target}
+        if inputs.get("source_pelvis"):
+            params["source_pelvis"] = inputs["source_pelvis"]
+        if target_bones:
+            params.update(pelvis_arg(target_bones), feet=[target_bones["foot_l"], target_bones["foot_r"]])
         if inputs.get("source_feet"):
             params["source_feet"] = inputs["source_feet"]
         if body_clearance:
@@ -1160,5 +1262,5 @@ class RetargetPipe(Provider):
         order = ["PASSED", "PASSED_WITH_WARNINGS", "NEEDS_REVIEW", "FAILED"]
         status = res.get("status") or max((i.get("status", "PASSED") for i in items), key=lambda s: order.index(s) if s in order else 0, default=None)
         diagnostics.append(diag("info", "VALIDATED_WITH_SOURCE_PELVIS", f"relative checks against {source.rsplit('/', 1)[-1]} use source pelvis "
-                                f"'{inputs['source_pelvis']}' — {validation.get('status')} → {status}"))
+                                f"'{inputs.get('source_pelvis')}' · target pelvis '{(target_bones or {}).get('pelvis')}' — {validation.get('status')} → {status}"))
         return {"status": status, "assets": items}

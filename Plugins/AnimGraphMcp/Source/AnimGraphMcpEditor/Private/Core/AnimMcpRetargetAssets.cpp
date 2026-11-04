@@ -303,7 +303,7 @@ namespace AnimMcpRetargetAssets
 		}
 
 		/** 에디터 자동 생성 레시피 (SRetargetAnimAssetsWindow.cpp:668-742) — 컨트롤러는 SetIKRig·AddDefaultOps 뒤. per_bone 이면 OutAlignment 에 정렬 결과 */
-		void ApplyMatchExisting(const UIKRetargeterController* Controller, const UIKRigDefinition* SourceRig, const UIKRigDefinition* TargetRig, const FAutoCharacterizeResults& TargetCharacterization, const FFacing& Facing,
+		void ApplyMatchExisting(const UIKRetargeterController* Controller, const UIKRigDefinition* SourceRig, const UIKRigDefinition* TargetRig, const FAutoCharacterizeResults& TargetCharacterization, const TArray<FName>& ExcludeBones, const FFacing& Facing,
 			EAlignMode AlignMode, TSharedPtr<FJsonObject>& OutAlignment, FAnimMcpContext& Context)
 		{
 			// 모든 op 를 정확한 이름 매핑으로 (기본 fuzzy 는 발가락을 손가락에 붙이기도 한다 — 엔진 주석). 에디터 레시피는 FK op 만 바꿔
@@ -315,7 +315,8 @@ namespace AnimMcpRetargetAssets
 			const FName TargetPose = Controller->GetCurrentRetargetPoseName(ERetargetSourceOrTarget::Target);
 			Controller->ResetRetargetPose(TargetPose, TArray<FName>(), ERetargetSourceOrTarget::Target);
 			AutoAlignTarget(Controller, Facing);
-			const TArray<FName>& Excluded = TargetCharacterization.AutoRetargetDefinition.BonesToExcludeFromAutoPose;
+			TArray<FName> Excluded = TargetCharacterization.AutoRetargetDefinition.BonesToExcludeFromAutoPose;
+			Excluded.Append(ExcludeBones);
 			if (!Excluded.IsEmpty())
 			{
 				Controller->ResetRetargetPose(Controller->GetCurrentRetargetPoseName(ERetargetSourceOrTarget::Target), Excluded, ERetargetSourceOrTarget::Target);
@@ -799,7 +800,7 @@ namespace AnimMcpRetargetAssets
 			Controller->AddDefaultOps();
 			if (Params.Ops == EOpsRecipe::MatchExisting)
 			{
-				ApplyMatchExisting(Controller, Params.SourceRig, Params.TargetRig, TargetCharacterization, Facing, Params.AlignMode, Alignment, Context);
+				ApplyMatchExisting(Controller, Params.SourceRig, Params.TargetRig, TargetCharacterization, Params.ExcludeBones, Facing, Params.AlignMode, Alignment, Context);
 			}
 			else
 			{

@@ -6,6 +6,7 @@ preview_animation_edits)로 고른 소스·메시를 계획에 고정해 보여 
 from __future__ import annotations
 
 from . import segments as segments_mod
+from . import target_style
 from .editor import EditorCallError, is_under, package_path
 from .envelope import AnimGenError, diag, limitation
 from .policy import FREE_FIRST, QUALITY_FIRST, paid_block_reason, resolve_mode
@@ -285,6 +286,19 @@ def _capture(request: dict, registry, pctx: PlanContext, steps: list[dict], risk
     return (steps + [step] if step else list(steps)), risks + r, _dedupe(lims + lm)
 
 
+def _style(request: dict, policy: dict, steps: list[dict], lims: list[dict]) -> list[dict]:
+    """Phase 9-5a (U8-b) — 대상 ≠ 기준 몸이고 이 계획이 기준 몸의 스타일 값을 쓰면 한계 TARGET_STYLE_FROM_REFERENCE(재서 정했으면 정책 style.profiles)."""
+    skeleton = request["target_skeleton"]
+    if target_style.is_reference(policy, skeleton):
+        return lims
+    values = target_style.reference_values(request, steps, target_style.profile(policy, skeleton))
+    if not values:
+        return lims
+    return _dedupe(lims + [limitation("TARGET_STYLE_FROM_REFERENCE", f"{', '.join(values)} 는 기준 몸({target_style.reference(policy)})의 운영 애니에서 정한 값이다 — 손 속도 기준은 "
+                                      "몸 비율로 옮겼지만 스타일(얼마나 빠르게 · 넓게 서는지)은 이 대상의 값이 아니다. 운영 애니로 재서 정하면 정책 style.profiles 에 둔다", "router",
+                                      reference=target_style.reference(policy), values=values)])
+
+
 def _chain_names(steps: list[dict]) -> list[str]:
     names: list[str] = []
     for s in steps:
@@ -364,6 +378,7 @@ def build_plan(request: dict, policy: dict, registry, editor, diagnostics: list[
             steps, risks, lims = _chain(name, request, registry, pctx)
             steps, risks, lims = _capture(request, registry, pctx, steps, risks, lims)
             steps, risks, lims = _integrate(request, registry, pctx, steps, risks, lims, integration_cache)
+            lims = _style(request, policy, steps, lims)
         except PlanBlocked as blocked:
             exclude(blocked.cause, blocked.reason, blocked.message, **blocked.details)
             continue

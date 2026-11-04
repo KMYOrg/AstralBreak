@@ -319,7 +319,7 @@ class KimodoProvider(SubprocessProvider):
         if not pctx.editor_ok:
             raise PlanBlocked("PROVIDER_UNAVAILABLE", "EDITOR", f"{field}: a polearm grip gap differs between the generation skeleton and the target mesh — "
                               "the plan measures the target arms (inspect_skeleton) to map it; plan again with the editor running")
-        bones = RetargetPipe.selection_bones(pctx.editor, request["target_skeleton"], pctx.diagnostics)
+        bones = RetargetPipe.plan_bones(RetargetPipe.request_bones, pctx.editor, request, pctx.diagnostics)
         dims = bones.get("arm_dims")
         if not dims:
             raise PlanBlocked("UNSUPPORTED_REQUEST", "TARGET_ARMS_UNKNOWN", f"{field}: no reference-pose position for the target's shoulder · elbow · wrist "

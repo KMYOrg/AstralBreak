@@ -1954,13 +1954,15 @@ def smooth_mode(value: str, timing_cfg) -> dict:
     return {"mode": "auto", "on": True, "reason": "fix.timing" if timing_cfg else "default (9-4c — every clip)"}
 
 
-def speed_factors(rig: Rig, loop: bool) -> list[float] | None:
-    """빠른 구간 매끈화(8-4e — smooth_speed on)의 프레임별 폭 배율 k = clamp(SPEED_REF_CM / v, SPEED_K_MIN, 1), v = 몸 기준틀(body_frame) 손목
+def speed_factors(rig: Rig, loop: bool, ref_cm: float | None = None) -> list[float] | None:
+    """빠른 구간 매끈화(8-4e — smooth_speed on)의 프레임별 폭 배율 k = clamp(기준 / v, SPEED_K_MIN, 1), v = 몸 기준틀(body_frame) 손목
     이동(두 손 중 빠른 쪽 · 앞뒤 걸음 중 큰 쪽, cm/프레임 ÷ scale — 원래 포즈라 풀이와 무관). 두 팔 한 값(파지 짝이 같은 매끈화를 받는다).
+    기준 = ref_cm(대상 ≠ 기준 몸 — 몸 비율로 옮긴 값, target_style) 또는 SPEED_REF_CM.
     모든 프레임이 1 이면 None(고정 폭 — 이전 풀이와 비트 같다). 루프면 끝 프레임 = 첫 프레임(이웃이 감아 돈다)."""
     n, model = rig.frames, rig.model
     if n < 2:
         return None
+    ref = SPEED_REF_CM if ref_cm is None else ref_cm
     pts = []
     for f in range(n):
         origin, axes = rig.body_frame(f)
@@ -1975,7 +1977,7 @@ def speed_factors(rig: Rig, loop: bool) -> list[float] | None:
         g = f % m if m < n else f
         near = [((g - 1) % m, (g + 1) % m)] if m < n else [(f - 1, f + 1)]
         v = max((step(g, h) for h in near[0] if 0 <= h < n), default=0.0)
-        out.append(1.0 if v <= SPEED_REF_CM else max(SPEED_K_MIN, SPEED_REF_CM / v))
+        out.append(1.0 if v <= ref else max(SPEED_K_MIN, ref / v))
     return None if all(k >= 1.0 for k in out) else out
 
 
@@ -2013,7 +2015,7 @@ class Solver:
         if smooth_fast is None:
             smooth_fast = smooth_mode(cfg.get("smooth_speed", "auto"), None)["on"]
         self.smooth_on = bool(smooth_fast)
-        self.smooth_k = speed_factors(self.rig, self.loop) if self.smooth_on else None
+        self.smooth_k = speed_factors(self.rig, self.loop, cfg.get("speed_ref_cm")) if self.smooth_on else None
         # 국소 수렴(9-4c U5-c — _converge) · 손 부근 마무리 증분 매끈화(9-4c U5-a — _smooth_finish)
         self.converge_on = bool(cfg.get("converge", True)) and cfg["clearance"].get("mode", "auto") != "off"
         self.finish_smooth = bool(cfg.get("finish_smooth", True))
@@ -3895,7 +3897,7 @@ class Solver:
                 entry["rotation_deg"] = [[round(c, 5) for c in rot_out[b].get(f, (0.0, 0.0, 0.0))] for f in range(n)]
                 degs += [_norm(v) for v in rot_out[b].values()]
             if b in trans_out:
-                entry["translation_cm"] = [[round(c, 5) for c in trans_out[b].get(f, (0.0, 0.0, 0.0))] for f in range(n)]
+                entry["translation_cm"] = [[round(c, 5) for c in model.local_translation(b, trans_out[b].get(f, (0.0, 0.0, 0.0)))] for f in range(n)]
             deltas["bones"].append(entry)
         changed = sorted({f for d in rot_out.values() for f in d} | {f for d in trans_out.values() for f in d})
         # 루프 이음매 — 첫 · 끝 프레임 델타 차(본별 최대 °, 다리 IK 포함). 루프면 0(순환)

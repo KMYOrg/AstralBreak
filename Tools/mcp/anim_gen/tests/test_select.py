@@ -346,8 +346,10 @@ def test_polearm_spacing_needs_the_target_arms_at_plan_time(ka):
     assert excluded(refine={"grip": {"spacing_cm": 60}}) == ("PROVIDER_UNAVAILABLE", "EDITOR")
     ka.fake.up = True
     vesper = ka.fake.bones["/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F"]
-    ka.fake.bones["/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F"] = [b for b in vesper if b["name"] != "lowerarm_r"]
+    ka.fake.bones["/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F"] = [{**b, "ref_component": {}} if b["name"] == "lowerarm_r" else b for b in vesper]
     assert excluded(refine={"grip": {"target_spacing_cm": 60}}) == ("UNSUPPORTED_REQUEST", "TARGET_ARMS_UNKNOWN")
+    ka.fake.bones["/Game/Assets/IdaFaber/Meshes/Girl/SKEL_UE5_F"] = [b for b in vesper if b["name"] != "lowerarm_r"]   # 체인도 없고 그 본도 없다(9-5b) — 측정 본부터 못 정한다
+    assert excluded(refine={"grip": {"target_spacing_cm": 60}}) == ("UNSUPPORTED_REQUEST", "TARGET_CHAINS_UNKNOWN")
     # 아이 체형(어깨 10 · 팔 20 cm) — 대상 60 cm 는 생성 골격에서 172 cm(두 팔이 닿는 139 cm 너머)
     tiny = {"upperarm_l": (5.0, 0, 120), "upperarm_r": (-5.0, 0, 120), "lowerarm_l": (15.0, 0, 120), "lowerarm_r": (-15.0, 0, 120),
             "hand_l": (25.0, 0, 120), "hand_r": (-25.0, 0, 120)}

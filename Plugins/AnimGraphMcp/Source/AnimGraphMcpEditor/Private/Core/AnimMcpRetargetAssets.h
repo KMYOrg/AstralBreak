@@ -94,6 +94,8 @@ namespace AnimMcpRetargetAssets
 		EAlignMode AlignMode = EAlignMode::Engine;
 		/** 소스 정면을 대상 정면으로 돌리는 Yaw(°, UE +Z 축) — 0 이면 맞추지 않는다 */
 		double FacingYawDeg = 0.0;
+		/** match_existing — 자동 정렬에서 뺄 대상 본(템플릿의 BonesToExcludeFromAutoPose 에 더한다). 템플릿 없는 대상의 발목 — 엔진 템플릿이 모두 빼는 본(대상 고유 발 모양 · 굽 높이) */
+		TArray<FName> ExcludeBones;
 		bool bSave = false;
 	};
 

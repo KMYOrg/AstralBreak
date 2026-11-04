@@ -60,6 +60,27 @@ namespace AnimMcpBatchRetarget
 	};
 
 	/**
+	 * 기준 포즈에 스케일이 있는 대상(게임 추출 · Blender FBX — 루트 스케일 100)의 리타깃 결과 복원. 엔진은 리타깃 포즈의 스케일을 지운 뒤 로컬로 전역을 다시 계산해
+	 * (IKRetargetProcessor.cpp:45-50 · 78) 스케일 트랙이 1 이고 본 이동은 기준 로컬(스케일 없는 단위) 그대로라 메시가 기준 스케일 분의 1 로 접힌다. Pelvis Motion op 가 전역으로
+	 * 정하는 펠비스만 cm 위치가 맞다 → 본마다 기준 로컬 스케일을 되돌리고, 펠비스는 그 전역 위치가 그대로이게 이동을 다시 구한다.
+	 * 로컬 스케일이 모두 1(± 1e-3)이면 false — 스케일 1 대상은 트랙을 건드리지 않는다.
+	 */
+	bool HasRefScale(const TArray<FTransform>& RefLocal);
+
+	/**
+	 * Pelvis Motion op 크기 보정 배 — op 는 초기 높이를 리타깃 포즈에서 읽는다(PelvisMotionOp.cpp:217-224 — 펠비스 위치 · 루트 이동이 다 이 값에 비례). 엔진은 펠비스 로컬만
+	 * 스케일을 구운 전역에서 다시 구해(:52-59) 부모가 원점이면 cm 가 맞고(배 1, Narmaya), 부모가 기준 위치에 있으면(SB Bip001) 펠비스도 부모와 함께 접혀 1/스케일 로 작다.
+	 * Pelvis = 펠비스 기준 로컬, Chain = 루트 → 펠비스 부모 순의 기준 로컬(스케일 포함). 기준 높이 / 엔진 높이.
+	 */
+	double PelvisHeightFix(const FTransform& Pelvis, const TArray<FTransform>& Chain);
+
+	/**
+	 * 펠비스 새 로컬 이동 — Pelvis = 엔진 출력 로컬 이동, Chain = 루트 → 펠비스 부모 순의 이 키 로컬 변환(엔진 출력 — 스케일 1), Scales = 같은 순의 기준 로컬 스케일,
+	 * Height = PelvisHeightFix(복원 전 전역 위치 · 루트 이동에 곱한다). '이동 ÷ 스케일'이 아니라 맞춘 전역 위치를 복원 후 부모 공간으로 옮긴다 — 부모가 원점이 아니어도 맞다.
+	 */
+	FVector RestoredPelvisLocal(const FVector& Pelvis, const TArray<FTransform>& Chain, const TArray<FVector>& Scales, double Height);
+
+	/**
 	 * {planned[] (dry_run) | generated[{source, asset, class}], referred[], seconds, seconds_per_asset, frames, ms_per_frame, body_clearance[]? (resolve · 검증 없는 measure),
 	 * validation{}, saved}. 검증 FAILED 면 저장하지 않고 VALIDATION_FAILED(details: generated · validation).
 	 */

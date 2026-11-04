@@ -458,6 +458,8 @@ namespace AnimMcpRetargetPoseAlign
 
 		TArray<TSharedPtr<FJsonValue>> BonesOut, RelativeOut, EndsOut, NeutralOut, Skipped;
 		const FRetargetSkeleton& SourceSkeleton = Editor->Processor.GetSkeleton(Source);
+		// 기준 스케일이 있는 대상(루트 스케일 100)의 리타깃 포즈는 스케일이 빠져 몸이 접혀 있다(AnimMcpBatchRetarget::HasRefScale) — 방향은 그대로, 길이만 이 배를 곱해 cm 로 잰다
+		const double TargetToCm = TargetSkeleton.SkeletalMesh->GetRefSkeleton().GetRefBonePose()[0].GetScale3D().GetMax();
 		const TArray<FTransform> TargetRef = RefGlobalPose(TargetSkeleton);
 		const TArray<FTransform> SourceRef = RefGlobalPose(SourceSkeleton);
 		// 중립 = 정면 맞춤만 반영한 대상 기준 포즈 전역 회전 (소스 짝 본의 리타깃 포즈가 기준과 다르면 그 차도 — 지금 파이프라인은 단위).
@@ -568,7 +570,7 @@ namespace AnimMcpRetargetPoseAlign
 				{
 					const FVector Dt = Editor->Pos(Target, T[0]) - Editor->Pos(Target, Single);
 					const FVector Ds = Editor->Pos(Source, S[0]) - Editor->Pos(Source, SourceBoneFor(Pairs[*SinglePair], 0));
-					if (Dt.Size() < MinSegmentCm || Ds.Size() < MinSegmentCm)
+					if (Dt.Size() * TargetToCm < MinSegmentCm || Ds.Size() < MinSegmentCm)
 					{
 						Skipped.Add(Skip(Editor->TargetName(Single), TEXT("ZERO_LENGTH")));
 					}
@@ -594,7 +596,7 @@ namespace AnimMcpRetargetPoseAlign
 				}
 				const FVector Dt = Editor->Pos(Target, T[i + 1]) - Editor->Pos(Target, T[i]);
 				const FVector Ds = Editor->Pos(Source, S[i + 1]) - Editor->Pos(Source, S[i]);
-				if (Dt.Size() < MinSegmentCm || Ds.Size() < MinSegmentCm)
+				if (Dt.Size() * TargetToCm < MinSegmentCm || Ds.Size() < MinSegmentCm)
 				{
 					Skipped.Add(Skip(Editor->TargetName(T[i]), TEXT("ZERO_LENGTH")));
 					continue;
@@ -640,7 +642,7 @@ namespace AnimMcpRetargetPoseAlign
 					}
 					const FVector Dt = Editor->Pos(Target, Start) - Editor->Pos(Target, End);
 					const FVector Ds = Editor->Pos(Source, Child.SourceBones->BoneIndices[0]) - Editor->Pos(Source, SourceEnd);
-					if (Dt.Size() >= MinSegmentCm && Ds.Size() >= MinSegmentCm)
+					if (Dt.Size() * TargetToCm >= MinSegmentCm && Ds.Size() >= MinSegmentCm)
 					{
 						From.Add(Dt.GetSafeNormal());
 						To.Add(Ds.GetSafeNormal());

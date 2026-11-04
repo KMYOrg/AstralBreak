@@ -730,7 +730,8 @@ def create_ik_rig(skeletal_mesh: str, asset_path: str | None = None, existing_ri
 @mcp.tool()
 def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, target_mesh: str, asset_path: str | None = None,
                          existing_retargeter: str | None = None, ops: str = "default", auto_align: bool = False,
-                         align_mode: str = "engine", facing_yaw_deg: float = 0.0, save: bool = False) -> dict:
+                         align_mode: str = "engine", facing_yaw_deg: float = 0.0, exclude_bones: list[str] | None = None,
+                         save: bool = False) -> dict:
     """Create an IK Retargeter between two IK Rigs.
 
     Args:
@@ -766,6 +767,9 @@ def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, tar
             the target root (bone 0) is turned by -yaw in the target retarget pose before auto-align, an Additive Pose op before the
             Root Motion op turns it back, and a root motion op copying the source root gets +yaw in GlobalOffset. Refused when the
             target root is the pelvis (FACING_NEEDS_ROOT).
+        exclude_bones: match_existing only — target bones left out of the auto-aligned pose, added to the template's list. The
+            engine templates all leave the ankles out, which keeps the target's own foot shape and heel height; a manual rig has no
+            template, so pass its ankles.
         save: Save the new retargeter.
 
     Returns asset_path, reused, ops_recipe, align_mode, ops[{name, type, enabled, parent}], chain_mapping{target: source|null},
@@ -783,6 +787,8 @@ def create_ik_retargeter(source_rig: str, target_rig: str, source_mesh: str, tar
         params["align_mode"] = align_mode
     if facing_yaw_deg:
         params["facing_yaw_deg"] = facing_yaw_deg
+    if exclude_bones:
+        params["exclude_bones"] = exclude_bones
     if asset_path:
         params["asset_path"] = asset_path
     if existing_retargeter:
@@ -822,6 +828,10 @@ def retarget_animations(retargeter: str, assets: list[str], source_mesh: str, ta
             relative to each other; the grip is not solved), BODY_PENETRATION_REMAINS.
         fingers: The validation also runs validate_animation fingers with this retargeter (target rig hands, FK op mapping) —
             default true; warnings add diagnostic FINGER_WARNINGS.
+
+    A target whose reference pose carries a scale (root scale 100 — game rips, Blender FBX): the engine retargeter drops it and the
+    result collapses to 1/scale, so the new sequences get their reference scale tracks and pelvis · root translation back before
+    clearance and validation (info TARGET_REF_SCALE_RESTORED). A target without such a scale is not touched.
 
     Never overwrites: existing outputs → ASSET_EXISTS (details.problems), two outputs with the same name → BAD_REQUEST
     NAME_COLLISION_IN_BATCH, more planned assets (inputs + referenced) than get_editor_status.generation.max_retarget_assets_per_call
@@ -905,7 +915,8 @@ def validate_animation(assets: list[str], sources: list[str | None] | None = Non
 
     Per asset: status PASSED | PASSED_WITH_WARNINGS | NEEDS_REVIEW | FAILED, structural[], numeric{}, relative{}, needs_review[]
     (always lists the visual check — passing checks is not motion quality). No absolute speed limits: normal attacks reach
-    ~2,000°/s p99; only NaN, abnormal scale, missing track bones and a one-frame rotation over max_deg_per_frame fail.
+    ~2,000°/s p99; only NaN, abnormal scale (against the reference pose's scale), missing track bones and a one-frame rotation over
+    max_deg_per_frame fail.
     """
     params: dict = {"assets": assets}
     for key, value in (("sources", sources), ("skeleton", skeleton), ("checks", checks), ("thresholds", thresholds), ("feet", feet),

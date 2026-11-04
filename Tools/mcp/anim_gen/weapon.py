@@ -306,6 +306,10 @@ def resolve(weapon: dict, target_info: dict, weapon_info: dict) -> dict:
         bone, socket_rel = att["bone"], {"location": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0]}
     off = att["offset"]
     local = bm.compose(transform_of(off["location"], off["rotation"], off["scale"]), transform_of(socket_rel["location"], socket_rel["rotation"]))
+    # 부착 값은 본의 실제 변환 기준(스케일 포함 — capture_animation 과 같다). 풀이 포즈는 스케일 없는 cm(body_model)라 기준 스케일이 있는 본은 여기서 곱한다(9-5b)
+    bone_scale = next(((b.get("ref_component") or {}).get("s") for b in target_info.get("bones") or [] if b.get("name") == bone), None)
+    if bone_scale:
+        local = bm.compose(local, ((0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0), tuple(float(v) for v in bone_scale)))
     lead = SIDES[weapon["lead_hand"]]
     out = {"mesh": weapon["mesh"], "bone": bone, "socket": att.get("socket"), "socket_rel": socket_rel, "offset": copy.deepcopy(off),
            "local": [list(local[0]), list(local[1]), list(local[2])], "lead": lead, "grip": None, "tip": None, "tip_from": None, "hand": None,

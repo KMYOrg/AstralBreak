@@ -7,7 +7,7 @@ providers/blender.py(계획 검사 — FIX_OPS)와 blender/fix_legs.py(Blender �
                  keep_knee_bend(기본 참 — 8-3 후속 2026-10-27): 골반 높이 그대로 발을 모으면 무릎이 더 굽는다(시험 대상 p50 37 ~ 42° → 48 ~ 60°) —
                  좁힌 만큼 골반을 올려 엉덩 → 발목 거리를 원래대로(foot_fix.pelvis_raise).
 - foot_lock    — 접지 구간마다 발목을 한 점에 고정(수평 = 가장 느린 프레임 · 높이 = 중앙값), 경계 blend_frames 프레임 블렌드. lock_rotation 이면 발 전역 회전도
-                 그 프레임 값으로(기본은 원래 회전 — 뒤꿈치 · 발끝 구름을 지킨다).
+                 그 프레임 값으로(기본은 원래 회전 — 뒤꿈치 · 발끝 구름을 지킨다). 빈틈 bridge_frames 프레임 이하로 쪼개진 접지는 두 고정 프레임 사이를 편다(0 = 끔).
 stance_width 와 foot_lock 은 같은 다리 풀이 한 번(foot_fix.solve → 2본 IK)으로 — 차례로 고치면 서로 깬다(8-1 E1: 위팔만 돌린 보정이 양손을 벌렸다).
 순서는 고정: smooth → 다리 풀이. 기준값(E0 2026-10-27): 운영 Vesper 낫 공격의 타격 중 발 좌우 비 p50 4.1 ~ 5.0 · 끝 자세 2.1 · 대기 1.9, 8-1 시험 대상은
 처음부터 끝까지 3.7 ~ 5.1 을 유지 → 상한 3.0(사용자 결정 — 어깨 폭 1.5 배 남짓의 전투 자세).
@@ -26,7 +26,7 @@ OPS = {
     "stance_width": {"max_ratio": 3.0, "min_ratio": 1.2, "max_shift_cm": 25.0, "blend_s": 0.2, "keep_knee_bend": True},
     "foot_lock": {"feet": ["left", "right"], "contacts": "auto", "height_ratio": motion_metrics.CONTACT_HEIGHT_RATIO,
                   "speed_ratio": motion_metrics.CONTACT_SPEED_RATIO, "min_frames": motion_metrics.CONTACT_MIN_FRAMES, "blend_frames": 3,
-                  "lock_rotation": False},
+                  "bridge_frames": 2, "lock_rotation": False},
 }
 
 
@@ -77,6 +77,7 @@ def normalize_op(raw: dict, index: int = 0) -> dict:
         _num(op, "speed_ratio", 0.02, 2.0, field)
         _num(op, "min_frames", 2, 60, field, integer=True)
         _num(op, "blend_frames", 0, 30, field, integer=True)
+        _num(op, "bridge_frames", 0, 10, field, integer=True)
         if not isinstance(op["lock_rotation"], bool):
             raise FixOpError(f"{field}.lock_rotation", "must be a boolean")
     return op

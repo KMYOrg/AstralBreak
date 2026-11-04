@@ -7,6 +7,7 @@
   만들고(디딘 발이 미끄러지지 않게) 공중 구간은 smoothstep 으로 앞뒤 접지의 오프셋을 잇는다 → 상수로 만들면서 모자라는 만큼을 전역 배율(이분 탐색)로
   채워 두 발을 디딘 프레임의 최대 간격이 상한 + 0.5 cm 안에 들게 한다. 오프셋 크기는 max_shift_cm 로 자른다.
 - 고정: 접지 구간마다 발목을 한 점(수평 = 구간에서 가장 느린 프레임의 위치 + 오프셋, 높이 = 구간 중앙값)에, 구간 앞뒤 blend_frames 는 smoothstep 블렌드.
+  짧은 튐이 접지를 둘로 쪼개면(빈틈 ≤ bridge_frames) 두 고정점 사이 이동이 빈틈 한두 칸에 몰린다(실측 2026-11-04: 약 7 cm → 206 cm/s) → 두 고정 프레임 사이를 smoothstep 으로 편다.
 - 무릎 굽힘 유지(stance_width keep_knee_bend — 8-3 후속): 골반 높이 그대로 발을 모으면 엉덩 → 발목 거리가 줄어 무릎이 더 굽는다 → 그 거리를 원래대로
   돌리는 만큼 골반(엉덩 관절)을 올린다(pelvis_raise). 발목 목표는 그대로라 디딘 발은 고정된 채다.
 """
@@ -141,12 +142,13 @@ def stance(ankle: dict, hip: dict, contacts: dict, up: int, cap_cm: float, min_c
             "reached": after_max <= cap_cm + TOL_CM}
 
 
-def lock(ankle: list, free: list, contact_runs: list[tuple[int, int]], up: int, blend_frames: int) -> tuple[list, list[dict]]:
-    """접지 구간마다 한 점 고정(+ 앞뒤 블렌드) — (목표[F], 고정 기록[{run, frame, at}])."""
+def lock(ankle: list, free: list, contact_runs: list[tuple[int, int]], up: int, blend_frames: int, bridge_frames: int = 0) -> tuple[list, list[dict]]:
+    """접지 구간마다 한 점 고정(+ 앞뒤 블렌드) — (목표[F], 고정 기록[{run, frame, at, bridge_from?}]). 빈틈이 bridge_frames 이하인 이웃 구간은 두 고정 프레임 사이를 잇는다."""
     n = len(ankle)
     weight = [0.0] * n
     pin_at: list = [None] * n
     pins = []
+    spots = []
     for a, b in contact_runs:
         def hspeed(f):
             g = f + 1 if f + 1 <= b else f - 1
@@ -158,6 +160,7 @@ def lock(ankle: list, free: list, contact_runs: list[tuple[int, int]], up: int, 
         at = list(free[k])
         at[up] = zs[len(zs) // 2] + (free[k][up] - ankle[k][up])
         pins.append({"run": [a, b], "frame": k, "at": [round(c, 3) for c in at]})
+        spots.append((a, b, k, at))
         for f in range(max(0, a - blend_frames), min(n, b + blend_frames + 1)):
             if a <= f <= b:
                 w = 1.0
@@ -168,6 +171,13 @@ def lock(ankle: list, free: list, contact_runs: list[tuple[int, int]], up: int, 
             if w > weight[f]:
                 weight[f], pin_at[f] = w, at
     targets = [[free[f][i] + (pin_at[f][i] - free[f][i]) * weight[f] for i in range(3)] if pin_at[f] else list(free[f]) for f in range(n)]
+    for i, ((_, end, k0, at0), (start, _, k1, at1)) in enumerate(zip(spots, spots[1:])):
+        if start - end - 1 > bridge_frames:
+            continue
+        pins[i + 1]["bridge_from"] = k0
+        for f in range(k0 + 1, k1):
+            w = smoothstep((f - k0) / (k1 - k0))
+            targets[f] = [at0[c] + (at1[c] - at0[c]) * w for c in range(3)]
     return targets, pins
 
 
@@ -249,7 +259,7 @@ def raised(hip: dict, dz: list[float], up: int) -> dict:
 
 def solve(ankle: dict, hip: dict, contacts: dict, *, up: int, stance_cfg: dict | None = None, lock_cfg: dict | None = None) -> dict:
     """다리 풀이 한 번 — 발목 목표 {left, right}[F] · 바뀐 프레임 · 간격 · 고정 기록 · 골반 상승(keep_knee_bend).
-    stance_cfg = {cap_cm, min_cm, max_shift_cm, blend_frames, keep_knee_bend?}(풀이 공간 cm), lock_cfg = {feet, blend_frames}.
+    stance_cfg = {cap_cm, min_cm, max_shift_cm, blend_frames, keep_knee_bend?}(풀이 공간 cm), lock_cfg = {feet, blend_frames, bridge_frames?}.
     골반을 올리면 그 프레임은 발목 목표가 그대로여도 IK 를 다시 푼다(changed) — 엉덩이 올라간 만큼 다리를 펴야 발이 바닥에 남는다."""
     n = len(ankle["left"])
     out = {"stance": None, "pins": {}, "targets": {}, "changed": {}, "pelvis_raise": None}
@@ -261,7 +271,7 @@ def solve(ankle: dict, hip: dict, contacts: dict, *, up: int, stance_cfg: dict |
     for side in ("left", "right"):
         free = [[ankle[side][f][i] + off[side][f][i] for i in range(3)] for f in range(n)]
         if lock_cfg and side in lock_cfg["feet"]:
-            free, out["pins"][side] = lock(ankle[side], free, mm.runs(contacts[side]), up, lock_cfg["blend_frames"])
+            free, out["pins"][side] = lock(ankle[side], free, mm.runs(contacts[side]), up, lock_cfg["blend_frames"], lock_cfg.get("bridge_frames", 0))
         out["targets"][side] = free
         out["changed"][side] = [math.sqrt(sum((free[f][i] - ankle[side][f][i]) ** 2 for i in range(3))) > EPS_CM for f in range(n)]
     if stance_cfg and stance_cfg.get("keep_knee_bend"):

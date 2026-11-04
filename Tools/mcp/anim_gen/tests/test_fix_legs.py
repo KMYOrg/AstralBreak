@@ -43,6 +43,7 @@ def test_ops_defaults_and_order():
     assert moved and [o["op"] for o in out] == ["smooth", "stance_width", "foot_lock"]
     assert out[1] == {"op": "stance_width", "max_ratio": 3.0, "min_ratio": 1.2, "max_shift_cm": 25.0, "blend_s": 0.2, "keep_knee_bend": True}
     assert out[2]["height_ratio"] == mm.CONTACT_HEIGHT_RATIO and out[2]["feet"] == ["left", "right"] and out[2]["lock_rotation"] is False
+    assert out[2]["bridge_frames"] == 2
     assert out[0]["sigma_frames"] == 2.0
 
 
@@ -57,6 +58,7 @@ def test_ops_defaults_and_order():
     ({"op": "foot_lock", "feet": ["middle"]}, "fix.ops[0].feet"),
     ({"op": "foot_lock", "contacts": "labels"}, "fix.ops[0].contacts"),
     ({"op": "foot_lock", "min_frames": 2.5}, "fix.ops[0].min_frames"),
+    ({"op": "foot_lock", "bridge_frames": 11}, "fix.ops[0].bridge_frames"),
 ])
 def test_ops_reject(raw, field):
     with pytest.raises(fix_ops.FixOpError) as info:
@@ -156,6 +158,54 @@ def test_lock_pins_each_contact_to_one_point():
     pts = out["targets"]["left"]
     assert max(mm._dist(p, pts[0]) for p in pts) < 1e-6 and len(out["pins"]["left"]) == 1 and "right" not in out["pins"]
     assert not any(out["changed"]["right"])
+
+
+def split_contact(gap: int = 1, n: int = 30):
+    """디딘 왼발이 프레임 12 부터 7 cm 튄다 — 튐이 접지를 둘로 쪼갠다(gap = 낮고 빠른 프레임 수, 실측 WalkTurnBackP5 프레임 82 · 83)."""
+    step = 7.0 / (gap + 1)
+    left = [[30.0 + step * max(0, min(f - 11, gap + 1)), 0.0, 10.0] for f in range(n)]
+    ankle = {"left": left, "right": [[-30.0, 0.0, 10.0]] * n}
+    hip = {"left": [[10.0, 0.0, 95.0]] * n, "right": [[-10.0, 0.0, 95.0]] * n}
+    contacts = {s: mm.detect_contacts(ankle[s], [f / 30 for f in range(n)], 2, 90.0) for s in ("left", "right")}
+    return ankle, hip, contacts
+
+
+def steps(pts: list) -> list[float]:
+    return [mm._dist(p, q) for p, q in zip(pts, pts[1:])]
+
+
+def test_lock_without_bridge_jumps_in_the_gap():
+    ankle, hip, contacts = split_contact()
+    assert mm.runs(contacts["left"]) == [(0, 11), (13, 29)]
+    out = foot_fix.solve(ankle, hip, contacts, up=2, lock_cfg={"feet": ["left"], "blend_frames": 3})
+    assert max(steps(out["targets"]["left"])) > 3.0 and not any("bridge_from" in p for p in out["pins"]["left"])
+
+
+def test_lock_bridge_eases_between_the_two_pins():
+    ankle, hip, contacts = split_contact()
+    out = foot_fix.solve(ankle, hip, contacts, up=2, lock_cfg={"feet": ["left"], "blend_frames": 3, "bridge_frames": 2})
+    pts, (first, second) = out["targets"]["left"], out["pins"]["left"]
+    assert second["bridge_from"] == first["frame"] and "bridge_from" not in first
+    assert pts[first["frame"]] == pytest.approx(first["at"], abs=1e-3) and pts[second["frame"]] == pytest.approx(second["at"], abs=1e-3)
+    span = second["frame"] - first["frame"]
+    assert max(steps(pts)) <= 1.5 * 7.0 / span + 1e-6                # smoothstep 최고 기울기 = 평균의 1.5 배
+    assert all(q[0] >= p[0] - 1e-9 for p, q in zip(pts, pts[1:]))     # 되돌아가지 않는다
+
+
+def test_lock_bridge_leaves_a_real_step_alone():
+    ankle, hip, contacts = wide_stance(half=30.0, step_at=(12, 20))
+    plain = foot_fix.solve(ankle, hip, contacts, up=2, lock_cfg={"feet": ["left"], "blend_frames": 3})
+    bridged = foot_fix.solve(ankle, hip, contacts, up=2, lock_cfg={"feet": ["left"], "blend_frames": 3, "bridge_frames": 2})
+    assert bridged["targets"]["left"] == plain["targets"]["left"] and bridged["pins"] == plain["pins"]
+
+
+def test_lock_bridge_ignores_a_gap_over_the_limit():
+    ankle, hip, contacts = split_contact(gap=3)
+    assert len(mm.runs(contacts["left"])) == 2
+    gap = mm.runs(contacts["left"])[1][0] - mm.runs(contacts["left"])[0][1] - 1
+    assert gap == 3
+    out = foot_fix.solve(ankle, hip, contacts, up=2, lock_cfg={"feet": ["left"], "blend_frames": 3, "bridge_frames": 2})
+    assert not any("bridge_from" in p for p in out["pins"]["left"])
 
 
 def _fk(hip, r_thigh, r_shin, thigh_off, shin_off):

@@ -152,7 +152,8 @@ def plan_motion_generation(request: dict) -> dict:
             the swing peak — not on by default) | stance_width{max_ratio 3.0 (TARGET-mesh foot spread ÷ hip-joint width while both feet are
             planted — Vesper's sickle attacks end at 2.1, idle 1.9), min_ratio 1.2, max_shift_cm 25, blend_s 0.2, keep_knee_bend true (raises
             the pelvis as much as the narrower stance needs so neither knee bends more than before)} | foot_lock{feet, contacts
-            "auto", height_ratio, speed_ratio, min_frames, blend_frames, lock_rotation} — stance_width and foot_lock are one leg solve in a
+            "auto", height_ratio, speed_ratio, min_frames, blend_frames, bridge_frames 2 (contacts split by a gap this short ease between their
+            two pins instead of jumping in the gap — 0 = off), lock_rotation} — stance_width and foot_lock are one leg solve in a
             model of the retargeted legs (pelvis × target/source pelvis height, source bone directions, target bone lengths), so the TARGET's
             planted feet stay put (Job fix.source = Blender report, fix.target = measured after retargeting); needs the source leg chains
             (retarget.source_chains or provider defaults) and the retargeter this job builds — with retarget.ops default or

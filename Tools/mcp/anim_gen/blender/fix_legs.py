@@ -229,10 +229,11 @@ def legs(arm, ops: list[dict], cfg: dict) -> dict:
                       "blend_frames": max(1, round(op["blend_s"] * fps)), "keep_knee_bend": op.get("keep_knee_bend", True)}
     lock_cfg = None
     if "foot_lock" in by:
-        lock_cfg = {"feet": by["foot_lock"]["feet"], "blend_frames": by["foot_lock"]["blend_frames"]}
+        lock_cfg = {"feet": by["foot_lock"]["feet"], "blend_frames": by["foot_lock"]["blend_frames"], "bridge_frames": by["foot_lock"]["bridge_frames"]}
     solved = foot_fix.solve(vankle, hip, contacts, up=UP, stance_cfg=stance_cfg, lock_cfg=lock_cfg)
     out["stance"] = solved["stance"]
     out["pins"] = {s: len(p) for s, p in solved["pins"].items()}
+    out["bridges"] = {s: [[q["bridge_from"], q["frame"]] for q in p if "bridge_from" in q] for s, p in solved["pins"].items()}
     # 무릎 굽힘 유지 — 풀이 공간의 골반 상승 dz 를 소스 골반 위치 키로(대상 모델이면 ÷ s), IK 는 올린 엉덩 관절에서
     hip_ik = hip
     out["pelvis_raise"] = None

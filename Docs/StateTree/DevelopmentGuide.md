@@ -2,9 +2,9 @@
 
 작성일: 2026-11-04  
 대상: UE 5.7.4 · AstralBreak · M3(일반 몬스터 AI · 어그로)  
-상태: **Phase 1 구현 · 자동 검증 완료(2026-11-05) — 사용자 눈 확인 대기. 결과는 [Phase1Report.md](Phase1Report.md).** Phase 0 완료(2026-11-04). 사용자가 가져온 원본 지침서를 엔진 소스와 기존 `AnimGraphMcp` 에 대조해 고쳤고, Phase 0 실측으로 §2 · §5 를 다시 고쳤다. 실측 · 변경 이유는 [Feasibility.md](Feasibility.md), 엔진 근거는 [APIResearch.md](APIResearch.md).
+상태: **Phase 2 구현 · 자동 검증 완료(2026-11-05) — 결과는 [Phase2Report.md](Phase2Report.md). 다음은 M3 본 작업이다.** Phase 1 완료(2026-11-05, [Phase1Report.md](Phase1Report.md)) · 사용자 눈 확인 대기. Phase 0 완료(2026-11-04). 사용자가 가져온 원본 지침서를 엔진 소스와 기존 `AnimGraphMcp` 에 대조해 고쳤고, Phase 0 · 2 실측으로 §2 · §5 · §6 을 다시 고쳤다. 실측 · 변경 이유는 [Feasibility.md](Feasibility.md), 엔진 근거는 [APIResearch.md](APIResearch.md).
 
-표기: **[확인]** = 엔진 · 프로젝트 소스를 읽어 확인. **[실측]** = Phase 0 실험으로 확인.
+표기: **[확인]** = 엔진 · 프로젝트 소스를 읽어 확인. **[실측]** = Phase 0 · 2 실험으로 확인.
 
 ## 0. 원본에서 바꾼 것
 
@@ -17,7 +17,7 @@
 | 5 | 컴파일 오류 JSON 에 `code` · `property` | 엔진 로그에 없는 필드라 제거 | §2-5 |
 | 6 | Dry Run = 복제본에 적용 | 복제본은 GUID 가 전부 바뀌어 그대로 못 쓴다 → 사전 검증 + 실패 시 Undo, 안 되면 디스크 재로드 | §2-6 · §5 |
 | 7 | 멀티플레이 Server/Client 런타임 구분 | 서버 월드만 본다 | AIController 는 서버에만 있다 |
-| 8 | 최근 전환 기록 · 전환 사유 조회 | 활성 상태 폴링 타임라인으로 대체, 사유는 제외 | 공개 API 없음(`WITH_STATETREE_TRACE_DEBUGGER` 추적만) |
+| 8 | 최근 전환 기록 · 전환 사유 조회 | 활성 상태 폴링 타임라인 + 상태 진입 횟수로 대체, 사유는 제외 | 공개 API 없음(`WITH_STATETREE_TRACE_DEBUGGER` 추적만). 폴링만으로는 한 프레임 안의 전환을 놓친다 — §6 |
 | 9 | BP 노드 생성(Phase 4) | 제외 | 프로젝트 원칙 = 게임플레이 로직은 C++ |
 | 10 | Commandlet · CI(Phase 5) | 제외 | 헤드리스 실행은 사용자가 거부한 이력 · 프로젝트에 CI 없음 |
 | 11 | `statetree.add_state` 같은 점 표기 · `statetree.ping` | `apply_state_tree_operations` 등 snake_case · ping 삭제 | 기존 Tool 이름 규칙 · 상태 확인은 `get_editor_status` |
@@ -74,7 +74,7 @@
 - `EditorSchema->Validate` 가 스키마가 막은 Evaluator · Enter Condition · Consideration · Task 를 비운다.
 - 컴파일 실패 시 `ResetCompiled()` 로 **기존 컴파일 결과까지 지운다.** 살아 있는 애셋에서 컴파일하면 실패만으로 그 애셋은 실행 불가가 된다. [실측 E5]
 - **에디터의 `UStateTree::PostLoad` 는 무조건 `Compile()` 을 부른다** — 로드할 때마다 위의 모든 일이 일어난다. 컴파일 결과는 저장본에서 읽히지 않고 로드 때 다시 만들어진다. C++ 프로퍼티 이름 변경으로 풀리지 않게 된 바인딩은 로드 순간 사라지고 더티 표시도 없다. [실측 E5 · E6]
-- `PreBeginPIE` 가 메모리의 모든 `UStateTree` 에 `CompileIfChanged()` 를 부른다 — 임시 복제본을 남겨 두면 함께 컴파일된다.
+- `PreBeginPIE` 가 메모리의 모든 `UStateTree` 에 `CompileIfChanged()` 를 부른다 — 임시 복제본을 남겨 두면 함께 컴파일된다. [실측 Phase 2 — PIE 시작 때 다른 시험의 고장 난 트리 컴파일 실패 로그가 나온다]
 
 대응: 바인딩은 넣기 전에 직접 검증하고, 컴파일 전후 바인딩 · 노드 수를 비교해 줄어든 것을 `fixups` 로 보고한다. 엔진 `ValidateStateTree` 를 '검증 Tool' 로 노출하지 않는다.
 
@@ -106,6 +106,7 @@
 - `Context` 프로퍼티는 컴파일러가 타입으로 **자동 바인딩**한다. 도구가 미리 묶지 않는다.
 - **메뉴 노출과 컴파일은 규칙이 다르다.** 엔진 메뉴는 `UE::PropertyBinding::IsPropertyBindable` 로 거른다 — `CPF_Edit` + public 또는 `AllowPrivateAccess`. 컴파일러는 이 검사를 하지 않는다. `AAstralCombatCharacter` 의 프로젝트 프로퍼티 11개 중 메뉴에 나오는 것은 컴포넌트 3개뿐이다. §10 D-6. [실측 E2]
 - `FStateTreeCompareDistanceCondition.Source` 는 필수 Input FVector 다. Actor 위치는 Property Function `/Script/GameplayStateTreeModule.StateTreeGetActorLocationPropertyFunction` 으로 얻는다 — `AddFunctionBinding` + 입력에 일반 바인딩. 공개 API 로 되고 재시작 왕복도 확인했다. §10 D-5. [실측 E4 · E6]
+- **`Get Actor Location` 의 입력은 필수가 아니다.** 안 묶으면 컴파일 · 실행 모두 조용히 성공하고 출력이 `(0, 0, 0)` 으로 고정된다. 거리 조건은 폰이 어디 있든 원점 기준으로 재므로 트리가 멀쩡해 보인 채 전환이 일어나지 않는다. `inspect_state_tree` 로 입력 바인딩을 직접 확인한다. [실측 Phase 2 S5]
 
 ### 2-8. 파라미터 [확인]
 
@@ -119,8 +120,14 @@
 
 ### 2-10. 런타임 [확인]
 
-- `UStateTreeComponent`: `GetStateTreeRunStatus()`, `SendStateTreeEvent()`, `GetActiveStateNames()`(`WITH_GAMEPLAY_DEBUGGER` 안, 이름 중복 가능).
-- AIController 는 서버에만 존재한다. 멀티 PIE 에서는 서버 월드의 인스턴스만 찾는다.
+- `UStateTreeComponent`: `GetStateTreeRunStatus()`(시작하지 못하면 `Unset`), `SendStateTreeEvent()`(`void` — 실행 중이 아니면 경고만), `GetActiveStateNames()`(`WITH_GAMEPLAY_DEBUGGER` 안, `Root` 포함, 이름 중복 가능). [실측]
+- 트리 참조 `StateTreeRef` 와 `InstanceData` 는 protected 이고 getter 가 없다 — 리플렉션으로 읽는다. 상태 진입 횟수는 `FStateTreeExecutionState::StateChangeCount`. 컨텍스트의 `GetStateChangeCount` 는 `WITH_STATETREE_DEBUG` 전용이다. [실측]
+- AIController 는 서버에만 존재한다. 멀티 PIE 에서는 서버 월드의 인스턴스만 찾는다. 클라이언트 월드에는 폰만 복제된다. [실측 S6]
+- **컴포넌트 자동 시작을 끄고 Possess 에서 시작한다.** 자동 시작은 런타임 스폰에서 컨트롤러 `BeginPlay` 가 `Possess` 보다 먼저라 컨텍스트 Actor 가 없어 시작하지 못한다. 레벨 배치에서는 된다. [실측 S3 · S4]
+- **Possess 시작은 ASC 보다 먼저다.** `StartLogic` 은 `APawn::PostInitializeComponents` 안에서 돌아 `AAstralCombatCharacter` 의 ASC 결합 · `BeginPlay` 의 어빌리티 부여보다 앞선다. 첫 상태가 GA 를 쓰면 시작을 늦춰야 한다. [확인]
+- **언포제션 때 `StopLogic` 의 컨텍스트 검사가 실패한다.** `AAIController::OnUnPossess` 가 폰을 먼저 비운다. 그때 `Stop` 이 돌지 않아 `ExitState` 가 불리지 않는다. 경고 2줄은 실측, `ExitState` 미호출은 [확인]. M3 에서 `OnUnPossess` 오버라이드로 고친다 — [Phase2Report §6](Phase2Report.md).
+- `AutoPossessAI` 기본값은 `PlacedInWorld` 라 런타임 스폰한 폰에는 컨트롤러가 붙지 않는다. [확인]
+- `MoveTo` 가 `EnterState` 에서 실패하면 상태 이름이 타임라인에 보이지 않고 로그도 없다. 전환이 없는 상태가 끝나면 트리는 `Root` 첫 자식으로 돌아간다. [실측 S2 · S5]
 
 ### 2-11. 재사용할 프로젝트 자산 [확인]
 
@@ -150,7 +157,7 @@ AnimGraphMcp 플러그인 (기존 브리지 · 디스패처)
   └─ Core/AnimMcpStateTreeRuntime.cpp          PIE 관측
 ```
 
-추가 의존성: `AnimGraphMcp.uplugin` 에 `StateTree` · `GameplayStateTree`, `Build.cs` 에 `StateTreeModule` · `StateTreeEditorModule` · `GameplayStateTreeModule` · `PropertyBindingUtils` · `PropertyBindingUtilsEditor`(`IsPropertyBindable`) · `GameplayTags`(`Tag` · `event_tag`). Phase 0 의 `Slate` · `SlateCore` 는 Phase 1 시험이 위젯을 보지 않아 뺐다. 플러그인 이름 변경은 하지 않는다.
+추가 의존성: `AnimGraphMcp.uplugin` 에 `StateTree` · `GameplayStateTree`, `Build.cs` 에 `StateTreeModule` · `StateTreeEditorModule` · `GameplayStateTreeModule` · `PropertyBindingUtils` · `PropertyBindingUtilsEditor`(`IsPropertyBindable`) · `GameplayTags`(`Tag` · `event_tag`) · `AIModule`(시나리오의 `AAIController`, Phase 2). Phase 0 의 `Slate` · `SlateCore` 는 Phase 1 시험이 위젯을 보지 않아 뺐다. 플러그인 이름 변경은 하지 않는다. 런타임 모듈 `AstralBreak.Build.cs` 에 `StateTreeModule` · `GameplayStateTreeModule`(Phase 2) — UBT 가 요구하지 않아 `.uproject` 의존성은 그대로다.
 
 `[AnimGraphMcp]` ini 추가: `+StateTreeEditPaths=/Game/AI/` — 이 밖의 StateTree 는 생성 · 편집 거부. 읽는 코드와 함께 Phase 1 에서 넣는다. 시험 애셋은 `/Game/AI/Test/`.
 
@@ -166,7 +173,7 @@ AnimGraphMcp 플러그인 (기존 브리지 · 디스패처)
 | `apply_state_tree_operations` | ○ | 배치 적용. `operations`, `expected_revision?`, `compile=true`, `save=true` |
 | `compile_state_tree` | ○ | 수동 컴파일. 메시지 + `fixups` |
 | `revert_state_tree` | ○ | 디스크 상태로 재로드. **Undo 기록 전체가 사라지고 열린 편집기가 닫혔다 열린다** — 응답에 `undo_history_cleared` · `editor_reopened` |
-| `run_state_tree_scenario` | | PIE 시나리오 — job 시작, 결과는 기존 `poll_automation_tests` |
+| `run_state_tree_scenario` | | PIE 시나리오 — job 시작, 결과는 기존 `poll_automation_tests`. §6 |
 
 ### operations (Phase 1)
 
@@ -221,13 +228,18 @@ bind_property_function { ref?, function, output?, target: { node, path } }   D-5
 
 ## 6. 런타임 검증
 
-`run_state_tree_scenario` 입력: 맵, 대상 Pawn 클래스 또는 스폰 지점, 플레이어 위치, 시간 제한, 선택 이벤트 목록, 기대 상태 순서.
+`run_state_tree_scenario` 입력: `asset_path`(컴포넌트가 참조하는 트리), `map?`, `pawn_class?`, `spawn_location?`(있으면 `pawn_class` 를 런타임 스폰, 없으면 배치 인스턴스의 필터), `player_location?`, `events?[{ tag, after?, when_state?, expect_state?, expect_transition?, window? }]`, `expect_states?`, `duration?`, `start_timeout?`, `clients?`(0 = Standalone, N = 리슨 서버 + 클라이언트 N), `timeout?`. 입출력 예는 [Phase2Report §1](Phase2Report.md).
 
-출력: `{ t, active_states[], run_status }` 변화 시점 타임라인 + 기대 순서 판정.
+출력: `{ t, active_states[], run_status, state_changes, pawn_location }` 변화 시점 타임라인 + 이벤트별 판정 + 기대 순서 판정 + 월드별 인스턴스 수 + 경고 로그. 인스턴스를 못 찾으면 `candidates`.
 
-- 이벤트 전송 성공과 전환 성공은 별개로 판정한다.
-- 전환 사유는 다루지 않는다.
+- **이벤트는 세 단계로 판정한다: `sent` · `transitioned` · `reached_expected`.** [실측] 활성 목록 비교로 전환을 판정하면 안 된다 — 한 프레임 안에 들어갔다 나간 상태(`EnterState` 에서 실패하는 작업)를 놓쳐 `sent 인데 전환 없음` 이라는 거짓 판정이 나온다. 전환은 엔진의 상태 진입 횟수로 본다. 앞 표본보다 2 이상 뛰면 이름이 보이지 않은 상태가 있었다는 뜻이다.
+- `sent` 는 트리가 실행 중이라 큐에 넣는 호출까지 갔다는 뜻이다. `SendStateTreeEvent` 는 결과를 돌려주지 않는다.
+- `expect_transition: false` 는 무관한 이벤트의 대조 시험이다.
+- 기대 순서가 없으면 일찍 끝내지 않는다. 있으면 그 순서와 이벤트가 끝날 때 끝낸다.
+- 네트 모드 · 인원은 항상 명시한다. 사용자의 플레이 설정을 따르면 결과가 설정에 묶인다.
+- 전환 사유는 다루지 않는다. 이벤트 뒤의 전환이 이벤트 때문인지는 구분하지 않는다.
 - 기존 러너 규칙을 따른다: PIE 는 시나리오가 직접 시작하고, 이미 PIE 면 `PIE_ACTIVE`.
+- 필터로 직접 돌리면 시나리오 없이 경고만 내지 않고 엔진 클래스 고정물로 실제로 돈다. `AnimGraphMcp.Runtime` 처럼 검사한 것이 없게 두지 않는다.
 
 ## 7. 단계
 
@@ -255,9 +267,9 @@ Tool 8개(`run_state_tree_scenario` 제외) + §4 operations(`bind_property_func
 
 완료 기준: 내장 노드만으로 `Idle → Chase → Attack` 트리를 배치 한 번에 생성 · 컴파일 · 저장, 재시작 뒤 `inspect` 일치, 잘못된 입력은 오류와 함께 디스크 무변경, 사용자가 에디터에서 열어 수동 편집 가능.
 
-### Phase 2 — 런타임 고리
+### Phase 2 — 런타임 고리 (완료 2026-11-05)
 
-`run_state_tree_scenario`. 완료 기준: 최소 AIController 가 내장 노드 트리를 돌리고 PIE 타임라인으로 전환 순서 확인, 이벤트로 전환 확인.
+`run_state_tree_scenario` + 최소 AIController `AAstralEnemyController`. 완료 기준: 최소 AIController 가 내장 노드 트리를 돌리고 PIE 타임라인으로 전환 순서 확인, 이벤트로 전환 확인. 결과는 [Phase2Report.md](Phase2Report.md). 시험 트리는 `state-tree-mcp` 로 저작했고 첫 실사용이다.
 
 ### 그다음 — M3 본 작업
 
@@ -291,7 +303,7 @@ Automation(`AnimGraphMcp.StateTree.*`)을 쓰고 `run_automation_tests` 로 돌�
 14. `bind_property_function` — 함수 출력을 필수 Input 에 묶고 입력은 같은 배치의 `bind_property` 로 묶어 컴파일 · 저장 · 재로드(§10 D-5). 없는 함수 타입 · 출력 프로퍼티 오타 · 타입 불일치 거부
 15. 열린 편집기 — 적용 알림, Undo 복구 뒤 뷰모델 · 편집기 유지, `revert_state_tree` 의 `editor_reopened`(Phase 1 에서 추가. 뷰모델과 편집기 수만 보고 화면은 판정하지 않는다)
 
-Phase 2 는 PIE 활성 상태 확인 · 이벤트 전송. 산출 애셋은 `/Game/AI/Test/` 에만 만든다.
+Phase 2 는 PIE 활성 상태 확인 · 이벤트 전송 — `16_RuntimeScenario`(대조 이벤트 · 숨은 전환 · 정상 전환) · `17_ScenarioJudge`(판정 함수) · `18_ScenarioRefused`(사전 검증) · `08b`(PIE 중 거부). 산출 애셋은 `/Game/AI/Test/` 에만 만든다.
 
 ## 9. 금지 사항
 
@@ -303,6 +315,8 @@ Phase 2 는 PIE 활성 상태 확인 · 이벤트 전송. 산출 애셋은 `/Gam
 - 트랜잭션을 연 채 재로드하지 말 것. 재로드 뒤 이전 포인터를 쓰지 말 것.
 - 에디터 Private 헤더를 포함하지 말 것 — 필요한 절차는 공개 템플릿을 보고 옮긴다.
 - 컴파일 성공을 바인딩 유지의 증거로 삼지 말 것(§2-4).
+- 활성 상태 목록 비교로 전환 여부를 판정하지 말 것(§6). 시나리오 타임라인에 이름이 없다고 그 상태에 안 들어간 것이 아니다.
+- 시험 BP 는 CDO 값을 쓴 뒤 컴파일할 것. 컴파일 뒤에 쓰면 같은 세션의 새 인스턴스가 네이티브 기본값을 받고, 맵에 배치했다면 그 값이 재정의로 저장된다. [실측 Phase 2]
 - 도구 범위를 넓히기 전에 M3 애셋이 실제로 그 기능을 쓰는지 먼저 볼 것.
 
 ## 10. 정할 것

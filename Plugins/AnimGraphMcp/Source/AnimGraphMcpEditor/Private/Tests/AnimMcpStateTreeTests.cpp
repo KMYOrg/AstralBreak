@@ -9,12 +9,17 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "AIController.h"
 #include "Bridge/AnimMcpDispatcher.h"
 #include "Bridge/AnimMcpTypes.h"
+#include "Components/StateTreeAIComponent.h"
 #include "Core/AnimMcpStateTreeAsset.h"
+#include "Core/AnimMcpStateTreeRuntime.h"
 #include "Dom/JsonObject.h"
 #include "Editor.h"
 #include "Editor/Transactor.h"
+#include "Engine/World.h"
+#include "GameFramework/DefaultPawn.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformTime.h"
 #include "Internationalization/Regex.h"
@@ -808,6 +813,7 @@ bool FAnimMcpStateTreePieGuardTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("compile refused during PIE"), Harness.Asset(TEXT("compile_state_tree"), Ctx->Path).Code, FString(AnimMcpErrorCodes::PieActive));
 			TestEqual(TEXT("revert refused during PIE"), Harness.Asset(TEXT("revert_state_tree"), Ctx->Path).Code, FString(AnimMcpErrorCodes::PieActive));
 			TestEqual(TEXT("create refused during PIE"), Harness.Asset(TEXT("create_state_tree"), Ctx->Path + TEXT("_B")).Code, FString(AnimMcpErrorCodes::PieActive));
+			TestEqual(TEXT("scenario refused during PIE"), Harness.Asset(TEXT("run_state_tree_scenario"), Ctx->Path).Code, FString(AnimMcpErrorCodes::PieActive));
 			TestTrue(TEXT("inspect still reads during PIE"), Harness.Inspect(Ctx->Path).bOk);
 			TestEqual(TEXT("nothing changed"), Harness.Inspect(Ctx->Path).Result->GetStringField(TEXT("revision")), Ctx->Revision);
 		}
@@ -1226,6 +1232,184 @@ bool FAnimMcpStateTreeOpenEditorTest::RunTest(const FString& Parameters)
 		}
 		return true;
 	});
+	return true;
+}
+
+// ─── 16 ─── 런타임 고리 (§6). run_state_tree_scenario 가 시나리오 JSON 을 넘기면 그대로 돌리고, 필터로 직접 돌리면 고정물 시나리오를 돌린다.
+// 시나리오가 없다고 경고만 내고 통과하면 회귀에서 검사한 것이 없게 된다(AnimGraphMcp.Runtime 의 빈틈) — 그래서 고정물을 둔다.
+// 고정물은 엔진 클래스만 쓴다: AAIController + 나중에 붙인 UStateTreeAIComponent + ADefaultPawn. 프로젝트 BP 와 무관하게 관측 경로만 본다
+IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(FAnimMcpStateTreeScenarioTest, AnimMcpStateTreeTests::FTestBase, "AnimGraphMcp.StateTree.16_RuntimeScenario", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+bool FAnimMcpStateTreeScenarioTest::RunTest(const FString& Parameters)
+{
+	using namespace AnimMcpStateTreeRuntime;
+
+	if (!Parameters.TrimStartAndEnd().IsEmpty())
+	{
+		TSharedPtr<FJsonObject> Json;
+		FString ParseError;
+		FScenario Scenario;
+		FAnimMcpError Error;
+		if (!AnimMcpJson::Parse(Parameters, Json, ParseError) || !Json.IsValid() || !ParseScenario(*Json, Scenario, Error))
+		{
+			AddError(FString::Printf(TEXT("Scenario is not valid: %s%s"), *ParseError, *Error.Message));
+			return false;
+		}
+		return Enqueue(*this, Scenario);
+	}
+
+	FHarness Harness;
+	const FString Path = Harness.NewTree(TEXT("Runtime"));
+	if (!TestFalse(TEXT("tree"), Path.IsEmpty()))
+	{
+		return false;
+	}
+	const FCall Applied = Harness.Apply(Path, TEXT(R"JSON([
+		{"op":"add_state","ref":"idle","name":"Idle"},
+		{"op":"add_state","ref":"next","name":"Next"},
+		{"op":"add_state","ref":"done","name":"Done"},
+		{"op":"add_state","ref":"bounce","name":"Bounce"},
+		{"op":"add_task","state":"idle","type":"{Delay}","values":{"bRunForever":true}},
+		{"op":"add_task","state":"next","type":"{Delay}","values":{"Duration":0.5}},
+		{"op":"add_task","state":"done","type":"{Delay}","values":{"bRunForever":true}},
+		{"op":"add_task","state":"bounce","type":"{MoveTo}"},
+		{"op":"add_transition","state":"idle","trigger":"OnEvent","event_tag":"GameplayEvent.Guarded","target":"bounce"},
+		{"op":"add_transition","state":"idle","trigger":"OnEvent","event_tag":"GameplayEvent.Damaged","target":"next"},
+		{"op":"add_transition","state":"next","trigger":"OnStateCompleted","target":"done"}
+	])JSON"));
+	if (!TestTrue(TEXT("batch applies"), Applied.bOk))
+	{
+		AddError(Applied.Message);
+		return false;
+	}
+	const UStateTree* Tree = FindTree(Path);
+	if (!TestNotNull(TEXT("tree object"), Tree))
+	{
+		return false;
+	}
+
+	FScenario Scenario;
+	Scenario.TreePath = Tree->GetPathName();
+	Scenario.ExpectStates = { TEXT("Idle"), TEXT("Next"), TEXT("Done") };
+	Scenario.Duration = 15.0;
+
+	// 대조: 듣는 전환이 없는 이벤트는 '보냈지만 전환 없음' 이어야 한다
+	FEventSpec Unrelated;
+	Unrelated.Tag = TEXT("GameplayEvent.Parried");
+	Unrelated.bExpectTransition = false;
+	Unrelated.Window = 0.3;
+	Scenario.Events.Add(Unrelated);
+
+	// 폰이 NavMesh 위 5000 에 떠 있어 MoveTo 가 EnterState 에서 실패한다 — Bounce 는 이름이 안 보이고 Idle 로 돌아온다.
+	// 활성 목록만 비교하면 '전환 없음' 으로 잘못 나오는 경우다. 진입 횟수로 전환을 잡아야 통과한다
+	FEventSpec Hidden;
+	Hidden.Tag = TEXT("GameplayEvent.Guarded");
+	Hidden.WhenState = TEXT("Idle");
+	Scenario.Events.Add(Hidden);
+
+	FEventSpec Go;
+	Go.Tag = TEXT("GameplayEvent.Damaged");
+	Go.WhenState = TEXT("Idle");
+	Go.ExpectState = TEXT("Next");
+	Scenario.Events.Add(Go);
+
+	const FString TreePath = Scenario.TreePath;
+	return Enqueue(*this, Scenario, [TreePath](UWorld& World)
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Params.ObjectFlags |= RF_Transient;
+		AAIController* Controller = World.SpawnActor<AAIController>(AAIController::StaticClass(), FTransform::Identity, Params);
+		ADefaultPawn* Pawn = World.SpawnActor<ADefaultPawn>(ADefaultPawn::StaticClass(), FTransform(FVector(0.0, 0.0, 5000.0)), Params);
+		UStateTreeAIComponent* Component = NewObject<UStateTreeAIComponent>(Controller);
+		Component->SetStartLogicAutomatically(false);
+		Component->SetStateTree(LoadObject<UStateTree>(nullptr, *TreePath));
+		Component->RegisterComponent();
+		Controller->Possess(Pawn);
+		Component->StartLogic();
+	});
+}
+
+// ─── 17 ─── 판정 — PIE 없이 순서 · 이벤트 판정만
+IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(FAnimMcpStateTreeScenarioJudgeTest, AnimMcpStateTreeTests::FTestBase, "AnimGraphMcp.StateTree.17_ScenarioJudge", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+bool FAnimMcpStateTreeScenarioJudgeTest::RunTest(const FString& Parameters)
+{
+	using namespace AnimMcpStateTreeRuntime;
+
+	const auto Entry = [](const double T, const TCHAR* State)
+	{
+		FSample Sample;
+		Sample.T = T;
+		Sample.ActiveStates = { TEXT("Root"), State };
+		Sample.RunStatus = TEXT("Running");
+		return Sample;
+	};
+	const TArray<FSample> Timeline = { Entry(0.0, TEXT("Idle")), Entry(1.0, TEXT("Chase")), Entry(2.0, TEXT("Idle")), Entry(3.0, TEXT("Attack")) };
+	const auto Matched = [&Timeline](TArray<FString> Expected) { return CountMatchedStates(Timeline, Expected); };
+
+	TestEqual(TEXT("order with another state between"), Matched({ TEXT("Idle"), TEXT("Chase"), TEXT("Attack") }), 3);
+	TestEqual(TEXT("wrong order stops at the first miss"), Matched({ TEXT("Attack"), TEXT("Chase") }), 1);
+	TestEqual(TEXT("a repeat needs a later entry"), Matched({ TEXT("Idle"), TEXT("Idle") }), 2);
+	TestEqual(TEXT("two names cannot share one entry"), Matched({ TEXT("Root"), TEXT("Chase") }), 2);
+	TestEqual(TEXT("one entry is consumed by one name"), CountMatchedStates(TConstArrayView<FSample>(Timeline.GetData(), 1), TArray<FString>{ TEXT("Root"), TEXT("Idle") }), 1);
+	TestEqual(TEXT("missing state"), Matched({ TEXT("Flee") }), 0);
+	TestEqual(TEXT("empty timeline"), CountMatchedStates(TArray<FSample>(), TArray<FString>{ TEXT("Idle") }), 0);
+
+	FEventSpec Spec;
+	Spec.Tag = TEXT("GameplayEvent.Damaged");
+	FEventResult Result;
+	TestTrue(TEXT("not attempted is a failure"), JudgeEvent(Spec, Result).Contains(TEXT("not sent")));
+	Result.bAttempted = true;
+	Result.SendFailure = TEXT("not_running");
+	TestTrue(TEXT("send failure names its reason"), JudgeEvent(Spec, Result).Contains(TEXT("not_running")));
+
+	Result.SendFailure.Reset();
+	Result.bSent = true;
+	TestTrue(TEXT("sent without a transition is its own failure"), JudgeEvent(Spec, Result).Contains(TEXT("no transition")));
+	Result.bTransitioned = true;
+	TestTrue(TEXT("sent and transitioned passes"), JudgeEvent(Spec, Result).IsEmpty());
+
+	// 전환은 있었는데 기대 상태가 보이지 않은 경우 — 한 프레임 안에 들어갔다 나간 상태
+	Spec.ExpectState = TEXT("Chase");
+	Result.StateChanges = 2;
+	TestTrue(TEXT("a transition without the expected state is its own failure"), JudgeEvent(Spec, Result).Contains(TEXT("never seen")));
+	Result.bReachedExpected = true;
+	TestTrue(TEXT("the expected state seen passes"), JudgeEvent(Spec, Result).IsEmpty());
+	Spec.ExpectState.Reset();
+
+	Spec.bExpectTransition = false;
+	TestTrue(TEXT("an unexpected transition fails"), JudgeEvent(Spec, Result).Contains(TEXT("must not")));
+	Result.bTransitioned = false;
+	TestTrue(TEXT("no transition passes when none is expected"), JudgeEvent(Spec, Result).IsEmpty());
+	return true;
+}
+
+// ─── 18 ─── run_state_tree_scenario 사전 검증 — PIE 를 띄우기 전에 거부한다
+IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(FAnimMcpStateTreeScenarioRefusedTest, AnimMcpStateTreeTests::FTestBase, "AnimGraphMcp.StateTree.18_ScenarioRefused", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+bool FAnimMcpStateTreeScenarioRefusedTest::RunTest(const FString& Parameters)
+{
+	FHarness Harness;
+	const FString Path = Harness.NewStandardTree(TEXT("ScenarioGuard"));
+	if (!TestFalse(TEXT("tree"), Path.IsEmpty()))
+	{
+		return false;
+	}
+	const auto Run = [&Harness, &Path](const TCHAR* Extra) { return Harness.Asset(TEXT("run_state_tree_scenario"), Path, Extra); };
+	const FString BadRequest = AnimMcpErrorCodes::BadRequest;
+
+	TestEqual(TEXT("missing tree"), Harness.Asset(TEXT("run_state_tree_scenario"), TEXT("/Game/AI/Test/ST_DoesNotExist")).Code, FString(AnimMcpErrorCodes::AssetNotFound));
+	TestEqual(TEXT("unknown expected state"), Run(TEXT(",\"expect_states\":[\"Idle\",\"Flee\"]")).Code, FString(AnimMcpErrorCodes::StateNotFound));
+	TestEqual(TEXT("unknown when_state"), Run(TEXT(",\"events\":[{\"tag\":\"GameplayEvent.Damaged\",\"when_state\":\"Flee\"}]")).Code, FString(AnimMcpErrorCodes::StateNotFound));
+	TestEqual(TEXT("unknown expect_state"), Run(TEXT(",\"events\":[{\"tag\":\"GameplayEvent.Damaged\",\"expect_state\":\"Flee\"}]")).Code, FString(AnimMcpErrorCodes::StateNotFound));
+	TestEqual(TEXT("unregistered tag"), Run(TEXT(",\"events\":[{\"tag\":\"No.Such.Tag\"}]")).DetailString(TEXT("reason")), FString(TEXT("BAD_TAG")));
+	TestEqual(TEXT("event without a tag"), Run(TEXT(",\"events\":[{\"after\":1}]")).DetailString(TEXT("reason")), FString(TEXT("BAD_EVENT")));
+	TestEqual(TEXT("contradicting event"), Run(TEXT(",\"events\":[{\"tag\":\"GameplayEvent.Damaged\",\"expect_transition\":false,\"expect_state\":\"Chase\"}]")).DetailString(TEXT("reason")), FString(TEXT("BAD_EVENT")));
+	TestEqual(TEXT("spawn without a class"), Run(TEXT(",\"spawn_location\":[0,0,100]")).DetailString(TEXT("reason")), FString(TEXT("SPAWN_WITHOUT_CLASS")));
+	TestEqual(TEXT("bad vector"), Run(TEXT(",\"player_location\":[0,0]")).DetailString(TEXT("reason")), FString(TEXT("BAD_VECTOR")));
+	TestEqual(TEXT("not a pawn"), Run(TEXT(",\"pawn_class\":\"/Script/Engine.Actor\"")).Code, FString(AnimMcpErrorCodes::TypeNotFound));
+	TestEqual(TEXT("missing class"), Run(TEXT(",\"pawn_class\":\"/Script/Engine.NoSuchPawnClass\"")).Code, FString(AnimMcpErrorCodes::TypeNotFound));
+	TestEqual(TEXT("too many clients"), Run(TEXT(",\"clients\":9")).DetailString(TEXT("reason")), FString(TEXT("BAD_RANGE")));
+	TestEqual(TEXT("zero duration"), Run(TEXT(",\"duration\":0")).DetailString(TEXT("reason")), FString(TEXT("BAD_RANGE")));
+	TestTrue(TEXT("no refusal left PIE running"), GEditor->PlayWorld == nullptr);
 	return true;
 }
 

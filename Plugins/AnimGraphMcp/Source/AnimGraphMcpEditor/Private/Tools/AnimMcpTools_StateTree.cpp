@@ -3,10 +3,15 @@
 #include "Bridge/AnimMcpDispatcher.h"
 #include "Bridge/AnimMcpTypes.h"
 #include "Core/AnimMcpAssetResolver.h"
+#include "Core/AnimMcpAutomationRunner.h"
 #include "Core/AnimMcpStateTreeAsset.h"
 #include "Core/AnimMcpStateTreeBindings.h"
 #include "Core/AnimMcpStateTreeInspector.h"
 #include "Core/AnimMcpStateTreeOperations.h"
+#include "Core/AnimMcpStateTreeRuntime.h"
+#include "Engine/Blueprint.h"
+#include "GameFramework/Pawn.h"
+#include "GameplayTagContainer.h"
 #include "Misc/PackageName.h"
 #include "StateTree.h"
 #include "StateTreeEditorData.h"
@@ -56,6 +61,49 @@ namespace AnimMcpTools
 				return nullptr;
 			}
 			return GetDefault<UStateTreeSchema>(const_cast<UClass*>(Class));
+		}
+
+		/** BP 경로 · 클래스 경로 둘 다 받는다 */
+		UClass* ResolvePawnClass(const FString& Path, FAnimMcpError& OutError)
+		{
+			UClass* Class = nullptr;
+			if (Path.StartsWith(TEXT("/Script/")) || Path.EndsWith(TEXT("_C")))
+			{
+				Class = LoadObject<UClass>(nullptr, *Path);
+			}
+			else if (const UBlueprint* Blueprint = Cast<UBlueprint>(AnimMcpAssetResolver::LoadAssetOfClass(Path, UBlueprint::StaticClass(), OutError)))
+			{
+				Class = Blueprint->GeneratedClass;
+			}
+			else
+			{
+				return nullptr;
+			}
+			if (!Class || !Class->IsChildOf(APawn::StaticClass()) || Class->HasAnyClassFlags(CLASS_Abstract))
+			{
+				OutError = FAnimMcpError::Make(AnimMcpErrorCodes::TypeNotFound, FString::Printf(TEXT("pawn_class '%s' is not a concrete APawn class"), *Path));
+				return nullptr;
+			}
+			return Class;
+		}
+
+		/** 컴파일 산출물의 상태 이름으로 본다 — 오타를 PIE 를 띄우기 전에 잡는다 */
+		bool EnsureStateExists(const UStateTree& Tree, const FString& Name, const TCHAR* Field, FAnimMcpError& OutError)
+		{
+			TArray<TSharedPtr<FJsonValue>> Names;
+			for (const FCompactStateTreeState& State : Tree.GetStates())
+			{
+				if (State.Name.ToString() == Name)
+				{
+					return true;
+				}
+				Names.Add(MakeShared<FJsonValueString>(State.Name.ToString()));
+			}
+			TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+			Details->SetStringField(TEXT("field"), Field);
+			Details->SetArrayField(TEXT("states"), Names);
+			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::StateNotFound, FString::Printf(TEXT("%s: state '%s' does not exist in '%s'"), Field, *Name, *Tree.GetName()), Details);
+			return false;
 		}
 	}
 
@@ -220,6 +268,92 @@ namespace AnimMcpTools
 				{
 					Result->SetStringField(TEXT("compile_state"), AnimMcpStateTreeAsset::GetCompileState(*Tree));
 				}
+				return Result;
+			});
+
+		// §6 — PIE 시나리오. 검증 · 정규화한 시나리오를 테스트 명령에 실어 잡 하나로 돌린다 (run_anim_scenario 와 같은 경로)
+		Dispatcher.RegisterTool(TEXT("run_state_tree_scenario"),
+			TEXT("Run a StateTree inside PIE and record what it actually does. The scenario starts PIE itself, observes the instance in the server world, sends events and ends PIE. "
+			     "Params: asset_path (the tree the component references), map? (PIE map override), pawn_class? (BP or class path), spawn_location? [x,y,z] (spawns pawn_class at runtime; without it the instance must already be in the map and pawn_class only filters), "
+			     "player_location? [x,y,z], events? [{tag, after? seconds, when_state?, expect_state?, expect_transition? (default true; false = the event must not cause a state change), window? seconds (default 2)}], "
+			     "expect_states? [names, in order], duration? (seconds of observation after the tree starts, default 30), start_timeout? (default 10), clients? (0 = standalone, N = listen server + N clients), timeout? (job seconds, default duration + 120). "
+			     "Returns the automation job (never synchronous) — poll with poll_automation_tests(job_id). The test result carries observed {timeline[{t, active_states, run_status, state_changes, pawn_location}], events[{tag, sent, transitioned, state_changes, expect_state, reached_expected, expect_transition, ok, t_sent, t_transition, states_before, states_after}], expect{matched, ok}, worlds[{name, net_mode, observed, instances, pawns}], instance, started, finished_because, pawn_start, pawn_end, pawn_travel, log[], candidates? (no instance found)}. "
+			     "Without expect_states the scenario runs for the whole duration, or until the tree ends."),
+			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
+			{
+				FString AssetPath;
+				if (!Context.Request.GetRequiredString(TEXT("asset_path"), AssetPath, OutError) || !AnimMcpStateTreeAsset::EnsureNotInPie(OutError))
+				{
+					return nullptr;
+				}
+				const UStateTree* Tree = AnimMcpStateTreeAsset::Load(AssetPath, OutError);
+				if (!Tree)
+				{
+					return nullptr;
+				}
+				if (!Tree->IsReadyToRun())
+				{
+					OutError = FAnimMcpError::Make(AnimMcpErrorCodes::CompileFailed, FString::Printf(TEXT("'%s' has no compiled data to run — compile it first"), *Tree->GetName()));
+					return nullptr;
+				}
+				const FString CompileState = AnimMcpStateTreeAsset::GetCompileState(*Tree);
+				if (CompileState != TEXT("up_to_date"))
+				{
+					Context.AddDiagnostic(TEXT("warning"), TEXT("TREE_STALE"), FString::Printf(TEXT("compile_state is %s — PIE recompiles changed trees when it starts"), *CompileState));
+				}
+
+				AnimMcpStateTreeRuntime::FScenario Scenario;
+				if (!AnimMcpStateTreeRuntime::ParseScenario(*Context.Request.Params, Scenario, OutError))
+				{
+					return nullptr;
+				}
+				Scenario.TreePath = Tree->GetPathName();
+				if (!Scenario.PawnClass.IsEmpty())
+				{
+					const UClass* PawnClass = ResolvePawnClass(Scenario.PawnClass, OutError);
+					if (!PawnClass)
+					{
+						return nullptr;
+					}
+					Scenario.PawnClass = PawnClass->GetPathName();
+				}
+				for (const FString& State : Scenario.ExpectStates)
+				{
+					if (!EnsureStateExists(*Tree, State, TEXT("expect_states"), OutError))
+					{
+						return nullptr;
+					}
+				}
+				for (const AnimMcpStateTreeRuntime::FEventSpec& Event : Scenario.Events)
+				{
+					if (!FGameplayTag::RequestGameplayTag(FName(*Event.Tag), /*ErrorIfNotFound*/ false).IsValid())
+					{
+						TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+						Details->SetStringField(TEXT("reason"), TEXT("BAD_TAG"));
+						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("Event tag '%s' is not a registered gameplay tag"), *Event.Tag), Details);
+						return nullptr;
+					}
+					if ((!Event.WhenState.IsEmpty() && !EnsureStateExists(*Tree, Event.WhenState, TEXT("events.when_state"), OutError))
+						|| (!Event.ExpectState.IsEmpty() && !EnsureStateExists(*Tree, Event.ExpectState, TEXT("events.expect_state"), OutError)))
+					{
+						return nullptr;
+					}
+				}
+
+				const TSharedRef<FJsonObject> ScenarioJson = AnimMcpStateTreeRuntime::ScenarioToJson(Scenario);
+				const FString ScenarioText = AnimMcpJson::ToString(ScenarioJson);
+				const FString Name = Tree->GetName();
+				TArray<FAutomationTestInfo> Tests;
+				Tests.Emplace(Name, FString::Printf(TEXT("%s.%s"), AnimMcpStateTreeRuntime::TestPath, *Name), AnimMcpStateTreeRuntime::MakeTestCommand(ScenarioText),
+					EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter, /*NumParticipants*/ 1, ScenarioText);
+				const double Timeout = Context.Request.GetOptionalNumber(TEXT("timeout"), Scenario.Duration + 120.0);
+				TSharedPtr<AnimMcpAutomationRunner::FJob> Job = AnimMcpAutomationRunner::StartJobWithTests(FString::Printf(TEXT("run_state_tree_scenario %s"), *Name), MoveTemp(Tests), Timeout, OutError);
+				if (!Job.IsValid())
+				{
+					return nullptr;
+				}
+				TSharedRef<FJsonObject> Result = AnimMcpAutomationRunner::DescribeJob(*Job);
+				Result->SetObjectField(TEXT("scenario"), ScenarioJson);
 				return Result;
 			});
 	}

@@ -56,9 +56,9 @@ AI 애니 생성 기존 모션 재사용·변형(Phase 2) `search_animations`(�
 
 ## state-tree-mcp (StateTree 저작 고리)
 
-`Tools/mcp/state_tree_mcp/server.py`(`.mcp.json` 의 `state-tree-mcp`). 로직 없이 `anim_graph_mcp/bridge.py` 를 공유한다. Tool 8개 · op 사전 · 오류 코드는 플러그인 README, 설계는 `Docs/StateTree/DevelopmentGuide.md`. 시험은 Automation `AnimGraphMcp.StateTree.*`.
+`Tools/mcp/state_tree_mcp/server.py`(`.mcp.json` 의 `state-tree-mcp`). 로직 없이 `anim_graph_mcp/bridge.py` 를 공유한다. Tool 9개 · op 사전 · 오류 코드는 플러그인 README, 설계는 `Docs/StateTree/DevelopmentGuide.md`. 시험은 Automation `AnimGraphMcp.StateTree.*`.
 
-전형적인 흐름: `create_state_tree` → `list_state_tree_node_types` → `preview_state_tree_operations` → `apply_state_tree_operations {expected_revision}` → `inspect_state_tree`. 편집기 상태 확인은 `anim-graph-mcp` 의 `get_editor_status`(`state_tree_edit_paths`).
+전형적인 흐름: `create_state_tree` → `list_state_tree_node_types` → `preview_state_tree_operations` → `apply_state_tree_operations {expected_revision}` → `inspect_state_tree` → `run_state_tree_scenario` + `anim-graph-mcp` 의 `poll_automation_tests` 로 PIE 전환 확인. 편집기 상태 확인은 `anim-graph-mcp` 의 `get_editor_status`(`state_tree_edit_paths`).
 
 ## anim-gen-mcp (AI 애니 생성 — 정책 · 라우터 · 폴백 · Job)
 

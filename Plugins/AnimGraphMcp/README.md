@@ -150,9 +150,9 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 새 Tool 은 Claude Code **세션을 다시 시작해야** MCP 목록에 보입니다(HTTP 로는 바로 호출 가능).
 
-## StateTree Tool (8개) — MCP 서버 `state-tree-mcp`
+## StateTree Tool (9개) — MCP 서버 `state-tree-mcp`
 
-브리지 · 토큰 · 봉투는 같고 Python 쪽만 `Tools/mcp/state_tree_mcp/server.py` 다. 설계 · 근거는 `Docs/StateTree/DevelopmentGuide.md`, 실측은 `Docs/StateTree/Feasibility.md` · `Phase1Report.md`.
+브리지 · 토큰 · 봉투는 같고 Python 쪽만 `Tools/mcp/state_tree_mcp/server.py` 다. 설계 · 근거는 `Docs/StateTree/DevelopmentGuide.md`, 실측은 `Docs/StateTree/Feasibility.md` · `Phase1Report.md` · `Phase2Report.md`.
 
 | Tool | 쓰기 | 입력 · 결과 |
 | :--- | :---: | :--- |
@@ -164,8 +164,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 | `apply_state_tree_operations` | ○ | `asset_path, operations[], expected_revision?, compile=true, save=true`. 결과 `revision_before/after` · `compile_state` · `refs` · `compile{ok, messages, fixups}` |
 | `compile_state_tree` | ○ | `asset_path`. `ok` · `messages` · `fixups`. 실패는 기존 컴파일 결과까지 지운다. 저장하지 않는다 |
 | `revert_state_tree` | ○ | `asset_path`. 디스크로 재로드. **Undo 기록 전체(모든 애셋)가 사라지고 열린 편집기가 닫혔다 열린다** — `undo_history_cleared` · `editor_reopened` |
-
-`run_state_tree_scenario` 는 Phase 2 다.
+| `run_state_tree_scenario` | | `asset_path, map?, pawn_class?, spawn_location?, player_location?, events?[{tag, after?, when_state?, expect_state?, expect_transition?, window?}], expect_states?, duration=30, start_timeout=10, clients=0, timeout?`. PIE 를 직접 열고 닫는다. 잡을 돌려주고 결과는 `poll_automation_tests` — 아래 '검증 — StateTree 시나리오' |
 
 **operations** (`state` · `node` · `target` = GUID · 같은 배치의 ref · 이름. 이름이 겹치면 `AMBIGUOUS_NAME`):
 
@@ -284,6 +283,27 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 - 메시 호환 검사는 엔진이 AnimInstance 를 만들지 말지 보는 기준 그대로(`USkeleton::IsCompatibleMesh`, 본 이름 집합)라 본 이름이 같은 다른 스켈레톤(UE5 마네킹 계열)도 통과합니다.
 - 관측은 테스트 결과의 `observed` 에 남고, 기대값과 다르면 `errors[]` 에 "expected 'Run' but it is in 'Idle' after 10 frames" 식으로 적힙니다. 실제 포즈(본 트랜스폼)는 범위 밖입니다.
 
+## 검증 — StateTree 시나리오 (PIE)
+
+`run_state_tree_scenario` 는 트리가 실제로 어떻게 도는지 프레임 단위로 기록합니다. 입출력 예는 `Docs/StateTree/Phase2Report.md` §1 입니다.
+
+```jsonc
+{ "asset_path": "/Game/AI/Test/ST_P2_Loop", "map": "/Game/Maps/CombatTestMap",
+  "pawn_class": "/Game/AI/Test/BP_P2_Enemy", "spawn_location": [1200, -800, 120],
+  "events": [ { "tag": "GameplayEvent.Parried", "after": 0.5, "expect_transition": false, "window": 0.5 },
+              { "tag": "GameplayEvent.Damaged", "when_state": "Idle", "expect_state": "Chase" } ],
+  "expect_states": ["Idle", "Chase", "Attack", "Idle"], "duration": 20 }
+```
+
+- `spawn_location` 이 있으면 `pawn_class` 를 런타임 스폰합니다 — 그 폰의 `AutoPossessAI` 가 스폰을 허용해야 합니다. 없으면 맵에 있는 인스턴스를 찾고 `pawn_class` 는 필터입니다. 여럿이면 이름 순 첫 번째만 봅니다.
+- **이벤트는 `sent` · `transitioned` · `reached_expected` 로 나눠 판정합니다.** `sent` = 트리가 실행 중이라 큐에 넣는 호출까지 감, `transitioned` = 엔진의 상태 진입 횟수가 늘어남, `reached_expected` = `expect_state` 가 활성으로 보임. 전환은 활성 목록이 아니라 진입 횟수로 봅니다 — 타임라인은 프레임 표본이라 한 프레임 안에 들어갔다 나온 상태는 이름이 없습니다. `state_changes` 가 2 이상 뛰면 그런 상태가 있었던 것입니다(`EnterState` 에서 실패하는 작업).
+- `expect_transition: false` 는 무관한 이벤트의 대조 시험입니다.
+- `expect_states` 는 순서만 봅니다. 사이에 다른 상태가 끼어도 통과하므로 엄밀한 순서는 `timeline` 을 직접 봅니다. 없으면 `duration` 까지 관측합니다.
+- `clients: N` 은 리슨 서버 + 클라이언트 N 입니다. 사용자 플레이 설정과 무관하게 네트 모드 · 인원을 명시합니다. 관측은 서버 월드 인스턴스만, `worlds[]` 에 월드별 개수를 싣습니다.
+- `log[]` 는 PIE 시작 뒤 StateTree · Navigation · PathFollowing 경고 이상입니다. 시험은 로그로 실패시키지 않습니다. 인스턴스를 못 찾으면 `candidates` 에 폰별 컨트롤러와 컴포넌트별 트리가 실립니다.
+- `AnimGraphMcp.StateTree.16_RuntimeScenario` 를 필터로 직접 돌리면 시나리오 없이도 엔진 클래스 고정물로 실제로 돕니다.
+- 에디터가 뜬 직후에는 30초쯤 기다리고 시작합니다 — 기동 직후 CEF 가속 페인트와 자동 테스트 플래그가 겹쳐 엔진 `check` 로 죽은 적이 있습니다(`Phase2Report.md` §4). `run_anim_scenario` · `run_automation_tests` 도 같은 플래그를 씁니다.
+
 ## 제약 (설계상 범위 밖)
 
 - **임의의 EventGraph 편집은 다루지 않습니다.** BP 변수 추가와 `BlueprintThreadSafeUpdateAnimation` 의 "변수 ← 식" 대입 사슬까지가 범위이고, 분기·루프·이벤트·임의 K2 노드는 만들지 않습니다. 복잡한 상태 판정은 C++ AnimInstance 에 두는 것을 권합니다.
@@ -336,8 +356,9 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpStateTreeBindings  바인딩 사전 검증(범위 · 경로 · 메뉴 · 타입) · 소스 후보
             AnimMcpStateTreeInspector  애셋 → JSON · 노드 타입 목록
             AnimMcpStateTreeOperations 배치: 기존 트리의 그림자로 계획(검증 + 실행 단계) · Preview · Apply
+            AnimMcpStateTreeRuntime  run_state_tree_scenario — 시나리오 파싱 · 지연 명령 · 프레임별 관측 · 판정(전송 · 전환 · 기대 상태)
   Tests/    AnimMcpSmokeTests.cpp    AnimGraphMcp.Smoke.AnimBlueprint · AnimGraphMcp.Smoke.AnimMontage
-            AnimMcpStateTreeTests.cpp  AnimGraphMcp.StateTree.* — 실제 핸들러를 로컬 디스패처로 호출(§8 필수 항목 + PIE 거부 · 열린 편집기). AnimMcpStateTreeTestTypes.h = 시험 전용 Evaluator(meta=Hidden)
+            AnimMcpStateTreeTests.cpp  AnimGraphMcp.StateTree.* — 실제 핸들러를 로컬 디스패처로 호출(§8 필수 항목 + PIE 거부 · 열린 편집기 · 런타임 시나리오 고정물). AnimMcpStateTreeTestTypes.h = 시험 전용 Evaluator(meta=Hidden)
             AnimMcpRuntimeTests.cpp  AnimGraphMcp.Runtime.AnimBlueprint — PIE 시작·스폰·변수·몽타주·N 프레임·관측·비교·PIE 종료(지연 명령 7단계)
             AnimMcpAutomationRunnerTests.cpp  AnimGraphMcp.Runner.* — 러너 · 엔진 Automation 워커 경합 회귀(지연 명령이 끝나는 호출 위치별 · 명령 안의 명령)
             AnimMcpGenerationTests.cpp  AnimGraphMcp.Generation.Guard — 경로 '/' 경계 · 임포트 원본 · 허용 목록 밖 새 더티 → UNEXPECTED_DIRTY(메모리 패키지) ·

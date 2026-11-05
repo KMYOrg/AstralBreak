@@ -192,5 +192,67 @@ def revert_state_tree(asset_path: str) -> dict:
     return bridge.call("revert_state_tree", {"asset_path": asset_path}, timeout=bridge.COMPILE_TIMEOUT)
 
 
+@mcp.tool()
+def run_state_tree_scenario(
+    asset_path: str,
+    map: str | None = None,
+    pawn_class: str | None = None,
+    spawn_location: list[float] | None = None,
+    player_location: list[float] | None = None,
+    events: list[dict] | None = None,
+    expect_states: list[str] | None = None,
+    duration: float | None = None,
+    start_timeout: float | None = None,
+    clients: int | None = None,
+    timeout: float | None = None,
+) -> dict:
+    """Run a StateTree inside PIE and record what it actually does. Starts PIE itself and ends it; refused with PIE_ACTIVE if a session is already running.
+
+    Returns an automation job, never a result: poll anim-graph-mcp's poll_automation_tests(job_id) until done. The test result carries
+    observed {timeline[{t, active_states, run_status, state_changes, pawn_location}], events[{tag, sent, transitioned, state_changes, expect_state,
+    reached_expected, expect_transition, ok, t_sent, t_transition, states_before, states_after}], expect{matched, ok},
+    worlds[{name, net_mode, observed, instances, pawns}], instance, started, finished_because,
+    pawn_start, pawn_end, pawn_travel, log[], candidates? (when no instance was found: the pawns with their controllers and the components with their trees)}.
+
+    sent, transitioned and reached_expected are judged separately: sent means the tree was running and the event reached the queue, transitioned means
+    the engine's state change count rose within the window, reached_expected means expect_state was seen active. The timeline polls active states once
+    per frame, so a state entered and left within one frame shows only as state_changes rising by 2 or more (a task failing in EnterState does this).
+    Only the server world instance is observed; other PIE worlds are counted in worlds[].
+
+    Args:
+        asset_path: The tree the component references. The controller or actor in the map must already use it.
+        map: PIE map override, e.g. "/Game/Maps/CombatTestMap". Default the editor's current map.
+        pawn_class: BP or class path. With spawn_location the pawn is spawned at runtime (its AutoPossessAI must allow that);
+            without it the instance must already be in the map and this only filters.
+        spawn_location: [x, y, z].
+        player_location: [x, y, z]. Moves the first player's pawn once it exists.
+        events: [{tag, after? (seconds after the tree started or the previous event finished), when_state? (send only while this state is active),
+            expect_state? (this state must be seen active after the event),
+            expect_transition? (default true; false means the event must NOT cause a state change),
+            window? (seconds to wait for the transition, default 2)}]. Events run one after another.
+        expect_states: State names in order. Other states may appear between them. The scenario ends early when these and all events are done;
+            without expect_states it runs for the whole duration, or until the tree ends.
+        duration: Seconds of observation after the tree starts. Default 30.
+        start_timeout: Seconds to wait for the instance and for the tree to start. Default 10.
+        clients: 0 is standalone, N is a listen server plus N clients.
+        timeout: Job limit in seconds. Default duration + 120. On timeout PIE is ended and the job reports state timeout without observations.
+    """
+    params: dict = {"asset_path": asset_path}
+    optional = {
+        "map": map,
+        "pawn_class": pawn_class,
+        "spawn_location": spawn_location,
+        "player_location": player_location,
+        "events": events,
+        "expect_states": expect_states,
+        "duration": duration,
+        "start_timeout": start_timeout,
+        "clients": clients,
+        "timeout": timeout,
+    }
+    params.update({key: value for key, value in optional.items() if value is not None})
+    return bridge.call("run_state_tree_scenario", params, timeout=bridge.COMPILE_TIMEOUT)
+
+
 if __name__ == "__main__":
     mcp.run()

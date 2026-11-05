@@ -55,6 +55,8 @@ public class AnimGraphMcpEditor : ModuleRules
 			"StateTreeModule",
 			"StateTreeEditorModule",
 			"GameplayStateTreeModule",
+			// run_state_tree_scenario — AAIController 로 폰 · 인스턴스를 찾는다
+			"AIModule",
 			// FPropertyBindingPath · GetPropertyCompatibility · IsPropertyBindable(에디터 쪽)
 			"PropertyBindingUtils",
 			"PropertyBindingUtilsEditor",

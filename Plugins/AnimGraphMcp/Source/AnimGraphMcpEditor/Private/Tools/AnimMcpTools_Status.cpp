@@ -5,6 +5,7 @@
 #include "Bridge/AnimMcpTypes.h"
 #include "Core/AnimMcpAssetProtection.h"
 #include "Core/AnimMcpGeneration.h"
+#include "Core/AnimMcpStateTreeAsset.h"
 #include "Editor.h"
 #include "FileHelpers.h"
 #include "HAL/PlatformProcess.h"
@@ -52,6 +53,14 @@ namespace AnimMcpTools
 				Result->SetObjectField(TEXT("protection"), AnimMcpAssetProtection::DescribeRules());
 				// AI 애니 생성: 출력·임포트 경로의 유일한 기준(ini) — anim_gen 은 이것을 읽는다
 				Result->SetObjectField(TEXT("generation"), AnimMcpGeneration::DescribeSettings());
+				{
+					TArray<TSharedPtr<FJsonValue>> EditPaths;
+					for (const FString& Path : AnimMcpStateTreeAsset::GetEditPaths())
+					{
+						EditPaths.Add(MakeShared<FJsonValueString>(Path));
+					}
+					Result->SetArrayField(TEXT("state_tree_edit_paths"), EditPaths);
+				}
 				{
 					TArray<UPackage*> DirtyContent, DirtyWorlds;
 					FEditorFileUtils::GetDirtyContentPackages(DirtyContent);

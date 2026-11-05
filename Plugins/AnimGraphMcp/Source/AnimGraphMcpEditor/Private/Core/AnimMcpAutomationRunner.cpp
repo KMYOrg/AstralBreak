@@ -94,9 +94,11 @@ namespace AnimMcpAutomationRunner
 					Job.bCurrentStarted = true;
 					Job.CurrentStartedAt = FPlatformTime::Seconds();
 				}
-				// latent 명령 처리 — 비어 있으면 종료
+				// latent 명령 처리 — 큐가 비면 이 호출에서 끝낸다. ExecuteLatentCommands 의 반환값은 호출 시작 때 큐가 비어 있었는지라 이번 호출에서 빈 경우를 놓친다.
+				// 빈 큐로 프레임을 넘기면 다음 프레임에 엔진 워커가 먼저 StopTest 를 불러(AutomationWorkerModule.cpp:68-85) 러너가 check(GIsAutomationTesting) 로 죽는다.
 				Framework.ExecuteNetworkCommands();
-				if (Framework.ExecuteLatentCommands())
+				Framework.ExecuteLatentCommands();
+				if (Framework.IsLatentCommandQueueEmpty())
 				{
 					FinishCurrent(Job);
 					continue;
@@ -164,6 +166,9 @@ namespace AnimMcpAutomationRunner
 			OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, TEXT("The automation framework is already running a test (Session Frontend?)"));
 			return nullptr;
 		}
+
+		// 호출자가 FindTests 를 거치지 않을 수 있다(run_anim_scenario). 필터가 기본값 Smoke 인 채면 EnqueueLatentCommand 의 check 로 죽는다(AutomationTest.cpp:474)
+		FAutomationTestFramework::Get().SetRequestedTestFilter(EAutomationTestFlags_FilterMask);
 
 		TSharedPtr<FJob> Job = MakeShared<FJob>();
 		Job->Id = FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(12);

@@ -13,6 +13,13 @@
       "env": {
         "ANIMGRAPH_MCP_PORT": "18765"
       }
+    },
+    "state-tree-mcp": {
+      "command": "Tools/mcp/.venv/Scripts/python.exe",
+      "args": ["Tools/mcp/state_tree_mcp/server.py"],
+      "env": {
+        "ANIMGRAPH_MCP_PORT": "18765"
+      }
     }
   }
 }

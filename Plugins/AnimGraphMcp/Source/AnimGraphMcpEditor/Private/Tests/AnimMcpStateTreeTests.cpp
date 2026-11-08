@@ -48,6 +48,7 @@ namespace AnimMcpStateTreeTests
 	const TCHAR* const Path_Bool = TEXT("/Script/StateTreeModule.StateTreeCompareBoolCondition");
 	const TCHAR* const Path_ActorLocation = TEXT("/Script/GameplayStateTreeModule.StateTreeGetActorLocationPropertyFunction");
 	const TCHAR* const Path_Evaluator = TEXT("/Script/AnimGraphMcpEditor.AnimMcpTestEvaluator");
+	const TCHAR* const Path_Probe = TEXT("/Script/AnimGraphMcpEditor.AnimMcpLifecycleProbeTask");
 	const TCHAR* const Path_ProjectActor = TEXT("/Script/AstralBreak.AstralCombatCharacter");
 
 	/** {Delay} 같은 자리표시자를 타입 경로로 바꾼다 — 시험 배치를 읽기 쉽게 */
@@ -59,7 +60,26 @@ namespace AnimMcpStateTreeTests
 			.Replace(TEXT("{Distance}"), Path_Distance)
 			.Replace(TEXT("{Bool}"), Path_Bool)
 			.Replace(TEXT("{ActorLocation}"), Path_ActorLocation)
-			.Replace(TEXT("{Evaluator}"), Path_Evaluator);
+			.Replace(TEXT("{Evaluator}"), Path_Evaluator)
+			.Replace(TEXT("{Probe}"), Path_Probe);
+	}
+
+	/** 16 · 19 의 고정물 — 엔진 클래스만 쓴다: AAIController + 나중에 붙인 UStateTreeAIComponent + ADefaultPawn */
+	void SpawnEngineFixture(UWorld& World, const FString& TreePath)
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Params.ObjectFlags |= RF_Transient;
+		AAIController* Controller = World.SpawnActor<AAIController>(AAIController::StaticClass(), FTransform::Identity, Params);
+		ADefaultPawn* Pawn = World.SpawnActor<ADefaultPawn>(ADefaultPawn::StaticClass(), FTransform(FVector(0.0, 0.0, 5000.0)), Params);
+		UStateTreeAIComponent* Component = NewObject<UStateTreeAIComponent>(Controller);
+		Component->SetStartLogicAutomatically(false);
+		Component->SetStateTree(LoadObject<UStateTree>(nullptr, *TreePath));
+		Component->RegisterComponent();
+		// 나중에 붙인 컴포넌트는 PostInitializeComponents 가 찾지 못한다 — 언포제션 때 엔진이 트리를 멈춰야 틱이 틀린 컨텍스트로 돌지 않는다
+		Controller->BrainComponent = Component;
+		Controller->Possess(Pawn);
+		Component->StartLogic();
 	}
 
 	/** Idle → Chase → Attack. 거리 조건의 필수 입력은 Get Actor Location 으로 묶는다 */
@@ -1313,20 +1333,7 @@ bool FAnimMcpStateTreeScenarioTest::RunTest(const FString& Parameters)
 	Scenario.Events.Add(Go);
 
 	const FString TreePath = Scenario.TreePath;
-	return Enqueue(*this, Scenario, [TreePath](UWorld& World)
-	{
-		FActorSpawnParameters Params;
-		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		Params.ObjectFlags |= RF_Transient;
-		AAIController* Controller = World.SpawnActor<AAIController>(AAIController::StaticClass(), FTransform::Identity, Params);
-		ADefaultPawn* Pawn = World.SpawnActor<ADefaultPawn>(ADefaultPawn::StaticClass(), FTransform(FVector(0.0, 0.0, 5000.0)), Params);
-		UStateTreeAIComponent* Component = NewObject<UStateTreeAIComponent>(Controller);
-		Component->SetStartLogicAutomatically(false);
-		Component->SetStateTree(LoadObject<UStateTree>(nullptr, *TreePath));
-		Component->RegisterComponent();
-		Controller->Possess(Pawn);
-		Component->StartLogic();
-	});
+	return Enqueue(*this, Scenario, [TreePath](UWorld& World) { SpawnEngineFixture(World, TreePath); });
 }
 
 // ─── 17 ─── 판정 — PIE 없이 순서 · 이벤트 판정만
@@ -1380,6 +1387,18 @@ bool FAnimMcpStateTreeScenarioJudgeTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("an unexpected transition fails"), JudgeEvent(Spec, Result).Contains(TEXT("must not")));
 	Result.bTransitioned = false;
 	TestTrue(TEXT("no transition passes when none is expected"), JudgeEvent(Spec, Result).IsEmpty());
+
+	FActionSpec Action;
+	Action.Kind = EActionKind::Destroy;
+	FActionResult ActionResult;
+	TestTrue(TEXT("an action that never ran fails"), JudgeAction(Action, ActionResult).Contains(TEXT("did not run")));
+	Action.WhenState = TEXT("Chase");
+	TestTrue(TEXT("the failure names the state it waited for"), JudgeAction(Action, ActionResult).Contains(TEXT("Chase")));
+	ActionResult.bDone = true;
+	ActionResult.Detail = TEXT("pawn gone");
+	TestTrue(TEXT("a failed action reports its reason"), JudgeAction(Action, ActionResult).Contains(TEXT("pawn gone")));
+	ActionResult.bOk = true;
+	TestTrue(TEXT("a finished action passes"), JudgeAction(Action, ActionResult).IsEmpty());
 	return true;
 }
 
@@ -1409,8 +1428,69 @@ bool FAnimMcpStateTreeScenarioRefusedTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("missing class"), Run(TEXT(",\"pawn_class\":\"/Script/Engine.NoSuchPawnClass\"")).Code, FString(AnimMcpErrorCodes::TypeNotFound));
 	TestEqual(TEXT("too many clients"), Run(TEXT(",\"clients\":9")).DetailString(TEXT("reason")), FString(TEXT("BAD_RANGE")));
 	TestEqual(TEXT("zero duration"), Run(TEXT(",\"duration\":0")).DetailString(TEXT("reason")), FString(TEXT("BAD_RANGE")));
+	TestEqual(TEXT("unknown action"), Run(TEXT(",\"actions\":[{\"kind\":\"explode\"}]")).DetailString(TEXT("reason")), FString(TEXT("BAD_ACTION")));
+	TestEqual(TEXT("action without a kind"), Run(TEXT(",\"actions\":[{\"after\":1}]")).DetailString(TEXT("reason")), FString(TEXT("BAD_ACTION")));
+	TestEqual(TEXT("damage without an amount"), Run(TEXT(",\"actions\":[{\"kind\":\"damage\"}]")).DetailString(TEXT("reason")), FString(TEXT("BAD_ACTION")));
+	TestEqual(TEXT("spawn_controller without a spawned pawn"), Run(TEXT(",\"actions\":[{\"kind\":\"spawn_controller\"}]")).DetailString(TEXT("reason")), FString(TEXT("BAD_ACTION")));
+	TestEqual(TEXT("spawn_controller not first"), Run(TEXT(",\"pawn_class\":\"/Script/Engine.DefaultPawn\",\"spawn_location\":[0,0,100],\"actions\":[{\"kind\":\"unpossess\"},{\"kind\":\"spawn_controller\"}]")).DetailString(TEXT("reason")), FString(TEXT("BAD_ACTION")));
+	TestEqual(TEXT("unknown action when_state"), Run(TEXT(",\"actions\":[{\"kind\":\"destroy\",\"when_state\":\"Flee\"}]")).Code, FString(AnimMcpErrorCodes::StateNotFound));
 	TestTrue(TEXT("no refusal left PIE running"), GEditor->PlayWorld == nullptr);
 	return true;
+}
+
+// ─── 19 ─── 시나리오 actions · 프로브 · 인스턴스 소멸. 고정물은 16 과 같은 엔진 클래스다 — 프로젝트의 정지 로직이 아니라 도구 경로만 본다.
+// 엔진 AAIController 는 언포제션 때 트리를 깨끗이 멈추지 못하므로 ExitState 횟수는 판정하지 않는다 (Docs/Design/m3-enemy-ai.md §1-0)
+IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST(FAnimMcpStateTreeScenarioActionsTest, AnimMcpStateTreeTests::FTestBase, "AnimGraphMcp.StateTree.19_ScenarioActions", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+bool FAnimMcpStateTreeScenarioActionsTest::RunTest(const FString& Parameters)
+{
+	using namespace AnimMcpStateTreeRuntime;
+
+	FHarness Harness;
+	const FString Path = Harness.NewTree(TEXT("Actions"));
+	if (!TestFalse(TEXT("tree"), Path.IsEmpty()))
+	{
+		return false;
+	}
+	const FCall Applied = Harness.Apply(Path, TEXT(R"JSON([
+		{"op":"add_state","ref":"idle","name":"Idle"},
+		{"op":"add_task","state":"idle","type":"{Probe}","values":{"Label":"Idle"}}
+	])JSON"));
+	if (!TestTrue(TEXT("batch applies"), Applied.bOk))
+	{
+		AddError(Applied.Message);
+		return false;
+	}
+	const UStateTree* Tree = FindTree(Path);
+	if (!TestNotNull(TEXT("tree object"), Tree))
+	{
+		return false;
+	}
+
+	FScenario Scenario;
+	Scenario.TreePath = Tree->GetPathName();
+	Scenario.Duration = 15.0;
+	for (const EActionKind Kind : { EActionKind::Unpossess, EActionKind::Repossess, EActionKind::Destroy })
+	{
+		FActionSpec Action;
+		Action.Kind = Kind;
+		Action.After = 0.2;
+		Scenario.Actions.Add(Action);
+	}
+
+	// 소멸을 오류로 처리하던 코드라면 instance_not_found 로 실패한다 — 동작 실패도 Enqueue 안에서 오류가 된다
+	const FString TreePath = Scenario.TreePath;
+	const bool bQueued = Enqueue(*this, Scenario, [TreePath](UWorld& World) { SpawnEngineFixture(World, TreePath); });
+	FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FFunctionLatentCommand>([this]() -> bool
+	{
+		int32 Enters = 0;
+		for (const TSharedPtr<FJsonObject>& Record : GetProbeRecords())
+		{
+			Enters += Record->GetStringField(TEXT("event")) == TEXT("enter") && Record->GetStringField(TEXT("label")) == TEXT("Idle") ? 1 : 0;
+		}
+		TestEqual(TEXT("the probe recorded the first state"), Enters, 1);
+		return true;
+	}));
+	return bQueued;
 }
 
 #endif // WITH_DEV_AUTOMATION_TESTS

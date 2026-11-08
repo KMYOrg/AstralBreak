@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "StateTreeEvaluatorBase.h"
+#include "StateTreeTaskBase.h"
 #include "AnimMcpStateTreeTestTypes.generated.h"
 
 /**
@@ -32,4 +33,37 @@ struct FAnimMcpTestEvaluator : public FStateTreeEvaluatorCommonBase
 	using FInstanceDataType = FAnimMcpTestEvaluatorInstanceData;
 
 	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+};
+
+USTRUCT()
+struct FAnimMcpLifecycleProbeInstanceData
+{
+	GENERATED_BODY()
+
+	/** 기록에 실을 이름 — 어느 상태의 프로브인지 가른다 */
+	UPROPERTY(EditAnywhere, Category = Parameter)
+	FString Label;
+
+	/** EnterState 에서 실제로 활성화해 볼 GA 클래스 경로. 비면 시도하지 않는다 */
+	UPROPERTY(EditAnywhere, Category = Parameter)
+	FString AbilityPath;
+};
+
+/**
+ * 생명주기 프로브 — EnterState · ExitState 호출과 그 시점의 폰 · ASC 상태를 observed.probe 에 남긴다.
+ * 타임라인은 상태 이름만 보여 주므로 '첫 상태에서 GA 를 쓸 수 있는가' · '정지 때 ExitState 가 불리는가' 를 여기서 본다 (Docs/Design/m3-enemy-ai.md §1-7).
+ * 끝나지 않는 작업이다. 다른 작업과 한 상태에 두면 상태의 완료는 그 작업이 정한다.
+ */
+USTRUCT(meta = (Hidden, DisplayName = "AnimMcp Lifecycle Probe"))
+struct FAnimMcpLifecycleProbeTask : public FStateTreeTaskCommonBase
+{
+	GENERATED_BODY()
+
+	using FInstanceDataType = FAnimMcpLifecycleProbeInstanceData;
+
+	FAnimMcpLifecycleProbeTask();
+
+	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+	virtual void ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
 };

@@ -276,9 +276,10 @@ namespace AnimMcpTools
 			TEXT("Run a StateTree inside PIE and record what it actually does. The scenario starts PIE itself, observes the instance in the server world, sends events and ends PIE. "
 			     "Params: asset_path (the tree the component references), map? (PIE map override), pawn_class? (BP or class path), spawn_location? [x,y,z] (spawns pawn_class at runtime; without it the instance must already be in the map and pawn_class only filters), "
 			     "player_location? [x,y,z], events? [{tag, after? seconds, when_state?, expect_state?, expect_transition? (default true; false = the event must not cause a state change), window? seconds (default 2)}], "
+			     "actions? [{kind (damage|unpossess|repossess|destroy|spawn_controller), after? seconds since the tree started or the previous action, when_state?, amount? (damage)}] — spawn_controller must come first and needs spawn_location, "
 			     "expect_states? [names, in order], duration? (seconds of observation after the tree starts, default 30), start_timeout? (default 10), clients? (0 = standalone, N = listen server + N clients), timeout? (job seconds, default duration + 120). "
-			     "Returns the automation job (never synchronous) — poll with poll_automation_tests(job_id). The test result carries observed {timeline[{t, active_states, run_status, state_changes, pawn_location}], events[{tag, sent, transitioned, state_changes, expect_state, reached_expected, expect_transition, ok, t_sent, t_transition, states_before, states_after}], expect{matched, ok}, worlds[{name, net_mode, observed, instances, pawns}], instance, started, finished_because, pawn_start, pawn_end, pawn_travel, log[], candidates? (no instance found)}. "
-			     "Without expect_states the scenario runs for the whole duration, or until the tree ends."),
+			     "Returns the automation job (never synchronous) — poll with poll_automation_tests(job_id). The test result carries observed {timeline[{t, active_states, run_status, state_changes, pawn_location}], events[{tag, sent, transitioned, state_changes, expect_state, reached_expected, expect_transition, ok, t_sent, t_transition, states_before, states_after}], actions[{kind, done, ok, detail?, t, states_before}], probe[{event (enter|exit), label, t, pawn, has_asc, avatar_is_pawn, pawn_ext_bound, abilities, try_ability?, ability_class_found?, activated?, status?}], expect{matched, ok}, worlds[{name, net_mode, observed, instances, pawns}], instance, started, finished_because, instance_gone_at?, pawn_start, pawn_end, pawn_travel, log[], candidates? (no instance found)}. "
+			     "Without expect_states the scenario runs for the whole duration, or until the tree ends. With actions it does not end when the tree stops: it runs for the whole duration or until the instance is destroyed (finished_because instance_gone)."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				FString AssetPath;
@@ -335,6 +336,13 @@ namespace AnimMcpTools
 					}
 					if ((!Event.WhenState.IsEmpty() && !EnsureStateExists(*Tree, Event.WhenState, TEXT("events.when_state"), OutError))
 						|| (!Event.ExpectState.IsEmpty() && !EnsureStateExists(*Tree, Event.ExpectState, TEXT("events.expect_state"), OutError)))
+					{
+						return nullptr;
+					}
+				}
+				for (const AnimMcpStateTreeRuntime::FActionSpec& Action : Scenario.Actions)
+				{
+					if (!Action.WhenState.IsEmpty() && !EnsureStateExists(*Tree, Action.WhenState, TEXT("actions.when_state"), OutError))
 					{
 						return nullptr;
 					}

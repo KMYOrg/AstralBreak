@@ -2,7 +2,7 @@
 
 작성일: 2026-11-04  
 대상: UE 5.7.4 · AstralBreak · M3(일반 몬스터 AI · 어그로)  
-상태: **Phase 2 구현 · 자동 검증 완료(2026-11-05) — 결과는 [Phase2Report.md](Phase2Report.md). 다음은 M3 본 작업이다.** Phase 1 완료(2026-11-05, [Phase1Report.md](Phase1Report.md)) · 사용자 눈 확인 대기. Phase 0 완료(2026-11-04). 사용자가 가져온 원본 지침서를 엔진 소스와 기존 `AnimGraphMcp` 에 대조해 고쳤고, Phase 0 · 2 실측으로 §2 · §5 · §6 을 다시 고쳤다. 실측 · 변경 이유는 [Feasibility.md](Feasibility.md), 엔진 근거는 [APIResearch.md](APIResearch.md).
+상태: **Phase 2 구현 · 자동 검증 완료(2026-11-05) — 결과는 [Phase2Report.md](Phase2Report.md). M3 본 작업 진행 중 — 설계와 실측은 [m3-enemy-ai.md](../Design/m3-enemy-ai.md).** Phase 1 완료(2026-11-05, [Phase1Report.md](Phase1Report.md)) · 사용자 눈 확인 대기. Phase 0 완료(2026-11-04). 사용자가 가져온 원본 지침서를 엔진 소스와 기존 `AnimGraphMcp` 에 대조해 고쳤고, Phase 0 · 2 실측으로 §2 · §5 · §6 을 다시 고쳤다. 실측 · 변경 이유는 [Feasibility.md](Feasibility.md), 엔진 근거는 [APIResearch.md](APIResearch.md).
 
 표기: **[확인]** = 엔진 · 프로젝트 소스를 읽어 확인. **[실측]** = Phase 0 · 2 실험으로 확인.
 
@@ -123,9 +123,10 @@
 - `UStateTreeComponent`: `GetStateTreeRunStatus()`(시작하지 못하면 `Unset`), `SendStateTreeEvent()`(`void` — 실행 중이 아니면 경고만), `GetActiveStateNames()`(`WITH_GAMEPLAY_DEBUGGER` 안, `Root` 포함, 이름 중복 가능). [실측]
 - 트리 참조 `StateTreeRef` 와 `InstanceData` 는 protected 이고 getter 가 없다 — 리플렉션으로 읽는다. 상태 진입 횟수는 `FStateTreeExecutionState::StateChangeCount`. 컨텍스트의 `GetStateChangeCount` 는 `WITH_STATETREE_DEBUG` 전용이다. [실측]
 - AIController 는 서버에만 존재한다. 멀티 PIE 에서는 서버 월드의 인스턴스만 찾는다. 클라이언트 월드에는 폰만 복제된다. [실측 S6]
-- **컴포넌트 자동 시작을 끄고 Possess 에서 시작한다.** 자동 시작은 런타임 스폰에서 컨트롤러 `BeginPlay` 가 `Possess` 보다 먼저라 컨텍스트 Actor 가 없어 시작하지 못한다. 레벨 배치에서는 된다. [실측 S3 · S4]
-- **Possess 시작은 ASC 보다 먼저다.** `StartLogic` 은 `APawn::PostInitializeComponents` 안에서 돌아 `AAstralCombatCharacter` 의 ASC 결합 · `BeginPlay` 의 어빌리티 부여보다 앞선다. 첫 상태가 GA 를 쓰면 시작을 늦춰야 한다. [확인]
-- **언포제션 때 `StopLogic` 의 컨텍스트 검사가 실패한다.** `AAIController::OnUnPossess` 가 폰을 먼저 비운다. 그때 `Stop` 이 돌지 않아 `ExitState` 가 불리지 않는다. 경고 2줄은 실측, `ExitState` 미호출은 [확인]. M3 에서 `OnUnPossess` 오버라이드로 고친다 — [Phase2Report §6](Phase2Report.md).
+- **컴포넌트 자동 시작을 끈다.** 자동 시작은 런타임 스폰에서 컨트롤러 `BeginPlay` 가 `Possess` 보다 먼저라 컨텍스트 Actor 가 없어 시작하지 못한다. 레벨 배치에서는 된다. [실측 S3 · S4]
+- **Possess 시작도 끈다 — 폰의 전투 준비 신호로 시작한다.** `bStartAILogicOnPossess` 의 `StartLogic` 은 `APawn::PostInitializeComponents` 안에서 돌아 PawnExt 결합 · `BeginPlay` 의 어빌리티 부여보다 앞선다. 첫 `EnterState` 에서 부여 어빌리티 0 · GA 활성화 실패였다. ASC 객체와 아바타는 그때도 있다 — 엔진이 `InitializeComponent` 에서 채우므로 ASC 유무로 준비를 판정하면 안 된다. InitState `GameplayReady` 도 부여보다 먼저다. `AAstralEnemyController` 가 `OnCombatReady_RegisterAndCall` 로 시작하도록 고쳤다. [실측 C1 · V1 ~ V3 — [m3-enemy-ai.md §1-7](../Design/m3-enemy-ai.md)]
+- **언포제션 때 `StopLogic` 의 컨텍스트 검사가 실패한다.** `AAIController::OnUnPossess` 가 폰을 먼저 비운다. 그때 `Stop` 이 돌지 않아 `ExitState` 가 불리지 않고 트리는 `Running` 으로 남는다(경고: 언포제션 1줄, 파괴 2줄). `AAstralEnemyController::OnUnPossess` 가 `Super` 전에 멈추고, 사망은 `OnDeathStarted` 에서 먼저 멈춘다. 엔진 `AAIController` 를 그대로 쓰는 고정물에는 문제가 남아 있다. [실측 C2 · V4 ~ V8 · V11]
+- **정상 정지 뒤 `run_status` 는 `Unset` 이다.** `Stop` 이 실행 데이터를 지워 시작 전과 같은 값이 된다. `Stopped` 는 `ExitState` 의 `Transition.CurrentRunStatus` 와 `OnStateTreeRunStatusChanged` 로만 보인다. [실측 V4 · 확인]
 - `AutoPossessAI` 기본값은 `PlacedInWorld` 라 런타임 스폰한 폰에는 컨트롤러가 붙지 않는다. [확인]
 - `MoveTo` 가 `EnterState` 에서 실패하면 상태 이름이 타임라인에 보이지 않고 로그도 없다. 전환이 없는 상태가 끝나면 트리는 `Root` 첫 자식으로 돌아간다. [실측 S2 · S5]
 
@@ -228,14 +229,16 @@ bind_property_function { ref?, function, output?, target: { node, path } }   D-5
 
 ## 6. 런타임 검증
 
-`run_state_tree_scenario` 입력: `asset_path`(컴포넌트가 참조하는 트리), `map?`, `pawn_class?`, `spawn_location?`(있으면 `pawn_class` 를 런타임 스폰, 없으면 배치 인스턴스의 필터), `player_location?`, `events?[{ tag, after?, when_state?, expect_state?, expect_transition?, window? }]`, `expect_states?`, `duration?`, `start_timeout?`, `clients?`(0 = Standalone, N = 리슨 서버 + 클라이언트 N), `timeout?`. 입출력 예는 [Phase2Report §1](Phase2Report.md).
+`run_state_tree_scenario` 입력: `asset_path`(컴포넌트가 참조하는 트리), `map?`, `pawn_class?`, `spawn_location?`(있으면 `pawn_class` 를 런타임 스폰, 없으면 배치 인스턴스의 필터), `player_location?`, `events?[{ tag, after?, when_state?, expect_state?, expect_transition?, window? }]`, `actions?[{ kind, after?, when_state?, amount? }]`, `expect_states?`, `duration?`, `start_timeout?`, `clients?`(0 = Standalone, N = 리슨 서버 + 클라이언트 N), `timeout?`. 입출력 예는 [Phase2Report §1](Phase2Report.md).
 
-출력: `{ t, active_states[], run_status, state_changes, pawn_location }` 변화 시점 타임라인 + 이벤트별 판정 + 기대 순서 판정 + 월드별 인스턴스 수 + 경고 로그. 인스턴스를 못 찾으면 `candidates`.
+출력: `{ t, active_states[], run_status, state_changes, pawn_location }` 변화 시점 타임라인 + 이벤트별 판정 + 동작별 결과 + 기대 순서 판정 + 월드별 인스턴스 수 + 프로브 기록 + 경고 로그. 인스턴스를 못 찾으면 `candidates`.
 
 - **이벤트는 세 단계로 판정한다: `sent` · `transitioned` · `reached_expected`.** [실측] 활성 목록 비교로 전환을 판정하면 안 된다 — 한 프레임 안에 들어갔다 나간 상태(`EnterState` 에서 실패하는 작업)를 놓쳐 `sent 인데 전환 없음` 이라는 거짓 판정이 나온다. 전환은 엔진의 상태 진입 횟수로 본다. 앞 표본보다 2 이상 뛰면 이름이 보이지 않은 상태가 있었다는 뜻이다.
 - `sent` 는 트리가 실행 중이라 큐에 넣는 호출까지 갔다는 뜻이다. `SendStateTreeEvent` 는 결과를 돌려주지 않는다.
 - `expect_transition: false` 는 무관한 이벤트의 대조 시험이다.
-- 기대 순서가 없으면 일찍 끝내지 않는다. 있으면 그 순서와 이벤트가 끝날 때 끝낸다.
+- **`actions` 는 폰 · 컨트롤러에 직접 하는 일이다** — `damage`(폰의 `DamageSelf` 를 이름으로 호출), `unpossess`, `repossess`, `destroy`, `spawn_controller`(첫 동작 · `spawn_location` 필수). 이벤트와 따로 차례대로 돈다. 있으면 트리가 멈춰도 끝내지 않고 `duration` 까지, 또는 인스턴스가 사라질 때(`instance_gone`, 오류 아님)까지 본다.
+- **`EnterState` · `ExitState` 를 보려면 프로브 Task 를 상태에 넣는다** — `/Script/AnimGraphMcpEditor.AnimMcpLifecycleProbeTask`(값 `Label` · `AbilityPath`). 호출 시점의 폰 · ASC · PawnExt 결합 · 어빌리티 수 · GA 활성화 결과와 정지 상태를 `observed.probe` 로 낸다. 타임라인만으로는 호출 여부를 알 수 없다.
+- 기대 순서가 없으면 일찍 끝내지 않는다. 있으면 그 순서와 이벤트 · 동작이 끝날 때 끝낸다.
 - 네트 모드 · 인원은 항상 명시한다. 사용자의 플레이 설정을 따르면 결과가 설정에 묶인다.
 - 전환 사유는 다루지 않는다. 이벤트 뒤의 전환이 이벤트 때문인지는 구분하지 않는다.
 - 기존 러너 규칙을 따른다: PIE 는 시나리오가 직접 시작하고, 이미 PIE 면 `PIE_ACTIVE`.
@@ -303,7 +306,7 @@ Automation(`AnimGraphMcp.StateTree.*`)을 쓰고 `run_automation_tests` 로 돌�
 14. `bind_property_function` — 함수 출력을 필수 Input 에 묶고 입력은 같은 배치의 `bind_property` 로 묶어 컴파일 · 저장 · 재로드(§10 D-5). 없는 함수 타입 · 출력 프로퍼티 오타 · 타입 불일치 거부
 15. 열린 편집기 — 적용 알림, Undo 복구 뒤 뷰모델 · 편집기 유지, `revert_state_tree` 의 `editor_reopened`(Phase 1 에서 추가. 뷰모델과 편집기 수만 보고 화면은 판정하지 않는다)
 
-Phase 2 는 PIE 활성 상태 확인 · 이벤트 전송 — `16_RuntimeScenario`(대조 이벤트 · 숨은 전환 · 정상 전환) · `17_ScenarioJudge`(판정 함수) · `18_ScenarioRefused`(사전 검증) · `08b`(PIE 중 거부). 산출 애셋은 `/Game/AI/Test/` 에만 만든다.
+Phase 2 는 PIE 활성 상태 확인 · 이벤트 전송 — `16_RuntimeScenario`(대조 이벤트 · 숨은 전환 · 정상 전환) · `17_ScenarioJudge`(판정 함수) · `18_ScenarioRefused`(사전 검증) · `08b`(PIE 중 거부). M3 1번이 `19_ScenarioActions`(`actions` · 프로브 · 인스턴스 소멸)를 더했다. 산출 애셋은 `/Game/AI/Test/` 에만 만든다.
 
 ## 9. 금지 사항
 

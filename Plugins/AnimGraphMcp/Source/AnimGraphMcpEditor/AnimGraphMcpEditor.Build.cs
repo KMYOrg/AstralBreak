@@ -62,6 +62,8 @@ public class AnimGraphMcpEditor : ModuleRules
 			"PropertyBindingUtilsEditor",
 			// 상태 Tag · 전환 RequiredEvent
 			"GameplayTags",
+			// 시험 프로브 Task — 첫 상태에서 ASC · 부여 어빌리티를 본다
+			"GameplayAbilities",
 		});
 	}
 }

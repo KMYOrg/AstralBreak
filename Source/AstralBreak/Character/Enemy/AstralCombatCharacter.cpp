@@ -64,7 +64,27 @@ void AAstralCombatCharacter::BeginPlay()
 				EquipmentManagerComponent->EquipItemById(WeaponId);
 			}
 		}
+
+		// 위 부여는 전부 동기다 — 여기서 끝난다. 부여할 것이 없는 폰도 알린다 (BP_P2_Enemy 등). 부여를 이 뒤로 옮기면 신호가 앞선다
+		bCombatReady = true;
+		OnCombatReady.Broadcast();
 	}
+}
+
+void AAstralCombatCharacter::OnCombatReady_RegisterAndCall(FSimpleMulticastDelegate::FDelegate Delegate)
+{
+	if (bCombatReady)
+	{
+		Delegate.Execute();
+		return;
+	}
+
+	OnCombatReady.Add(MoveTemp(Delegate));
+}
+
+void AAstralCombatCharacter::OnCombatReady_Unregister(const UObject* Listener)
+{
+	OnCombatReady.RemoveAll(Listener);
 }
 
 void AAstralCombatCharacter::MulticastDrawTelegraphDebug_Implementation(float Duration, float TraceStartOffset, float TraceDistance, float TraceRadius)

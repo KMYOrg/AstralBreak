@@ -14,6 +14,7 @@
 #include "GameplayTagContainer.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/OutputDevice.h"
+#include "Misc/OutputDeviceNull.h"
 #include "Misc/OutputDeviceRedirector.h"
 #include "PlayInEditorDataTypes.h"
 #include "Settings/LevelEditorPlaySettings.h"
@@ -28,6 +29,12 @@ namespace AnimMcpStateTreeRuntime
 	namespace
 	{
 		constexpr int32 MaxLogLines = 40;
+
+		/** 인스턴스가 사라진 뒤 더 보는 초 — 파괴가 클라이언트까지 복제된 뒤의 월드 기록을 남긴다 */
+		constexpr double GoneGraceSeconds = 0.5;
+
+		/** 프로브 Task 는 트리 실행 안에서 부르므로 시나리오 상태에 닿을 길이 없다 */
+		TArray<TSharedPtr<FJsonObject>> ProbeRecords;
 
 		FAnimMcpError Bad(const TCHAR* Reason, const FString& Message)
 		{
@@ -222,6 +229,8 @@ namespace AnimMcpStateTreeRuntime
 			Expected,
 			TreeEnded,
 			Duration,
+			/** 시작한 뒤 인스턴스가 사라졌다 — 폰 · 컨트롤러 파괴. 오류가 아니다 */
+			InstanceGone,
 			NotFound,
 			NotStarted,
 			WorldLost,
@@ -235,6 +244,7 @@ namespace AnimMcpStateTreeRuntime
 			case EFinish::Expected: return TEXT("expected");
 			case EFinish::TreeEnded: return TEXT("tree_ended");
 			case EFinish::Duration: return TEXT("duration");
+			case EFinish::InstanceGone: return TEXT("instance_gone");
 			case EFinish::NotFound: return TEXT("instance_not_found");
 			case EFinish::NotStarted: return TEXT("tree_not_started");
 			case EFinish::WorldLost: return TEXT("world_lost");
@@ -270,6 +280,13 @@ namespace AnimMcpStateTreeRuntime
 			TArray<TSharedPtr<FJsonValue>> TimelineJson;
 			int32 NextEvent = 0;
 			TArray<FEventResult> EventResults;
+
+			int32 NextAction = 0;
+			TArray<FActionResult> ActionResults;
+			/** 앞 동작이 끝난 시각. 첫 동작 전에는 음수 */
+			double ActionClock = -1.0;
+			/** 시작한 인스턴스가 사라진 시각. 없으면 음수 */
+			double GoneT = -1.0;
 
 			TOptional<FVector> PawnStart;
 			FVector PawnLast = FVector::ZeroVector;
@@ -400,6 +417,82 @@ namespace AnimMcpStateTreeRuntime
 			{
 				ResolveEvent(S, Now);
 			}
+		}
+
+		/** 실패하면 Detail 에 이유를 남긴다 */
+		void RunAction(const FRunState& S, const FActionSpec& Spec, FActionResult& Result)
+		{
+			APawn* Pawn = S.Pawn.Get();
+			AAIController* Controller = S.Component.IsValid() ? Cast<AAIController>(S.Component->GetOwner()) : nullptr;
+			switch (Spec.Kind)
+			{
+			case EActionKind::Damage:
+				if (Pawn)
+				{
+					// DamageSelf 는 프로젝트 함수다. FOutputDeviceNull 에는 찾지 못했다는 메시지가 버려지고 반환값만 남는다
+					FOutputDeviceNull Output;
+					Result.bOk = Pawn->CallFunctionByNameWithArguments(*FString::Printf(TEXT("DamageSelf %f"), Spec.Amount), Output, nullptr, /*bForceCallWithNonExec*/ true);
+					Result.Detail = Result.bOk ? FString() : FString::Printf(TEXT("%s has no DamageSelf function"), *Pawn->GetClass()->GetName());
+				}
+				break;
+			case EActionKind::Unpossess:
+				if (Controller)
+				{
+					Controller->UnPossess();
+					Result.bOk = Controller->GetPawn() == nullptr;
+				}
+				break;
+			case EActionKind::Repossess:
+				if (Controller && Pawn)
+				{
+					Controller->Possess(Pawn);
+					Result.bOk = Pawn->GetController() == Controller;
+				}
+				break;
+			case EActionKind::Destroy:
+				if (Pawn)
+				{
+					Result.bOk = Pawn->Destroy();
+				}
+				break;
+			case EActionKind::SpawnController:
+				if (Pawn)
+				{
+					Pawn->SpawnDefaultController();
+					Result.bOk = Pawn->GetController() != nullptr;
+				}
+				break;
+			}
+			if (!Result.bOk && Result.Detail.IsEmpty())
+			{
+				Result.Detail = FString::Printf(TEXT("pawn %s, controller %s"), Pawn ? TEXT("present") : TEXT("gone"), Controller ? TEXT("present") : TEXT("gone"));
+			}
+		}
+
+		void StepActions(FRunState& S, const double Now)
+		{
+			if (S.NextAction >= S.Scenario.Actions.Num())
+			{
+				return;
+			}
+			const FActionSpec& Spec = S.Scenario.Actions[S.NextAction];
+			const double Clock = S.ActionClock >= 0.0 ? S.ActionClock : (Spec.Kind == EActionKind::SpawnController ? S.FirstFrameT : S.StartedT);
+			if (Clock < 0.0 || Now < Clock + Spec.After)
+			{
+				return;
+			}
+			const FSample* Last = S.LastSample();
+			if (!Spec.WhenState.IsEmpty() && !(Last && Last->ActiveStates.Contains(Spec.WhenState)))
+			{
+				return;
+			}
+			FActionResult& Result = S.ActionResults[S.NextAction];
+			Result.bDone = true;
+			Result.T = Rounded(Now);
+			Result.StatesBefore = Last ? Last->ActiveStates : TArray<FString>();
+			RunAction(S, Spec, Result);
+			S.ActionClock = Now;
+			++S.NextAction;
 		}
 
 		/** 끝나는 프레임의 인스턴스 기록 — 멀티 PIE 판정은 클라이언트 월드가 다 붙은 뒤의 값이어야 한다 */
@@ -563,6 +656,39 @@ namespace AnimMcpStateTreeRuntime
 			}
 			Observed->SetArrayField(TEXT("events"), EventsJson);
 
+			// 동작 — 실행 여부와 결과. 트리에 미친 영향은 timeline · probe 로 본다
+			TArray<TSharedPtr<FJsonValue>> ActionsJson;
+			for (int32 Index = 0; Index < S.Scenario.Actions.Num(); ++Index)
+			{
+				const FActionSpec& Spec = S.Scenario.Actions[Index];
+				const FActionResult& Result = S.ActionResults[Index];
+				TSharedRef<FJsonObject> Entry = AnimMcpJson::MakeObject();
+				Entry->SetStringField(TEXT("kind"), ActionName(Spec.Kind));
+				Entry->SetBoolField(TEXT("done"), Result.bDone);
+				Entry->SetBoolField(TEXT("ok"), Result.bOk);
+				if (!Result.Detail.IsEmpty()) { Entry->SetStringField(TEXT("detail"), Result.Detail); }
+				if (Result.T >= 0.0) { Entry->SetNumberField(TEXT("t"), Result.T); }
+				Entry->SetArrayField(TEXT("states_before"), StringsJson(Result.StatesBefore));
+				ActionsJson.Add(MakeShared<FJsonValueObject>(Entry));
+				const FString Failure = JudgeAction(Spec, Result);
+				if (!Failure.IsEmpty() && !bAborted)
+				{
+					Test.AddError(Failure);
+				}
+			}
+			Observed->SetArrayField(TEXT("actions"), ActionsJson);
+			if (S.GoneT >= 0.0)
+			{
+				Observed->SetNumberField(TEXT("instance_gone_at"), Rounded(S.GoneT));
+			}
+
+			TArray<TSharedPtr<FJsonValue>> ProbeJson;
+			for (const TSharedPtr<FJsonObject>& Record : ProbeRecords)
+			{
+				ProbeJson.Add(MakeShared<FJsonValueObject>(Record));
+			}
+			Observed->SetArrayField(TEXT("probe"), ProbeJson);
+
 			// 기대 순서
 			if (!S.Scenario.ExpectStates.IsEmpty())
 			{
@@ -600,9 +726,26 @@ namespace AnimMcpStateTreeRuntime
 			}
 			MovePlayerIfPending(S, *World);
 
+			// 인스턴스를 찾기 전에 돈다 — spawn_controller 가 있어야 인스턴스가 생기는 경우가 있다
+			StepActions(S, Now);
+
 			// 인스턴스 찾기 — 배치는 PIE 시작 때 이미 있고, 스폰은 앞 단계에서 만들었다
 			if (!S.Component.IsValid())
 			{
+				// 시작한 뒤 사라졌으면 다시 찾지 않는다. 폰이 파괴되면 컨트롤러도 함께 파괴되는 것이 정상 경로다
+				if (S.bStarted)
+				{
+					if (S.GoneT < 0.0)
+					{
+						S.GoneT = Now;
+					}
+					if (Now - S.GoneT >= GoneGraceSeconds)
+					{
+						S.Finish = EFinish::InstanceGone;
+						return true;
+					}
+					return false;
+				}
 				const TArray<UStateTreeComponent*> Found = FindComponents(*World, *S.Tree, S.PawnClass.Get());
 				S.InstanceCount = Found.Num();
 				if (Found.IsEmpty())
@@ -650,14 +793,15 @@ namespace AnimMcpStateTreeRuntime
 			StepEvents(S, *Component, Now);
 
 			// 기대 순서가 없으면 일찍 끝낼 근거가 없다 — duration 까지 본다
-			const bool bEventsDone = S.NextEvent >= S.Scenario.Events.Num();
+			const bool bEventsDone = S.NextEvent >= S.Scenario.Events.Num() && S.NextAction >= S.Scenario.Actions.Num();
 			const bool bHasExpectation = !S.Scenario.ExpectStates.IsEmpty();
 			const FSample* Last = S.LastSample();
 			if (bEventsDone && bHasExpectation && CountMatchedStates(S.Timeline, S.Scenario.ExpectStates) == S.Scenario.ExpectStates.Num())
 			{
 				S.Finish = EFinish::Expected;
 			}
-			else if (Last && Last->RunStatus != TEXT("Running"))
+			// 동작이 있으면 정지 뒤를 보려는 시나리오다 — 재빙의 · 제거까지 계속 본다
+			else if (S.Scenario.Actions.IsEmpty() && Last && Last->RunStatus != TEXT("Running"))
 			{
 				S.Finish = EFinish::TreeEnded;
 			}
@@ -743,6 +887,55 @@ namespace AnimMcpStateTreeRuntime
 				Out.Events.Add(MoveTemp(Spec));
 			}
 		}
+
+		const TArray<TSharedPtr<FJsonValue>>* Actions = nullptr;
+		if (Params.TryGetArrayField(TEXT("actions"), Actions))
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *Actions)
+			{
+				const TSharedPtr<FJsonObject>* Object = nullptr;
+				FString Kind;
+				if (!Value->TryGetObject(Object) || !(*Object)->TryGetStringField(TEXT("kind"), Kind))
+				{
+					OutError = Bad(TEXT("BAD_ACTION"), TEXT("Each entry of 'actions' must be an object with 'kind'"));
+					return false;
+				}
+				FActionSpec Spec;
+				bool bKnown = false;
+				for (const EActionKind Candidate : { EActionKind::Damage, EActionKind::Unpossess, EActionKind::Repossess, EActionKind::Destroy, EActionKind::SpawnController })
+				{
+					if (Kind == ActionName(Candidate))
+					{
+						Spec.Kind = Candidate;
+						bKnown = true;
+					}
+				}
+				if (!bKnown)
+				{
+					OutError = Bad(TEXT("BAD_ACTION"), FString::Printf(TEXT("Unknown action kind '%s' (damage, unpossess, repossess, destroy, spawn_controller)"), *Kind));
+					return false;
+				}
+				(*Object)->TryGetNumberField(TEXT("after"), Spec.After);
+				(*Object)->TryGetStringField(TEXT("when_state"), Spec.WhenState);
+				(*Object)->TryGetNumberField(TEXT("amount"), Spec.Amount);
+				if (Spec.After < 0.0)
+				{
+					OutError = Bad(TEXT("BAD_ACTION"), TEXT("Action 'after' must be >= 0"));
+					return false;
+				}
+				if (Spec.Kind == EActionKind::Damage && !(Spec.Amount > 0.0))
+				{
+					OutError = Bad(TEXT("BAD_ACTION"), TEXT("Action 'damage' needs 'amount' > 0"));
+					return false;
+				}
+				if (Spec.Kind == EActionKind::SpawnController && (!Out.Actions.IsEmpty() || !Out.SpawnLocation.IsSet() || !Spec.WhenState.IsEmpty()))
+				{
+					OutError = Bad(TEXT("BAD_ACTION"), TEXT("'spawn_controller' must be the first action of a scenario with 'spawn_location', and it cannot have 'when_state' — the tree is not running yet"));
+					return false;
+				}
+				Out.Actions.Add(MoveTemp(Spec));
+			}
+		}
 		return true;
 	}
 
@@ -779,6 +972,17 @@ namespace AnimMcpStateTreeRuntime
 			Events.Add(MakeShared<FJsonValueObject>(Event));
 		}
 		Out->SetArrayField(TEXT("events"), Events);
+		TArray<TSharedPtr<FJsonValue>> Actions;
+		for (const FActionSpec& Spec : Scenario.Actions)
+		{
+			TSharedRef<FJsonObject> Action = AnimMcpJson::MakeObject();
+			Action->SetStringField(TEXT("kind"), ActionName(Spec.Kind));
+			Action->SetNumberField(TEXT("after"), Spec.After);
+			if (!Spec.WhenState.IsEmpty()) { Action->SetStringField(TEXT("when_state"), Spec.WhenState); }
+			if (Spec.Kind == EActionKind::Damage) { Action->SetNumberField(TEXT("amount"), Spec.Amount); }
+			Actions.Add(MakeShared<FJsonValueObject>(Action));
+		}
+		Out->SetArrayField(TEXT("actions"), Actions);
 		return Out;
 	}
 
@@ -823,12 +1027,55 @@ namespace AnimMcpStateTreeRuntime
 		return FString();
 	}
 
+	const TCHAR* ActionName(const EActionKind Kind)
+	{
+		switch (Kind)
+		{
+		case EActionKind::Damage: return TEXT("damage");
+		case EActionKind::Unpossess: return TEXT("unpossess");
+		case EActionKind::Repossess: return TEXT("repossess");
+		case EActionKind::Destroy: return TEXT("destroy");
+		case EActionKind::SpawnController: return TEXT("spawn_controller");
+		default: return TEXT("unknown");
+		}
+	}
+
+	FString JudgeAction(const FActionSpec& Spec, const FActionResult& Result)
+	{
+		if (!Result.bDone)
+		{
+			return FString::Printf(TEXT("Action '%s' did not run%s"), ActionName(Spec.Kind), Spec.WhenState.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" (when_state '%s' was never active)"), *Spec.WhenState));
+		}
+		if (!Result.bOk)
+		{
+			return FString::Printf(TEXT("Action '%s' failed: %s"), ActionName(Spec.Kind), *Result.Detail);
+		}
+		return FString();
+	}
+
+	void AddProbeRecord(const TSharedRef<FJsonObject>& Record)
+	{
+		ProbeRecords.Add(Record);
+	}
+
+	void ResetProbeRecords()
+	{
+		ProbeRecords.Reset();
+	}
+
+	const TArray<TSharedPtr<FJsonObject>>& GetProbeRecords()
+	{
+		return ProbeRecords;
+	}
+
 	bool Enqueue(FAutomationTestBase& Test, const FScenario& Scenario, FPrepare Prepare)
 	{
 		TSharedRef<FRunState> S = MakeShared<FRunState>();
 		S->Scenario = Scenario;
 		S->Prepare = MoveTemp(Prepare);
 		S->EventResults.SetNum(Scenario.Events.Num());
+		S->ActionResults.SetNum(Scenario.Actions.Num());
+		ResetProbeRecords();
 
 		S->Tree.Reset(LoadObject<UStateTree>(nullptr, *Scenario.TreePath));
 		if (!S->Tree.IsValid())
@@ -922,7 +1169,8 @@ namespace AnimMcpStateTreeRuntime
 				}
 				S->Pawn = Pawn;
 				S->bSpawned = true;
-				if (!Pawn->GetController())
+				const bool bControllerComesLater = !S->Scenario.Actions.IsEmpty() && S->Scenario.Actions[0].Kind == EActionKind::SpawnController;
+				if (!Pawn->GetController() && !bControllerComesLater)
 				{
 					Test.AddError(FString::Printf(TEXT("'%s' has no controller after spawning — its AutoPossessAI must be Spawned or PlacedInWorldOrSpawned and AIControllerClass must be set"), *Pawn->GetClass()->GetName()));
 					S->Finish = EFinish::NotFound;

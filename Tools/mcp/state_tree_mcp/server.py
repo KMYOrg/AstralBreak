@@ -200,6 +200,7 @@ def run_state_tree_scenario(
     spawn_location: list[float] | None = None,
     player_location: list[float] | None = None,
     events: list[dict] | None = None,
+    actions: list[dict] | None = None,
     expect_states: list[str] | None = None,
     duration: float | None = None,
     start_timeout: float | None = None,
@@ -210,9 +211,15 @@ def run_state_tree_scenario(
 
     Returns an automation job, never a result: poll anim-graph-mcp's poll_automation_tests(job_id) until done. The test result carries
     observed {timeline[{t, active_states, run_status, state_changes, pawn_location}], events[{tag, sent, transitioned, state_changes, expect_state,
-    reached_expected, expect_transition, ok, t_sent, t_transition, states_before, states_after}], expect{matched, ok},
-    worlds[{name, net_mode, observed, instances, pawns}], instance, started, finished_because,
+    reached_expected, expect_transition, ok, t_sent, t_transition, states_before, states_after}],
+    actions[{kind, done, ok, detail?, t, states_before}],
+    probe[{event (enter or exit), label, t, pawn, has_asc, avatar_is_pawn, pawn_ext_bound, abilities, try_ability?, ability_class_found?, activated?, status?}]
+    (one entry per EnterState/ExitState of the test-only task /Script/AnimGraphMcpEditor.AnimMcpLifecycleProbeTask; its values are Label and AbilityPath),
+    expect{matched, ok}, worlds[{name, net_mode, observed, instances, pawns}], instance, started, finished_because, instance_gone_at?,
     pawn_start, pawn_end, pawn_travel, log[], candidates? (when no instance was found: the pawns with their controllers and the components with their trees)}.
+
+    After a clean stop run_status reads Unset, the same as a tree that never started: the engine clears the execution data. A tree that started and still reads
+    Running after losing its pawn did not stop.
 
     sent, transitioned and reached_expected are judged separately: sent means the tree was running and the event reached the queue, transitioned means
     the engine's state change count rose within the window, reached_expected means expect_state was seen active. The timeline polls active states once
@@ -230,8 +237,12 @@ def run_state_tree_scenario(
             expect_state? (this state must be seen active after the event),
             expect_transition? (default true; false means the event must NOT cause a state change),
             window? (seconds to wait for the transition, default 2)}]. Events run one after another.
-        expect_states: State names in order. Other states may appear between them. The scenario ends early when these and all events are done;
-            without expect_states it runs for the whole duration, or until the tree ends.
+        actions: [{kind, after? (seconds after the tree started or the previous action), when_state? (run only while this state is active), amount? (damage)}].
+            kind is damage (calls the pawn's DamageSelf by name), unpossess, repossess (the same controller takes the pawn back), destroy, or spawn_controller.
+            spawn_controller must come first, needs spawn_location and counts after from the start of observation; the pawn may then spawn without a controller.
+            Actions run one after another, independently of events. With actions the scenario does not end when the tree stops.
+        expect_states: State names in order. Other states may appear between them. The scenario ends early when these, all events and all actions are done;
+            without expect_states it runs for the whole duration, or until the tree ends (with actions: until the instance is destroyed).
         duration: Seconds of observation after the tree starts. Default 30.
         start_timeout: Seconds to wait for the instance and for the tree to start. Default 10.
         clients: 0 is standalone, N is a listen server plus N clients.
@@ -244,6 +255,7 @@ def run_state_tree_scenario(
         "spawn_location": spawn_location,
         "player_location": player_location,
         "events": events,
+        "actions": actions,
         "expect_states": expect_states,
         "duration": duration,
         "start_timeout": start_timeout,

@@ -38,6 +38,32 @@ namespace AnimMcpStateTreeRuntime
 		double Window = 2.0;
 	};
 
+	/** 시나리오가 폰 · 컨트롤러에 직접 하는 일. 사망 · 언포제션 · 파괴 경로를 시험할 때 쓴다 */
+	enum class EActionKind : uint8
+	{
+		/** 폰의 DamageSelf(Exec)를 이름으로 부른다 — 플러그인이 프로젝트 모듈에 의존하지 않게 */
+		Damage,
+		Unpossess,
+		/** 처음 쓰던 컨트롤러가 같은 폰을 다시 빙의한다 */
+		Repossess,
+		Destroy,
+		/** 컨트롤러 없이 스폰한 폰에 SpawnDefaultController. 트리 시작 전에 쓰는 동작이라 시나리오의 첫 동작이어야 한다 */
+		SpawnController,
+	};
+
+	const TCHAR* ActionName(EActionKind Kind);
+
+	struct FActionSpec
+	{
+		EActionKind Kind = EActionKind::Damage;
+		/** 앞 동작 뒤(첫 동작은 트리 시작 뒤, spawn_controller 는 관측 시작 뒤) 기다릴 초 */
+		double After = 0.0;
+		/** 이 상태가 활성일 때만 실행한다. 비면 조건 없음 */
+		FString WhenState;
+		/** Damage 의 양 */
+		double Amount = 0.0;
+	};
+
 	struct FScenario
 	{
 		/** 정규화된 오브젝트 경로 */
@@ -48,6 +74,8 @@ namespace AnimMcpStateTreeRuntime
 		TOptional<FVector> SpawnLocation;
 		TOptional<FVector> PlayerLocation;
 		TArray<FEventSpec> Events;
+		/** 있으면 트리가 멈춰도 끝내지 않는다 — duration 까지, 또는 인스턴스가 사라질 때까지 본다 */
+		TArray<FActionSpec> Actions;
 		TArray<FString> ExpectStates;
 		/** 트리 시작 뒤 관측 상한(초) */
 		double Duration = 30.0;
@@ -102,6 +130,24 @@ namespace AnimMcpStateTreeRuntime
 
 	/** 전송 · 전환 · 기대 상태 도달을 따로 본다. 실패 사유 문장, 통과면 빈 문자열 */
 	FString JudgeEvent(const FEventSpec& Spec, const FEventResult& Result);
+
+	struct FActionResult
+	{
+		bool bDone = false;
+		bool bOk = false;
+		/** 실패 이유 */
+		FString Detail;
+		double T = -1.0;
+		TArray<FString> StatesBefore;
+	};
+
+	/** 실패 사유 문장, 통과면 빈 문자열 */
+	FString JudgeAction(const FActionSpec& Spec, const FActionResult& Result);
+
+	/** 프로브 Task 의 기록. 시나리오가 시작할 때 비우고 observed.probe 로 싣는다 */
+	void AddProbeRecord(const TSharedRef<FJsonObject>& Record);
+	void ResetProbeRecords();
+	const TArray<TSharedPtr<FJsonObject>>& GetProbeRecords();
 
 	/** PIE 가 뜬 뒤 인스턴스를 찾기 전에 부른다 — 시험 고정물용 */
 	using FPrepare = TFunction<void(UWorld& ServerWorld)>;

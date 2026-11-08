@@ -39,6 +39,21 @@ namespace AnimMcpErrorCodes
 	inline const TCHAR* const PromoteFailed          = TEXT("PROMOTE_FAILED");
 	// AI 애니 생성 Phase 8-2 — capture_animation 의 렌더 · 읽기 · 쓰기 실패(details.reason NO_SCENE · RENDER_TARGET · READBACK · WRITE_FAILED · IMAGE_UNREADABLE)
 	inline const TCHAR* const CaptureFailed          = TEXT("CAPTURE_FAILED");
+	// StateTree 자동화 (Docs/StateTree/DevelopmentGuide.md §4 · §5)
+	inline const TCHAR* const AssetDirty             = TEXT("ASSET_DIRTY");          // 409 — 저장 안 된 변경이 있어 적용 거부 (한 번도 저장 안 한 애셋 포함)
+	inline const TCHAR* const PieActive              = TEXT("PIE_ACTIVE");           // 409
+	inline const TCHAR* const TransactionActive      = TEXT("TRANSACTION_ACTIVE");   // 409 — 사용자 트랜잭션(드래그 등)이 열려 있어 복구할 수 없다
+	inline const TCHAR* const StateNotFound          = TEXT("STATE_NOT_FOUND");
+	inline const TCHAR* const TypeNotFound           = TEXT("TYPE_NOT_FOUND");       // 노드 · 스키마 · 함수 타입 경로를 찾지 못함
+	inline const TCHAR* const TypeNotAllowed         = TEXT("TYPE_NOT_ALLOWED");     // 스키마가 막았거나 기대 기반 타입이 아님
+	inline const TCHAR* const AmbiguousName          = TEXT("AMBIGUOUS_NAME");       // details.candidates[] 의 GUID 로 지정
+	inline const TCHAR* const NodeReferenced         = TEXT("NODE_REFERENCED");      // 409 — 삭제 대상을 전환 · 바인딩이 참조 중
+	inline const TCHAR* const BindingOutOfScope      = TEXT("BINDING_OUT_OF_SCOPE"); // 소스가 GetBindableStructs 에 없음
+	inline const TCHAR* const BadSourcePath          = TEXT("BAD_SOURCE_PATH");
+	inline const TCHAR* const BadTargetPath          = TEXT("BAD_TARGET_PATH");
+	inline const TCHAR* const IncompatibleTypes      = TEXT("INCOMPATIBLE_TYPES");
+	inline const TCHAR* const NotBindable            = TEXT("NOT_BINDABLE");         // 엔진 바인딩 메뉴에 없는 프로퍼티 (D-6)
+	inline const TCHAR* const CompileFixups          = TEXT("COMPILE_FIXUPS");       // 컴파일은 성공했지만 엔진이 바인딩 · 노드를 조용히 지움
 	inline const TCHAR* const Internal           = TEXT("INTERNAL");
 }
 

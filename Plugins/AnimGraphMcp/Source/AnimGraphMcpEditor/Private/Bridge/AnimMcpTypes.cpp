@@ -16,7 +16,8 @@ int32 FAnimMcpError::ToHttpStatus() const
 	}
 	if (Code == AnimMcpErrorCodes::ToolNotFound || Code == AnimMcpErrorCodes::AssetNotFound
 		|| Code == AnimMcpErrorCodes::GraphNotFound || Code == AnimMcpErrorCodes::NodeNotFound
-		|| Code == AnimMcpErrorCodes::PinNotFound)
+		|| Code == AnimMcpErrorCodes::PinNotFound || Code == AnimMcpErrorCodes::StateNotFound
+		|| Code == AnimMcpErrorCodes::TypeNotFound)
 	{
 		return 404;
 	}
@@ -27,7 +28,9 @@ int32 FAnimMcpError::ToHttpStatus() const
 	}
 	if (Code == AnimMcpErrorCodes::RevisionMismatch || Code == AnimMcpErrorCodes::AssetExists
 		|| Code == AnimMcpErrorCodes::AssetReferenced || Code == AnimMcpErrorCodes::DirtyPackages
-		|| Code == AnimMcpErrorCodes::UnexpectedDirty)
+		|| Code == AnimMcpErrorCodes::UnexpectedDirty || Code == AnimMcpErrorCodes::AssetDirty
+		|| Code == AnimMcpErrorCodes::PieActive || Code == AnimMcpErrorCodes::TransactionActive
+		|| Code == AnimMcpErrorCodes::NodeReferenced)
 	{
 		return 409;
 	}

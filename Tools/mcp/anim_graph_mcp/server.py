@@ -1174,8 +1174,8 @@ def run_automation_tests(filter: str, timeout: float = 120.0, dry_run: bool = Fa
 
 @mcp.tool()
 def poll_automation_tests(job_id: str) -> dict:
-    """Progress and results of an automation job started by run_automation_tests or run_anim_scenario (same shape; "running" names
-    the current test; a runtime scenario's test carries "observed")."""
+    """Progress and results of an automation job started by run_automation_tests, run_anim_scenario or state-tree-mcp's
+    run_state_tree_scenario (same shape; "running" names the current test; a runtime scenario's test carries "observed")."""
     return bridge.call("poll_automation_tests", {"job_id": job_id})
 
 

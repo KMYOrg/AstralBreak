@@ -39,7 +39,11 @@ public class AstralBreak : ModuleRules
 
 			// 팀/피아 판정 (IGenericTeamAgentInterface) + 추후 M3 AIController/Perception
 			"AIModule",
-			
+
+			// 적 AI — AAstralEnemyController 의 UStateTreeAIComponent, M3 커스텀 노드(StateTree 플러그인)
+			"StateTreeModule",
+			"GameplayStateTreeModule",
+
 			// Networking
 			"NetCore",
 			

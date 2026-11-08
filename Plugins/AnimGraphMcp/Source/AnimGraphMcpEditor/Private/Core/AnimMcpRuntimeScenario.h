@@ -12,6 +12,7 @@
  *
  * 테스트가 관측한 값(상태머신 현재 상태·슬롯 활성)은 여기 슬롯에 JSON 문자열로 남기고, 러너가 테스트를 끝낼 때 꺼내(TakeObservation)
  * 결과의 `observed` 로 붙인다. 문자열로 두는 이유: 같은 FJsonObject 를 여러 응답(run · poll)에 넣지 않기 위해(직렬화 때마다 파싱).
+ * run_state_tree_scenario 도 같은 슬롯을 쓴다(Core/AnimMcpStateTreeRuntime.h).
  */
 namespace AnimMcpRuntimeScenario
 {

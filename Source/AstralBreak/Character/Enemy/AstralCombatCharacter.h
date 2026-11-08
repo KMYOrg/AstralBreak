@@ -15,7 +15,8 @@ class UAstralHealthSet;
  * 자기 자신이 ASC를 소유하는 전투 캐릭터 — 타겟 더미(M2)와 M3 몬스터의 공통 조상 
  * Hero와 달리 PlayerState를 기다릴 필요가 없어 PostInitializeComponents에서 PawnExtension에 자기 ASC를 바로 넘긴다.
  * HealthSet/CombatSet은 PlayerState와 동일하게 CDO 서브오브젝트 패턴 (스폰 시점부터 존재, 복제 타이밍 안전).
- * InitState 체인은 PawnData가 없어 Spawned에 머무르지만 아무도 기다리지 않는다 — M3에서 적 PawnData 도입 시 자연 진행
+ * InitState 체인은 PawnData가 없어 Spawned에 머무르지만 아무도 기다리지 않는다. 전투 준비 완료는 체인이 아니라 OnCombatReady 가 알린다 —
+ * 체인은 Super::BeginPlay 안에서 돌아 AbilitySets 부여보다 앞선다
  */
 UCLASS()
 class ASTRALBREAK_API AAstralCombatCharacter : public AAstralCharacter, public IGenericTeamAgentInterface
@@ -34,6 +35,18 @@ public:
 	virtual void SetGenericTeamId(const FGenericTeamId& NewTeamID) override { TeamId = NewTeamID.GetId(); }
 	virtual FGenericTeamId GetGenericTeamId() const override { return FGenericTeamId(TeamId); }
 	//~ End IGenericTeamAgentInterface
+
+	/** 서버에서 ASC 결합 · AbilitySets 부여 · 기본 장비 장착 시도가 끝났는가. 복제하지 않는다 — 클라에서는 항상 false */
+	bool IsCombatReady() const { return bCombatReady; }
+
+	/**
+	 * 전투 준비 완료 구독 — 이미 끝났으면 그 자리에서 호출한다. 서버 전용.
+	 * 빙의와 BeginPlay 의 순서가 스폰 경로마다 달라 '늦게 구독해도 받는' 형태다
+	 */
+	void OnCombatReady_RegisterAndCall(FSimpleMulticastDelegate::FDelegate Delegate);
+
+	/** 준비 전에 빙의가 풀린 쪽의 구독 해제. 끝난 뒤 불러도 된다 */
+	void OnCombatReady_Unregister(const UObject* Listener);
 
 	UFUNCTION(BlueprintPure, Category = "Astral|Combat")
 	bool IsTelegraphAttackEnabled() const { return bTelegraphAttackEnabled; }
@@ -86,4 +99,9 @@ protected:
 	/** FinishDeath 후 액터 제거까지의 시간 (초) */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Death", Meta = (ClampMin = "0.0"))
 	float DestroyAfterDeathDelay = 2.0f;
+
+private:
+	FSimpleMulticastDelegate OnCombatReady;
+
+	bool bCombatReady = false;
 };

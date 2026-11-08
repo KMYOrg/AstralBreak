@@ -59,6 +59,9 @@ namespace AnimMcpTools
 	/** 대상 메시 캡처 (capture_animation) — AI 애니 생성 Phase 8-2 */
 	void RegisterCaptureTools(FAnimMcpDispatcher& Dispatcher);
 
+	/** StateTree 저작 고리 (create · inspect · list_*_types · list_*_sources · preview · apply · compile · revert) — Docs/StateTree Phase 1 · (run_state_tree_scenario) 런타임 고리 — Phase 2 */
+	void RegisterStateTreeTools(FAnimMcpDispatcher& Dispatcher);
+
 	/** 그래프 변경 (preview_graph_operations, apply_graph_operations) */
 	void RegisterGraphTools(FAnimMcpDispatcher& Dispatcher);
 

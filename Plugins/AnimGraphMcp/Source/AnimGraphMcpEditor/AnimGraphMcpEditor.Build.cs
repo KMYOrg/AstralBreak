@@ -50,6 +50,20 @@ public class AnimGraphMcpEditor : ModuleRules
 			"AssetTools",
 			// AI 애니 생성 Phase 8-2 — capture_animation 의 이미지 버퍼(FImage — 비교 칸 PNG 읽기 · 형식 변환)
 			"ImageCore",
+
+			// StateTree 자동화 (Docs/StateTree) — 애셋 · 스키마 · 컴파일 · ViewModel
+			"StateTreeModule",
+			"StateTreeEditorModule",
+			"GameplayStateTreeModule",
+			// run_state_tree_scenario — AAIController 로 폰 · 인스턴스를 찾는다
+			"AIModule",
+			// FPropertyBindingPath · GetPropertyCompatibility · IsPropertyBindable(에디터 쪽)
+			"PropertyBindingUtils",
+			"PropertyBindingUtilsEditor",
+			// 상태 Tag · 전환 RequiredEvent
+			"GameplayTags",
+			// 시험 프로브 Task — 첫 상태에서 ASC · 부여 어빌리티를 본다
+			"GameplayAbilities",
 		});
 	}
 }

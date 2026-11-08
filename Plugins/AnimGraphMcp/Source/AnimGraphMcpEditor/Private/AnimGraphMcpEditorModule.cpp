@@ -120,6 +120,7 @@ private:
 		AnimMcpTools::RegisterSearchTools(*Dispatcher);
 		AnimMcpTools::RegisterPromoteTools(*Dispatcher);
 		AnimMcpTools::RegisterCaptureTools(*Dispatcher);
+		AnimMcpTools::RegisterStateTreeTools(*Dispatcher);
 
 		if (!Bridge->Start(Port, bRequireToken, Dispatcher.ToSharedRef()))
 		{

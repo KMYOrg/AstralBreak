@@ -39,6 +39,7 @@ MaxRetargetAssetsPerCall=50                         ; retarget_animations 요청
 +AnimationTagFiles=Config/AnimGraphMcp/AnimationTags.json  ; search_animations 수동 태그 JSON (프로젝트 기준 상대 또는 절대)
 +PromotionPaths=/Game/Characters/                    ; promote_animation 이 후보를 옮길 수 있는 정식 경로 (패키지 경로 접두, 생성 경로와 겹치면 무시)
 +CaptureOutputRoots=Tools/mcp/results/capture/       ; capture_animation 이 PNG 를 쓰는 디스크 폴더 (프로젝트 기준 상대 또는 절대 — 그 아래 새 · 빈 하위 폴더만)
++StateTreeEditPaths=/Game/AI/                        ; StateTree Tool 의 쓰기 허용 목록 (패키지 경로 접두). 밖은 생성 · 적용 · 컴파일 · 되돌리기 거부. get_editor_status.state_tree_edit_paths
 ```
 
 (UE ini 는 줄 끝 `;` 주석을 값으로 읽습니다 — 위 주석은 설명용이고 실제 ini 에서는 주석을 따로 줄에 둡니다.)
@@ -149,6 +150,44 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 새 Tool 은 Claude Code **세션을 다시 시작해야** MCP 목록에 보입니다(HTTP 로는 바로 호출 가능).
 
+## StateTree Tool (9개) — MCP 서버 `state-tree-mcp`
+
+브리지 · 토큰 · 봉투는 같고 Python 쪽만 `Tools/mcp/state_tree_mcp/server.py` 다. 설계 · 근거는 `Docs/StateTree/DevelopmentGuide.md`, 실측은 `Docs/StateTree/Feasibility.md` · `Phase1Report.md` · `Phase2Report.md`.
+
+| Tool | 쓰기 | 입력 · 결과 |
+| :--- | :---: | :--- |
+| `create_state_tree` | ○ | `asset_path, schema_class?, schema_properties?{ContextActorClass, AIControllerClass}, save=true`. 덮어쓰기 없음(`ASSET_EXISTS`). 결과 = inspect |
+| `inspect_state_tree` | | `asset_path`. 스키마 · 컨텍스트 · 파라미터 · 상태 트리 · 노드(값) · 전환 · 바인딩 · `revision` · `compile_state`(`up_to_date` · `stale` · `failed`). BP 노드도 읽기는 된다 |
+| `list_state_tree_node_types` | | `asset_path?` 또는 `schema_class?`, `kind?`(`task` · `condition` · `evaluator` · `property_function`). 프로퍼티 표 포함 |
+| `list_state_tree_bindable_sources` | | `asset_path, node`(GUID). `GetBindableStructs` 결과. 메뉴에 없는 프로퍼티는 빼고 `hidden_properties` 로 센다 |
+| `preview_state_tree_operations` | | `asset_path, operations[]`. 변경 없음. 첫 실패에서 멈추고 뒤 op 는 `skipped`. 같은 배치의 노드가 얽힌 바인딩은 `deferred:["scope"]` — **Preview 통과가 범위 통과를 보장하지 않는다** |
+| `apply_state_tree_operations` | ○ | `asset_path, operations[], expected_revision?, compile=true, save=true`. 결과 `revision_before/after` · `compile_state` · `refs` · `compile{ok, messages, fixups}` |
+| `compile_state_tree` | ○ | `asset_path`. `ok` · `messages` · `fixups`. 실패는 기존 컴파일 결과까지 지운다. 저장하지 않는다 |
+| `revert_state_tree` | ○ | `asset_path`. 디스크로 재로드. **Undo 기록 전체(모든 애셋)가 사라지고 열린 편집기가 닫혔다 열린다** — `undo_history_cleared` · `editor_reopened` |
+| `run_state_tree_scenario` | | `asset_path, map?, pawn_class?, spawn_location?, player_location?, events?[{tag, after?, when_state?, expect_state?, expect_transition?, window?}], expect_states?, duration=30, start_timeout=10, clients=0, timeout?`. PIE 를 직접 열고 닫는다. 잡을 돌려주고 결과는 `poll_automation_tests` — 아래 '검증 — StateTree 시나리오' |
+
+**operations** (`state` · `node` · `target` = GUID · 같은 배치의 ref · 이름. 이름이 겹치면 `AMBIGUOUS_NAME`):
+
+| op | 입력 | 비고 |
+| :--- | :--- | :--- |
+| `add_state` | `ref?, parent?(기본 Root), name, type?(state\|group), selection?, tag?, enabled?` | `linked` 계열은 Phase 3 |
+| `remove_state` | `state, cascade?` | 전환 · 바인딩이 참조하면 `cascade` 없이 `NODE_REFERENCED` |
+| `set_state_properties` | `state, properties` | `TasksCompletion` · `SelectionBehavior` · `Tag` · `bEnabled` · `CustomTickRate` · `Weight` · `RequiredEventToEnter`. 뒤 셋의 켜짐 플래그는 값에 따라 자동, `null` 이면 끈다 |
+| `add_task` | `ref?, state, type, values?` | |
+| `add_enter_condition` | `ref?, state, type, values?, operand?, indent?` | |
+| `add_evaluator` · `add_global_task` | `ref?, type, values?` | |
+| `add_transition` | `ref?, state, trigger, target, event_tag?, priority?, delay?, conditions?[{ref?, type, values?, operand?, indent?}]` | `target` = 상태 또는 `succeeded` · `failed` · `next_state` · `next_selectable_state`. `OnEvent` 는 `event_tag` 필수, `OnDelegate` 미지원 |
+| `remove_transition` | `state, transition` | |
+| `remove_node` | `node` | 다른 바인딩의 소스면 `NODE_REFERENCED`. 함수 노드는 `unbind_property` 로 |
+| `set_node_values` | `node, values` | BP · 함수 노드 불가 |
+| `bind_property` | `source:{struct, path}, target:{node, path}` | `struct` = ref · GUID · 노드 이름 · 컨텍스트 이름(`Actor` · `AIController`) · `parameters`. 빈 `path` = 구조체 자체. 같은 대상의 기존 바인딩(함수 포함)은 대체 |
+| `unbind_property` | `target:{node, path}` | 함수 바인딩이면 함수 입력까지 지운다 |
+| `bind_property_function` | `ref?, function, output?, target:{node, path}` | 함수 노드를 만들어 출력을 대상에 묶는다. 입력은 뒤의 `bind_property` 로(`target.node` = 이 ref). `output` 은 출력이 하나면 생략 |
+
+`values` 는 인스턴스 데이터에서 먼저 찾고 없으면 노드 구조체에서 찾는다(거리 조건의 `Operator` · `bInvert` 는 노드 구조체). `Output` · `Context` 쓰기는 거부한다. 타입 경로는 `list_state_tree_node_types` 의 전체 경로만 받는다.
+
+**실패 처리** — 사전 검증 실패의 `error.code` 는 처음 실패한 op 의 코드이고 `details.planned[]` 에 전체 결과가 있다. 적용 뒤 실패는 `details` 에 `stage`(`apply` · `compile` · `fixups` · `save`) · `messages` · `fixups` · `rollback{verified, method, undo_history_cleared, editor_reopened, revision}`. `method` = `undo`(우리 트랜잭션을 되돌림 — 앞선 Undo 기록 유지) · `none`(변경 없음) · `reload`(그 밖 — Undo 기록 전체 소실). 적용은 애셋이 더티면 `ASSET_DIRTY` 로 거부하므로 `save=false` 뒤에는 에디터에서 저장하거나 `revert_state_tree` 해야 한다.
+
 ## op 사전 (20종) — `preview_graph_operations` / `apply_graph_operations` 의 `operations[]`
 
 노드 참조: `{"node": "<guid>"}` · `{"ref": "<같은 배치 앞 add_* 의 ref>"}` · `"<guid>"` · `{"result_of": {node|ref}}`(상태의 StateResult 노드). 핀은 이름. `add_node.graph`: 생략 = 루트 AnimGraph · `"<graph_guid>"` · `{node|ref}`(상태 → 그 포즈 그래프).
@@ -213,11 +252,11 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 | HTTP | 코드 |
 | :---: | :--- |
-| 400 | `BAD_REQUEST`(`details.reason`/`field` — 생성 가드의 덮어쓰기 거부는 `OVERWRITE_NOT_ALLOWED`) · `CONNECTION_REJECTED` · `PROPERTY_NOT_ALLOWED` · `COMPILE_FAILED` · `SAVE_FAILED` · `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` · `PROMOTE_FAILED`(`promote_animation` — reason `CDO_REFERENCED` · `REGISTRY_LOADING` · `ENGINE_ABORTED` · `ENGINE` · `REDIRECTOR_LEFT` · `OLD_FILE_LEFT` · `DEST_MISSING` · `REFERENCES_NOT_UPDATED`, details.moved 에 이미 옮긴 것) · `CAPTURE_FAILED`(`capture_animation` — reason `NO_SCENE` · `RENDER_TARGET` · `READBACK` · `WRITE_FAILED` · `IMAGE_UNREADABLE` · `NO_POSE`) |
+| 400 | `BAD_REQUEST`(`details.reason`/`field` — 생성 가드의 덮어쓰기 거부는 `OVERWRITE_NOT_ALLOWED`) · `CONNECTION_REJECTED` · `PROPERTY_NOT_ALLOWED` · `COMPILE_FAILED` · `SAVE_FAILED` · `IMPORT_FAILED` · `IKRIG_AUTO_FAILED` · `RETARGET_FAILED` · `VALIDATION_FAILED` · `PROMOTE_FAILED`(`promote_animation` — reason `CDO_REFERENCED` · `REGISTRY_LOADING` · `ENGINE_ABORTED` · `ENGINE` · `REDIRECTOR_LEFT` · `OLD_FILE_LEFT` · `DEST_MISSING` · `REFERENCES_NOT_UPDATED`, details.moved 에 이미 옮긴 것) · `CAPTURE_FAILED`(`capture_animation` — reason `NO_SCENE` · `RENDER_TARGET` · `READBACK` · `WRITE_FAILED` · `IMAGE_UNREADABLE` · `NO_POSE`) · StateTree: `TYPE_NOT_ALLOWED` · `AMBIGUOUS_NAME`(`details.candidates[]`) · `BINDING_OUT_OF_SCOPE` · `BAD_SOURCE_PATH` · `BAD_TARGET_PATH` · `INCOMPATIBLE_TYPES` · `NOT_BINDABLE` · `COMPILE_FIXUPS` |
 | 401 | `UNAUTHORIZED` |
 | 403 | `ASSET_PROTECTED` · `OUTPUT_PATH_NOT_ALLOWED` · `IMPORT_SOURCE_NOT_ALLOWED` |
-| 404 | `TOOL_NOT_FOUND` · `ASSET_NOT_FOUND` · `GRAPH_NOT_FOUND` · `NODE_NOT_FOUND` · `PIN_NOT_FOUND` |
-| 409 | `ASSET_EXISTS` · `REVISION_MISMATCH` · `ASSET_REFERENCED` · `DIRTY_PACKAGES` · `UNEXPECTED_DIRTY`(`details.unexpected[]`) |
+| 404 | `TOOL_NOT_FOUND` · `ASSET_NOT_FOUND` · `GRAPH_NOT_FOUND` · `NODE_NOT_FOUND` · `PIN_NOT_FOUND` · StateTree: `STATE_NOT_FOUND` · `TYPE_NOT_FOUND` |
+| 409 | `ASSET_EXISTS` · `REVISION_MISMATCH` · `ASSET_REFERENCED` · `DIRTY_PACKAGES` · `UNEXPECTED_DIRTY`(`details.unexpected[]`) · StateTree: `ASSET_DIRTY` · `PIE_ACTIVE` · `TRANSACTION_ACTIVE` · `NODE_REFERENCED`(`details.transitions[]` · `bindings[]`) |
 | 500 | `INTERNAL` |
 
 배치 실패의 원인은 사전 검증이면 `details.planned[i].error`, 적용 중이면 `details.cause` 와 `details.applied[i].error` 에 있습니다. Python 클라이언트는 전송 오류를 `EDITOR_GONE` · `TIMEOUT` · `TRANSPORT` · `BAD_RESPONSE` 로 같은 봉투 모양에 넣습니다.
@@ -243,6 +282,27 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 - 슬롯 활성은 몽타주가 재생 중일 때만 참이 됩니다(`montage` 없이 `slots_active` 를 기대하면 `NO_MONTAGE` 경고). `wait_frames` 동안 몽타주가 끝나면 비활성으로 관측됩니다 — 실측(2026-10-25) PIE 10프레임 ≈ 0.47 ~ 0.57초, 0.23초 반동 몽타주는 5프레임 뒤 `montage_playing false` · 슬롯 꺼짐, 섹션 `Loop → Loop` 이면 활성. 짧은 몽타주는 루프 섹션으로 시험합니다. 몽타주가 슬롯을 가중치 1 로 덮는 동안 슬롯 노드는 **Source(그 뒤의 상태머신)를 갱신하지 않습니다**(`bAlwaysUpdateSourcePose` 가 꺼진 기본값) — 전신 슬롯 뒤의 상태 전이를 몽타주 중에 보려면 그 Slot 노드에 `set_property bAlwaysUpdateSourcePose=true`.
 - 메시 호환 검사는 엔진이 AnimInstance 를 만들지 말지 보는 기준 그대로(`USkeleton::IsCompatibleMesh`, 본 이름 집합)라 본 이름이 같은 다른 스켈레톤(UE5 마네킹 계열)도 통과합니다.
 - 관측은 테스트 결과의 `observed` 에 남고, 기대값과 다르면 `errors[]` 에 "expected 'Run' but it is in 'Idle' after 10 frames" 식으로 적힙니다. 실제 포즈(본 트랜스폼)는 범위 밖입니다.
+
+## 검증 — StateTree 시나리오 (PIE)
+
+`run_state_tree_scenario` 는 트리가 실제로 어떻게 도는지 프레임 단위로 기록합니다. 입출력 예는 `Docs/StateTree/Phase2Report.md` §1 입니다.
+
+```jsonc
+{ "asset_path": "/Game/AI/Test/ST_P2_Loop", "map": "/Game/Maps/CombatTestMap",
+  "pawn_class": "/Game/AI/Test/BP_P2_Enemy", "spawn_location": [1200, -800, 120],
+  "events": [ { "tag": "GameplayEvent.Parried", "after": 0.5, "expect_transition": false, "window": 0.5 },
+              { "tag": "GameplayEvent.Damaged", "when_state": "Idle", "expect_state": "Chase" } ],
+  "expect_states": ["Idle", "Chase", "Attack", "Idle"], "duration": 20 }
+```
+
+- `spawn_location` 이 있으면 `pawn_class` 를 런타임 스폰합니다 — 그 폰의 `AutoPossessAI` 가 스폰을 허용해야 합니다. 없으면 맵에 있는 인스턴스를 찾고 `pawn_class` 는 필터입니다. 여럿이면 이름 순 첫 번째만 봅니다.
+- **이벤트는 `sent` · `transitioned` · `reached_expected` 로 나눠 판정합니다.** `sent` = 트리가 실행 중이라 큐에 넣는 호출까지 감, `transitioned` = 엔진의 상태 진입 횟수가 늘어남, `reached_expected` = `expect_state` 가 활성으로 보임. 전환은 활성 목록이 아니라 진입 횟수로 봅니다 — 타임라인은 프레임 표본이라 한 프레임 안에 들어갔다 나온 상태는 이름이 없습니다. `state_changes` 가 2 이상 뛰면 그런 상태가 있었던 것입니다(`EnterState` 에서 실패하는 작업).
+- `expect_transition: false` 는 무관한 이벤트의 대조 시험입니다.
+- `expect_states` 는 순서만 봅니다. 사이에 다른 상태가 끼어도 통과하므로 엄밀한 순서는 `timeline` 을 직접 봅니다. 없으면 `duration` 까지 관측합니다.
+- `clients: N` 은 리슨 서버 + 클라이언트 N 입니다. 사용자 플레이 설정과 무관하게 네트 모드 · 인원을 명시합니다. 관측은 서버 월드 인스턴스만, `worlds[]` 에 월드별 개수를 싣습니다.
+- `log[]` 는 PIE 시작 뒤 StateTree · Navigation · PathFollowing 경고 이상입니다. 시험은 로그로 실패시키지 않습니다. 인스턴스를 못 찾으면 `candidates` 에 폰별 컨트롤러와 컴포넌트별 트리가 실립니다.
+- `AnimGraphMcp.StateTree.16_RuntimeScenario` 를 필터로 직접 돌리면 시나리오 없이도 엔진 클래스 고정물로 실제로 돕니다.
+- 에디터가 뜬 직후에는 30초쯤 기다리고 시작합니다 — 기동 직후 CEF 가속 페인트와 자동 테스트 플래그가 겹쳐 엔진 `check` 로 죽은 적이 있습니다(`Phase2Report.md` §4). `run_anim_scenario` · `run_automation_tests` 도 같은 플래그를 씁니다.
 
 ## 제약 (설계상 범위 밖)
 
@@ -292,8 +352,15 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpAnimSearch       search_animations — 레지스트리 태그 · 이름 토큰 · 수동 태그 파일 · 필요할 때만 로드
             AnimMcpAnimEditOps      키 편집 계산부(UObject 없음 — 리그 · 버퍼 · op 7종 · 출처 · 이음매) — 단위 테스트 대상
             AnimMcpAnimEdit         preview/apply_animation_edits — 파싱 · 원시 키 읽기 · 버퍼 계산 · 복제 · 재작성 · 노티파이 이동 · 검증
+            AnimMcpStateTreeAsset   StateTree 경로 규칙 · 생성 · 컴파일 측정(fixups) · 복구 2단(Undo → 재로드) · 편집기 알림
+            AnimMcpStateTreeBindings  바인딩 사전 검증(범위 · 경로 · 메뉴 · 타입) · 소스 후보
+            AnimMcpStateTreeInspector  애셋 → JSON · 노드 타입 목록
+            AnimMcpStateTreeOperations 배치: 기존 트리의 그림자로 계획(검증 + 실행 단계) · Preview · Apply
+            AnimMcpStateTreeRuntime  run_state_tree_scenario — 시나리오 파싱 · 지연 명령 · 프레임별 관측 · 판정(전송 · 전환 · 기대 상태)
   Tests/    AnimMcpSmokeTests.cpp    AnimGraphMcp.Smoke.AnimBlueprint · AnimGraphMcp.Smoke.AnimMontage
+            AnimMcpStateTreeTests.cpp  AnimGraphMcp.StateTree.* — 실제 핸들러를 로컬 디스패처로 호출(§8 필수 항목 + PIE 거부 · 열린 편집기 · 런타임 시나리오 고정물). AnimMcpStateTreeTestTypes.h = 시험 전용 Evaluator(meta=Hidden)
             AnimMcpRuntimeTests.cpp  AnimGraphMcp.Runtime.AnimBlueprint — PIE 시작·스폰·변수·몽타주·N 프레임·관측·비교·PIE 종료(지연 명령 7단계)
+            AnimMcpAutomationRunnerTests.cpp  AnimGraphMcp.Runner.* — 러너 · 엔진 Automation 워커 경합 회귀(지연 명령이 끝나는 호출 위치별 · 명령 안의 명령)
             AnimMcpGenerationTests.cpp  AnimGraphMcp.Generation.Guard — 경로 '/' 경계 · 임포트 원본 · 허용 목록 밖 새 더티 → UNEXPECTED_DIRTY(메모리 패키지) ·
                                      .Promote — 승격 경로 정규화(겹침 · 마운트 루트) · dest 규칙(후보 · 밖 · 보호 · 메모리 객체) · confirm · 후보 아닌 소스 · FDirtyGuard 추가 허용 집합 ·
                                      .WriteGuard — 쓰기 Tool 6개를 로컬 디스패처로 불러 꺼짐 = 기존 동작 · 켬 = 허용 목록 밖 · 덮어쓰기 거부 · 전역 더티 비교

@@ -22,6 +22,14 @@ public:
 
 	const TArray<TObjectPtr<const UAstralAbilitySet>>& GetContextAbilitySets() const { return ContextAbilitySets; }
 
+	/**
+	 * 방장 — 봇 · 관전자를 뺀 PlayerArray 에서 PlayerId 최소(가장 먼저 들어온 사람, 리슨에선 호스트).
+	 * 저장하지 않고 매번 계산한다: PlayerId 는 엔진이 복제하고 시임리스 이동이 옮기므로 새 복제 상태가 필요 없다.
+	 * 클라이언트도 같은 값을 얻지만 표시용이다 — 권한 판정은 서버 RPC 안(AAstralPlayerController::IsPartyLeader)에서만 한다.
+	 * 참가자가 없으면 nullptr
+	 */
+	APlayerState* GetPartyLeader() const;
+
 protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Context")

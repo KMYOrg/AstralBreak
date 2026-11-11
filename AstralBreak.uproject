@@ -65,6 +65,10 @@
 		{
 			"Name": "GameplayStateTree",
 			"Enabled": true
+		},
+		{
+			"Name": "Gauntlet",
+			"Enabled": true
 		}
 	]
 }

@@ -21,7 +21,7 @@ namespace AnimMcpTools
 {
 	namespace
 	{
-		const TCHAR* OperationsDoc =
+		const TCHAR* StateTreeOperationsDoc =
 			TEXT("Operations (state/node/target = GUID, a ref from this batch, or a name — duplicates fail with AMBIGUOUS_NAME): "
 			     "add_state {ref?, parent? (default Root), name, type? (state|group), selection?, tag?, enabled?} | "
 			     "remove_state {state, cascade?} (refused while transitions or bindings reference it, unless cascade) | "
@@ -175,7 +175,7 @@ namespace AnimMcpTools
 
 		Dispatcher.RegisterTool(TEXT("preview_state_tree_operations"),
 			FString(TEXT("Validate a batch WITHOUT changing the asset. Stops at the first invalid op (later ops are marked skipped). "
-			             "A binding that involves a node created in the same batch reports deferred:[\"scope\"]: its scope can only be judged once the node exists, so apply checks it right before binding. Params: asset_path, operations[]. ")) + OperationsDoc,
+			             "A binding that involves a node created in the same batch reports deferred:[\"scope\"]: its scope can only be judged once the node exists, so apply checks it right before binding. Params: asset_path, operations[]. ")) + StateTreeOperationsDoc,
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				FString AssetPath;
@@ -196,7 +196,7 @@ namespace AnimMcpTools
 			FString(TEXT("Apply a batch in one undoable transaction, compile and save. Any failure (invalid op, compile error, bindings silently removed by the compiler, save error) rolls the asset back; "
 			             "the error details carry stage, messages, fixups and rollback {verified, method none|undo|reload, undo_history_cleared, editor_reopened, revision}. A reload rollback clears the whole editor undo history. "
 			             "Refused while the asset has unsaved changes (ASSET_DIRTY), while PIE runs or while another transaction is open. With save=false the asset stays dirty, so the next apply is refused until it is saved in the editor or reverted. "
-			             "Params: asset_path, operations[], expected_revision?, compile? (default true), save? (default true). ")) + OperationsDoc,
+			             "Params: asset_path, operations[], expected_revision?, compile? (default true), save? (default true). ")) + StateTreeOperationsDoc,
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				FString AssetPath;

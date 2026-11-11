@@ -1,25 +1,91 @@
 # M3 적 AI 설계
 
-작성일: 2026-11-05 · 대상: UE 5.7.4 · 기준 커밋: `6e2e2ee` · 앞 단계: [StateTree Phase2Report](../StateTree/Phase2Report.md)
-상태: **1번 설계 승인(2026-11-05, 권장안 그대로) · 구현 · 자동 검증 완료(2026-11-05, 미커밋). 남은 것 = V9 더미 사용자 눈 확인.**
+작성일: 2026-11-05 · 대상: UE 5.7.4 · 기준 커밋: `6e2e2ee` · 앞 단계: [StateTree Phase2Report](../StateTree/Phase2Report.md) · 기획 원문: [game-plan.md](game-plan.md)
+상태: **1번 설계 승인(2026-11-05, 권장안 그대로) · 구현 · 자동 검증 완료 · 커밋 `8b8a5fd`(2026-11-08). 남은 것 = V9 더미 사용자 눈 확인. 2번부터 미착수.** **2026-11-11 착수 전 검토를 반영했다 — [§0](#0-착수-전-검토-2026-11-11) 과 2 ~ 7번의 '설계 때 정할 것'.** **선행 단위(§7-1)는 구현 · 자동 검증 완료(2026-11-11, 미커밋) — PIE 1 ~ 3단계 수동 확인 대기.**
 
 M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로 쌓는다. 앞 항목이 뒤 항목의 전제가 되도록 사용자와 순서를 합의했다. 생명주기를 어그로보다 먼저 정해야 그 위에 얹는 것을 다시 고치지 않는다.
 
 | # | 항목 | 상태 |
 | ---: | :--- | :--- |
 | 1 | 적 생명주기 | **이 문서 §1 — 구현 · 검증 완료, 결과는 §1-7** |
-| 2 | 타깃 · 어그로 (`UAstralThreatComponent`) | 기획서 제공 뒤 |
-| 3 | 적 공격 실행 (텔레그래프 GA 전환 · 패링 → 경직 → 약점) | 기획서 제공 뒤 |
-| 4 | StateTree 연결 노드 | 기획서 제공 뒤 |
-| 5 | `ST_Enemy_Melee` 구성 | 기획서 제공 뒤 |
-| 6 | 스폰 · 콘텐츠 (적 PawnData · 메시 · 애니) | 기획서 제공 뒤 |
-| 7 | 네트워크 종료 조건 (3단계 테스트 · `IsPartyLeader`) | 기획서 제공 뒤 |
+| 2 | 타깃 · 어그로 (`UAstralThreatComponent`) | 미착수 |
+| 3 | 적 공격 실행 (단발 GA 전환 · 수호병 패턴 5종 · 피격 반응 · 패링 → 경직 → 약점) | 미착수 |
+| 4 | StateTree 연결 노드 | 미착수 |
+| 5 | `ST_Enemy_Melee` 구성 | 미착수 |
+| 6 | 스폰 · 콘텐츠 (적 PawnData · 메시 · 애니 · 스폰/디스폰 인터페이스) | 미착수 |
+| 7 | 네트워크 종료 조건 (3단계 테스트 · `IsPartyLeader`) | 선행 단위만 [§7-1](#7-1-선행-단위--dedicated-에서-레이드-시작) — 구현 · 자동 검증 완료(2026-11-11, 미커밋), PIE 1 ~ 3단계 수동 확인 대기. 나머지 미착수 |
 
-M3 기획서 원문은 저장소에 없다. 2번부터는 사용자가 제공한 뒤 쓴다. 지금 쓰면 규칙을 지어내게 된다.
+**기획 근거:** [game-plan.md](game-plan.md) — M3 절(2부)이 범위 · 종료 조건 · 확장 포인트 예약, 7-6 절(1부)이 수호병 역할 · 기본 패턴, 부록 C 가 옛 구현 방향 메모(StateTree 확정 근거 · 단발 GA · 첫 수직 단위 · `UAstralThreatComponent` API)다. 2번부터는 이 문서를 근거로 쓴다. 어그로 수치 규칙과 패턴별 수치는 원문에 없으므로 해당 항목 설계 때 사용자와 정한다.
+
+> 2026-11-05 ~ 11-08 에는 "기획서 원문이 저장소에 없다 — 사용자가 제공한 뒤 쓴다"로 2번 이후를 막아 뒀다. 원문은 10-09 대화에 붙여넣어진 마일스톤 계획서에 있었고, 2026-11-10 game-plan.md 로 옮겼다.
 
 **표기:** **[실측]** = 실행으로 확인했다. **[소스]** = 소스를 읽어 판단했고 실행하지 않았다. 근거의 파일 이름은 프로젝트 또는 엔진(`D:/UnrealSource/UnrealEngine-5.7.4-release/Engine`) 소스다. 시나리오 번호(S1 ~ S6)는 [Phase2Report §3](../StateTree/Phase2Report.md) 의 실행이고, C · V 번호는 §1-7 의 실행이다.
 
 **항목 형식:** 결정 → 대안과 기각 이유 → 근거 → 영향 → 미해결.
+
+## 0. 착수 전 검토 (2026-11-11)
+
+2번 착수 전에 [game-plan.md](game-plan.md) 와 이 문서를 런타임 코드 · 엔진 소스와 대조했다. **이 절의 판단은 전부 [소스] 다 — 실행한 것은 없다**(맵의 NavMesh 볼륨만 파일에서 세었다). 사용자가 문서 반영을 지시했다(2026-11-11). 계획서 쪽 관찰은 [game-plan.md 부록 D](game-plan.md#부록-d-2026-11-11-착수-전-검토-메모).
+
+### 0-1. 그대로 서는 전제
+
+| 전제 | 근거 |
+| :--- | :--- |
+| §1 구현이 이 문서와 같다 | `AstralEnemyController.cpp` · `AstralCombatCharacter.cpp:45` ~ `:72` |
+| 계획서 M3 예약 '몬스터 스탯 Attribute 기반' 은 이미 충족 | 적이 `UAstralHealthSet` · `UAstralCombatSet` 을 CDO 서브오브젝트로 갖는다(`AstralCombatCharacter.cpp:19` · `:20`) |
+| 패링 → 경직 통지 경로가 있다 | `ResolveIncomingDamage` 가 공격자에게 `GameplayEvent.Staggered` 를 보낸다(`AstralCombatStatics.cpp:313`) |
+| 위협의 입력이 될 이벤트가 있다 | `UAstralHealthSet::OnDamaged` 가 서버에서 가해자 · 피해량을 준다(`AstralHealthSet.cpp:137`) |
+| 전투 맵에 경로 탐색이 된다 | `RaidMap` · `CombatTestMap` 에 `NavMeshBoundsVolume` 이 있다. `HubMap` · `TestMap` 에는 없다 |
+| Dedicated 에서도 소켓 트레이스 전제가 선다 | 베이스 메시가 `AlwaysTickPoseAndRefreshBones` 다(`AstralCharacter.cpp:43`) |
+| 서버 전용 GA 의 몽타주가 클라이언트에 보인다 | `RepAnimMontageInfo` 는 조건 없이 복제된다(`AbilitySystemComponent.cpp:1786`). 적 ASC 가 Minimal 모드여도 같다 |
+| AI 스키마가 커스텀 Evaluator · 컴포넌트 외부 데이터를 받는다 | `StateTreeComponentSchema.cpp:40` · `:53` ~ `:55` |
+
+### 0-2. 구현 순서 — 수직 단위로 자른다
+
+**위 표의 1 ~ 7 은 설계 목차다. 구현은 이 순서로 하지 않는다.** 층별로 쌓으면 5번이 끝날 때까지 움직이는 적이 없어, 계획서의 '각 마일스톤 끝에서 플레이 가능' 원칙과 부록 C 의 '첫 수직 단위' 에 어긋난다. 항목 설계는 각 단위가 필요한 만큼만 먼저 쓴다.
+
+| 단위 | 내용 | 끌어오는 항목 | 끝나면 보이는 것 |
+| :--- | :--- | :--- | :--- |
+| 선행 | Dedicated 에서 레이드 시작 — 방장 판정 교체 + `ServerSelectRaid` 맵 이름 검증. **구현 · 자동 검증 완료(2026-11-11, 미커밋 — [§7-1](#7-1-선행-단위--dedicated-에서-레이드-시작)). 1 ~ 3단계 파티 흐름(허브 → 레이드 → 허브 · 방장 이탈)은 자동 시험으로 [실측] 통과([§7-2](#7-2-네트워크-단계-자동-시험-p2--p5)). 히어로 전투를 3단계에서 훑는 P7 은 아직이다 — 이 칸의 '전투가 돈다' 는 그 뒤에 쓴다** | 7 의 일부 | 3단계 구성에서 히어로 전투(M1 · M2)가 돈다 |
+| A | 최소 타깃(가장 가까운 생존 플레이어) + 추격 + 단발 공격 1종 + 트리. 판정은 기존 전방 스윕, 메시는 임시 | 2 최소 · 3 일부 · 4 · 5 최소 | 적 한 마리가 쫓아와 때리고, 맞으면 죽는다 |
+| B | 어그로 규칙 · 4인 타깃 전환 | 2 | 여럿이 때리면 타깃이 바뀐다 |
+| C | 공격 확장 · 피격 반응 · 패링 → 경직 | 3 | 방어 3종 연습이 된다 |
+| D | 적 메시 · 애니 · PawnData · 스폰/디스폰 | 6 | 수호병 모습으로 여러 마리가 나온다 |
+| E | 3단계 네트워크 전체 | 7 | M3 종료 조건 |
+
+- **단위마다 네트워크 1 · 2단계를 돌린다.** 3단계는 선행 단위가 뚫은 뒤부터 단위마다 돌린다.
+- **C 는 D 의 일부에 기댄다.** 몽타주 · 무기 트레이스 공격은 적 메시 · 스켈레톤이 정해져야 저작할 수 있는데 적 애셋이 지금 0개다. 메시 · 스켈레톤 선택만 C 앞으로 당긴다. A 는 몽타주 없이 기존 스윕(`ApplyDamageSweep`)으로 간다.
+
+### 0-3. 3단계 네트워크를 끝에 몰지 않는다
+
+`IsPartyLeader` 는 `HasAuthority() && IsLocalController()` 다(`AstralPlayerController.cpp:110`). Dedicated 에는 로컬 컨트롤러가 없어 `ServerSelectRaid` · `ServerStartRaid` · `ServerReturnToHub` 가 전부 거부된다. **즉 계획서 M1 의 종료 조건(3단계 통과)이 아직 충족되지 않았다.** 문서 기준으로 M2 히어로 전투의 Dedicated 실행 기록도 없다(§1-7 · Phase2Report §5 의 '돌리지 않은 것').
+
+7번을 끝에 두면 M1 · M2 의 빚과 M3 의 버그가 한 번에 섞여, 계획서 M8 의 '마지막에 몰아서 고치면 어디서 시작된 문제인지 추적이 어렵다' 가 그대로 일어난다. 방장 판정은 AI 와 무관한 작은 작업이라 선행 단위로 당긴다. 구체 설계는 §7.
+
+### 0-4. 기획 값은 잠정이다
+
+**사용자 방침(2026-11-11):** 표식처럼 기획에 속하는 요소는 수시로 바뀌거나 없어질 수 있다.
+
+이 문서에서의 적용(작성자 해석):
+
+- 아래 '정할 것' 중 **기획** 으로 표시한 것은 항목 설계 때 잠정값으로 정한다. 값은 코드가 아니라 데이터(GA 프로퍼티 · GE · 태그)에 두어, 기획이 바뀌어도 구조를 뜯지 않게 한다.
+- 원문 안에서 읽기가 갈리는 기획 개념은 이 문서가 풀지 않는다. M3 구현이 어느 한쪽 해석에 기대지 않게만 한다. 예: 수호병의 '원거리 전환 사용 이유'(game-plan 7-6)는 표식 해석에 달려 있고, M3 종료 조건(4인 처치 · 3단계 통과)에는 들어 있지 않다.
+
+### 0-5. 정할 것 한눈에
+
+| # | 정할 것 | 성격 | 현재 코드 | 다룰 곳 |
+| ---: | :--- | :--- | :--- | :--- |
+| 1 | 수호병 '패턴 5종' 을 공격 몇 개로 읽는가 | 기획 | 공격은 전방 스윕 1종 | §3 |
+| 2 | 공격별 가드 · 패링 가능 여부를 어디에 싣는가 | 구조 | `Damage.Type.Unblockable` 하나가 둘을 함께 뚫는다. 데미지 GE 는 전역 1개 | §3 |
+| 3 | 피격 반응 규칙(경직 내성) | 기획 + 구조 | 피격 반응 코드 0 | §3 |
+| 4 | 일반 몬스터 '약점 노출' 의 실체 | 기획 | 일반 몬스터에 Break 게이지 없음 | §3 |
+| 5 | 회피 무적 프레임 | 기획 | 없음(`AstralGA_Hero_Dodge.h:15` 주석 '범위 밖') | §3 |
+| 6 | 죽은 플레이어 · 전원 사망 때 적의 행동 | 구조(최소) | 플레이어 부활은 디버그 `ReviveSelf` 뿐 | §2 |
+| 7 | 클라이언트가 보는 공격 예고 | 구조 | 서버 루즈 태그 + DrawDebug 멀티캐스트 | §3 |
+| 8 | 타깃을 트리에 넣는 경로 | 구조 | 없음 | §4 |
+| 9 | 단발 GA 전환 뒤 `Staggered` 를 받는 주체 | 구조 | 상주 루프 GA 가 받는다 | §3 · §4 |
+| 10 | 적이 타깃을 향해 도는 규칙 | 구조 + 기획 | 없음. 스윕은 액터 전방 기준 | §3 · §5 |
+| 11 | 어그로 가중치 Modifier 노브의 위치 | 구조 | 없음 | §2 |
 
 ## 1. 적 생명주기
 
@@ -403,7 +469,7 @@ M3 기획서 원문은 저장소에 없다. 2번부터는 사용자가 제공한
 
 ### 1-8. 구현 결과 · 뒤 항목에 넘기는 제약
 
-**바뀐 파일 (미커밋)**
+**바뀐 파일 (커밋 `8b8a5fd`)**
 
 | 파일 | 변경 |
 | :--- | :--- |
@@ -433,12 +499,278 @@ M3 기획서 원문은 저장소에 없다. 2번부터는 사용자가 제공한
 
 ## 2. 타깃 · 어그로 (`UAstralThreatComponent`)
 
-## 3. 적 공격 실행 (텔레그래프 GA 전환 · 패링 → 경직 → 약점)
+> 미착수. 아래는 설계가 아니라 **설계 때 정할 것** 이다(2026-11-11 검토, 전부 [소스]).
+
+- **위협 입력은 이미 있는 이벤트로 받는다.** `UAstralHealthSet::OnDamaged` 가 서버에서 가해자 · 피해량을 준다(`AstralHealthSet.cpp:137`). 구독하면 되고 폴링이 필요 없다. 정리 시점은 `OnDeathStarted`(§1-8).
+- **첫 인지(피해를 받기 전).** 거리 판정과 AIPerception 중 고른다. 단위 A 는 '가장 가까운 생존 플레이어' 로 시작한다. 컨트롤러 팀 동기화는 AIPerception 을 쓸 때만 필요하다 — 데미지 판정은 폰의 `TeamId` 를 본다(`AstralCombatStatics.cpp:58`).
+- **죽은 플레이어 · 전원 사망.** 죽은 플레이어를 타깃에서 빼고, 남은 타깃이 없을 때 적이 무엇을 하는지 정한다. 플레이어 부활 · 전멸 규칙 자체는 계획서에 없다([game-plan 부록 D](game-plan.md#부록-d-2026-11-11-착수-전-검토-메모)) — 여기서는 타깃 제외까지만 다룬다.
+- **레벨 배치의 첫 `EnterState`** 에 플레이어 폰이 없을 수 있다(§1-2 미해결).
+- **컴포넌트를 폰과 컨트롤러 중 어디에 두는가.** 트리 노드가 외부 데이터로 받으려면 컨트롤러 쪽이어야 한다 — 스키마는 트리 소유자(컨트롤러)에서 `FindComponentByClass` 로 찾는다(`StateTreeComponentSchema.cpp:215`). 폰에 두면 컨텍스트 Actor 를 거쳐 찾아야 한다. §4 의 타깃 주입 방식과 함께 정한다.
+- **Modifier 노브의 위치.** 계획서 예약 '어그로 가중치 Modifier 방식' 을 받을 배율을 어느 Attribute 세트에 둘지 정한다. 지금은 없다.
+- **기획(잠정):** 무엇으로 위협을 쌓는지, 타깃 전환 조건, 전환 히스테리시스. 원문에 없다 — 사용자와 정한다.
+
+## 3. 적 공격 실행 (단발 GA 전환 · 수호병 패턴 5종 · 피격 반응 · 패링 → 경직 → 약점)
+
+> 미착수. 아래는 설계가 아니라 **설계 때 정할 것** 이다(2026-11-11 검토, 전부 [소스]).
+
+- **'패턴 5종' 의 해석(기획 · 잠정).** game-plan 7-6 의 목록(기본 연타 / 짧은 돌진 / 가드 가능한 공격 / 패링 가능한 강공격 / 약점 노출 가능한 동작)은 공격과 속성이 섞여 있다. 공격 3개(연타 · 돌진 · 강공격) + 약점 노출 상태 1개로 읽을 수 있다. 사용자 확정 전까지 절 제목의 '5종' 은 원문 표기다.
+- **공격별 가드 · 패링 가능 여부를 실을 자리가 없다.** `Damage.Type.Unblockable` 하나가 가드와 패링을 함께 뚫는다(`AstralCombatStatics.cpp:280`). 데미지 GE 는 GameData 전역 1개이고 `ApplyAttackHit` 는 공격별 태그를 받지 않는다. '가드 불가 · 패링 가능' 을 만들려면 태그를 둘로 나누고 스펙에 공격별 태그를 실어야 한다. 히어로 공격과 공유하는 경로라 상속 · 공용 영향을 함께 본다.
+- **`Staggered` 를 받을 주체.** 지금은 상주 루프 GA 가 받는다(`AstralGA_Enemy_TelegraphAttack.cpp:29`). 단발 GA 는 끝나면 사라지므로, 이벤트로 발동하는 경직 GA 와 트리 쪽 대기(§4)가 필요하다.
+- **피격 반응 규칙.** 피격 반응 코드가 없다. 맞을 때마다 경직하면 4인이 때리는 동안 적이 공격하지 못해 수호병의 '방어 연습' 역할이 사라진다. 경직 내성 규칙을 정한다(구조는 여기서, 수치는 기획 · 잠정).
+- **'약점 노출' 의 실체(기획 · 잠정).** 일반 몬스터에는 Break 게이지가 없다. 최소안은 경직 중 `IncomingDamageMultiplier` 를 올리는 GE 다 — 이미 예약된 노브다.
+- **적 회전.** `ApplyDamageSweep` 은 액터 전방 기준이다(`AstralCombatStatics.cpp:115`). 예고 중 타깃을 따라 돌다가 판정 전 어느 시점에 고정하는지가 패링 · 회피 감각을 정한다.
+- **클라이언트가 보는 예고.** `State.Telegraphing` 은 서버의 루즈 태그이고(`AstralGA_Enemy_TelegraphAttack.cpp:63`) 표시는 DrawDebug 멀티캐스트다. 적 ASC 는 Minimal 모드다(`AstralCombatCharacter.cpp:17`). 계획서 M3 검증 리스크 1번(레이턴시 속 방어 타이밍)을 판정하려면 클라이언트가 보는 예고(몽타주 선딜 + GameplayCue)가 있어야 한다.
+- **회피 무적 프레임(기획 · 잠정).** 지금은 없다. 적 공격이 처음 생기는 시점이라 위치 이탈만으로 갈지 여기서 정한다. 계획서 M7 의 '완벽 회피 보너스' 는 판정 지점을 전제한다.
+- **더미의 `bTelegraphAttackEnabled`** 동작을 어떻게 유지할지(§1-8).
 
 ## 4. StateTree 연결 노드
 
+> 미착수. 아래는 설계가 아니라 **설계 때 정할 것** 이다(2026-11-11 검토, 전부 [소스]).
+
+- **타깃 주입은 두 안을 비교한다.** Phase2Report §6 의 4번은 커스텀 Evaluator 또는 Task 출력을 말했다. 다른 길이 하나 더 있다 — AI 스키마의 `AIControllerClass`(`StateTreeAIComponentSchema.h:37`)를 `AAstralEnemyController` 로 두면 컨트롤러의 프로퍼티를 `MoveTo.TargetActor` 에 직접 묶을 수 있다. 위협 컴포넌트가 타깃이 바뀔 때만 그 값을 갱신하면 매 틱 도는 노드 없이 단일 원천이 된다. 지침서 D-6 이 이미 '`AllowPrivateAccess` 또는 Evaluator 출력' 두 길을 열어 뒀다. 묶인 값이 실행 중인 `MoveTo` 에 언제 다시 복사되는지는 확인하지 않았다.
+- **GA 실행 Task.** 태그로 활성화 → 종료 대기. `ExitState` 에서 취소하고, 사망 때는 이미 취소돼 있으므로 몇 번 불려도 같아야 한다(§1-8).
+- **경직 대기.** 공격 GA 가 취소로 끝났을 때 트리가 경직이 풀릴 때까지 기다리는 수단(태그 조건 또는 이벤트 전환).
+
 ## 5. `ST_Enemy_Melee` 구성
 
-## 6. 스폰 · 콘텐츠 (적 PawnData · 메시 · 애니)
+> 미착수. 설계 때 Phase2Report §6 의 5 · 6 · 7번(`MoveTo` 실패 전환 · `AcceptableRadius` 와 공격 거리 · `Get Actor Location` 입력 확인)과 §1-8 의 '트리에 사망 상태를 두지 않는다' 를 그대로 받는다. 단위 A 는 타깃 없음 → 추격 → 공격 → 회복의 최소 트리다.
+
+## 6. 스폰 · 콘텐츠 (적 PawnData · 메시 · 애니 · 스폰/디스폰 인터페이스)
+
+> 미착수. 아래는 설계가 아니라 **설계 때 정할 것** 이다(2026-11-11 검토).
+
+- **메시 · 스켈레톤 선택만 단위 C 앞으로 당긴다**(§0-2).
+- **AI 활용 산출물을 남긴다.** 트리는 `state-tree-mcp` 로 저작하고 시나리오로 판정, 적 애니는 생성 · 애님 그래프 도구로 만든다. 무엇을 도구로 만들었고 어떻게 검증했는지를 이 절의 결과로 기록한다([game-plan 부록 D](game-plan.md#부록-d-2026-11-11-착수-전-검토-메모) 2번).
+- §1 이 넘긴 것: `AutoPossessAI` · `AIControllerClass` · `GA_Death` 포함 AbilitySet, `SpawnDefaultController` 안전망, PawnData · 부여 지점(§1-5), `LifeSpan` 교체와 `DestroyAfterDeathDelay = 0`, 사망 중 폰 재빙의 금지(§1-3).
 
 ## 7. 네트워크 종료 조건 (3단계 테스트 · `IsPartyLeader`)
+
+> 미착수. 아래는 설계가 아니라 **설계 때 정할 것** 이다(2026-11-11 검토, 전부 [소스]).
+
+- **방장 판정은 선행 단위로 당겼다**(§0-2 · §0-3). 판정을 바꿀 때 `ServerSelectRaid` 의 맵 이름 무검증을 함께 막는다(game-plan 부록 B).
+- `ServerTravel` 주소에 `?listen` 이 고정돼 있다(`AstralPlayerController.cpp:204` · `:216`). Dedicated 에서 문제가 되는지는 확인하지 않았다.
+- **3단계는 단위마다 돌린다.** 이 절에 남는 것은 M3 종료 조건으로서의 전체 통과와, §1-7 에서 돌리지 않은 것(지연 스폰 · 신호 전 제거 · 트리 틱 안의 사망 · Development 구성 · 클라이언트 2개 이상)이다.
+
+### 7-1. 선행 단위 — Dedicated 에서 레이드 시작
+
+상태: **구현 · 자동 검증 완료(2026-11-11) · 미커밋. P1 ~ P6 [실측] 통과 — P2 ~ P5 는 [§7-2](#7-2-네트워크-단계-자동-시험-p2--p5) 의 자동 시험으로 돌렸다. 남은 것 = P7(전투 조작감, 사용자).** 아래 '결정' · '근거' 는 설계 때 [소스] 로 쓴 그대로 두었고, 실행으로 확인된 것은 §7-2 의 결과에 적었다. 구현 결과는 이 절의 [구현 결과](#구현-결과-2026-11-11).
+
+#### 결론
+
+**방장은 저장하지 않고 계산한다 — 참가 중인 플레이어 가운데 `PlayerId` 가 가장 작은 사람이다.** 가장 먼저 들어온 사람이라는 뜻이고, 리슨 서버에서는 호스트다. 넷 모드로 갈리는 코드가 없다.
+
+| 질문 | 결정 |
+| :--- | :--- |
+| 방장이 누구인가 | 봇 · 관전자를 뺀 `PlayerArray` 에서 `PlayerId` 최소. 새 복제 프로퍼티 0 |
+| 어디서 계산하는가 | `AAstralGameState::GetPartyLeader()`. 산술은 순수 함수로 떼어 자동 시험한다 |
+| 권한 판정 | `AAstralPlayerController::IsPartyLeader()` 의 구현만 바꾼다. 호출처 3곳(`ServerSelectRaid` · `ServerStartRaid` · `ServerReturnToHub`)은 그대로다 |
+| 방장이 나가면 | 다음으로 작은 `PlayerId` 가 방장이 된다. 인계 코드 없음 |
+| 맵 이동 뒤 | 시임리스 이동이 `PlayerId` 를 옮기므로 유지된다 |
+| 맵 이름 검증 | `AAstralGameMode` 에 허용 목록을 두고 `ServerSelectRaid` 가 정확히 일치하는 이름만 받는다 |
+| `?listen` | 그대로 둔다 |
+
+#### 결정
+
+**① 방장 = `PlayerId` 최소.**
+
+- `PlayerId` 는 로그인 때 서버가 프로세스 단위 증가 카운터로 매긴다(`GameModeBase.cpp:798` → `GameSession.cpp:276` · `:258`). 리슨 호스트도 같은 경로로 가장 먼저 받는다 — 지금의 '서버에서 로컬인 PC' 와 결과가 같다.
+- 시임리스 이동은 컨트롤러와 PlayerState 를 새로 만들지만 `CopyProperties` 가 `PlayerId` 를 옮긴다(`GameModeBase.cpp:615` ~ `:620` · `PlayerState.cpp:117`). 프로젝트의 `CopyProperties` 오버라이드는 `Super` 를 먼저 부른다(`AstralPlayerState.cpp:105`).
+- `PlayerId` 는 엔진이 이미 복제하므로 클라이언트도 같은 계산을 할 수 있다. 판정 권한은 서버 RPC 안에만 있고, 클라이언트의 값은 표시용이다(계획서 'UI 는 상태를 요청 · 표시만').
+
+**② 계산 위치.** `AAstralGameState` 에 `GetPartyLeader() const` 하나를 둔다. `PlayerArray` 를 이미 갖고 있고 허브 · 레이드 양쪽의 베이스다. 후보 수집(봇 · 관전자 제외)은 여기서 하고, '최소 ID 고르기' 는 월드 없는 순수 함수(`AstralParty::SelectLeaderIndex`)로 뗀다 — `AstralTargeting` 과 같은 관용구다.
+
+**③ `IsPartyLeader()`.** `GameState->GetPartyLeader() == PlayerState` 로 바꾼다. `HasAuthority() && IsLocalController()` 를 없앤다. 헤더의 'TODO: 데디 전환 시 교체 지점' 이 이 자리다.
+
+**④ 맵 이름 검증.** `AAstralGameMode` 에 `RaidMapNames`(기본값 `{ "RaidMap" }`)와 `IsRaidMapAllowed()` 를 둔다. 이미 있는 `HubMapName` 과 같은 자리 · 같은 모양이다. `ServerSelectRaid` 는 방장 확인 뒤 이 목록과 정확히 일치하지 않으면 거부한다. 지금은 클라이언트가 보낸 문자열이 그대로 `ServerTravel` 주소가 된다(`AstralPlayerController.cpp:166` → `:204`) — 임의 맵이나 `?` 옵션을 실을 수 있다.
+
+**⑤ `?listen` 은 그대로 둔다.** Dedicated 는 옵션이 없어도 리슨한다(`UnrealEngine.cpp:16182` 의 `!GIsClient`). 반대로 한 프로세스 PIE 의 서버 월드는 에디터 프로세스라 `GIsClient` 가 참이어서 이 옵션이 있어야 이동 뒤에도 리슨한다. 떼면 1단계가 깨질 수 있다.
+
+**⑥ 눈으로 볼 수단.** 디버그 위젯의 파티 목록에 방장 표시를 한 줄 더하고(`AstralDebugWidget.cpp:127`), 방장 거부 로그에 현재 방장 이름을 싣는다.
+
+#### 대안과 기각 이유
+
+| 대안 | 기각 이유 |
+| :--- | :--- |
+| GameState 에 방장 포인터를 복제하고 GameMode 가 로그인 · 로그아웃 때 갱신 | 상태가 하나 늘고 세 곳(로그인 · 로그아웃 · 시임리스 도착)에서 맞춰야 한다. GameState 는 맵마다 다시 만들어져 이월 수단이 또 필요하다 |
+| PlayerState 에 `bPartyLeader` 플래그 + `CopyProperties` 이월 | '한 명만 참' 이 여러 액터에 흩어진다. 방장 이탈 때 인계 코드가 필요하다 |
+| `UAstralPartySubsystem` 에 방장의 UniqueNetId 저장 | PIE · Null OSS 에서 UniqueNetId 가 무효일 수 있다(`AstralPartySubsystem.h:21` 주석). 클라이언트는 이 값을 모른다 |
+| Dedicated 만 분기(`IsRunningDedicatedServer` 면 첫 플레이어) | 넷 모드 분기가 남는다. 계획서가 피하라고 한 '리슨에서만 우연히 맞는 처리' 를 하나 더 만드는 셈이다 |
+| 방장을 없애고 전원 준비 때 자동 시작 | 기획(방장이 퀘스트를 고른다)을 구현 사정으로 바꾸는 일이다. 기획이 바뀌면 그때 `IsPartyLeader` 한 곳만 고치면 된다 |
+| 맵 검증을 퀘스트 DataAsset(`FPrimaryAssetId`)로 | `ServerSetLoadout` 과 같은 관용구라 모양은 좋다. 다만 M6 의 퀘스트 구조를 지금 정하게 된다 |
+| 맵 목록을 `UAstralGameData` 에 | 전역 단일 참조만 두는 곳이고(`AstralGameData.h:26`), M6 에서 어차피 바뀐다 |
+| `?` 문자만 거르기 | 옵션 주입은 막지만 임의 맵 이동은 못 막는다 |
+
+#### 근거
+
+- 로그인: `GameModeBase.cpp:798` · `GameSession.cpp:252` ~ `:276`. 시임리스: `GameModeBase.cpp:607` ~ `:642` · `PlayerState.cpp:117`.
+- 리슨 조건: `UnrealEngine.cpp:16182`.
+- 현재 판정과 호출처: `AstralPlayerController.cpp:110` · `:159` · `:185` · `:209`.
+- 게임모드 BP 3개는 `HubMapName` 을 덮어쓰지 않고, 허브 · 레이드가 각각 `BP_AstralGameState_Hub` · `_Raid` 를 지정한다(애셋 문자열 검색). 두 BP 의 부모 클래스는 확인하지 않았다.
+
+#### 영향
+
+| 대상 | 변경 | 상속 · 공용 영향 |
+| :--- | :--- | :--- |
+| `AAstralGameState` | const 함수 1 | `AAstralHubGameState` 와 GameState BP 2개는 그대로 물려받는다 |
+| 새 파일 1쌍(순수 함수) + 시험 1 | 추가 | 없음 |
+| `AAstralPlayerController` | `IsPartyLeader` 구현, `ServerSelectRaid` 에 검증 한 단락, 거부 로그 | RPC 서명 불변 |
+| `AAstralGameMode` | 프로퍼티 1 · 함수 1 | 게임모드 BP 3개가 기본값을 물려받는다. 애셋 수정 없음 |
+| `UAstralDebugWidget` | 방장 표시 한 줄 | 없음 |
+| 복제 | **새 프로퍼티 0** | |
+
+- **리슨 서버의 동작은 바뀌지 않는다** — 호스트가 여전히 방장이다. 달라지는 것은 Dedicated 에서 방장이 생긴다는 것뿐이다.
+- `SelectRaid CombatTestMap` 처럼 `RaidMap` 이 아닌 맵을 고르던 사용은 거부된다. 필요하면 게임모드 BP 의 목록에 더한다.
+
+#### 미해결
+
+- **하드 트래블이면 방장이 바뀔 수 있다.** 재접속 순서대로 `PlayerId` 를 다시 받는다. 지금은 `bUseSeamlessTravel = true` 라 이 경로가 없다.
+- **나갔다 돌아온 방장은 방장을 되찾지 못한다.** 새 `PlayerId` 를 받기 때문이다. 수동 위임도 없다.
+- **`PlayerId` 가 아직 0 인 순간.** PlayerState 는 `PlayerId` 를 받기 전에 `PlayerArray` 에 들어간다. 로그인 · 시임리스 교체 모두 한 호출 안에서 값이 채워지므로 그 사이에 RPC 가 끼지 않는다고 판단했다. 실행으로 확인할 것이다.
+- **전환 맵(TransitionMap)이 설정에 없다.** `AstralGameMode.cpp:19` 주석은 지정이 필요하다고 적는다. Dedicated 시임리스 이동에서 문제가 되는지는 확인하지 않았다.
+- **지나가다 본 것.** `AstralGameMode.cpp:113` 의 주석 'seamless 경로는 HandleStartingNewPlayer 를 타지 않으므로' 는 엔진 소스와 다르다 — `HandleSeamlessTravelPlayer` 가 끝에서 부른다(`GameModeBase.cpp:640`). 뒤따르는 보강은 가드 때문에 아무 일도 하지 않는다. 동작에는 영향이 없고, 이번에 주석만 고칠지는 사용자 판단이다.
+
+#### 검증 계획
+
+| # | 확인할 것 | 방법 | 판정 주체 | 결과 (2026-11-11) |
+| :--- | :--- | :--- | :--- | :--- |
+| P1 | 최소 ID 선택 · 봇/관전자 제외 · 빈 목록 · 방장 이탈 뒤 다음 사람 | `AstralBreak.Party.SelectLeader` 자동 시험 | 자동 | **[실측] 통과** (DebugGame 에디터). 동률 · 재입장 · 비방장 이탈도 같은 시험에 넣었다 |
+| P2 | 1단계(리슨 · 한 프로세스): 호스트가 방장, 비방장 `SelectRaid` 거부, 허용 밖 맵 거부, `SetReady` → `StartRaid` → 도착 뒤 방장 유지 → `ReturnToHub` | PIE + 콘솔 명령 + 디버그 위젯 · 로그 | 사용자 | **[실측] 통과** — 자동 시험 `ListenPIE`(§7-2). 디버그 위젯 표시는 눈으로 보지 않았다 |
+| P3 | 2단계(리슨 · 별도 프로세스): P2 와 같음 | 같음 | 사용자 | **[실측] 통과** — `run_party_flow.py listen`(§7-2) |
+| P4 | 3단계(Dedicated): 먼저 들어온 클라이언트가 방장, P2 의 흐름 전체, 서버 로그에 `NM_DedicatedServer` | 같음 | 사용자 | **[실측] 통과** — 한 프로세스 `DedicatedPIE` + 실제 서버 프로세스 `run_party_flow.py dedicated`(§7-2). 넷 모드는 시험이 직접 확인한다(서버 `NM_DedicatedServer` · 로컬 컨트롤러 없음) |
+| P5 | Dedicated 에서 방장 클라이언트가 나가면 다음 사람이 방장 | P4 중 방장 창을 닫는다 | 사용자 | **[실측] 통과** — `LeaderLeavesPIE`(접속 끊기) + `run_party_flow.py dedicated --scenario leader_leaves`(프로세스 종료)(§7-2) |
+| P6 | 회귀 | `AstralBreak.` 전체 + Development · DebugGame 빌드 | 자동 | **[실측]** `AstralBreak.` 32/32 통과(새 시험 포함) · `AstralBreakEditor Win64` Development · DebugGame 둘 다 `Result: Succeeded`. 플러그인 2 파일을 건드려 `AnimGraphMcp.StateTree` 20/20 · `.Runner` 4/4 · `.Smoke` 26/26 도 함께 돌렸다(아래 '설계 밖 변경') |
+| P7 | M2 히어로 전투를 3단계에서 한 번 훑는다(공격 · 회피 · 가드 · 패링 · 전환 · 사격 · 락온) | P4 로 레이드 맵에 들어간 김에 | 사용자. 문제는 목록만 적고 수정은 따로 판단한다 | 미실행 |
+
+> 2026-11-11 뒤늦게 덧붙임: 아래 문단은 설계 때의 판단이다. 사용자 지시로 같은 날 수단을 만들었다 — [§7-2](#7-2-네트워크-단계-자동-시험-p2--p5).
+
+**P2 ~ P5 를 자동으로 돌릴 수단이 지금은 없다.** 시나리오 러너는 월드가 바뀌면 `world_lost` 로 끝낸다(Phase2Report §1). §0-2 가 '3단계를 단위마다' 로 정했으므로 반복할 수단이 필요해질 텐데, 이 단위에서는 수동으로 확인하고 도구 확장은 단위 A 설계 때 판단하는 것을 권한다.
+
+#### 구현 결과 (2026-11-11)
+
+**바뀐 것.** 설계 ① ~ ⑥ 그대로다. 새 복제 프로퍼티 0 · BP 애셋 수정 0 · RPC 서명 불변 · `?listen` 유지.
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `GameModes/AstralPartyStatics.h` · `.cpp` (새 파일) | `FAstralPartyMember`(PlayerId · 봇 · 관전자) + `AstralParty::SelectLeaderIndex` |
+| `GameModes/AstralGameState.h` · `.cpp` | `GetPartyLeader() const` — `PlayerArray` 수집 뒤 위 함수 호출 |
+| `Player/AstralPlayerController.h` · `.cpp` | `IsPartyLeader()` 교체, `ServerSelectRaid` 맵 검증, 거부 로그 3곳에 현재 방장 |
+| `GameModes/AstralGameMode.h` · `.cpp` | `RaidMapNames`(기본 `{ "RaidMap" }`) · `IsRaidMapAllowed()` |
+| `UI/Debug/AstralDebugWidget.cpp` | `[Party]` 에 `Leader: id N (ME)` 한 줄, 목록 행에 `*`(방장) · `>`(나) · `(id N)` |
+| `Tests/AstralPartyStaticsTests.cpp` (새 파일) | `AstralBreak.Party.SelectLeader` |
+
+**설계가 정하지 않아 구현하며 고른 것(작성자 판단).**
+
+- **관전자 = `IsOnlyASpectator()`.** `IsSpectator()` 는 일시 상태라, 이쪽을 쓰면 나중에 '죽으면 관전' 같은 것이 생길 때 방장이 넘어간다. 지금 프로젝트에는 관전 경로가 없어 둘의 결과는 같다 [소스].
+- **'정확히 일치' = 대소문자까지.** `FString ==` 는 대소문자를 무시하므로 `Equals(…, CaseSensitive)` 로 비교한다. `SelectRaid raidmap` 은 거부된다.
+- **`PlayerId` 동률은 배열 앞쪽.** 시임리스 교체 한 호출 안에서 옛 · 새 PlayerState 가 같은 ID 로 잠깐 겹친다(`GameModeBase.cpp:607` ~ `:642`) [소스].
+- **`ServerReturnToHub` 도 거부 로그를 남긴다.** 전에는 조용히 반환했다. 비방장 거부를 로그로 확인하려면 필요하다.
+- **로그 · 위젯에서 사람을 가리키는 키는 `PlayerId` 다.** PlayerState 액터 이름은 프로세스마다 달라 창끼리 맞춰 볼 수 없다. `PlayerId` 는 프로세스 단위 카운터라 PIE 를 다시 돌리면 256 부터 다시 시작하지 않는다(`GameSession.cpp:258`) — '256' 이 아니라 '가장 작은 값' 으로 읽는다.
+
+**수동 확인 때 볼 문장.** 서버 로그(`LogAstral`):
+
+- `ServerSelectRaid: 방장이 아님 — 거부 (<PC>, 현재 방장 = <PlayerState> (PlayerId N))` · `ServerStartRaid: …` · `ServerReturnToHub: …` 같은 꼴
+- `ServerSelectRaid: 허용 목록에 없는 맵 '<이름>' — 거부 (<PC>)`
+- 이동 때 `[GameMode] HandleSeamlessTravelPlayer: …` 가 사람 수만큼. `ProcessServerTravel: Seamless travel is disabled in PIE` 가 보이면 하드 트래블이라 '미해결' 첫 항목(방장이 바뀔 수 있음)에 해당한다 — `DefaultEngine.ini` 에 `net.AllowPIESeamlessTravel=true` 가 있어 나오지 않아야 한다 [소스]
+
+**설계 밖 변경 — 플러그인 유니티 빌드 이름 충돌 2건.** 선행 단위와 무관하지만 두 구성 빌드가 이것 때문에 `Result: Failed` 였다 [실측]. 커밋을 나눌지는 사용자 판단이다.
+
+- 원인: `27702fc` ~ `8b8a5fd` 에서 커밋된 플러그인 파일들이 git 작업 집합에서 빠지자 adaptive non-unity 의 제외 대상이 아니게 돼 `Module.AnimGraphMcpEditor.4.cpp` 로 합쳐졌다. ① `AnimMcpTools_StateTree.cpp` 와 `AnimMcpTools_Graph.cpp` 가 같은 익명 네임스페이스에 `OperationsDoc` 를 정의(C2374), ② `AnimMcpStateTreeTests.cpp` 의 전역 범위 `Step(…)` 호출 6곳이 `AnimMcpRuntimeTests.cpp` 의 익명 네임스페이스 `Step` 과 모호(C2668).
+- 수정(이름만, 동작 · 문자열 불변): `AnimMcpTools_StateTree.cpp` 의 `OperationsDoc` → `StateTreeOperationsDoc`(정의 1 · 사용 2), `AnimMcpStateTreeTests.cpp` 의 6곳을 `AnimMcpStateTreeTests::Step(…)` 으로 한정.
+- 확인 [실측]: 수정 뒤에는 두 파일이 다시 작업 집합에 들어가 따로 컴파일되므로, 평소 빌드만으로는 '커밋 뒤' 를 증명하지 못한다. `-DisableAdaptiveUnity` 로 Development 를 한 번 빌드해 수정한 파일까지 유니티로 합친 상태에서 `Result: Succeeded` 를 확인했다(선행 단위의 새 파일도 이때 유니티에 들어갔다). DebugGame 은 이 형태로 빌드하지 않았다.
+- **'깨끗한 main 도 같은 실패' 는 추론이다 [소스].** main 을 따로 체크아웃해 빌드하지 않았다. 근거는 실패한 유니티 파일에 이 단위의 파일이 하나도 없고, 충돌한 4 파일이 `HEAD` 와 같았다는 것이다.
+
+### 7-2. 네트워크 단계 자동 시험 (P2 ~ P5)
+
+상태: **설계 승인(2026-11-11, 사용자 — "둘 다 진행") · 구현 · 검증 완료 · 미커밋. 결과는 이 절 끝의 [결과](#결과-2026-11-11).** §7-1 의 'P2 ~ P5 를 자동으로 돌릴 수단이 없다' 를 이 절이 대신한다. 단위 A 때 판단하려던 '3단계 반복 수단' 을 선행 단위로 당긴 것이다.
+
+#### 결론
+
+| 구성 | 수단 | 덮는 것 |
+| :--- | :--- | :--- |
+| 한 프로세스(1단계 리슨 · Dedicated PIE) | 에디터 자동 시험 `AstralBreak.Net.PartyFlow.*` — 멀티 PIE 를 띄우고 각 클라이언트 컨트롤러로 실제 RPC 를 보낸다 | P2 · P4(한 프로세스) · P5 |
+| 별도 프로세스(2단계 리슨 · 실제 Dedicated) | 프로세스마다 Gauntlet 시험 컨트롤러 + 실행 스크립트 `Tools/net_test/run_party_flow.py` | P3 · P4(실제 서버 프로세스) · P5 |
+| 조작감 | 사용자 | P7 |
+
+#### 결정
+
+**① 한 프로세스는 자동 시험으로.** 한 프로세스 PIE 는 서버 · 클라이언트 월드가 모두 에디터 안에 있어 시험이 양쪽을 직접 본다. 요청은 클라이언트 월드의 컨트롤러에서 `Server*` RPC 를 부르므로 실제 넷 드라이버를 탄다. 거부는 '상태가 안 바뀜' 과 '거부 경고 로그가 정해진 횟수만큼 나옴'(`AddExpectedError`) 둘로 판정한다. 시임리스 이동은 '이동 뒤 `PlayerId` 집합이 그대로' 로 판정한다 — 하드 트래블이면 새 번호를 받는다(`GameSession.cpp:258`).
+
+**② 별도 프로세스는 프로세스마다 스스로 도는 컨트롤러로.** `-ExecCmds` 는 접속 · 이동 시점을 맞출 수 없어 쓰지 않는다. 엔진 Gauntlet 런타임 컨트롤러(`-gauntlet=`)는 맵이 바뀌어도 살아 있고 끝날 때 `**** TEST COMPLETE. EXIT CODE: N ****` 을 남긴다(`GauntletTestController.cpp:81`). 각 프로세스는 복제된 상태만 보고 역할(방장 · 비방장 · 서버)을 정한다. 프로세스 사이 순서는 `bIsReady` 로 맞춘다 — 비방장은 '거부당할 요청' 을 먼저 보낸 뒤 준비를 켜고, 방장은 전원 준비를 본 뒤 다음으로 간다. `bIsReady` 는 이동 때 넘어가지 않아(`AstralPlayerState.cpp:103`) 맵마다 다시 쓸 수 있다.
+
+**③ 판정은 표준 출력으로.** Windows 에서 종료 코드가 그대로 전달되는지 확인하지 않았다(`WindowsPlatformMisc.cpp:1366`). 실행 스크립트는 각 프로세스의 `ASTRAL_NETTEST RESULT PASS|FAIL` 줄과 서버 출력의 거부 로그 줄 수로 판정한다. 로그는 `Saved/Logs` 가 아니라 `-stdout -FullStdOutLogOutput` 로 받는다.
+
+**④ 코드는 전부 `AstralBreakEditor`(UncookedOnly)에 둔다.** 런타임 모듈은 건드리지 않는다. UncookedOnly 모듈은 에디터 실행 파일의 `-game` · `-server` 에서도 올라간다(`ModuleDescriptor.cpp:707`). 대가는 쿠킹된 빌드에서는 이 시험을 못 돈다는 것이다.
+
+#### 대안과 기각 이유
+
+| 대안 | 기각 이유 |
+| :--- | :--- |
+| 시나리오 러너(`run_state_tree_scenario`) 확장 | 월드가 바뀌면 끝나는 구조이고 StateTree 관측용이다. 파티 흐름은 프로젝트 고유 규칙이라 범용 도구에 넣을 것이 아니다 |
+| Gauntlet 전체(UAT `RunUnreal` + C# 노드) | 정석이지만 C# 자동화 프로젝트가 따로 필요하다. 지금은 런타임 컨트롤러만 쓰고, 같은 컨트롤러를 나중에 UAT 에 물릴 수 있게 둔다 |
+| 직접 만든 서브시스템(Gauntlet 없이) | 플러그인을 켜지 않아도 되지만 같은 것을 다시 만드는 일이다 |
+| 컨트롤러를 런타임 모듈에 | 게임 모듈이 시험 플러그인에 의존하게 된다 |
+| 프로세스 사이 순서를 시간으로 | 느린 기기에서 거짓 통과 · 거짓 실패가 난다 |
+
+#### 영향
+
+- `AstralBreak.uproject` 에 Gauntlet 플러그인(엔진 Beta)이 켜진다. `-gauntlet=` 인자가 없으면 컨트롤러를 만들지 않는다(`GauntletModule.cpp:184`).
+- `AstralBreakEditor` 가 `Gauntlet` 에 의존한다. 모듈 주석의 '애님 그래프 노드만' 은 '에디터 · 미쿠킹 전용 코드' 로 넓어진다.
+- `AstralBreak.` 필터로 전체를 돌리면 PIE 시험 3개가 함께 돈다(수십 초 추가).
+
+#### 미해결
+
+- 쿠킹된 Dedicated 서버 빌드는 범위 밖이다(④).
+- 2 ~ 4 프로세스를 같은 PC 에서 돌린다 — 지연 · 패킷 손실은 넣지 않는다.
+- 사람 수는 흐름 2명 · 방장 이탈 3명으로만 돌렸다. 4인은 `--players 4` 로 돌릴 수 있게만 해 두었다(실행하지 않았다).
+
+#### 결과 (2026-11-11)
+
+전부 **[실측]** 이다. 최종 빌드(Development · DebugGame 둘 다 `Result: Succeeded`, Development 는 `-DisableAdaptiveUnity` 로도 한 번) 뒤에 다시 돌린 값이다.
+
+| 구성 | 실행 | 결과 |
+| :--- | :--- | :--- |
+| 리슨 · 한 프로세스 (P2) | `AstralBreak.Net.PartyFlow.ListenPIE` | 통과 |
+| Dedicated · 한 프로세스 (P4) | `AstralBreak.Net.PartyFlow.DedicatedPIE` | 통과 |
+| Dedicated · 한 프로세스 · 방장 이탈 (P5) | `AstralBreak.Net.PartyFlow.LeaderLeavesPIE` (3명) | 통과 |
+| 리슨 · 별도 프로세스 (P3) | `run_party_flow.py listen` (호스트 + 클라이언트 1) | 통과 — 검사 9/9, 45초 |
+| Dedicated · 별도 프로세스 (P4) | `run_party_flow.py dedicated` (서버 + 클라이언트 2), DebugGame · Development 각 1회 | 통과 — 검사 10/10, 46 ~ 49초 |
+| Dedicated · 별도 프로세스 · 방장 이탈 (P5) | `run_party_flow.py dedicated --scenario leader_leaves` (서버 + 클라이언트 3) | 통과 — 검사 6/6, 43초 |
+| 회귀 | `AstralBreak.` 전체 | 35/35 (PIE 시험 3개 포함 22초) |
+
+흐름 시험 하나가 확인하는 것: 방장 = 최소 `PlayerId`(리슨에서는 호스트) · 클라이언트가 복제된 번호로 같은 방장을 계산 · 비방장의 선택 · 시작 · 복귀 거부 · 허용 밖 맵 2종 거부(임의 맵 · `?game=` 옵션 주입) · 준비 전 시작 거부 · 허브 → 레이드 → 허브 이동 뒤 번호와 방장 유지 · 서버 넷 모드 유지.
+
+**시험이 실패할 수 있는가 — 대조 실험 3건.** 통과만 본 시험은 믿을 수 없어, 일부러 깨뜨려 떨어지는지 봤다(확인 뒤 원복).
+
+| 깨뜨린 것 | 실행 | 결과 |
+| :--- | :--- | :--- |
+| `IsPartyLeader()` 를 수정 전(`HasAuthority() && IsLocalController()`)으로 | `run_party_flow.py dedicated` | **실패** — 방장의 맵 선택이 4번 모두 '방장이 아님' 으로 거부, 이동 0회. §0-3 이 [소스] 로 적은 'Dedicated 에서 레이드를 시작할 수 없다' 의 재현이다 |
+| 같음 | `DedicatedPIE` / `ListenPIE` | Dedicated **실패**(선택이 반영되지 않아 제한 시간 초과) / 리슨 통과 — 수정 전 코드가 리슨에서만 맞았다는 것과 일치 |
+| 시험의 거부 로그 기대 횟수를 1 → 2 로 | `ListenPIE` | **실패** — '2번 기대, 1번 발견'. 횟수 검사가 실제로 적용된다 |
+
+**이 시험으로 §7-1 에서 닫힌 것.**
+
+- **⑤ `?listen` 유지:** 실제 Dedicated 프로세스와 리슨 호스트 프로세스 모두 두 번의 이동 뒤에도 클라이언트 접속이 유지됐다. `?listen` 을 뗀 경우는 돌리지 않았다 — '떼면 1단계가 깨진다' 는 여전히 [소스] 다.
+- **미해결 '전환 맵이 설정에 없다':** 전환 맵 없이 실제 Dedicated 프로세스에서 시임리스 이동이 됐다(서버가 `HandleSeamlessTravelPlayer` 를 사람 수 x 2 번 처리, 번호 유지).
+- **방장은 접속 순서로 정해진다:** 방장 이탈 실행에서 마지막에 띄운 클라이언트가 먼저 접속해 방장이 됐다. 프로세스를 띄운 순서와는 무관하다.
+
+**다시 돌리는 법.** 에디터를 내리고(프로세스 3 ~ 4개가 뜬다) 저장소 루트에서:
+
+```
+Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/net_test/run_party_flow.py listen
+Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/net_test/run_party_flow.py dedicated
+Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/net_test/run_party_flow.py dedicated --scenario leader_leaves
+```
+
+프로세스별 로그와 `result.json` 은 `Tools/mcp/results/net_test/<시각>_<구성>_<시나리오>/`(git 제외)에 남는다. 한 프로세스 쪽은 에디터에서 `AstralBreak.Net` 필터로 돈다.
+
+**바뀐 것.** 런타임 모듈 변경 0.
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `Source/AstralBreakEditor/Private/Tests/AstralPartyFlowPieTests.cpp` (새 파일) | 멀티 PIE 시험 3개 |
+| `Source/AstralBreakEditor/Private/Tests/AstralPartyFlowTestController.h` · `.cpp` (새 파일) | 프로세스별 Gauntlet 컨트롤러 |
+| `Tools/net_test/run_party_flow.py` (새 파일) | 서버 + 클라이언트 실행 · 판정 |
+| `Source/AstralBreakEditor/AstralBreakEditor.Build.cs` | `Gauntlet` 의존, 모듈 주석 |
+| `AstralBreak.uproject` | Gauntlet 플러그인 켬 |
+
+**돌리지 않은 것.** 플러그인 회귀 중 `AnimGraphMcp.StateTree` · `.Smoke` 는 이 절 작업 뒤에 다시 돌리지 않았다(플러그인 코드는 §7-1 의 이름 수정 뒤 그대로이고, `.Runner` 4/4 만 다시 돌렸다). 4인 구성 · 쿠킹 빌드 · 지연이 있는 망.

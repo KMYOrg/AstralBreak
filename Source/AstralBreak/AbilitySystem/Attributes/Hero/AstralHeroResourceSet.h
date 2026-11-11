@@ -34,6 +34,8 @@ public:
 
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, GuardDamageMultiplier);
 
+    ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, Hostility);
+
     mutable FAstralAttributeEvent OnUltFilled;
 
 protected:
@@ -111,6 +113,13 @@ private:
     /** 가드 중 받는 데미지 배율 (0~1, 정면 가드 성공 시에만 적용). M7 "가드 강화"가 이 값을 낮춤 */
     UPROPERTY(BlueprintReadOnly, Category = "Astral|Defense", ReplicatedUsing = OnRep_GuardDamageMultiplier, meta = (AllowPrivateAccess = true))
     FGameplayAttributeData GuardDamageMultiplier;
+
+    /**
+     * 적대심 — 적에게 노려지기 쉬움 (기본 100, 0 이면 뽑히지 않는다). 도발 · 탱커는 이 값을 올리는 GE 로 얹는 예약 노브.
+     * 비복제 — 읽는 쪽이 서버의 적(UAstralThreatComponent 의 가중 추첨)뿐이다
+     */
+    UPROPERTY(BlueprintReadOnly, Category = "Astral|Threat", meta = (AllowPrivateAccess = true))
+    FGameplayAttributeData Hostility;
 
     // 서버 전용 — OnUltFilled 1회 발사 게이트
     bool bUltFilled;

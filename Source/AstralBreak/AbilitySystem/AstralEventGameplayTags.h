@@ -37,4 +37,7 @@ namespace AstralGameplayTags
 
 	// 쫓던 타깃이 죽거나 사라졌다 — AAstralEnemyController 가 타깃을 비운 뒤 보낸다
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(AIEvent_TargetLost);
+
+	// 현재 타깃이 아닌 후보에게 맞았다 — AAstralEnemyController 가 '다시 뽑기' 를 표시한 뒤 보낸다. Chase 만 받아 Acquire 로 간다
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(AIEvent_Retarget);
 }

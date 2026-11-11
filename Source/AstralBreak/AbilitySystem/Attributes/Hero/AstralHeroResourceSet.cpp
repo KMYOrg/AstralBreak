@@ -22,6 +22,8 @@ UAstralHeroResourceSet::UAstralHeroResourceSet()
     InitMarkGainMultiplier(1.f);
 
     InitGuardDamageMultiplier(0.5f);
+
+    InitHostility(100.f);
 }
 
 void UAstralHeroResourceSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -199,7 +201,8 @@ void UAstralHeroResourceSet::ClampAttribute(const FGameplayAttribute& Attribute,
           || Attribute == GetStaminaRecoveryMultiplierAttribute()
           || Attribute == GetUltGainMultiplierAttribute()
           || Attribute == GetBreakContributionMultiplierAttribute()
-          || Attribute == GetMarkGainMultiplierAttribute())
+          || Attribute == GetMarkGainMultiplierAttribute()
+          || Attribute == GetHostilityAttribute())
     {
         NewValue = FMath::Max(NewValue, 0.f);
     }

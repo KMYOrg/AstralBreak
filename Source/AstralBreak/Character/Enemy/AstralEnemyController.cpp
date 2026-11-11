@@ -1,7 +1,11 @@
 #include "AstralEnemyController.h"
 
-#include "AI/AstralEnemyTargeting.h"
+#include "AI/AstralThreatComponent.h"
 #include "AbilitySystem/AstralEventGameplayTags.h"
+#include "AbilitySystem/Attributes/AstralHealthSet.h"
+#include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
 #include "AstralCombatCharacter.h"
 #include "Character/Components/AstralHealthComponent.h"
 #include "Components/StateTreeAIComponent.h"
@@ -9,11 +13,34 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 
+namespace
+{
+	/** 타깃 후보가 될 수 있는 폰 — 플레이어의 폰. 봇(AI 가 가진 PlayerState) · 적 · 자기 자신은 아니다 */
+	bool IsEnemyTargetCandidatePawn(const APawn* Pawn)
+	{
+		const APlayerState* PlayerState = Pawn ? Pawn->GetPlayerState() : nullptr;
+		return PlayerState && !PlayerState->IsABot();
+	}
+
+	/** 후보의 적대심 — 히어로 자원 세트가 없으면 기본값 (AstralCombatStatics 가 GuardDamageMultiplier 를 읽는 방식과 같다) */
+	float ReadEnemyTargetHostility(const APawn* Pawn)
+	{
+		const UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn);
+		if (ASC && ASC->HasAttributeSetForAttribute(UAstralHeroResourceSet::GetHostilityAttribute()))
+		{
+			return ASC->GetNumericAttribute(UAstralHeroResourceSet::GetHostilityAttribute());
+		}
+		return AstralEnemyTargeting::DefaultHostility;
+	}
+}
+
 AAstralEnemyController::AAstralEnemyController(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 	StateTreeComponent = CreateDefaultSubobject<UStateTreeAIComponent>(TEXT("StateTreeComponent"));
 	StateTreeComponent->SetStartLogicAutomatically(false);
+
+	ThreatComponent = CreateDefaultSubobject<UAstralThreatComponent>(TEXT("ThreatComponent"));
 
 	// OnPossess 는 APawn::PostInitializeComponents 안에서 돌아 어빌리티 부여보다 앞선다 — 시작은 폰의 준비 완료 신호로 한다
 	bStartAILogicOnPossess = false;
@@ -28,6 +55,8 @@ void AAstralEnemyController::OnPossess(APawn* InPawn)
 	{
 		return;
 	}
+
+	BindPawnDamaged(InPawn);
 
 	AAstralCombatCharacter* CombatCharacter = Cast<AAstralCombatCharacter>(InPawn);
 	if (!CombatCharacter)
@@ -48,6 +77,9 @@ void AAstralEnemyController::OnUnPossess()
 
 	// 트리가 멈춘 뒤라 이벤트 없이 구독만 푼다
 	SetCurrentTarget(nullptr);
+
+	UnbindPawnDamaged();
+	ThreatComponent->Reset();
 
 	if (AAstralCombatCharacter* CombatCharacter = Cast<AAstralCombatCharacter>(GetPawn()))
 	{
@@ -70,29 +102,71 @@ bool AAstralEnemyController::AcquireTarget()
 	}
 
 	// 수집 — 플레이어의 폰. 봇(AI 가 가진 PlayerState)은 뺀다. 사망 판정은 구독하는 것과 같은 원천(HealthComponent)으로 한다
-	TArray<APawn*> Pawns;
-	TArray<FAstralEnemyTargetCandidate> Candidates;
+	TArray<FAstralThreatCandidateInfo> Candidates;
 	for (const APlayerState* CandidateState : GameState->PlayerArray)
 	{
-		APawn* PlayerPawn = (CandidateState && !CandidateState->IsABot()) ? CandidateState->GetPawn() : nullptr;
-		if (!PlayerPawn)
+		APawn* PlayerPawn = CandidateState ? CandidateState->GetPawn() : nullptr;
+		if (!IsEnemyTargetCandidatePawn(PlayerPawn))
 		{
 			continue;
 		}
 
 		const UAstralHealthComponent* HealthComponent = UAstralHealthComponent::FindHealthComponent(PlayerPawn);
 
-		FAstralEnemyTargetCandidate Candidate;
+		FAstralThreatCandidateInfo& Candidate = Candidates.AddDefaulted_GetRef();
+		Candidate.Pawn = PlayerPawn;
 		Candidate.Location = PlayerPawn->GetActorLocation();
 		Candidate.bDeadOrDying = HealthComponent && HealthComponent->IsDeadOrDying();
-
-		Pawns.Add(PlayerPawn);
-		Candidates.Add(Candidate);
+		Candidate.Hostility = ReadEnemyTargetHostility(PlayerPawn);
 	}
 
-	const int32 TargetIndex = AstralEnemyTargeting::SelectNearestIndex(MyPawn->GetActorLocation(), Candidates);
-	SetCurrentTarget(Pawns.IsValidIndex(TargetIndex) ? Pawns[TargetIndex] : nullptr);
+	// 누구를 고를지는 위협 컴포넌트의 규칙이다 — 기록 없음 → 가장 가까운 후보 / 유지 시간 안 → 그대로 / 아니면 가중 추첨
+	const int32 TargetIndex = ThreatComponent->SelectTarget(MyPawn->GetActorLocation(), Candidates, CurrentTarget);
+	SetCurrentTarget(Candidates.IsValidIndex(TargetIndex) ? Candidates[TargetIndex].Pawn : nullptr);
 	return CurrentTarget != nullptr;
+}
+
+void AAstralEnemyController::BindPawnDamaged(const APawn* InPawn)
+{
+	UnbindPawnDamaged();
+
+	const UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(InPawn);
+	const UAstralHealthSet* HealthSet = ASC ? ASC->GetSet<UAstralHealthSet>() : nullptr;
+	if (!HealthSet)
+	{
+		return;
+	}
+
+	// 서버에서만 불린다 (PostGameplayEffectExecute) — 컨트롤러도 서버에만 있다
+	PawnDamagedHandle = HealthSet->OnDamaged.AddUObject(this, &ThisClass::HandlePawnDamaged);
+	BoundHealthSet = HealthSet;
+}
+
+void AAstralEnemyController::UnbindPawnDamaged()
+{
+	if (const UAstralHealthSet* HealthSet = BoundHealthSet.Get())
+	{
+		HealthSet->OnDamaged.Remove(PawnDamagedHandle);
+	}
+	BoundHealthSet.Reset();
+	PawnDamagedHandle.Reset();
+}
+
+void AAstralEnemyController::HandlePawnDamaged(AActor* EffectInstigator, AActor* EffectCauser, const FGameplayEffectSpec* EffectSpec, float Damage, float OldValue, float NewValue)
+{
+	// 가해자 = 이펙트 컨텍스트의 Instigator. 프로젝트의 피해 경로(UAstralCombatStatics::ApplyAttackHit)는 여기에 폰을 싣는다.
+	// 자기 자신(DamageSelf) · 다른 적은 위협이 아니다
+	const APawn* Attacker = Cast<APawn>(EffectInstigator);
+	if (!IsEnemyTargetCandidatePawn(Attacker))
+	{
+		return;
+	}
+
+	// 다시 고르는 것은 트리의 몫이다 — Chase 의 Retarget 전환이 Acquire 로 보낸다. 공격 중이면 이벤트는 버려지고 표시만 남아 그 사이클 뒤에 반영된다
+	if (ThreatComponent->RecordDamage(Attacker, Damage, CurrentTarget) && StateTreeComponent->IsRunning())
+	{
+		StateTreeComponent->SendStateTreeEvent(AstralGameplayTags::AIEvent_Retarget);
+	}
 }
 
 void AAstralEnemyController::SetCurrentTarget(AActor* NewTarget)
@@ -172,4 +246,8 @@ void AAstralEnemyController::HandlePawnDeathStarted(AActor* OwningActor)
 
 	// 죽은 적은 타깃을 쥐지 않는다 (구독 정리)
 	SetCurrentTarget(nullptr);
+
+	// 위협 기록도 같이 비운다
+	UnbindPawnDamaged();
+	ThreatComponent->Reset();
 }

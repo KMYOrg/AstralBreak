@@ -28,5 +28,6 @@ namespace AstralGameplayTags
 	 */
 
 	UE_DEFINE_GAMEPLAY_TAG(AIEvent_TargetLost, "AI.Event.TargetLost");
+	UE_DEFINE_GAMEPLAY_TAG(AIEvent_Retarget, "AI.Event.Retarget");
 
 }

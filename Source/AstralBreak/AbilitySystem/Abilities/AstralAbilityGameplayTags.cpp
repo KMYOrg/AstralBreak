@@ -18,6 +18,8 @@ namespace AstralGameplayTags
 
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Defense, "Ability.Defense");
 
+	UE_DEFINE_GAMEPLAY_TAG(Ability_Enemy_Attack_Melee, "Ability.Enemy.Attack.Melee");
+
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Behavior_SurvivesDeath, "Ability.Behavior.SurvivesDeath");
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Behavior_SurvivesDefenseCancel, "Ability.Behavior.SurvivesDefenseCancel");
 

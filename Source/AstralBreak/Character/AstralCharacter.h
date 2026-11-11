@@ -58,6 +58,14 @@ public:
 	UFUNCTION(Exec)
 	void CancelAttack();
 
+	/**
+	 * 디버그 — 콘솔에서 `SpawnEnemy` 또는 `SpawnEnemy BP_Enemy_Melee 600`. 내 앞 Distance(cm, 생략 시 400)에 적을 서버에서 스폰한다.
+	 * 이름은 /Game/Characters/Enemy/ 아래의 BP 이름(생략 시 BP_Enemy_Melee). 맵에 배치하지 않고 어느 맵 · 넷 구성에서도 적을 불러 본다
+	 * (Docs/Design/m3-enemy-ai.md §8 ⑧ — 스폰 시스템은 단위 D)
+	 */
+	UFUNCTION(Exec)
+	void SpawnEnemy(const FString& EnemyName, float Distance = 0.0f);
+
 protected:
 	UFUNCTION(Server, Reliable)
 	void ServerDamageSelf(float Amount);
@@ -70,6 +78,9 @@ protected:
 
 	UFUNCTION(Server, Reliable)
 	void ServerSetMoveSpeedMultiplier(float Multiplier);
+
+	UFUNCTION(Server, Reliable)
+	void ServerSpawnEnemy(const FString& EnemyName, float Distance);
 
 	virtual void OnAbilitySystemInitialized();
 	virtual void OnAbilitySystemUninitialized();

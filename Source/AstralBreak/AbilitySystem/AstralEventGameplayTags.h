@@ -30,4 +30,11 @@ namespace AstralGameplayTags
 
 	// 원거리 발사 시점 — FireMontage의 단발 UAstralAnimNotify_GameplayEvent (0초에 두지 않는다 — 엔진 추출 조건상 첫 틱에 누락된다)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Ranged_Fire);
+
+	/**
+	 * AI.Event — 적 컨트롤러가 자기 StateTree 에 보내는 이벤트 (SendStateTreeEvent). ASC 의 GameplayEvent 와 다른 경로다
+	 */
+
+	// 쫓던 타깃이 죽거나 사라졌다 — AAstralEnemyController 가 타깃을 비운 뒤 보낸다
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(AIEvent_TargetLost);
 }

@@ -9,7 +9,7 @@ struct FAstralPartyFlowSnapshot;
 /**
  * 파티 흐름 네트워크 시험 — 별도 프로세스 구성 (설계 Docs/Design/m3-enemy-ai.md §7-2 ②)
  *
- * 프로세스마다 하나씩 뜬다: `-gauntlet=AstralPartyFlowTest -AstralPartyPlayers=N [-AstralPartyScenario=Flow|LeaderLeaves]`.
+ * 프로세스마다 하나씩 뜬다: `-gauntlet=AstralPartyFlowTest -AstralPartyPlayers=N [-AstralPartyScenario=Flow|LeaderLeaves|EnemyCombat]`.
  * 실행은 Tools/net_test/run_party_flow.py 가 서버 1 + 클라이언트 N 을 띄워서 한다.
  *
  * 각 프로세스는 복제된 상태만 보고 역할(서버 · 방장 · 비방장)을 정하고 제 대본을 돈다.
@@ -51,6 +51,16 @@ private:
 	void TickFlow(const FAstralPartyFlowSnapshot& Snap);
 	void TickLeaderLeaves(const FAstralPartyFlowSnapshot& Snap);
 
+	/**
+	 * 적 전투 (설계 §8 검증 계획 A9) — CombatTestMap 에서 바로 시작한다.
+	 * 클라이언트 하나(-AstralEnemySpawner)가 SpawnEnemy 로 적을 부르고, 모든 프로세스가 '맞은 히어로와 그 HP' 를 적는다(HIT 줄 — 실행 스크립트가 서로 대조한다).
+	 * 클라이언트들이 본 것을 준비 신호로 알리면 권위 프로세스(Dedicated 서버 · 리슨 호스트)가 적을 죽이고, 모두가 적 폰이 사라진 것을 본다(GONE 줄)
+	 */
+	void TickEnemyCombat(const FAstralPartyFlowSnapshot& Snap);
+
+	/** 이 프로세스가 처음 대기하는 맵 — 시나리오마다 다르다 */
+	const TCHAR* StartMap() const;
+
 	/** 서버 · 리슨 호스트는 클라이언트가 다 나갈 때까지(또는 제한 시간) 남는다 */
 	void TickLinger(const FAstralPartyFlowSnapshot& Snap, bool bWaitForOthersToLeave);
 
@@ -63,6 +73,10 @@ private:
 	static const TCHAR* RoleName(ERole InRole);
 
 	bool bLeaderLeavesScenario = false;
+	bool bEnemyCombatScenario = false;
+
+	/** 적 전투 — 이 프로세스(클라이언트)가 SpawnEnemy 를 부른다. 실행 스크립트가 클라이언트 하나에만 준다 */
+	bool bEnemySpawner = false;
 	int32 NumPlayers = 0;
 	double TimeoutSeconds = 300.0;
 

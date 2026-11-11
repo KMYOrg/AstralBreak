@@ -1,7 +1,7 @@
 # M3 적 AI 설계
 
 작성일: 2026-11-05 · 대상: UE 5.7.4 · 기준 커밋: `6e2e2ee` · 앞 단계: [StateTree Phase2Report](../StateTree/Phase2Report.md) · 기획 원문: [game-plan.md](game-plan.md)
-상태: **1번 설계 승인(2026-11-05, 권장안 그대로) · 구현 · 자동 검증 완료 · 커밋 `8b8a5fd`(2026-11-08). 남은 것 = V9 더미 사용자 눈 확인. 2번부터 미착수.** **2026-11-11 착수 전 검토를 반영했다 — [§0](#0-착수-전-검토-2026-11-11) 과 2 ~ 7번의 '설계 때 정할 것'.** **선행 단위(§7-1)는 구현 · 자동 검증 완료(2026-11-11, 미커밋) — PIE 1 ~ 3단계 수동 확인 대기.**
+상태: **1번 설계 승인(2026-11-05, 권장안 그대로) · 구현 · 자동 검증 완료 · 커밋 `8b8a5fd`(2026-11-08). 남은 것 = V9 더미 사용자 눈 확인. 2번부터 미착수.** **2026-11-11 착수 전 검토를 반영했다 — [§0](#0-착수-전-검토-2026-11-11) 과 2 ~ 7번의 '설계 때 정할 것'.** **선행 단위(§7-1 · §7-2)는 구현 · 검증 완료 · 커밋 `0e04049`(2026-11-11) — 남은 것 = P7(사용자).** **단위 A 는 [§8](#8-단위-a--쫓아와-때리는-적-한-마리) 설계 승인(2026-11-11) · 구현 미착수.**
 
 M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로 쌓는다. 앞 항목이 뒤 항목의 전제가 되도록 사용자와 순서를 합의했다. 생명주기를 어그로보다 먼저 정해야 그 위에 얹는 것을 다시 고치지 않는다.
 
@@ -13,7 +13,8 @@ M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로
 | 4 | StateTree 연결 노드 | 미착수 |
 | 5 | `ST_Enemy_Melee` 구성 | 미착수 |
 | 6 | 스폰 · 콘텐츠 (적 PawnData · 메시 · 애니 · 스폰/디스폰 인터페이스) | 미착수 |
-| 7 | 네트워크 종료 조건 (3단계 테스트 · `IsPartyLeader`) | 선행 단위만 [§7-1](#7-1-선행-단위--dedicated-에서-레이드-시작) — 구현 · 자동 검증 완료(2026-11-11, 미커밋), PIE 1 ~ 3단계 수동 확인 대기. 나머지 미착수 |
+| 7 | 네트워크 종료 조건 (3단계 테스트 · `IsPartyLeader`) | 선행 단위만 [§7-1](#7-1-선행-단위--dedicated-에서-레이드-시작) · [§7-2](#7-2-네트워크-단계-자동-시험-p2--p5) — 구현 · 검증 완료 · 커밋 `0e04049`, P7(사용자)만 남음. 나머지 미착수 |
+| 8 | 단위 A (2 최소 · 3 일부 · 4 · 5 최소를 한 번에) | [§8](#8-단위-a--쫓아와-때리는-적-한-마리) — 설계 승인(2026-11-11) · 구현 미착수 |
 
 **기획 근거:** [game-plan.md](game-plan.md) — M3 절(2부)이 범위 · 종료 조건 · 확장 포인트 예약, 7-6 절(1부)이 수호병 역할 · 기본 패턴, 부록 C 가 옛 구현 방향 메모(StateTree 확정 근거 · 단발 GA · 첫 수직 단위 · `UAstralThreatComponent` API)다. 2번부터는 이 문서를 근거로 쓴다. 어그로 수치 규칙과 패턴별 수치는 원문에 없으므로 해당 항목 설계 때 사용자와 정한다.
 
@@ -46,8 +47,8 @@ M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로
 
 | 단위 | 내용 | 끌어오는 항목 | 끝나면 보이는 것 |
 | :--- | :--- | :--- | :--- |
-| 선행 | Dedicated 에서 레이드 시작 — 방장 판정 교체 + `ServerSelectRaid` 맵 이름 검증. **구현 · 자동 검증 완료(2026-11-11, 미커밋 — [§7-1](#7-1-선행-단위--dedicated-에서-레이드-시작)). 1 ~ 3단계 파티 흐름(허브 → 레이드 → 허브 · 방장 이탈)은 자동 시험으로 [실측] 통과([§7-2](#7-2-네트워크-단계-자동-시험-p2--p5)). 히어로 전투를 3단계에서 훑는 P7 은 아직이다 — 이 칸의 '전투가 돈다' 는 그 뒤에 쓴다** | 7 의 일부 | 3단계 구성에서 히어로 전투(M1 · M2)가 돈다 |
-| A | 최소 타깃(가장 가까운 생존 플레이어) + 추격 + 단발 공격 1종 + 트리. 판정은 기존 전방 스윕, 메시는 임시 | 2 최소 · 3 일부 · 4 · 5 최소 | 적 한 마리가 쫓아와 때리고, 맞으면 죽는다 |
+| 선행 | Dedicated 에서 레이드 시작 — 방장 판정 교체 + `ServerSelectRaid` 맵 이름 검증. **구현 · 자동 검증 완료(2026-11-11, 커밋 `0e04049` — [§7-1](#7-1-선행-단위--dedicated-에서-레이드-시작)). 1 ~ 3단계 파티 흐름(허브 → 레이드 → 허브 · 방장 이탈)은 자동 시험으로 [실측] 통과([§7-2](#7-2-네트워크-단계-자동-시험-p2--p5)). 히어로 전투를 3단계에서 훑는 P7 은 아직이다 — 이 칸의 '전투가 돈다' 는 그 뒤에 쓴다** | 7 의 일부 | 3단계 구성에서 히어로 전투(M1 · M2)가 돈다 |
+| A | 최소 타깃(가장 가까운 생존 플레이어) + 추격 + 단발 공격 1종 + 트리. 판정은 기존 전방 스윕, 메시는 임시. **설계안 [§8](#8-단위-a--쫓아와-때리는-적-한-마리)** | 2 최소 · 3 일부 · 4 · 5 최소 | 적 한 마리가 쫓아와 때리고, 맞으면 죽는다 |
 | B | 어그로 규칙 · 4인 타깃 전환 | 2 | 여럿이 때리면 타깃이 바뀐다 |
 | C | 공격 확장 · 피격 반응 · 패링 → 경직 | 3 | 방어 3종 연습이 된다 |
 | D | 적 메시 · 애니 · PawnData · 스폰/디스폰 | 6 | 수호병 모습으로 여러 마리가 나온다 |
@@ -499,7 +500,7 @@ M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로
 
 ## 2. 타깃 · 어그로 (`UAstralThreatComponent`)
 
-> 미착수. 아래는 설계가 아니라 **설계 때 정할 것** 이다(2026-11-11 검토, 전부 [소스]).
+> 미착수. 아래는 설계가 아니라 **설계 때 정할 것** 이다(2026-11-11 검토, 전부 [소스]). **단위 A 가 먼저 정한 것(타깃의 단일 원천 · 컴포넌트 위치 · 죽은 타깃 제외)은 [§8](#8-단위-a--쫓아와-때리는-적-한-마리) ① · ②.**
 
 - **위협 입력은 이미 있는 이벤트로 받는다.** `UAstralHealthSet::OnDamaged` 가 서버에서 가해자 · 피해량을 준다(`AstralHealthSet.cpp:137`). 구독하면 되고 폴링이 필요 없다. 정리 시점은 `OnDeathStarted`(§1-8).
 - **첫 인지(피해를 받기 전).** 거리 판정과 AIPerception 중 고른다. 단위 A 는 '가장 가까운 생존 플레이어' 로 시작한다. 컨트롤러 팀 동기화는 AIPerception 을 쓸 때만 필요하다 — 데미지 판정은 폰의 `TeamId` 를 본다(`AstralCombatStatics.cpp:58`).
@@ -511,7 +512,7 @@ M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로
 
 ## 3. 적 공격 실행 (단발 GA 전환 · 수호병 패턴 5종 · 피격 반응 · 패링 → 경직 → 약점)
 
-> 미착수. 아래는 설계가 아니라 **설계 때 정할 것** 이다(2026-11-11 검토, 전부 [소스]).
+> 미착수. 아래는 설계가 아니라 **설계 때 정할 것** 이다(2026-11-11 검토, 전부 [소스]). **단위 A 의 단발 공격 1종 · 회전 · 경직 임시 처리는 [§8](#8-단위-a--쫓아와-때리는-적-한-마리) ④ · ⑤.**
 
 - **'패턴 5종' 의 해석(기획 · 잠정).** game-plan 7-6 의 목록(기본 연타 / 짧은 돌진 / 가드 가능한 공격 / 패링 가능한 강공격 / 약점 노출 가능한 동작)은 공격과 속성이 섞여 있다. 공격 3개(연타 · 돌진 · 강공격) + 약점 노출 상태 1개로 읽을 수 있다. 사용자 확정 전까지 절 제목의 '5종' 은 원문 표기다.
 - **공격별 가드 · 패링 가능 여부를 실을 자리가 없다.** `Damage.Type.Unblockable` 하나가 가드와 패링을 함께 뚫는다(`AstralCombatStatics.cpp:280`). 데미지 GE 는 GameData 전역 1개이고 `ApplyAttackHit` 는 공격별 태그를 받지 않는다. '가드 불가 · 패링 가능' 을 만들려면 태그를 둘로 나누고 스펙에 공격별 태그를 실어야 한다. 히어로 공격과 공유하는 경로라 상속 · 공용 영향을 함께 본다.
@@ -525,7 +526,7 @@ M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로
 
 ## 4. StateTree 연결 노드
 
-> 미착수. 아래는 설계가 아니라 **설계 때 정할 것** 이다(2026-11-11 검토, 전부 [소스]).
+> 미착수. 아래는 설계가 아니라 **설계 때 정할 것** 이다(2026-11-11 검토, 전부 [소스]). **타깃 주입 · GA 실행 Task 는 [§8](#8-단위-a--쫓아와-때리는-적-한-마리) ① · ③ 이 정했다. 경직 대기는 단위 C 에 남는다.**
 
 - **타깃 주입은 두 안을 비교한다.** Phase2Report §6 의 4번은 커스텀 Evaluator 또는 Task 출력을 말했다. 다른 길이 하나 더 있다 — AI 스키마의 `AIControllerClass`(`StateTreeAIComponentSchema.h:37`)를 `AAstralEnemyController` 로 두면 컨트롤러의 프로퍼티를 `MoveTo.TargetActor` 에 직접 묶을 수 있다. 위협 컴포넌트가 타깃이 바뀔 때만 그 값을 갱신하면 매 틱 도는 노드 없이 단일 원천이 된다. 지침서 D-6 이 이미 '`AllowPrivateAccess` 또는 Evaluator 출력' 두 길을 열어 뒀다. 묶인 값이 실행 중인 `MoveTo` 에 언제 다시 복사되는지는 확인하지 않았다.
 - **GA 실행 Task.** 태그로 활성화 → 종료 대기. `ExitState` 에서 취소하고, 사망 때는 이미 취소돼 있으므로 몇 번 불려도 같아야 한다(§1-8).
@@ -533,7 +534,7 @@ M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로
 
 ## 5. `ST_Enemy_Melee` 구성
 
-> 미착수. 설계 때 Phase2Report §6 의 5 · 6 · 7번(`MoveTo` 실패 전환 · `AcceptableRadius` 와 공격 거리 · `Get Actor Location` 입력 확인)과 §1-8 의 '트리에 사망 상태를 두지 않는다' 를 그대로 받는다. 단위 A 는 타깃 없음 → 추격 → 공격 → 회복의 최소 트리다.
+> 미착수. 설계 때 Phase2Report §6 의 5 · 6 · 7번(`MoveTo` 실패 전환 · `AcceptableRadius` 와 공격 거리 · `Get Actor Location` 입력 확인)과 §1-8 의 '트리에 사망 상태를 두지 않는다' 를 그대로 받는다. 단위 A 는 타깃 없음 → 추격 → 공격 → 회복의 최소 트리다 — 구성은 [§8](#8-단위-a--쫓아와-때리는-적-한-마리) ⑥.
 
 ## 6. 스폰 · 콘텐츠 (적 PawnData · 메시 · 애니 · 스폰/디스폰 인터페이스)
 
@@ -553,7 +554,7 @@ M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로
 
 ### 7-1. 선행 단위 — Dedicated 에서 레이드 시작
 
-상태: **구현 · 자동 검증 완료(2026-11-11) · 미커밋. P1 ~ P6 [실측] 통과 — P2 ~ P5 는 [§7-2](#7-2-네트워크-단계-자동-시험-p2--p5) 의 자동 시험으로 돌렸다. 남은 것 = P7(전투 조작감, 사용자).** 아래 '결정' · '근거' 는 설계 때 [소스] 로 쓴 그대로 두었고, 실행으로 확인된 것은 §7-2 의 결과에 적었다. 구현 결과는 이 절의 [구현 결과](#구현-결과-2026-11-11).
+상태: **구현 · 자동 검증 완료(2026-11-11) · 커밋 `0e04049`. P1 ~ P6 [실측] 통과 — P2 ~ P5 는 [§7-2](#7-2-네트워크-단계-자동-시험-p2--p5) 의 자동 시험으로 돌렸다. 남은 것 = P7(전투 조작감, 사용자).** 아래 '결정' · '근거' 는 설계 때 [소스] 로 쓴 그대로 두었고, 실행으로 확인된 것은 §7-2 의 결과에 적었다. 구현 결과는 이 절의 [구현 결과](#구현-결과-2026-11-11).
 
 #### 결론
 
@@ -681,7 +682,7 @@ M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로
 
 ### 7-2. 네트워크 단계 자동 시험 (P2 ~ P5)
 
-상태: **설계 승인(2026-11-11, 사용자 — "둘 다 진행") · 구현 · 검증 완료 · 미커밋. 결과는 이 절 끝의 [결과](#결과-2026-11-11).** §7-1 의 'P2 ~ P5 를 자동으로 돌릴 수단이 없다' 를 이 절이 대신한다. 단위 A 때 판단하려던 '3단계 반복 수단' 을 선행 단위로 당긴 것이다.
+상태: **설계 승인(2026-11-11, 사용자 — "둘 다 진행") · 구현 · 검증 완료 · 커밋 `0e04049`. 결과는 이 절 끝의 [결과](#결과-2026-11-11).** §7-1 의 'P2 ~ P5 를 자동으로 돌릴 수단이 없다' 를 이 절이 대신한다. 단위 A 때 판단하려던 '3단계 반복 수단' 을 선행 단위로 당긴 것이다.
 
 #### 결론
 
@@ -774,3 +775,304 @@ Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/net_test/run_party_flow.py d
 | `AstralBreak.uproject` | Gauntlet 플러그인 켬 |
 
 **돌리지 않은 것.** 플러그인 회귀 중 `AnimGraphMcp.StateTree` · `.Smoke` 는 이 절 작업 뒤에 다시 돌리지 않았다(플러그인 코드는 §7-1 의 이름 수정 뒤 그대로이고, `.Runner` 4/4 만 다시 돌렸다). 4인 구성 · 쿠킹 빌드 · 지연이 있는 망.
+
+## 8. 단위 A — 쫓아와 때리는 적 한 마리
+
+상태: **설계 승인(2026-11-11, 사용자 — 설계안 그대로) · 구현 미착수. 이 절의 판단은 전부 [소스] 다 — 실행한 것은 없다.** 실행으로 먼저 확인할 것은 [검증 계획](#검증-계획-1)의 A0 로 모았다. §0-2 의 단위 A 이고, 목차의 2(최소) · 3(일부) · 4 · 5(최소)를 이 단위가 필요한 만큼만 정한다.
+
+끝나면 보이는 것: **적 한 마리가 가장 가까운 플레이어를 쫓아와 예고 뒤 때리고, 맞으면 죽는다. 1 · 3단계 네트워크 구성에서 같다.**
+
+### 결론
+
+| 질문 | 결정 |
+| :--- | :--- |
+| 트리가 타깃을 어디서 읽는가 | `AAstralEnemyController::CurrentTarget` 프로퍼티 하나. 트리는 이 값에 직접 바인딩한다(Evaluator 없음) |
+| 타깃을 언제 고르는가 | 트리의 `Acquire` 상태가 들어올 때마다 — 시작 · 공격 한 사이클 뒤 · 타깃을 잃었을 때. 매 틱 고르지 않는다 |
+| 타깃을 잃는 것은 누가 아는가 | 컨트롤러가 타깃의 `OnDeathStarted` · `OnDestroyed` 를 구독하고, 오면 값을 비우고 트리에 이벤트를 보낸다 |
+| A 의 선정 규칙 | 죽지 않은 플레이어 폰 중 가장 가까운 것. 순수 함수 + 자동 시험 |
+| `UAstralThreatComponent` | **A 에서는 만들지 않는다.** 자리는 컨트롤러로 정해 두고, B 가 만들어 `AcquireTarget()` 의 안쪽만 바꾼다 |
+| 공격 | 새 단발 GA `UAstralGA_Enemy_MeleeAttack` — 예고 → 전방 스윕 → 종료. 기존 루프 GA 는 건드리지 않는다 |
+| 트리가 GA 를 부르는 법 | 커스텀 Task 가 태그로 스펙을 찾아 타깃을 실은 이벤트 데이터로 발동하고, GA 종료 통지로 끝난다. 틱 없음 |
+| 적이 도는 규칙 | 추격 중에는 경로 방향, 예고 앞부분에는 타깃 방향, 그 뒤 판정까지는 고정. 엔진 포커스 경로를 쓴다 |
+| 패링당했을 때 | A 에서는 공격 GA 가 끝나기 전에 경직 시간만큼 더 머문다. 경직 GA 로 떼는 것은 단위 C |
+| 네트워크 | 전부 서버 전용. 새 복제 프로퍼티 0 |
+
+### 결정
+
+**① 타깃의 단일 원천 = 컨트롤러 프로퍼티, 트리는 직접 바인딩.** (§0-5 의 8번)
+
+- `AAstralEnemyController` 에 `CurrentTarget`(`TObjectPtr<AActor>`, `VisibleAnywhere` · public · `Transient`)을 둔다. 쓰는 곳은 `SetCurrentTarget()` 하나다.
+- 트리 스키마의 `AIControllerClass` 를 `AAstralEnemyController` 로 지정하면 `AIController` 컨텍스트의 프로퍼티로 보인다(`StateTreeAIComponentSchema.cpp:26` · `.h:37`). 저작 도구의 `create_state_tree` 가 `schema_properties.AIControllerClass` 를 받는다(`AnimMcpTools_StateTree.cpp:114`). 메뉴에 나오는 조건은 `CPF_Edit` + public 이다([지침서 §2-7](../StateTree/DevelopmentGuide.md) · D-6).
+- `MoveTo.TargetActor` 와 GA 실행 Task 의 `TargetActor` 가 이 값에 묶인다.
+- **`MoveTo` 는 묶인 값을 들어올 때만 읽는다.** `bShouldCopyBoundPropertiesOnTick = false` 이고(`StateTreeMoveToTask.cpp:19`), 틱 복사는 `Destination` 추적 모드에서만 켜진다(`:26` · `:172` ~ `:181`). 같은 타깃이 움직이는 것은 경로 추종이 따라간다 — `bTrackMovingGoal` 기본값이 참이라 `SetGoalActor` 로 넘긴다(`:109` ~ `:113`). **다른 타깃으로 바뀌는 것은 `Chase` 를 다시 들어와야 반영된다** — ② 의 `Acquire` 재진입과 타깃 상실 이벤트가 그 경로다.
+
+**② 타깃은 트리의 판단 지점에서 고르고, 상실만 이벤트로 받는다.** (§0-5 의 6번 일부)
+
+- 컨트롤러에 `AcquireTarget()` 을 둔다. 서버 `GameState->PlayerArray` 의 폰에서 죽었거나 죽는 중인 것을 빼고 가장 가까운 것을 골라 `SetCurrentTarget()` 에 넘긴다. 고르는 산술은 월드 없는 순수 함수(`AstralEnemyTargeting::SelectNearestIndex`)로 뗀다 — `AstralTargeting` · `AstralParty` 와 같은 관용구다.
+- 부르는 쪽은 커스텀 Task `FAstralStateTreeTask_AcquireTarget` 하나다. 들어올 때 `AcquireTarget()` 을 부르고 타깃이 있으면 성공, 없으면 실패로 바로 끝난다.
+- `SetCurrentTarget()` 은 앞 타깃의 구독을 풀고 새 타깃의 `UAstralHealthComponent::OnDeathStarted` 와 `AActor::OnDestroyed` 를 구독한다. 둘 중 하나가 오면 값을 비우고 트리에 `TargetLost` 이벤트를 보낸다(`UStateTreeComponent::SendStateTreeEvent`). 접속 종료는 폰 파괴로 온다.
+- 컨트롤러의 `OnUnPossess` 와 `HandlePawnDeathStarted` 가 타깃을 비운다(구독 정리).
+- **타깃이 없을 때의 재시도만 시간에 맡긴다.** `Wait` 상태가 0.5초(잠정) 쉰 뒤 `Acquire` 로 돌아간다. 전원 사망 · 아직 아무도 없음 · 경로 실패가 이 경로다. 이벤트로 바꾸려면 '플레이어가 타깃이 될 수 있게 됐다'(스폰 · 부활)를 알리는 명부가 필요한데 지금은 없다. B 의 위협 표가 같은 명부를 요구하므로 그때 다시 본다.
+- **`UAstralThreatComponent` 의 자리는 컨트롤러다.** 서버에만 있고 폰과 수명이 같다(폰 파괴 때 컨트롤러도 파괴 — `Controller.cpp:434`). A 에서는 만들지 않는다. B 가 만들어 `AcquireTarget()` 의 안쪽을 '가장 가까운' 에서 '위협 최대' 로 바꾸고, 트리 · Task · 바인딩은 그대로 둔다.
+
+**③ GA 실행 Task — `FAstralStateTreeTask_ActivateAbility`.** (§4)
+
+- 입력: 컨텍스트 `Actor`(폰), 파라미터 `AbilityTag`, 입력 `TargetActor`(선택).
+- 들어올 때: 폰의 ASC 에서 태그로 스펙을 찾는다(`GetActivatableGameplayAbilitySpecsByAllMatchingTags` — `AbilitySystemComponent.h:1014`). `OnAbilityEnded`(`:542`)를 구독한 뒤 `TriggerAbilityFromGameplayEvent`(`:1043`)로 그 스펙을 발동하며 이벤트 데이터의 `Target` 에 타깃을 싣는다. 프로젝트의 입력 경로가 이미 같은 함수를 쓴다(`AstralGameplayAbility.h:35`).
+- 스펙이 없거나 발동이 거부되면 실패, 발동 호출 안에서 이미 끝났으면 그 자리에서 결과를 돌려준다.
+- 끝날 때: `OnAbilityEnded` 에서 핸들을 대조해 `FinishTask` — 취소면 실패, 아니면 성공. 약한 실행 컨텍스트를 쓰는 것은 `MoveTo` 와 같다(`StateTreeMoveToTask.cpp:150` ~ `:155`).
+- 나갈 때: 구독을 풀고, 아직 활성이면 `CancelAbilityHandle`(`:1053`). 사망 때는 `GA_Death` 가 이미 취소했으므로 아무 일도 하지 않는다 — 몇 번 불려도 같다(§1-8). 이 시점에 ASC 는 살아 있다 [실측 V4 · V6 · V7].
+- 틱하지 않는다(`bShouldCallTick = false`).
+- 두 Task 는 런타임 모듈(`Source/AstralBreak/AI/StateTree/`)에 둔다. 스키마가 받는 조상은 `FStateTreeTaskCommonBase` 또는 `FStateTreeAITaskBase` 다(`StateTreeComponentSchema.cpp:41` · `StateTreeAIComponentSchema.cpp:38`).
+
+**④ 단발 공격 GA — `UAstralGA_Enemy_MeleeAttack`.** (§3 일부, §0-5 의 9번 일부)
+
+- `ServerOnly` · `InstancedPerActor` · `ActivationPolicy = Manual`(`AstralGameplayAbility.h:26`). 애셋 태그는 `Ability.Attack`(사망 때 취소 대상 — 루프 GA 와 같다) + 새 태그 `Ability.Enemy.Attack.Melee`(Task 가 찾는 키).
+- 흐름: 발동 → `State.Telegraphing` 루즈 태그 + 기존 `MulticastDrawTelegraphDebug` → 예고 시간 뒤 `ApplyDamageSweep` → 종료.
+- **패링당하면 경직만큼 더 머문다.** `Staggered` 는 스윕 호출 안에서 동기로 온다(`AstralCombatStatics.cpp:313` 의 `SendGameplayEventToActor`). GA 는 받은 것을 기억했다가 스윕 뒤 `StaggerRecovery` 만큼 기다리고 끝난다. 트리는 GA 종료를 기다리고 있으므로 경직 동안 아무것도 하지 않는다 — 노드를 더하지 않고 M2 의 '패링 → 적이 멈춘다' 가 유지된다. 단위 C 가 이벤트로 발동하는 경직 GA 로 뗀다.
+- 값은 전부 GA 프로퍼티(데이터)이고 **잠정** 이다: 피해 15 · 예고 1.0초 · 경직 2.0초 · 스윕 80 / 200 / 50(더미 값 그대로) · 타깃 추적 0.7초(⑤).
+- **기존 `UAstralGA_Enemy_TelegraphAttack` 은 한 줄도 건드리지 않는다.** 더미의 `bTelegraphAttackEnabled` 동작도 그대로다. 새 적의 AbilitySet 에는 루프 GA 를 넣지 않는다(넣으면 공격이 둘이 된다).
+- 가드 · 패링 가능 여부 태그, 피격 반응, 약점 노출, 회피 무적, 클라이언트용 예고(몽타주 · GameplayCue)는 단위 C 다. A 의 클라이언트는 지금 더미와 같은 DrawDebug 를 본다.
+
+**⑤ 회전 — 엔진 포커스 경로.** (§0-5 의 10번)
+
+- 적 BP 의 이동 컴포넌트 기본값을 `bOrientRotationToMovement = false` · `bUseControllerDesiredRotation = true` · Yaw 회전 속도 360°/초(잠정)로 둔다. **베이스는 바꾸지 않는다** — `AAstralCharacter` 는 `bOrientRotationToMovement = true` 이고(`AstralCharacter.cpp:38`) 엔진은 이 값이 참이면 컨트롤러 회전을 보지 않는다(`CharacterMovementComponent.cpp:6549`).
+- 추격 중: 경로 추종이 경로 앞쪽을 Move 우선순위 포커스로 준다(`PathFollowingComponent.cpp:1683` ~ `:1692`). 적은 가는 방향을 본다.
+- 예고 중: 공격 GA 가 발동 때 `SetFocus(타깃, Gameplay)` 를 걸고(`AIController.cpp:275`), `FacingTrackDuration` 뒤와 종료 때 `ClearFocus(Gameplay)` 한다(`:291`). 포커스가 없으면 컨트롤 회전이 폰 방향을 따라가므로 회전이 멈춘다(`:439`).
+- 그래서 **예고 앞 0.7초는 타깃을 따라 돌고 마지막 0.3초는 방향이 고정된다**(잠정). 고정 뒤 옆으로 빠지면 스윕이 빗나간다 — 회피 무적 없이 위치 이탈로 피하는 창이다.
+- GA 가 아는 타입은 엔진의 `AAIController` 뿐이다. 타깃은 이벤트 데이터로 받는다.
+
+**⑥ 트리 — `ST_Enemy_Melee`.** (§5)
+
+| 상태 | Task | 전환 |
+| :--- | :--- | :--- |
+| `Acquire` | `AcquireTarget` | 성공 → `Chase` · 실패 → `Wait` |
+| `Wait` | Delay 0.5초 | 완료 → `Acquire` |
+| `Chase` | `MoveTo`(`TargetActor` ← `AIController.CurrentTarget`) | 성공 → `Attack` · 실패 → `Wait` · 이벤트 `TargetLost` → `Acquire` |
+| `Attack` | `ActivateAbility`(태그, `TargetActor` ← 같은 값) | 성공 · 실패 → `Recovery` |
+| `Recovery` | Delay 1.0초 | 완료 → `Acquire` |
+
+- 사망 상태는 두지 않는다(§1-8). `MoveTo` 실패 전환을 둔다(Phase2Report §6 의 5번).
+- `Attack` 중에 타깃을 잃어도 공격은 끝까지 간다. 그 뒤 `Recovery` → `Acquire` 가 다시 고른다.
+- **도착 거리와 공격 거리.** `MoveTo` 의 `AcceptableRadius`(잠정 150)는 스윕이 닿는 거리(시작 50 + 길이 200 + 반경 80)보다 안쪽이어야 한다. 둘 다 데이터다(Phase2Report §6 의 6번).
+- 저작은 `state-tree-mcp` 로 한다(`/Game/AI/Enemy/` — 편집 허용 경로 `/Game/AI/` 안, `DefaultEngine.ini:174`).
+
+**⑦ 애셋.** 전부 새로 만든다. 기존 애셋 수정 0 · 맵 수정 0.
+
+| 애셋 | 내용 |
+| :--- | :--- |
+| `GA_Enemy_MeleeAttack` | C++ GA 의 BP 자식 — 값 |
+| `DA_AbilitySet_Enemy_Melee` | `GA_Death` + `GA_Enemy_MeleeAttack` |
+| `BP_Enemy_Melee` | 부모 `AAstralCombatCharacter`. 메시는 더미와 같은 것(임시), `AutoPossessAI = PlacedInWorldOrSpawned`, 컨트롤러 · AbilitySet 지정, ⑤ 의 이동 값 |
+| `BP_EnemyController_Melee` | 부모 `AAstralEnemyController`. 트리 참조 |
+| `ST_Enemy_Melee` | ⑥ |
+
+**⑧ 눈으로 볼 수단 — 디버그 명령 `SpawnEnemy`.** 플레이어 앞에 `BP_Enemy_Melee` 를 서버에서 스폰한다. 기존 디버그 명령과 같은 모양이다(`Exec` → 서버 RPC, `#if !UE_BUILD_SHIPPING` — `AstralCharacter.cpp:225` ~ `:241`). 맵에 배치하지 않으므로 어느 맵 · 어느 넷 구성에서도 쓸 수 있고 B · C 의 수동 확인에도 쓴다. 스폰 시스템은 단위 D 다.
+
+### 대안과 기각 이유
+
+| 대안 | 기각 이유 |
+| :--- | :--- |
+| 커스텀 Evaluator 가 타깃을 출력 | 매 틱 도는 노드가 하나 생기고, 그래도 `MoveTo` 는 들어올 때만 읽는다. 값이 이미 컨트롤러에 있으면 한 번 더 옮기는 일이다. **A0 에서 직접 바인딩이 안 되면 이쪽으로 물러난다** |
+| `AcquireTarget` Task 의 출력을 `MoveTo` 에 바인딩 | Task 출력은 그 상태가 활성일 때만 산다. 타깃을 상태 계층에 묶게 되고, 타깃 상실 구독을 둘 곳이 없다 |
+| 타깃 없이 조건만으로 전환(컨트롤러가 알아서 고름) | 다시 고르는 시점을 컨트롤러가 따로 가져야 한다 — 타이머 아니면 틱이다. 트리의 판단 지점이 이미 그 시계다 |
+| A 에서 `UAstralThreatComponent` 를 미리 만든다 | 상태 없는 껍데기에 쓰는 곳이 하나다. B 에서 위협 표의 실제 모양에 맞춰 만든다 |
+| 컴포넌트를 폰에 둔다 | 클라이언트에도 생긴다. 트리가 읽으려면 컨텍스트 Actor 를 거쳐야 한다 |
+| 매 틱 가장 가까운 플레이어로 갱신 | 폴링이고, 두 플레이어 사이에서 타깃이 떨린다. A 는 사이클마다 한 번이면 된다 |
+| AIPerception | 시야 · 팀 설정과 컨트롤러 팀 동기화가 따라온다. '가장 가까운 플레이어' 에는 과하다. 인지 범위가 필요해지는 B · D 에서 다시 본다 |
+| 루프 GA 를 고쳐 단발 모드를 더한다 | 더미 경로(V9 눈 확인 전)를 건드린다. 부록 C 도 '더미 검증용으로 유지' 다 |
+| 두 GA 의 공통 조상을 뽑는다 | 겹치는 것은 태그 켜고 끄기와 스윕 한 줄이다. 단위 C 가 판정을 몽타주 · 무기 트레이스로 바꾸면 그나마 사라진다 |
+| `TryActivateAbilitiesByTag` 로 발동 | 타깃을 실을 수 없고, 어느 스펙이 켜졌는지 돌려주지 않아 종료를 대조할 수 없다 |
+| GA 가 `AbilityTriggers` 로 이벤트에 반응 | 발동은 되지만 Task 가 핸들을 모른다. 이벤트 태그와 GA 를 애셋에서 따로 맞춰야 한다 |
+| Task 가 틱에서 GA 활성 여부를 본다 | 폴링이다. 종료 델리게이트가 있다 |
+| 베이스 이동 컴포넌트의 회전 모드를 바꾼다 | 히어로 · 더미로 번진다 |
+| 컨트롤러가 타깃을 항상 포커스 | 추격 중 경로가 꺾이면 타깃을 본 채 옆걸음한다 |
+| GA 가 매 틱 `SetActorRotation` | 이동 컴포넌트의 회전과 싸우고, 회전 속도 제한을 따로 구현하게 된다 |
+| 회전 없이 스윕 방향만 타깃 쪽으로 | 보이는 방향과 판정이 어긋난다. 플레이어가 읽을 것이 없다 |
+| 적을 `CombatTestMap` 에 배치 | 맵 애셋을 고치고, 다른 맵 · 다른 넷 구성에서 볼 수 없다 |
+
+### 영향
+
+| 대상 | 변경 | 상속 · 공용 영향 |
+| :--- | :--- | :--- |
+| `AAstralEnemyController` | 프로퍼티 1 · 함수 2(`AcquireTarget` · `SetCurrentTarget`) · 핸들러 2 · `OnUnPossess` 와 사망 처리에 타깃 비우기 | 자식 BP(`BP_P2_*` · `BP_M3_*` 컨트롤러)가 물려받는다. 그 트리들은 타깃을 쓰지 않아 값이 빈 채로 남고 이벤트도 나가지 않는다 |
+| 새 파일: 순수 함수 1쌍 · Task 2쌍 · GA 1쌍 · 시험 | 추가 | 없음 |
+| 게임플레이 태그 | 2개 추가(`Ability.Enemy.Attack.Melee` · 트리 이벤트 `TargetLost`) | 없음 |
+| 디버그 명령 | `Exec` 1 + 서버 RPC 1(⑧) | Shipping 에서 빠진다 |
+| `AAstralCombatCharacter` · `AAstralCharacter` · 히어로 · 더미 · 루프 GA | **변경 없음** | |
+| 플러그인(`AnimGraphMcp`) | 변경 없음을 기대한다. 필요해지면 단위 세션이 마스터에 묻는다 | |
+| 복제 | **새 프로퍼티 0** | |
+
+- 클라이언트가 보는 것: 이동 · 회전(이동 컴포넌트 복제), 예고(기존 멀티캐스트 DrawDebug), HP · 사망(기존 복제). 클라이언트에 새 경로는 없다.
+
+### 미해결
+
+- **직접 바인딩이 실제로 되는가** — A0 의 첫 항목이다. 안 되면 Evaluator 로 물러난다.
+- **닿을 수 없는 가장 가까운 플레이어.** 경로가 없으면 `Chase` 실패 → `Wait` → 같은 타깃을 다시 고른다. 다른 플레이어로 넘어가지 않는다. B 의 선정 규칙에서 다룬다.
+- **인지 범위가 없다.** 스폰되면 거리와 무관하게 쫓는다. B · D 에서 정한다.
+- **사이클마다 가장 가까운 사람으로 바뀐다.** 여럿이 붙으면 타깃이 자주 바뀔 수 있다. B 가 규칙을 바꾼다.
+- **추격 중 타깃이 스윕 거리 밖으로 계속 달아나면** 공격하지 못하고 계속 쫓는다. 돌진은 단위 C 다.
+- **타깃이 죽은 뒤 부활하면**(`ReviveSelf`) 다음 `Acquire` 에서 다시 후보가 된다. 따로 구독하지 않는다.
+- **레벨 배치의 첫 `Acquire` 에 플레이어가 없을 수 있다**(§1-2 미해결). `Wait` 재시도가 받는다.
+- 값(예고 · 추적 · 회전 속도 · 도착 거리 · 회복)은 전부 잠정이다. 조작감 확인 뒤 사용자가 정한다.
+
+### 검증 계획
+
+**A0 — 먼저 실행으로 확인한다(구현 본체 전).** 이 절이 [소스] 로만 적은 것 중 틀리면 설계가 바뀌는 것들이다. §1 의 '대조군부터' 와 같은 순서다.
+
+| # | 확인할 것 | 틀리면 |
+| :--- | :--- | :--- |
+| A0-1 | `AIController.CurrentTarget` 이 `list_state_tree_bindable_sources` 에 나오고 `MoveTo.TargetActor` 바인딩이 컴파일된다 | Evaluator 출력으로 바꾼다(마스터 확인) |
+| A0-2 | 묶인 타깃이 움직이면 적이 따라간다(Phase2Report §5 의 '움직이는 목표 추격' — 돌려 본 적 없음) | `MoveTo` 를 다시 들어오게 하는 전환을 더한다 |
+| A0-3 | 타깃을 바꾼 뒤 `Chase` 를 다시 들어오면 새 타깃을 쫓는다 | ① 을 다시 본다 |
+| A0-4 | ⑤ 의 이동 값에서 적이 추격 중 경로 방향을, 포커스 중 타깃을 본다. 포커스를 지우면 멈춘다 | 회전 방식을 다시 정한다(마스터 확인) |
+
+**본 검증.** 사람 몫은 조작감뿐이다.
+
+| # | 확인할 것 | 방법 | 판정 |
+| :--- | :--- | :--- | :--- |
+| A1 | 가장 가까운 것 선택 · 죽은 후보 제외 · 빈 목록 · 동률 | `AstralBreak.Enemy.SelectNearest` | 자동 |
+| A2 | `Acquire → Chase → Attack → Recovery → Acquire` 순서, 폰이 플레이어 쪽으로 이동 | `run_state_tree_scenario`(`CombatTestMap`, 런타임 스폰) | 자동 |
+| A3 | 추격 중 사망 → 트리 정지 · 경고 0(§1 V6 을 실제 트리로) | 같은 도구의 `damage` | 자동 |
+| A4 | 리슨 · Dedicated 한 프로세스: 적의 공격으로 히어로 HP 가 서버에서 줄고 같은 값이 클라이언트에 온다 | 멀티 PIE 자동 시험 `AstralBreak.Net.EnemyCombat.*`(선행 단위의 틀 재사용) | 자동 |
+| A5 | 타깃이 죽으면 다른 플레이어로 넘어간다 · 전원이 죽으면 공격하지 않는다 | A4 와 같은 시험 | 자동 |
+| A6 | 적 HP 0 → 서버 · 클라이언트에서 폰이 사라진다 | A4 와 같은 시험 | 자동 |
+| A7 | 패링하면 피해 0 · 적이 경직 동안 다음 공격을 하지 않는다 | A4 와 같은 시험에서 방어 태그를 직접 세운다 | 자동(시도). 안 되면 사용자 |
+| A8 | Dedicated 에서 클라이언트 히어로의 실제 공격으로 적이 피해를 받는다 — P7 의 기능 부분 | A4 와 같은 시험에서 클라이언트 ASC 로 발동 | 자동(시도). 무인 PIE 에서 안 되면 P7 로 남긴다 |
+| A9 | 별도 프로세스(2단계 리슨 · 실제 Dedicated)에서 A4 · A6 | `run_party_flow.py` 에 전투 시나리오 추가 | 자동. 한 프로세스가 다 통과한 뒤 마지막에 한다 |
+| A10 | 회귀 | `AstralBreak.` 전체 · 두 구성 빌드 · Development 는 `-DisableAdaptiveUnity` 로도 한 번(새 cpp) | 자동 |
+| A11 | 조작감 — 예고 1초에 가드 · 패링 · 옆걸음 회피가 되는가, 적의 회전이 자연스러운가 | `SpawnEnemy` 로 PIE | 사용자 |
+
+- 시험이 떨어질 수 있는지도 본다 — 선행 단위처럼 하나를 일부러 깨뜨려 실패를 확인한다(예: 공격 GA 의 피해를 0 으로).
+- A9 는 범위가 넘치면 단위 E 로 미룰 수 있다. 미루면 §0-2 의 '단위마다 2 · 3단계' 에서 벗어나므로 마스터에 먼저 묻는다.
+
+### 구현 결과 (2026-11-11)
+
+단위 A 구현 세션이 덧붙인다. 위의 결정 · 근거는 설계 때 쓴 그대로다. **A0 는 전부 설계대로 나왔고, A1 ~ A10 은 [실측] 통과, A11(조작감)은 사용자 몫으로 남았다. 커밋하지 않았다.**
+실행은 전부 DebugGame 에디터 · `-unattended` 이고, Development 는 빌드와 별도 프로세스 실행 1회다. 수치는 에디터를 `-stdout -FullStdOutLogOutput` 로 띄워 `ASTRAL_PIETEST` 줄에서 읽은 것이다(자동 시험 러너의 결과에는 오류 · 경고만 실린다).
+
+#### 바뀐 파일
+
+| 파일 | 변경 |
+| :--- | :--- |
+| `Character/Enemy/AstralEnemyController.h` · `.cpp` | `CurrentTarget` · `AcquireTarget()` · `SetCurrentTarget()` · 타깃 사망 · 파괴 핸들러 → `AI.Event.TargetLost`, `OnUnPossess` · 사망 처리에서 타깃 비우기 |
+| `AI/AstralEnemyTargeting.h` · `.cpp` (새 파일) | 순수 함수 `AstralEnemyTargeting::SelectNearestIndex` |
+| `AI/StateTree/AstralStateTreeTask_AcquireTarget.h` · `.cpp` · `AstralStateTreeTask_ActivateAbility.h` · `.cpp` (새 파일) | Task 2개 |
+| `AbilitySystem/Abilities/Enemy/AstralGA_Enemy_MeleeAttack.h` · `.cpp` (새 파일) | 단발 공격 GA |
+| `AbilitySystem/Abilities/AstralAbilityGameplayTags.h` · `.cpp` · `AbilitySystem/AstralEventGameplayTags.h` · `.cpp` | 태그 `Ability.Enemy.Attack.Melee` · `AI.Event.TargetLost` |
+| `Character/AstralCharacter.h` · `.cpp` | 디버그 명령 `SpawnEnemy`(`Exec`) + `ServerSpawnEnemy`(서버 RPC). 기존 함수는 그대로 |
+| `Tests/AstralEnemyTargetingTests.cpp` (새 파일) | `AstralBreak.Enemy.SelectNearest` |
+| `AstralBreakEditor/Private/Tests/AstralPieTestHelpers.h` (새 파일) | PIE 시험 공용 틀(단계 큐 · PIE 시작/종료 · 월드 조회 · 실측값 기록) |
+| `AstralBreakEditor/Private/Tests/AstralEnemyAssumptionsPieTests.cpp` (새 파일) | A0-2 ~ A0-4 — `AstralBreak.Enemy.Assumptions.ChaseAndFocusPIE` |
+| `AstralBreakEditor/Private/Tests/AstralEnemyCombatPieTests.cpp` (새 파일) | A4 ~ A8 — `AstralBreak.Net.EnemyCombat.{ListenPIE, DedicatedPIE}` |
+| `AstralBreakEditor/Private/Tests/AstralPartyFlowPieTests.cpp` | 공용 틀을 쓰도록 정리(시험 내용은 그대로) |
+| `AstralBreakEditor/Private/Tests/AstralPartyFlowTestController.h` · `.cpp` | Gauntlet 컨트롤러에 `EnemyCombat` 시나리오(A9) |
+| `AstralBreakEditor/AstralBreakEditor.Build.cs` | 시험이 쓰는 모듈 의존 추가(AI · GAS · StateTree · NavigationSystem) |
+| `Tools/net_test/run_party_flow.py` | `--scenario enemy_combat` |
+| `Tools/scripts/setup/enemy_melee_assets.py` (새 파일) | 아래 애셋 4개를 만든 스크립트(`-ExecutePythonScript`) |
+| 애셋(전부 새로) | `/Game/AbilitySystem/Abilities/Enemy/GA_Enemy_MeleeAttack` · `/Game/AbilitySystem/AbilitySets/Enemy/DA_AbilitySet_Enemy_Melee` · `/Game/Characters/Enemy/BP_Enemy_Melee` · `/Game/AI/Enemy/BP_EnemyController_Melee` · `/Game/AI/Enemy/ST_Enemy_Melee` · 시험용 `/Game/AI/Test/ST_A0_Chase` |
+
+건드리지 않은 것: `UAstralGA_Enemy_TelegraphAttack` · `AAstralCombatCharacter` · 히어로 코드 · `BP_TargetDummy` 와 기존 애셋 · 맵 · `Plugins/AnimGraphMcp`. 새 복제 프로퍼티 0. 새 RPC 는 디버그용 `ServerSpawnEnemy` 하나다(본문은 `#if !UE_BUILD_SHIPPING`).
+
+트리 두 개는 `state-tree-mcp` 로 저작했다 — `ST_Enemy_Melee` 는 `create_state_tree` 1회 + `apply_state_tree_operations` 1회(연산 20개, 미리보기가 태그 값 형식 오류 1건을 잡았다)에 컴파일 · 저장됐고 fixups 0, 바인딩 2개(`MoveTo.TargetActor` · `ActivateAbility.TargetActor` ← `AIController.CurrentTarget`)가 `inspect` 에 남아 있다 [실측].
+
+#### A0 결과 [실측]
+
+Standalone PIE `CombatTestMap`, 시험 트리 `ST_A0_Chase`(`Idle` -이벤트→ `Chase`(MoveTo ← `CurrentTarget`) → `Idle`), 폰 · 컨트롤러는 네이티브 클래스에 ⑤ 의 이동 값을 준 것, 타깃은 컨트롤러 없는 폰이다.
+
+| # | 결과 |
+| :--- | :--- |
+| A0-1 | **설계대로.** `list_state_tree_bindable_sources` 의 `AIController` 소스에 `CurrentTarget`(`TObjectPtr<AActor>`)이 나오고, 바인딩이 컴파일 · 저장됐다(fixups 0) |
+| A0-2 | **설계대로.** 추격 1.00초 시점에 타깃을 뒤쪽으로 옮기자 1.66초에 옮긴 타깃에서 183 cm 지점에 멈췄다(원래 자리에서 920 cm) |
+| A0-3 | **설계대로.** 타깃을 바꾸고 `Chase` 를 다시 들어오자 새 타깃에서 173 cm 에 멈췄다. **대조:** 추격 중 값만 바꾸고 다시 들어오지 않으면 처음 타깃에서 181 cm 에 멈췄다 — ① 의 '`MoveTo` 는 들어올 때만 읽는다' 가 실측됐다 |
+| A0-4 | **설계대로.** 추격 중 몸 방향 − 속도 방향이 중앙값 0.0° · 최대 9.4°(표본 115, 꺾이는 경로 포함)이고 포커스 액터는 없었다. `SetFocus(타깃, Gameplay)` 뒤 90° 를 0.250초 · 180° 를 0.500초에 돌았고(360°/초 그대로), `ClearFocus` 뒤 타깃을 옮겨도 1초 동안 0.00° 였다. **대조:** 베이스 이동 기본값의 폰은 포커스를 걸어도 0.00° — ⑤ 의 값이 필요하다 |
+
+마스터 세션에는 A0 결과를 메시지로 알렸다(브리프의 id 가 틀려 한 번 실패했고, 정정된 id 로 전달).
+
+#### 검증 결과
+
+| # | 결과 | 구분 |
+| :--- | :--- | :--- |
+| A1 | **통과.** `AstralBreak.Enemy.SelectNearest` — 가장 가까운 것 · Origin 기준 · 죽은 후보 제외(더 가까워도) · 빈 목록 · 전원 사망 · 동률(앞쪽) · 높이 포함 | [실측] |
+| A2 | **통과.** `run_state_tree_scenario`(`CombatTestMap`, `BP_Enemy_Melee` 런타임 스폰): `Acquire → Chase → Attack → Recovery → Attack → Recovery → Attack` 7/7, 경고 0. 폰이 419 cm 이동해 플레이어에서 181 cm 에 멈췄고, `Attack` 은 1.00초, `Recovery` 는 1.00초였다. 회복 뒤에는 `Acquire` · `Chase` · `Attack` 이 한 프레임에 지나간다(진입 횟수 +3 — 이미 닿는 거리라 `MoveTo` 가 바로 성공). 20초 실행에서는 7번 맞은 플레이어가 죽자 `Wait`(0.5초) ↔ `Acquire` 재시도로 넘어갔다 | [실측] |
+| A3 | **통과.** 추격 중 `damage` → 같은 프레임에 트리 정지(`run_status` `Unset`) · 폰이 사망 위치에 멈춤 · 5.00초 뒤 소멸 · 경고 0. 공격(예고) 중 `damage` 도 같다(리슨 + 클라이언트 1) | [실측] |
+| A4 | **통과(리슨 · Dedicated).** 클라이언트의 `SpawnEnemy` 로 부른 적이 가까운 쪽 히어로를 타깃으로 잡고 스폰 0.84 ~ 0.86초 뒤(600 cm 밖에서 177 ~ 187 cm 까지 온 뒤) 예고를 시작, 1.00 ~ 1.01초 예고 뒤 피해 15.0. 먼 쪽 히어로는 맞지 않았다. 서버 HP 와 같은 값이 모든 클라이언트(맞은 본인 · 다른 사람)에 왔다. 클라이언트에는 적 폰만 있고 컨트롤러는 없다. 패링 없는 주기 = 판정 뒤 1.00초에 다음 예고 | [실측] |
+| A5 | **통과(리슨 · Dedicated).** 타깃이 죽자 다른 플레이어로 넘어갔다. 그 추격 중에 그 타깃마저 죽이자 같은 호출 안에서 타깃이 비고 0.02초 뒤(10 cm) 멈췄다(시체까지 995 ~ 996 cm 남김). 전원 사망 4초 동안 공격 · 예고 · 타깃 없음, 트리는 계속 돈다. 부활(`ReviveSelf`)시키자 0.50초 뒤(`Wait` 재시도) 다시 타깃이 됐고 쫓아가 15.0 을 깎았다 | [실측] |
+| A6 | **통과(리슨 · Dedicated).** 적 HP 0 → 그 호출 안에서 트리 정지 · 타깃 비움 → 5.00초 뒤 서버와 모든 클라이언트에서 폰이 사라지고 서버의 컨트롤러도 없어졌다 | [실측] |
+| A7 | **통과(리슨 · Dedicated).** 서버에서 방어 태그(`State.Defense.Parrying`)를 세운 채 맞으면 피해 0, 공격 어빌리티가 판정 뒤 2.00 ~ 2.01초 더 활성으로 남고(패링 없을 때 0.00초), 다음 예고는 판정 3.02 ~ 3.05초 뒤에 시작했다(패링 없을 때 1.00초). 패링 입력 자체(히어로 방어 GA)는 쓰지 않았다 — 태그를 직접 세웠다 | [실측] |
+| A8 | **통과(리슨 · Dedicated).** 클라이언트 월드의 ASC 에 기본 공격 입력을 넣자 서버의 적 HP 가 100 → 68.8 이 됐다. 히어로는 서버에서 적 110 cm 앞으로 옮기고 클라이언트의 몸 · 시점을 적 쪽으로 돌린 뒤 넣었다. 무인 PIE 에서 됐다 — P7 의 '기능' 부분만이고 조작감은 아니다 | [실측] |
+| A9 | **통과.** `run_party_flow.py dedicated --scenario enemy_combat`(서버 + 클라이언트 2) · `listen --scenario enemy_combat`(호스트 + 클라이언트 1): 클라이언트 한 프로세스가 `SpawnEnemy` 를 부르고, 모든 프로세스가 같은 피해자 · HP 85.0 을 봤다. 적 폰은 모든 프로세스에, 컨트롤러는 서버에만 있다. 서버가 적을 죽이자 모든 프로세스에서 사라졌다. 여기서는 히어로의 공격이 아니라 서버의 `DamageSelf` 로 죽였다 | [실측] |
+| A10 | **통과.** 최종 코드로 `AstralBreakEditor Win64` DebugGame · Development 둘 다 `Result: Succeeded`, Development 는 `-DisableAdaptiveUnity` 로도 `Result: Succeeded`(새 런타임 cpp 가 유니티 파일에 합쳐진 상태. 에디터 모듈 파일은 평소에도 파일별로 컴파일돼 이 빌드에서 다시 컴파일되지 않았다). 그 뒤 다시 돌린 것: `AstralBreak.` 39/39(선행 단위의 35 + 새 시험 4) · A9 세 번(DebugGame 리슨 · Dedicated, Development Dedicated) · 기존 `run_party_flow.py dedicated`(검사 10/10) · `dedicated --scenario leader_leaves`. 기존 `listen`(flow)은 다시 돌리지 않았다 | [실측] |
+| A11 | **미실행 — 사용자 몫.** 순서는 아래 | |
+
+**시험이 실패할 수 있는가 — 대조 실험.** `AAstralEnemyController::HandleTargetLost` 에서 `SendStateTreeEvent` 를 뺀 빌드로 `EnemyCombat.DedicatedPIE` 를 돌렸다(확인 뒤 원복 · 재빌드). **실패 3건** [실측]: 타깃이 추격 중에 죽은 뒤 적이 1.37초 동안 820 cm 를 더 걸어 시체에서 186 cm 까지 갔고('바로 멈춘다' 실패), 전원 사망 중에 예고가 한 번 더 나갔다(예고 횟수 6 → 7 · '공격 없음' 실패). 이벤트가 없으면 `MoveTo` 가 죽은 폰을 끝까지 쫓아가 헛공격을 한 뒤에야 `Acquire` 로 돌아온다는 뜻이다 — ② 의 '상실만 이벤트로' 가 실제로 일을 한다. A0 의 대조 2건(재진입 없는 타깃 변경 · 베이스 이동 값의 포커스)과 A7 의 패링 있음/없음 비교도 같은 시험 안에 들어 있다.
+
+#### 설계가 정하지 않아 구현하며 고른 것
+
+| 항목 | 고른 것 | 이유 |
+| :--- | :--- | :--- |
+| 트리 이벤트 태그 이름 | `AI.Event.TargetLost`(`AIEvent_TargetLost`), 기존 `AstralEventGameplayTags` 에 새 절 | `GameplayEvent.*` 는 ASC 로 가는 이벤트다. 트리로 가는 것은 뿌리를 나눴다. 새 파일은 만들지 않았다 |
+| 순수 함수 · Task 의 폴더 | `Source/AstralBreak/AI/` · `AI/StateTree/` | 브리프가 Task 폴더를 정했고 순수 함수는 그 위에 뒀다 |
+| 후보 수집 | `PlayerArray` 에서 봇(`IsABot`)을 빼고, 사망은 `UAstralHealthComponent::IsDeadOrDying` 으로 본다. 거리는 3D | 사망 판정을 구독하는 것(`OnDeathStarted`)과 같은 원천에 뒀다. 적대 여부는 보지 않는다(설계의 규칙 그대로) |
+| `SpawnEnemy` 의 자리와 클래스 | `AAstralCharacter` 에 `DamageSelf` 들과 나란히. 클래스는 **이름으로** 받는다 — `SpawnEnemy [BP 이름] [거리]`, `/Game/Characters/Enemy/<이름>` 만 로드하고 생략하면 `BP_Enemy_Melee` · 400 cm | `EquipWeapon WD_…` 과 같은 관용구다. `GameData` 에 참조를 두면 기존 애셋(`DA_GameData`)을 고쳐야 한다. 폴더를 고정해 클라이언트가 보낸 문자열로 임의 경로를 로드하지 않는다. 베이스가 파생 클래스를 include 하지 않게 `APawn` 으로 스폰한다 |
+| 발동 이벤트의 태그 | Task 가 `AbilityTag` 를 그대로 `EventTag` 로 싣는다 | 엔진은 이 태그를 라우팅하지 않고 찍기만 한다. 세 번째 태그를 만들지 않았다 |
+| 스펙 찾기 | 태그 요건(차단 태그)은 찾을 때 거르지 않고 발동이 거부하게 둔다 | '스펙 없음' 과 '발동 거부' 는 둘 다 실패이고, 거부 판단을 한 곳에 둔다 |
+| 발동 호출 안에서 끝난 경우 | 람다와 Task 가 나눠 쥐는 작은 상태(`FAstralAbilityRunState`)에 적어 두고 `EnterState` 가 직접 결과를 돌려준다 | `EnterState` 안에서는 약한 컨텍스트로 Task 를 끝낼 수 없다(엔진 `StateTreeMoveToTask.cpp:143` 의 주석과 같은 이유) |
+| Task 의 `TargetActor` | `Category = Input` + `Optional` | 설계의 '입력(선택)' 그대로. 안 묶어도 컴파일된다 [소스 — `StateTreeCompiler.cpp:2802`. 안 묶은 트리는 만들지 않았다] |
+| 예고 표시 | `MulticastDrawTelegraphDebug` 를 두 번 부른다 — 발동 때(추적 시간만큼) · 방향을 고정할 때(남은 시간만큼) | 추적 중에 몸이 도므로 발동 때 한 번만 그리면 마지막 표시가 실제 판정 볼륨과 어긋난다. 기존 멀티캐스트는 고치지 않았다 |
+| 판정 전에 온 `Staggered` | 예고를 끊고 바로 경직으로 간다 | A 에서는 자기 스윕만 `Staggered` 를 부르므로 일어나지 않는 경로다 [소스 — 실행 안 함] |
+| 컨트롤러 BP 의 자리 | `/Game/AI/Enemy/`(트리 옆) | 폰은 `/Game/Characters/Enemy/`(더미 옆) |
+| 애셋 만드는 법 | 스크립트(`enemy_melee_assets.py`). GA 는 에디터의 '게임플레이 어빌리티 블루프린트' 와 같은 팩토리로 만들었다 | 재현할 수 있게 저장소에 남겼다. 이미 있으면 건너뛴다 |
+| A0 의 고정물 | 시험 BP 없이 네이티브 폰 · 컨트롤러 + 트리 1개. 시험은 지우지 않고 회귀로 남겼다 | 엔진을 올렸을 때 ① · ⑤ 의 전제가 깨지면 여기서 먼저 떨어진다 |
+| PIE 시험 틀 | 선행 단위 시험 파일 안에 있던 단계 큐 · PIE 시작/종료를 헤더(`AstralPieTestHelpers.h`)로 빼고 세 시험 파일이 나눠 쓴다 | 같은 코드를 세 번 두지 않으려고. `PartyFlow` 3개는 정리 뒤에도 통과했다 [실측] |
+
+#### 설계와 달라진 것
+
+- **`AAstralCharacter` 가 바뀌었다.** 위 '영향' 표는 '변경 없음' 이었다. 디버그 명령을 기존 명령과 같은 자리에 두느라 `Exec` 1 + 서버 RPC 1 이 더해졌다(브리프가 허용한 예외). 기존 함수 · 동작은 그대로다.
+- **A5 를 계획보다 넓혔다.** '추격 중 타깃 사망 → 즉시 정지' 와 '부활 뒤 재타깃' 을 더했다. 처음 쓴 A5 는 적이 타깃 옆에 붙어 있을 때만 죽여서 `Chase` 의 `TargetLost` 전환을 지나지 않았다.
+- **A9 에서 적을 죽이는 것은 히어로가 아니다.** 프로세스가 스스로 도는 대본이라 서버의 `DamageSelf` 로 죽였다. 히어로의 실제 공격은 A8(한 프로세스)이 본다.
+- 그 밖의 결정 ① ~ ⑧ 은 설계대로다.
+
+#### 실측이 더한 것
+
+- **멈추는 거리.** 도달 판정은 `AcceptableRadius` 에 두 캡슐 반경을 더한 중심 간 218 cm 에서 나고, 제동 뒤 실제로는 173 ~ 187 cm 에 선다 [실측]. 스윕이 닿는 범위(앞 50 ~ 250 cm, 반경 80) 안이다.
+- **도달 판정에 높이가 든다.** A0 시험의 타깃을 처음에 공중(z 100)의 `ATargetPoint` 로 뒀더니 반경 판정이 한 번도 나지 않고 경로 끝(타깃 바로 아래, 거리 0)까지 갔다 [실측]. 시험 쪽 실수였고 타깃을 폰으로 바꿨다. 점프 중인 플레이어를 쫓을 때 같은 일이 날 수 있다 [추론 — 실행 안 함].
+- **`MoveTo` 의 `bAllowPartialPath` 기본값은 참이다**(트리 `inspect`). 닿을 수 없는 타깃이면 실패가 아니라 갈 수 있는 데까지 간 뒤 끝날 수 있다 [소스 — 실행 안 함]. 위 '미해결' 의 '닿을 수 없는 가장 가까운 플레이어' 와 같은 자리다.
+- **시나리오 타임라인의 첫 0.4초.** Standalone 시나리오에서 `Acquire` 가 t = 0.017, `Chase` 가 t = 0.417 로 찍힌다. 트리의 지연이 아니라 PIE 첫 프레임이 길어 엔진이 프레임 시간을 0.4초로 자른 것으로 본다 [추론] — 리슨 시나리오에서는 0.02초였고, 멀티 PIE 시험에서는 스폰 0.84초 뒤 예고가 시작됐다(이동 시간과 같다) [실측].
+- **히어로 기본 공격 한 번이 적에게 31.2** 를 넣었다(A8) [실측].
+- `Attack` 중에 온 `TargetLost` 는 전환이 없어 버려진다. 공격은 끝까지 가고 `Recovery → Acquire` 가 다시 고른다(설계 ⑥ 그대로) [소스 — 이 경로만 따로 재지는 않았다. A5 의 첫 전환이 이 경로이거나 `Recovery` 중이다].
+- PIE 를 시작할 때 엔진이 `LogCrowdFollowing: Unable to find RecastNavMesh instance …` 경고를 한 번 낸다. 새 시험 3개는 이 줄을 무시하게 했고, `PartyFlow` 3개의 결과에는 경고로 남는다(통과에는 영향 없음) [실측].
+
+#### 돌리지 않은 것
+
+- **A11(조작감)** — 사용자.
+- Development 구성의 에디터 자동 시험(빌드와 별도 프로세스 A9 1회만 했다) · 4인 · 쿠킹 빌드 · 지연이 있는 망.
+- 레벨에 배치한 `BP_Enemy_Melee`(전부 런타임 스폰이다) · 적 여러 마리 동시 · 닿을 수 없는 타깃 · 가드(패링이 아닌) · 히어로의 실제 패링 입력 · 타깃의 접속 종료(파괴 구독은 [소스]).
+- 플러그인 회귀(`AnimGraphMcp.*`) — 플러그인을 건드리지 않았다. 시나리오 도구는 A2 · A3 에서 4번 썼다.
+
+#### 정리한 것 (2026-11-11, 사용자 승인 뒤 휴지통으로)
+
+이 단위의 실행이 남긴 일회성 파일이다(전부 git 제외 경로). 8개 모두 휴지통으로 보냈다.
+
+- `Tools/mcp/results/net_test/` 의 실행 기록 7개: `1111_212609_dedicated_enemy_combat` · `1111_212645_listen_enemy_combat` · `1111_214501_dedicated_enemy_combat` · `1111_214652_dedicated_enemy_combat` · `1111_214738_listen_enemy_combat` · `1111_214819_dedicated_flow` · `1111_214910_dedicated_leader_leaves`
+- `Tools/mcp/results/enemy_melee_assets.json`(애셋 스크립트의 결과 기록)
+
+남기는 것: `/Game/AI/Test/ST_A0_Chase`(상설 — `Assumptions` 시험이 읽는다). 이 단위는 `AnimGraphMcp.StateTree` 를 돌리지 않아 `ST_P1_*` 는 생기지 않았고, 스크래치 폴더에 쓴 것도 없다.
+
+#### A11 — 사용자가 볼 순서
+
+1. 에디터에서 `CombatTestMap` 을 열고 PIE(혼자 또는 리슨 · Dedicated 아무 구성).
+2. 콘솔에서 `SpawnEnemy` — 내 앞 400 cm 에 적이 나온다. 멀리서 오는 것을 보려면 `SpawnEnemy BP_Enemy_Melee 1200`.
+3. 볼 것: 쫓아올 때 가는 방향을 보는가 · 붙으면 빨간 캡슐(예고)이 1초 뜨고 앞 0.7초는 나를 따라 돌다가 마지막 0.3초는 방향이 굳는가 · 그 0.3초에 옆으로 빠지면 안 맞는가 · 가드하면 덜 아프고 패링하면 피해 없이 적이 2초 멈추는가 · 때리면 죽고 5초 뒤 사라지는가.
+4. 값을 바꾸려면: 피해 · 예고 · 추적 · 경직 · 스윕 = `GA_Enemy_MeleeAttack` 의 디폴트, 회전 속도 = `BP_Enemy_Melee` 의 CharacterMovement `Rotation Rate`, 도착 거리 · 회복 · 재시도 = `ST_Enemy_Melee`.
+
+적 메시는 더미와 같은 임시 마네킹이고 애니메이션이 없다(서 있는 자세로 미끄러진다) — 단위 D.
+
+#### 다시 돌리는 법
+
+```
+에디터:  AstralBreak.Enemy   (SelectNearest · Assumptions)      AstralBreak.Net.EnemyCombat   (리슨 · Dedicated)
+별도 프로세스(에디터를 내리고, 저장소 루트에서):
+Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/net_test/run_party_flow.py listen --scenario enemy_combat
+Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/net_test/run_party_flow.py dedicated --scenario enemy_combat
+```

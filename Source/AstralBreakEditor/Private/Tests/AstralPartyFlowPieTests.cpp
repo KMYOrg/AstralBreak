@@ -9,19 +9,19 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-#include "Editor.h"
-#include "Engine/Engine.h"
+#include "AstralPieTestHelpers.h"
+
 #include "Engine/GameInstance.h"
-#include "Engine/World.h"
 #include "GameFramework/PlayerState.h"
 #include "GameModes/AstralGameState.h"
 #include "GameModes/AstralHubGameState.h"
-#include "PlayInEditorDataTypes.h"
 #include "Player/AstralPlayerController.h"
-#include "Settings/LevelEditorPlaySettings.h"
 
 namespace AstralPartyFlowPie
 {
+	// 단계 큐 · PIE 시작/종료 · 월드 조회는 공용 틀(AstralPieTestHelpers.h)
+	using namespace AstralPieTest;
+
 	const TCHAR* const HubMapPath = TEXT("/Game/Maps/HubMap");
 	const TCHAR* const HubMap = TEXT("HubMap");
 	const TCHAR* const RaidMap = TEXT("RaidMap");
@@ -34,53 +34,15 @@ namespace AstralPartyFlowPie
 		int32 PlayerId = 0;
 	};
 
-	struct FContext
+	struct FContext : FContextBase
 	{
-		FAutomationTestBase* Test = nullptr;
 		bool bDedicated = false;
 		int32 NumPlayers = 0;
-
-		/** 한 단계라도 제한 시간을 넘기면 이후 단계를 건너뛰고 PIE 만 정리한다 */
-		bool bAborted = false;
-		bool bPieRequested = false;
 
 		/** 처음 허브에 모였을 때의 스냅샷 — 이동 뒤 비교 기준 */
 		TArray<int32> PlayerIds;
 		int32 LeaderId = INDEX_NONE;
 	};
-
-	// ─── 월드 조회 — 이동 때마다 월드가 바뀌므로 저장하지 않고 매번 다시 찾는다 ───
-
-	TArray<UWorld*> GetPieWorlds()
-	{
-		TArray<UWorld*> Out;
-		for (const FWorldContext& WorldContext : GEngine->GetWorldContexts())
-		{
-			if (WorldContext.WorldType == EWorldType::PIE && WorldContext.World())
-			{
-				Out.Add(WorldContext.World());
-			}
-		}
-		return Out;
-	}
-
-	UWorld* FindServerWorld()
-	{
-		for (UWorld* World : GetPieWorlds())
-		{
-			const ENetMode NetMode = World->GetNetMode();
-			if (NetMode == NM_ListenServer || NetMode == NM_DedicatedServer)
-			{
-				return World;
-			}
-		}
-		return nullptr;
-	}
-
-	FString MapOf(const UWorld* World)
-	{
-		return World ? UWorld::RemovePIEPrefix(World->GetMapName()) : FString();
-	}
 
 	AAstralPlayerController* GetLocalPC(const UWorld* World)
 	{
@@ -179,115 +141,22 @@ namespace AstralPartyFlowPie
 		return nullptr;
 	}
 
-	// ─── 단계 큐 ───
+	// ─── 단계 ───
 
-	void Step(TFunction<bool()> Fn)
+	/** 공용 WaitUntil + 실패 문장에 서버 맵 · 인원 · 자리 수 */
+	void WaitFor(const TSharedRef<FContext>& Ctx, const TCHAR* What, double TimeoutSeconds, TFunction<bool()> Condition)
 	{
-		FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FFunctionLatentCommand>(MoveTemp(Fn)));
-	}
-
-	/** 한 번 실행. 앞 단계가 실패했으면 건너뛴다 */
-	void Do(const TSharedRef<FContext>& Ctx, TFunction<void()> Fn)
-	{
-		Step([Ctx, Fn = MoveTemp(Fn)]() -> bool
+		WaitUntil(Ctx, What, TimeoutSeconds, MoveTemp(Condition), []()
 		{
-			if (!Ctx->bAborted)
-			{
-				Fn();
-			}
-			return true;
-		});
-	}
-
-	/** 조건이 참이 될 때까지. 조건을 먼저 보고 시간을 본다 — 맵 로드 프레임이 길어도 도착했으면 통과 */
-	void WaitUntil(const TSharedRef<FContext>& Ctx, const TCHAR* What, double TimeoutSeconds, TFunction<bool()> Condition)
-	{
-		TSharedRef<double> StartTime = MakeShared<double>(-1.0);
-		Step([Ctx, What = FString(What), TimeoutSeconds, StartTime, Condition = MoveTemp(Condition)]() -> bool
-		{
-			if (Ctx->bAborted)
-			{
-				return true;
-			}
-			if (*StartTime < 0.0)
-			{
-				*StartTime = FPlatformTime::Seconds();
-			}
-			if (Condition())
-			{
-				return true;
-			}
-			const bool bPieGone = Ctx->bPieRequested && !GEditor->PlayWorld && !GEditor->IsPlaySessionInProgress() && (FPlatformTime::Seconds() - *StartTime > 5.0);
-			if (bPieGone || FPlatformTime::Seconds() - *StartTime > TimeoutSeconds)
-			{
-				const UWorld* ServerWorld = FindServerWorld();
-				Ctx->Test->AddError(FString::Printf(TEXT("%s: %s (server map '%s', server players %d, seats %d)"),
-					bPieGone ? TEXT("PIE ended while waiting") : TEXT("timed out waiting"), *What,
-					*MapOf(ServerWorld), PlayerIdsIn(ServerWorld).Num(), GetSeats().Num()));
-				Ctx->bAborted = true;
-				return true;
-			}
-			return false;
-		});
-	}
-
-	/** 거부 확인용 — RPC 가 서버에 닿아 처리될 시간을 준 뒤 다음 단계에서 '안 바뀜' 을 본다 */
-	void Hold(const TSharedRef<FContext>& Ctx, double Seconds)
-	{
-		TSharedRef<double> StartTime = MakeShared<double>(-1.0);
-		Step([Ctx, Seconds, StartTime]() -> bool
-		{
-			if (Ctx->bAborted)
-			{
-				return true;
-			}
-			if (*StartTime < 0.0)
-			{
-				*StartTime = FPlatformTime::Seconds();
-			}
-			return FPlatformTime::Seconds() - *StartTime >= Seconds;
+			const UWorld* ServerWorld = FindServerWorld();
+			return FString::Printf(TEXT("server map '%s', server players %d, seats %d"), *MapOf(ServerWorld), PlayerIdsIn(ServerWorld).Num(), GetSeats().Num());
 		});
 	}
 
 	void StartPie(const TSharedRef<FContext>& Ctx)
 	{
-		Step([Ctx]() -> bool
-		{
-			if (!GEditor || GEditor->PlayWorld || GEditor->IsPlaySessionInProgress())
-			{
-				Ctx->Test->AddError(TEXT("PIE is already active — end it before running this test"));
-				Ctx->bAborted = true;
-				return true;
-			}
-
-			// 사용자 플레이 설정에 끌려가지 않게 넷 모드 · 인원 · 프로세스 구성을 명시한다
-			FRequestPlaySessionParams Params;
-			Params.GlobalMapOverride = HubMapPath;
-			ULevelEditorPlaySettings* Settings = NewObject<ULevelEditorPlaySettings>(GetTransientPackage()); // RequestPlaySession 이 복제해 쥔다
-			Settings->SetPlayNetMode(Ctx->bDedicated ? PIE_Client : PIE_ListenServer);
-			Settings->SetPlayNumberOfClients(Ctx->NumPlayers);
-			Settings->SetRunUnderOneProcess(true);
-			Params.EditorPlaySettings = Settings;
-			GEditor->RequestPlaySession(Params);
-			Ctx->bPieRequested = true;
-			return true;
-		});
-
-		WaitUntil(Ctx, TEXT("all players in HubMap"), 240.0, [Ctx]() { return IsSettled(HubMap, Ctx->NumPlayers); });
-	}
-
-	/** 실패했어도 반드시 PIE 를 내린다 */
-	void EndPie(const TSharedRef<FContext>& Ctx)
-	{
-		Step([Ctx]() -> bool
-		{
-			if (Ctx->bPieRequested && (GEditor->PlayWorld || GEditor->IsPlaySessionInProgress()))
-			{
-				GEditor->RequestEndPlayMap();
-			}
-			return true;
-		});
-		Step([]() -> bool { return GEditor->PlayWorld == nullptr && !GEditor->IsPlaySessionInProgress(); });
+		RequestPie(Ctx, HubMapPath, Ctx->bDedicated ? PIE_Client : PIE_ListenServer, Ctx->NumPlayers);
+		WaitFor(Ctx, TEXT("all players in HubMap"), 240.0, [Ctx]() { return IsSettled(HubMap, Ctx->NumPlayers); });
 	}
 
 	/** 허브에 처음 모였을 때 — 방장이 누구인지와 넷 모드를 확인하고 기준값을 적는다 */
@@ -417,7 +286,7 @@ namespace AstralPartyFlowPie
 				LeaderPC->ServerSelectRaid(RaidMap);
 			}
 		});
-		WaitUntil(Ctx, TEXT("SelectedRaid = RaidMap on the server and every seat"), 20.0, []()
+		WaitFor(Ctx, TEXT("SelectedRaid = RaidMap on the server and every seat"), 20.0, []()
 		{
 			if (SelectedRaidIn(FindServerWorld()) != RaidMap)
 			{
@@ -453,7 +322,7 @@ namespace AstralPartyFlowPie
 				}
 			}
 		});
-		WaitUntil(Ctx, TEXT("everyone ready"), 20.0, []()
+		WaitFor(Ctx, TEXT("everyone ready"), 20.0, []()
 		{
 			const UWorld* ServerWorld = FindServerWorld();
 			const AAstralHubGameState* HubGameState = ServerWorld ? ServerWorld->GetGameState<AAstralHubGameState>() : nullptr;
@@ -468,7 +337,7 @@ namespace AstralPartyFlowPie
 				LeaderPC->ServerStartRaid();
 			}
 		});
-		WaitUntil(Ctx, TEXT("all players in RaidMap"), 180.0, [Ctx]() { return IsSettled(RaidMap, Ctx->NumPlayers); });
+		WaitFor(Ctx, TEXT("all players in RaidMap"), 180.0, [Ctx]() { return IsSettled(RaidMap, Ctx->NumPlayers); });
 		CheckIdsAndLeaderKept(Ctx, TEXT("RaidMap"));
 
 		// 비방장의 복귀 거부 → 방장의 복귀
@@ -488,7 +357,7 @@ namespace AstralPartyFlowPie
 				LeaderPC->ServerReturnToHub();
 			}
 		});
-		WaitUntil(Ctx, TEXT("all players back in HubMap"), 180.0, [Ctx]() { return IsSettled(HubMap, Ctx->NumPlayers); });
+		WaitFor(Ctx, TEXT("all players back in HubMap"), 180.0, [Ctx]() { return IsSettled(HubMap, Ctx->NumPlayers); });
 		CheckIdsAndLeaderKept(Ctx, TEXT("HubMap (returned)"));
 
 		EndPie(Ctx);
@@ -518,7 +387,7 @@ namespace AstralPartyFlowPie
 			}
 			LeaderPC->ConsoleCommand(TEXT("disconnect"));
 		});
-		WaitUntil(Ctx, TEXT("server and remaining seats see one player fewer"), 60.0, [Ctx]()
+		WaitFor(Ctx, TEXT("server and remaining seats see one player fewer"), 60.0, [Ctx]()
 		{
 			if (PlayerIdsIn(FindServerWorld()).Num() != Ctx->NumPlayers - 1)
 			{
@@ -566,7 +435,7 @@ namespace AstralPartyFlowPie
 				NewLeaderPC->ServerSelectRaid(RaidMap);
 			}
 		});
-		WaitUntil(Ctx, TEXT("new leader's SelectRaid accepted"), 20.0, []() { return SelectedRaidIn(FindServerWorld()) == RaidMap; });
+		WaitFor(Ctx, TEXT("new leader's SelectRaid accepted"), 20.0, []() { return SelectedRaidIn(FindServerWorld()) == RaidMap; });
 
 		EndPie(Ctx);
 	}

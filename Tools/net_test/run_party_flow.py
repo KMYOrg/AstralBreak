@@ -52,6 +52,12 @@ LEADER_LEAVES_COUNTS = [
     ("select_not_leader", REJECT_NOT_LEADER.format(rpc="SelectRaid"), lambda n: n - 2),
 ]
 
+# 적 전투(enemy_combat) — 서버 로그가 아니라 프로세스마다 찍는 표지 줄로 판정한다 (enemy_combat_checks)
+SCENARIO_ARGS = {"flow": "Flow", "leader_leaves": "LeaderLeaves", "enemy_combat": "EnemyCombat"}
+START_MAPS = {"flow": "HubMap", "leader_leaves": "HubMap", "enemy_combat": "CombatTestMap"}
+ENEMY_ATTACK_DAMAGE = 15.0  # GA_Enemy_MeleeAttack.BaseDamage (잠정) — 바꾸면 여기도 바꾼다
+HERO_MAX_HEALTH = 100.0
+
 
 class Proc:
     def __init__(self, name: str, args: list[str], log_path: Path):
@@ -95,6 +101,48 @@ class Proc:
         return self.log_path.read_text(encoding="utf-8", errors="replace")
 
 
+def mark_fields(line: str, kind: str) -> dict[str, str] | None:
+    """`ASTRAL_NETTEST <kind> k=v k=v` 줄이면 k/v 사전, 아니면 None."""
+    head = f"{MARK} {kind} "
+    if head not in line:
+        return None
+    return dict(token.split("=", 1) for token in line[line.index(head) + len(head):].split() if "=" in token)
+
+
+def enemy_combat_checks(procs: list[Proc]) -> list[dict]:
+    """A9 — 적의 공격이 서버에서 HP 를 깎고 같은 값이 모든 프로세스에 온다(HIT) · 적이 죽으면 어디서나 사라진다(GONE)."""
+    checks: list[dict] = []
+
+    def fields(proc: Proc, kind: str) -> list[dict[str, str]]:
+        return [f for f in (mark_fields(line, kind) for line in proc.marks) if f is not None]
+
+    spawn_requests = [(proc.name, f) for proc in procs for f in fields(proc, "SPAWN_REQUEST")]
+    checks.append({"check": "one SpawnEnemy request, from a client", "expected": 1, "actual": [name for name, _ in spawn_requests],
+                   "ok": len(spawn_requests) == 1 and spawn_requests[0][0].startswith("client")})
+
+    hits = {proc.name: fields(proc, "HIT") for proc in procs}
+    seen = sorted({(f.get("victim"), f.get("hp")) for per_proc in hits.values() for f in per_proc})
+    expected_hp = f"{HERO_MAX_HEALTH - ENEMY_ATTACK_DAMAGE:.1f}"
+    checks.append({"check": "every process saw the hit", "expected": 1, "actual": {name: len(v) for name, v in hits.items()},
+                   "ok": all(len(v) == 1 for v in hits.values())})
+    checks.append({"check": "same victim and health on the server and every client", "expected": f"one (victim, {expected_hp})", "actual": seen,
+                   "ok": len(seen) == 1 and seen[0][1] == expected_hp})
+    server_hit = hits.get("server") or [{}]
+    checks.append({"check": "server: the enemy's target is the hero it hit", "expected": "1", "actual": server_hit[0].get("target_is_victim"),
+                   "ok": server_hit[0].get("target_is_victim") == "1"})
+
+    enemy_seen = {proc.name: fields(proc, "ENEMY") for proc in procs}
+    controllers = {name: (v[0].get("controller") if v else None) for name, v in enemy_seen.items()}
+    checks.append({"check": "enemy pawn on every process, controller only on the server", "expected": "server 1, clients 0", "actual": controllers,
+                   "ok": all(value == ("1" if name == "server" else "0") for name, value in controllers.items())})
+
+    kills = [proc.name for proc in procs for _ in fields(proc, "KILL")]
+    checks.append({"check": "the server killed the enemy once", "expected": ["server"], "actual": kills, "ok": kills == ["server"]})
+    gone = {proc.name: sum(1 for line in proc.marks if f"{MARK} GONE " in line) for proc in procs}
+    checks.append({"check": "enemy pawn gone on every process", "expected": 1, "actual": gone, "ok": all(count == 1 for count in gone.values())})
+    return checks
+
+
 def editor_running() -> bool:
     try:
         out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq UnrealEditor*", "/NH", "/FO", "CSV"], capture_output=True, text=True,
@@ -107,8 +155,8 @@ def editor_running() -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("mode", choices=["listen", "dedicated"])
-    parser.add_argument("--scenario", choices=["flow", "leader_leaves"], default="flow")
-    parser.add_argument("--players", type=int, default=None, help="사람 수 (기본: flow 2, leader_leaves 3)")
+    parser.add_argument("--scenario", choices=sorted(SCENARIO_ARGS), default="flow")
+    parser.add_argument("--players", type=int, default=None, help="사람 수 (기본: flow · enemy_combat 2, leader_leaves 3)")
     parser.add_argument("--config", choices=sorted(EXE_NAMES), default="DebugGame")
     parser.add_argument("--engine", type=Path, default=DEFAULT_ENGINE)
     parser.add_argument("--port", type=int, default=17777)
@@ -131,7 +179,8 @@ def main() -> int:
     out_dir = REPO / "Tools" / "mcp" / "results" / "net_test" / f"{datetime.now():%m%d_%H%M%S}_{args.mode}_{args.scenario}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    scenario_arg = "LeaderLeaves" if args.scenario == "leader_leaves" else "Flow"
+    scenario_arg = SCENARIO_ARGS[args.scenario]
+    start_map = START_MAPS[args.scenario]
     common = [
         "-gauntlet=AstralPartyFlowTest", "-gauntlet.tickrate=0.2",
         f"-AstralPartyPlayers={players}", f"-AstralPartyScenario={scenario_arg}", f"-AstralPartyTimeout={args.timeout - 30:.0f}",
@@ -140,10 +189,10 @@ def main() -> int:
     ]
     base = [str(exe), str(UPROJECT)]
     if args.mode == "listen":
-        server_args = base + ["HubMap?listen", "-game", f"-port={args.port}"] + common
+        server_args = base + [f"{start_map}?listen", "-game", f"-port={args.port}"] + common
         num_clients = players - 1
     else:
-        server_args = base + ["HubMap", "-server", f"-port={args.port}"] + common
+        server_args = base + [start_map, "-server", f"-port={args.port}"] + common
         num_clients = players
     client_args = base + [f"127.0.0.1:{args.port}", "-game"] + common
 
@@ -172,7 +221,9 @@ def main() -> int:
 
         if not failure:
             for index in range(num_clients):
-                client = Proc(f"client{index + 1}", client_args, out_dir / f"client{index + 1}.log")
+                # 적 전투 — 첫 클라이언트만 SpawnEnemy 를 부른다
+                extra = ["-AstralEnemySpawner"] if args.scenario == "enemy_combat" and index == 0 else []
+                client = Proc(f"client{index + 1}", client_args + extra, out_dir / f"client{index + 1}.log")
                 procs.append(client)
                 print(f"client{index + 1} started (pid {client.popen.pid})", flush=True)
 
@@ -212,10 +263,12 @@ def main() -> int:
         checks.append({"check": "all processes started", "expected": 1 + num_clients, "actual": len(procs), "ok": False})
 
     server_text = procs[0].text() if procs else ""
-    for name, pattern, expected_fn in (FLOW_COUNTS if args.scenario == "flow" else LEADER_LEAVES_COUNTS):
+    for name, pattern, expected_fn in {"flow": FLOW_COUNTS, "leader_leaves": LEADER_LEAVES_COUNTS}.get(args.scenario, []):
         expected = expected_fn(players)
         actual = len(re.findall(pattern, server_text))
         checks.append({"check": f"server log: {name}", "expected": expected, "actual": actual, "ok": actual == expected})
+    if args.scenario == "enemy_combat":
+        checks += enemy_combat_checks(procs)
     hard_travel = len(re.findall(r"Seamless travel is disabled", server_text))
     checks.append({"check": "server log: no hard-travel fallback", "expected": 0, "actual": hard_travel, "ok": hard_travel == 0})
     if failure:

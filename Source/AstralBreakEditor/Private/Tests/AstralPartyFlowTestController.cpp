@@ -1,6 +1,12 @@
 #include "AstralPartyFlowTestController.h"
 
+#include "Character/AstralCharacter.h"
+#include "Character/Components/AstralHealthComponent.h"
+#include "Character/Enemy/AstralCombatCharacter.h"
+#include "Character/Enemy/AstralEnemyController.h"
+#include "Components/StateTreeAIComponent.h"
 #include "Engine/Engine.h"
+#include "EngineUtils.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerState.h"
@@ -17,6 +23,11 @@ namespace AstralPartyFlowController
 {
 	const TCHAR* const HubMap = TEXT("HubMap");
 	const TCHAR* const RaidMap = TEXT("RaidMap");
+	const TCHAR* const CombatMap = TEXT("CombatTestMap");
+
+	/** 적 전투 — SpawnEnemy 가 부르는 BP 이름의 앞부분, 부르는 거리 */
+	const TCHAR* const EnemyClassPrefix = TEXT("BP_Enemy_Melee");
+	const float EnemySpawnDistance = 600.f;
 
 	/** 거부 확인 — RPC 가 서버에 닿아 처리될 시간. 이 뒤에 '안 바뀜' 을 본다 */
 	const double RejectHoldSeconds = 3.0;
@@ -68,13 +79,15 @@ void UAstralPartyFlowTestController::OnInit()
 	FString Scenario;
 	FParse::Value(FCommandLine::Get(), TEXT("AstralPartyScenario="), Scenario);
 	bLeaderLeavesScenario = Scenario.Equals(TEXT("LeaderLeaves"), ESearchCase::IgnoreCase);
+	bEnemyCombatScenario = Scenario.Equals(TEXT("EnemyCombat"), ESearchCase::IgnoreCase);
+	bEnemySpawner = FParse::Param(FCommandLine::Get(), TEXT("AstralEnemySpawner"));
 	FParse::Value(FCommandLine::Get(), TEXT("AstralPartyPlayers="), NumPlayers);
 	FParse::Value(FCommandLine::Get(), TEXT("AstralPartyTimeout="), TimeoutSeconds);
 
 	StartTime = StageStartTime = FPlatformTime::Seconds();
 
 	UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST INIT scenario=%s players=%d timeout=%.0f"),
-		bLeaderLeavesScenario ? TEXT("LeaderLeaves") : TEXT("Flow"), NumPlayers, TimeoutSeconds);
+		bEnemyCombatScenario ? TEXT("EnemyCombat") : (bLeaderLeavesScenario ? TEXT("LeaderLeaves") : TEXT("Flow")), NumPlayers, TimeoutSeconds);
 
 	if (NumPlayers < 2 || (bLeaderLeavesScenario && NumPlayers < 3))
 	{
@@ -235,7 +248,7 @@ void UAstralPartyFlowTestController::OnTick(float TimeDelta)
 	}
 
 	// 실행 스크립트는 이 줄을 보고 클라이언트를 띄운다
-	if (!bReadyLogged && (Snap.NetMode == NM_DedicatedServer || Snap.NetMode == NM_ListenServer) && Snap.Map == AstralPartyFlowController::HubMap)
+	if (!bReadyLogged && (Snap.NetMode == NM_DedicatedServer || Snap.NetMode == NM_ListenServer) && Snap.Map == StartMap())
 	{
 		bReadyLogged = true;
 		UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST READY netmode=%d map=%s"), static_cast<int32>(Snap.NetMode), *Snap.Map);
@@ -253,8 +266,8 @@ void UAstralPartyFlowTestController::OnTick(float TimeDelta)
 
 	if (Stage == 0)
 	{
-		// 허브에 전원이 모일 때까지
-		if (IsSettled(Snap, AstralPartyFlowController::HubMap, NumPlayers) && RecordBase(Snap))
+		// 첫 맵에 전원이 모일 때까지
+		if (IsSettled(Snap, StartMap(), NumPlayers) && RecordBase(Snap))
 		{
 			Advance();
 		}
@@ -266,13 +279,163 @@ void UAstralPartyFlowTestController::OnTick(float TimeDelta)
 		return; // 이동 직후 — 내 컨트롤러를 아직 못 받았다
 	}
 
-	if (bLeaderLeavesScenario)
+	if (bEnemyCombatScenario)
+	{
+		TickEnemyCombat(Snap);
+	}
+	else if (bLeaderLeavesScenario)
 	{
 		TickLeaderLeaves(Snap);
 	}
 	else
 	{
 		TickFlow(Snap);
+	}
+}
+
+const TCHAR* UAstralPartyFlowTestController::StartMap() const
+{
+	return bEnemyCombatScenario ? AstralPartyFlowController::CombatMap : AstralPartyFlowController::HubMap;
+}
+
+void UAstralPartyFlowTestController::TickEnemyCombat(const FAstralPartyFlowSnapshot& Snap)
+{
+	using namespace AstralPartyFlowController;
+
+	// ─── 이 프로세스가 지금 보는 것 ───
+
+	AAstralCombatCharacter* Enemy = nullptr;
+	int32 NumEnemies = 0;
+	for (TActorIterator<AAstralCombatCharacter> It(Snap.World); It; ++It)
+	{
+		if (It->GetClass()->GetName().StartsWith(EnemyClassPrefix))
+		{
+			Enemy = *It;
+			++NumEnemies;
+		}
+	}
+
+	// 맞은 히어로 — HP 가 최대보다 낮은 사람 중 가장 낮은 쪽. 값이 아직 안 온 사람(0)은 뺀다
+	const AGameStateBase* GameState = Snap.World->GetGameState();
+	int32 VictimId = 0;
+	float VictimHealth = 0.f;
+	APawn* VictimPawn = nullptr;
+	APawn* MyPawn = Snap.LocalPC ? Snap.LocalPC->GetPawn() : nullptr;
+	float MyHealth = 0.f;
+	for (const APlayerState* PlayerState : GameState->PlayerArray)
+	{
+		APawn* Pawn = PlayerState ? PlayerState->GetPawn() : nullptr;
+		const UAstralHealthComponent* HealthComponent = UAstralHealthComponent::FindHealthComponent(Pawn);
+		if (!HealthComponent)
+		{
+			continue;
+		}
+		const float Health = HealthComponent->GetHealth();
+		if (Pawn == MyPawn)
+		{
+			MyHealth = Health;
+		}
+		if (Health > 0.f && Health < HealthComponent->GetMaxHealth() && (VictimId == 0 || Health < VictimHealth))
+		{
+			VictimId = PlayerState->GetPlayerId();
+			VictimHealth = Health;
+			VictimPawn = Pawn;
+		}
+	}
+
+	const bool bAuthority = Snap.NetMode == NM_DedicatedServer || Snap.NetMode == NM_ListenServer;
+	const bool bOthersReady = Snap.NumOthers == NumPlayers - (Snap.NetMode == NM_DedicatedServer ? 0 : 1) && Snap.NumOthersReady == Snap.NumOthers;
+
+	// ─── 권위 프로세스 (Dedicated 서버 · 리슨 호스트) ───
+	if (bAuthority)
+	{
+		switch (Stage)
+		{
+		case 1: // 클라이언트의 SpawnEnemy 가 닿아 적이 생기고 트리가 돈다
+			if (NumEnemies == 1)
+			{
+				const AAstralEnemyController* Controller = Cast<AAstralEnemyController>(Enemy->GetController());
+				if (Controller && Controller->GetStateTreeComponent()->IsRunning())
+				{
+					UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST ENEMY role=%s seen=1 controller=1"), RoleName(Role));
+					Advance();
+				}
+			}
+			break;
+		case 2: // 적이 누군가를 때렸다
+			if (VictimId != 0 && Enemy)
+			{
+				const AAstralEnemyController* Controller = Cast<AAstralEnemyController>(Enemy->GetController());
+				const float Distance = static_cast<float>(FVector::Dist2D(Enemy->GetActorLocation(), VictimPawn->GetActorLocation()));
+				UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST HIT role=%s victim=%d hp=%.1f target_is_victim=%d distance=%.0f"),
+					RoleName(Role), VictimId, VictimHealth, (Controller && Controller->GetCurrentTarget() == VictimPawn) ? 1 : 0, Distance);
+				Advance();
+			}
+			break;
+		case 3: // 클라이언트들이 같은 것을 본 뒤 적을 죽인다
+			if (bOthersReady && Enemy)
+			{
+				UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST KILL role=%s"), RoleName(Role));
+				Enemy->DamageSelf(100000.f);
+				Advance();
+			}
+			break;
+		case 4:
+			if (NumEnemies == 0)
+			{
+				UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST GONE role=%s"), RoleName(Role));
+				Pass();
+				Advance();
+			}
+			break;
+		default:
+			TickLinger(Snap, /*bWaitForOthersToLeave=*/true);
+			break;
+		}
+		return;
+	}
+
+	// ─── 클라이언트 ───
+	switch (Stage)
+	{
+	case 1: // 한 클라이언트만 적을 부른다 — Exec → 서버 RPC
+		if (!bEnemySpawner)
+		{
+			Advance();
+		}
+		else if (AAstralCharacter* MyCharacter = Cast<AAstralCharacter>(MyPawn); MyCharacter && MyHealth > 0.f)
+		{
+			UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST SPAWN_REQUEST role=%s my=%d"), RoleName(Role), BaseMyId);
+			MyCharacter->SpawnEnemy(FString(), EnemySpawnDistance);
+			Advance();
+		}
+		break;
+	case 2: // 적 폰이 복제돼 온다
+		if (NumEnemies == 1)
+		{
+			UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST ENEMY role=%s seen=1 controller=%d"), RoleName(Role), Enemy->GetController() ? 1 : 0);
+			Advance();
+		}
+		break;
+	case 3: // 맞은 히어로의 HP 가 복제돼 온다 — 본 것을 준비 신호로 알린다
+		if (VictimId != 0)
+		{
+			UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST HIT role=%s victim=%d hp=%.1f"), RoleName(Role), VictimId, VictimHealth);
+			Snap.LocalPC->ServerSetReady(true);
+			Advance();
+		}
+		break;
+	case 4:
+		if (NumEnemies == 0)
+		{
+			UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST GONE role=%s"), RoleName(Role));
+			Pass();
+			Advance();
+		}
+		break;
+	default:
+		TickLinger(Snap, /*bWaitForOthersToLeave=*/false);
+		break;
 	}
 }
 

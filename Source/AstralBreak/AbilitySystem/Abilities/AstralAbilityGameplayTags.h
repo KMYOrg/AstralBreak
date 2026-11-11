@@ -21,6 +21,9 @@ namespace AstralGameplayTags
 
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Defense);
 
+	// 적 어빌리티 — StateTree 의 ActivateAbility Task 가 스펙을 찾는 키 (asset tag). 사망 취소용 Ability.Attack 과 함께 단다
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Enemy_Attack_Melee);
+
 	// 사망 시 CancelAbilities에서 제외되는 어빌리티 표시 (GA_Death 자신, 추후 자가 부활 등)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Behavior_SurvivesDeath);
 

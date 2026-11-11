@@ -7,9 +7,9 @@
 class UStateTreeAIComponent;
 
 /**
- * 적 AI 컨트롤러 — StateTree 의 시작 · 정지를 폰의 생명주기에 맞춘다 (Docs/Design/m3-enemy-ai.md §1).
+ * 적 AI 컨트롤러 — StateTree 의 시작 · 정지를 폰의 생명주기에 맞추고, 트리가 읽는 타깃을 쥔다 (Docs/Design/m3-enemy-ai.md §1 · §8).
  * 트리는 C++ 에 고정하지 않고 파생 BP 의 StateTreeComponent 참조로 지정한다.
- * Perception · 어그로 · 팀 동기화 · 스폰은 M3 본 작업에서 붙는다.
+ * Perception · 어그로(단위 B 의 UAstralThreatComponent — 자리는 이 컨트롤러) · 팀 동기화 · 스폰은 뒤 단위에서 붙는다.
  *
  * 시작: 폰의 전투 준비 완료 신호를 받아 시작한다. 엔진 자동 시작은 둘 다 끈다 —
  * 컴포넌트 자동 시작은 런타임 스폰에서 컨트롤러 BeginPlay 가 Possess 보다 먼저라 컨텍스트 Actor 가 없고,
@@ -17,6 +17,9 @@ class UStateTreeAIComponent;
  *
  * 정지: 사망 시작에서 멈추고, 그 밖의 모든 제거 경로는 OnUnPossess 가 받는다.
  * AAIController::OnUnPossess 는 폰을 비운 뒤 StopLogic 을 불러 컨텍스트 검사가 실패한다 — 그러면 ExitState 가 불리지 않고 트리는 실행 중으로 남는다.
+ *
+ * 타깃: CurrentTarget 하나가 단일 원천이다. 고르는 시점은 트리의 판단 지점(AcquireTarget Task)이고 매 틱 고르지 않는다.
+ * 잃는 것(사망 · 파괴)만 여기서 구독해 값을 비우고 트리에 AI.Event.TargetLost 를 보낸다. 전부 서버 전용 — 복제하지 않는다.
  */
 UCLASS()
 class ASTRALBREAK_API AAstralEnemyController : public AAIController
@@ -27,6 +30,25 @@ public:
 	AAstralEnemyController(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	UStateTreeAIComponent* GetStateTreeComponent() const { return StateTreeComponent; }
+
+	AActor* GetCurrentTarget() const { return CurrentTarget; }
+
+	/**
+	 * 타깃을 고른다 — 단위 A 의 규칙은 '죽지 않은 플레이어 폰 중 가장 가까운 것'. 골랐으면 true.
+	 * 단위 B 가 이 함수의 안쪽만 위협 기준으로 바꾼다 (트리 · Task · 바인딩은 그대로)
+	 */
+	bool AcquireTarget();
+
+	/** 타깃을 쓰는 곳은 이 함수 하나 — 앞 타깃의 구독을 풀고 새 타깃의 사망 · 파괴를 구독한다. 이벤트는 보내지 않는다 */
+	void SetCurrentTarget(AActor* NewTarget);
+
+public:
+	/**
+	 * 지금 쫓는 대상 — 트리가 직접 바인딩해 읽는다 (MoveTo.TargetActor · ActivateAbility.TargetActor).
+	 * 바인딩 메뉴에 나오려면 CPF_Edit + public 이어야 한다. 값은 SetCurrentTarget 으로만 바꾼다
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "Astral|AI")
+	TObjectPtr<AActor> CurrentTarget;
 
 protected:
 	//~ AController
@@ -41,6 +63,15 @@ private:
 	/** 시작 지점은 이 함수 하나 — 폰이 살아 있고 트리가 돌고 있지 않을 때만. StartLogic 은 실행 중인 트리를 재시작한다 */
 	void TryStartLogic();
 
+	/** 쫓던 타깃을 잃었다 — 값을 비우고, 트리가 돌고 있으면 AI.Event.TargetLost 를 보낸다 */
+	void HandleTargetLost(const AActor* LostActor);
+
 	UFUNCTION()
 	void HandlePawnDeathStarted(AActor* OwningActor);
+
+	UFUNCTION()
+	void HandleTargetDeathStarted(AActor* OwningActor);
+
+	UFUNCTION()
+	void HandleTargetDestroyed(AActor* DestroyedActor);
 };

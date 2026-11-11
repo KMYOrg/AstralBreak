@@ -354,6 +354,54 @@ void AAstralCharacter::CancelAttack()
 #endif
 }
 
+void AAstralCharacter::SpawnEnemy(const FString& EnemyName, float Distance)
+{
+#if !UE_BUILD_SHIPPING
+	if (HasAuthority())
+	{
+		ServerSpawnEnemy_Implementation(EnemyName, Distance);
+	}
+	else
+	{
+		ServerSpawnEnemy(EnemyName, Distance);
+	}
+#endif
+}
+
+void AAstralCharacter::ServerSpawnEnemy_Implementation(const FString& EnemyName, float Distance)
+{
+#if !UE_BUILD_SHIPPING
+	// 폴더는 고정하고 이름만 받는다 — 클라이언트가 보낸 문자열로 임의 경로의 클래스를 로드하지 않는다
+	static const TCHAR* const EnemyFolder = TEXT("/Game/Characters/Enemy");
+	static const TCHAR* const DefaultEnemyName = TEXT("BP_Enemy_Melee");
+	constexpr float DefaultDistance = 400.0f;
+
+	const FString Name = EnemyName.IsEmpty() ? FString(DefaultEnemyName) : EnemyName;
+	if (Name.Contains(TEXT("/")) || Name.Contains(TEXT(".")) || Name.Contains(TEXT(":")) || Name.Contains(TEXT("\\")))
+	{
+		UE_LOG(LogAstral, Warning, TEXT("SpawnEnemy: '%s' 는 BP 이름이 아님 (경로는 받지 않는다)"), *Name);
+		return;
+	}
+
+	const FString ClassPath = FString::Printf(TEXT("%s/%s.%s_C"), EnemyFolder, *Name, *Name);
+	UClass* EnemyClass = StaticLoadClass(APawn::StaticClass(), nullptr, *ClassPath, nullptr, LOAD_NoWarn);
+	UWorld* World = GetWorld();
+	if (!EnemyClass || !World)
+	{
+		UE_LOG(LogAstral, Warning, TEXT("SpawnEnemy: %s 를 찾지 못함"), *ClassPath);
+		return;
+	}
+
+	// 내 앞, 나를 보는 방향. 컨트롤러는 적 BP 의 AutoPossessAI(PlacedInWorldOrSpawned)가 붙인다
+	const FVector Forward = GetActorForwardVector().GetSafeNormal2D();
+	const FVector Location = GetActorLocation() + Forward * (Distance > 0.0f ? Distance : DefaultDistance);
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+	World->SpawnActor<APawn>(EnemyClass, Location, (-Forward).Rotation(), SpawnParams);
+#endif
+}
+
 void AAstralCharacter::SetMoveSpeedMultiplier(float Multiplier)
 {
 #if !UE_BUILD_SHIPPING

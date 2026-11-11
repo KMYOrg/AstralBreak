@@ -25,6 +25,15 @@ public class AstralBreakEditor : ModuleRules
 			"BlueprintGraph",
 			"UnrealEd",
 			"Gauntlet",
+
+			// 적 AI 시험 (Private/Tests — 엔진 전제 확인 · 전투 멀티 PIE, 설계 m3-enemy-ai.md §8)
+			"AIModule",
+			"GameplayAbilities",
+			"GameplayTags",
+			"GameplayTasks",
+			"GameplayStateTreeModule",
+			"NavigationSystem",
+			"StateTreeModule",
 		});
 	}
 }

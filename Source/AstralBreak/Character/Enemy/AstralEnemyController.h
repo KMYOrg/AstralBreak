@@ -4,10 +4,12 @@
 #include "AIController.h"
 #include "AstralEnemyController.generated.h"
 
+class UAbilitySystemComponent;
 class UAstralHealthSet;
 class UAstralThreatComponent;
 class UStateTreeAIComponent;
 struct FGameplayEffectSpec;
+struct FGameplayTag;
 
 /**
  * 적 AI 컨트롤러 — StateTree 의 시작 · 정지를 폰의 생명주기에 맞추고, 트리가 읽는 타깃을 쥔다 (Docs/Design/m3-enemy-ai.md §1 · §8 · §9).
@@ -26,6 +28,9 @@ struct FGameplayEffectSpec;
  *
  * 어그로: 누구를 고를지는 ThreatComponent 가 정한다(적대심 가중 추첨 · 유지 시간 · 제외). 이 컨트롤러는 후보를 모아 넘기고,
  * 폰이 받은 피해(UAstralHealthSet::OnDamaged)를 기록에 넣고, 현재 타깃이 아닌 후보에게 맞으면 트리에 AI.Event.Retarget 을 보낸다.
+ *
+ * 경직(§10 C2 ⑦): 폰 ASC 의 State.Enemy.Staggered 태그 이벤트를 구독해, 붙으면 트리에 AI.Event.Staggered 를 보낸다.
+ * 그 태그를 다는 GA 가 없는 적(마네킹)에서는 아무 일도 없다.
  */
 UCLASS()
 class ASTRALBREAK_API AAstralEnemyController : public AAIController
@@ -87,6 +92,16 @@ private:
 
 	TWeakObjectPtr<const UAstralHealthSet> BoundHealthSet;
 	FDelegateHandle PawnDamagedHandle;
+
+	/** 폰의 행동 불가 태그(State.Enemy.Staggered — 피격 반응 · 경직 GA 가 단다) 구독 — 피해 구독과 같은 자리에서 걸고 푼다. 폴링 없음 */
+	void BindPawnStaggered(const APawn* InPawn);
+	void UnbindPawnStaggered();
+
+	/** 태그가 붙었다 — 트리에 AI.Event.Staggered 를 보낸다(Root 의 전환이 Stagger 로 보낸다. 그 전환이 없는 트리에서는 버려진다). 떨어지는 것은 트리의 Task 가 직접 듣는다 */
+	void HandlePawnStaggeredTagChanged(const FGameplayTag Tag, int32 NewCount);
+
+	TWeakObjectPtr<UAbilitySystemComponent> BoundStaggerAbilitySystem;
+	FDelegateHandle PawnStaggeredHandle;
 
 	UFUNCTION()
 	void HandlePawnDeathStarted(AActor* OwningActor);

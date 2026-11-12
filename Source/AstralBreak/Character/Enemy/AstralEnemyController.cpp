@@ -2,6 +2,7 @@
 
 #include "AI/AstralThreatComponent.h"
 #include "AbilitySystem/AstralEventGameplayTags.h"
+#include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
 #include "AbilitySystemComponent.h"
@@ -57,6 +58,7 @@ void AAstralEnemyController::OnPossess(APawn* InPawn)
 	}
 
 	BindPawnDamaged(InPawn);
+	BindPawnStaggered(InPawn);
 
 	AAstralCombatCharacter* CombatCharacter = Cast<AAstralCombatCharacter>(InPawn);
 	if (!CombatCharacter)
@@ -79,6 +81,7 @@ void AAstralEnemyController::OnUnPossess()
 	SetCurrentTarget(nullptr);
 
 	UnbindPawnDamaged();
+	UnbindPawnStaggered();
 	ThreatComponent->Reset();
 
 	if (AAstralCombatCharacter* CombatCharacter = Cast<AAstralCombatCharacter>(GetPawn()))
@@ -150,6 +153,40 @@ void AAstralEnemyController::UnbindPawnDamaged()
 	}
 	BoundHealthSet.Reset();
 	PawnDamagedHandle.Reset();
+}
+
+void AAstralEnemyController::BindPawnStaggered(const APawn* InPawn)
+{
+	UnbindPawnStaggered();
+
+	UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(InPawn);
+	if (!ASC)
+	{
+		return;
+	}
+
+	// 0 ↔ 1 이상으로 바뀔 때만 온다 — 움찔 중에 경직이 겹쳐도(같은 태그) 한 번이다
+	PawnStaggeredHandle = ASC->RegisterGameplayTagEvent(AstralGameplayTags::State_Enemy_Staggered, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &ThisClass::HandlePawnStaggeredTagChanged);
+	BoundStaggerAbilitySystem = ASC;
+}
+
+void AAstralEnemyController::UnbindPawnStaggered()
+{
+	if (UAbilitySystemComponent* ASC = BoundStaggerAbilitySystem.Get())
+	{
+		ASC->UnregisterGameplayTagEvent(PawnStaggeredHandle, AstralGameplayTags::State_Enemy_Staggered, EGameplayTagEventType::NewOrRemoved);
+	}
+	BoundStaggerAbilitySystem.Reset();
+	PawnStaggeredHandle.Reset();
+}
+
+void AAstralEnemyController::HandlePawnStaggeredTagChanged(const FGameplayTag Tag, int32 NewCount)
+{
+	// 하던 일을 멈추는 것은 트리의 몫이다 — Root 의 Staggered 전환이 Stagger 로 보내고, 상태를 나가며 MoveTo · 공격 GA 가 취소된다
+	if (NewCount > 0 && StateTreeComponent->IsRunning())
+	{
+		StateTreeComponent->SendStateTreeEvent(AstralGameplayTags::AIEvent_Staggered);
+	}
 }
 
 void AAstralEnemyController::HandlePawnDamaged(AActor* EffectInstigator, AActor* EffectCauser, const FGameplayEffectSpec* EffectSpec, float Damage, float OldValue, float NewValue)
@@ -249,5 +286,6 @@ void AAstralEnemyController::HandlePawnDeathStarted(AActor* OwningActor)
 
 	// 위협 기록도 같이 비운다
 	UnbindPawnDamaged();
+	UnbindPawnStaggered();
 	ThreatComponent->Reset();
 }

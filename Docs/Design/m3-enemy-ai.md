@@ -1,7 +1,7 @@
 # M3 적 AI 설계
 
 작성일: 2026-11-05 · 대상: UE 5.7.4 · 기준 커밋: `6e2e2ee` · 앞 단계: [StateTree Phase2Report](../StateTree/Phase2Report.md) · 기획 원문: [game-plan.md](game-plan.md)
-상태: **1번 설계 승인(2026-11-05, 권장안 그대로) · 구현 · 자동 검증 완료 · 커밋 `8b8a5fd`(2026-11-08). 남은 것 = V9 더미 사용자 눈 확인. 2번부터 미착수.** **2026-11-11 착수 전 검토를 반영했다 — [§0](#0-착수-전-검토-2026-11-11) 과 2 ~ 7번의 '설계 때 정할 것'.** **선행 단위(§7-1 · §7-2)는 구현 · 검증 완료 · 커밋 `0e04049`(2026-11-11) — 남은 것 = P7(사용자).** **단위 A([§8](#8-단위-a--쫓아와-때리는-적-한-마리))는 구현 · 자동 검증 완료 · 커밋 `dbe2fd1`(2026-11-11) · A11 조작감 사용자 확인 완료(2026-11-11).** **단위 B([§9](#9-단위-b--여럿이-때리면-타깃이-바뀐다))는 구현 · 자동 검증 완료 · 커밋 `29d963c`(2026-11-12).** **단위 C 는 C1 · C2 로 나눴다 — C1 은 [§10](#10-단위-c--수호병의-모습과-공격) 구현 · 자동 검증 완료(2026-11-12, 미커밋) — 남은 것 = G7 눈 확인(사용자). C2 는 정할 것만 적음.**
+상태: **1번 설계 승인(2026-11-05, 권장안 그대로) · 구현 · 자동 검증 완료 · 커밋 `8b8a5fd`(2026-11-08). 남은 것 = V9 더미 사용자 눈 확인. 2번부터 미착수.** **2026-11-11 착수 전 검토를 반영했다 — [§0](#0-착수-전-검토-2026-11-11) 과 2 ~ 7번의 '설계 때 정할 것'.** **선행 단위(§7-1 · §7-2)는 구현 · 검증 완료 · 커밋 `0e04049`(2026-11-11) — 남은 것 = P7(사용자).** **단위 A([§8](#8-단위-a--쫓아와-때리는-적-한-마리))는 구현 · 자동 검증 완료 · 커밋 `dbe2fd1`(2026-11-11) · A11 조작감 사용자 확인 완료(2026-11-11).** **단위 B([§9](#9-단위-b--여럿이-때리면-타깃이-바뀐다))는 구현 · 자동 검증 완료 · 커밋 `29d963c`(2026-11-12).** **단위 C 는 C1 · C2 로 나눴다 — C1 은 [§10](#10-단위-c--수호병의-모습과-공격) 구현 · 자동 검증 완료 · 커밋 `ff2ffa9`(2026-11-12). C2 는 같은 절에 잠정안으로 설계 · 구현 · 자동 검증 완료(2026-11-12, 미커밋) · H7 눈 확인 사용자 완료(2026-11-12).** **단위 D 는 [§11](#11-단위-d--수호병-여러-마리가-나온다) 설계안 — 사용자 승인 대기.**
 
 M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로 쌓는다. 앞 항목이 뒤 항목의 전제가 되도록 사용자와 순서를 합의했다. 생명주기를 어그로보다 먼저 정해야 그 위에 얹는 것을 다시 고치지 않는다.
 
@@ -16,7 +16,8 @@ M3(일반 몬스터 AI · 어그로) 설계를 이 문서 하나에 순서대로
 | 7 | 네트워크 종료 조건 (3단계 테스트 · `IsPartyLeader`) | 선행 단위만 [§7-1](#7-1-선행-단위--dedicated-에서-레이드-시작) · [§7-2](#7-2-네트워크-단계-자동-시험-p2--p5) — 구현 · 검증 완료 · 커밋 `0e04049`, P7(사용자)만 남음. 나머지 미착수 |
 | 8 | 단위 A (2 최소 · 3 일부 · 4 · 5 최소를 한 번에) | [§8](#8-단위-a--쫓아와-때리는-적-한-마리) — 구현 · 자동 검증 완료 · 커밋 `dbe2fd1`, A11 조작감 사용자 확인 완료 |
 | 9 | 단위 B (2 의 나머지 — 어그로 규칙 · 타깃 전환) | [§9](#9-단위-b--여럿이-때리면-타깃이-바뀐다) — 구현 · 자동 검증 완료 · 커밋 `29d963c` |
-| 10 | 단위 C (3 의 나머지 + 6 의 메시 · 애니) — C1 모습 · 몽타주 공격 / C2 공격 확장 · 방어 규칙 | [§10](#10-단위-c--수호병의-모습과-공격) — C1 구현 · 자동 검증 완료(2026-11-12, 미커밋) · G7 눈 확인(사용자)만 남음, C2 미착수 |
+| 10 | 단위 C (3 의 나머지 + 6 의 메시 · 애니) — C1 모습 · 몽타주 공격 / C2 공격 확장 · 방어 규칙 | [§10](#10-단위-c--수호병의-모습과-공격) — C1 구현 · 자동 검증 완료 · 커밋 `ff2ffa9`, C2 잠정안으로 구현 · 자동 검증 완료(2026-11-12, 미커밋) · H7 눈 확인 사용자 완료 |
+| 11 | 단위 D (6 의 나머지 — 스폰 · 여러 마리) | [§11](#11-단위-d--수호병-여러-마리가-나온다) — 설계안 · 사용자 승인 대기 |
 
 **기획 근거:** [game-plan.md](game-plan.md) — M3 절(2부)이 범위 · 종료 조건 · 확장 포인트 예약, 7-6 절(1부)이 수호병 역할 · 기본 패턴, 부록 C 가 옛 구현 방향 메모(StateTree 확정 근거 · 단발 GA · 첫 수직 단위 · `UAstralThreatComponent` API)다. 2번부터는 이 문서를 근거로 쓴다. 어그로 수치 규칙과 패턴별 수치는 원문에 없으므로 해당 항목 설계 때 사용자와 정한다.
 
@@ -1644,15 +1645,352 @@ Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/net_test/run_party_flow.py d
 UnrealEditor-Win64-DebugGame.exe <uproject> -ExecutePythonScript=D:/UE5Projects/AstralBreak/Tools/scripts/setup/enemy_guardian_assets.py -unattended
 ```
 
-### C2 — 설계 전에 사용자가 정해 줄 것
+### C2 — 공격 2종 · 방어 규칙 · 피격 반응 · 경직
 
-C2 설계는 아래가 정해져야 쓸 수 있다. 전부 기획이라 잠정값으로 시작해도 된다(§0-4).
+상태: **구현 · 자동 검증 완료(2026-11-12, 미커밋) · 남은 것 = H7 눈 확인(사용자). 마스터 세션이 공용 피해 함수 · 컨트롤러의 변경을 결정 ④ · ⑦ 과 대조해 일치를 확인했다(시험을 다시 돌리지는 않았다).** 사용자 지시로 착수했다(2026-11-12 — "c2 세션 진행"). 기획 답 여섯 가지는 받지 않았다 — 아래 '잠정 기획' 은 전부 마스터가 고른 잠정안이고 값은 데이터에 둔다(§0-4).** 이 절의 판단은 [소스] 다. C1 은 커밋 `ff2ffa9`.
 
-| # | 정할 것 | 지금 아는 것 |
+끝나면 보이는 것: **수호병이 연타와 강공격을 섞어 쓴다. 연타는 가드로 버티고, 강공격은 가드를 뚫어 패링이나 회피가 필요하다. 패링하면 수호병이 비틀거리며 그동안 더 아프게 맞는다. 맞으면 움찔한다.**
+
+#### 잠정 기획 (여섯 가지의 답)
+
+| # | 정할 것 | 잠정안 |
 | ---: | :--- | :--- |
-| 1 | `Attack1` ~ `6` 중 무엇을 기본 연타 · 강공격 · (선택) 돌진으로 쓰는가 | C1 이 길이 · 타격 시점 표를 남긴다. 동작은 사용자가 에디터에서 보는 것이 가장 빠르다 |
-| 2 | 공격별 가드 · 패링 가능 여부 | 원문: '가드 가능한 공격' · '패링 가능한 강공격'. 지금 태그는 `Unblockable` 하나가 둘을 함께 뚫는다(§0-5 의 2번) |
-| 3 | 피격 반응 규칙 — 맞을 때마다 움찔하는가, 몇 번에 한 번인가, 공격 중에는 버티는가 | `GetHit` 애니가 4방향 있다. 매번 움찔하면 4인이 때리는 동안 적이 공격하지 못한다(§3) |
-| 4 | 패링 뒤 경직의 모습과 '약점 노출' — 경직 중 받는 피해를 올리는가 | `Rage` 가 후보. 노브는 `IncomingDamageMultiplier` 가 이미 있다 |
-| 5 | 회피 무적 프레임을 넣는가 | 지금은 위치 이탈로만 피한다(§0-5 의 5번) |
-| 6 | 누가 노려지는지의 표시 | 타깃을 복제해야 한다(§9 미해결) |
+| 1 | 공격 매핑 | 기본 연타 = `Attack5`(3타), 강공격 = `Attack6`(내리찍기). `Attack1` 은 C1 의 것을 남겨 두되 수호병은 쓰지 않는다. **돌진은 넣지 않는다** — 팩의 공격이 전부 제자리라 이동을 코드로 줘야 하고, 부록 D 의 컷 라인에서 '선택' 이다 |
+| 2 | 가드 · 패링 | 연타 = 가드 가능 · 패링 가능. 강공격 = **가드 불가 · 패링 가능** |
+| 3 | 피격 반응 | 공격 중(공격 어빌리티가 켜져 있는 동안)에는 버틴다. 그 밖에는 맞은 방향으로 움찔하고, 한 번 움찔하면 2.5초 동안 다시 움찔하지 않는다 |
+| 4 | 경직 · 약점 노출 | 패링당하면 2.0초 경직(`Rage` 재생 — 잠정). 경직 동안 받는 피해 1.5배 |
+| 5 | 회피 무적 | **넣지 않는다.** 히어로 코드를 건드리는 일이고, 지금은 방향이 굳은 뒤 옆으로 빠지는 창이 있다 |
+| 6 | 타깃 표시 | **넣지 않는다.** 복제 프로퍼티가 는다. 단위 D · E 에서 4인으로 돌려 본 뒤 정한다 |
+
+값(잠정): 연타 타당 피해 8 · 강공격 30 · 강공격 예고 1.2초 · 연타 예고 1.0초 · 고르는 비율 반반.
+
+#### C2 결정
+
+**① 수호병 전용 트리 · 컨트롤러 BP.** `ST_Enemy_Guardian` · `BP_EnemyController_Guardian` 을 새로 만든다(`ST_Enemy_Melee` 와 같은 구조에서 시작). `BP_Enemy_Guardian` 의 `AIControllerClass` 만 바꾼다. 마네킹과 트리를 함께 쓰면 공격 고르기 · 경직 상태가 마네킹 시험을 깨뜨린다. **마네킹 쪽(`BP_Enemy_Melee` · `ST_Enemy_Melee` · `BP_EnemyController_Melee` · 그 GA)은 계속 불변이다.** 선 거리(`AcceptableRadius`)도 여기서 수호병에 맞게 줄인다 — 손이 닿아 보이는 거리로(C1 실측: 199 cm 에 서고 손은 122 cm).
+
+**② 공격 고르기는 트리가 한다.** (부록 C 의 `SelectAttack`)
+
+- `Attack` 을 그룹 상태로 바꾸고 자식 둘(`Attack_Combo` · `Attack_Heavy`)을 둔다. 고르는 방식은 엔진의 자식 무작위 선택(`TrySelectChildrenAtRandom`)이다. 저작 도구가 `SelectionBehavior` 를 쓸 수 있다(`AnimMcpTools_StateTree.cpp:28`).
+- 자식마다 `ActivateAbility` Task 가 다른 태그를 부른다 — 새 태그 `Ability.Enemy.Attack.Combo` · `Ability.Enemy.Attack.Heavy`. Task 코드는 그대로다.
+- 비율을 반반에서 바꾸려면 엔진의 가중 무작위(`TrySelectChildrenAtRandomWeightedByUtility` + 상수 Consideration)로 간다. C2 는 반반으로 시작한다.
+
+**③ 공격 GA 는 C1 의 클래스 그대로, BP 둘.** `GA_Guardian_Combo`(`AM_Guardian_Combo` — `Attack5`, 타격 노티파이 3개) · `GA_Guardian_Heavy`(`AM_Guardian_Heavy` — `Attack6`, 노티파이 1개). 연타는 C1 이 만든 '타격 이벤트마다 스윕' 을 그대로 쓴다.
+
+- **준비는 느리게, 휘두름은 원래 속도로.** C1 은 몽타주 전체를 0.45배속으로 틀어 휘두름까지 느렸다. 몽타주의 애니 세그먼트를 준비 구간 / 나머지로 나눠 준비 구간에만 느린 재생 속도를 준다(데이터 — 코드 없음). 도구나 스크립트로 세그먼트를 못 나누면, '휘두름 시작' 노티파이에서 GA 가 재생 속도를 올리는 방식으로 한다(코드 — 태그 1 · 프로퍼티 1). 어느 쪽을 썼는지 결과에 적는다.
+- GA 클래스에 더하는 것: **피해에 실을 태그**(`DamageTags`), 공격 중임을 알리는 소유 태그(⑤ 가 쓴다). 수호병의 공격 GA 는 `StaggerRecovery = 0` 으로 둔다 — 경직은 ⑥ 의 GA 가 맡는다. 마네킹은 지금처럼 공격 GA 안에서 머문다.
+
+**④ 가드 불가 · 패링 가능 — 태그 하나를 더한다.** (§0-5 의 2번)
+
+- 새 태그 `Damage.Type.Unguardable`. `ResolveIncomingDamage`(`AstralCombatStatics.cpp:266`)에 한 갈래를 더한다: 패링 판정은 그대로 하고, **가드만** 이 태그가 있으면 감쇄 없이 통과시킨다. 기존 `Damage.Type.Unblockable`(둘 다 뚫음)은 그대로다.
+- 태그를 싣는 길: `ApplyDamageSweep` · `ApplyAttackHit` 에 선택 인자(동적 애셋 태그, 기본 비어 있음)를 더해 스펙에 붙인다. **히어로와 함께 쓰는 함수다 — 기본값이 비어 있어 히어로 경로는 달라지지 않는다.** 히어로 공격은 이 태그를 쓰지 않는다.
+
+**⑤ 피격 반응 GA — `UAstralGA_Enemy_HitReact`.** (§0-5 의 3번)
+
+- `GameplayEvent.Damaged` 로 발동한다(HealthSet 이 피해 때마다 보낸다 — `AstralHealthSet.cpp:142`). 서버 전용. 맞은 방향(가해자 위치와 내 전방)으로 `GetHitF/B/L/R` 중 하나를 몽타주로 튼다 — 클라이언트는 복제된 몽타주로 본다(C1-0b 실측).
+- 버티는 조건 = 발동 차단 태그다: 공격 중 태그 · 경직 중 태그 · 사망. 2.5초 간격은 GA 의 쿨다운(데이터)이다.
+- 켜져 있는 동안 '행동 불가' 태그(`State.Enemy.Staggered`)를 갖는다 — ⑦ 이 본다.
+- 피해 0(패링)은 이벤트가 오지 않으므로 반응하지 않는다.
+
+**⑥ 경직 GA — `UAstralGA_Enemy_Stagger`.** (§0-5 의 9번, §4 의 '경직 대기')
+
+- `GameplayEvent.Staggered` 로 발동한다. 진행 중인 공격 어빌리티를 취소하고, 경직 몽타주를 틀고, 켜져 있는 동안 '행동 불가' 태그와 **약점 노출 GE**(`IncomingDamageMultiplier` × 1.5 — 새 애셋 `GE_Enemy_Exposed`)를 건다. 2.0초 뒤 끝난다.
+- 피격 반응보다 우선한다 — 경직 중에는 움찔하지 않는다(⑤ 의 차단 태그).
+
+**⑦ 트리의 경직 대기 — 태그 이벤트로.**
+
+- 컨트롤러가 폰 ASC 의 `State.Enemy.Staggered` 태그 변화를 구독한다(GAS 의 태그 이벤트 — 폴링 없음). 붙으면 트리에 `AI.Event.Staggered` 를 보낸다.
+- 트리: Root 에 `AI.Event.Staggered` → `Stagger` 전환 하나(어느 상태에 있든 받는다). `Stagger` 의 Task(`FAstralStateTreeTask_WaitTagRemoved` — 새 파일, 태그 이벤트로 끝남 · 틱 없음)가 태그가 떨어질 때까지 기다리고 `Acquire` 로 간다.
+- 움찔 · 경직 동안 이동과 공격이 멈춘다(상태를 나가며 `MoveTo` · 공격 GA 가 취소된다 — §1-8).
+
+#### C2 영향
+
+| 대상 | 변경 | 상속 · 공용 영향 |
+| :--- | :--- | :--- |
+| `UAstralCombatStatics` — `ApplyDamageSweep` · `ApplyAttackHit` · `ResolveIncomingDamage` | 선택 인자 1 · 가드 갈래 1 | **히어로와 공용.** 기본 인자가 비어 히어로 · 더미 · 마네킹 경로는 그대로여야 한다 — 기존 시험이 확인한다 |
+| `UAstralGA_Enemy_MeleeAttack` | 프로퍼티 2(피해 태그 · 공격 중 태그) | 마네킹 · C1 의 GA BP 는 기본값이라 그대로 |
+| `AAstralEnemyController` | 태그 구독 → 이벤트 1 | 자식 BP 전부가 물려받는다. `Stagger` 전환이 없는 트리(마네킹 등)에서는 이벤트가 버려진다 |
+| 새 GA 2 · 새 Task 1 · 태그 5 안팎 | 추가 | 없음 |
+| 새 애셋: 트리 · 컨트롤러 BP · 몽타주 2(공격) + 5(피격 4 · 경직 1) · GA BP 4 · GE 1 | 추가(`/Game/Characters/Enemy/Guardian/` · `/Game/AI/Enemy/`) | `DA_AbilitySet_Enemy_Guardian` · `BP_Enemy_Guardian` 은 수정(수호병 것) |
+| 마네킹 쪽 애셋 · 히어로 코드 · `AAstralCombatCharacter` · 맵 · 팩 애셋 · 플러그인 | **변경 없음** | |
+| 복제 | **새 프로퍼티 0** | 클라이언트가 보는 것은 복제된 몽타주와 HP 다 |
+
+- **C1 의 시험(`EnemyGuardian`)은 고쳐야 한다.** 수호병의 공격이 바뀌기 때문이다. 마네킹 시험(`EnemyCombat` · `EnemyAggro`)은 그대로 통과해야 한다.
+
+#### C2 미해결
+
+- 경직 애니(`Rage`)와 공격 매핑은 궤적 추정으로 골랐다 — 눈으로 본 사람이 없다. 사용자 눈 확인에서 바꾼다(몽타주 교체 = 데이터).
+- 연타 3타 사이에 타깃을 따라 돌지 않는다(첫 타 전에 방향이 굳는다). 옆으로 빠지면 2 · 3타가 빗나간다.
+- 무작위 반반이라 강공격이 연달아 나올 수 있다.
+- 4인이 계속 때릴 때 2.5초 간격이 적절한지는 단위 D · E 에서 본다.
+
+#### C2 검증 계획 — 줄인 범위
+
+**C2-0 — 첫 시험 실행에서 함께 본다.** 틀리면 우회하지 말고 마스터에 묻는다.
+
+| # | 확인할 것 |
+| :--- | :--- |
+| C2-0a | 그룹 상태의 무작위 선택으로 두 자식이 다 골라진다 |
+| C2-0b | Root 의 이벤트 전환이 `Chase` · `Attack` · `Recovery` 어느 상태에서 와도 `Stagger` 로 간다(공격이 취소로 끝나는 같은 틱에 와도) |
+
+| # | 확인할 것 | 방법 | 판정 |
+| :--- | :--- | :--- | :--- |
+| H1 | 연타: 타격 3번 · 가드하면 감쇄 · 패링하면 0 + 남은 타격 없음 | 멀티 PIE `EnemyGuardian` 시험을 고친다. 방어 규칙은 트리를 멈추고 GA 를 직접 발동해 본다(무작위에 기대지 않는다) | 자동 |
+| H2 | 강공격: 가드해도 전액 · 패링하면 0 | 같은 시험 | 자동 |
+| H3 | 경직: 패링 뒤 2초 동안 공격 · 이동 없음, 그동안 받는 피해 1.5배, 끝나면 다시 쫓는다 | 같은 시험 | 자동 |
+| H4 | 피격 반응: 맞으면 클라이언트에서 몽타주 재생 · 2.5초 안의 두 번째는 반응 없음 · 공격 중에는 반응 없음 | 같은 시험 | 자동 |
+| H5 | 트리가 두 공격을 다 쓴다(C2-0a) | 같은 시험 — 제한 시간 안에 두 태그가 다 관측되는지 | 자동 |
+| H6 | 회귀 — `AstralBreak.` 전체 1회(마네킹 · 히어로 시험 그대로) · 두 구성 빌드 각 1회 | 같은 에디터 실행 | 자동 |
+| H7 | 눈 확인 — 두 공격이 구분되는가 · 준비 / 휘두름 속도 · 선 거리 · 움찔과 경직의 모습 | `SpawnEnemy BP_Enemy_Guardian` | 사용자 |
+
+- 하지 않는 것은 §9 의 표 그대로다(별도 프로세스 · `-DisableAdaptiveUnity` · 시나리오 도구 · 코드를 깨뜨리는 대조 · Development 실행 · 플러그인 회귀 — 단위 E).
+
+### C2 구현 결과 (2026-11-12)
+
+단위 C2 구현 세션이 덧붙인다. 위의 결정 · 근거는 설계 때 쓴 그대로다. **C2-0 은 둘 다 설계대로 나왔고, H1 ~ H6 은 [실측] 통과(첫 실행에), H7(눈 확인)은 사용자 몫으로 남았다. 커밋하지 않았다.**
+실행은 DebugGame 에디터 · `-unattended` 이고 수치는 `-stdout -FullStdOutLogOutput` 출력의 `ASTRAL_PIETEST` 줄에서 읽었다. Development 는 빌드만 했다. 아래 수치는 `Dedicated / 리슨` 순이다(같으면 하나만).
+
+#### 바뀐 파일 · 애셋
+
+| 파일 · 애셋 | 변경 |
+| :--- | :--- |
+| `AbilitySystem/AstralCombatStatics.h` · `.cpp` | `ApplyDamageSweep` · `ApplyAttackHit` 에 선택 인자 `DamageTags`(기본 빈 컨테이너 — 스펙의 동적 asset tag 로 붙는다). `ResolveIncomingDamage` 에 한 갈래: 패링 판정 뒤, `Damage.Type.Unguardable` 이면 가드 감쇄 · `Guarded` 이벤트 없이 통과. 기존 호출부는 고치지 않았다 |
+| `AbilitySystem/Abilities/Enemy/AstralGA_Enemy_MeleeAttack.h` · `.cpp` | 프로퍼티 2(`DamageTags` · `SwingPlayRate`) + 읽기 함수 3. 휘두름 시작 노티파이를 받으면 재생 속도를 바꾼다. 기본값은 지금 동작 그대로다(그 노티파이가 없는 몽타주에서는 불리지 않는다) |
+| `AbilitySystem/Abilities/Enemy/AstralGA_Enemy_HitReact.h` · `.cpp` (새 파일) | 결정 ⑤ |
+| `AbilitySystem/Abilities/Enemy/AstralGA_Enemy_Stagger.h` · `.cpp` (새 파일) | 결정 ⑥ |
+| `AI/StateTree/AstralStateTreeTask_WaitTagRemoved.h` · `.cpp` (새 파일) | 결정 ⑦ — 태그 이벤트로 끝남 · 틱 없음 |
+| `Character/Enemy/AstralEnemyController.h` · `.cpp` | `BindPawnStaggered` · `UnbindPawnStaggered` · 핸들러 — `OnDamaged` 구독과 같은 세 자리(빙의 · 언포제션 · 사망)에서 걸고 푼다 |
+| 태그 파일 2개 | 9개: `Ability.Enemy.Attack.Combo` · `.Heavy` · `Ability.Enemy.HitReact` · `Ability.Enemy.Stagger` · `State.Enemy.Attacking` · `State.Enemy.Staggered` · `Damage.Type.Unguardable` · `GameplayEvent.Enemy.AttackSwing` · `AI.Event.Staggered` |
+| `AstralBreakEditor/Private/Tests/AstralEnemyGuardianPieTests.cpp` | H1 ~ H5 · C2-0 으로 다시 썼다(G1 · G2 · G4 는 이어 본다). 기대값은 GA CDO · 몽타주 · GE 에서 읽는다 |
+| `Tools/scripts/setup/enemy_guardian_c2_assets.py` (새 파일) | 아래 애셋 중 노티파이 · GA · GE · AbilitySet · 컨트롤러 BP · 폰 BP. 잠정값이 맨 위에 모여 있고, 고쳐서 다시 돌리면 값이 다시 써진다 |
+| `/Game/Characters/Enemy/Guardian/AM_Guardian_Combo` · `AM_Guardian_Heavy` | `Attack5` · `Attack6`. 트랙 `Combat` 에 휘두름 시작 1 + 타격 3 / 1 |
+| `…/AM_Guardian_HitF` · `HitB` · `HitL` · `HitR` · `AM_Guardian_Stagger` | `GetHitF/B/L/R`(각 0.80초) · `Rage`(1.33초 — 섹션이 자신으로 이어져 반복한다) |
+| `…/GA_Guardian_Combo` · `GA_Guardian_Heavy` · `GA_Guardian_HitReact` · `GA_Guardian_Stagger` · `GE_Enemy_Exposed` | 값은 아래 '고른 것' |
+| `…/DA_AbilitySet_Enemy_Guardian` (수정) | `GA_Death` + 위 GA 4개. `GA_Guardian_Attack` 은 뺐다(애셋은 남아 있다) |
+| `/Game/AI/Enemy/ST_Enemy_Guardian` · `BP_EnemyController_Guardian` | 전용 트리 · 컨트롤러(위협 값 5개는 마네킹 컨트롤러 BP 에서 읽어 같은 값) |
+| `/Game/Characters/Enemy/BP_Enemy_Guardian` (수정) | `AIControllerClass` 만 |
+
+건드리지 않은 것: 마네킹 쪽 애셋 5개와 그 시험 3개 · `ST_Enemy_Melee` · 히어로 코드 · `AAstralCombatCharacter` · `AAstralCharacter` · `UAstralThreatComponent` · 루프 GA · 맵 · 팩 애셋 · 플러그인 · `Tools/net_test`(`git status` 로 확인). 새 복제 프로퍼티 0 · 새 RPC 0.
+
+#### C2-0 결과 [실측]
+
+| # | 결과 |
+| :--- | :--- |
+| C2-0a | **설계대로.** 트리가 두 자식을 다 골랐다 — 고른 순서 `HHHC` / `CCCCH`(C 연타 · H 강공격). 반반 무작위라 같은 것이 3 ~ 4번 이어지기도 했다 |
+| C2-0b | **설계대로.** 세 상태 모두에서 `Stagger` 로 갔다 — 행동으로 판정했다(아래 '고른 것'). ① `Chase`: 달리던 중(300 cm/s) 맞자 움찔하는 0.65초 동안 속도 0, 히어로에서 562 / 587 cm 떨어진 채 ② `Attack`(패링 — 공격이 취소로 끝나는 같은 틱): 경직 2.01 / 2.00초 동안 공격 시작 0, 다음 공격은 패링 2.01 / 2.00초 뒤(`Recovery` 로 갔다면 1.0초) ③ `Recovery`: 0.68초째(남은 0.32초)에 맞자 움찔이 끝난 0.66 / 0.65초 뒤에 다음 공격(전환이 안 먹었다면 0.32초 뒤 태그가 붙은 채 시작). 시험 전체에서 '행동 불가 태그가 붙은 채 시작한 공격' 은 0 |
+
+#### 검증 결과
+
+| # | 결과 | 구분 |
+| :--- | :--- | :--- |
+| H1 | **통과.** 직접 발동한 연타: 막지 않으면 8.0 × 3(발동 1.00 ~ 1.02 · 1.52 ~ 1.53 · 1.87 ~ 1.88초 — 기대 1.00 / 1.52 / 1.87) · 가드하면 4.0 × 3(히어로의 `GuardDamageMultiplier` 0.50) · 패링하면 히어로 피해 0, 첫 타격 시각(1.00초)에 연타가 취소되고 남은 타격 없음. 모든 클라이언트가 연타 몽타주를 재생 | [실측] |
+| H2 | **통과.** 강공격: 가드해도 30.0 전액(1.20 ~ 1.21초 — 기대 1.20) · 패링하면 피해 0 + 경직. 클라이언트가 강공격 몽타주를 재생 | [실측] |
+| H3 | **통과.** 패링 → 경직 2.00 ~ 2.01초, 그동안 공격 시작 없음(이동이 멈추는 것은 C2-0b 의 `Chase` 경우에서 봤다 — 경직 때는 이미 서 있었다), 받는 피해 배율 1.50(10 피해 → 15.0, 경직 밖에서는 1 → 1.0), 끝나면 배율 1.00 으로 돌아오고 트리가 다시 공격. 클라이언트가 경직 몽타주를 재생. 경직 중에 맞아도 움찔하지 않는다 | [실측] |
+| H4 | **통과.** 맞으면 움찔(0.65초 — 몽타주 0.80초의 블렌드 아웃 시작까지), 모든 클라이언트가 그 몽타주를 재생 · 0.65초 뒤의 두 번째 피해에는 반응 없음(간격 2.5초) · 강공격 0.3초째에 맞아도 반응 없이 공격이 이어짐(마지막 움찔에서 9초 뒤 — 간격이 아니라 공격 중 태그가 막았다). '죽는 타격에는 움찔하지 않는다' 는 따로 가르지 못했다(시험의 사망은 공격 중이라 태그가 먼저 막는다) [소스] | [실측] |
+| H5 | **통과** — C2-0a | [실측] |
+| H6 | **통과.** `AstralBreak.` 45/45, 한 번에(`EnemyCombat` · `EnemyAggro` · `Enemy.*` · `PartyFlow` 그대로). `AstralBreakEditor Win64` DebugGame · Development `Result: Succeeded`(경고 0) | [실측] |
+| G1 · G2 · G4(이어 본 것) | 통과 — 메시 · ABP · 컨트롤러 `BP_EnemyController_Guardian_C` · 추격 속도 · 공격 중 사망(몽타주 멈춤, 5.00 ~ 5.02초 뒤 폰 제거) | [실측] |
+| H7 | **미실행 — 사용자 몫.** 순서는 아래 | |
+
+#### 설계가 정하지 않아 고른 것
+
+| 항목 | 고른 것 | 이유 |
+| :--- | :--- | :--- |
+| 준비만 느리게 | **휘두름 시작 노티파이 방식(코드).** 몽타주에 `GameplayEvent.Enemy.AttackSwing` 노티파이를 달고, 공격 GA 가 그 앞은 `MontagePlayRate`, 받은 뒤는 `SwingPlayRate`(1.0)로 튼다(`ASC->CurrentMontageSetPlayRate` — 복제된다) | 몽타주의 세그먼트(`SlotAnimTracks`)는 `UPROPERTY()` 뿐이라 파이썬에 나오지 않고(`ab_montage.py` 머리말에도 같은 제약), `create_anim_montage` 는 세그먼트 1개만 만든다. 플러그인을 고치지 않는 쪽 — 설계 ③ 의 둘째 안 |
+| 준비 구간의 끝 | 연타 0.27초(`hand_r` 이 뒤로 다 빠진 때 — 전방 −105 cm · 속도 최소, 0.267초 [실측 궤적]) · 강공격 0.20초(C1 표) | 준비 재생 속도는 스크립트가 예고 길이에서 계산한다: 연타 0.321(준비 0.84초) · 강공격 0.190(준비 1.05초). 휘두름은 0.16 / 0.15초 |
+| 움찔 간격 | **시각 비교**(GA 인스턴스가 마지막 발동 시각을 쥐고 `CanActivateAbility` 에서 `MinInterval` 과 견준다) | 서버 전용 어빌리티라 클라이언트에 알릴 것이 없다 — 쿨다운 GE 는 애셋 1 + 복제되는 GE · 태그가 는다 |
+| 죽는 타격 | 움찔하지 않는다(체력 0 이하면 발동 거부) | `Damaged` 이벤트가 사망 처리보다 먼저 온다 — 움찔 몽타주를 틀었다 바로 끊게 된다 |
+| 움찔 방향 | 가해자가 앞 → `GetHitF`, 뒤 → `B`, 좌 / 우 → `L` / `R`(전방 · 우측 내적 중 큰 쪽) | 팩의 이름을 '맞은 쪽' 으로 읽었다 — 눈으로 보지 않았다. 반대면 GA BP 에서 몽타주를 바꿔 끼운다 |
+| 경직 몽타주 | `Rage` 를 반복(섹션이 자신으로 이어짐), 끝은 경직 타이머 | 1.33초라 2.0초에 못 미친다 — 반복하지 않으면 0.7초를 대기 자세로 서 있는데 약점은 드러난 채다 |
+| 공격 GA 의 태그 | asset tag · `State.Enemy.Attacking` · `DamageTags` 모두 **GA BP 에서** 준다(엔진의 `AbilityTags` · `ActivationOwnedTags` 프로퍼티). C++ 생성자는 그대로 | 마네킹 · C1 BP 의 값이 한 글자도 바뀌지 않는다 |
+| 선 거리 · 판정 | `AcceptableRadius` 75 → **중심 간 122 cm 에 선다** [실측](C1 은 150 → 199). 스윕 45 / 100 / 65(앞 210 cm) | 손이 앞 89 ~ 128 cm 까지 가고 히어로 표면은 88 cm 다 [추론 — 눈으로 보지 않았다] |
+| 타깃 추적 | 연타 0.7초 · 강공격 0.9초(둘 다 첫 타격 0.3초 전에 방향이 굳는다) | C1 과 같은 창 |
+| 트리 | `Attack` = 그룹(`TrySelectChildrenAtRandom`), 완료 전환은 자식마다(→ `Recovery`), Root 의 `Staggered` 전환은 우선순위 High, `Stagger` 완료 → `Acquire`. 나머지 값은 `ST_Enemy_Melee` 그대로(`Wait` 0.5 · `Recovery` 1.0) | |
+| 블렌드 | 공격 0.15 / 0.2 · 움찔 0.1 / 0.15 · 경직 0.15 / 0.25 | |
+| 시험 — C2-0b | 상태 이름이 아니라 **행동**으로 판정(멈춤 · 공격 시작 시각 · '태그가 붙은 채 시작한 공격 수') | `UStateTreeComponent::GetActiveStateNames` 는 `WITH_GAMEPLAY_DEBUGGER` 안에만 있다(시험 모듈의 Build.cs 를 건드려야 한다) |
+| 시험 — 그 밖 | 방어는 히어로의 방어 태그를 서버에서 직접 세움 · 수호병을 때리는 것은 `DamageSelf` · 히어로 체력은 시험이 채움(트리를 오래 돌려도 안 죽게) · 애셋 스크립트는 C1 것 옆에 새 파일 | C1 과 같은 방식 |
+
+#### 설계와 달라진 것
+
+- **세그먼트로 나누지 못했다** — 위 첫 줄. 설계가 적어 둔 둘째 안(코드: 태그 1 · 프로퍼티 1)이다.
+- **태그가 9개다**(설계는 5개 안팎). 휘두름 시작 1 + 피격 반응 · 경직의 asset tag 2 가 늘었다.
+- **`UAstralGA_Enemy_MeleeAttack` 의 새 프로퍼티는 `DamageTags` · `SwingPlayRate`** 다. 설계의 '공격 중 태그' 는 새 프로퍼티가 아니라 엔진의 `ActivationOwnedTags` 를 BP 에서 채웠다.
+- **에디터를 세 번 띄웠다**(MCP 저작 → `-ExecutePythonScript` → 시험 — C1 과 같은 이유). 빌드는 DebugGame 2(첫 번은 시험 파일의 괄호 누락으로 실패) · Development 1, `AstralBreak.` 은 1회.
+- 그 밖의 결정 ① ~ ⑦ 은 설계대로다.
+
+#### 실측이 더한 것
+
+- **경직 · 움찔이 끝나면 쉬지 않고 바로 공격을 시작한다.** `Stagger` → `Acquire` → `Chase`(이미 닿아 있음) → `Attack` 이 같은 프레임에 이어져, 경직이 끝난 그 순간(패링 2.00초 뒤) 다음 예고가 시작됐다. 예고가 1.0 ~ 1.2초라 반격 창은 경직 2초 + 예고다. 쉬게 하려면 `Stagger` 의 완료 전환을 `Recovery` 로 돌린다(트리 값).
+- **움찔은 `Recovery` 를 새로 센다.** 쉬는 중에 맞으면 움찔(0.65초) 뒤 바로 공격이라, 맞은 시점에 따라 다음 공격이 빨라지기도 늦어지기도 한다. 간격 2.5초가 상한을 둔다.
+- 클라이언트는 몽타주를 '재생했다' 까지만 봤다. 재생 속도가 바뀌는 시점이 클라이언트에서 서버와 얼마나 어긋나는지는 한 프로세스 PIE 라 재지 않았다.
+
+#### 돌리지 않은 것
+
+- **H7(눈 확인)** — 사용자. 애니메이션을 눈으로 보지 않았다(캡처 도구도 쓰지 않았다).
+- 히어로의 실제 가드 · 패링 입력, 히어로가 실제 공격으로 수호병을 때리는 것(가해자 방향 → 뒤 · 좌 · 우 몽타주 선택은 [소스]. 시험의 `DamageSelf` 는 앞 몽타주만 탄다).
+- `Damage.Type.Unblockable` 의 동작(코드는 그대로 — 쓰는 곳이 아직 없다), 수호병 여러 마리, 레벨 배치.
+- Development 실행 · 별도 프로세스(`run_party_flow.py`) · `-DisableAdaptiveUnity` 빌드 · 시나리오 도구 · 코드를 깨뜨리는 대조 실험 · 플러그인 회귀 — 줄인 범위대로.
+
+#### H7 — 사용자가 볼 순서
+
+1. 에디터에서 `CombatTestMap` → PIE(혼자 · 리슨 · Dedicated 아무 구성) → 콘솔 `SpawnEnemy BP_Enemy_Guardian`(멀리서는 `… 1200`).
+2. 볼 것: ① 두 공격이 구분되는가 — 연타(오른손을 뒤로 빼는 0.84초 뒤 3타) · 강공격(손을 머리 위로 드는 1.05초 뒤 내리찍기) ② 준비는 느리고 휘두름은 빠른가, 속도가 바뀌는 순간이 튀는가 ③ 선 거리(122 cm)에서 손이 닿아 보이는가, 빨간 캡슐과 맞는가 ④ 가드: 연타는 절반 · 강공격은 전액 ⑤ 패링: 팔이 멈추고 2초 포효(`Rage` 반복)하며 그동안 1.5배로 맞는가 ⑥ 때리면 맞은 쪽으로 움찔하는가(방향이 반대로 보이는지), 2.5초에 한 번만인가, 공격 중에는 버티는가 ⑦ 경직이 끝나자마자 다음 예고가 시작되는 것이 괜찮은가.
+3. 값을 바꾸는 곳 — GA BP 를 직접 고치거나, 스크립트 맨 위의 잠정값을 고쳐 다시 돌린다
+
+| 바꿀 것 | 곳 |
+| :--- | :--- |
+| 공격 비율 | `ST_Enemy_Guardian` 의 `Attack` — 선택 방식을 `TrySelectChildrenAtRandomWeightedByUtility` 로 바꾸고 자식에 상수 Consideration. 한 가지만 쓰려면 다른 자식을 끈다 |
+| 피해 · 가드 불가 | `GA_Guardian_Combo` · `GA_Guardian_Heavy` 의 `Base Damage` · `Damage Tags` |
+| 예고 길이 · 휘두름 속도 | 같은 GA 의 `Montage Play Rate`(준비 구간 — 예고 = 휘두름 시작 시각 ÷ 이 값 + 휘두름 구간) · `Swing Play Rate`. 스크립트에서는 `telegraph` 만 고치면 속도를 계산한다 |
+| 타격 시점 · 준비 구간의 끝 | `AM_Guardian_Combo` · `AM_Guardian_Heavy` 의 `Combat` 트랙 노티파이(스크립트의 `hit_times` · `swing_start`) |
+| 움찔 간격 · 몽타주 | `GA_Guardian_HitReact` 의 `Min Interval` · 몽타주 4개 |
+| 경직 시간 · 몽타주 | `GA_Guardian_Stagger` 의 `Stagger Duration` · `Stagger Montage`(반복은 `AM_Guardian_Stagger` 의 섹션) |
+| 약점 배율 | `GE_Enemy_Exposed` 의 Modifier(1.5) |
+| 선 거리 · 쉬는 시간 | `ST_Enemy_Guardian` 의 `Chase` → `Move To` → `AcceptableRadius`(75) · `Recovery` 의 `Duration`(1.0 — 바꾸면 시험의 `RecoverySeconds` 도). 선 거리를 늘리면 공격 GA 의 스윕 값도 본다 |
+| 몽타주 교체 | 새 몽타주를 만들어 GA 의 몽타주 칸에 끼운다(공격은 노티파이 2종을 단다) |
+| 어그로 값 | `BP_EnemyController_Guardian` 의 `ThreatComponent` |
+
+#### 애셋을 만든 도구
+
+| 도구 | 호출 | 한 일 |
+| :--- | :--- | :--- |
+| `anim-graph-mcp` `validate_animation` | 2 | `Attack5` 의 `hand_r` 궤적(준비 구간의 끝) · 피격 4 + `Rage` 구조 검사 |
+| `anim-graph-mcp` `create_anim_montage` | 7 | 몽타주 7개(슬롯 `DefaultSlot`), 저장 |
+| `anim-graph-mcp` `set_montage_sections` | 1 | `AM_Guardian_Stagger` 반복 |
+| `state-tree-mcp` `inspect_state_tree` · `create_state_tree` | 1 · 1 | `ST_Enemy_Melee` 읽기 · 빈 트리 |
+| `state-tree-mcp` `preview_state_tree_operations` → `apply_state_tree_operations` | 1 → 1 | **연산 33개**(상태 9 · Task 8 · 바인딩 3 · 전환 13), 컴파일 오류 0 · 고침 0 · 저장 |
+| `Tools/scripts/setup/enemy_guardian_c2_assets.py`(`ab_montage` · `ab_blueprint` = `astral-ue-montage` · `astral-ue-blueprint` 스킬의 헬퍼) | 1 | 노티파이 6 · GA BP 4 · GE 1 · AbilitySet · 컨트롤러 BP · 폰 BP. `-ExecutePythonScript` 로 실행, 한 번에 `ok` |
+
+플러그인은 고치지 않았다.
+
+#### 정리한 것 (2026-11-12, 사용자 승인 뒤 휴지통으로)
+
+이 단위가 남긴 일회성 파일은 `Tools/mcp/results/enemy_guardian_c2_assets.json`(애셋 스크립트의 결과 기록) 하나였고 휴지통으로 보냈다. 스크립트를 다시 돌리면 다시 생긴다.
+
+#### 다시 돌리는 법
+
+```
+에디터:  AstralBreak.Net.EnemyGuardian   (Dedicated · 리슨, 각 42 ~ 46초)
+애셋을 다시 만들 때: 위 표의 MCP 호출 → 에디터를 내리고
+UnrealEditor-Win64-DebugGame.exe <uproject> -ExecutePythonScript=D:/UE5Projects/AstralBreak/Tools/scripts/setup/enemy_guardian_assets.py -unattended      (C1 — 이미 있으면 건너뛴다)
+UnrealEditor-Win64-DebugGame.exe <uproject> -ExecutePythonScript=D:/UE5Projects/AstralBreak/Tools/scripts/setup/enemy_guardian_c2_assets.py -unattended   (C2 — 값을 다시 쓴다)
+```
+
+## 11. 단위 D — 수호병 여러 마리가 나온다
+
+상태: **설계안 — 사용자 승인 대기(2026-11-12). 이 절의 판단은 [소스] 다 — 실행한 것은 없다.** §0-2 의 단위 D 이고 목차 6번의 나머지다. C2 는 사용자가 눈으로 확인했다(2026-11-12).
+
+끝나면 보이는 것: **레이드 맵에서 정해 둔 구역에 들어서면 수호병 세 마리가 나타나 덤비고, 다 잡으면 그 구역이 끝났다는 신호가 난다. 리슨과 Dedicated 에서 같다.**
+
+### 결론
+
+| 질문 | 결정 |
+| :--- | :--- |
+| 무엇이 적을 내보내는가 | 맵에 놓는 `AAstralEnemySpawner`. 플레이어가 그 구역(상자)에 들어오면 서버에서 한 번 스폰한다 |
+| 스폰 · 제거의 이음매 | 서버 전용 `UAstralEnemySpawnSubsystem` 하나. 스폰도 제거도 여기를 거친다 — 나중에 풀링을 넣을 자리다. MVP 의 안쪽은 지금과 같은 `SpawnActor` · `LifeSpan` 이다 |
+| 사망 뒤 제거 | `AAstralCombatCharacter::HandleDeathFinished` 가 `SetLifeSpan` 을 직접 부르지 않고 위 서브시스템에 넘긴다. **동작은 같다** |
+| 다 잡았다는 신호 | 스포너의 `OnCleared`(자기가 낸 적이 전부 죽기 시작했을 때 1회). 쓰는 곳은 아직 없다 — M6 의 구역 진행이 받을 자리 |
+| 적 PawnData · InitState | **들이지 않는다.** 적이 한 종류이고 BP 가 이미 데이터 묶음이다 |
+| 적끼리 겹침 | 수호병 BP 의 이동 컴포넌트에서 회피(RVO)를 켠다 — 값 하나 |
+| 맵 | `RaidMap` 에 스포너 1개(수호병 3마리). 시작 지점에서 떨어진 곳에 둔다 |
+| 디버그 명령 `SpawnEnemy` | 같은 서브시스템을 거치게 바꾼다 |
+| 네트워크 | 전부 서버 전용. 새 복제 프로퍼티 0 |
+
+### 결정
+
+**① 스폰 · 제거의 이음매 — `UAstralEnemySpawnSubsystem`.** (계획서 M3 예약 '스폰/디스폰 인터페이스 분리', 부록 C '적 1종이 완성된 뒤 스포너를 붙이는 시점에 추출')
+
+- 월드 서브시스템이고 서버에서만 만든다. 함수 둘:
+  - `SpawnEnemy(클래스, 위치 · 회전)` → 폰. 안쪽은 `SpawnActor` + 컨트롤러가 없으면 `SpawnDefaultController`(§1-4 의 안전망).
+  - `ReleaseEnemy(폰, 지연)` — 죽은 적을 치운다. 안쪽은 `SetLifeSpan(지연)`, 지연이 0 이하면 바로 `Destroy`.
+- **풀링은 만들지 않는다.** 이 두 함수의 안쪽만 바꾸면 되도록 부르는 쪽을 여기로 모으는 것까지가 D 다.
+- `AAstralCombatCharacter::HandleDeathFinished` 의 `SetLifeSpan(DestroyAfterDeathDelay)` 한 줄을 `ReleaseEnemy(this, DestroyAfterDeathDelay)` 로 바꾼다. 헤더가 이미 'M3 에서 스폰/디스폰 인터페이스로 교체 예정' 이라고 적어 둔 자리다(`AstralCombatCharacter.h:69`).
+  - **베이스 변경이다 — 더미 · 마네킹 · 수호병이 전부 이 경로를 탄다.** 서브시스템의 안쪽이 같은 `SetLifeSpan` 이라 제거 시각은 그대로여야 하고(사망 5초 뒤), 기존 시험이 그 시각을 이미 재고 있다(A6 · G4 등).
+  - §1-3 미해결의 `DestroyAfterDeathDelay = 0` 이면 영영 남는 문제는 여기서 닫힌다(0 이하 = 바로 제거).
+- 사망 중인 폰을 다시 빙의하지 않는다(§1-3 · §1-8) — 서브시스템은 죽은 폰을 다시 내주지 않는다. 풀링을 넣을 때의 제약으로 주석에 남긴다.
+
+**② 스포너 — `AAstralEnemySpawner`.**
+
+- 맵에 놓는 액터. 프로퍼티: 적 클래스 · 스폰 지점들(스포너 기준 상대 위치 배열, 에디터에서 끌어 옮길 수 있게) · 발동 상자(크기 0 이면 없음) · `bActivateOnBeginPlay`.
+- 발동은 **이벤트** 다 — 상자에 플레이어 폰이 겹칠 때(서버). 한 번만 발동한다. 수동 `Activate()` 도 있다(시험 · 나중의 구역 진행).
+- 스폰은 ① 의 `SpawnEnemy` 로 한다. 스폰 지점은 NavMesh 에 내려 붙인다(못 내리면 그 지점은 건너뛰고 경고).
+- 낸 적마다 `OnDeathStarted` 를 구독해 살아 있는 수를 센다. 0 이 되면 `OnCleared`(BlueprintAssignable)를 한 번 낸다. 접속 종료 · 파괴 같은 사망 아닌 제거도 센다(`OnDestroyed`).
+- 스포너 자신은 복제하지 않는다. 낸 적은 지금처럼 복제된다.
+
+**③ 적 PawnData 는 들이지 않는다.** (§1-5 가 6번으로 미룬 결정)
+
+- §1-5 의 판단 그대로다: PawnData 를 들이면 부여 지점을 InitState 쪽으로 옮겨야 하고, 더미까지 PawnData 가 필요해지거나 경로가 갈린다.
+- 지금 적은 한 종류이고 `BP_Enemy_Guardian` 이 메시 · ABP · AbilitySet · 컨트롤러를 이미 묶고 있다. 스포너는 클래스만 알면 된다.
+- 보스(M5)가 적과 구조를 나눠 쓸 때 다시 본다. `AstralCombatCharacter.h:18` 의 주석은 그대로 맞다.
+
+**④ 여러 마리.**
+
+- **겹침:** `BP_Enemy_Guardian` 의 CharacterMovement 에서 `bUseRVOAvoidance` 를 켠다(값은 잠정). 같은 타깃에 몰릴 때 서로 밀어내며 둘러싼다. 실제로 그렇게 보이는지는 사용자 눈 확인이다.
+- **몰림:** 피해 기록이 없으면 세 마리가 모두 가장 가까운 한 사람을 고른다(§9 미해결). **D 에서는 고치지 않는다** — 사용자가 어그로 조정을 뒤 단계로 미뤘다(2026-11-12, C2 세션).
+- 적의 스윕은 다른 적을 때리지 않는다(`CanDamage` 가 적대만 통과).
+- 수(3마리) · 지점 배치는 잠정이고 맵의 스포너 값이다.
+
+**⑤ 맵 — `RaidMap` 에 스포너 1개.**
+
+- M3 종료 조건('4인이 몬스터 여러 마리를 처치')이 실제 흐름(허브 → 레이드)에서 서려면 레이드 맵에 적이 있어야 한다. **맵 애셋을 고치는 첫 단위다.**
+- 발동 상자는 시작 지점(PlayerStart)에서 떨어뜨린다 — 선행 단위의 파티 흐름 시험이 `RaidMap` 에 도착만 하고 움직이지 않으므로 그 시험에서는 발동하지 않는다.
+- 위치는 단위 세션이 맵을 읽어 NavMesh 위로 정하고 결과에 좌표를 적는다. 배치는 `astral-ue-level` 헬퍼 · 스크립트로 한다(재현할 수 있게).
+- `CombatTestMap` 은 건드리지 않는다(A ~ C 의 시험 맵).
+
+**⑥ 디버그 명령.** `ServerSpawnEnemy` 가 `SpawnActor` 대신 ① 의 `SpawnEnemy` 를 부른다. 명령의 쓰임 · 인자는 그대로다.
+
+### 대안과 기각 이유
+
+| 대안 | 기각 이유 |
+| :--- | :--- |
+| 풀링까지 만든다 | 계획서가 'MVP 에선 풀링 없어도 된다' 고 했다. 재사용하려면 ASC · 트리 · 위협 기록 · 사망 상태를 되돌리는 경로가 필요하다 — 적이 몇 마리인 지금은 쓸 곳이 없다 |
+| 이음매 없이 스포너가 `SpawnActor` 를 직접 | 사망 뒤 제거가 폰 안에 남아, 나중에 풀링을 넣을 때 폰 · 스포너 · 디버그 명령 세 곳을 고친다 |
+| 인터페이스 클래스(`IAstralPoolable` 등)를 폰에 | 구현할 것이 아직 없다. 함수 두 개가 지나는 한 곳이면 충분하다 |
+| 제거를 스포너가 맡는다 | 스포너 없이 나온 적(디버그 명령 · 레벨 배치 더미)은 다른 경로가 된다 |
+| 베이스를 안 건드리고 `DestroyAfterDeathDelay = 0` 을 '스폰한 쪽이 치운다' 는 뜻으로 쓴다 | 지금의 결함(0 이면 영영 남음)에 기대는 약속이다. 더미는 치워 줄 쪽이 없다 |
+| 적 PawnData 도입 | ③ |
+| 게임 시작 때 전부 스폰 | 4인이 도착하기 전에 덤빈다. 구역 진입이 '협동 이동 구간 전투 압박'(game-plan 7-6)에 맞다 |
+| 일정 시간마다 플레이어 거리를 재서 발동 | 폴링이다. 겹침 이벤트가 있다 |
+| 웨이브 · 재스폰 | 종료 조건에 없다. `Activate()` 를 다시 부를 수 있게만 두지 않는다(한 번) — 필요해지면 그때 |
+| DetourCrowd(`UCrowdFollowingComponent`) | 컨트롤러의 경로 추종 컴포넌트를 바꾸는 일이라 A 의 실측 전제(멈추는 거리 · 포커스)를 다시 봐야 한다. RVO 는 값 하나다 |
+| `CombatTestMap` 에 스포너 | A ~ C 의 시험이 그 맵에서 히어로를 옮긴다 — 상자에 걸릴 수 있다 |
+
+### 영향
+
+| 대상 | 변경 | 상속 · 공용 영향 |
+| :--- | :--- | :--- |
+| `UAstralEnemySpawnSubsystem` · `AAstralEnemySpawner` (새 파일) | 추가 | 없음 |
+| `AAstralCombatCharacter::HandleDeathFinished` | 한 줄 교체 | **더미 · 마네킹 · 수호병 공용.** 제거 시각 불변이어야 한다 — 기존 시험이 확인한다 |
+| `AAstralCharacter::ServerSpawnEnemy` | 스폰 호출 한 곳 | 디버그 전용 |
+| `BP_Enemy_Guardian` | RVO 값 | 수호병만 |
+| `RaidMap` | 스포너 1개 | 파티 흐름 시험이 이 맵에 도착한다 — 발동하지 않아야 한다 |
+| 컨트롤러 · 트리 · 어그로 · GA · 히어로 코드 · `CombatTestMap` · 마네킹 애셋 · 플러그인 | **변경 없음** | |
+| 복제 | **새 프로퍼티 0** | |
+
+### 미해결
+
+- 세 마리가 한 사람에게 몰린다(④). 어그로 조정 단계에서 본다.
+- 전원이 죽으면 적은 `Wait` 에서 기다린다. 전멸 · 부활 규칙은 계획서에 없다(부록 D).
+- 구역을 벗어나 달아나면 끝까지 쫓아온다(인지 범위 · 복귀 없음 — §9).
+- `OnCleared` 를 받는 쪽이 없다(M6).
+- 늦게 들어온 플레이어는 이미 나와 있는 적을 본다(복제). 스포너가 이미 발동했는지는 클라이언트가 알 필요가 없다.
+
+### 검증 계획 — 줄인 범위
+
+**D-0 — 첫 시험 실행에서 함께 본다.** 틀리면 우회하지 말고 마스터에 묻는다.
+
+| # | 확인할 것 |
+| :--- | :--- |
+| D-0a | 제거를 서브시스템으로 넘긴 뒤에도 더미 · 마네킹 · 수호병의 제거 시각이 그대로다(기존 시험의 5초) |
+| D-0b | `RaidMap` 의 스포너가 파티 흐름 시험(도착만 하는 경우)에서 발동하지 않는다 |
+
+| # | 확인할 것 | 방법 | 판정 |
+| :--- | :--- | :--- | :--- |
+| S1 | 스포너 발동 → 서버에 수호병 3 · 컨트롤러 3, 모든 클라이언트에 폰 3. 두 번 겹쳐도 한 번만 | 멀티 PIE `AstralBreak.Net.EnemySpawner.{ListenPIE, DedicatedPIE}` — `CombatTestMap` 에서 시험이 스포너를 직접 만들어 `Activate()` | 자동 |
+| S2 | 상자에 플레이어 폰이 겹치면 발동한다 | 같은 시험(히어로를 상자 안으로 옮긴다) | 자동 |
+| S3 | 셋을 다 죽이면 `OnCleared` 1회 · 그 전에는 0회 · 5초 뒤 폰이 모든 머신에서 사라짐 | 같은 시험 | 자동 |
+| S4 | 세 마리가 각자 타깃을 잡고 공격한다(서로를 때리지 않는다) | 같은 시험 | 자동 |
+| S5 | `RaidMap`: 시작 지점에서는 적 0, 상자로 들어가면 3 | `AstralBreak.Net.EnemySpawner.RaidMapPIE`(Dedicated 1개 구성만) | 자동 |
+| S6 | 회귀 — `AstralBreak.` 전체 1회(파티 흐름 · 마네킹 · 수호병 · 히어로 시험 그대로) · 두 구성 빌드 각 1회 | 같은 에디터 실행 | 자동 |
+| S7 | 눈 확인 — 레이드 흐름(허브 → `StartRaid` → 구역 진입)에서 세 마리가 나오는가 · 서로 겹치지 않고 둘러싸는가 · 2인 이상에서 싸울 만한가 | 사용자 | 사용자 |
+
+- 하지 않는 것은 §9 의 표 그대로다(별도 프로세스 · `-DisableAdaptiveUnity` · 시나리오 도구 · 코드를 깨뜨리는 대조 · Development 실행 · 플러그인 회귀 — 단위 E).

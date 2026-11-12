@@ -74,6 +74,13 @@ void UAstralGA_Enemy_MeleeAttack::ActivateAbility(const FGameplayAbilitySpecHand
 			HitTask->ReadyForActivation();
 		}
 
+		// 휘두름 시작(선택) — 준비 구간만 느리게 틀고 여기서 속도를 바꾼다. 이 노티파이가 없는 몽타주(C1 · 마네킹)는 처음 속도 그대로다
+		if (UAbilityTask_WaitGameplayEvent* SwingTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, AstralGameplayTags::GameplayEvent_Enemy_AttackSwing, nullptr, /*OnlyTriggerOnce=*/true, true))
+		{
+			SwingTask->EventReceived.AddDynamic(this, &ThisClass::OnMontageSwing);
+			SwingTask->ReadyForActivation();
+		}
+
 		// 서버에서 재생하면 ASC 가 RepAnimMontageInfo 로 복제한다. 어빌리티가 끝나거나 취소되면 Task 가 몽타주를 멈춘다
 		if (UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, AttackMontage, MontagePlayRate, NAME_None, /*bStopWhenAbilityEnds=*/true, 1.f))
 		{
@@ -195,6 +202,21 @@ void UAstralGA_Enemy_MeleeAttack::OnMontageHit(FGameplayEventData EventData)
 	}
 }
 
+void UAstralGA_Enemy_MeleeAttack::OnMontageSwing(FGameplayEventData EventData)
+{
+	if (bStaggered || !IsActive())
+	{
+		return;
+	}
+
+	// 서버에서 바꾸면 ASC 가 RepAnimMontageInfo 의 재생 속도로 복제한다 — 클라이언트도 같은 시점부터 빨라진다
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	if (ASC && ASC->GetCurrentMontage() == AttackMontage)
+	{
+		ASC->CurrentMontageSetPlayRate(SwingPlayRate);
+	}
+}
+
 void UAstralGA_Enemy_MeleeAttack::OnMontageFinished()
 {
 	if (bStaggered || !IsActive())
@@ -278,11 +300,18 @@ void UAstralGA_Enemy_MeleeAttack::SweepOnce()
 	// 서버 권위 판정 — 팀 필터/중복 방지/SetByCaller.Damage/instigator 전부 공용 경로가 처리.
 	// 방어 판정(패링/가드)은 타겟 HealthSet의 ResolveIncomingDamage에서 일어나고, 패링이면 이 호출 안에서 OnStaggered 가 불린다
 	bSweeping = true;
-	UAstralCombatStatics::ApplyDamageSweep(GetAbilitySystemComponentFromActorInfo(), GetAvatarActorFromActorInfo(), BaseDamage, TraceStartOffset, TraceDistance, TraceRadius, GetAbilityLevel());
+	// 패링당하면 경직 GA(있으면)가 이 호출 안에서 이 어빌리티를 취소한다 — 부른 쪽은 돌아온 뒤 IsActive() 를 본다
+	UAstralCombatStatics::ApplyDamageSweep(GetAbilitySystemComponentFromActorInfo(), GetAvatarActorFromActorInfo(), BaseDamage, TraceStartOffset, TraceDistance, TraceRadius, GetAbilityLevel(), DamageTags);
 	bSweeping = false;
 }
 
 float UAstralGA_Enemy_MeleeAttack::FindFirstHitTime() const
+{
+	const float Earliest = FindEarliestNotifyTime(HitEventTag);
+	return Earliest >= 0.f ? GetSecondsAtMontageTime(Earliest) : -1.f;
+}
+
+float UAstralGA_Enemy_MeleeAttack::FindEarliestNotifyTime(const FGameplayTag& EventTag) const
 {
 	if (!AttackMontage)
 	{
@@ -292,8 +321,8 @@ float UAstralGA_Enemy_MeleeAttack::FindFirstHitTime() const
 	float Earliest = -1.f;
 	for (const FAnimNotifyEvent& NotifyEvent : AttackMontage->Notifies)
 	{
-		const UAstralAnimNotify_GameplayEvent* HitNotify = Cast<UAstralAnimNotify_GameplayEvent>(NotifyEvent.Notify);
-		if (HitNotify && HitNotify->GetEventTag() == HitEventTag)
+		const UAstralAnimNotify_GameplayEvent* EventNotify = Cast<UAstralAnimNotify_GameplayEvent>(NotifyEvent.Notify);
+		if (EventNotify && EventNotify->GetEventTag() == EventTag)
 		{
 			const float Time = NotifyEvent.GetTriggerTime();
 			if (Earliest < 0.f || Time < Earliest)
@@ -302,8 +331,18 @@ float UAstralGA_Enemy_MeleeAttack::FindFirstHitTime() const
 			}
 		}
 	}
+	return Earliest;
+}
 
-	return Earliest >= 0.f ? Earliest / FMath::Max(MontagePlayRate, UE_KINDA_SMALL_NUMBER) : -1.f;
+float UAstralGA_Enemy_MeleeAttack::GetSecondsAtMontageTime(float MontageTime) const
+{
+	const float PrepRate = FMath::Max(MontagePlayRate, UE_KINDA_SMALL_NUMBER);
+	const float SwingStart = FindEarliestNotifyTime(AstralGameplayTags::GameplayEvent_Enemy_AttackSwing);
+	if (SwingStart < 0.f || MontageTime <= SwingStart)
+	{
+		return MontageTime / PrepRate;
+	}
+	return SwingStart / PrepRate + (MontageTime - SwingStart) / FMath::Max(SwingPlayRate, UE_KINDA_SMALL_NUMBER);
 }
 
 void UAstralGA_Enemy_MeleeAttack::DrawTelegraph(float Duration) const

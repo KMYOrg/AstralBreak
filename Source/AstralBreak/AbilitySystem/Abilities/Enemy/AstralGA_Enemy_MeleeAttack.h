@@ -26,7 +26,11 @@ class UAnimMontage;
  * 몽타주가 있으면: 몽타주 재생 → 몽타주의 타격 노티파이(HitEventTag)마다 스윕 1회 → 몽타주가 끝나면 종료. 노티파이가 여럿이면 연타다.
  *       예고 길이는 TelegraphDuration 이 아니라 첫 타격 노티파이까지의 시간이고, 예고 태그는 첫 타격에서 내린다.
  *       클라이언트는 ASC 가 복제하는 몽타주로 준비 동작을 본다. 타깃 추적 · 경직 처리는 타이머 방식과 같은 코드다.
- *       패링당하면 몽타주를 멈추고(블렌드 아웃) 경직만큼 머문다 — 휘두르던 동작이 끊기는 것이 패링 성공의 표시다. 경직 애니는 단위 C2.
+ *       패링당하면 몽타주를 멈추고(블렌드 아웃) 경직만큼 머문다 — 휘두르던 동작이 끊기는 것이 패링 성공의 표시다.
+ *
+ * 수호병 (§10 C2 ③ · ⑥) — 경직은 UAstralGA_Enemy_Stagger 가 맡는다: 같은 GameplayEvent.Staggered 로 발동해 이 어빌리티를 취소한다(스윕 호출 안에서).
+ *       그래서 수호병의 공격 BP 는 StaggerRecovery = 0 이고, asset tag(Ability.Enemy.Attack.Combo / Heavy) · ActivationOwnedTags(State.Enemy.Attacking) ·
+ *       DamageTags 를 BP 에서 준다. 이 클래스의 기본값은 마네킹 그대로다.
  */
 UCLASS()
 class ASTRALBREAK_API UAstralGA_Enemy_MeleeAttack : public UAstralGameplayAbility
@@ -42,6 +46,14 @@ public:
 	float GetMontagePlayRate() const { return MontagePlayRate; }
 	float GetBaseDamage() const { return BaseDamage; }
 	float GetStaggerRecovery() const { return StaggerRecovery; }
+	float GetSwingPlayRate() const { return SwingPlayRate; }
+	const FGameplayTagContainer& GetDamageTags() const { return DamageTags; }
+
+	/**
+	 * 몽타주 안의 시각(초, 재생 속도 1 기준) → 발동부터 걸리는 실제 시간.
+	 * 휘두름 시작 노티파이(GameplayEvent.Enemy.AttackSwing)가 있으면 그 앞은 MontagePlayRate, 뒤는 SwingPlayRate 로 센다. 없으면 전체가 MontagePlayRate 다
+	 */
+	float GetSecondsAtMontageTime(float MontageTime) const;
 
 protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
@@ -66,6 +78,10 @@ protected:
 	UFUNCTION()
 	void OnMontageHit(FGameplayEventData EventData);
 
+	/** 몽타주 방식 — 휘두름 시작 노티파이. 재생 속도를 SwingPlayRate 로 바꾼다(ASC 가 복제한다). 노티파이가 없는 몽타주에서는 불리지 않는다 */
+	UFUNCTION()
+	void OnMontageSwing(FGameplayEventData EventData);
+
 	/** 몽타주 방식 — 몽타주가 끝났다(블렌드 아웃 시작 포함). 경직 중이면 경직 타이머가 끝낸다 */
 	UFUNCTION()
 	void OnMontageFinished();
@@ -82,6 +98,9 @@ protected:
 
 	/** 몽타주의 첫 타격 노티파이까지의 시간(초, 재생 속도 반영). 노티파이가 없으면 음수 */
 	float FindFirstHitTime() const;
+
+	/** 몽타주에서 이 태그를 보내는 노티파이 중 가장 이른 것의 시각(초, 재생 속도 1 기준). 없으면 음수 */
+	float FindEarliestNotifyTime(const FGameplayTag& EventTag) const;
 
 	void BeginStaggerRecovery();
 
@@ -113,6 +132,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack", Meta = (ClampMin = "0.0"))
 	float StaggerRecovery = 2.0f;
 
+	/** 이 공격의 데미지에 싣는 태그(선택) — Damage.Type.Unguardable 이면 가드를 뚫는다(패링은 통한다). 비어 있으면 기존과 같다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack", Meta = (Categories = "Damage"))
+	FGameplayTagContainer DamageTags;
+
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack|Trace")
 	float TraceRadius = 80.f;
 
@@ -130,9 +153,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack|Montage", Meta = (Categories = "GameplayEvent"))
 	FGameplayTag HitEventTag;
 
-	/** 몽타주 재생 속도 — 준비 동작 길이(= 예고)를 이 값으로 맞춘다 */
+	/** 몽타주 재생 속도 — 준비 동작 길이(= 예고)를 이 값으로 맞춘다. 휘두름 시작 노티파이가 있으면 그 앞 구간(준비)에만 쓰인다 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack|Montage", Meta = (ClampMin = "0.1"))
 	float MontagePlayRate = 1.0f;
+
+	/** 휘두름 시작 노티파이(GameplayEvent.Enemy.AttackSwing) 뒤의 재생 속도 — 준비는 느리게, 휘두름은 이 속도로. 노티파이가 없는 몽타주에서는 쓰이지 않는다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack|Montage", Meta = (ClampMin = "0.1"))
+	float SwingPlayRate = 1.0f;
 
 	/** 빨간 예고 캡슐(DrawDebug 멀티캐스트)을 그릴지 — 몽타주의 준비 동작이 예고로 충분하면 끈다 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack|Debug")

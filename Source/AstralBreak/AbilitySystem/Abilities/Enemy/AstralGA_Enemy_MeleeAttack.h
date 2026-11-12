@@ -6,6 +6,7 @@
 
 class AAIController;
 class UAbilityTask_WaitDelay;
+class UAnimMontage;
 
 /**
  * 적의 단발 근접 공격 — 한 번 발동하면 예고 → 전방 스윕 → 종료 (Docs/Design/m3-enemy-ai.md §8 ④ · ⑤).
@@ -20,6 +21,12 @@ class UAbilityTask_WaitDelay;
  *
  * ServerOnly — 판정 · 타이밍 전부 서버 권위. 예고 표시는 더미와 같은 DrawDebug 멀티캐스트(MVP).
  * 값은 전부 잠정이고 BP 자식(GA_Enemy_MeleeAttack)에서 바꾼다.
+ *
+ * 두 방식 (§10 C1 ④) — AttackMontage 가 비어 있으면 위의 타이머 방식 그대로다(마네킹 BP_Enemy_Melee · 기존 시험의 고정물).
+ * 몽타주가 있으면: 몽타주 재생 → 몽타주의 타격 노티파이(HitEventTag)마다 스윕 1회 → 몽타주가 끝나면 종료. 노티파이가 여럿이면 연타다.
+ *       예고 길이는 TelegraphDuration 이 아니라 첫 타격 노티파이까지의 시간이고, 예고 태그는 첫 타격에서 내린다.
+ *       클라이언트는 ASC 가 복제하는 몽타주로 준비 동작을 본다. 타깃 추적 · 경직 처리는 타이머 방식과 같은 코드다.
+ *       패링당하면 몽타주를 멈추고(블렌드 아웃) 경직만큼 머문다 — 휘두르던 동작이 끊기는 것이 패링 성공의 표시다. 경직 애니는 단위 C2.
  */
 UCLASS()
 class ASTRALBREAK_API UAstralGA_Enemy_MeleeAttack : public UAstralGameplayAbility
@@ -28,6 +35,13 @@ class ASTRALBREAK_API UAstralGA_Enemy_MeleeAttack : public UAstralGameplayAbilit
 
 public:
 	UAstralGA_Enemy_MeleeAttack(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+
+	// 데이터 읽기 — 시험 · 애셋 검증용
+	UAnimMontage* GetAttackMontage() const { return AttackMontage; }
+	const FGameplayTag& GetHitEventTag() const { return HitEventTag; }
+	float GetMontagePlayRate() const { return MontagePlayRate; }
+	float GetBaseDamage() const { return BaseDamage; }
+	float GetStaggerRecovery() const { return StaggerRecovery; }
 
 protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
@@ -48,8 +62,26 @@ protected:
 	UFUNCTION()
 	void OnStaggerRecovered();
 
+	/** 몽타주 방식 — 타격 노티파이. 올 때마다 스윕 1회, 첫 번째에서 예고가 끝난다 */
+	UFUNCTION()
+	void OnMontageHit(FGameplayEventData EventData);
+
+	/** 몽타주 방식 — 몽타주가 끝났다(블렌드 아웃 시작 포함). 경직 중이면 경직 타이머가 끝낸다 */
+	UFUNCTION()
+	void OnMontageFinished();
+
+	/** 몽타주 방식 — 다른 몽타주에 밀렸거나 재생에 실패했다. 스스로 멈춘 것(경직)은 무시한다 */
+	UFUNCTION()
+	void OnMontageInterrupted();
+
 	/** DelaySeconds 뒤 Callback (UFUNCTION 이름). 0 이하면 다음 틱 */
 	void WaitThen(float DelaySeconds, FName CallbackName);
+
+	/** 전방 스윕 1회 — 두 방식 공용. 패링당하면 이 호출 안에서 OnStaggered 가 불린다 */
+	void SweepOnce();
+
+	/** 몽타주의 첫 타격 노티파이까지의 시간(초, 재생 속도 반영). 노티파이가 없으면 음수 */
+	float FindFirstHitTime() const;
 
 	void BeginStaggerRecovery();
 
@@ -69,7 +101,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack")
 	float BaseDamage = 15.f;
 
-	/** 예고 시간 — 발동부터 판정까지. 이 구간이 가드 · 패링 · 회피 반응 창 */
+	/** 예고 시간 — 발동부터 판정까지. 이 구간이 가드 · 패링 · 회피 반응 창. 몽타주 방식에서는 쓰지 않는다(첫 타격 노티파이 시각이 예고 길이) */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack", Meta = (ClampMin = "0.1"))
 	float TelegraphDuration = 1.0f;
 
@@ -90,6 +122,22 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack|Trace")
 	float TraceStartOffset = 50.f;
 
+	/** 공격 몽타주(선택) — 비어 있으면 타이머 방식. 있으면 판정 시점은 이 몽타주의 타격 노티파이가 낸다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack|Montage")
+	TObjectPtr<UAnimMontage> AttackMontage;
+
+	/** 몽타주의 타격 노티파이(UAstralAnimNotify_GameplayEvent)가 보내는 태그 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack|Montage", Meta = (Categories = "GameplayEvent"))
+	FGameplayTag HitEventTag;
+
+	/** 몽타주 재생 속도 — 준비 동작 길이(= 예고)를 이 값으로 맞춘다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack|Montage", Meta = (ClampMin = "0.1"))
+	float MontagePlayRate = 1.0f;
+
+	/** 빨간 예고 캡슐(DrawDebug 멀티캐스트)을 그릴지 — 몽타주의 준비 동작이 예고로 충분하면 끈다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Attack|Debug")
+	bool bDrawTelegraphDebug = true;
+
 private:
 	/** 진행 중인 대기 (추적 / 남은 예고 / 경직 중 하나) */
 	UPROPERTY(Transient)
@@ -97,6 +145,12 @@ private:
 
 	/** 포커스를 건 컨트롤러 — 푼 뒤에는 비운다 */
 	TWeakObjectPtr<AAIController> FocusedController;
+
+	/** 이번 발동의 예고 길이 — 타이머 방식 = TelegraphDuration, 몽타주 방식 = 첫 타격 노티파이까지 */
+	float ActiveTelegraphDuration = 0.f;
+
+	/** 이번 발동이 몽타주 방식인가 (발동 때 AttackMontage 유무로 정한다) */
+	bool bMontageAttack = false;
 
 	bool bTelegraphing = false;
 	bool bSweeping = false;

@@ -31,6 +31,10 @@ namespace AstralGameplayTags
 	// 원거리 발사 시점 — FireMontage의 단발 UAstralAnimNotify_GameplayEvent (0초에 두지 않는다 — 엔진 추출 조건상 첫 틱에 누락된다)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Ranged_Fire);
 
+	// 적 근접 공격의 타격 시점 — 공격 몽타주의 단발 UAstralAnimNotify_GameplayEvent. 한 몽타주에 여러 개면 연타다 (0초에 두지 않는다 — 위와 같은 이유).
+	// WeaponTrace.Begin / End 는 구간이고 이것은 한 시점이다
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Enemy_AttackHit);
+
 	/**
 	 * AI.Event — 적 컨트롤러가 자기 StateTree 에 보내는 이벤트 (SendStateTreeEvent). ASC 의 GameplayEvent 와 다른 경로다
 	 */

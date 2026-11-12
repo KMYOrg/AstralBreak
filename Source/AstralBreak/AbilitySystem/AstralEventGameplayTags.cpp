@@ -23,6 +23,8 @@ namespace AstralGameplayTags
 
 	UE_DEFINE_GAMEPLAY_TAG(GameplayEvent_Ranged_Fire, "GameplayEvent.Ranged.Fire");
 
+	UE_DEFINE_GAMEPLAY_TAG(GameplayEvent_Enemy_AttackHit, "GameplayEvent.Enemy.AttackHit");
+
 	/**
 	 * AI.Event
 	 */

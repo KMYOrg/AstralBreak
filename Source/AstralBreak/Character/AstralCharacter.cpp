@@ -8,6 +8,7 @@
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "Character/Components/AstralCharacterMovementComponent.h"
 #include "Character/Components/AstralHealthComponent.h"
+#include "Character/Enemy/AstralEnemySpawnSubsystem.h"
 #include "Components/AstralPawnExtensionComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -392,13 +393,19 @@ void AAstralCharacter::ServerSpawnEnemy_Implementation(const FString& EnemyName,
 		return;
 	}
 
-	// 내 앞, 나를 보는 방향. 컨트롤러는 적 BP 의 AutoPossessAI(PlacedInWorldOrSpawned)가 붙인다
+	// 스폰은 스포너와 같은 이음매를 거친다 (서버 전용 서브시스템 — 여기는 서버다)
+	UAstralEnemySpawnSubsystem* SpawnSubsystem = World->GetSubsystem<UAstralEnemySpawnSubsystem>();
+	if (!SpawnSubsystem)
+	{
+		UE_LOG(LogAstral, Warning, TEXT("SpawnEnemy: 스폰 서브시스템 없음"));
+		return;
+	}
+
+	// 내 앞, 나를 보는 방향. 컨트롤러는 적 BP 의 AutoPossessAI(PlacedInWorldOrSpawned)가 붙인다(없으면 서브시스템이 기본 컨트롤러를 붙인다)
 	const FVector Forward = GetActorForwardVector().GetSafeNormal2D();
 	const FVector Location = GetActorLocation() + Forward * (Distance > 0.0f ? Distance : DefaultDistance);
 
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-	World->SpawnActor<APawn>(EnemyClass, Location, (-Forward).Rotation(), SpawnParams);
+	SpawnSubsystem->SpawnEnemy(EnemyClass, FTransform((-Forward).Rotation(), Location));
 #endif
 }
 

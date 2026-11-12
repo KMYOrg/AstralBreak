@@ -66,7 +66,7 @@ protected:
 	//~ End AActor
 
 	//~ AAstralCharacter
-	/** 사망 완료 — MVP는 LifeSpan으로 정리. M3에서 스폰/디스폰 인터페이스로 교체 예정 */
+	/** 사망 완료 — 제거를 UAstralEnemySpawnSubsystem::ReleaseEnemy 에 넘긴다 (DestroyAfterDeathDelay 초 뒤, 0 이하면 바로). 안쪽은 LifeSpan 그대로다 — 풀링이 들어갈 자리 */
 	virtual void HandleDeathFinished(AActor* OwningActor) override;
 	//~ End AAstralCharacter
 

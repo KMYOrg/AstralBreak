@@ -56,6 +56,7 @@ public class AstralBreak : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"DeveloperSettings",        // UDeveloperSettings 기반 프로젝트 세팅용
+			"NavigationSystem",         // AAstralEnemySpawner — 스폰 지점을 NavMesh 에 내려 붙인다
 		});
 
 		// Uncomment if you are using Slate UI

@@ -21,6 +21,9 @@ namespace AstralGameplayTags
 
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Defense);
 
+	// 오의 — asset tag. Ability.Attack 아래에 두지 않는다: 공격 GA 의 BlockAbilitiesWithTag(Ability.Attack)에 걸리면 콤보 도중 오의를 못 쓴다
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Ult);
+
 	// 적 어빌리티 — StateTree 의 ActivateAbility Task 가 스펙을 찾는 키 (asset tag). 사망 취소용 Ability.Attack 과 함께 단다
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Enemy_Attack_Melee);
 
@@ -59,6 +62,15 @@ namespace AstralGameplayTags
 	// 방어 페이즈 — 루즈 태그로 부여/해제 (ActivationOwnedTags는 활성 중 변경 불가)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Defense_Parrying);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Defense_Guarding);
+
+	// 오의를 쓰는 중 — 오의 GA 의 ActivationOwnedTags
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Ult_Active);
+
+	// 오의 발동 차단 — 오의 GA 의 ActivationBlockedTags. M5 의 Burst Aura 가 이 태그를 주는 GE 를 히어로에게 건다 (m4-ult-chain.md §4)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Ult_Blocked);
+
+	// 받는 피해 전부 무효 — UAstralCombatStatics::ResolveIncomingDamage 가 맨 먼저 본다 (패링 · 가드 통지도 없다). 지금은 오의 중에만 붙는다
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Invulnerable);
 
 	// 적 예고 공격의 텔레그래프 구간 표시
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Telegraphing);

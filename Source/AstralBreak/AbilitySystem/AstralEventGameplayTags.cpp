@@ -26,6 +26,8 @@ namespace AstralGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG(GameplayEvent_Enemy_AttackHit, "GameplayEvent.Enemy.AttackHit");
 	UE_DEFINE_GAMEPLAY_TAG(GameplayEvent_Enemy_AttackSwing, "GameplayEvent.Enemy.AttackSwing");
 
+	UE_DEFINE_GAMEPLAY_TAG(GameplayEvent_Ult_Hit, "GameplayEvent.Ult.Hit");
+
 	/**
 	 * AI.Event
 	 */

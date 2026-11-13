@@ -39,6 +39,9 @@ namespace AstralGameplayTags
 	// 준비 동작만 느리게(= 예고), 휘두름은 원래 속도로 (m3-enemy-ai.md §10 C2 ③)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Enemy_AttackSwing);
 
+	// 오의의 타격 시점 — 오의 몽타주의 단발 UAstralAnimNotify_GameplayEvent (0초에 두지 않는다 — 위와 같은 이유). 오의 GA 의 HitEventTag 기본값
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayEvent_Ult_Hit);
+
 	/**
 	 * AI.Event — 적 컨트롤러가 자기 StateTree 에 보내는 이벤트 (SendStateTreeEvent). ASC 의 GameplayEvent 와 다른 경로다
 	 */

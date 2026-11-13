@@ -5,6 +5,7 @@
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
 #include "AbilitySystem/Attributes/AstralCombatSet.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
+#include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "Character/Components/AstralCharacterMovementComponent.h"
 #include "Character/Components/AstralHealthComponent.h"
@@ -430,6 +431,60 @@ void AAstralCharacter::ServerSetMoveSpeedMultiplier_Implementation(float Multipl
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
 	{
 		ASC->ApplyModToAttribute(UAstralCombatSet::GetMoveSpeedMultiplierAttribute(), EGameplayModOp::Override, Multiplier);
+	}
+#endif
+}
+
+void AAstralCharacter::FillUlt()
+{
+#if !UE_BUILD_SHIPPING
+	if (HasAuthority())
+	{
+		ServerFillUlt_Implementation();
+	}
+	else
+	{
+		ServerFillUlt();
+	}
+#endif
+}
+
+void AAstralCharacter::ServerFillUlt_Implementation()
+{
+#if !UE_BUILD_SHIPPING
+	// 히어로 전용 자원 — 세트가 없는 폰(적 · 더미)에서는 아무 일도 없다
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (ASC && ASC->HasAttributeSetForAttribute(UAstralHeroResourceSet::GetUltGaugeAttribute()))
+	{
+		ASC->ApplyModToAttribute(UAstralHeroResourceSet::GetUltGaugeAttribute(), EGameplayModOp::Override, ASC->GetNumericAttribute(UAstralHeroResourceSet::GetMaxUltGaugeAttribute()));
+	}
+#endif
+}
+
+void AAstralCharacter::SetUltBlocked(bool bBlocked)
+{
+#if !UE_BUILD_SHIPPING
+	if (HasAuthority())
+	{
+		ServerSetUltBlocked_Implementation(bBlocked);
+		return;
+	}
+
+	// 부른 쪽(예측 발동을 검사하는 쪽)에도 건다 — 루즈 태그는 복제되지 않는다
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		ASC->SetLooseGameplayTagCount(AstralGameplayTags::State_Ult_Blocked, bBlocked ? 1 : 0);
+	}
+	ServerSetUltBlocked(bBlocked);
+#endif
+}
+
+void AAstralCharacter::ServerSetUltBlocked_Implementation(bool bBlocked)
+{
+#if !UE_BUILD_SHIPPING
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		ASC->SetLooseGameplayTagCount(AstralGameplayTags::State_Ult_Blocked, bBlocked ? 1 : 0);
 	}
 #endif
 }

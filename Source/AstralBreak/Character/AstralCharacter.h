@@ -66,6 +66,17 @@ public:
 	UFUNCTION(Exec)
 	void SpawnEnemy(const FString& EnemyName, float Distance = 0.0f);
 
+	/** 디버그 — 콘솔에서 `FillUlt`. 오의 게이지를 최대치로 채운다 (오의 · 체인 시험용 — m4-ult-chain.md §6 단위 A) */
+	UFUNCTION(Exec)
+	void FillUlt();
+
+	/**
+	 * 디버그 — 콘솔에서 `SetUltBlocked 1` / `SetUltBlocked 0`. 오의 차단 태그(State.Ult.Blocked)를 걸고 푼다.
+	 * 루즈 태그는 복제되지 않으므로 부른 쪽과 서버 양쪽에 건다 — M5 의 Burst Aura 는 GE 로 걸어 복제에 맡긴다
+	 */
+	UFUNCTION(Exec)
+	void SetUltBlocked(bool bBlocked = true);
+
 protected:
 	UFUNCTION(Server, Reliable)
 	void ServerDamageSelf(float Amount);
@@ -81,6 +92,12 @@ protected:
 
 	UFUNCTION(Server, Reliable)
 	void ServerSpawnEnemy(const FString& EnemyName, float Distance);
+
+	UFUNCTION(Server, Reliable)
+	void ServerFillUlt();
+
+	UFUNCTION(Server, Reliable)
+	void ServerSetUltBlocked(bool bBlocked);
 
 	virtual void OnAbilitySystemInitialized();
 	virtual void OnAbilitySystemUninitialized();

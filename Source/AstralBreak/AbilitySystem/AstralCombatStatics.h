@@ -81,6 +81,7 @@ public:
 
 	/**
 	 * 받는 데미지의 방어 판정 (서버 전용 — HealthSet::PreGameplayEffectExecute의 Damage 분기에서 1줄 호출).
+	 * State.Invulnerable(오의 중) → 맨 먼저 false 반환(완전 무효, 통지 없음). Unblockable 도 뚫지 못한다.
 	 * 정면(120° 콘) 패링 → false 반환(완전 무효) + Parried(방어자)/Staggered(공격자) 이벤트.
 	 * 정면 가드 → Magnitude × GuardDamageMultiplier 감쇄 + Guarded(방어자, magnitude=막은 양) 이벤트.
 	 * Damage.Type.Unblockable asset tag GE는 그대로 통과 (패링 · 가드 둘 다 뚫는다).

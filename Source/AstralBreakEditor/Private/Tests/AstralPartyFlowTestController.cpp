@@ -1,9 +1,12 @@
 #include "AstralPartyFlowTestController.h"
 
+#include "AstralEnemySpawnerTestListener.h"
 #include "Character/AstralCharacter.h"
 #include "Character/Components/AstralHealthComponent.h"
 #include "Character/Enemy/AstralCombatCharacter.h"
 #include "Character/Enemy/AstralEnemyController.h"
+#include "Character/Enemy/AstralEnemySpawner.h"
+#include "Components/BoxComponent.h"
 #include "Components/StateTreeAIComponent.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
@@ -40,6 +43,90 @@ namespace AstralPartyFlowController
 	FString JoinIds(const TArray<int32>& Ids)
 	{
 		return FString::JoinBy(Ids, TEXT(","), [](int32 Id) { return FString::FromInt(Id); });
+	}
+
+	// ─── 레이드 전멸 (설계 §12 E2) ───
+
+	/** RaidMap 의 스포너가 내는 BP 이름의 앞부분 · 수(잠정 — 맵의 스포너 인스턴스를 바꾸면 여기와 run_party_flow.py 도 바꾼다) */
+	const TCHAR* const RaidGuardianPrefix = TEXT("BP_Enemy_Guardian");
+	const int32 RaidGuardianCount = 3;
+
+	/** 구역 안에 히어로를 세우는 간격 — 상자 가운데에서 Y 로 벌린다(상자 반크기 Y 700) */
+	const float RaidHeroSpacing = 150.f;
+	const float RaidKillDamage = 1000000.f;
+
+	/** 단계 번호 — 허브 앞부분은 역할마다 길이가 달라(방장 3, 나머지 1) 이동부터 같은 번호를 쓴다 */
+	const int32 RaidClearStage_Travel = 10;
+	const int32 RaidClearStage_Arrive = 11;
+	const int32 RaidClearStage_Guardians = 12;
+	const int32 RaidClearStage_Combat = 13;
+	const int32 RaidClearStage_Gone = 14;
+	const int32 RaidClearStage_Return = 15;
+	const int32 RaidClearStage_Hub = 16;
+	const int32 RaidClearStage_Result = 17;
+
+	TArray<APlayerState*> RaidPlayersById(const UWorld* World)
+	{
+		TArray<APlayerState*> Out;
+		if (const AGameStateBase* GameState = World ? World->GetGameState() : nullptr)
+		{
+			for (APlayerState* PlayerState : GameState->PlayerArray)
+			{
+				if (PlayerState)
+				{
+					Out.Add(PlayerState);
+				}
+			}
+		}
+		Out.Sort([](const APlayerState& A, const APlayerState& B) { return A.GetPlayerId() < B.GetPlayerId(); });
+		return Out;
+	}
+
+	/** 히어로들의 HP 를 번호 순으로 "번호:HP" 로 잇는다. 폰 · 값을 못 본 자리는 -1 */
+	FString DescribeRaidHeroHealth(const UWorld* World)
+	{
+		FString Out;
+		for (const APlayerState* PlayerState : RaidPlayersById(World))
+		{
+			const UAstralHealthComponent* HealthComponent = UAstralHealthComponent::FindHealthComponent(PlayerState->GetPawn());
+			Out += FString::Printf(TEXT("%s%d:%.1f"), Out.IsEmpty() ? TEXT("") : TEXT(","), PlayerState->GetPlayerId(), HealthComponent ? HealthComponent->GetHealth() : -1.f);
+		}
+		return Out;
+	}
+
+	/** 맞은 히어로 — HP 가 최대보다 낮은 사람 중 가장 낮은 쪽. 죽은 사람(0)도 센다 — 최대값이 아직 안 온 자리만 뺀다 */
+	bool FindHurtRaidHero(const UWorld* World, int32& OutPlayerId, float& OutHealth)
+	{
+		bool bFound = false;
+		for (const APlayerState* PlayerState : RaidPlayersById(World))
+		{
+			const UAstralHealthComponent* HealthComponent = UAstralHealthComponent::FindHealthComponent(PlayerState->GetPawn());
+			if (!HealthComponent || HealthComponent->GetMaxHealth() <= 0.f)
+			{
+				continue;
+			}
+			const float Health = HealthComponent->GetHealth();
+			if (Health < HealthComponent->GetMaxHealth() && (!bFound || Health < OutHealth))
+			{
+				bFound = true;
+				OutPlayerId = PlayerState->GetPlayerId();
+				OutHealth = Health;
+			}
+		}
+		return bFound;
+	}
+
+	TArray<AAstralCombatCharacter*> RaidGuardiansIn(UWorld* World)
+	{
+		TArray<AAstralCombatCharacter*> Out;
+		for (TActorIterator<AAstralCombatCharacter> It(World); It; ++It)
+		{
+			if (It->GetClass()->GetName().StartsWith(RaidGuardianPrefix))
+			{
+				Out.Add(*It);
+			}
+		}
+		return Out;
 	}
 }
 
@@ -80,14 +167,16 @@ void UAstralPartyFlowTestController::OnInit()
 	FParse::Value(FCommandLine::Get(), TEXT("AstralPartyScenario="), Scenario);
 	bLeaderLeavesScenario = Scenario.Equals(TEXT("LeaderLeaves"), ESearchCase::IgnoreCase);
 	bEnemyCombatScenario = Scenario.Equals(TEXT("EnemyCombat"), ESearchCase::IgnoreCase);
+	bRaidClearScenario = Scenario.Equals(TEXT("RaidClear"), ESearchCase::IgnoreCase);
 	bEnemySpawner = FParse::Param(FCommandLine::Get(), TEXT("AstralEnemySpawner"));
 	FParse::Value(FCommandLine::Get(), TEXT("AstralPartyPlayers="), NumPlayers);
 	FParse::Value(FCommandLine::Get(), TEXT("AstralPartyTimeout="), TimeoutSeconds);
 
 	StartTime = StageStartTime = FPlatformTime::Seconds();
 
-	UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST INIT scenario=%s players=%d timeout=%.0f"),
-		bEnemyCombatScenario ? TEXT("EnemyCombat") : (bLeaderLeavesScenario ? TEXT("LeaderLeaves") : TEXT("Flow")), NumPlayers, TimeoutSeconds);
+	const TCHAR* ScenarioName = bRaidClearScenario ? TEXT("RaidClear")
+		: (bEnemyCombatScenario ? TEXT("EnemyCombat") : (bLeaderLeavesScenario ? TEXT("LeaderLeaves") : TEXT("Flow")));
+	UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST INIT scenario=%s players=%d timeout=%.0f"), ScenarioName, NumPlayers, TimeoutSeconds);
 
 	if (NumPlayers < 2 || (bLeaderLeavesScenario && NumPlayers < 3))
 	{
@@ -283,6 +372,10 @@ void UAstralPartyFlowTestController::OnTick(float TimeDelta)
 	{
 		TickEnemyCombat(Snap);
 	}
+	else if (bRaidClearScenario)
+	{
+		TickRaidClear(Snap);
+	}
 	else if (bLeaderLeavesScenario)
 	{
 		TickLeaderLeaves(Snap);
@@ -436,6 +529,293 @@ void UAstralPartyFlowTestController::TickEnemyCombat(const FAstralPartyFlowSnaps
 	default:
 		TickLinger(Snap, /*bWaitForOthersToLeave=*/false);
 		break;
+	}
+}
+
+void UAstralPartyFlowTestController::TickRaidClear(const FAstralPartyFlowSnapshot& Snap)
+{
+	using namespace AstralPartyFlowController;
+
+	const bool bAuthority = Snap.NetMode == NM_DedicatedServer || Snap.NetMode == NM_ListenServer;
+	const bool bOthersCounted = Snap.NumOthers == NumPlayers - (Snap.NetMode == NM_DedicatedServer ? 0 : 1);
+	const bool bOthersReady = bOthersCounted && Snap.NumOthersReady == Snap.NumOthers;
+	const bool bOthersNotReady = bOthersCounted && Snap.NumOthersReady == 0;
+
+	// ─── 허브: 선택 · 준비 · 시작 (거부 확인은 Flow 시나리오가 한다) ───
+	if (Stage < RaidClearStage_Travel)
+	{
+		if (Role != ERole::Leader)
+		{
+			if (Role == ERole::NonLeader)
+			{
+				Snap.LocalPC->ServerSetReady(true);
+			}
+			JumpToStage(RaidClearStage_Travel);
+			return;
+		}
+		switch (Stage)
+		{
+		case 1:
+			Snap.LocalPC->ServerSelectRaid(RaidMap);
+			Advance();
+			break;
+		case 2: // 선택이 복제돼 돌아오면
+			if (Snap.SelectedRaid == RaidMap)
+			{
+				Snap.LocalPC->ServerSetReady(true);
+				Advance();
+			}
+			break;
+		default:
+			if (Snap.bAllReady && Snap.Map == HubMap)
+			{
+				Snap.LocalPC->ServerStartRaid();
+				JumpToStage(RaidClearStage_Travel);
+			}
+			break;
+		}
+		return;
+	}
+
+	// ─── 이 프로세스가 지금 보는 것 ───
+
+	const TArray<AAstralCombatCharacter*> Guardians = RaidGuardiansIn(Snap.World);
+	const APawn* MyPawn = Snap.LocalPC ? Snap.LocalPC->GetPawn() : nullptr;
+
+	switch (Stage)
+	{
+	case RaidClearStage_Travel:
+		if (IsSettled(Snap, RaidMap, NumPlayers) && CheckKept(Snap, RaidMap))
+		{
+			Advance();
+		}
+		break;
+
+	case RaidClearStage_Arrive: // 모든 프로세스가 적 0 을 본 뒤 권위 프로세스가 히어로들을 구역으로 옮긴다
+		if (bAuthority)
+		{
+			const TArray<APlayerState*> Players = RaidPlayersById(Snap.World);
+			bool bAllHavePawns = Players.Num() == NumPlayers;
+			for (const APlayerState* PlayerState : Players)
+			{
+				bAllHavePawns &= UAstralHealthComponent::FindHealthComponent(PlayerState->GetPawn()) != nullptr;
+			}
+			if (!bAllHavePawns || !bOthersReady)
+			{
+				break; // 클라이언트 전원의 '도착 · 적 0' 신호(A)를 기다린다
+			}
+
+			TArray<AAstralEnemySpawner*> Spawners;
+			for (TActorIterator<AAstralEnemySpawner> It(Snap.World); It; ++It)
+			{
+				Spawners.Add(*It);
+			}
+			if (Spawners.Num() != 1 || Spawners[0]->SpawnPoints.Num() != RaidGuardianCount)
+			{
+				Fail(FString::Printf(TEXT("RaidMap: expected one spawner with %d spawn points (spawners=%d points=%d)"),
+					RaidGuardianCount, Spawners.Num(), Spawners.Num() > 0 ? Spawners[0]->SpawnPoints.Num() : -1));
+				return;
+			}
+			AAstralEnemySpawner* Spawner = Spawners[0];
+			if (Spawner->HasActivated() || Guardians.Num() != 0)
+			{
+				Fail(FString::Printf(TEXT("RaidMap: enemies before any hero entered the zone (activated=%d enemies=%d)"), Spawner->HasActivated() ? 1 : 0, Guardians.Num()));
+				return;
+			}
+			UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST ARRIVED role=%s enemies=0 spawner=%s activated=0 points=%d"),
+				RoleName(Role), *Spawner->GetName(), Spawner->SpawnPoints.Num());
+
+			RaidSpawner = Spawner;
+			RaidClearedListener = NewObject<UAstralEnemySpawnerTestListener>(this);
+			Spawner->OnCleared.AddDynamic(RaidClearedListener.Get(), &UAstralEnemySpawnerTestListener::HandleCleared);
+
+			// 상자 가운데에 Y 로 벌려 세운다. 높이는 지금 서 있는 높이 그대로 — 바닥이 평평해 걷는 상태가 유지된다(낙하로 바뀌지 않는다)
+			const FVector BoxCenter = Spawner->GetTriggerBox()->GetComponentLocation();
+			for (int32 Index = 0; Index < Players.Num(); ++Index)
+			{
+				APawn* Pawn = Players[Index]->GetPawn();
+				const FVector Destination(BoxCenter.X, BoxCenter.Y + (Index - (Players.Num() - 1) * 0.5f) * RaidHeroSpacing, Pawn->GetActorLocation().Z);
+				if (!Pawn->TeleportTo(Destination, Pawn->GetActorRotation()))
+				{
+					Fail(FString::Printf(TEXT("RaidMap: could not move hero %d into the zone at %s"), Players[Index]->GetPlayerId(), *Destination.ToCompactString()));
+					return;
+				}
+			}
+			if (!Spawner->HasActivated())
+			{
+				Fail(TEXT("RaidMap: the spawner did not activate when the heroes entered its box"));
+				return;
+			}
+			UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST ENTER role=%s heroes=%d activated=1"), RoleName(Role), Players.Num());
+			Advance();
+		}
+		else if (const UAstralHealthComponent* MyHealthComponent = UAstralHealthComponent::FindHealthComponent(MyPawn); MyHealthComponent && MyHealthComponent->GetHealth() > 0.f)
+		{
+			if (Guardians.Num() != 0)
+			{
+				Fail(FString::Printf(TEXT("RaidMap: %d enemies on arrival (expected 0)"), Guardians.Num()));
+				return;
+			}
+			UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST ARRIVED role=%s enemies=0"), RoleName(Role));
+			Snap.LocalPC->ServerSetReady(true); // 신호 A
+			Advance();
+		}
+		break;
+
+	case RaidClearStage_Guardians: // 수호병 3 — 서버는 폰 · 컨트롤러 · 도는 트리, 클라이언트는 폰만
+		if (bAuthority)
+		{
+			int32 NumControllers = 0;
+			int32 NumTrees = 0;
+			for (const AAstralCombatCharacter* Guardian : Guardians)
+			{
+				if (const AAstralEnemyController* Controller = Cast<AAstralEnemyController>(Guardian->GetController()))
+				{
+					++NumControllers;
+					NumTrees += Controller->GetStateTreeComponent()->IsRunning() ? 1 : 0;
+				}
+			}
+			if (Guardians.Num() == RaidGuardianCount && NumTrees == RaidGuardianCount && RaidSpawner.IsValid() && RaidSpawner->GetNumAliveEnemies() == RaidGuardianCount)
+			{
+				for (AAstralCombatCharacter* Guardian : Guardians)
+				{
+					RaidGuardians.Add(Guardian);
+					Guardian->OnDestroyed.AddDynamic(this, &UAstralPartyFlowTestController::HandleRaidGuardianDestroyed);
+				}
+				UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST GUARDIANS role=%s pawns=%d controllers=%d trees=%d alive=%d"),
+					RoleName(Role), Guardians.Num(), NumControllers, NumTrees, RaidSpawner->GetNumAliveEnemies());
+				Advance();
+			}
+		}
+		else if (Guardians.Num() == RaidGuardianCount)
+		{
+			int32 NumControllers = 0;
+			for (const AAstralCombatCharacter* Guardian : Guardians)
+			{
+				NumControllers += Guardian->GetController() ? 1 : 0;
+			}
+			UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST GUARDIANS role=%s pawns=%d controllers=%d"), RoleName(Role), Guardians.Num(), NumControllers);
+			Snap.LocalPC->ServerSetReady(false); // 신호 B
+			Advance();
+		}
+		break;
+
+	case RaidClearStage_Combat: // 수호병이 누군가를 때렸다 — 권위 프로세스는 본 틱에 곧바로 셋을 죽인다(히어로 HP 가 여기서 멈춘다)
+	{
+		int32 VictimId = 0;
+		float VictimHealth = 0.f;
+		const bool bHurt = FindHurtRaidHero(Snap.World, VictimId, VictimHealth);
+		if (!bAuthority)
+		{
+			if (bHurt)
+			{
+				UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST HIT role=%s victim=%d hp=%.1f"), RoleName(Role), VictimId, VictimHealth);
+				Advance();
+			}
+			break;
+		}
+		if (!bHurt || !bOthersNotReady)
+		{
+			break; // 클라이언트 전원의 '수호병 3' 신호(B)와 첫 피해를 기다린다
+		}
+		if (!RaidSpawner.IsValid() || Guardians.Num() != RaidGuardianCount)
+		{
+			Fail(FString::Printf(TEXT("RaidMap: guardians changed before the kill (spawner=%d guardians=%d)"), RaidSpawner.IsValid() ? 1 : 0, Guardians.Num()));
+			return;
+		}
+		UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST HIT role=%s victim=%d hp=%.1f heroes=%s"), RoleName(Role), VictimId, VictimHealth, *DescribeRaidHeroHealth(Snap.World));
+
+		for (const TWeakObjectPtr<AAstralCombatCharacter>& Guardian : RaidGuardians)
+		{
+			if (Guardian.IsValid())
+			{
+				Guardian->DamageSelf(RaidKillDamage);
+			}
+		}
+		RaidKillTime = FPlatformTime::Seconds();
+
+		// 죽기 시작하는 것은 피해와 같은 호출 안이다 — 스포너는 곧바로 '끝났다' 고 한다
+		const int32 NumCleared = RaidClearedListener ? RaidClearedListener->NumCleared : -1;
+		UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST CLEARED role=%s activated=%d alive=%d cleared=%d"),
+			RoleName(Role), RaidSpawner->HasActivated() ? 1 : 0, RaidSpawner->GetNumAliveEnemies(), NumCleared);
+		if (!RaidSpawner->HasActivated() || RaidSpawner->GetNumAliveEnemies() != 0 || NumCleared != 1)
+		{
+			Fail(FString::Printf(TEXT("RaidMap: the spawner is not cleared after the kills (alive=%d cleared=%d)"), RaidSpawner->GetNumAliveEnemies(), NumCleared));
+			return;
+		}
+		Advance();
+		break;
+	}
+
+	case RaidClearStage_Gone: // 죽은 수호병이 사라진다
+		if (bAuthority)
+		{
+			if (NumRaidGuardiansDestroyed == RaidGuardianCount)
+			{
+				UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST HEROES role=%s hp=%s"), RoleName(Role), *RaidHeroesAtGone);
+				UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST GONE role=%s destroyed=%d seconds=%.1f"), RoleName(Role), NumRaidGuardiansDestroyed, RaidGoneTime - RaidKillTime);
+				Advance();
+			}
+		}
+		else if (Snap.Map != RaidMap)
+		{
+			Fail(FString::Printf(TEXT("left RaidMap before this client saw the guardians removed (map=%s)"), *Snap.Map));
+			return;
+		}
+		else if (Guardians.Num() == 0)
+		{
+			UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST HEROES role=%s hp=%s"), RoleName(Role), *DescribeRaidHeroHealth(Snap.World));
+			UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST GONE role=%s"), RoleName(Role));
+			Snap.LocalPC->ServerSetReady(true); // 신호 C
+			Advance();
+		}
+		break;
+
+	case RaidClearStage_Return: // 방장은 나머지 전원이 '수호병 0' 을 알린 뒤(C) 돌아간다
+		if (Role != ERole::Leader)
+		{
+			Advance();
+		}
+		else if (bOthersReady && Snap.Map == RaidMap)
+		{
+			UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST RETURN role=%s"), RoleName(Role));
+			Snap.LocalPC->ServerReturnToHub();
+			Advance();
+		}
+		break;
+
+	case RaidClearStage_Hub:
+		if (IsSettled(Snap, HubMap, NumPlayers) && CheckKept(Snap, TEXT("HubMap(returned)")))
+		{
+			if (Snap.LocalPC)
+			{
+				Snap.LocalPC->ServerSetReady(true);
+			}
+			Advance();
+		}
+		break;
+
+	case RaidClearStage_Result:
+		if (Snap.bAllReady)
+		{
+			Pass();
+			Advance();
+		}
+		break;
+
+	default:
+		TickLinger(Snap, /*bWaitForOthersToLeave=*/bAuthority);
+		break;
+	}
+}
+
+void UAstralPartyFlowTestController::HandleRaidGuardianDestroyed(AActor* DestroyedActor)
+{
+	++NumRaidGuardiansDestroyed;
+	if (NumRaidGuardiansDestroyed == AstralPartyFlowController::RaidGuardianCount)
+	{
+		RaidGoneTime = FPlatformTime::Seconds();
+		RaidHeroesAtGone = AstralPartyFlowController::DescribeRaidHeroHealth(DestroyedActor ? DestroyedActor->GetWorld() : nullptr);
 	}
 }
 
@@ -752,6 +1132,12 @@ void UAstralPartyFlowTestController::Advance()
 	++Stage;
 	StageStartTime = FPlatformTime::Seconds();
 	UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST STAGE role=%s stage=%d t=%.1f"), RoleName(Role), Stage, StageStartTime - StartTime);
+}
+
+void UAstralPartyFlowTestController::JumpToStage(int32 NewStage)
+{
+	Stage = NewStage - 1;
+	Advance();
 }
 
 double UAstralPartyFlowTestController::StageAge() const

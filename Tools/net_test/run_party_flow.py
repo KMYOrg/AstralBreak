@@ -6,9 +6,12 @@ UAstralPartyFlowTestController(-gauntlet=AstralPartyFlowTest)의 표준 출력�
     python -X utf8 -B Tools/net_test/run_party_flow.py listen
     python -X utf8 -B Tools/net_test/run_party_flow.py dedicated
     python -X utf8 -B Tools/net_test/run_party_flow.py dedicated --scenario leader_leaves
+    python -X utf8 -B Tools/net_test/run_party_flow.py dedicated --scenario raid_clear --players 4
 
     listen      2단계 — 리슨 서버(호스트 = 플레이어 1) + 클라이언트 (players - 1)
     dedicated   3단계 — Dedicated 서버 + 클라이언트 players
+
+    raid_clear  허브 → RaidMap → 구역 진입 → 수호병 3 → 전투 → 처치 → 전멸 → 허브 복귀 (설계 §12 E2, 판정 = raid_clear_checks)
 
 판정
     1. 모든 프로세스가 `ASTRAL_NETTEST RESULT PASS` 를 한 번 찍는다 (FAIL 이 하나라도 있으면 실패)
@@ -53,10 +56,17 @@ LEADER_LEAVES_COUNTS = [
 ]
 
 # 적 전투(enemy_combat) — 서버 로그가 아니라 프로세스마다 찍는 표지 줄로 판정한다 (enemy_combat_checks)
-SCENARIO_ARGS = {"flow": "Flow", "leader_leaves": "LeaderLeaves", "enemy_combat": "EnemyCombat"}
-START_MAPS = {"flow": "HubMap", "leader_leaves": "HubMap", "enemy_combat": "CombatTestMap"}
+SCENARIO_ARGS = {"flow": "Flow", "leader_leaves": "LeaderLeaves", "enemy_combat": "EnemyCombat", "raid_clear": "RaidClear"}
+START_MAPS = {"flow": "HubMap", "leader_leaves": "HubMap", "enemy_combat": "CombatTestMap", "raid_clear": "HubMap"}
 ENEMY_ATTACK_DAMAGE = 15.0  # GA_Enemy_MeleeAttack.BaseDamage (잠정) — 바꾸면 여기도 바꾼다
 HERO_MAX_HEALTH = 100.0
+
+# 레이드 전멸(raid_clear) — 거부 확인은 하지 않는다(flow 가 한다): 서버에 거부 로그가 없어야 한다
+RAID_GUARDIANS = 3  # RaidMap 의 EnemySpawner_Guardian_01 스폰 지점 수 (잠정) — 컨트롤러의 RaidGuardianCount 와 같이 바꾼다
+RAID_CLEAR_COUNTS = [
+    ("rejected_requests", r"방장이 아님|허용 목록에 없는 맵|전원 준비 아님", lambda n: 0),
+    ("seamless_travel_player", r"HandleSeamlessTravelPlayer: ", lambda n: 2 * n),
+]
 
 
 class Proc:
@@ -143,6 +153,65 @@ def enemy_combat_checks(procs: list[Proc]) -> list[dict]:
     return checks
 
 
+def raid_clear_checks(procs: list[Proc], players: int) -> list[dict]:
+    """E2 — 스폰 · 전투 · 제거 · 이동을 프로세스마다 같게 본다. 처치는 서버의 DamageSelf 다(히어로의 공격이 아니다)."""
+    checks: list[dict] = []
+
+    def fields(proc: Proc, kind: str) -> list[dict[str, str]]:
+        return [f for f in (mark_fields(line, kind) for line in proc.marks) if f is not None]
+
+    def one(kind: str, key: str) -> dict[str, str | None]:
+        """프로세스마다 그 줄이 정확히 하나일 때 그 값, 아니면 None."""
+        out: dict[str, str | None] = {}
+        for proc in procs:
+            found = fields(proc, kind)
+            out[proc.name] = found[0].get(key) if len(found) == 1 else None
+        return out
+
+    def expect(check: str, expected, actual, ok: bool) -> None:
+        checks.append({"check": check, "expected": expected, "actual": actual, "ok": ok})
+
+    guardians = str(RAID_GUARDIANS)
+    arrived = one("ARRIVED", "enemies")
+    expect("no enemy on arrival, on every process", "0", arrived, all(value == "0" for value in arrived.values()))
+
+    entered = [(proc.name, f.get("activated")) for proc in procs for f in fields(proc, "ENTER")]
+    expect("the server moved the heroes into the zone and the spawner activated", [("server", "1")], entered, entered == [("server", "1")])
+
+    pawns = one("GUARDIANS", "pawns")
+    expect(f"{guardians} guardian pawns on every process", guardians, pawns, all(value == guardians for value in pawns.values()))
+    controllers = one("GUARDIANS", "controllers")
+    expect("guardian controllers only on the server", f"server {guardians}, clients 0", controllers,
+           all(value == (guardians if name == "server" else "0") for name, value in controllers.items()))
+    trees = [f.get("trees") for f in fields(procs[0], "GUARDIANS")]
+    expect("server: every guardian's StateTree is running", [guardians], trees, trees == [guardians])
+
+    hits = {proc.name: len(fields(proc, "HIT")) for proc in procs}
+    expect("every process saw a hero lose health", 1, hits, all(count == 1 for count in hits.values()))
+
+    cleared = [(proc.name, f.get("activated"), f.get("alive"), f.get("cleared")) for proc in procs for f in fields(proc, "CLEARED")]
+    expect("the server killed the guardians: spawner activated, 0 alive, OnCleared once", [("server", "1", "0", "1")], cleared,
+           cleared == [("server", "1", "0", "1")])
+
+    heroes = one("HEROES", "hp")
+    tables = sorted({value for value in heroes.values() if value is not None})
+    expect("same hero health on the server and every client after the fight", "one table", heroes,
+           len(tables) == 1 and all(value is not None for value in heroes.values()))
+    health = [float(entry.split(":")[1]) for entry in tables[0].split(",")] if len(tables) == 1 else []
+    expect("every hero has a health value, at least one below the maximum", f"{players} values, min < {HERO_MAX_HEALTH}", health,
+           len(health) == players and all(value >= 0.0 for value in health) and min(health) < HERO_MAX_HEALTH)
+
+    gone = {proc.name: len(fields(proc, "GONE")) for proc in procs}
+    expect("guardian pawns gone on every process", 1, gone, all(count == 1 for count in gone.values()))
+    destroyed = [(f.get("destroyed"), f.get("seconds")) for f in fields(procs[0], "GONE")]
+    expect("server: every guardian destroyed (seconds after the kill is informational)", guardians, destroyed,
+           len(destroyed) == 1 and destroyed[0][0] == guardians)
+
+    returns = [proc.name for proc in procs for _ in fields(proc, "RETURN")]
+    expect("the leader asked to return once", 1, returns, len(returns) == 1)
+    return checks
+
+
 def editor_running() -> bool:
     try:
         out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq UnrealEditor*", "/NH", "/FO", "CSV"], capture_output=True, text=True,
@@ -156,7 +225,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("mode", choices=["listen", "dedicated"])
     parser.add_argument("--scenario", choices=sorted(SCENARIO_ARGS), default="flow")
-    parser.add_argument("--players", type=int, default=None, help="사람 수 (기본: flow · enemy_combat 2, leader_leaves 3)")
+    parser.add_argument("--players", type=int, default=None, help="사람 수 (기본: flow · enemy_combat · raid_clear 2, leader_leaves 3)")
     parser.add_argument("--config", choices=sorted(EXE_NAMES), default="DebugGame")
     parser.add_argument("--engine", type=Path, default=DEFAULT_ENGINE)
     parser.add_argument("--port", type=int, default=17777)
@@ -263,12 +332,14 @@ def main() -> int:
         checks.append({"check": "all processes started", "expected": 1 + num_clients, "actual": len(procs), "ok": False})
 
     server_text = procs[0].text() if procs else ""
-    for name, pattern, expected_fn in {"flow": FLOW_COUNTS, "leader_leaves": LEADER_LEAVES_COUNTS}.get(args.scenario, []):
+    for name, pattern, expected_fn in {"flow": FLOW_COUNTS, "leader_leaves": LEADER_LEAVES_COUNTS, "raid_clear": RAID_CLEAR_COUNTS}.get(args.scenario, []):
         expected = expected_fn(players)
         actual = len(re.findall(pattern, server_text))
         checks.append({"check": f"server log: {name}", "expected": expected, "actual": actual, "ok": actual == expected})
     if args.scenario == "enemy_combat":
         checks += enemy_combat_checks(procs)
+    if args.scenario == "raid_clear" and procs:
+        checks += raid_clear_checks(procs, players)
     hard_travel = len(re.findall(r"Seamless travel is disabled", server_text))
     checks.append({"check": "server log: no hard-travel fallback", "expected": 0, "actual": hard_travel, "ok": hard_travel == 0})
     if failure:

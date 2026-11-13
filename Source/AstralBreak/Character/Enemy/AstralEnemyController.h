@@ -52,8 +52,25 @@ public:
 	 */
 	bool AcquireTarget();
 
-	/** 타깃을 쓰는 곳은 이 함수 하나 — 앞 타깃의 구독을 풀고 새 타깃의 사망 · 파괴를 구독한다. 이벤트는 보내지 않는다 */
+	/** 타깃을 쓰는 곳은 이 함수 하나 — 앞 타깃의 구독을 풀고 새 타깃의 사망 · 파괴를 구독한다. 이벤트는 보내지 않는다. 타깃이 바뀌면 공격 자리도 비운다 */
 	void SetCurrentTarget(AActor* NewTarget);
+
+	bool HasEngageSlot() const { return bHasEngageSlot; }
+	float GetEngageBearing() const { return EngageBearing; }
+
+	/**
+	 * 공격 자리를 고른다 (§13 T1 · T2) — 타깃 둘레 고리에서 지금 내가 있는 쪽에 가장 가까우면서,
+	 * 같은 타깃을 쥔 다른 적의 자리와 MinSeparationDegrees 이상 떨어진 방위를 잡는다.
+	 * 다른 적의 자리는 고르는 이 시점에 읽는다 — 등록부도 구독도 없다. 타깃을 놓았거나 죽은 적은 자리가 비어 있어 저절로 빠진다.
+	 * 부르는 쪽은 트리의 Task(FAstralStateTreeTask_EngageSlot)다. 그 Task 를 쓰지 않는 트리의 적은 자리를 잡지 않는다. 타깃이 없으면 false
+	 */
+	bool SelectEngageSlot(float MinSeparationDegrees);
+
+	/** 자리의 월드 좌표 = 타깃 위치 + 방위 방향 × Radius (높이는 타깃의 것). 타깃이나 자리가 없으면 false */
+	bool GetEngageLocation(float Radius, FVector& OutLocation) const;
+
+	/** 타깃에서 내 폰으로 향하는 방위(도) — 타깃이 없거나 겹쳐 있으면 false */
+	bool GetBearingFromTarget(float& OutDegrees) const;
 
 public:
 	/**
@@ -62,6 +79,16 @@ public:
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "Astral|AI")
 	TObjectPtr<AActor> CurrentTarget;
+
+	/**
+	 * 공격 자리 — 타깃 둘레 고리 위의 방위(도, 타깃에서 자리로 향하는 방향의 yaw). bHasEngageSlot 이 참일 때만 뜻이 있다.
+	 * 값은 SelectEngageSlot 이 쓰고 SetCurrentTarget 이 비운다. 서버 전용 — 복제하지 않는다
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "Astral|AI")
+	float EngageBearing = 0.f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "Astral|AI")
+	bool bHasEngageSlot = false;
 
 protected:
 	//~ AController

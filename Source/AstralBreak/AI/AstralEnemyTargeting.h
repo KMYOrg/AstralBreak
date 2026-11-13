@@ -28,6 +28,25 @@ struct FAstralEnemyThreatCandidate : FAstralEnemyTargetCandidate
 
 	/** 최근 창 안에서 이 후보가 이 적에게 넣은 피해 합 */
 	float RecentDamage = 0.f;
+
+	/** 이 후보를 이미 노리고 있는 다른 적의 수 (§13 T3 — 분산). 고르는 적 자신은 세지 않는다 */
+	int32 NumOtherAttackers = 0;
+};
+
+/** 위협 추첨의 값 묶음 — UAstralThreatComponent 의 프로퍼티를 그대로 옮긴다. 기본값은 단위 B 의 규칙 그대로다 */
+struct FAstralEnemyThreatSettings
+{
+	/** 피해 가중 — 최근 피해를 혼자 넣은 후보의 가중치가 (1 + 이 값)배 */
+	float DamageWeight = 0.f;
+
+	/** 아무도 안 때렸을 때도 추첨한다. 끄면 그때는 가장 가까운 후보 (§13 T4) */
+	bool bDrawWithoutDamage = false;
+
+	/** 거리 가중 — 가장 가까운 후보의 가중치가 (1 + 이 값)배, 그보다 N 배 먼 후보는 (1 + 이 값 ÷ N)배 (§13 T4). 0 이면 거리와 무관 */
+	float DistanceWeight = 0.f;
+
+	/** 분산 — 다른 적 K 마리가 이미 노리는 후보의 가중치를 1 ÷ (1 + 이 값 × K)로 (§13 T3). 0 이면 나누지 않는다 */
+	float SpreadWeight = 0.f;
 };
 
 /** 피해 기록 1건 — 시각은 월드 시간(초) */
@@ -76,4 +95,25 @@ namespace AstralEnemyTargeting
 	 * 점유율 = 이 후보의 최근 피해 ÷ 자격 있는 후보 전체의 최근 피해. 후보 없음 = INDEX_NONE
 	 */
 	ASTRALBREAK_API int32 SelectThreatIndex(const FVector& Origin, TConstArrayView<FAstralEnemyThreatCandidate> Candidates, float DamageWeight, float Roll);
+
+	/** 거리 가중 배수 = 1 + DistanceWeight × (가장 가까운 후보까지의 거리 ÷ 이 후보까지의 거리). 가장 가까운 후보가 가장 크고, 멀수록 1 에 가까워진다 */
+	ASTRALBREAK_API float ComputeDistanceFactor(float DistanceWeight, double NearestDistance, double Distance);
+
+	/** 분산 배수 = 1 ÷ (1 + SpreadWeight × 이 후보를 이미 노리는 다른 적의 수) */
+	ASTRALBREAK_API float ComputeSpreadFactor(float SpreadWeight, int32 NumOtherAttackers);
+
+	/**
+	 * 위협 기준 선정 (§13 T3 · T4 를 더한 것) — 가중치 = 적대심 × (1 + 피해 가중 × 점유율) × 거리 배수 × 분산 배수.
+	 * 아무도 피해를 넣지 않았을 때: bDrawWithoutDamage 가 꺼져 있으면 가장 가까운 후보(위 함수와 같다), 켜져 있으면 점유율 0 으로 추첨한다.
+	 * 값이 전부 기본(끔 · 0 · 0)이면 위 함수와 결과가 같다. 후보 없음 = INDEX_NONE
+	 */
+	ASTRALBREAK_API int32 SelectThreatIndex(const FVector& Origin, TConstArrayView<FAstralEnemyThreatCandidate> Candidates, const FAstralEnemyThreatSettings& Settings, float Roll);
+
+	/**
+	 * 공격 자리 고르기 (§13 T1 · T2) — 타깃 둘레 고리 위의 방위(도, −180 ~ 180. 타깃에서 자리로 향하는 방향의 yaw).
+	 * Preferred 에 가장 가까우면서 이미 잡힌 방위들과 MinSeparation 이상 떨어진 방위를 돌려준다.
+	 * Preferred 가 비어 있으면 그대로. 아니면 잡힌 자리의 ±MinSeparation 가운데 빈 것 중 Preferred 에 가장 가까운 것(동률이면 Occupied 의 앞쪽 · + 쪽).
+	 * 고리가 가득 차 빈 자리가 없으면 가장 넓은 틈의 한가운데
+	 */
+	ASTRALBREAK_API float SelectEngageBearing(float PreferredDegrees, TConstArrayView<float> OccupiedDegrees, float MinSeparationDegrees);
 }

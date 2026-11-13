@@ -22,6 +22,7 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
+#include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
 #include "Character/AstralCharacter.h"
 #include "Character/Components/AstralHealthComponent.h"
 #include "Character/Enemy/AstralCombatCharacter.h"
@@ -477,6 +478,14 @@ namespace AstralEnemySpawnerPie
 			}
 			MakeHeroSturdy(PawnIn(ServerWorld, Ctx->NearId));
 			MakeHeroSturdy(PawnIn(ServerWorld, Ctx->FarId));
+
+			// 수호병은 아무도 안 때려도 타깃을 추첨하고 서로 나눈다(§13 T3 · T4) — S4 는 가까운 쪽이 맞는 것을 보므로 먼 쪽을 후보에서 뺀다(적대심 0 은 뽑히지 않는다)
+			const AAstralCharacter* FarPawn = PawnIn(ServerWorld, Ctx->FarId);
+			const AAstralPlayerController* FarPC = FarPawn ? Cast<AAstralPlayerController>(FarPawn->GetController()) : nullptr;
+			if (UAstralAbilitySystemComponent* FarASC = FarPC ? FarPC->GetAstralAbilitySystemComponent() : nullptr)
+			{
+				FarASC->SetNumericAttributeBase(UAstralHeroResourceSet::GetHostilityAttribute(), 0.f);
+			}
 
 			// 스폰 서브시스템은 서버에만 있다
 			Test.TestNotNull(TEXT("the spawn subsystem exists on the server"), ServerWorld->GetSubsystem<UAstralEnemySpawnSubsystem>());

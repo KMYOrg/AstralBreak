@@ -287,4 +287,149 @@ bool FAstralEnemyThreatRulesTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAstralEnemyThreatDistanceSpreadTest, "AstralBreak.Enemy.ThreatDistanceSpread", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FAstralEnemyThreatDistanceSpreadTest::RunTest(const FString& Parameters)
+{
+	using namespace AstralEnemyTargeting;
+
+	constexpr float Tol = 0.001f;
+	const FVector Origin(0.0, 0.0, 0.0);
+	const FVector Near(400.0, 0.0, 0.0);
+	const FVector Far(0.0, 800.0, 0.0);
+
+	// 배수 — 거리: 가장 가까운 후보 (1 + 값)배, 두 배 멀면 (1 + 값 ÷ 2)배. 0 이면 1. 겹쳐 있으면(거리 0) 가장 가까운 것으로 본다
+	TestEqual(TEXT("distance factor: nearest"), ComputeDistanceFactor(2.f, 400.0, 400.0), 3.f, Tol);
+	TestEqual(TEXT("distance factor: twice as far"), ComputeDistanceFactor(2.f, 400.0, 800.0), 2.f, Tol);
+	TestEqual(TEXT("distance factor: weight 0"), ComputeDistanceFactor(0.f, 400.0, 800.0), 1.f, Tol);
+	TestEqual(TEXT("distance factor: distance 0"), ComputeDistanceFactor(2.f, 0.0, 0.0), 3.f, Tol);
+
+	// 배수 — 분산: 다른 적 K 마리가 노리면 1 ÷ (1 + 값 × K)
+	TestEqual(TEXT("spread factor: nobody else"), ComputeSpreadFactor(1.f, 0), 1.f, Tol);
+	TestEqual(TEXT("spread factor: one other"), ComputeSpreadFactor(1.f, 1), 0.5f, Tol);
+	TestEqual(TEXT("spread factor: two others"), ComputeSpreadFactor(1.f, 2), 1.f / 3.f, Tol);
+	TestEqual(TEXT("spread factor: weight 0"), ComputeSpreadFactor(0.f, 3), 1.f, Tol);
+
+	const TArray<FAstralEnemyThreatCandidate> NoDamage = { MakeEnemyThreatCandidate(Far), MakeEnemyThreatCandidate(Near) };
+
+	// 값이 기본이면 예전 함수와 같다 — 아무도 안 때렸으면 추첨 값과 무관하게 가장 가까운 후보
+	{
+		FAstralEnemyThreatSettings Defaults;
+		Defaults.DamageWeight = 2.f;
+		TestEqual(TEXT("defaults, no damage, roll 0 -> nearest"), SelectThreatIndex(Origin, NoDamage, Defaults, 0.f), 1);
+		TestEqual(TEXT("defaults, no damage, roll 1 -> nearest"), SelectThreatIndex(Origin, NoDamage, Defaults, 1.f), 1);
+		TestEqual(TEXT("defaults match the old overload"), SelectThreatIndex(Origin, NoDamage, Defaults, 0.3f), SelectThreatIndex(Origin, NoDamage, 2.f, 0.3f));
+	}
+
+	// 안 맞아도 추첨(거리 가중 없음) — 반반
+	{
+		FAstralEnemyThreatSettings Draw;
+		Draw.DamageWeight = 2.f;
+		Draw.bDrawWithoutDamage = true;
+		TestEqual(TEXT("draw without damage: roll 0.49 -> first"), SelectThreatIndex(Origin, NoDamage, Draw, 0.49f), 0);
+		TestEqual(TEXT("draw without damage: roll 0.51 -> second"), SelectThreatIndex(Origin, NoDamage, Draw, 0.51f), 1);
+	}
+
+	// 거리 가중 2 — 먼 쪽(두 배 거리) 2 : 가까운 쪽 3 → 경계 0.4
+	{
+		FAstralEnemyThreatSettings Distance;
+		Distance.DamageWeight = 2.f;
+		Distance.bDrawWithoutDamage = true;
+		Distance.DistanceWeight = 2.f;
+		TestEqual(TEXT("distance weight: roll 0.39 -> the far one (40 %)"), SelectThreatIndex(Origin, NoDamage, Distance, 0.39f), 0);
+		TestEqual(TEXT("distance weight: roll 0.41 -> the near one (60 %)"), SelectThreatIndex(Origin, NoDamage, Distance, 0.41f), 1);
+
+		// 죽은 후보는 거리의 기준이 되지 않는다 — 남은 한 명이 '가장 가까운 후보' 다
+		TArray<FAstralEnemyThreatCandidate> NearIsDead = NoDamage;
+		NearIsDead[1].bDeadOrDying = true;
+		TestEqual(TEXT("distance weight: dead nearest is skipped"), SelectThreatIndex(Origin, NearIsDead, Distance, 0.9f), 0);
+	}
+
+	// 분산 1 — 같은 거리의 두 후보, 앞 후보를 다른 적 한 마리가 노린다 → 0.5 : 1 → 경계 1/3
+	{
+		FAstralEnemyThreatSettings Spread;
+		Spread.DamageWeight = 2.f;
+		Spread.bDrawWithoutDamage = true;
+		Spread.SpreadWeight = 1.f;
+		TArray<FAstralEnemyThreatCandidate> SameDistance = { MakeEnemyThreatCandidate(Near), MakeEnemyThreatCandidate(FVector(0.0, 400.0, 0.0)) };
+		SameDistance[0].NumOtherAttackers = 1;
+		TestEqual(TEXT("spread: roll 0.32 -> the one already targeted (33 %)"), SelectThreatIndex(Origin, SameDistance, Spread, 0.32f), 0);
+		TestEqual(TEXT("spread: roll 0.35 -> the free one (67 %)"), SelectThreatIndex(Origin, SameDistance, Spread, 0.35f), 1);
+
+		// 분산은 피해 가중과 곱해진다 — 앞 후보가 혼자 때렸다: 3 × 0.5 = 1.5 : 1 → 경계 0.6
+		SameDistance[0].RecentDamage = 50.f;
+		TestEqual(TEXT("spread x damage: roll 0.59 -> the hitter"), SelectThreatIndex(Origin, SameDistance, Spread, 0.59f), 0);
+		TestEqual(TEXT("spread x damage: roll 0.61 -> the other"), SelectThreatIndex(Origin, SameDistance, Spread, 0.61f), 1);
+
+		// 혼자면 분산이 있어도 그 사람이다
+		TArray<FAstralEnemyThreatCandidate> Alone = { MakeEnemyThreatCandidate(Near) };
+		Alone[0].NumOtherAttackers = 2;
+		TestEqual(TEXT("spread: a single candidate is still drawn"), SelectThreatIndex(Origin, Alone, Spread, 0.5f), 0);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAstralEnemySelectEngageBearingTest, "AstralBreak.Enemy.SelectEngageBearing", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FAstralEnemySelectEngageBearingTest::RunTest(const FString& Parameters)
+{
+	using namespace AstralEnemyTargeting;
+
+	constexpr float Sep = 60.f;
+	constexpr float Tol = 0.05f;
+
+	// 잡힌 자리가 없다 — 내 쪽 그대로 (−180 ~ 180 으로 접는다)
+	{
+		const TArray<float> None;
+		TestEqual(TEXT("empty ring -> preferred"), SelectEngageBearing(35.f, None, Sep), 35.f, Tol);
+		TestEqual(TEXT("empty ring -> preferred, normalized"), SelectEngageBearing(270.f, None, Sep), -90.f, Tol);
+	}
+
+	// 내 쪽이 충분히 떨어져 있다 — 그대로. 정확히 MinSeparation 이면 빈 자리다
+	{
+		const TArray<float> One = { 0.f };
+		TestEqual(TEXT("preferred is free"), SelectEngageBearing(100.f, One, Sep), 100.f, Tol);
+		TestEqual(TEXT("exactly MinSeparation away counts as free"), SelectEngageBearing(60.f, One, Sep), 60.f, Tol);
+		TestEqual(TEXT("separation 0 -> preferred even on top of another"), SelectEngageBearing(0.f, One, 0.f), 0.f, Tol);
+	}
+
+	// 내 쪽이 잡혀 있다 — 가장 가까운 빈 가장자리
+	{
+		const TArray<float> One = { 0.f };
+		TestEqual(TEXT("pushed to the nearer edge (+)"), SelectEngageBearing(20.f, One, Sep), 60.f, Tol);
+		TestEqual(TEXT("pushed to the nearer edge (-)"), SelectEngageBearing(-20.f, One, Sep), -60.f, Tol);
+		// 한 줄 배치 — 둘째는 동률이라 + 쪽, 셋째는 남은 − 쪽
+		TestEqual(TEXT("tie -> + side"), SelectEngageBearing(0.f, One, Sep), 60.f, Tol);
+		const TArray<float> Two = { 0.f, 60.f };
+		TestEqual(TEXT("third in a column takes the other side"), SelectEngageBearing(0.f, Two, Sep), -60.f, Tol);
+	}
+
+	// 가장자리가 다른 자리에 걸리면 건너뛴다
+	{
+		const TArray<float> Two = { 0.f, 90.f };
+		// 0 의 +60 은 90 에서 30 — 못 쓴다. 남은 가장자리 −60 · 150 가운데 40 에 가까운 −60(100) vs 150(110)
+		TestEqual(TEXT("edge blocked by a neighbour is skipped"), SelectEngageBearing(40.f, Two, Sep), -60.f, Tol);
+	}
+
+	// ±180 을 넘는 경계
+	{
+		const TArray<float> One = { 170.f };
+		TestEqual(TEXT("wraps across 180"), SelectEngageBearing(-175.f, One, Sep), -130.f, Tol);
+	}
+
+	// 가득 참 — 가장 넓은 틈의 한가운데
+	{
+		const TArray<float> Full = { 0.f, 60.f, 120.f, 180.f, -120.f, -60.f };
+		const float Picked = SelectEngageBearing(10.f, Full, Sep);
+		TestEqual(TEXT("full ring -> middle of a gap"), FMath::Abs(FMath::FindDeltaAngleDegrees(0.f, FMath::Fmod(Picked + 360.f, 60.f))), 30.f, Tol);
+
+		const TArray<float> Uneven = { 0.f, 50.f, 100.f, 150.f, -160.f, -110.f, -50.f };
+		// 틈: −110 → −50 이 60 으로 가장 넓다(나머지 50). 빈 가장자리는 없다(−110 + 60 = −50 은 잡힌 자리)
+		TestEqual(TEXT("full ring -> middle of the widest gap"), SelectEngageBearing(0.f, Uneven, Sep), -80.f, Tol);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

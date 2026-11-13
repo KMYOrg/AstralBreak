@@ -1,5 +1,6 @@
 #include "AstralEnemyController.h"
 
+#include "AI/AstralEnemyTargeting.h"
 #include "AI/AstralThreatComponent.h"
 #include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
@@ -11,6 +12,7 @@
 #include "Character/Components/AstralHealthComponent.h"
 #include "Components/StateTreeAIComponent.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 
@@ -123,10 +125,93 @@ bool AAstralEnemyController::AcquireTarget()
 		Candidate.Hostility = ReadEnemyTargetHostility(PlayerPawn);
 	}
 
-	// 누구를 고를지는 위협 컴포넌트의 규칙이다 — 기록 없음 → 가장 가까운 후보 / 유지 시간 안 → 그대로 / 아니면 가중 추첨
+	// 분산(§13 T3) — 후보마다 '이미 노리는 다른 적의 수' 를 지금 읽는다(등록부 없음 — 공격 자리와 같은 방식). 값이 0 인 적(마네킹)은 세지 않는다
+	if (ThreatComponent->SpreadWeight > 0.f)
+	{
+		for (TActorIterator<AAstralEnemyController> It(GetWorld()); It; ++It)
+		{
+			const AAstralEnemyController* Other = *It;
+			if (Other == this || !Other->CurrentTarget)
+			{
+				continue;
+			}
+			for (FAstralThreatCandidateInfo& Candidate : Candidates)
+			{
+				if (Candidate.Pawn == Other->CurrentTarget)
+				{
+					++Candidate.NumOtherAttackers;
+					break;
+				}
+			}
+		}
+	}
+
+	// 누구를 고를지는 위협 컴포넌트의 규칙이다 — 기록 없음 → 가장 가까운 후보(또는 추첨) / 유지 시간 안 → 그대로 / 아니면 가중 추첨
 	const int32 TargetIndex = ThreatComponent->SelectTarget(MyPawn->GetActorLocation(), Candidates, CurrentTarget);
 	SetCurrentTarget(Candidates.IsValidIndex(TargetIndex) ? Candidates[TargetIndex].Pawn : nullptr);
 	return CurrentTarget != nullptr;
+}
+
+bool AAstralEnemyController::GetBearingFromTarget(float& OutDegrees) const
+{
+	const APawn* MyPawn = GetPawn();
+	const AActor* Target = CurrentTarget;
+	if (!MyPawn || !Target)
+	{
+		return false;
+	}
+
+	const FVector ToMe = MyPawn->GetActorLocation() - Target->GetActorLocation();
+	if (ToMe.SizeSquared2D() <= UE_KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	OutDegrees = FMath::RadiansToDegrees(FMath::Atan2(ToMe.Y, ToMe.X));
+	return true;
+}
+
+bool AAstralEnemyController::SelectEngageSlot(float MinSeparationDegrees)
+{
+	UWorld* World = GetWorld();
+	const AActor* Target = CurrentTarget;
+	if (!World || !GetPawn() || !Target)
+	{
+		bHasEngageSlot = false;
+		return false;
+	}
+
+	// 내 쪽 = 타깃에서 나를 보는 방위. 타깃과 겹쳐 있으면 쥐고 있던 자리(없으면 0)
+	float Preferred = bHasEngageSlot ? EngageBearing : 0.f;
+	GetBearingFromTarget(Preferred);
+
+	// 같은 타깃을 쥔 다른 적의 자리 — 지금 읽는다. 적이 몇 마리뿐이라 순회로 충분하다
+	TArray<float, TInlineAllocator<8>> Occupied;
+	for (TActorIterator<AAstralEnemyController> It(World); It; ++It)
+	{
+		const AAstralEnemyController* Other = *It;
+		if (Other != this && Other->bHasEngageSlot && Other->CurrentTarget == Target)
+		{
+			Occupied.Add(Other->EngageBearing);
+		}
+	}
+
+	EngageBearing = AstralEnemyTargeting::SelectEngageBearing(Preferred, Occupied, MinSeparationDegrees);
+	bHasEngageSlot = true;
+	return true;
+}
+
+bool AAstralEnemyController::GetEngageLocation(float Radius, FVector& OutLocation) const
+{
+	const AActor* Target = CurrentTarget;
+	if (!Target || !bHasEngageSlot)
+	{
+		return false;
+	}
+
+	const float Radians = FMath::DegreesToRadians(EngageBearing);
+	OutLocation = Target->GetActorLocation() + FVector(FMath::Cos(Radians), FMath::Sin(Radians), 0.f) * FMath::Max(Radius, 0.f);
+	return true;
 }
 
 void AAstralEnemyController::BindPawnDamaged(const APawn* InPawn)
@@ -223,6 +308,9 @@ void AAstralEnemyController::SetCurrentTarget(AActor* NewTarget)
 	}
 
 	CurrentTarget = NewTarget;
+
+	// 자리는 타깃에 딸린 값이다 — 타깃이 바뀌면(없어지면) 비워, 같은 타깃을 쥔 다른 적이 이 자리를 피하지 않게 한다
+	bHasEngageSlot = false;
 
 	if (NewTarget)
 	{

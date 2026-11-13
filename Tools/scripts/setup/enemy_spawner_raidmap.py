@@ -5,7 +5,7 @@
 먼저 있어야 하는 것: C++ 빌드(AAstralEnemySpawner), /Game/Characters/Enemy/BP_Enemy_Guardian (enemy_guardian_assets.py · enemy_guardian_c2_assets.py)
 
 이 스크립트가 하는 것 (다시 돌려도 스포너는 하나다 — 이 스크립트의 꼬리표가 붙은 스포너를 지우고 다시 놓는다. 값을 고쳐 다시 돌리면 된다):
-    BP_Enemy_Guardian      CharacterMovement 의 bUseRVOAvoidance 만 켠다 (반경 · 가중치는 엔진 기본값 그대로)
+    BP_Enemy_Guardian      CharacterMovement 의 bUseRVOAvoidance 만 USE_RVO_AVOIDANCE 값으로 (단위 D 는 켰고, 2026-11-13 다듬기에서 껐다 — 아래 잠정값)
     /Game/Maps/RaidMap     AAstralEnemySpawner 1개 — 적 클래스 · 스폰 지점 3 · 발동 상자. 맵의 다른 액터는 건드리지 않는다
 
 배치는 astral-ue-level 스킬의 헬퍼(Tools/lib/ab_level.py 의 spawn_class)로 한다. RaidMap 은 레이아웃 JSON 이 없는 맵이라 build() 는 쓰지 않는다
@@ -45,7 +45,9 @@ SPAWNER_YAW = 0.0                          # 적이 보는 방향 — +X (플레
 BOX_EXTENT = (500.0, 700.0, 150.0)         # 발동 상자 반크기 — x −3100 ~ −2100, y ±700
 # 스폰 지점 — 스포너 기준 상대 위치. 상자의 안쪽 끝(플레이어가 들어오는 +X 변에서 700 ~ 850 cm)에 삼각형으로, 서로 300 · 300 · 520 cm
 SPAWN_POINTS = [(-350.0, 0.0, -150.0), (-200.0, -260.0, -150.0), (-200.0, 260.0, -150.0)]
-USE_RVO_AVOIDANCE = True
+# 2026-11-13 다듬기(§13): 공격 자리 나눔을 넣으며 껐다 — 켠 채로는 서 있는 두 마리 사이의 자리에 못 들어간다.
+# 이 스크립트를 다시 돌려도 꺼진 채로 남게 여기도 False 다(값의 원천은 enemy_guardian_engage_slots.py)
+USE_RVO_AVOIDANCE = False
 
 eal = unreal.EditorAssetLibrary
 les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)

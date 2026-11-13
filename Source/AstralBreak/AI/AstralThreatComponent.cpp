@@ -61,6 +61,7 @@ int32 UAstralThreatComponent::SelectTarget(const FVector& Origin, TConstArrayVie
 		Candidate.bExcluded = IsExcluded(Info.Pawn);
 		Candidate.Hostility = Info.Hostility;
 		Candidate.RecentDamage = GetRecentDamage(Info.Pawn);
+		Candidate.NumOtherAttackers = Info.NumOtherAttackers;
 
 		if (Info.Pawn && Info.Pawn == CurrentTarget)
 		{
@@ -82,7 +83,12 @@ int32 UAstralThreatComponent::SelectTarget(const FVector& Origin, TConstArrayVie
 	}
 
 	// 같은 사람이 다시 뽑혀도 유지 시간은 새로 센다
-	const int32 SelectedIndex = AstralEnemyTargeting::SelectThreatIndex(Origin, ThreatCandidates, DamageWeight, DrawRoll());
+	FAstralEnemyThreatSettings Settings;
+	Settings.DamageWeight = DamageWeight;
+	Settings.bDrawWithoutDamage = bDrawWithoutDamage;
+	Settings.DistanceWeight = DistanceWeight;
+	Settings.SpreadWeight = SpreadWeight;
+	const int32 SelectedIndex = AstralEnemyTargeting::SelectThreatIndex(Origin, ThreatCandidates, Settings, DrawRoll());
 	TargetAcquiredTime = (SelectedIndex != INDEX_NONE) ? Now : -1.0;
 	return SelectedIndex;
 }

@@ -654,6 +654,13 @@ namespace AstralEnemyGuardianPie
 			// 서버에서 자리를 잡는다. 둘 다 +X 를 본다 — 적은 가까운 쪽의 정면에 나온다(방어의 정면 판정은 방어자의 전방 기준). 적은 옮기지 않는다
 			NearPawn->TeleportTo(NearHeroLocation, FRotator::ZeroRotator);
 			FarPawn->TeleportTo(FarHeroLocation, FRotator::ZeroRotator);
+
+			// 수호병은 아무도 안 때려도 타깃을 추첨한다(§13 T4) — 이 시험은 가까운 쪽과의 전투를 보므로 먼 쪽을 후보에서 뺀다(적대심 0 은 뽑히지 않는다)
+			const AAstralPlayerController* FarPC = Cast<AAstralPlayerController>(FarPawn->GetController());
+			if (UAstralAbilitySystemComponent* FarASC = FarPC ? FarPC->GetAstralAbilitySystemComponent() : nullptr)
+			{
+				FarASC->SetNumericAttributeBase(UAstralHeroResourceSet::GetHostilityAttribute(), 0.f);
+			}
 			Test.TestEqual(TEXT("no guardian before SpawnEnemy"), GuardiansIn(ServerWorld).Num(), 0);
 		});
 		Hold(Ctx, 1.0);

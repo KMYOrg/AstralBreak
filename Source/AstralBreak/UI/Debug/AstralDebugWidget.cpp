@@ -121,10 +121,27 @@ FString UAstralDebugWidget::GetPartyString() const
         {
             B.Appendf(TEXT("Raid: %s | AllReady: %s\n"), *HubGS->GetSelectedRaid().MapName, HubGS->AreAllPlayersReady() ? TEXT("YES") : TEXT("no"));
         }
+        // 방장 — GameState 가 복제된 PlayerId 로 계산한 값(표시용, 판정은 서버 RPC). 액터 이름은 창마다 다르니 id 로 맞춰 본다
+        const APlayerState* LeaderPS = GS->GetPartyLeader();
+        const APlayerState* LocalPS = PC ? PC->PlayerState.Get() : nullptr;
+        if (LeaderPS)
+        {
+            B.Appendf(TEXT("Leader: id %d%s\n"), LeaderPS->GetPlayerId(), (LeaderPS == LocalPS) ? TEXT(" (ME)") : TEXT(""));
+        }
+        else
+        {
+            B.Append(TEXT("Leader: (none)\n"));
+        }
+
+        // '*' 방장, '>' 나
         for (const APlayerState* PS : GS->PlayerArray)
         {
             const AAstralPlayerState* MemberPS = Cast<AAstralPlayerState>(PS);
-            B.Appendf(TEXT("  %s: %s\n"), *GetNameSafe(PS), (MemberPS && MemberPS->IsReady()) ? TEXT("READY") : TEXT("..."));
+            B.Appendf(TEXT("  %s%s %s (id %d): %s\n"),
+                (PS && PS == LeaderPS) ? TEXT("*") : TEXT(" "),
+                (PS && PS == LocalPS) ? TEXT(">") : TEXT(" "),
+                *GetNameSafe(PS), PS ? PS->GetPlayerId() : -1,
+                (MemberPS && MemberPS->IsReady()) ? TEXT("READY") : TEXT("..."));
         }
     }
 

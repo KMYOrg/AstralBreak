@@ -24,6 +24,9 @@ public:
 
 	const FString& GetHubMapName() const { return HubMapName; }
 
+	/** 레이드 목적지 검증 — RaidMapNames 와 정확히(대소문자 포함) 일치하는 이름만 참. 옵션(?...)이 붙은 문자열은 거짓 */
+	bool IsRaidMapAllowed(const FString& MapName) const;
+
 	//~AGameModeBase interface
 	virtual UClass* GetDefaultPawnClassForController_Implementation(AController* InController) override;
 	virtual APawn* SpawnDefaultPawnAtTransform_Implementation(AController* NewPlayer, const FTransform& SpawnTransform) override;
@@ -40,4 +43,11 @@ protected:
 	/** 허브 복귀 목적지 (ReturnToHub) */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Travel")
 	FString HubMapName = TEXT("HubMap");
+
+	/**
+	 * 레이드 목적지 허용 목록 (SelectRaid) — 클라이언트가 보낸 이름이 그대로 ServerTravel 주소가 되므로 여기 있는 것만 받는다.
+	 * 정식 퀘스트 구조(M6)가 생기면 그쪽으로 옮긴다
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Travel")
+	TArray<FString> RaidMapNames = { TEXT("RaidMap") };
 };

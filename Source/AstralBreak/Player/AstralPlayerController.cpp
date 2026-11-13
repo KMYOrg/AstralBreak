@@ -33,6 +33,16 @@ namespace
 		}
 		return FPrimaryAssetId();
 	}
+
+	/** 거부 로그용 — 현재 방장. 액터 이름은 프로세스마다 다르므로 창끼리 맞춰 볼 키는 PlayerId 다 */
+	FString DescribePartyLeader(const UWorld* World)
+	{
+		const AAstralGameState* AstralGS = World ? World->GetGameState<AAstralGameState>() : nullptr;
+		const APlayerState* Leader = AstralGS ? AstralGS->GetPartyLeader() : nullptr;
+		return Leader
+			? FString::Printf(TEXT("%s (PlayerId %d)"), *Leader->GetName(), Leader->GetPlayerId())
+			: FString(TEXT("없음"));
+	}
 }
 
 AAstralPlayerController::AAstralPlayerController(const FObjectInitializer& ObjectInitializer)
@@ -109,8 +119,11 @@ void AAstralPlayerController::BeginPlayingState()
 
 bool AAstralPlayerController::IsPartyLeader() const
 {
-	// MVP: 리슨 호스트 = 서버에서 로컬 컨트롤러인 PC
-	return HasAuthority() && IsLocalController();
+	// 방장 = GameState 가 계산한 사람(PlayerId 최소). 넷 모드 분기 없음 — 리슨에선 호스트, Dedicated 에선 먼저 들어온 클라이언트.
+	// 권한 판정으로는 서버 RPC 안에서만 쓴다 (클라이언트에서 부르면 표시용 값)
+	const UWorld* World = GetWorld();
+	const AAstralGameState* AstralGS = World ? World->GetGameState<AAstralGameState>() : nullptr;
+	return AstralGS && PlayerState && AstralGS->GetPartyLeader() == PlayerState;
 }
 
 void AAstralPlayerController::ServerSetLoadout_Implementation(FAstralPlayerLoadout InLoadout)
@@ -158,7 +171,15 @@ void AAstralPlayerController::ServerSelectRaid_Implementation(const FString& Map
 {
 	if (!IsPartyLeader())
 	{
-		UE_LOG(LogAstral, Warning, TEXT("ServerSelectRaid: 방장이 아님 — 거부 (%s)"), *GetNameSafe(this));
+		UE_LOG(LogAstral, Warning, TEXT("ServerSelectRaid: 방장이 아님 — 거부 (%s, 현재 방장 = %s)"), *GetNameSafe(this), *DescribePartyLeader(GetWorld()));
+		return;
+	}
+
+	// 클라이언트가 보낸 문자열이 그대로 ServerTravel 주소가 된다 — 허용 목록과 정확히 일치하는 이름만 (임의 맵 · ?옵션 주입 차단)
+	const AAstralGameMode* GameMode = GetWorld()->GetAuthGameMode<AAstralGameMode>();
+	if (!GameMode || !GameMode->IsRaidMapAllowed(MapName))
+	{
+		UE_LOG(LogAstral, Warning, TEXT("ServerSelectRaid: 허용 목록에 없는 맵 '%s' — 거부 (%s)"), *MapName, *GetNameSafe(this));
 		return;
 	}
 
@@ -184,7 +205,7 @@ void AAstralPlayerController::ServerStartRaid_Implementation()
 {
 	if (!IsPartyLeader())
 	{
-		UE_LOG(LogAstral, Warning, TEXT("ServerStartRaid: 방장이 아님 — 거부 (%s)"), *GetNameSafe(this));
+		UE_LOG(LogAstral, Warning, TEXT("ServerStartRaid: 방장이 아님 — 거부 (%s, 현재 방장 = %s)"), *GetNameSafe(this), *DescribePartyLeader(GetWorld()));
 		return;
 	}
 
@@ -208,6 +229,7 @@ void AAstralPlayerController::ServerReturnToHub_Implementation()
 {
 	if (!IsPartyLeader())
 	{
+		UE_LOG(LogAstral, Warning, TEXT("ServerReturnToHub: 방장이 아님 — 거부 (%s, 현재 방장 = %s)"), *GetNameSafe(this), *DescribePartyLeader(GetWorld()));
 		return;
 	}
 

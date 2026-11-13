@@ -5,7 +5,9 @@
 #include "AbilitySystem/Attributes/AstralCombatSet.h"
 #include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "Character/Components/AstralPawnExtensionComponent.h"
+#include "Character/Enemy/AstralEnemySpawnSubsystem.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/World.h"
 #include "Equipment/AstralEquipmentManagerComponent.h"
 #include "Net/UnrealNetwork.h"
 
@@ -105,7 +107,16 @@ void AAstralCombatCharacter::HandleDeathFinished(AActor* OwningActor)
 
 	if (HasAuthority())
 	{
-		// 복제 액터라 서버 LifeSpan 만료 시 클라에서도 함께 제거됨
-		SetLifeSpan(DestroyAfterDeathDelay);
+		// 제거는 스폰 서브시스템이 맡는다(지금 안쪽은 LifeSpan — 복제 액터라 서버에서 만료되면 클라에서도 함께 제거됨)
+		const UWorld* World = GetWorld();
+		if (UAstralEnemySpawnSubsystem* SpawnSubsystem = World ? World->GetSubsystem<UAstralEnemySpawnSubsystem>() : nullptr)
+		{
+			SpawnSubsystem->ReleaseEnemy(this, DestroyAfterDeathDelay);
+		}
+		else
+		{
+			// 서브시스템이 없는 월드(게임 · PIE 가 아닌 월드) — 예전 동작 그대로
+			SetLifeSpan(DestroyAfterDeathDelay);
+		}
 	}
 }

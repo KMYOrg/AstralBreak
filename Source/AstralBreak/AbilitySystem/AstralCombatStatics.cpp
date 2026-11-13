@@ -92,7 +92,7 @@ bool UAstralCombatStatics::IsDeadOrDying(const AActor* Actor)
 	return false;
 }
 
-int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC, AActor* Avatar, float BaseDamage, float TraceStartOffset, float TraceDistance, float TraceRadius, float EffectLevel)
+int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC, AActor* Avatar, float BaseDamage, float TraceStartOffset, float TraceDistance, float TraceRadius, float EffectLevel, const FGameplayTagContainer& DamageTags)
 {
 	if (!SourceASC || !Avatar)
 	{
@@ -133,7 +133,7 @@ int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC,
 			continue;
 		}
 		
-		if (ApplyAttackHit(SourceASC, Avatar, nullptr, Hit, BaseDamage, EffectLevel))
+		if (ApplyAttackHit(SourceASC, Avatar, nullptr, Hit, BaseDamage, EffectLevel, DamageTags))
 		{
 			Damaged.Add(TargetActor);
 			++NumTargetsHit;
@@ -143,7 +143,7 @@ int32 UAstralCombatStatics::ApplyDamageSweep(UAbilitySystemComponent* SourceASC,
 	return NumTargetsHit;
 }
 
-bool UAstralCombatStatics::ApplyAttackHit(UAbilitySystemComponent* SourceASC, AActor* InstigatorAvatar, AActor* EffectCauser, const FHitResult& HitResult, float Damage, float EffectLevel)
+bool UAstralCombatStatics::ApplyAttackHit(UAbilitySystemComponent* SourceASC, AActor* InstigatorAvatar, AActor* EffectCauser, const FHitResult& HitResult, float Damage, float EffectLevel, const FGameplayTagContainer& DamageTags)
 {
 	if (!SourceASC || !InstigatorAvatar)
 	{
@@ -181,6 +181,11 @@ bool UAstralCombatStatics::ApplyAttackHit(UAbilitySystemComponent* SourceASC, AA
 	}
 
 	SpecHandle.Data->SetSetByCallerMagnitude(AstralGameplayTags::SetByCaller_Damage, Damage);
+	if (!DamageTags.IsEmpty())
+	{
+		// 이 적중만의 성질(가드 불가 등) — GE 애셋을 늘리지 않고 스펙에 싣는다. 방어 판정이 GetAllAssetTags 로 읽는다
+		SpecHandle.Data->AppendDynamicAssetTags(DamageTags);
+	}
 	SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
 	return true;
 }
@@ -313,6 +318,12 @@ bool UAstralCombatStatics::ResolveIncomingDamage(FGameplayEffectModCallbackData&
 		UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(Attacker, AstralGameplayTags::GameplayEvent_Staggered, StaggeredPayload);
 
 		return false;
+	}
+
+	// 가드만 뚫는 데미지 — 패링 판정은 위에서 이미 했다. 감쇄도 Guarded 이벤트(가드 스태미나 소모)도 없이 전액 통과
+	if (SpecAssetTags.HasTag(AstralGameplayTags::Damage_Type_Unguardable))
+	{
+		return true;
 	}
 
 	// 가드 — GuardDamageMultiplier 감쇄 (히어로 전용 ResourceSet, 없으면 안전 기본값)

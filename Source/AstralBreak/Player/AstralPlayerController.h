@@ -34,7 +34,7 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerSetReady(bool bInReady);
 
-	/** 방장(리슨 호스트)만 — 목적지 선택 */
+	/** 방장만 — 목적지 선택. 게임모드 허용 목록(RaidMapNames)에 있는 이름만 받는다 */
 	UFUNCTION(Server, Reliable)
 	void ServerSelectRaid(const FString& MapName);
 
@@ -80,7 +80,10 @@ public:
 protected:
 	virtual void BeginPlayingState() override;
 
-	/** 방장 판정 — MVP: 리슨 호스트(서버에서 로컬인 PC). TODO: 데디 전환 시 교체 지점 */
+	/**
+	 * 방장 판정 — AAstralGameState::GetPartyLeader()(PlayerId 최소)가 내 PlayerState 인가.
+	 * 넷 모드 분기 없음: 리슨에선 호스트, Dedicated 에선 먼저 들어온 클라이언트. 방장 규칙이 바뀌면 이 한 곳을 고친다
+	 */
 	bool IsPartyLeader() const;
 
 private:

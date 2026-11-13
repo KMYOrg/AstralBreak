@@ -802,13 +802,13 @@ bool FAnimMcpStateTreePieGuardTest::RunTest(const FString& Parameters)
 	}
 	Ctx->Revision = Ctx->Harness.Inspect(Ctx->Path).Result->GetStringField(TEXT("revision"));
 
-	Step([]() -> bool
+	AnimMcpStateTreeTests::Step([]() -> bool
 	{
 		FRequestPlaySessionParams Params;
 		GEditor->RequestPlaySession(Params);
 		return true;
 	});
-	Step([this, Ctx]() -> bool
+	AnimMcpStateTreeTests::Step([this, Ctx]() -> bool
 	{
 		UWorld* World = GEditor->PlayWorld;
 		if (World && World->HasBegunPlay())
@@ -823,7 +823,7 @@ bool FAnimMcpStateTreePieGuardTest::RunTest(const FString& Parameters)
 		}
 		return false;
 	});
-	Step([this, Ctx]() -> bool
+	AnimMcpStateTreeTests::Step([this, Ctx]() -> bool
 	{
 		if (Ctx->bStarted)
 		{
@@ -840,7 +840,7 @@ bool FAnimMcpStateTreePieGuardTest::RunTest(const FString& Parameters)
 		GEditor->RequestEndPlayMap();
 		return true;
 	});
-	Step([]() -> bool { return GEditor->PlayWorld == nullptr; });
+	AnimMcpStateTreeTests::Step([]() -> bool { return GEditor->PlayWorld == nullptr; });
 	return true;
 }
 
@@ -1183,7 +1183,7 @@ bool FAnimMcpStateTreeOpenEditorTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("editor opened"), GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->OpenEditorForAsset(FindTree(Ctx->Path)));
 	Ctx->WaitUntil = FPlatformTime::Seconds() + 3.0;
 
-	Step([this, Ctx]() -> bool
+	AnimMcpStateTreeTests::Step([this, Ctx]() -> bool
 	{
 		if (FPlatformTime::Seconds() < Ctx->WaitUntil)
 		{
@@ -1235,7 +1235,7 @@ bool FAnimMcpStateTreeOpenEditorTest::RunTest(const FString& Parameters)
 		return true;
 	});
 
-	Step([this, Ctx]() -> bool
+	AnimMcpStateTreeTests::Step([this, Ctx]() -> bool
 	{
 		if (FPlatformTime::Seconds() < Ctx->WaitUntil)
 		{

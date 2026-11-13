@@ -18,6 +18,12 @@ namespace AstralGameplayTags
 
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Defense, "Ability.Defense");
 
+	UE_DEFINE_GAMEPLAY_TAG(Ability_Enemy_Attack_Melee, "Ability.Enemy.Attack.Melee");
+	UE_DEFINE_GAMEPLAY_TAG(Ability_Enemy_Attack_Combo, "Ability.Enemy.Attack.Combo");
+	UE_DEFINE_GAMEPLAY_TAG(Ability_Enemy_Attack_Heavy, "Ability.Enemy.Attack.Heavy");
+	UE_DEFINE_GAMEPLAY_TAG(Ability_Enemy_HitReact, "Ability.Enemy.HitReact");
+	UE_DEFINE_GAMEPLAY_TAG(Ability_Enemy_Stagger, "Ability.Enemy.Stagger");
+
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Behavior_SurvivesDeath, "Ability.Behavior.SurvivesDeath");
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Behavior_SurvivesDefenseCancel, "Ability.Behavior.SurvivesDefenseCancel");
 
@@ -44,9 +50,13 @@ namespace AstralGameplayTags
 
 	UE_DEFINE_GAMEPLAY_TAG(State_Telegraphing, "State.Telegraphing");
 
+	UE_DEFINE_GAMEPLAY_TAG(State_Enemy_Attacking, "State.Enemy.Attacking");
+	UE_DEFINE_GAMEPLAY_TAG(State_Enemy_Staggered, "State.Enemy.Staggered");
+
 	/**
 	 * Damage
 	 */
 
 	UE_DEFINE_GAMEPLAY_TAG(Damage_Type_Unblockable, "Damage.Type.Unblockable");
+	UE_DEFINE_GAMEPLAY_TAG(Damage_Type_Unguardable, "Damage.Type.Unguardable");
 }

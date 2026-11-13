@@ -8,6 +8,7 @@
 #include "AbilitySystem/Effects/AstralSetByCallerGameplayTags.h"
 #include "Character/Components/AstralCharacterMovementComponent.h"
 #include "Character/Components/AstralHealthComponent.h"
+#include "Character/Enemy/AstralEnemySpawnSubsystem.h"
 #include "Components/AstralPawnExtensionComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -351,6 +352,60 @@ void AAstralCharacter::CancelAttack()
 		const FGameplayTagContainer AttackTags(AstralGameplayTags::Ability_Attack);
 		ASC->CancelAbilities(&AttackTags);
 	}
+#endif
+}
+
+void AAstralCharacter::SpawnEnemy(const FString& EnemyName, float Distance)
+{
+#if !UE_BUILD_SHIPPING
+	if (HasAuthority())
+	{
+		ServerSpawnEnemy_Implementation(EnemyName, Distance);
+	}
+	else
+	{
+		ServerSpawnEnemy(EnemyName, Distance);
+	}
+#endif
+}
+
+void AAstralCharacter::ServerSpawnEnemy_Implementation(const FString& EnemyName, float Distance)
+{
+#if !UE_BUILD_SHIPPING
+	// 폴더는 고정하고 이름만 받는다 — 클라이언트가 보낸 문자열로 임의 경로의 클래스를 로드하지 않는다
+	static const TCHAR* const EnemyFolder = TEXT("/Game/Characters/Enemy");
+	static const TCHAR* const DefaultEnemyName = TEXT("BP_Enemy_Melee");
+	constexpr float DefaultDistance = 400.0f;
+
+	const FString Name = EnemyName.IsEmpty() ? FString(DefaultEnemyName) : EnemyName;
+	if (Name.Contains(TEXT("/")) || Name.Contains(TEXT(".")) || Name.Contains(TEXT(":")) || Name.Contains(TEXT("\\")))
+	{
+		UE_LOG(LogAstral, Warning, TEXT("SpawnEnemy: '%s' 는 BP 이름이 아님 (경로는 받지 않는다)"), *Name);
+		return;
+	}
+
+	const FString ClassPath = FString::Printf(TEXT("%s/%s.%s_C"), EnemyFolder, *Name, *Name);
+	UClass* EnemyClass = StaticLoadClass(APawn::StaticClass(), nullptr, *ClassPath, nullptr, LOAD_NoWarn);
+	UWorld* World = GetWorld();
+	if (!EnemyClass || !World)
+	{
+		UE_LOG(LogAstral, Warning, TEXT("SpawnEnemy: %s 를 찾지 못함"), *ClassPath);
+		return;
+	}
+
+	// 스폰은 스포너와 같은 이음매를 거친다 (서버 전용 서브시스템 — 여기는 서버다)
+	UAstralEnemySpawnSubsystem* SpawnSubsystem = World->GetSubsystem<UAstralEnemySpawnSubsystem>();
+	if (!SpawnSubsystem)
+	{
+		UE_LOG(LogAstral, Warning, TEXT("SpawnEnemy: 스폰 서브시스템 없음"));
+		return;
+	}
+
+	// 내 앞, 나를 보는 방향. 컨트롤러는 적 BP 의 AutoPossessAI(PlacedInWorldOrSpawned)가 붙인다(없으면 서브시스템이 기본 컨트롤러를 붙인다)
+	const FVector Forward = GetActorForwardVector().GetSafeNormal2D();
+	const FVector Location = GetActorLocation() + Forward * (Distance > 0.0f ? Distance : DefaultDistance);
+
+	SpawnSubsystem->SpawnEnemy(EnemyClass, FTransform((-Forward).Rotation(), Location));
 #endif
 }
 

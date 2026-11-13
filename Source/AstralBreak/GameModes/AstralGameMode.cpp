@@ -30,6 +30,15 @@ const UAstralPawnData* AAstralGameMode::GetPawnDataForController(const AControll
 	return nullptr;
 }
 
+bool AAstralGameMode::IsRaidMapAllowed(const FString& MapName) const
+{
+	// FString == 는 대소문자를 무시한다 — 허용 목록의 표기 그대로만 받는다
+	return RaidMapNames.ContainsByPredicate([&MapName](const FString& Allowed)
+	{
+		return Allowed.Equals(MapName, ESearchCase::CaseSensitive);
+	});
+}
+
 UClass* AAstralGameMode::GetDefaultPawnClassForController_Implementation(AController* InController)
 {
 	if (const UAstralPawnData* PawnData = GetPawnDataForController(InController))

@@ -1,0 +1,11 @@
+# 화면 ID → C++ 클래스 · 폴더 · 승격 경로 (설계 §3-3).
+# 클래스 이름이 정체성이다 — WBP 가 기억하는 부모는 /Script/AstralBreak.<클래스> 로 폴더가 없다. 이름은 처음에 정하고 바꾸지 않는다.
+# 클래스 이름은 U 접두 없이 적는다(codegen 이 붙인다). 헤더 이름이 모듈 안에서 겹치지 않게 ViewBase / Widget 접미사.
+schema_version: 1
+screens:
+  CombatHUD:
+    feature: HUD                                  # Source/AstralBreak/UI/HUD/ (+ AutoGen/)
+    view_base: AstralCombatHUDViewBase            # 생성 베이스 — 매번 덮어씀(첫 줄 표식 있을 때만)
+    widget: AstralCombatHUDWidget                 # 스텁 — 없을 때만 생성, 이후 사람 소유 (M4 설계 §5 의 이름)
+    wbp: WBP_CombatHUD                            # run 마다 /Game/_AutoGen/<run_id>/<wbp> (부모 = 스텁) — 없으면 WBP_<화면 ID>
+    promote_path: /Game/UI/HUD                    # Phase 4 승격 대상

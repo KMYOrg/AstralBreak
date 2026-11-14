@@ -93,6 +93,11 @@ Tools/mcp/.venv/
 Tools/mcp/*_state.json
 Tools/mcp/results/
 
+# UI 자동 생성 파이프라인 (Docs/Design/ui-autogen-pipeline.md §3-2) — run 산출물 · 지표 · run 애셋은 커밋하지 않는다
+Tools/uigen/work/
+Tools/uigen/metrics/
+Content/_AutoGen/
+
 # Claude Code — 개인 설정 (팀 공유 설정은 .claude/settings.json)
 .claude/settings.local.json
 .claude/.cache/

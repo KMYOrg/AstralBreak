@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:build",
+  "title": "uigen build.json v1 (설계 §2-2 build) — run 패키지 상태(WBP · revision · 에디터 세션 · 텍스처 이름) + 시도마다 한 줄",
+  "type": "object",
+  "required": ["schema_version", "run_id", "run_path", "session", "wbp", "revision", "textures", "names_used", "attempts"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "run_path": { "type": "string", "pattern": "^/Game/.+/R\\d{8}_\\d{6}_[A-Za-z0-9]+$" },
+    "session": { "type": ["integer", "null"], "description": "build 가 본 에디터 process_id — 바뀌면 저장 안 한 run 패키지가 사라진 것" },
+    "wbp": {
+      "type": ["object", "null"],
+      "required": ["asset_path", "parent_class", "created_attempt"],
+      "properties": {
+        "asset_path": { "type": "string" },
+        "object_path": { "type": ["string", "null"] },
+        "parent_class": { "type": ["string", "null"] },
+        "created_attempt": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "revision": { "type": ["string", "null"], "pattern": "^sha1:[0-9a-f]{40}$" },
+    "textures": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name", "ue_path", "sha256", "attempt"],
+        "properties": {
+          "name": { "type": "string" },
+          "ue_path": { "type": "string" },
+          "sha256": { "type": "string" },
+          "attempt": { "type": "integer" }
+        }
+      }
+    },
+    "names_used": { "type": "array", "items": { "type": "string" } },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["attempt", "ops"],
+        "properties": {
+          "attempt": { "type": "integer", "minimum": 1 },
+          "ops": { "type": "array", "items": { "enum": ["import", "create", "apply"] } },
+          "editor": { "type": "object" },
+          "reset": { "type": "string" },
+          "imported": { "type": "array" },
+          "create": { "type": "object" },
+          "apply": { "type": "object" },
+          "error": { "type": "object", "required": ["code", "message"] },
+          "duration_s": { "type": "number" },
+          "started": { "type": "string" },
+          "finished": { "type": "string" }
+        }
+      }
+    }
+  }
+}

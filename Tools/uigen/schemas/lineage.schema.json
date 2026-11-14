@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:lineage",
+  "title": "uigen lineage.json v1 (설계 §2-2 finalize) — 저장한 run 의 출처: 최종 spec · 시도 · patch · 텍스처 · 저장 패키지. 수정 모드(Phase 4)가 parent_run_id 로 잇는다",
+  "type": "object",
+  "required": ["schema_version", "run_id", "parent_run_id", "status", "created", "screen_id", "wbp", "spec", "attempts", "saved"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "parent_run_id": { "type": ["string", "null"] },
+    "status": { "enum": ["pass", "fail"], "description": "fail = --keep-failed 로 저장한 실패 run" },
+    "created": { "type": "string" },
+    "screen_id": { "type": "string" },
+    "wbp": { "type": "string" },
+    "parent_class": { "type": ["string", "null"] },
+    "revision": { "type": ["string", "null"] },
+    "contract_hash": { "type": ["string", "null"] },
+    "spec": {
+      "type": "object",
+      "required": ["file", "sha256"],
+      "additionalProperties": false,
+      "properties": { "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+    },
+    "attempts": { "type": "integer", "minimum": 0 },
+    "fault": { "type": ["string", "null"] },
+    "patches": { "type": "array", "items": { "type": "string" } },
+    "textures": { "type": "object", "additionalProperties": { "type": ["string", "null"] } },
+    "saved": { "type": "array", "items": { "type": "string" } }
+  }
+}

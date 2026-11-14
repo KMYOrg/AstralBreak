@@ -1,0 +1,3 @@
+# uigen 은 Tools/mcp/.venv 를 같이 쓴다(httpx · pytest 는 Tools/mcp/requirements*.txt).
+pyyaml>=6,<7          # config/*.yaml · profiles/*.yaml — 11-14 사용자 승인 설치(6.0.3)
+jsonschema>=4.20      # schemas/*.schema.json (Draft 2020-12 · referencing)

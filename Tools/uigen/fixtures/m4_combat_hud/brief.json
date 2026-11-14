@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "mode": "hand_spec",
+  "screen_type": "hud",
+  "screen_id": "CombatHUD",
+  "resolution": [1920, 1080],
+  "language": "ko",
+  "font": null,
+  "note": "Phase 1a 손 brief — M4 설계 §5 HUD 요소(11-14 사용자 확인). 값은 전부 잠정. 폰트는 1a 에서 엔진 기본(11-14 사용자 결정).",
+  "required_elements": [
+    { "id": "UltGauge", "kind": "progress", "desc": "오의 게이지" },
+    { "id": "UltReadyGlow", "kind": "image", "desc": "게이지가 가득 차면 강조" },
+    { "id": "ChainPanel", "kind": "panel", "desc": "체인 패널 — 열린 체인이 있을 때만" },
+    { "id": "ChainTimerText", "kind": "text", "desc": "체인 남은 시간(초)" },
+    { "id": "ChainCountText", "kind": "text", "desc": "체인 참가 N/4" },
+    { "id": "BurstBanner", "kind": "banner", "desc": "체인 버스트 배너" },
+    { "id": "BurstCountText", "kind": "text", "desc": "버스트 인원" },
+    { "id": "UltBlockedText", "kind": "text", "desc": "'오의 불가' — 차단 태그로 발동 실패했을 때" }
+  ],
+  "dynamic_data": [
+    { "id": "ult_gauge", "type": "progress", "widget": "UltGauge", "sample": 0.7 },
+    { "id": "ult_ready", "type": "flag", "widget": "UltReadyGlow", "sample": false },
+    { "id": "chain_panel", "type": "flag", "widget": "ChainPanel", "sample": true },
+    { "id": "chain_remaining", "type": "number", "widget": "ChainTimerText", "format": "0.0", "sample": 4.2 },
+    { "id": "chain_count", "type": "text", "widget": "ChainCountText", "sample": "2/4" },
+    { "id": "burst_banner", "type": "flag", "widget": "BurstBanner", "sample": false },
+    { "id": "burst_count", "type": "number", "widget": "BurstCountText", "format": "0", "sample": 3 },
+    { "id": "ult_blocked", "type": "flag", "widget": "UltBlockedText", "sample": false }
+  ],
+  "static_text": [
+    { "widget": "UltBlockedText", "value": "오의 불가" },
+    { "widget": "ChainTitleText", "value": "체인" },
+    { "widget": "BurstLabelText", "value": "체인 버스트" }
+  ],
+  "style_keywords": ["dark fantasy", "gold trim", "thin frames"],
+  "references": [],
+  "conflicts": [],
+  "binding_contract": {
+    "class": "UAstralCombatHUDWidget",
+    "source": "new",
+    "bindings": ["UltGauge", "UltReadyGlow", "ChainPanel", "ChainTimerText", "ChainCountText", "BurstBanner", "BurstCountText", "UltBlockedText"]
+  }
+}

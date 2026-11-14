@@ -4,6 +4,7 @@
 #include "Bridge/AnimMcpDispatcher.h"
 #include "Bridge/AnimMcpTypes.h"
 #include "Containers/Ticker.h"
+#include "Core/EditorMcpGuard.h"
 #include "Editor.h"
 #include "Engine/Engine.h"
 #include "FileHelpers.h"
@@ -50,11 +51,29 @@ namespace EditorMcpTools
 		 * HTTP 모듈이 최소 한 번 더 틱하게 한다 (LaunchEngineLoop.cpp:6072 코어 티커 → :6078 DeferredCommands).
 		 */
 		Dispatcher.RegisterTool(TEXT("quit_editor"),
-			TEXT("Request the editor to exit (ends PIE first). Params: save_dirty? (default false; saves dirty CONTENT packages, maps are never saved by this tool), discard_dirty? (default false; quit even if unsaved packages remain). With neither, unsaved packages make the call fail with DIRTY_PACKAGES and the editor keeps running. Returns process_id for polling."),
+			TEXT("Request the editor to exit (ends PIE first). Params: save_dirty? (default false; saves dirty CONTENT packages, maps are never saved by this tool), discard_dirty? (default false; quit even if unsaved packages remain), discard_only_under? (package path prefixes, e.g. [\"/Game/_AutoGen/\"]; with discard_dirty, refuse with DIRTY_PACKAGES unless every unsaved package is under one of them — absent = no restriction, as before). With neither save nor discard, unsaved packages make the call fail with DIRTY_PACKAGES and the editor keeps running. Returns process_id for polling."),
 			[](FAnimMcpContext& Context, FAnimMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				const bool bSaveDirty = Context.Request.GetOptionalBool(TEXT("save_dirty"), false);
 				const bool bDiscardDirty = Context.Request.GetOptionalBool(TEXT("discard_dirty"), false);
+				// 2026-11-14 UI 파이프라인(설계 ui-autogen-pipeline.md §2-3): 시험 경로(/Game/_AutoGen/)만 더티일 때만 버리도록 호출자가 접두를 줄 수 있다.
+				// 인자가 없으면 지금까지와 같은 동작.
+				TArray<FString> DiscardOnlyUnder;
+				const TArray<TSharedPtr<FJsonValue>>* OnlyUnder = nullptr;
+				const bool bRestrictDiscard = Context.Request.Params->TryGetArrayField(TEXT("discard_only_under"), OnlyUnder);
+				if (bRestrictDiscard)
+				{
+					for (const TSharedPtr<FJsonValue>& V : *OnlyUnder)
+					{
+						const FString Prefix = EditorMcpGuard::NormalizePrefix(V.IsValid() ? V->AsString() : FString());
+						if (!EditorMcpGuard::IsValidPrefix(Prefix))
+						{
+							OutError = FAnimMcpError::Make(AnimMcpErrorCodes::BadRequest, FString::Printf(TEXT("discard_only_under '%s' must be a folder below a mount root (e.g. /Game/_AutoGen/)"), V.IsValid() ? *V->AsString() : TEXT("")));
+							return nullptr;
+						}
+						DiscardOnlyUnder.Add(Prefix);
+					}
+				}
 
 				TArray<UPackage*> DirtyContent, DirtyWorlds;
 				CollectDirtyPackages(DirtyContent, DirtyWorlds);
@@ -92,6 +111,30 @@ namespace EditorMcpTools
 
 				TArray<TSharedPtr<FJsonValue>> Remaining = PackageNames(DirtyContent, TEXT("content"));
 				Remaining.Append(PackageNames(DirtyWorlds, TEXT("world")));
+				if (Remaining.Num() > 0 && bDiscardDirty && bRestrictDiscard)
+				{
+					TArray<FString> Outside;
+					for (const TArray<UPackage*>* Set : { &DirtyContent, &DirtyWorlds })
+					{
+						for (const UPackage* P : *Set)
+						{
+							if (P && !EditorMcpGuard::IsUnderAnyPrefix(P->GetName(), DiscardOnlyUnder))
+							{
+								Outside.Add(P->GetName());
+							}
+						}
+					}
+					if (Outside.Num() > 0)
+					{
+						TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();
+						Details->SetArrayField(TEXT("dirty_packages"), Remaining);
+						Details->SetArrayField(TEXT("outside_discard_only_under"), EditorMcpGuard::ToJsonArray(Outside));
+						Details->SetArrayField(TEXT("saved_packages"), Saved);
+						OutError = FAnimMcpError::Make(AnimMcpErrorCodes::DirtyPackages,
+							FString::Printf(TEXT("%d unsaved package(s) are outside discard_only_under — refusing to discard them. Editor keeps running"), Outside.Num()), Details);
+						return nullptr;
+					}
+				}
 				if (Remaining.Num() > 0 && !bDiscardDirty)
 				{
 					TSharedRef<FJsonObject> Details = AnimMcpJson::MakeObject();

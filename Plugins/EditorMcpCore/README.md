@@ -55,7 +55,7 @@ bAutoStart=True            ; 에디터 기동 시 리스너 시작
 | `get_editor_status` | — | 토큰 면제. 엔진 · 프로젝트 · PIE · 포트 · Tool 목록 · `process_id` · 보호 목록 · `dirty_package_count` · `plugin_version`(EditorMcpCore) · `features[{name, tools}]` + 기능 필드(AnimGraphMcp `generation` · StateTreeMcp `state_tree_edit_paths` · WidgetMcp `widget`). 필드 이름 · 모양은 분리 전과 같다(`features` · `widget` 만 추가) |
 | `run_automation_tests` | `filter(필수), timeout=120, dry_run=false` | 에디터 안에서 Automation 테스트 실행(`FAutomationTestFramework` 직접 구동). 지연 명령이 없으면 동기 완료(`done=true`), 아니면 `job_id` 로 poll |
 | `poll_automation_tests` | `job_id` | `run_automation_tests` · `run_anim_scenario` · `run_state_tree_scenario` 잡의 진행 · 결과 |
-| `quit_editor` | `save_dirty=false, discard_dirty=false` | 더티 패키지가 있으면 둘 중 하나 없이는 `DIRTY_PACKAGES` 로 거부. `save_dirty` 는 콘텐츠만 저장(맵 제외). 응답 `process_id` |
+| `quit_editor` | `save_dirty=false, discard_dirty=false, discard_only_under?` | 더티 패키지가 있으면 둘 중 하나 없이는 `DIRTY_PACKAGES` 로 거부. `save_dirty` 는 콘텐츠만 저장(맵 제외). `discard_only_under`(패키지 경로 접두 배열, 예 `["/Game/_AutoGen/"]` — 2026-11-14 UI 파이프라인)를 주면 `discard_dirty` 여도 그 밖의 더티가 하나라도 있으면 `DIRTY_PACKAGES`(details `outside_discard_only_under`) — 주지 않으면 지금까지와 같다. 응답 `process_id` |
 
 통신 규약(봉투 · `request_id` 캐시 · 진단 · 오류 코드 → HTTP 상태)은 분리 전과 같습니다 — [`Plugins/AnimGraphMcp/README.md`](../AnimGraphMcp/README.md) '통신 규약' · '오류 코드'.
 

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:codegen",
+  "title": "uigen codegen.json v1 (설계 §2-2 codegen · §3-3) — 계약 해시 · 쓴 파일 · 건너뜀 · 빌드 · 재기동 검증",
+  "type": "object",
+  "required": ["schema_version", "run_id", "screen", "class", "contract_hash", "contract", "changes", "skipped", "reason", "files", "editor", "build"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "screen": { "type": "string" },
+    "class": { "type": "string", "pattern": "^/Script/[A-Za-z0-9_]+\\.[A-Za-z][A-Za-z0-9_]*$" },
+    "contract_hash": { "$ref": "#/$defs/hash" },
+    "previous_hash": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+    "contract": { "$ref": "#/$defs/contract" },
+    "changes": {
+      "type": "object",
+      "required": ["added", "demoted", "changed", "restored"],
+      "additionalProperties": false,
+      "properties": {
+        "added": { "$ref": "#/$defs/names" },
+        "demoted": { "$ref": "#/$defs/names", "description": "필수 → 선택(BindWidgetOptional) — spec 에서 빠졌거나 spec 이 optional 로 바꿈" },
+        "changed": { "$ref": "#/$defs/names", "description": "data · kind · format 이 바뀜(setter 가 바뀐다)" },
+        "restored": { "$ref": "#/$defs/names", "description": "선택 → 다시 필수" }
+      }
+    },
+    "skipped": { "type": "boolean", "description": "계약 해시가 기존 생성 헤더와 같아 쓰기 · 빌드 · 재기동을 건너뜀" },
+    "reason": { "enum": ["contract_unchanged", "new", "contract_changed", "stale_binary"] },
+    "stale_diff": { "type": "array", "items": { "type": "string" } },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role", "path", "action"],
+        "additionalProperties": false,
+        "properties": {
+          "role": { "enum": ["view_base_h", "view_base_cpp", "widget_h", "widget_cpp"] },
+          "path": { "type": "string" },
+          "action": { "type": "string", "description": "created · overwritten · unchanged · kept(스텁) · '… → restored'(실패 원복)" },
+          "sha256": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "editor": { "type": "object" },
+    "build": { "type": "object", "required": ["ran"] },
+    "verify": { "type": ["object", "null"] },
+    "restored": { "type": "array" },
+    "error": { "type": "object", "required": ["code", "message"] },
+    "durations_s": { "type": "object", "additionalProperties": { "type": ["number", "null"] } },
+    "started": { "type": "string" },
+    "finished": { "type": "string" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha1:[0-9a-f]{40}$" },
+    "names": { "type": "array", "items": { "$ref": "urn:uigen:spec#/$defs/widget_id" } },
+    "contract": {
+      "type": "object",
+      "required": ["schema_version", "generator", "module", "api", "ui_dir", "screen", "feature", "view_base", "widget", "bindings"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "const": 1 },
+        "generator": { "type": "string" },
+        "module": { "type": "string" },
+        "api": { "type": "string" },
+        "ui_dir": { "type": "string" },
+        "screen": { "type": "string" },
+        "feature": { "type": "string" },
+        "view_base": { "type": "string" },
+        "widget": { "type": "string" },
+        "bindings": { "type": "array", "items": { "$ref": "#/$defs/binding" } }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "required": ["name", "widget_class", "data", "kind", "optional", "setter"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+        "widget_class": { "type": "string" },
+        "data": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+        "kind": { "enum": ["text", "number", "progress", "flag", "image"] },
+        "format": { "type": "string", "pattern": "^0(\\.0+)?$" },
+        "optional": { "type": "boolean" },
+        "setter": { "type": ["string", "null"], "pattern": "^Set[A-Za-z0-9]+$" }
+      }
+    }
+  }
+}

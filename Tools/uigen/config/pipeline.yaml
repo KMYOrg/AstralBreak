@@ -1,0 +1,66 @@
+# UI 자동 생성 파이프라인 설정 (Docs/Design/ui-autogen-pipeline.md §2 · §3-2). 값은 전부 잠정.
+# 저장소 안 경로는 저장소 루트 기준 상대, 엔진 · 사용자 도구는 절대 경로.
+schema_version: 1
+phase: 1a
+
+paths:
+  work_root: Tools/uigen/work            # run 별 산출물 — git 무시, Saved 밖(이미지를 Read · 전송할 수 있게)
+  metrics: Tools/uigen/metrics/uigen.jsonl
+  ue_run_root: /Game/_AutoGen            # run 애셋은 /Game/_AutoGen/<run_id>/ 에만 (WidgetOutputPaths)
+
+codegen:                                 # §3-3 — C++ 생성 위치 · 모듈 (screens.yaml 의 feature · 클래스 이름과 합쳐 경로가 된다)
+  module: AstralBreak                    # 클래스 경로 /Script/<module>.<Widget>
+  api_macro: ASTRALBREAK_API
+  module_root: Source/AstralBreak        # 저장소 기준 — 헤더 이름 중복 검사 범위
+  ui_dir: UI                             # <module_root>/<ui_dir>/<feature>/ (+ AutoGen/) — 쓰기는 이 아래 두 곳뿐
+
+editor:                                  # CLAUDE.md 에디터 주기 그대로 (1a-3 codegen 이 사용)
+  exe: D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Binaries/Win64/UnrealEditor-Win64-DebugGame.exe
+  project: D:/UE5Projects/AstralBreak/AstralBreak.uproject
+  args: [-log, -unattended, -stdout, -FullStdOutLogOutput]   # 표준 출력은 work/<run_id>/codegen/editor.log
+  bridge_wait_s: 540
+  bridge_poll_s: 10
+  settle_s: 30                           # 브리지 준비 뒤 더 기다림(자동 시험 CEF 크래시 함정)
+  exit_wait_s: 180
+  quit_discard_only_under: [/Game/_AutoGen/]
+
+build:                                   # codegen 빌드 — 에디터를 내린 상태에서 실행 중 구성만
+  bat: D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Build/BatchFiles/Build.bat
+  target: AstralBreakEditor
+  platform: Win64
+  configuration: DebugGame
+  args: [-WaitMutex, -NoHotReload]
+  timeout_s: 1800
+
+limits:
+  retries: 3                             # 재시도 N (§12-2 6 — 11-14 사용자: 3 으로 시작)
+  early_stop_no_progress: 2              # 두 번 연속 실패 게이트 집합이 줄지 않으면 조기 종료
+  codex_calls_per_run: 20
+
+backends:
+  allowed: [procedural]                  # 1a — codex · comfy 호출 없음
+
+textures:                                # §12-2 5 — 11-14 사용자: EditorIcon 기본 + 큰 배경만 BC7
+  compression_default: TC_EditorIcon
+  compression_by_kind:
+    panel_bg: TC_BC7
+  lod_group: TEXTUREGROUP_UI
+  mip_gen: TMGS_NoMipmaps
+  never_stream: true
+  srgb: true
+
+render:
+  resolutions: [[1920, 1080], [2560, 1080], [1920, 1200]]   # 화면 밖 게이트 — 기준 + 21:9 + 16:10
+
+fix:
+  mode: deterministic                    # 1a — 결정적 fixer(11-14 사용자 결정). LLM verifier · fix 는 1b (llm)
+
+llm:                                     # §10-1 claude -p 호출 틀(core/llm.py) — 1a 는 fix.mode deterministic 이라 호출 0, 1b 에서 값 보정
+  cli: [claude]                          # 독립 실행 claude(~/.local/bin) — 데스크톱 앱과 따로 로그인(구독 계정)
+  expected_version: 2.1.325              # 자동 업데이트로 바뀐다 — run 시작 때 기록(1b)
+  cwd: Tools/uigen/claude_ctx            # 저장소 루트 설정에 기대지 않고 --settings · --allowedTools 로 명시
+  settings: Tools/uigen/claude_ctx/.claude/settings.json
+  mcp_config: Tools/uigen/config/empty_mcp.json
+  stages:                                # 출력은 --json-schema(structured_output)로만 — 쓰기 도구 없음, Bash 금지
+    verifier: { max_budget_usd: 0.5, max_turns: 8, timeout_s: 300, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/verifier.md, model: null }
+    fix:      { max_budget_usd: 0.5, max_turns: 6, timeout_s: 300, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/fix.md, model: null }

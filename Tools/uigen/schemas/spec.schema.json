@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:spec",
+  "title": "uigen spec v1 — 화면 배치 spec (설계 §4-3)",
+  "description": "id = WBP 위젯 이름 = 바인딩 이름. 구조 · 형식만 여기서 보고, 부모-슬롯 짝 · 타입별 style 키 · 참조 무결성은 core/spec.py validate_semantics 가 본다. 생략한 스칼라는 core/spec.py 기본값 표, 생략한 브러시는 엔진 기본 스타일(CDO).",
+  "type": "object",
+  "required": ["schema_version", "canvas", "profile", "root", "widgets"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "canvas": { "$ref": "#/$defs/size2" },
+    "profile": { "enum": ["hud", "menu", "options", "dialog"] },
+    "root": { "$ref": "#/$defs/widget_id" },
+    "widgets": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/widget" } },
+    "assets": { "type": "array", "items": { "$ref": "#/$defs/asset" } },
+    "allow_overlap": {
+      "type": "array",
+      "items": { "type": "array", "items": { "$ref": "#/$defs/widget_id" }, "minItems": 2, "maxItems": 2 }
+    },
+    "locked": { "type": "array", "items": { "$ref": "#/$defs/widget_id" } },
+    "note": { "type": "string" }
+  },
+  "$defs": {
+    "widget_id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$" },
+    "asset_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+    "color": { "type": "string", "pattern": "^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$" },
+    "vec2": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+    "size2": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 2, "maxItems": 2 },
+    "margin4": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+    "unit4": { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 }, "minItems": 4, "maxItems": 4 },
+    "h_align": { "enum": ["left", "center", "right", "fill"] },
+    "v_align": { "enum": ["top", "center", "bottom", "fill"] },
+    "widget": {
+      "type": "object",
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/widget_id" },
+        "type": {
+          "enum": ["CanvasPanel", "Overlay", "VerticalBox", "HorizontalBox", "UniformGridPanel", "SizeBox",
+                   "Border", "Image", "TextBlock", "ProgressBar", "Button", "Spacer"]
+        },
+        "parent": { "$ref": "#/$defs/widget_id" },
+        "slot": { "$ref": "#/$defs/slot" },
+        "bbox_intent": {
+          "description": "reference 픽셀 좌표 [x, y, w, h] — verify 의 IoU · 중심점 기준",
+          "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4
+        },
+        "visibility": { "enum": ["visible", "collapsed", "hidden", "hit_test_invisible", "self_hit_test_invisible"] },
+        "style": { "$ref": "#/$defs/style" },
+        "text": { "$ref": "#/$defs/text" },
+        "font": { "$ref": "#/$defs/font" },
+        "justification": { "enum": ["left", "center", "right"] },
+        "binding": { "$ref": "#/$defs/binding" },
+        "note": { "type": "string" }
+      }
+    },
+    "slot": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["canvas", "overlay", "vertical_box", "horizontal_box", "uniform_grid", "border", "size_box", "button"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "canvas" } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "anchors": { "$ref": "#/$defs/unit4" },
+              "alignment": { "$ref": "#/$defs/vec2" },
+              "position": { "$ref": "#/$defs/vec2" },
+              "size": { "$ref": "#/$defs/vec2" },
+              "z": { "type": "integer" },
+              "auto_size": { "type": "boolean" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "enum": ["overlay", "border", "size_box", "button"] } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "padding": { "$ref": "#/$defs/margin4" },
+              "h_align": { "$ref": "#/$defs/h_align" },
+              "v_align": { "$ref": "#/$defs/v_align" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "enum": ["vertical_box", "horizontal_box"] } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "padding": { "$ref": "#/$defs/margin4" },
+              "h_align": { "$ref": "#/$defs/h_align" },
+              "v_align": { "$ref": "#/$defs/v_align" },
+              "size_rule": { "enum": ["auto", "fill"] },
+              "fill": { "type": "number", "minimum": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "uniform_grid" } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "row": { "type": "integer", "minimum": 0 },
+              "column": { "type": "integer", "minimum": 0 },
+              "h_align": { "$ref": "#/$defs/h_align" },
+              "v_align": { "$ref": "#/$defs/v_align" }
+            }
+          }
+        }
+      ]
+    },
+    "brush": {
+      "description": "FSlateBrush. color = 틴트(sRGB hex). margin = 9-slice [left, top, right, bottom] 비율(box · border). rounded_box 는 텍스처 없이 radius · outline 으로 그린다",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "draw_as": { "enum": ["image", "box", "border", "rounded_box", "none"] },
+        "asset": { "$ref": "#/$defs/asset_id" },
+        "color": { "$ref": "#/$defs/color" },
+        "margin": { "$ref": "#/$defs/unit4" },
+        "image_size": { "$ref": "#/$defs/vec2" },
+        "radius": { "type": "number", "minimum": 0 },
+        "outline_color": { "$ref": "#/$defs/color" },
+        "outline_width": { "type": "number", "minimum": 0 }
+      }
+    },
+    "style": {
+      "description": "타입별로 쓰는 키가 다르다(core/spec.py STYLE_KEYS) — Border · Image: brush / ProgressBar: background · fill · fill_color · percent · bar_fill_type / SizeBox: width_override · height_override / Spacer: size / UniformGridPanel: slot_padding · min_slot_width · min_slot_height / Button: normal · hovered · pressed",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "brush": { "$ref": "#/$defs/brush" },
+        "background": { "$ref": "#/$defs/brush" },
+        "fill": { "$ref": "#/$defs/brush" },
+        "fill_color": { "$ref": "#/$defs/color" },
+        "percent": { "type": "number", "minimum": 0, "maximum": 1 },
+        "bar_fill_type": { "enum": ["left_to_right", "right_to_left", "fill_from_center", "top_to_bottom", "bottom_to_top"] },
+        "width_override": { "type": "number", "minimum": 0 },
+        "height_override": { "type": "number", "minimum": 0 },
+        "size": { "$ref": "#/$defs/vec2" },
+        "slot_padding": { "$ref": "#/$defs/margin4" },
+        "min_slot_width": { "type": "number", "minimum": 0 },
+        "min_slot_height": { "type": "number", "minimum": 0 },
+        "normal": { "$ref": "#/$defs/brush" },
+        "hovered": { "$ref": "#/$defs/brush" },
+        "pressed": { "$ref": "#/$defs/brush" }
+      }
+    },
+    "text": {
+      "description": "static = value 를 그대로, dynamic = 런타임 setter 가 채운다(WBP 에는 sample 이 미리보기로 들어간다)",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": { "enum": ["static", "dynamic"] },
+        "value": { "type": "string" },
+        "data": { "type": "string" },
+        "sample": { "type": "string" }
+      },
+      "allOf": [
+        { "if": { "properties": { "source": { "const": "dynamic" } }, "required": ["source"] }, "then": { "required": ["data"] } }
+      ]
+    },
+    "font": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "size": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 },
+        "weight": { "enum": ["regular", "bold", "light", "italic", "bold_italic"] },
+        "color": { "$ref": "#/$defs/color" },
+        "family": { "type": ["string", "null"], "description": "폰트 애셋 경로. null = 엔진 기본(Roboto + 한글 대체) — 1a 는 null(11-14 사용자 결정)" }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "required": ["data", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "data": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+        "kind": { "enum": ["text", "number", "progress", "flag", "image"] },
+        "format": { "type": "string", "pattern": "^0(\\.0+)?$", "description": "number 만 — '0' = int32, '0.0' = float(소수 자릿수)" },
+        "optional": { "type": "boolean" }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "required": ["asset_id", "kind", "provenance", "size"],
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": { "$ref": "#/$defs/asset_id" },
+        "kind": { "enum": ["icon", "frame", "panel_bg", "fill", "ornament"] },
+        "provenance": { "enum": ["procedural", "codex", "comfy", "provided"] },
+        "size": { "type": "array", "items": { "type": "integer", "minimum": 4, "maximum": 4096 }, "minItems": 2, "maxItems": 2 },
+        "nine_slice": { "type": "boolean" },
+        "margin": { "$ref": "#/$defs/unit4" },
+        "compression": { "enum": ["TC_EditorIcon", "TC_BC7"] },
+        "procedural": { "type": "object", "required": ["shape"], "properties": { "shape": { "enum": ["rounded_frame", "gradient_panel", "soft_glow"] } } },
+        "prompt": { "type": "string" },
+        "anchor": { "type": "boolean" },
+        "source": { "type": "string" }
+      }
+    }
+  }
+}

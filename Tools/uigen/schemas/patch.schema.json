@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:patch",
+  "title": "uigen spec patch v1 (설계 §4-4)",
+  "description": "op 종류가 재시도 분기를 정한다(core/patch.py branch_for). base_revision 이 지금 WBP revision 과 다르면 브리지가 REVISION_MISMATCH 로 무변경. 바인딩 위젯 제거 · locked 위젯 변경은 거부된다.",
+  "type": "object",
+  "required": ["schema_version", "source", "ops"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "base_revision": { "type": ["string", "null"] },
+    "source": { "enum": ["fix", "fault", "edit", "user"] },
+    "note": { "type": "string" },
+    "ops": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/op" } }
+  },
+  "$defs": {
+    "op": {
+      "type": "object",
+      "required": ["op"],
+      "properties": {
+        "op": { "enum": ["set", "add_widget", "remove_widget", "move", "replace_asset"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "op": { "const": "set" } } },
+          "then": {
+            "required": ["widget", "path", "value"],
+            "additionalProperties": false,
+            "properties": {
+              "op": true,
+              "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+              "path": { "type": "string", "pattern": "^[a-z_]+(\\.[a-z_]+)*$" },
+              "value": true,
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "add_widget" } } },
+          "then": {
+            "required": ["widget"],
+            "additionalProperties": false,
+            "properties": {
+              "op": true,
+              "widget": { "$ref": "urn:uigen:spec#/$defs/widget" },
+              "index": { "type": "integer", "minimum": 0 },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "remove_widget" } } },
+          "then": {
+            "required": ["widget"],
+            "additionalProperties": false,
+            "properties": {
+              "op": true,
+              "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "move" } } },
+          "then": {
+            "required": ["widget", "parent"],
+            "additionalProperties": false,
+            "properties": {
+              "op": true,
+              "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+              "parent": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+              "index": { "type": "integer", "minimum": 0 },
+              "slot": { "$ref": "urn:uigen:spec#/$defs/slot" },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "replace_asset" } } },
+          "then": {
+            "required": ["asset"],
+            "additionalProperties": false,
+            "properties": {
+              "op": true,
+              "asset": { "$ref": "urn:uigen:spec#/$defs/asset_id" },
+              "regenerate": { "type": "boolean" },
+              "procedural": { "type": "object", "required": ["shape"] },
+              "prompt": { "type": "string" },
+              "reason": { "type": "string" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:manifest",
+  "title": "uigen manifest v1 (설계 §4-5) — refine 출력, build 가 ue_path 를 채운다",
+  "type": "object",
+  "required": ["schema_version", "run_id", "assets"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["asset_id", "kind", "file", "sha256", "size", "alpha", "provenance", "backend", "compression", "ue_path"],
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": { "$ref": "urn:uigen:spec#/$defs/asset_id" },
+          "kind": { "type": "string" },
+          "file": { "type": "string", "description": "run 폴더 기준 상대 경로" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "size": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+          "alpha": { "type": "boolean", "description": "불투명이 아닌 픽셀이 있다" },
+          "nine_slice_margin": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+          "ocr_text": { "type": ["string", "null"], "description": "null = 검사 안 함(ocr 에 이유)" },
+          "ocr": { "type": "string", "description": "검사 방식 또는 '해당 없음' 이유" },
+          "provenance": { "type": "string" },
+          "backend": { "type": "string" },
+          "procedural": { "type": "object" },
+          "prompt": { "type": ["string", "null"] },
+          "anchor": { "type": "boolean" },
+          "ue_path": { "type": ["string", "null"] },
+          "compression": { "enum": ["TC_EditorIcon", "TC_BC7"] }
+        }
+      }
+    }
+  }
+}

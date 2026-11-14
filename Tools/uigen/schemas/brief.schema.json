@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:brief",
+  "title": "uigen brief v1 (설계 §4-2)",
+  "description": "normalize 의 출력(1a 는 손으로 쓴 픽스처 — mode hand_spec). run_id 는 run 이 복사할 때 채운다.",
+  "type": "object",
+  "required": ["schema_version", "mode", "screen_type", "screen_id", "resolution", "required_elements", "dynamic_data"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string", "pattern": "^R\\d{8}_\\d{6}_[A-Za-z0-9]+$" },
+    "mode": { "enum": ["concept", "text", "multi_ref", "hand_spec"] },
+    "screen_type": { "enum": ["hud", "menu", "options", "dialog"] },
+    "screen_id": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]{0,47}$" },
+    "resolution": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 },
+    "language": { "type": "string" },
+    "font": { "type": ["string", "null"] },
+    "required_elements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+          "kind": { "type": "string" },
+          "desc": { "type": "string" }
+        }
+      }
+    },
+    "dynamic_data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "widget"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+          "type": { "enum": ["text", "number", "progress", "flag", "image"] },
+          "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+          "format": { "type": "string" },
+          "sample": {}
+        }
+      }
+    },
+    "static_text": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["widget", "value"],
+        "additionalProperties": false,
+        "properties": { "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "value": { "type": "string" } }
+      }
+    },
+    "style_keywords": { "type": "array", "items": { "type": "string" } },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "role"],
+        "properties": {
+          "path": { "type": "string" },
+          "role": { "type": "string" },
+          "role_source": { "enum": ["user", "auto"] },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "conflicts": { "type": "array", "items": { "type": "object" } },
+    "binding_contract": {
+      "type": "object",
+      "required": ["class", "source", "bindings"],
+      "additionalProperties": false,
+      "properties": {
+        "class": { "type": "string", "pattern": "^U[A-Z][A-Za-z0-9]*$" },
+        "source": { "enum": ["new", "existing"] },
+        "bindings": { "type": "array", "items": { "$ref": "urn:uigen:spec#/$defs/widget_id" } }
+      }
+    },
+    "note": { "type": "string" }
+  }
+}

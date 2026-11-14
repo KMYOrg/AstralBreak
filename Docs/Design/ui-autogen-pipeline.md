@@ -1,7 +1,7 @@
 # UI 자동 생성 파이프라인 설계 (컨셉아트 · 텍스트 · 참조 이미지 → WBP)
 
 작성일: 2026-11-14 · 대상: UE 5.7.4 · 기준 커밋: `88a4813` · 원 요구사항: [ui-autogen-requirements.md](ui-autogen-requirements.md) · 관련: [m4-ult-chain.md](m4-ult-chain.md) §5(HUD)
-상태: **Phase 0 완료(미커밋, 2026-11-14)** — 플러그인 분리(EditorMcpCore · AnimGraphMcp · StateTreeMcp · WidgetMcp 뼈대) · 빌드 2구성 · 회귀 통과, 가정 A1 ~ A7 결과는 §12-1(A4 · A5 는 사용자 CLI 로그인 뒤 `claude` 2.1.325 로 실측). 설계 승인(11-14) · §12-2 질문 1 · 2 결정(플러그인 이름 `EditorMcpCore` / `WidgetMcp` · StateTree 도구는 Phase 0 에서 같이 이전). 값은 전부 잠정이다.
+상태: **Phase 0 완료 · 커밋 `6700484`(2026-11-14)** — 플러그인 분리(EditorMcpCore · AnimGraphMcp · StateTreeMcp · WidgetMcp 뼈대) · 빌드 2구성 · 회귀 통과, 가정 A1 ~ A7 결과는 §12-1(A4 · A5 는 사용자 CLI 로그인 뒤 `claude` 2.1.325 로 실측). **Phase 1a 완료(11-15, 미커밋)** — 하위 단계 1a-1 ~ 1a-5 끝, 끝 조건 4개 충족(§11 'Phase 1a 결과 요약' · '1b 로 넘길 것'), 빌드 2구성 · 에디터 1회 · pytest 142 통과, 렌더 색 사람 눈 확인 통과(§12-1 A6-색). 설계 승인(11-14) · §12-2 질문 1 · 2 · 4 · 5 · 6 · 8 결정. 값은 전부 잠정이다.
 
 표기: **[소스]** = 5.7.4 엔진 · 프로젝트 소스에서 확인한 것(파일:줄) · **[실측]** = 이 PC 에서 명령으로 확인한 것 · **[P0]** = Phase 0 스파이크에서 확인할 것 · **[P0 결과]** = Phase 0 에서 확인한 결과(11-14) · **[바이너리]** = 설치된 실행 파일 안의 문자열로 확인(동작은 미실측).
 
@@ -378,7 +378,7 @@ images:
 
 | Tool | 하는 일 | 안전장치 · 엔진 근거 |
 | :--- | :--- | :--- |
-| `import_ui_textures` | PNG 묶음 임포트 + UI 설정: 압축 `TC_EditorIcon`(기본, 종류별 `TC_BC7`) · `TEXTUREGROUP_UI` · `TMGS_NoMipmaps` · `NeverStream` · sRGB | [소스] `TextureDefines.h:46,156,400` · `NeverStream` 은 `UStreamableRenderAsset` 의 비트필드 `StreamableRenderAsset.h:299`. 임포트 경로는 기존 Interchange 사용 [P0 — 미확인: Phase 0 은 트랜지언트 텍스처에 설정을 달아 렌더만 확인, 임포트 경로는 Phase 1a 첫 작업] |
+| `import_ui_textures` | PNG 묶음 임포트 + UI 설정: 압축 `TC_EditorIcon`(기본, 종류별 `TC_BC7`) · `TEXTUREGROUP_UI` · `TMGS_NoMipmaps` · `NeverStream` · sRGB | [소스] `TextureDefines.h:46,156,400` · `NeverStream` 은 `UStreamableRenderAsset` 의 비트필드 `StreamableRenderAsset.h:299`. 임포트 경로는 기존 Interchange 사용 — **[1a-2 실측] 동기 · 기본 텍스처 파이프라인 복제 + `bAllowNonPowerOfTwo=true`**(§11 1a-2) |
 | `create_ui_material_instances` | UI 도메인 머티리얼 인스턴스(procedural 그라데이션 · 마스크) | Phase 1b |
 | `create_widget_blueprint` | 부모 클래스(스텁)로 빈 WBP 생성 | `UWidgetBlueprintFactory`(MinimalAPI — `ParentClass` 프로퍼티 · 가상 `FactoryCreateNew`) [소스] `WidgetBlueprintFactory.h:13-29` · 기본 루트 위젯 [P0 결과] 없음 → Canvas 를 직접 만들고 `OnVariableAdded` (§12-1 A7) |
 | `preview_widget_spec` / `apply_widget_spec` | **조정기** — 지금 WBP 와 목표 spec 의 차이를 op 로 계산 → 전체 사전 검증 → 배치 적용(되돌리기 저널) → 컴파일. `expected_revision` 필수 | 위젯 생성 `UWidgetTree::ConstructWidget<T>(Class, Name)` [소스] `WidgetTree.h:102`. **GUID 맵:** 위젯 추가 · 이름 변경 · 제거마다 `UWidgetBlueprint::OnVariableAdded / OnVariableRenamed / OnVariableRemoved` 를 부른다 [소스] `WidgetBlueprint.h:259-261`. 맵이 비어 있는 새 WBP 는 컴파일러가 결정적 GUID 로 채우지만, 비어 있지 않은 WBP 에 그냥 더하면 `ensureAlways` 가 터진다 [소스] `WidgetBlueprintCompiler.cpp:769,794` |
@@ -538,6 +538,74 @@ claude -p "<단계 지시>"
 | **5** | ComfyUI 연결 · 아이콘만 codex 와 A/B | A/B 리포트 | 실제 run |
 | **6** | 지표 기반 라우팅 규칙(종류별 최소 표본 수 넘을 때만) | 규칙 반영 | 리포트 |
 
+**Phase 1a 하위 단계 (11-14 사용자 승인 — 단계마다 보고 → 승인 뒤 다음)**
+
+| 단계 | 범위 | 단계 검증 | 상태 |
+| :--- | :--- | :--- | :--- |
+| 1a-1 | `Tools/uigen` 뼈대 · JSON Schema 6종 · 설정 · `profiles/hud` · 손 brief/spec(`fixtures/m4_combat_hud`) · spec 정규화 · 왕복 비교 · patch · procedural PNG · run 잠금 · 지표 JSONL · `.gitignore` 3줄 | pytest | **끝(11-14)** — pytest 76 통과, 손 spec run 이 normalize → generate → refine 까지(나머지는 미구현 표시로 incomplete) |
+| 1a-2 | WidgetMcp 도구 — 텍스처 임포트 경로 확인(첫 작업) → create → 조정기 preview/apply · patch → export → compile · list_bind_widgets → render(감마 LUT · 3 해상도) → save · discard, `quit_editor` 선택 인자, `widget_mcp` 창구 | DebugGame 빌드 + `WidgetMcp.*` + 브리지 스모크 | **끝(11-14)** — Tool 11개, `WidgetMcp.*` 5/5, 손 spec 스모크(왕복 차이 0 · bbox 오차 0 px · 3 해상도 화면 밖 0), `quit_editor` 두 경로 확인 |
+| 1a-3 | codegen(템플릿 · 계약 해시 · 소유 규칙) · UBT 빌드 · 에디터 재기동 | pytest + 실제 생성 · 빌드 1회 + 같은 spec 건너뜀 | **끝(11-14)** — pytest 96 통과(codegen 20). 실제 run: C++ 4개 생성 → DebugGame 빌드 22.4초(`Result: Succeeded`) → 재기동(브리지 12.4초 + 30초) → `list_bind_widgets` = 계약 8개. 같은 spec 재실행은 codegen `skipped`(0.46초, 빌드 · 재기동 없음). 같은 에디터에서 스텁 부모 WBP 생성 `compile.ran=false` → spec 적용 컴파일 ok · `missing_bindings` 0 · 왕복 일치 → 폐기 |
+| 1a-4 | verify 게이트 · 재시도 분기(결정적 fixer) · finalize · report · 지표 | pytest + 깨뜨린 run 1회가 재시도로 통과 | **끝(11-14)** — pytest 142 통과(새 46: 게이트 계산 · fixer · 재시도 분기 · 조기 종료 · 상한 · generate/codegen 분기 · 가짜 claude CLI). 실제 run(DebugGame 에디터 — build 가 기동, 브리지 12.8초 + 30초): 손 spec 첫 시도 게이트 10/10 · 왕복 일치 · `Content/_AutoGen/<run_id>/` 4개 저장 · 지표 줄(`R20261114_235335`). `--inject-fault offscreen`(`R20261114_235343`) · `overlap` · `drift` 모두 시도 1 실패 → 정정 patch 1 op → build → 시도 2 통과 · 저장. 첫 offscreen run 은 컬링 함정(아래)으로 조기 종료 · 폐기 — 고친 뒤 통과 |
+| 1a-5 | Phase 끝 검증(빌드 2 · 에디터 1회 · pytest · 색 눈 확인) · 문서 | 끝 조건 4개 | **끝(11-15)** — 빌드: DebugGame `Result: Succeeded`(이미 최신) · Development `-DisableAdaptiveUnity` `Result: Succeeded`(26.6초 · 18 작업 · 적응형 제외 0 — 새 cpp 를 유니티 묶음에 넣어도 충돌 없음). pytest 142 통과. 에디터 1회(DebugGame): `AstralBreak.` 55/55(먼저, 415초) → `EditorMcpCore.` 2/2 · `WidgetMcp.` 5/5 → 정상 run `R20261115_001147` 시도 1 에 게이트 10/10 · 왕복 일치 · codegen `skipped` · 지표 4줄(아래 요약) → `quit_editor` · 소멸 확인. 렌더 색 사람 눈 통과(§12-1) |
+
+1a-1 에서 정한 구체 규칙(설계 초안 §4 를 구체화한 것):
+- **spec 브러시 모양:** `{draw_as: image|box|border|rounded_box|none, asset?, color(틴트), margin?(9-slice), image_size?, radius?, outline_color?, outline_width?}` — §4-3 예시의 `fill.procedural{kind: rounded_box}` 대신 `fill: {draw_as: rounded_box, color, radius}`. 텍스처 없는 procedural 채움은 브러시 자체가 담는다.
+- **슬롯 kind 는 부모 타입이 정한다** — `canvas` · `overlay` · `vertical_box` · `horizontal_box` · `uniform_grid` · `border` · `size_box` · `button`(Border · SizeBox · Button 의 자식 슬롯도 따로 둔다).
+- **정규화 기본값:** 생략한 스칼라 = `core/spec.py` 표(5.7.4 UMG 생성자 기본값 — 예: Border 슬롯 padding (4,2) `BorderSlot.cpp:18`, Overlay 슬롯 Left/Top `OverlaySlot.cpp:15`, 박스 슬롯 Automatic `VerticalBoxSlot.cpp:19`, TextBlock Roboto 24 Bold `TextBlock.cpp:35`), 생략한 브러시 = 엔진 기본 스타일(CDO). 파이프라인은 정규화한(전부 명시한) spec 을 브리지에 보내므로 표와 엔진 값이 어긋나도 파이프라인 왕복은 깨지지 않는다. 브러시 `image_size` 기본 = 그 에셋 크기(9-slice 두께가 이 값에 달려 있다).
+- **왕복 투영:** `bbox_intent` · `binding` · `note` 는 WBP 가 담지 않아 뺀다. 글자는 정적/동적 구분 없이 값(동적이면 sample)만. 역추출의 브러시 asset(UE 경로)은 manifest `ue_path` 로 asset_id 에 되돌려 비교.
+- **겹침 게이트:** Overlay 자식끼리는 겹치는 것이 정의라 빼고(`profiles/hud.yaml stacking_parents`), '48 px 미만' = min(w, h) < 48.
+- **지표 JSONL** 은 성공 · 실패 · 미완 모든 run 끝에 run 한 줄 + manifest 에셋마다 한 줄(1a-1 부터 기록 중).
+
+1a-2 에서 확인 · 정한 것 (11-14):
+- **텍스처 임포트 경로 [실측]:** Interchange `ImportAssetWithResult` 는 동기다(`InterchangeManager.cpp:1720-1726`). PNG 는 기본 'Textures' 스택(`/Interchange/Pipelines/DefaultTexturePipeline`, `UInterchangeGenericTexturePipeline`)을 탄다. **함정: 그 파이프라인의 `bAllowNonPowerOfTwo` 기본값이 false** 라 200×50 같은 UI 텍스처를 걸러 낸다(`InterchangeGenericTexturePipeline.h:70`) → 트랜지언트로 복제해 true · 노멀맵 감지 끔 · UDIM 끔 · `AssetName` 지정. 임포트 뒤 압축 · 그룹 · 밉 · NeverStream · sRGB 를 넣고 `PostEditChange` + `FTextureCompilingManager::FinishCompilation`(렌더 전에 빌드를 끝낸다). 손 spec 의 3장: 200×50 · 320×160(BC7) · 256×32 모두 크기 유지 · 설정 manifest 와 일치, 한 장 0.01초.
+- **조정기 적용 방식(설계 §6 '되돌리기 저널' 대신):** WidgetTree 를 트랜지언트로 복제해 거기에 적용 → 사본을 역추출해 정규화한 목표와 같은지 확인 → 같을 때만 WBP 의 WidgetTree 와 바꿔 끼우고 GUID 맵을 이름 차이로 맞춘다. 실패하면 원본을 손대지 않아 `rollback_verified`(revision 불변)가 구조로 보장된다. 지운 위젯은 트랜지언트 패키지로 이름을 옮겨 같은 이름을 다시 쓸 수 있게 한다.
+- **revision** = (부모 클래스 경로 + 역추출 트리)의 정규 JSON(키 정렬 · 수 소수 셋째 자리) SHA1. 같은 spec 을 다시 적용하면 op 0 · revision 그대로(멱등) [실측].
+- **`quit_editor` 선택 인자 `discard_only_under`**(패키지 접두 배열): `discard_dirty` 와 함께 주면 그 밖의 더티가 하나라도 있을 때 `DIRTY_PACKAGES`(details `outside_discard_only_under`)로 거절. 인자가 없으면 기존 동작 그대로. 파이프라인은 `pipeline.yaml editor.quit_discard_only_under: [/Game/_AutoGen/]` 를 넘긴다.
+- **생성 때 컴파일:** 부모에 필수 BindWidget 이 있으면(스텁) 빈 캔버스는 컴파일될 수 없으므로 건너뛰고 `compile.ran=false` — apply 가 컴파일한다.
+- **렌더 [실측]:** 1920×1080 에서 손 spec 위젯 14개 geometry 가 `bbox_intent` 와 오차 0 px, 2 · 3 해상도(2560×1080 · 1920×1200)에서 화면 밖 0, 그림 1 · 2 픽셀 차이 0. 색 탐침: 배너 `#2A1A0ACC` 를 검은 바탕에 얹은 값 `#221508` 이 그대로 나옴(감마 LUT 확인). 1920×1080 세 장 0.2초.
+- **함정 [실측]:** UE 전역 `MakeError`(TValueOrError) 템플릿이 ADL 로 같은 이름의 우리 함수를 이긴다 → `MakeMcpError`. `PI` 는 엔진 매크로라 변수 이름으로 못 쓴다.
+
+1a-3 에서 확인 · 정한 것 (11-14):
+- **계약:** 바인딩마다 `{name, widget_class, data, kind, format?, optional, setter}` + 모듈 · 클래스 이름 + 생성기 식별자(버전 + 템플릿 4개 · setter 조각의 해시 — 템플릿이 바뀌어도 다시 생성). 해시 = 정규 JSON 의 SHA1. 생성 헤더 1줄째 표식, 2줄째 해시, 3줄째 계약 JSON(다음 run 의 '추가만' 판정 원천), cpp 는 표식 + 해시. 해시 줄과 계약 줄이 어긋나면 `CODEGEN_HEADER_CORRUPT`.
+- **추가만 구체화:** spec 에서 빠진 바인딩은 `BindWidgetOptional` + setter 유지. 같은 이름의 위젯 클래스가 바뀌면 거부(`BINDING_RETYPE` — 옛 WBP 는 이름으로 묶임). data · kind · format 변경은 허용(setter 가 바뀐다 — 스텁이 옛 setter 를 부르면 빌드가 실패해 원복된다). setter 의 정체성은 data id — 같은 data 를 새 바인딩이 쓰면 빠진 쪽은 setter 를 잃는다(위젯 이름을 바꿔도 사람 코드의 `SetX` 가 새 위젯을 움직임). setter 이름 · 위젯 이름 충돌은 거부.
+- **setter 세부:** flag 보이기 = `SelfHitTestInvisible`(Button 만 `Visible`) · 숨김 = `Collapsed`. number `0` = `int32` · 자릿수 묶음 없음, `0.0…` = `float` · 소수 자릿수 최소 = 최대. progress 는 0 ~ 1 로 자른다. 전부 `UFUNCTION(BlueprintCallable, Category="uigen|<화면>")` · 선택 바인딩 대비 null 검사. 매개변수 이름이 `UUserWidget` · `UWidget` · `UVisual` 멤버와 겹치지 않음을 엔진 헤더로 확인(가림 경고 = 오류).
+- **건너뛰기:** 해시가 같고 스텁이 있으면 건너뛴다. 에디터가 떠 있으면 `list_bind_widgets` 로 리플렉션만 대조하고, 다르면(낡은 바이너리) 쓰기 없이 빌드 · 재기동(`reason: stale_binary`).
+- **원복 범위:** 에디터 종료는 쓰기 전에 한다. 쓰기부터 빌드 성공 전까지의 모든 실패(종료 거절 · 남은 에디터 프로세스 · 빌드 실패 · Ctrl+C)는 덮어쓴 파일을 `codegen/backup/` 에서 되돌리고, 새로 만든 파일은 지우는 대신 `codegen/failed/` 로 옮긴다(실패한 판 보존). 빌드가 성공한 뒤의 실패(기동 · 브리지 · 계약 불일치)는 되돌리지 않는다 — 바이너리가 새 코드라 소스가 그것과 같아야 한다.
+- **그 밖의 검사:** 헤더 이름 중복(모듈 전체) · `screens.yaml` 이름 규칙(식별자 · ViewBase/Widget 접미사) · brief `binding_contract.class` = `U<Widget>`. 파일은 CRLF · UTF-8(BOM 없음) — 작업 트리(`text: auto` · autocrlf)와 같게.
+- **설정 · 기록:** `pipeline.yaml` 에 `codegen` 절(module · api_macro · module_root · ui_dir) · `editor.args` · `build.args`(`-WaitMutex -NoHotReload`). `codegen.json` 스키마 추가(7종), `report.json` 에 codegen 요약, `run_pipeline --module-root`(시험용). 에디터는 떼어 내 기동(DETACHED · 새 프로세스 그룹, 가능하면 job breakaway), 표준 출력은 `codegen/editor.log`.
+- **[실측]** 적응형 유니티가 새 cpp 2개를 유니티 묶음에서 뺐다(`[Adaptive Build] Excluded from AstralBreak unity file`) — 묶음 충돌은 1a-5 의 `-DisableAdaptiveUnity` 에서 본다. DDC 가 따뜻하면 브리지 준비가 12초대였다.
+
+1a-4 에서 확인 · 정한 것 (11-14):
+- **재시도 루프:** 시도 k 는 `specs/00k.json` 을 쓰고, 실패하면 fix 가 `patches/00k.json`(source fix)을 낸다. `--inject-fault` 의 결함도 같은 patch 모양(`patches/000.json`, source fault)으로 normalize 뒤에 적용한다. 재시도 N = 3 → 시도는 최대 4번. '실패 게이트 집합이 줄었다' = 직전 집합의 진부분집합 — 아니면 무진전, 두 번 연속이면 `NO_PROGRESS` 로 끝. fixer 가 op 를 하나도 못 내면 바로 `NO_FIX`. 끝나면 finalize(실패 = 폐기). **[실측]** 첫 offscreen run 이 아래 컬링 함정으로 시도 3 에서 `NO_PROGRESS` 로 멈추고 run 패키지를 폐기했다(안전장치 동작 확인).
+- **build:** 에디터가 없으면 `core.ue.Toolchain` 으로 띄운다(로그 `build/editor_00k.log`). 텍스처는 manifest 의 `ue_path` 가 빈 에셋만 임포트한다(첫 시도는 전부, generate 로 다시 만든 에셋은 refine 이 비운다). 이름은 `T_<asset_id>`, 같은 에디터 세션에서 다시 임포트하면 `T_<asset_id>_2` …(임포트는 덮어쓰기를 거부). `ue_path` = 패키지 경로. WBP 이름은 `screens.yaml` 의 `wbp`(없으면 `WBP_<화면 ID>`), 생성은 첫 시도에만. 에디터 세션(`process_id`)이 지난 build 와 다르면(codegen 재기동이 저장 안 한 패키지를 버림) 처음부터 다시 만든다. `build.json` = 지금 상태(WBP · revision · 세션 · 텍스처 이름) + 시도별 op.
+- **verify 게이트 세부:** 기준 해상도 = spec.canvas. 영역 = 루트 Canvas 직계, 말단 = 자식 없는 위젯, 둘 다면 영역(더 엄격), 그 사이(박스)는 기록만(`report.recorded.placement_inner`). 바인딩 = `missing_bindings` 0 + `list_bind_widgets(WBP)` = `codegen.json` 계약. 텍스처 = export `textures[]` ↔ manifest(압축은 manifest, 그룹 · 밉 · 스트리밍 · sRGB 는 `pipeline.yaml textures`), 크기 차이는 기록만. 왕복 = `roundtrip_equal` + GUID 맵 누락 0. 렌더가 안 되면(컴파일 실패 등) 렌더 게이트 넷을 오류와 함께 실패로 남긴다. 사람 눈용 `render_sample.png` 는 brief sample 을 overrides 로(보이기 규칙 그대로) — 게이트와 무관.
+- **[실측] 컬링 함정:** Slate 는 그리기(클립) 영역 밖으로 완전히 나간 위젯을 그리지 않는다(패널 자식 컬링). 그 위젯과 자식의 페인트 공간 geometry 는 기본값 `(0, 0, 0, 0)` 으로 남고 `visible` 은 true 다. 처음에는 화면 밖 게이트가 이를 '크기 0' 으로 건너뛰었고(IoU 게이트만 실패), fixer 가 0 을 측정값으로 써서 크기를 두 배로 키웠다. → 그려지지 않은 보이는 위젯 = 화면 밖 실패(`not_painted`), fixer 는 그때 측정값 대신 루트 bbox · 앵커 · 정렬로 `bbox_intent` 자리를 계산한다. 부분적으로 걸친 위젯은 그려지고 실제 좌표가 나온다. 가짜 에디터(pytest)도 같은 컬링을 흉내 낸다.
+- **결정적 fixer:** 배치 게이트(offscreen · overlap · iou_region · iou_leaf)에서 실패한 위젯마다 자신 또는 가장 가까운 캔버스 슬롯 조상(영역)을 점 앵커일 때만 고친다 — `position += d + alignment × dsize`, `size += dsize`(d = `bbox_intent` − 측정). 영역이 이미 제자리(≤ 0.5 px)면 안쪽 문제로 보고 op 없음. 겹침은 `bbox_intent` 에서 벗어난 쪽만, 둘 다 제자리면 제안만. 텍스처 설정 불일치 = `replace_asset(regenerate)` → generate 분기(새 이름으로 다시 임포트). compile · bindings · required_elements · roundtrip 은 op 없음(1b LLM 몫).
+- **finalize:** 통과 = `save_widget_run` + `lineage.json`(최종 spec 파일 · sha256 · 시도 · 결함 · patch 목록 · 텍스처 · 저장 패키지 · 계약 해시 · revision). 실패 · 오류 = `discard_run_packages`(`--keep-failed` 면 저장 + lineage `status: fail`). build 전에 끝난 run 은 할 일 없음(단계 기록도 없음), `--until` 은 finalize 를 하지 않는다(패키지는 에디터에 저장 안 된 채). 에디터 세션이 바뀌었으면 패키지는 이미 사라진 것으로 본다. 파이프라인은 끝나도 에디터를 내리지 않는다(다음 run 이 재사용).
+- **report · 지표:** report 에 `attempts[]`(spec · 실패 게이트 · patch · 분기 · 멈춘 이유) · `fault` · `finalize` · `artifacts` · `verify` 를 더했다(스키마 9종 — `build` · `lineage` 추가). 지표 run 줄 = `status`(run 결과) + `verify`(마지막 verify 의 게이트 결과, 돌지 않았으면 null) + `failed_gates` · `fault` · `retries`(시도 − 1). 에셋 줄의 `retries` = 그 에셋을 다시 만든 횟수.
+- **LLM 호출 틀(1b 용, 1a 호출 0):** `core/llm.py` — 프롬프트는 `-p` 바로 뒤, `--allowedTools` 는 맨 뒤, `--json-schema` 는 인라인 JSON(파일 경로가 아님 — 1b 첫 실제 호출에서 확인), `--max-budget-usd` + 숨은 `--max-turns`, cwd `claude_ctx/`, stdin 닫음, 환경에서 `ANTHROPIC_API_KEY` 제거, `--dangerously-skip-permissions` · `--bare` 거부. 단계 출력은 structured_output 으로만 받으므로 허용 도구는 `Read` 하나(§9 표의 `Edit(work/<run_id>/**)` 는 필요 없어 뺐다 — 파일은 오케스트레이터가 쓴다). `claude_ctx/.claude/settings.json`(Bash · 쓰기 · 웹 거부, auto-memory 끔) · `prompts/verifier.md` · `fix.md` · `config/empty_mcp.json`. pytest 는 가짜 CLI 만(실제 CLI 는 conftest 가 막음).
+- **손 spec 글자 정렬(선택 항목):** 박스 칸의 글자 5개를 `v_align: center` 로 바꾸고 `bbox_intent` 를 실측 글자 상자로 맞췄다. **[실측]** 엔진 기본 글꼴(Roboto + 한글 대체)의 줄 높이 ≈ 글꼴 크기 × 1.6(16→26 · 18→29 · 26→42 · 30→48), 칸보다 크면 칸 높이(34 → 50). 값은 잠정.
+
+**Phase 1a 결과 요약 (11-15, 1a-5 정상 run `R20261115_001147_CombatHUD` — DebugGame 에디터, 자동 시험 뒤 같은 에디터)**
+
+| 끝 조건 | 판정 | 숫자 |
+| :--- | :--- | :--- |
+| 게이트 통과 | 충족 | 시도 1 에 10/10 — compile 오류 0 · bindings 누락 0 · texture_settings 불일치 0 · offscreen 0(3 해상도) · overlap 0(기준 0.04) · required_elements 누락 0 · iou_region 최소 1.0(영역 4개 · 중심 0 px) · iou_leaf 최소 1.0(말단 7개 · 중심 0 px) · baked_text 건너뜀(procedural — 통과 + 이유) · roundtrip 0. 결함 주입 3종(1a-4: offscreen · overlap · drift)은 모두 시도 2 통과 |
+| 왕복 일치 | 충족 | `roundtrip.equal` true · 차이 0 · GUID 누락 0 · unsupported 0 · 역추출 revision `sha1:fd6614d5…` = build revision |
+| codegen 해시 건너뛰기 | 충족 | 계약 `sha1:5ae0d80a…` 같음 → `skipped`(`contract_unchanged`) · 빌드 안 함 · 떠 있는 에디터 리플렉션 대조 일치(바인딩 8개) · 0.63초. (1a-3: 첫 생성 · 빌드 22.4초 · 재기동 → 같은 spec 재실행 0.46초 건너뜀) |
+| JSONL 기록 | 충족 | `metrics/uigen.jsonl` 에 run 1줄(`status: pass` · `verify: pass` · `retries` 0 · `failed_gates` [] · 4.15초) + 에셋 3줄(procedural · `retries` 0). 1a 동안 run 12개 · 48줄 |
+
+- run 시간 4.15초 = normalize 0.01 · codegen 0.63 · generate 0.11 · refine 0.02 · build 0.98(텍스처 3장 임포트 · WBP 생성 · apply 13 op) · verify 1.56(렌더 3 해상도 + sample) · finalize 0.82(패키지 4개 저장). 에디터 기동 · 빌드가 없는 경우의 값이다.
+- 생성 C++(`Source/AstralBreak/UI/HUD/`)은 1a-3 의 첫 생성 이후 바뀌지 않았다(git 상태 run 전후 같음).
+- **증거 run(11-15 정리 뒤 — 사용자 결정):** `R20261115_001147_CombatHUD`(1a-5 정상 · 눈 확인한 WBP) · `R20261114_235343_CombatHUD`(1a-4 offscreen 결함 → 재시도 통과)만 `Tools/uigen/work/` 와 `Content/_AutoGen/` 에 남겼다(둘 다 git 무시). 위 표 · 단계 기록의 다른 run 이름은 기록으로만 남는다(폴더는 휴지통). `metrics/uigen.jsonl` 은 지운 run 의 줄까지 그대로 둔다.
+
+**1b 로 넘길 것 (1a-5 정리)**
+- **`claude -p` 첫 실제 호출에서 채록:** `--json-schema` 값 형식(1a 틀은 인라인 JSON) · 결과의 `structured_output` 모양 · `--max-budget-usd` 예산 끊김 메시지 · 종료 코드 — 그 뒤 단계 상한 값(예산 0.5 USD · 턴 8/6 · 300초, 잠정)을 다시 본다.
+- **프로젝트 폰트 결정 · 내려받기 승인**(§12-2 4 — Pretendard / Noto Sans KR). 정하면 spec `font.family` 를 채우고 줄 높이(1a 실측 × 1.6 은 엔진 기본 글꼴 값)를 다시 잰다.
+- **OCR 엔진 선택** — `baked_text` 게이트는 1a 에서 한 번도 돌지 않았다(procedural 은 글자를 그리지 않음). 생성 이미지가 들어오는 1b 에서 처음 돈다.
+- **재시도 codegen 분기의 실제 경로**(정정 patch 가 바인딩을 바꿈 → 에디터 내리기 → 빌드 → 재기동 → 세션이 바뀌어 build 처음부터) — 1a 는 pytest(가짜 도구 사슬)로만 확인했다. 계약을 바꾸는 결함이 생기면(또는 1b LLM fix 가 바인딩 op 를 내면) 실제로 확인한다.
+- 원래 1b 몫: 컨셉아트(§12-2 3) · analyze 의 장면 / UI 가르기(A8) · codex 한도 이벤트 모양(A3 — 걸렸을 때 채록).
+
 - M4 단위 E(4인 별도 프로세스 시험)는 UI 와 무관해 에디터가 비는 때 아무 때나. 단위 D(오의 애니)는 별개.
 - 감안할 점: M4 C 의 화면은 Phase 0 ~ 1b 가 끝나야 완성된다. 그동안 HUD 는 디버그 위젯이다.
 
@@ -568,6 +636,8 @@ claude -p "<단계 지시>"
 
 → **규칙(실측 3점 일치):** `gamma=true` 로 그리고 읽은 8비트 값에 채널마다 sRGB→선형 변환을 한 번 하면 지정색이 나온다(예 `0x63 → 0x20`). `gamma=false` 는 어두운 쪽이 8비트에서 뭉개지므로(`0x20 → 0x04`) 쓰지 않는다. render_widget(Phase 1a)은 이 보정 LUT 를 적용한 PNG 를 내고, 에디터 디자이너 화면과 같아 보이는지는 Phase 1a 에서 사람 눈으로 한 번 맞춘다.
 
+**[사람 눈 11-15] 통과** — 1a-5 정상 run `R20261115_001147` 의 `render.png`(force_visible · LUT 적용 · 검은 바탕)와 같은 WBP 의 UMG 디자이너(1920×1080)를 사용자가 비교했고, 게이지 금색(`#E8B54A`) · 체인 패널 · 글자색이 같아 보인다고 답했다. 바탕은 다르다(렌더 검정 · 디자이너 격자 — 반투명 배너 `#2A1A0ACC` 만 바탕 차이). → LUT 보정을 확정한다. 영역 대표색 ΔE(§8-2)는 Phase 2 보정 때 이 규칙의 PNG 로 잰다.
+
 스파이크 산출물: `Tools/mcp/results/widget_spike/<시각>/`(draw_1~3.png · report.json, git 무시). 코드는 `Plugins/WidgetMcp/Source/WidgetMcpEditor/Private/Spike/` · 시험 `WidgetMcp.Spike.BuildRender`.
 
 ### 12-2. 사용자에게 묻는 것
@@ -575,8 +645,11 @@ claude -p "<단계 지시>"
 1. ~~플러그인 이름~~ — **결정(11-14): `EditorMcpCore` / `WidgetMcp`.** 편집 대상 애셋 이름으로 짓는 기존 관례(AnimGraph · StateTree)와 맞고, 코어는 프로젝트 코드에 의존하지 않으므로 일반 이름.
 2. ~~StateTree 도구 이전 시점~~ — **결정(11-14): Phase 0 에서 같이 이전.** 분리가 한 번에 끝나고 회귀도 한 번이다(§3-1).
 3. **M4 HUD 컨셉아트** — 준비돼 있는지, 경로.
-4. **폰트** — Pretendard / Noto Sans KR 중 무엇(둘 다 OFL).
-5. **텍스처 압축 기본값** — 원문대로 `TC_EditorIcon`(무압축 · 선명 · 메모리 큼) 유지 + 큰 배경만 BC7 로 둘지.
-6. **상한 값** — 재시도 N = 3, run 당 codex 호출 20 회로 시작할지.
-7. **집계 리포트 커밋** — `metrics/` 집계 결과(텍스트)를 포트폴리오 증거로 커밋할지.
-8. **HUD 요소 목록** — M4 설계 §5 그대로(오의 게이지 · 체인 패널(남은 시간 · 참가 N/4) · 버스트 배너 · '오의 불가')로 갈지.
+4. ~~폰트~~ — **결정(11-14): 1a 는 엔진 기본 폰트(Roboto + 한글 대체)**, 프로젝트 폰트(Pretendard / Noto Sans KR)는 1b 에서 결정 · 내려받기는 그때 따로 승인. spec `font.family` = null.
+5. ~~텍스처 압축 기본값~~ — **결정(11-14): `TC_EditorIcon` 기본 + 큰 배경(`panel_bg`)만 `TC_BC7`** — `pipeline.yaml textures.compression_by_kind`.
+6. ~~상한 값~~ — **결정(11-14): 재시도 N = 3** 으로 시작(codex 20 회는 1b 에서 실제로 쓸 때 다시 본다).
+7. **집계 리포트 커밋** — `metrics/` 집계 결과(텍스트)를 포트폴리오 증거로 커밋할지. (Phase 2 몫)
+8. ~~HUD 요소 목록~~ — **결정(11-14): M4 설계 §5 그대로** — 오의 게이지(+가득 시 강조) · 체인 패널(남은 시간 · 참가 N/4) · 버스트 배너(인원) · '오의 불가'.
+**1b 착수 때 물을 것(1a-5 정리, 11-15):** 3(컨셉아트 경로) · 4 후속(프로젝트 폰트 선택 · 내려받기 승인) · OCR 엔진 선택 — 근거는 §11 '1b 로 넘길 것'. 7(집계 리포트 커밋)은 Phase 2.
+
+9. **Phase 1a 진행 방식(11-14 결정):** 브랜치 `feat/M4_Ultimate_Skills` 그대로 · 하위 단계 1a-1 ~ 1a-5(§11) · 재시도 fix 는 **결정적 fixer**(일부러 깨뜨린 spec + 정정 patch, LLM verifier · fix 실제 호출은 1b — 1a 에는 reference.png 가 없어 verifier 가 비교할 대상이 없다) · 설정 YAML 을 위해 venv 에 **PyYAML 6.0.3 설치**(사용자 승인).

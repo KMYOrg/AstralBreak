@@ -1,0 +1,12 @@
+# generate_ui_asset 라우팅 (설계 §7, 잠정).
+# 백엔드 결정 순서: spec 에셋의 provenance(요청) → 없으면 primary → fallback. pipeline.yaml backends.allowed 밖의 백엔드는 건너뛴다.
+# 1a 는 allowed = [procedural] 이라 spec 이 provenance: procedural 로 적은 에셋만 돈다.
+schema_version: 1
+kinds:
+  icon:     { primary: codex, fallback: [], anchor: codex, retry_backend: codex }     # Phase 5 에서 comfy A/B
+  frame:    { primary: codex, fallback: [procedural], retry_backend: codex }
+  panel_bg: { primary: procedural, fallback: [codex] }
+  fill:     { primary: procedural }                                                  # RoundedBox · UI 머티리얼
+  ornament: { primary: codex, fallback: [] }
+  mockup:   { primary: codex }                                                       # text / multi_ref 의 목업
+limits: { codex_calls_per_run: 20, on_quota: pause }                                 # pause | fallback_if_listed

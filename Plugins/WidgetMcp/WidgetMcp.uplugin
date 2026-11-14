@@ -1,0 +1,31 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.0.1",
+	"FriendlyName": "Widget MCP",
+	"Description": "Editor MCP feature plugin for UI auto-generation (Docs/Design/ui-autogen-pipeline.md): texture import, Widget Blueprint build/reconcile/export, offscreen render and binding contracts. Phase 0 = skeleton + spike only; tools arrive in Phase 1a. Served by the shared EditorMcpCore bridge.",
+	"Category": "Scripting",
+	"CreatedBy": "kmy9317",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EnabledByDefault": true,
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "WidgetMcpEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "EditorMcpCore",
+			"Enabled": true
+		}
+	]
+}

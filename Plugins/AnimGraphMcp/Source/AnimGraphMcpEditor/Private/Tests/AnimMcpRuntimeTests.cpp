@@ -60,7 +60,7 @@ namespace
 	};
 
 	/** ADD_LATENT_AUTOMATION_COMMAND 매크로는 람다 본문의 쉼표에 취약하다 → 직접 큐잉 */
-	void Step(TFunction<bool()> Fn)
+	void QueueRuntimeStep(TFunction<bool()> Fn)
 	{
 		FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FFunctionLatentCommand>(MoveTemp(Fn)));
 	}
@@ -147,7 +147,7 @@ bool FAnimMcpRuntimeAnimBlueprintTest::RunTest(const FString& Parameters)
 	}
 
 	// ① PIE 요청
-	Step([S]() -> bool
+	QueueRuntimeStep([S]() -> bool
 	{
 		FRequestPlaySessionParams Params;
 		if (!S->Map.IsEmpty())
@@ -159,7 +159,7 @@ bool FAnimMcpRuntimeAnimBlueprintTest::RunTest(const FString& Parameters)
 	});
 
 	// ② PlayWorld BeginPlay 대기
-	Step([S, this]() -> bool
+	QueueRuntimeStep([S, this]() -> bool
 	{
 		UWorld* World = GEditor->PlayWorld;
 		if (World && World->HasBegunPlay())
@@ -178,7 +178,7 @@ bool FAnimMcpRuntimeAnimBlueprintTest::RunTest(const FString& Parameters)
 	});
 
 	// ③ 스폰 · ABP · 변수 · 몽타주
-	Step([S, this]() -> bool
+	QueueRuntimeStep([S, this]() -> bool
 	{
 		if (S->bAborted) { return true; }
 		UWorld* World = GEditor->PlayWorld;
@@ -256,14 +256,14 @@ bool FAnimMcpRuntimeAnimBlueprintTest::RunTest(const FString& Parameters)
 	});
 
 	// ④ 프레임 대기
-	Step([S]() -> bool
+	QueueRuntimeStep([S]() -> bool
 	{
 		if (S->bAborted) { return true; }
 		return ++S->FramesWaited >= S->WaitFrames;
 	});
 
 	// ⑤ 관측 · 비교
-	Step([S, this]() -> bool
+	QueueRuntimeStep([S, this]() -> bool
 	{
 		if (S->bAborted) { return true; }
 		UAnimInstance* Instance = S->Instance.Get();
@@ -340,7 +340,7 @@ bool FAnimMcpRuntimeAnimBlueprintTest::RunTest(const FString& Parameters)
 	});
 
 	// ⑥ 관측 기록 · PIE 종료
-	Step([S]() -> bool
+	QueueRuntimeStep([S]() -> bool
 	{
 		S->Observed->SetBoolField(TEXT("aborted"), S->bAborted);
 		AnimMcpRuntimeScenario::SetObservation(AnimMcpJson::ToString(S->Observed));
@@ -352,7 +352,7 @@ bool FAnimMcpRuntimeAnimBlueprintTest::RunTest(const FString& Parameters)
 	});
 
 	// ⑦ PlayWorld 소멸 대기 (RequestEndPlayMap 은 다음 Tick 에 EndPlayMap)
-	Step([]() -> bool
+	QueueRuntimeStep([]() -> bool
 	{
 		return GEditor->PlayWorld == nullptr;
 	});

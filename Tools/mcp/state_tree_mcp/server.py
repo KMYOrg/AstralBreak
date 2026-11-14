@@ -1,6 +1,6 @@
 """StateTree MCP 서버 — stdio 전송. Claude Code 가 .mcp.json 으로 띄운다.
 
-Tool 하나 = 에디터 플러그인 라우트 하나. 로직은 없고 anim_graph_mcp.bridge 를 공유한다.
+Tool 하나 = 에디터 플러그인(StateTreeMcp) 라우트 하나. 로직은 없고 공용 editor_bridge.bridge 를 쓴다.
 설계: Docs/StateTree/DevelopmentGuide.md. 실행: Tools/mcp/.venv/Scripts/python.exe Tools/mcp/state_tree_mcp/server.py
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 # mcp 2.x: FastMCP 가 MCPServer 로 개명됨 — requirements.txt 가 2.x 를 고정
 from mcp.server.mcpserver import MCPServer  # noqa: E402
 
-from anim_graph_mcp import bridge  # noqa: E402
+from editor_bridge import bridge  # noqa: E402  (공용 브리지 — 2026-11-14 플러그인 분리)
 
 # stdio 전송에서 stderr 로 새는 요청 로그를 줄인다
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -61,7 +61,7 @@ mcp = MCPServer(
         "Author, inspect and compile Unreal Engine StateTree assets through the running editor. "
         "Flow: create_state_tree -> list_state_tree_node_types -> preview_state_tree_operations -> apply_state_tree_operations -> inspect_state_tree. "
         "Every tool returns an envelope {ok, tool, request_id, result, error, diagnostics}. "
-        "If error.code is EDITOR_GONE the editor is not running or the AnimGraphMcp plugin is disabled; "
+        "If error.code is EDITOR_GONE the editor is not running or the EditorMcpCore / StateTreeMcp plugins are disabled; "
         "get_editor_status on anim-graph-mcp reports editor health and state_tree_edit_paths. "
         f"Bridge: {bridge.BASE_URL}"
     ),
@@ -73,7 +73,7 @@ def create_state_tree(asset_path: str, schema_class: str | None = None, schema_p
     """Create an empty StateTree (Root state only), compile it and save it. Never overwrites an existing asset.
 
     Args:
-        asset_path: Content path inside [AnimGraphMcp] StateTreeEditPaths, e.g. "/Game/AI/ST_Enemy_Melee". Test assets go to /Game/AI/Test/.
+        asset_path: Content path inside StateTreeEditPaths ([EditorMcp] or legacy [AnimGraphMcp]), e.g. "/Game/AI/ST_Enemy_Melee". Test assets go to /Game/AI/Test/.
         schema_class: Full class path. Default /Script/GameplayStateTreeModule.StateTreeAIComponentSchema.
         schema_properties: {"ContextActorClass": class path, "AIControllerClass": class path}. Without them the tree binds to Pawn and AAIController only.
         save: Save right after creating. With false the asset stays dirty, so apply_state_tree_operations refuses it (ASSET_DIRTY).
@@ -159,7 +159,7 @@ def apply_state_tree_operations(asset_path: str, operations: list[dict], expecte
     With save=false the asset stays dirty, so the next apply is refused until it is saved in the editor or reverted.
 
     Args:
-        asset_path: Content path inside [AnimGraphMcp] StateTreeEditPaths.
+        asset_path: Content path inside StateTreeEditPaths ([EditorMcp] or legacy [AnimGraphMcp]).
         operations: The batch.
         expected_revision: Abort with REVISION_MISMATCH if the asset changed since it was inspected.
         compile: Compile after applying.
@@ -214,7 +214,7 @@ def run_state_tree_scenario(
     reached_expected, expect_transition, ok, t_sent, t_transition, states_before, states_after}],
     actions[{kind, done, ok, detail?, t, states_before}],
     probe[{event (enter or exit), label, t, pawn, has_asc, avatar_is_pawn, pawn_ext_bound, abilities, try_ability?, ability_class_found?, activated?, status?}]
-    (one entry per EnterState/ExitState of the test-only task /Script/AnimGraphMcpEditor.AnimMcpLifecycleProbeTask; its values are Label and AbilityPath),
+    (one entry per EnterState/ExitState of the test-only task /Script/StateTreeMcpEditor.AnimMcpLifecycleProbeTask; its values are Label and AbilityPath),
     expect{matched, ok}, worlds[{name, net_mode, observed, instances, pawns}], instance, started, finished_because, instance_gone_at?,
     pawn_start, pawn_end, pawn_travel, log[], candidates? (when no instance was found: the pawns with their controllers and the components with their trees)}.
 

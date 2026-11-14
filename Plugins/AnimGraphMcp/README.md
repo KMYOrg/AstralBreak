@@ -1,20 +1,23 @@
-# AnimGraph MCP Bridge (`Plugins/AnimGraphMcp`)
+# AnimGraph MCP (`Plugins/AnimGraphMcp`)
 
-실행 중인 Unreal Editor 안에서 Animation Blueprint 를 **생성·조회·편집·컴파일·검증**하고, 애니메이션을 다른 스켈레톤으로 **임포트·IK 리타깃·측정**하게 해 주는 에디터 전용 C++ 플러그인입니다. 바깥의 MCP 서버(`Tools/mcp/anim_graph_mcp/server.py`)가 HTTP/JSON 으로 이 플러그인을 부르고, Claude Code 같은 AI 에이전트는 MCP Tool 로 그 서버를 부릅니다.
+실행 중인 Unreal Editor 안에서 Animation Blueprint 를 **생성·조회·편집·컴파일·검증**하고, 애니메이션을 다른 스켈레톤으로 **임포트·IK 리타깃·측정**하게 해 주는 에디터 MCP 기능 플러그인입니다. 바깥의 MCP 서버(`Tools/mcp/anim_graph_mcp/server.py`)가 HTTP/JSON 으로 공용 브리지를 부르고, Claude Code 같은 AI 에이전트는 MCP Tool 로 그 서버를 부릅니다.
 
 ```text
-AI Agent ─ stdio MCP ─▶ Tools/mcp/anim_graph_mcp/server.py ─ HTTP/JSON 127.0.0.1:18765 ─▶ Plugins/AnimGraphMcp (에디터, 게임 스레드) ─▶ UAnimBlueprint
+AI Agent ─ stdio MCP ─▶ Tools/mcp/anim_graph_mcp/server.py ─ HTTP/JSON 127.0.0.1:18765 ─▶ EditorMcpCore 브리지 ─▶ AnimGraphMcp Tool (게임 스레드) ─▶ UAnimBlueprint
 ```
 
-- 엔진: **UE 5.7.4**(소스 빌드에서 검증). 모듈 1개 `AnimGraphMcpEditor`(Type Editor). 프로젝트 코드에 의존하지 않습니다. 의존 플러그인 `IKRig` · `Interchange`(`.uplugin` 에 선언, 엔진 기본 활성).
+> **2026-11-14 플러그인 분리** — HTTP 브리지 · 디스패처 · 봉투 · 토큰 · `request_id` 캐시 · `get_editor_status` · `quit_editor` · `run/poll_automation_tests` · 보호 목록 · 자동 시험 러너 · 쓰기 가드 공용부는 [`Plugins/EditorMcpCore`](../EditorMcpCore/README.md) 로, StateTree Tool 9개는 [`Plugins/StateTreeMcp`](../StateTreeMcp/README.md) 로 옮겼습니다. 포트 · 토큰 파일 · 헤더 · 콘솔 명령 · Tool 이름 · 봉투는 그대로라 기존 클라이언트는 고치지 않아도 됩니다. 이 문서의 공통 항목(통신 규약 · 오류 코드 · 코어 Tool 행)은 분리 전 내용을 유지합니다.
+
+- 엔진: **UE 5.7.4**(소스 빌드에서 검증). 모듈 1개 `AnimGraphMcpEditor`(Type Editor). 프로젝트 코드에 의존하지 않습니다. 의존 플러그인 `EditorMcpCore` · `IKRig` · `Interchange`(`.uplugin` 에 선언). 모듈 시작 때 `IEditorMcpCoreModule::RegisterTools("AnimGraphMcp", …)` 로 Tool 37개를 등록하고, `get_editor_status` 에 `generation` 필드를 더합니다.
 - 그래프 조회·편집은 전부 C++ 입니다(Python 래퍼는 `UEdGraph::Nodes`·핀을 노출하지 않음). MCP 서버는 얇은 프록시이고 그래프 로직이 없습니다.
 - 수신은 `127.0.0.1` 만, 기동 때마다 바뀌는 토큰으로 보호합니다.
 
 ## 설치
 
 1. `Plugins/AnimGraphMcp` 를 프로젝트의 `Plugins/` 아래에 둡니다. 프로젝트는 **C++ 프로젝트**여야 합니다(에디터 모듈을 빌드해야 하므로 `Source/*.Target.cs` 가 필요).
-2. `.uproject` 의 `Plugins` 에 등록합니다.
+2. `Plugins/EditorMcpCore` 도 함께 두고 `.uproject` 의 `Plugins` 에 둘 다 등록합니다(StateTree 저작이 필요하면 `StateTreeMcp` 도).
    ```json
+   { "Name": "EditorMcpCore", "Enabled": true },
    { "Name": "AnimGraphMcp", "Enabled": true }
    ```
 3. 에디터 타깃을 빌드합니다(사용하는 구성마다).
@@ -25,12 +28,14 @@ AI Agent ─ stdio MCP ─▶ Tools/mcp/anim_graph_mcp/server.py ─ HTTP/JSON 1
 
 ## 설정 — `Config/DefaultEngine.ini`
 
+공용 키(`Port` · `bRequireToken` · `bAutoStart` · `ProtectedAssets` · `ProtectedPaths` · `StateTreeEditPaths`)는 코어가 새 `[EditorMcp]` 와 옛 `[AnimGraphMcp]` 를 **둘 다** 읽습니다(배열은 합침, 값은 `[EditorMcp]` 우선 — [EditorMcpCore README](../EditorMcpCore/README.md)). 아래 애니 기능 키는 `[AnimGraphMcp]` 에 둡니다.
+
 ```ini
 [AnimGraphMcp]
-Port=18765                 ; 기본값. 커맨드라인 -AnimGraphMcpPort=18766 으로 인스턴스별 오버라이드
-bRequireToken=True         ; Saved/AnimGraphMcp/token 을 헤더 X-AnimMcp-Token 으로 요구 (get_editor_status 만 면제)
-bAutoStart=True            ; 에디터 기동 시 리스너 시작. 콘솔 AnimGraphMcp.Start / Stop / Status
-+ProtectedAssets=/Game/Characters/Hero/ABP_Hero    ; 삭제·덮어쓰기 거부 (패키지 또는 오브젝트 경로, 정확히 일치)
+Port=18765                 ; (코어 — [EditorMcp] 에 둬도 됨) 기본값. 커맨드라인 -AnimGraphMcpPort=18766 으로 인스턴스별 오버라이드
+bRequireToken=True         ; (코어) Saved/AnimGraphMcp/token 을 헤더 X-AnimMcp-Token 으로 요구 (get_editor_status 만 면제)
+bAutoStart=True            ; (코어) 에디터 기동 시 리스너 시작. 콘솔 EditorMcp.Start / Stop / Status (옛 이름 AnimGraphMcp.* 도 동작)
++ProtectedAssets=/Game/Characters/Hero/ABP_Hero    ; (코어) 삭제·덮어쓰기 거부 (패키지 또는 오브젝트 경로, 정확히 일치)
 +ProtectedPaths=/Game/ThirdParty/                   ; 삭제·덮어쓰기 거부 (패키지 경로 접두)
 +SmokeTestPaths=/Game/Animation                     ; 스모크 테스트가 여는 AnimBP 경로 (생략 시 /Game/Animation)
 +GenerationOutputPaths=/Game/Animation/Generated/   ; AI 애니 생성 Tool 의 쓰기 허용 목록 (패키지 경로 접두)
@@ -39,7 +44,7 @@ MaxRetargetAssetsPerCall=50                         ; retarget_animations 요청
 +AnimationTagFiles=Config/AnimGraphMcp/AnimationTags.json  ; search_animations 수동 태그 JSON (프로젝트 기준 상대 또는 절대)
 +PromotionPaths=/Game/Characters/                    ; promote_animation 이 후보를 옮길 수 있는 정식 경로 (패키지 경로 접두, 생성 경로와 겹치면 무시)
 +CaptureOutputRoots=Tools/mcp/results/capture/       ; capture_animation 이 PNG 를 쓰는 디스크 폴더 (프로젝트 기준 상대 또는 절대 — 그 아래 새 · 빈 하위 폴더만)
-+StateTreeEditPaths=/Game/AI/                        ; StateTree Tool 의 쓰기 허용 목록 (패키지 경로 접두). 밖은 생성 · 적용 · 컴파일 · 되돌리기 거부. get_editor_status.state_tree_edit_paths
++StateTreeEditPaths=/Game/AI/                        ; (StateTreeMcp) StateTree Tool 의 쓰기 허용 목록 — Plugins/StateTreeMcp/README.md
 ```
 
 (UE ini 는 줄 끝 `;` 주석을 값으로 읽습니다 — 위 주석은 설명용이고 실제 ini 에서는 주석을 따로 줄에 둡니다.)
@@ -65,9 +70,9 @@ MaxRetargetAssetsPerCall=50                         ; retarget_animations 요청
 - `diagnostics[]` 는 성공 응답에도 붙는 경고(`{level, code, message}`).
 - 긴 작업은 동기입니다(에디터 프레임을 잡습니다). 클라이언트 타임아웃은 기본 60초, 컴파일을 포함하면 180초를 권장합니다.
 
-## Tool (41개)
+## Tool (41개 — AnimGraphMcp 37 + 코어 4)
 
-Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
+Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다. `get_editor_status` · `run_automation_tests` · `poll_automation_tests` · `quit_editor` 는 2026-11-14 부터 `EditorMcpCore` 가 등록합니다(동작 · 입출력 같음, 상태 결과에 `features[]` · `widget` 추가). MCP 서버 `anim-graph-mcp` 는 그대로 넷 다 노출합니다.
 
 | Tool | 입력 | 하는 일 |
 | :--- | :--- | :--- |
@@ -150,9 +155,9 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 새 Tool 은 Claude Code **세션을 다시 시작해야** MCP 목록에 보입니다(HTTP 로는 바로 호출 가능).
 
-## StateTree Tool (9개) — MCP 서버 `state-tree-mcp`
+## StateTree Tool (9개) — 2026-11-14 `Plugins/StateTreeMcp` 로 이전
 
-브리지 · 토큰 · 봉투는 같고 Python 쪽만 `Tools/mcp/state_tree_mcp/server.py` 다. 설계 · 근거는 `Docs/StateTree/DevelopmentGuide.md`, 실측은 `Docs/StateTree/Feasibility.md` · `Phase1Report.md` · `Phase2Report.md`.
+이 절과 '검증 — StateTree 시나리오' 의 최신본은 [`Plugins/StateTreeMcp/README.md`](../StateTreeMcp/README.md) 입니다. 아래는 이전 시점의 사본입니다(Tool · op 는 바뀌지 않았다). 시험 이름은 `StateTreeMcp.*`, 시험 타입 경로는 `/Script/StateTreeMcpEditor.*` 로 바뀌었습니다.
 
 | Tool | 쓰기 | 입력 · 결과 |
 | :--- | :---: | :--- |
@@ -301,7 +306,7 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 - `expect_states` 는 순서만 봅니다. 사이에 다른 상태가 끼어도 통과하므로 엄밀한 순서는 `timeline` 을 직접 봅니다. 없으면 `duration` 까지 관측합니다.
 - `clients: N` 은 리슨 서버 + 클라이언트 N 입니다. 사용자 플레이 설정과 무관하게 네트 모드 · 인원을 명시합니다. 관측은 서버 월드 인스턴스만, `worlds[]` 에 월드별 개수를 싣습니다.
 - `log[]` 는 PIE 시작 뒤 StateTree · Navigation · PathFollowing 경고 이상입니다. 시험은 로그로 실패시키지 않습니다. 인스턴스를 못 찾으면 `candidates` 에 폰별 컨트롤러와 컴포넌트별 트리가 실립니다.
-- `AnimGraphMcp.StateTree.16_RuntimeScenario` 를 필터로 직접 돌리면 시나리오 없이도 엔진 클래스 고정물로 실제로 돕니다.
+- `StateTreeMcp.16_RuntimeScenario`(분리 전 `AnimGraphMcp.StateTree.16_RuntimeScenario`) 를 필터로 직접 돌리면 시나리오 없이도 엔진 클래스 고정물로 실제로 돕니다.
 - 에디터가 뜬 직후에는 30초쯤 기다리고 시작합니다 — 기동 직후 CEF 가속 페인트와 자동 테스트 플래그가 겹쳐 엔진 `check` 로 죽은 적이 있습니다(`Phase2Report.md` §4). `run_anim_scenario` · `run_automation_tests` 도 같은 플래그를 씁니다.
 
 ## 제약 (설계상 범위 밖)
@@ -319,28 +324,26 @@ Python 함수명 = 라우트명. 입력은 JSON 본문의 필드입니다.
 
 ```text
 Source/AnimGraphMcpEditor/Private/
-  AnimGraphMcpEditorModule.cpp     설정 로드 · Dispatcher/Bridge 조립 · Tool 등록 · 콘솔 명령
-  Bridge/   AnimMcpHttpBridge       엔진 HTTPServer 라우트(tool 당 1개) · 토큰 전처리 · 응답
-            AnimMcpDispatcher       JSON 파싱 → request_id 캐시 → 핸들러 → 봉투
-            AnimMcpTypes            오류 코드 · 파라미터 헬퍼 · 진단
-  Core/     AnimMcpAssetResolver    경로 정규화 · 존재 확인 · 로드
-            AnimMcpGraphInspector   (읽기 전용) 구조 조회 · revision
+  AnimGraphMcpEditorModule.cpp     코어에 Tool 37개 · generation 상태 필드 등록 / 해제 (브리지 수명 · 콘솔 명령은 EditorMcpCore)
+  (EditorMcpCore 로 옮김: Bridge/AnimMcpHttpBridge · AnimMcpDispatcher · AnimMcpTypes · Core/AnimMcpAssetResolver · AnimMcpAssetProtection ·
+   AnimMcpAutomationRunner · AnimMcpRuntimeScenario · AnimMcpPropertyRules 의 값 변환(→ AnimMcpPropertyValues) · AnimMcpGeneration 의 경로/더티 공용부(→ EditorMcpGuard) ·
+   Tools/AnimMcpTools_Status · _Editor · _Automation 의 run/poll — 같은 include 경로 "Bridge/…" · "Core/…" 로 그대로 쓴다)
+  (StateTreeMcp 로 옮김: Core/AnimMcpStateTree* · Tools/AnimMcpTools_StateTree · Tests/AnimMcpStateTree*)
+  Core/     AnimMcpGraphInspector   (읽기 전용) 구조 조회 · revision
             AnimMcpGraphMutator     (쓰기 기계) 노드·핀·속성·상태머신 조작
             AnimMcpOperations       배치 정책: 참조 해석 · 사전 검증 · 트랜잭션 · 되돌리기 저널
             AnimMcpTransitionRule   규칙 AST → K2 그래프 · 주석 원문/해시
-            AnimMcpPropertyRules    set_property 허용 목록 · JSON ↔ ImportText
+            AnimMcpPropertyRules    set_property 허용 목록 (JSON ↔ ImportText 는 코어 Core/AnimMcpPropertyValues 를 포함해 같은 이름공간으로 쓴다)
             AnimMcpPropertyBinding  핀 Property Binding(리플렉션 · IPropertyAccessEditor)
             AnimMcpAnimLayer        레이어 인터페이스 생성 · 구현 · 레이어 노드 · 값 파라미터 · InstanceClass · 레이어 추가/삭제 · 구현 ABP 동기화
             AnimMcpBlendSpaceFactory  BlendSpace 1D/2D 생성
             AnimMcpBlueprintFactory ABP 생성   AnimMcpCompiler  컴파일·저장
-            AnimMcpAssetProtection  보호 목록   AnimMcpAssetOps  삭제·복제·참조자(레지스트리 · 삭제 거부는 메모리 참조자까지)
-            AnimMcpAutomationRunner FAutomationTestFramework 구동 · 잡
+            AnimMcpAssetOps         삭제·복제·참조자(레지스트리 · 삭제 거부는 메모리 참조자까지)
             AnimMcpPropertyAccessNode  UK2Node_PropertyAccess 리플렉션(엔진 플러그인의 비공개 노드)
             AnimMcpVariables        BP 멤버 변수 추가·삭제 · 타입 문자열
             AnimMcpUpdateFunction   BlueprintThreadSafeUpdateAnimation 함수 그래프 생성·재생성
             AnimMcpMontage          몽타주 생성(시퀀스 1개) · 슬롯 이름 · 섹션 전체 교체 · 스켈레톤 슬롯 등록 · 조회
-            AnimMcpRuntimeScenario  런타임 시나리오 계약 — 테스트 명령 "<클래스> <JSON>" · 관측 슬롯(테스트 → 러너 → observed)
-            AnimMcpGeneration       AI 애니 생성 공통 가드: [AnimGraphMcp] 생성 · 승격 경로 설정 · 출력/임포트 경로 검사 · 전역 더티 집합 비교(FDirtyGuard, 추가 허용 집합) ·
+            AnimMcpGeneration       AI 애니 생성 공통 가드: [AnimGraphMcp] 생성 · 승격 경로 설정 · 출력/임포트 경로 검사 · 전역 더티 집합 비교(FDirtyGuard = 코어 FDirtySnapshot + 생성 경로, 추가 허용 집합) ·
                                     새 애셋 객체 · 복제본(덮어쓰기 없음) · FinishWrite(검사 → 저장) · 기존 쓰기 Tool 의 옵트인 FWriteGuard(generation_guard)
             AnimMcpPromote          promote_animation — 사전 검사(경로 · 클래스 · 참조자 · 맵 · 더티 · 보호 · CDO) → RenameAssets → 사후 검증(리디렉터 · 파일 · 해시 · 참조 · 저장)
             AnimMcpCapture          capture_animation — 임시 프리뷰 월드 · 범위(정점 상자) · 정사영 맞춤(FitView) · 초점 따라가기(FitFocus · FollowFocus) · 셀 렌더 · 라벨 · 시트 · 비교 시트 · 연속 프레임 · 가드
@@ -352,13 +355,7 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpAnimSearch       search_animations — 레지스트리 태그 · 이름 토큰 · 수동 태그 파일 · 필요할 때만 로드
             AnimMcpAnimEditOps      키 편집 계산부(UObject 없음 — 리그 · 버퍼 · op 7종 · 출처 · 이음매) — 단위 테스트 대상
             AnimMcpAnimEdit         preview/apply_animation_edits — 파싱 · 원시 키 읽기 · 버퍼 계산 · 복제 · 재작성 · 노티파이 이동 · 검증
-            AnimMcpStateTreeAsset   StateTree 경로 규칙 · 생성 · 컴파일 측정(fixups) · 복구 2단(Undo → 재로드) · 편집기 알림
-            AnimMcpStateTreeBindings  바인딩 사전 검증(범위 · 경로 · 메뉴 · 타입) · 소스 후보
-            AnimMcpStateTreeInspector  애셋 → JSON · 노드 타입 목록
-            AnimMcpStateTreeOperations 배치: 기존 트리의 그림자로 계획(검증 + 실행 단계) · Preview · Apply
-            AnimMcpStateTreeRuntime  run_state_tree_scenario — 시나리오 파싱 · 지연 명령 · 프레임별 관측 · 판정(전송 · 전환 · 기대 상태)
   Tests/    AnimMcpSmokeTests.cpp    AnimGraphMcp.Smoke.AnimBlueprint · AnimGraphMcp.Smoke.AnimMontage
-            AnimMcpStateTreeTests.cpp  AnimGraphMcp.StateTree.* — 실제 핸들러를 로컬 디스패처로 호출(§8 필수 항목 + PIE 거부 · 열린 편집기 · 런타임 시나리오 고정물). AnimMcpStateTreeTestTypes.h = 시험 전용 Evaluator(meta=Hidden)
             AnimMcpRuntimeTests.cpp  AnimGraphMcp.Runtime.AnimBlueprint — PIE 시작·스폰·변수·몽타주·N 프레임·관측·비교·PIE 종료(지연 명령 7단계)
             AnimMcpAutomationRunnerTests.cpp  AnimGraphMcp.Runner.* — 러너 · 엔진 Automation 워커 경합 회귀(지연 명령이 끝나는 호출 위치별 · 명령 안의 명령)
             AnimMcpGenerationTests.cpp  AnimGraphMcp.Generation.Guard — 경로 '/' 경계 · 임포트 원본 · 허용 목록 밖 새 더티 → UNEXPECTED_DIRTY(메모리 패키지) ·
@@ -366,7 +363,7 @@ Source/AnimGraphMcpEditor/Private/
                                      .WriteGuard — 쓰기 Tool 6개를 로컬 디스패처로 불러 꺼짐 = 기존 동작 · 켬 = 허용 목록 밖 · 덮어쓰기 거부 · 전역 더티 비교
             AnimMcpEditTests.cpp     AnimGraphMcp.Generation.Edit — 합성 리그로 op 수학(길이 · 키 대응 · 이음매 · 미러 두 번 = 원래 · 컴포넌트 축 회전)
             AnimMcpCaptureTests.cpp  AnimGraphMcp.Generation.Capture — 카메라 맞춤 · 시트 축소 · 시각 펼치기 · 샘플 프레임(Blender 수식과 같은 값) · 캡처 출력 폴더 규칙
-  Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음; Montage = 몽타주·스켈레톤 슬롯 4종 · Automation = run/poll + run_anim_scenario 사전 검증 ·
+  Tools/    AnimMcpTools_*.cpp       Tool 핸들러(얇음; Montage = 몽타주·스켈레톤 슬롯 4종 · Automation = run_anim_scenario 사전 검증(run/poll 은 코어) ·
                                      Skeleton = reassign_skeleton(EditorAnimUtils::RetargetAnimations 제자리) + inspect_skeleton · Sequence = set_sequence_additive ·
                                      Import = import_animation_file · Retarget = create_ik_rig · create_ik_retargeter · retarget_animations ·
                                      Validate = validate_animation · Search = search_animations · Edit = preview/apply_animation_edits · Promote = promote_animation ·

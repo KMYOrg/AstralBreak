@@ -1,8 +1,8 @@
-# AnimGraph MCP
+# 에디터 MCP (AnimGraph · StateTree · Widget)
 
-Claude Code ↔ (stdio MCP) ↔ `Tools/mcp/anim_graph_mcp/server.py` ↔ (HTTP/JSON, 127.0.0.1:18765) ↔ `Plugins/AnimGraphMcp` (에디터 C++)
+Claude Code ↔ (stdio MCP) ↔ `Tools/mcp/<기능>_mcp/server.py` ↔ (HTTP/JSON, 127.0.0.1:18765) ↔ `Plugins/EditorMcpCore`(공용 브리지) ↔ 기능 플러그인 `Plugins/AnimGraphMcp` · `Plugins/StateTreeMcp` · `Plugins/WidgetMcp` (에디터 C++)
 
-플러그인 쪽 전체 참조(Tool 41개 + StateTree Tool 9개 · op 20종 · 오류 코드 · 제약 · 소스 구조)는 [`Plugins/AnimGraphMcp/README.md`](../../Plugins/AnimGraphMcp/README.md). 설계·API 근거는 `.claude/plans/animbp-automation-phase1.md`.
+2026-11-14 플러그인 분리: 공용 브리지 · 토큰 · 봉투 · 코어 Tool 4개(`get_editor_status` · `quit_editor` · `run/poll_automation_tests`)는 [`Plugins/EditorMcpCore/README.md`](../../Plugins/EditorMcpCore/README.md), 애니 Tool 37개 · op 20종 · 오류 코드 · 제약은 [`Plugins/AnimGraphMcp/README.md`](../../Plugins/AnimGraphMcp/README.md), StateTree Tool 9개는 [`Plugins/StateTreeMcp/README.md`](../../Plugins/StateTreeMcp/README.md). Python 공용 클라이언트는 `Tools/mcp/editor_bridge/bridge.py` 이고, 옛 `from anim_graph_mcp import bridge` 는 같은 모듈 객체를 돌려준다(포트 · 토큰 파일 · 헤더 · 환경 변수 이름 그대로). 설계·API 근거는 `.claude/plans/animbp-automation-phase1.md` · `Docs/Design/ui-autogen-pipeline.md` §3-1.
 
 ## 설치 (1회)
 
@@ -20,11 +20,11 @@ Tools/mcp/.venv/Scripts/python.exe -m pip install -r Tools/mcp/requirements.txt
     "env": { "ANIMGRAPH_MCP_PORT": "18765" } } } }
 ```
 
-에디터는 `Plugins/AnimGraphMcp` 가 활성화된 상태로 떠 있어야 한다. 다른 프로젝트에 옮길 때는 `Plugins/AnimGraphMcp` + `Tools/mcp`(venv 제외) + `.mcp.json` 을 복사하고 `.uproject` 에 플러그인을 등록한 뒤 에디터 타깃을 빌드한다. 토큰 파일 위치는 `<프로젝트>/Saved/AnimGraphMcp/token` 이고 `bridge.py` 가 자기 위치에서 프로젝트 루트를 찾는다(`ANIMGRAPH_MCP_PROJECT_DIR` 로 오버라이드).
+에디터는 `Plugins/EditorMcpCore` 와 쓰려는 기능 플러그인(`AnimGraphMcp` · `StateTreeMcp`)이 활성화된 상태로 떠 있어야 한다. 다른 프로젝트에 옮길 때는 `Plugins/EditorMcpCore` + 기능 플러그인 + `Tools/mcp`(venv 제외) + `.mcp.json` 을 복사하고 `.uproject` 에 플러그인을 등록한 뒤 에디터 타깃을 빌드한다. 토큰 파일 위치는 `<프로젝트>/Saved/AnimGraphMcp/token`(분리 전 그대로)이고 `editor_bridge/bridge.py` 가 자기 위치에서 프로젝트 루트를 찾는다(`ANIMGRAPH_MCP_PROJECT_DIR` 로 오버라이드).
 
 ## 설정
 
-`Config/DefaultEngine.ini` (없으면 기본값):
+`Config/DefaultEngine.ini` (없으면 기본값). 공용 키(`Port` · `bRequireToken` · `bAutoStart` · `ProtectedAssets` · `ProtectedPaths` · `StateTreeEditPaths`)는 새 `[EditorMcp]` 에 둬도 되고 옛 `[AnimGraphMcp]` 도 그대로 읽는다(배열은 합침, 값은 `[EditorMcp]` 우선):
 
 ```
 [AnimGraphMcp]
@@ -36,7 +36,7 @@ bAutoStart=True
 +SmokeTestPaths=/Game/Animation                        ; 스모크 테스트가 여는 AnimBP 경로
 ```
 
-에디터 콘솔: `AnimGraphMcp.Start` / `AnimGraphMcp.Stop` / `AnimGraphMcp.Status`. 커맨드라인 `-AnimGraphMcpPort=18766` 으로 인스턴스별 포트 오버라이드. 토큰은 에디터가 기동할 때 `Saved/AnimGraphMcp/token` 에 쓴다. `get_editor_status` 만 토큰 면제.
+에디터 콘솔: `EditorMcp.Start` / `EditorMcp.Stop` / `EditorMcp.Status` (옛 이름 `AnimGraphMcp.Start` / `Stop` / `Status` 도 같은 동작). 커맨드라인 `-AnimGraphMcpPort=18766` 으로 인스턴스별 포트 오버라이드. 토큰은 에디터가 기동할 때 `Saved/AnimGraphMcp/token` 에 쓴다. `get_editor_status` 만 토큰 면제.
 
 ## Tool (40개)
 
@@ -56,7 +56,7 @@ AI 애니 생성 기존 모션 재사용·변형(Phase 2) `search_animations`(�
 
 ## state-tree-mcp (StateTree 저작 고리)
 
-`Tools/mcp/state_tree_mcp/server.py`(`.mcp.json` 의 `state-tree-mcp`). 로직 없이 `anim_graph_mcp/bridge.py` 를 공유한다. Tool 9개 · op 사전 · 오류 코드는 플러그인 README, 설계는 `Docs/StateTree/DevelopmentGuide.md`. 시험은 Automation `AnimGraphMcp.StateTree.*`.
+`Tools/mcp/state_tree_mcp/server.py`(`.mcp.json` 의 `state-tree-mcp`). 로직 없이 공용 `editor_bridge/bridge.py` 를 쓴다. Tool 9개 · op 사전 · 오류 코드는 [`Plugins/StateTreeMcp/README.md`](../../Plugins/StateTreeMcp/README.md), 설계는 `Docs/StateTree/DevelopmentGuide.md`. 시험은 Automation `StateTreeMcp.*`(분리 전 `AnimGraphMcp.StateTree.*`).
 
 전형적인 흐름: `create_state_tree` → `list_state_tree_node_types` → `preview_state_tree_operations` → `apply_state_tree_operations {expected_revision}` → `inspect_state_tree` → `run_state_tree_scenario` + `anim-graph-mcp` 의 `poll_automation_tests` 로 PIE 전환 확인. 편집기 상태 확인은 `anim-graph-mcp` 의 `get_editor_status`(`state_tree_edit_paths`).
 

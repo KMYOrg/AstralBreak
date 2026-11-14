@@ -2,7 +2,7 @@
 
 #include "Animation/AnimData/IAnimationDataController.h"
 #include "Animation/AnimData/IAnimationDataModel.h"
-#include "AnimMcpAssetResolver.h"
+#include "Core/AnimMcpAssetResolver.h"
 #include "AnimMcpSkeletonGeometry.h"
 #include "AnimMcpStats.h"
 #include "AnimPose.h"

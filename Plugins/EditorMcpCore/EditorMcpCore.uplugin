@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Editor MCP Core",
+	"Description": "Shared local HTTP/JSON bridge (127.0.0.1 only) for editor MCP feature plugins: dispatcher, token, request_id cache, editor status, automation runner, asset protection and write guards. Feature plugins (AnimGraphMcp, StateTreeMcp, WidgetMcp) register their tools at module startup.",
+	"Category": "Scripting",
+	"CreatedBy": "kmy9317",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EnabledByDefault": true,
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "EditorMcpCore",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}

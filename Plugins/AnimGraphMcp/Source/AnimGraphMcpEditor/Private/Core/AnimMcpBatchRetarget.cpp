@@ -1,7 +1,7 @@
 #include "AnimMcpBatchRetarget.h"
 
 #include "AnimMcpAnimValidator.h"
-#include "AnimMcpAssetResolver.h"
+#include "Core/AnimMcpAssetResolver.h"
 #include "AnimMcpGeneration.h"
 #include "AnimMcpLog.h"
 #include "AnimMcpStats.h"

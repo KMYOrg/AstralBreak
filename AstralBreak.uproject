@@ -55,7 +55,19 @@
 			"Enabled": true
 		},
 		{
+			"Name": "EditorMcpCore",
+			"Enabled": true
+		},
+		{
 			"Name": "AnimGraphMcp",
+			"Enabled": true
+		},
+		{
+			"Name": "StateTreeMcp",
+			"Enabled": true
+		},
+		{
+			"Name": "WidgetMcp",
 			"Enabled": true
 		},
 		{

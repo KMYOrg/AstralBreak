@@ -16,6 +16,7 @@ UAstralHeroResourceSet::UAstralHeroResourceSet()
     InitMaxUltGauge(100.f);
     InitUltGainMultiplier(1.f);
     InitBreakContributionMultiplier(1.f);
+    InitChainBurstDamageMultiplier(1.f);
 
     InitMarkStack(0.f);
     InitMaxMarkStack(5.f);
@@ -39,6 +40,7 @@ void UAstralHeroResourceSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
     DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, MaxUltGauge,                COND_None, REPNOTIFY_Always);
     DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, UltGainMultiplier,          COND_None, REPNOTIFY_Always);
     DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, BreakContributionMultiplier,COND_None, REPNOTIFY_Always);
+    DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, ChainBurstDamageMultiplier, COND_None, REPNOTIFY_Always);
 
     DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, MarkStack,                  COND_None, REPNOTIFY_Always);
     DOREPLIFETIME_CONDITION_NOTIFY(UAstralHeroResourceSet, MaxMarkStack,               COND_None, REPNOTIFY_Always);
@@ -61,6 +63,7 @@ DEFINE_ONREP(UltGauge)
 DEFINE_ONREP(MaxUltGauge)
 DEFINE_ONREP(UltGainMultiplier)
 DEFINE_ONREP(BreakContributionMultiplier)
+DEFINE_ONREP(ChainBurstDamageMultiplier)
 DEFINE_ONREP(MarkStack)
 DEFINE_ONREP(MaxMarkStack)
 DEFINE_ONREP(MarkGainMultiplier)
@@ -201,6 +204,7 @@ void UAstralHeroResourceSet::ClampAttribute(const FGameplayAttribute& Attribute,
           || Attribute == GetStaminaRecoveryMultiplierAttribute()
           || Attribute == GetUltGainMultiplierAttribute()
           || Attribute == GetBreakContributionMultiplierAttribute()
+          || Attribute == GetChainBurstDamageMultiplierAttribute()
           || Attribute == GetMarkGainMultiplierAttribute()
           || Attribute == GetHostilityAttribute())
     {

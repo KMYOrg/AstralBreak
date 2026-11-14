@@ -9,7 +9,7 @@ class UAstralAbilitySet;
 
 /**
  * 문맥(월드) 정책의 소유자 — 
- * 로비 상태(SelectedRaid·준비 집계)는 AstralHubGameState, 레이드 상태(목표·진행도)는 M3+의 RaidGameState.
+ * 로비 상태(SelectedRaid·준비 집계)는 AstralHubGameState, 레이드 상태(체인 버스트 · 이후 목표·진행도)는 AstralRaidGameState.
  */
 UCLASS()
 class ASTRALBREAK_API AAstralGameState : public AGameStateBase

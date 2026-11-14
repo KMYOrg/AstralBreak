@@ -8,6 +8,8 @@
 //   U3  발동 — 서버에 오의 중 · 무적 태그, 게이지 0(클라이언트에도), 오의 중 피해 무효, 끝난 뒤에는 피해가 들어간다
 //   U4  차단 태그가 있으면 게이지가 가득이어도 발동하지 않는다. 풀면 발동한다
 //   U5  오의가 앞의 적에게 피해를 준다 (U4 끝의 발동으로 본다)
+//   U6  남이 오의를 쓰는 동안 차단된다 — 상대의 서버 ASC 와 자기 자리 ASC 에 차단 태그, 가득 찬 채 눌러도 나가지 않고 게이지 유지, 끝나면 풀린다 (B 다듬기 ②)
+//   U7  못 맞힌 오의(U3 — 적 없음)는 끝날 때 최대치 × MissRefundRatio 를 돌려받고 체인에 들지 않는다. 맞힌 오의(U5)는 0 으로 끝나고 체인을 연다 (B 다듬기 ① · ③)
 //
 // 값(피해 · 스윕 범위 · 몽타주)은 GA_Hero_Ult BP 의 것이고 전부 잠정이다 — 이 시험은 값이 아니라 규칙을 본다.
 
@@ -19,6 +21,7 @@
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/Abilities/Hero/Combat/AstralGA_Hero_Ult.h"
 #include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
 #include "Character/AstralCharacter.h"
 #include "Character/Components/AstralHealthComponent.h"
@@ -27,6 +30,7 @@
 #include "EngineUtils.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
+#include "GameModes/AstralChainBurstComponent.h"
 #include "GameplayTagContainer.h"
 #include "Player/AstralPlayerController.h"
 
@@ -61,6 +65,9 @@ namespace AstralHeroUltPie
 		TWeakObjectPtr<AAstralCombatCharacter> Enemy;
 		float EnemyHealthBefore = 0.f;
 		float MaxGauge = 0.f;
+
+		/** 오의 어빌리티의 잠정값 — 못 맞혔을 때 돌려받는 비율 */
+		float MissRefundRatio = 0.f;
 	};
 
 	// ─── 조회 ───
@@ -150,18 +157,56 @@ namespace AstralHeroUltPie
 		return Out;
 	}
 
+	/** 서버가 보는 그 플레이어의 ASC */
+	UAbilitySystemComponent* ServerASCOf(int32 PlayerId)
+	{
+		const AAstralCharacter* Pawn = PawnIn(FindServerWorld(), PlayerId);
+		return Pawn ? Pawn->GetAbilitySystemComponent() : nullptr;
+	}
+
+	/** 그 플레이어 자기 자리의 ASC — 입력을 넣는 곳 (리슨 호스트는 서버의 것과 같다) */
+	UAstralAbilitySystemComponent* SeatASCOf(int32 PlayerId)
+	{
+		const AAstralPlayerController* PC = Cast<AAstralPlayerController>(GetLocalPC(FindSeatWorld(PlayerId)));
+		return PC ? PC->GetAstralAbilitySystemComponent() : nullptr;
+	}
+
 	/** 서버가 보는 오의 사용자의 ASC */
 	UAbilitySystemComponent* ServerASC(const FContext& Ctx)
 	{
-		const AAstralCharacter* Pawn = PawnIn(FindServerWorld(), Ctx.UserId);
-		return Pawn ? Pawn->GetAbilitySystemComponent() : nullptr;
+		return ServerASCOf(Ctx.UserId);
 	}
 
 	/** 오의 사용자 자기 자리(클라이언트)의 ASC — 입력을 넣는 곳 */
 	UAstralAbilitySystemComponent* SeatASC(const FContext& Ctx)
 	{
-		const AAstralPlayerController* PC = Cast<AAstralPlayerController>(GetLocalPC(FindSeatWorld(Ctx.UserId)));
-		return PC ? PC->GetAstralAbilitySystemComponent() : nullptr;
+		return SeatASCOf(Ctx.UserId);
+	}
+
+	/** 부여된 오의 어빌리티(BP 의 CDO)의 잠정값 — 프로퍼티가 protected 라 이름으로 읽는다. 없으면 -1 */
+	float UltAbilityFloat(const UAbilitySystemComponent* ASC, const TCHAR* Name)
+	{
+		if (ASC)
+		{
+			for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+			{
+				const UGameplayAbility* Ability = Spec.Ability;
+				if (Ability && Ability->IsA(UAstralGA_Hero_Ult::StaticClass()))
+				{
+					const FFloatProperty* Property = FindFProperty<FFloatProperty>(Ability->GetClass(), Name);
+					return Property ? Property->GetPropertyValue_InContainer(Ability) : -1.f;
+				}
+			}
+		}
+		return -1.f;
+	}
+
+	/** 서버의 체인 상태 — CombatTestMap 은 레이드 GameState 라 체인 컴포넌트가 있다 */
+	FAstralChainState ServerChainState()
+	{
+		const UWorld* ServerWorld = FindServerWorld();
+		const UAstralChainBurstComponent* Chain = ServerWorld ? UAstralChainBurstComponent::FindChainBurstComponent(ServerWorld) : nullptr;
+		return Chain ? Chain->GetChainState() : FAstralChainState();
 	}
 
 	float GaugeOf(const UAbilitySystemComponent* ASC)
@@ -190,13 +235,13 @@ namespace AstralHeroUltPie
 		WaitUntil(Ctx, What, TimeoutSeconds, MoveTemp(Condition), [Ctx]() { return Describe(*Ctx); });
 	}
 
-	/** 클라이언트 자리에서 오의 입력을 눌렀다 뗀다 */
-	void PressUlt(const TSharedRef<FContext>& Ctx)
+	/** 자기 자리에서 오의 입력을 눌렀다 뗀다 — 기본은 오의 사용자(클라이언트), bOther 면 상대 */
+	void PressUlt(const TSharedRef<FContext>& Ctx, bool bOther = false)
 	{
-		Do(Ctx, [Ctx]()
+		Do(Ctx, [Ctx, bOther]()
 		{
-			UAstralAbilitySystemComponent* ASC = SeatASC(*Ctx);
-			if (!Ctx->Test->TestNotNull(TEXT("user's ASC on its own seat"), ASC))
+			UAstralAbilitySystemComponent* ASC = SeatASCOf(bOther ? Ctx->OtherId : Ctx->UserId);
+			if (!Ctx->Test->TestNotNull(TEXT("player's ASC on its own seat"), ASC))
 			{
 				Ctx->bAborted = true;
 				return;
@@ -204,9 +249,9 @@ namespace AstralHeroUltPie
 			ASC->AbilityInputTagPressed(FGameplayTag::RequestGameplayTag(UltInputTagName));
 		});
 		Hold(Ctx, 0.1);
-		Do(Ctx, [Ctx]()
+		Do(Ctx, [Ctx, bOther]()
 		{
-			if (UAstralAbilitySystemComponent* ASC = SeatASC(*Ctx))
+			if (UAstralAbilitySystemComponent* ASC = SeatASCOf(bOther ? Ctx->OtherId : Ctx->UserId))
 			{
 				ASC->AbilityInputTagReleased(FGameplayTag::RequestGameplayTag(UltInputTagName));
 			}
@@ -295,8 +340,10 @@ namespace AstralHeroUltPie
 			const UAbilitySystemComponent* Server = ServerASC(*Ctx);
 			Ctx->MaxGauge = Server ? Server->GetNumericAttribute(UAstralHeroResourceSet::GetMaxUltGaugeAttribute()) : 0.f;
 			Test.TestTrue(TEXT("the hero has an ult gauge with a positive max"), Ctx->MaxGauge > 0.f);
-			Note(Test, FString::Printf(TEXT("setup: %s, user id %d, other id %d, max gauge %.0f, gauge %.1f"),
-				Ctx->bDedicated ? TEXT("dedicated") : TEXT("listen"), Ctx->UserId, Ctx->OtherId, Ctx->MaxGauge, GaugeOf(Server)));
+			Ctx->MissRefundRatio = UltAbilityFloat(Server, TEXT("MissRefundRatio"));
+			Test.TestTrue(TEXT("the ult ability has a miss refund ratio between 0 and 1"), Ctx->MissRefundRatio > 0.f && Ctx->MissRefundRatio < 1.f);
+			Note(Test, FString::Printf(TEXT("setup: %s, user id %d, other id %d, max gauge %.0f, gauge %.1f, miss refund ratio %.2f"),
+				Ctx->bDedicated ? TEXT("dedicated") : TEXT("listen"), Ctx->UserId, Ctx->OtherId, Ctx->MaxGauge, GaugeOf(Server), Ctx->MissRefundRatio));
 		});
 		Hold(Ctx, 1.0);
 	}
@@ -318,23 +365,28 @@ namespace AstralHeroUltPie
 		});
 	}
 
-	void EnqueueFill(const TSharedRef<FContext>& Ctx, const TCHAR* Label)
+	void EnqueueFill(const TSharedRef<FContext>& Ctx, const TCHAR* Label, bool bOther = false)
 	{
-		// 클라이언트의 디버그 명령 — Exec → 서버 RPC
-		Do(Ctx, [Ctx]()
+		// 자기 자리의 디버그 명령 — 클라이언트는 Exec → 서버 RPC (상대가 리슨 호스트면 서버에서 바로)
+		Do(Ctx, [Ctx, bOther]()
 		{
-			AAstralCharacter* ClientPawn = PawnIn(FindSeatWorld(Ctx->UserId), Ctx->UserId);
-			if (!Ctx->Test->TestNotNull(TEXT("user hero pawn on its own client"), ClientPawn))
+			const int32 PlayerId = bOther ? Ctx->OtherId : Ctx->UserId;
+			AAstralCharacter* SeatPawn = PawnIn(FindSeatWorld(PlayerId), PlayerId);
+			if (!Ctx->Test->TestNotNull(TEXT("hero pawn on its own seat"), SeatPawn))
 			{
 				Ctx->bAborted = true;
 				return;
 			}
-			Ctx->Test->TestFalse(TEXT("FillUlt is called on a client (no authority)"), ClientPawn->HasAuthority());
-			ClientPawn->FillUlt();
+			if (!bOther)
+			{
+				Ctx->Test->TestFalse(TEXT("FillUlt is called on a client (no authority)"), SeatPawn->HasAuthority());
+			}
+			SeatPawn->FillUlt();
 		});
-		Wait(Ctx, Label, 10.0, [Ctx]()
+		Wait(Ctx, Label, 10.0, [Ctx, bOther]()
 		{
-			return FMath::IsNearlyEqual(GaugeOf(ServerASC(*Ctx)), Ctx->MaxGauge, 0.01f) && FMath::IsNearlyEqual(GaugeOf(SeatASC(*Ctx)), Ctx->MaxGauge, 0.01f);
+			const int32 PlayerId = bOther ? Ctx->OtherId : Ctx->UserId;
+			return FMath::IsNearlyEqual(GaugeOf(ServerASCOf(PlayerId)), Ctx->MaxGauge, 0.01f) && FMath::IsNearlyEqual(GaugeOf(SeatASCOf(PlayerId)), Ctx->MaxGauge, 0.01f);
 		});
 	}
 
@@ -342,6 +394,8 @@ namespace AstralHeroUltPie
 	{
 		// U2 — 채운다
 		EnqueueFill(Ctx, TEXT("U2: FillUlt fills the gauge on the server and it replicates to the user's seat"));
+		// U6 준비 — 상대도 가득 채워 둔다 (차단이 없으면 눌렀을 때 나갈 수 있는 상태)
+		EnqueueFill(Ctx, TEXT("U6: the other player's gauge is full too"), /*bOther=*/true);
 
 		// U3 — 발동
 		PressUlt(Ctx);
@@ -361,8 +415,32 @@ namespace AstralHeroUltPie
 			ServerPawn->DamageSelf(30.f);
 			Test.TestEqual(TEXT("U3: damage during the ult is ignored"), HealthOf(ServerPawn), Before);
 			Note(Test, FString::Printf(TEXT("U3: active — server gauge %.1f, hp %.0f -> %.0f after 30 damage"), GaugeOf(Server), Before, HealthOf(ServerPawn)));
+
+			// U6 — 쓰는 동안 나머지는 차단된다(서버). 쓰는 사람 자신은 아니다
+			Test.TestFalse(TEXT("U6: the user is not blocked by its own ult"), HasTag(Server, UltBlockedTagName));
+			Test.TestTrue(TEXT("U6: the other player is blocked on the server while the user casts"), HasTag(ServerASCOf(Ctx->OtherId), UltBlockedTagName));
+			Test.TestEqual(TEXT("U6: the chain state names the user as the one casting"), ServerChainState().CastingPlayerId, Ctx->UserId);
 		});
 		Wait(Ctx, TEXT("U3: the spent gauge replicates to the user's seat"), 5.0, [Ctx]() { return FMath::IsNearlyZero(GaugeOf(SeatASC(*Ctx)), 0.01f); });
+
+		// U6 — 차단은 복제되는 효과라 상대의 자기 자리에서도 보인다(발동 전에 안다). 그 상태로 눌러도 나가지 않는다
+		Wait(Ctx, TEXT("U6: the block reaches the other player's own seat while the user is still casting"), 3.0, [Ctx]()
+		{
+			return HasTag(SeatASCOf(Ctx->OtherId), UltBlockedTagName) && HasTag(ServerASC(*Ctx), UltActiveTagName);
+		});
+		PressUlt(Ctx, /*bOther=*/true);
+		Hold(Ctx, 0.4);
+		Do(Ctx, [Ctx]()
+		{
+			FAutomationTestBase& Test = *Ctx->Test;
+			const UAbilitySystemComponent* OtherServer = ServerASCOf(Ctx->OtherId);
+			Test.TestFalse(TEXT("U6: the other player's ult does not start on the server while blocked"), HasTag(OtherServer, UltActiveTagName));
+			Test.TestFalse(TEXT("U6: the other player's ult does not start on its own seat while blocked"), HasTag(SeatASCOf(Ctx->OtherId), UltActiveTagName));
+			Test.TestTrue(TEXT("U6: the blocked player keeps its gauge"), FMath::IsNearlyEqual(GaugeOf(OtherServer), Ctx->MaxGauge, 0.01f));
+			Note(Test, FString::Printf(TEXT("U6: other %d pressed while blocked — server ult active %d, gauge %.1f, user still casting %d"),
+				Ctx->OtherId, HasTag(OtherServer, UltActiveTagName) ? 1 : 0, GaugeOf(OtherServer), HasTag(ServerASC(*Ctx), UltActiveTagName) ? 1 : 0));
+		});
+
 		Wait(Ctx, TEXT("U3: the ult ends on the server and on the user's seat"), 15.0, [Ctx]()
 		{
 			return !HasTag(ServerASC(*Ctx), UltActiveTagName) && !HasTag(SeatASC(*Ctx), UltActiveTagName);
@@ -370,9 +448,28 @@ namespace AstralHeroUltPie
 		Do(Ctx, [Ctx]()
 		{
 			FAutomationTestBase& Test = *Ctx->Test;
-			AAstralCharacter* ServerPawn = PawnIn(FindServerWorld(), Ctx->UserId);
 			Test.TestFalse(TEXT("U3: not invulnerable after the ult"), HasTag(ServerASC(*Ctx), InvulnerableTagName));
 
+			// U7 — 적 없이 쓴 오의는 못 맞힌 것이다: 최대치 × 비율을 돌려받고 체인에 들지 않는다
+			const float Refunded = Ctx->MaxGauge * Ctx->MissRefundRatio;
+			const FAstralChainState Chain = ServerChainState();
+			Test.TestTrue(TEXT("U7: a missed ult refunds max x ratio on the server"), FMath::IsNearlyEqual(GaugeOf(ServerASC(*Ctx)), Refunded, 0.01f));
+			Test.TestEqual(TEXT("U7: a missed ult opens no chain"), Chain.ChainId, 0);
+			Test.TestEqual(TEXT("U7: nobody is casting after the ult"), Chain.CastingPlayerId, 0);
+			// U6 — 끝나면 풀린다
+			Test.TestFalse(TEXT("U6: the other player is unblocked on the server after the ult"), HasTag(ServerASCOf(Ctx->OtherId), UltBlockedTagName));
+			Test.TestTrue(TEXT("U7: a missed ult gives the other player nothing (still at max)"), FMath::IsNearlyEqual(GaugeOf(ServerASCOf(Ctx->OtherId)), Ctx->MaxGauge, 0.01f));
+			Note(Test, FString::Printf(TEXT("U7: missed — server gauge %.1f (max %.0f x %.2f), chain id %d"), GaugeOf(ServerASC(*Ctx)), Ctx->MaxGauge, Ctx->MissRefundRatio, Chain.ChainId));
+		});
+		// 반환 · 차단 해제의 복제는 아래의 피해 주입보다 먼저 본다 — 피해를 받으면 피격 수급으로 게이지가 더 오른다
+		Wait(Ctx, TEXT("U7 / U6: the refund reaches the user's seat and the block clears on the other player's seat"), 5.0, [Ctx]()
+		{
+			return FMath::IsNearlyEqual(GaugeOf(SeatASC(*Ctx)), Ctx->MaxGauge * Ctx->MissRefundRatio, 0.01f) && !HasTag(SeatASCOf(Ctx->OtherId), UltBlockedTagName);
+		});
+		Do(Ctx, [Ctx]()
+		{
+			FAutomationTestBase& Test = *Ctx->Test;
+			AAstralCharacter* ServerPawn = PawnIn(FindServerWorld(), Ctx->UserId);
 			const float Before = HealthOf(ServerPawn);
 			ServerPawn->DamageSelf(10.f);
 			Test.TestTrue(TEXT("U3: damage after the ult lands"), HealthOf(ServerPawn) < Before);
@@ -452,6 +549,14 @@ namespace AstralHeroUltPie
 			const float EnemyHealth = bGone ? 0.f : HealthOf(Ctx->Enemy.Get());
 			Test.TestTrue(TEXT("U5: the ult damaged the enemy in front"), bGone || IsDead(Ctx->Enemy.Get()) || EnemyHealth < Ctx->EnemyHealthBefore);
 			Note(Test, FString::Printf(TEXT("U5: enemy hp %.0f -> %.0f%s"), Ctx->EnemyHealthBefore, EnemyHealth, (bGone || IsDead(Ctx->Enemy.Get())) ? TEXT(" (dead)") : TEXT("")));
+
+			// U7 — 맞힌 오의는 돌려받지 않고, 끝난 시각에 체인을 연다 (2인 중 1명 — 열린 채로 남는다)
+			const FAstralChainState Chain = ServerChainState();
+			Test.TestTrue(TEXT("U7: an ult that hit keeps the gauge at 0"), FMath::IsNearlyZero(GaugeOf(ServerASC(*Ctx)), 0.01f));
+			Test.TestEqual(TEXT("U7: an ult that hit opens a chain when it ends"), Chain.ChainId, 1);
+			Test.TestEqual(TEXT("U7: the user is the chain's participant"), Chain.ParticipantIds, TArray<int32>({ Ctx->UserId }));
+			Test.TestEqual(TEXT("U7: the chain is open"), static_cast<int32>(Chain.Phase), static_cast<int32>(EAstralChainPhase::Open));
+			Note(Test, FString::Printf(TEXT("U7: hit — server gauge %.1f, chain id %d, participants %d"), GaugeOf(ServerASC(*Ctx)), Chain.ChainId, Chain.ParticipantIds.Num()));
 		});
 	}
 

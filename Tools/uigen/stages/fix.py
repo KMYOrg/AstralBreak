@@ -1,8 +1,13 @@
 """fix — 실패 게이트 → 정정 spec patch (설계 §2-2 fix · §8-3).
 
-모드(pipeline.yaml fix.mode):
+모드(pipeline.yaml fix.mode · `--fix-mode`):
   deterministic (1a, 11-14 사용자 결정) — 게이트 상세 · 기준 해상도 geometry · bbox_intent 만으로 계산한다. LLM 호출 0.
-  llm (1b) — verifier(`claude -p`, fixes.json) → fix(`claude -p`, patch) 두 번. 이 파일에는 호출 틀만 있다(core/llm.py).
+  llm — verifier(`claude -p`, 보는 눈 → fixes) → fix(`claude -p`, 고치는 손 → patch) 두 번(§8-3 — 둘을 나눠 verifier 가 자기 수정안을 변호하지 않게).
+  hybrid (1b 기본, 11-15 사용자 결정) — 결정적 fixer 를 먼저 돌려 op 가 있으면 그것을 쓰고, op 가 없거나 **직전 시도의 결정적 patch 가
+    실패 게이트 집합을 줄이지 못했으면** LLM 으로 넘긴다(결정적 fixer 가 같은 자리를 맴도는 것 — 1b-5 실측: OCR 오검출 재생성 반복).
+LLM patch 는 적용 전에 검사한다 — patch 스키마 · 가드(`guard_ops`: bbox_intent · binding · note 는 못 고침, 계약 위젯의 text 는 못 고침, 필수 요소
+제거 · 바인딩 추가 금지) · 사본 적용(apply_patch). 실패하면 오류를 붙여 fix 를 1회 다시 부르고, 또 실패하거나 LLM 이 실패하면 op 없음(NO_FIX)으로
+끝낸다 — run 은 finalize 까지 간다.
 
 결정적 규칙(잠정):
   - 배치 게이트(offscreen · overlap · iou_region · iou_leaf)에서 실패한 위젯마다, 자기 자신 또는 가장 가까운 '캔버스 슬롯 조상'(루트 Canvas 의
@@ -12,10 +17,13 @@
     bbox_intent 자리를 계산한다(position = intent.xy − 루트.xy − anchor × 루트.wh + alignment × intent.wh, size = intent.wh).
   - 겹침 쌍은 bbox_intent 에서 벗어난 쪽만 고친다. 둘 다 의도대로인데 겹치면 bbox_intent 자체가 겹치는 것 — 제안만 남긴다.
   - texture_settings 불일치 → replace_asset(regenerate) — generate(그 에셋) → refine → build 가 새 이름으로 다시 임포트한다.
+  - baked_text(생성 에셋 OCR 검출) → 그 에셋 replace_asset(regenerate) — 같은 분기(1b-5).
   - compile · bindings · required_elements · roundtrip 은 결정적으로 고칠 수 없다 — fixes 에 문제만 남기고 op 없음.
   op 가 하나도 없으면 patch 없음(None) → 오케스트레이터가 NO_FIX 로 멈춘다.
 """
 from __future__ import annotations
+
+import json
 
 from core import geometry as geo
 from core import llm
@@ -147,6 +155,15 @@ def propose_deterministic(spec: dict, gates_list: list[dict], geometry: list[dic
                 ops.append(op)
             else:
                 fixes.append({"widget": str(m.get("texture")), "gate": "texture_settings", "problem": m.get("problem", "unknown texture")})
+    bt = gates.get("baked_text") or {}
+    if not bt.get("pass", True):   # 1b-5 — 생성 에셋에 글자 같은 자국 → 그 에셋만 다시 만든다(generate 가 '글씨 금지'를 더 세게 붙인다)
+        for f in (bt.get("details") or {}).get("found", []):
+            op = {"op": "replace_asset", "asset": f["asset_id"], "regenerate": True, "reason": f"OCR found text-like marks: {f.get('text')}"}
+            fixes.append({"widget": f["asset_id"], "gate": "baked_text", "problem": "the generated asset has baked text-like marks",
+                          "evidence": str(f.get("text")), "suggested_op": op})
+            ops.append(op)
+        for aid in (bt.get("details") or {}).get("not_checked", []):
+            fixes.append({"widget": aid, "gate": "baked_text", "problem": "the asset was never OCR-checked", "evidence": "manifest ocr_text is null"})
     for name in ("compile", "bindings", "required_elements", "roundtrip"):
         g = gates.get(name) or {}
         if not g.get("pass", True):
@@ -155,21 +172,48 @@ def propose_deterministic(spec: dict, gates_list: list[dict], geometry: list[dic
     return fixes, ops
 
 
+def _geometry(run, spec: dict, attempt: int) -> list[dict]:
+    p = f"attempts/{attempt:03d}/geometry.json"
+    geom_doc = run.read_json(p) if run.path(p).is_file() else None
+    canvas = f"{int(spec['canvas'][0])}x{int(spec['canvas'][1])}"
+    return (geom_doc or {}).get("geometry", {}).get(canvas, [])
+
+
+def _deterministic_stalled(run, attempt: int, failed_now: list[str]) -> bool:
+    """직전 시도의 patch 가 결정적이었고 실패 게이트 집합이 줄지 않았나(진부분집합이 아님)."""
+    if attempt <= 1:
+        return False
+    prev_fix, prev_gates = f"attempts/{attempt - 1:03d}/fixes.json", f"attempts/{attempt - 1:03d}/gates.json"
+    if not (run.path(prev_fix).is_file() and run.path(prev_gates).is_file()):
+        return False
+    if run.read_json(prev_fix).get("source") != "deterministic":
+        return False
+    prev_failed = {g["name"] for g in run.read_json(prev_gates).get("gates", []) if not g.get("pass", True)}
+    return not set(failed_now) < prev_failed
+
+
 def propose(run, attempt: int, verify_result: dict, mode: str | None = None) -> dict:
     """attempts/NNN/fixes.json · patches/NNN.json 을 쓴다. {fixes, patch(None 이면 고칠 것 없음), branch, assets} 를 돌려준다."""
     mode = mode or (run.cfg.get("fix") or {}).get("mode", "deterministic")
     spec = run.read_json("spec.json")
     if mode == "deterministic":
-        geom_doc = run.read_json(f"attempts/{attempt:03d}/geometry.json") if run.path(f"attempts/{attempt:03d}/geometry.json").is_file() else None
-        canvas = f"{int(spec['canvas'][0])}x{int(spec['canvas'][1])}"
-        geometry = (geom_doc or {}).get("geometry", {}).get(canvas, [])
-        fixes, ops = propose_deterministic(spec, verify_result["gates"], geometry)
+        fixes, ops = propose_deterministic(spec, verify_result["gates"], _geometry(run, spec, attempt))
         source = "deterministic"
     elif mode == "llm":
         fixes, ops = llm_propose(run, attempt, verify_result)
         source = "llm"
+    elif mode == "hybrid":
+        fixes, ops = propose_deterministic(spec, verify_result["gates"], _geometry(run, spec, attempt))
+        source = "deterministic"
+        stalled = _deterministic_stalled(run, attempt, verify_result["failed"])
+        if not ops or stalled:
+            why = "the deterministic fixer has no op" if not ops else "the previous deterministic patch did not shrink the failing gate set"
+            run.log(f"fix: hybrid → LLM ({why})")
+            l_fixes, ops = llm_propose(run, attempt, verify_result)
+            fixes = fixes + l_fixes
+            source = "llm"
     else:
-        raise StageError("FIX_MODE", f"pipeline.yaml fix.mode '{mode}' — deterministic | llm")
+        raise StageError("FIX_MODE", f"pipeline.yaml fix.mode '{mode}' — deterministic | hybrid | llm")
     fixes_doc = {"schema_version": 1, "source": source, "fixes": fixes}
     schema.require("fixes", fixes_doc)
     run.write_json(f"attempts/{attempt:03d}/fixes.json", fixes_doc)
@@ -184,7 +228,7 @@ def propose(run, attempt: int, verify_result: dict, mode: str | None = None) -> 
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# LLM 모드 (1b) — 호출 틀. 1a 설정(deterministic)에서는 불리지 않는다.
+# LLM 모드 (1b-6) — verifier(보는 눈) → fix(고치는 손). 입력 파일은 절대 경로로 주고 출력은 structured_output 으로만 받는다.
 
 FIXES_OUTPUT_SCHEMA = {
     "type": "object", "required": ["fixes"],
@@ -192,33 +236,126 @@ FIXES_OUTPUT_SCHEMA = {
         "type": "object", "required": ["widget", "problem"],
         "properties": {"widget": {"type": "string"}, "problem": {"type": "string"}, "gate": {"type": "string"},
                        "evidence": {"type": "string"}, "suggested_op": {"type": "object"}}}}}}
-PATCH_OUTPUT_SCHEMA = {   # 모양만 — 엄격한 검사는 schemas/patch.schema.json(core.schema) 이 한다
+PATCH_OUTPUT_SCHEMA = {   # 모양만 — 엄격한 검사는 schemas/patch.schema.json(core.schema) · guard_ops · apply_patch 가 한다
     "type": "object", "required": ["ops"],
-    "properties": {"ops": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["op"]}}, "note": {"type": "string"}}}
+    "properties": {"ops": {"type": "array", "items": {"type": "object", "required": ["op"]}}, "note": {"type": "string"}}}
+FIX_CALLS = 2
+GUARDED_SET_ROOTS = {"bbox_intent": "bbox_intent is the target measured from the reference — move/resize the widget instead",
+                     "binding": "bindings are fixed by the request (contract)", "note": "note is not layout"}
+
+
+def _contract_widgets(brief: dict) -> set[str]:
+    return {d["widget"] for d in brief.get("dynamic_data", [])} | {s["widget"] for s in brief.get("static_text", [])}
+
+
+def guard_ops(ops: list[dict], spec: dict, brief: dict) -> list[str]:
+    """LLM patch 가 넘으면 안 되는 선 — 게이트를 속이는 수정(bbox_intent) · 계약 바꾸기 · 필수 요소 지우기."""
+    errs: list[str] = []
+    contract = _contract_widgets(brief)
+    required = {e["id"] for e in brief.get("required_elements", [])}
+    for i, op in enumerate(ops):
+        kind = op.get("op")
+        if kind == "set":
+            root = str(op.get("path", "")).split(".")[0]
+            if root in GUARDED_SET_ROOTS:
+                errs.append(f"op {i}: set {op.get('widget')}.{op.get('path')} — {GUARDED_SET_ROOTS[root]}")
+            if root == "text" and op.get("widget") in contract:
+                errs.append(f"op {i}: set {op.get('widget')}.{op.get('path')} — the text of contract widgets comes from the request")
+        elif kind == "remove_widget" and op.get("widget") in required:
+            errs.append(f"op {i}: remove_widget {op.get('widget')} — it is a required element")
+        elif kind == "add_widget" and isinstance(op.get("widget"), dict) and op["widget"].get("binding"):
+            errs.append(f"op {i}: add_widget with a binding — bindings are fixed by the request")
+    return errs
+
+
+def _gate_summary(gates: list[dict]) -> str:
+    """실패 게이트를 짧게 — 배치 게이트는 실패 위젯의 의도 · 측정 상자, 나머지는 상세 앞부분."""
+    lines = []
+    for g in gates:
+        if g.get("pass", True):
+            continue
+        d = g.get("details") or {}
+        if g["name"] in ("iou_leaf", "iou_region"):
+            rows = [w for w in d.get("widgets", []) if not w.get("pass", True)]
+            body = "; ".join(f"{w['id']} intent {w.get('intent')} measured {w.get('bbox')} {w.get('rule')} {w.get('value')} "
+                             f"(need {'>=' if w.get('rule') == 'iou' else '<='} {w.get('threshold')})" for w in rows) or str(d)[:400]
+        elif g["name"] == "offscreen":
+            body = "; ".join(f"{o.get('id')} at {o.get('resolution')}: {o.get('reason', o)}" for o in d.get("offscreen", [])[:8])
+        elif g["name"] == "overlap":
+            body = "; ".join(f"{v['a']} x {v['b']} {v.get('ratio')}" for v in d.get("violations", [])[:8])
+        else:
+            body = str(d)[:500]
+        lines.append(f"- {g['name']}: {body}")
+    return "\n".join(lines)
+
+
+def _line_height_note(cfg: dict, spec: dict) -> str:
+    fonts = cfg.get("fonts") or {}
+    fam = fonts.get("default_family")
+    uses_project = any((w.get("font") or {}).get("family") == fam for w in spec.get("widgets", []) if w.get("type") == "TextBlock")
+    if uses_project and fonts.get("line_height"):
+        table = ", ".join(f"{k}->{v}" for k, v in sorted((int(k), v) for k, v in fonts["line_height"].items()))
+        return f"Text uses the project font {fam}: TextBlock height per font size {table} (about 1.63 x size beyond)."
+    return "Text uses the engine default font: TextBlock height is about 1.6 x font size (16->26, 18->29, 22->35, 26->42, 30->48, 34->54)."
+
+
+def _llm_row(run, stage: str, attempt: int, res: dict | None, err: str | None = None, extra: dict | None = None) -> None:
+    keep = ("cost_usd", "num_turns", "duration_s", "model", "tokens")
+    run.append_jsonl("llm.jsonl", {"stage": stage, "attempt": attempt, **({k: res.get(k) for k in keep} if res else {}),
+                                   **({"error": err} if err else {}), **(extra or {})})
 
 
 def llm_propose(run, attempt: int, verify_result: dict, cli: list[str] | None = None) -> tuple[list[dict], list[dict]]:
-    """verifier → fix (설계 §8-3: 보는 눈과 고치는 손을 나눈다). 입력 파일은 절대 경로로 주고 출력은 structured_output 으로만 받는다."""
+    """verifier → fix (설계 §8-3). LLM 실패 · 쓸 수 없는 patch 는 예외가 아니라 op 없음 + fixes 에 이유(run 은 NO_FIX 로 finalize 까지)."""
     adir = run.path("attempts", f"{attempt:03d}")
-    failed = [g for g in verify_result["gates"] if not g["pass"]]
+    spec = run.read_json("spec.json")
+    brief = run.read_json("brief.json")
     files = {"render": run.path("render.png"), "spec": run.path("spec.json"), "brief": run.path("brief.json"), "gates": adir / "gates.json"}
+    if (adir / "geometry.json").is_file():
+        files["geometry"] = adir / "geometry.json"
     if run.path("reference.png").is_file():
         files["reference"] = run.path("reference.png")
     listing = "\n".join(f"- {k}: {p.resolve().as_posix()}" for k, p in files.items())
-    v_prompt = (f"UI verifier for run {run.run_id}, attempt {attempt}. Read the files below, compare the render with the reference/spec and explain "
-                f"each failed gate as fixes (widget id, problem, evidence, optional suggested spec-patch op). Do not write files.\n{listing}\n"
-                f"Failed gates: {', '.join(g['name'] for g in failed)}")
-    v = llm.run_stage("verifier", v_prompt, run.cfg, FIXES_OUTPUT_SCHEMA, cli=cli)
-    fixes = v["structured_output"].get("fixes", [])
-    schema.require("fixes", {"schema_version": 1, "source": "llm", "fixes": fixes})
-    f_prompt = (f"UI fix for run {run.run_id}, attempt {attempt}. Turn these verifier fixes into a spec patch (ops: set/add_widget/remove_widget/move/"
-                f"replace_asset — bound widgets cannot be removed, locked widgets cannot change). Spec: {files['spec'].resolve().as_posix()}\n"
-                f"Fixes: {fixes}")
-    f = llm.run_stage("fix", f_prompt, run.cfg, PATCH_OUTPUT_SCHEMA, cli=cli)
-    ops = f["structured_output"].get("ops", [])
-    errs = schema.errors("patch", {"schema_version": 1, "source": "fix", "ops": ops})
-    if errs:
-        raise StageError("LLM_PATCH_INVALID", "; ".join(errs[:5]), errors=errs)
-    run.append_jsonl("llm.jsonl", {"attempt": attempt, "verifier": {k: v[k] for k in ("cost_usd", "num_turns", "duration_s")},
-                                   "fix": {k: f[k] for k in ("cost_usd", "num_turns", "duration_s")}})
-    return fixes, ops
+    summary = _gate_summary(verify_result["gates"])
+    canvas = spec.get("canvas", [1920, 1080])
+    v_prompt = (f"UI verifier for run {run.run_id}, attempt {attempt}. Canvas {canvas[0]}x{canvas[1]}. Read the files below (render first, then the "
+                f"reference if listed), compare, and explain every failed gate as fixes.\n{listing}\nFailed gates:\n{summary}\n"
+                f"{_line_height_note(run.cfg, spec)}")
+    try:
+        v = llm.run_stage("verifier", v_prompt, run.cfg, FIXES_OUTPUT_SCHEMA, cli=cli)
+    except llm.LlmError as exc:
+        _llm_row(run, "verifier", attempt, exc.details, exc.code)
+        return [{"widget": "*", "gate": "llm", "problem": f"LLM verifier failed: {exc.code}", "evidence": str(exc)[:300]}], []
+    raw_fixes = v["structured_output"].get("fixes", [])
+    run.write_json(f"attempts/{attempt:03d}/llm_verifier.json", v["structured_output"])
+    fixes = [f for f in raw_fixes if not schema.errors("fixes", {"schema_version": 1, "fixes": [f]})]
+    _llm_row(run, "verifier", attempt, v, extra={"fixes": len(fixes)})
+    base = (f"UI fix for run {run.run_id}, attempt {attempt}. Turn the verifier's fixes into ONE minimal spec patch that makes the failed gates pass.\n"
+            f"Spec (current, absolute path — Read it): {files['spec'].resolve().as_posix()}\n"
+            + (f"Measured geometry of this attempt: {files['geometry'].resolve().as_posix()}\n" if "geometry" in files else "")
+            + f"Failed gates:\n{summary}\nVerifier fixes:\n{json.dumps(fixes, ensure_ascii=False)}\n{_line_height_note(run.cfg, spec)}\n"
+            f"Contract widgets (their binding and text are fixed): {', '.join(sorted(_contract_widgets(brief)))}.")
+    prompt, errs, ops = base, [], []
+    for k in range(1, FIX_CALLS + 1):
+        try:
+            f = llm.run_stage("fix", prompt, run.cfg, PATCH_OUTPUT_SCHEMA, cli=cli)
+        except llm.LlmError as exc:
+            _llm_row(run, "fix", attempt, exc.details, exc.code, {"call": k})
+            return fixes + [{"widget": "*", "gate": "llm", "problem": f"LLM fix failed: {exc.code}", "evidence": str(exc)[:300]}], []
+        ops = f["structured_output"].get("ops", [])
+        run.write_json(f"attempts/{attempt:03d}/llm_fix_{k}.json", f["structured_output"])
+        errs = guard_ops(ops, spec, brief)
+        if not ops:
+            errs.append("the patch has no ops")
+        if not errs:
+            try:
+                patch_mod.apply_patch(spec, {"schema_version": 1, "source": "fix", "ops": ops})
+            except patch_mod.PatchError as exc:
+                errs = [str(exc)] + [str(e) for e in (exc.details.get("errors") or [])[:8]]
+        _llm_row(run, "fix", attempt, f, extra={"call": k, "ops": len(ops), "errors": len(errs)})
+        if not errs:
+            return fixes, ops
+        prompt = base + "\n\nYour previous patch was rejected — fix every problem and return the complete corrected patch:\n" + "\n".join(f"- {e}" for e in errs[:20])
+    return fixes + [{"widget": "*", "gate": "llm", "problem": "LLM fix produced no usable patch", "evidence": "; ".join(errs[:5])[:500]}], []
+
+

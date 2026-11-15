@@ -202,8 +202,16 @@
         "nine_slice": { "type": "boolean" },
         "margin": { "$ref": "#/$defs/unit4" },
         "compression": { "enum": ["TC_EditorIcon", "TC_BC7"] },
-        "procedural": { "type": "object", "required": ["shape"], "properties": { "shape": { "enum": ["rounded_frame", "gradient_panel", "soft_glow"] } } },
+        "procedural": { "type": "object", "required": ["shape"], "properties": { "shape": { "enum": ["rounded_frame", "gradient_panel", "soft_glow", "gradient_bar"] } } },
         "prompt": { "type": "string" },
+        "ref_bbox": {
+          "description": "reference 픽셀 [x, y, w, h] — codex 생성 때 이 영역을 잘라 참조 이미지(-i)로 준다(1b-4 analyze · 1b-5 generate). extract 면 편집할 요소 상자",
+          "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4
+        },
+        "source_mode": {
+          "description": "codex 에셋만(1b 후속 A) — extract = 컨셉에 보이는 요소를 ref_bbox 자르기의 codex 편집으로 따옴, generate(없을 때 기본) = 새로 그림(ref_bbox 는 스타일 참조)",
+          "enum": ["generate", "extract"]
+        },
         "anchor": { "type": "boolean" },
         "source": { "type": "string" }
       }

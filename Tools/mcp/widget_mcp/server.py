@@ -141,5 +141,18 @@ def discard_run_packages(run_path: str) -> dict:
     return _call("discard_run_packages", {"run_path": run_path}, slow=True)
 
 
+@mcp.tool()
+def import_font_family(dest_path: str, family: str, faces: list[dict], save: bool = True) -> dict:
+    """Import font files as a project font family (UFontFace per file + composite UFont F_<family>) — saved by default (committed asset).
+
+    Args:
+        dest_path: A folder below [WidgetMcp] WidgetFontOutputPaths, e.g. "/Game/UI/Fonts/Pretendard".
+        family: Identifier, e.g. "Pretendard" → F_Pretendard, FF_Pretendard_Regular …
+        faces: [{file, typeface}] — file .ttf/.otf under WidgetImportSourceRoots (Tools/uigen/work/), typeface Regular|Bold|Light|Italic|Bold Italic
+            (the names spec font.weight selects).
+    """
+    return _call("import_font_family", {"dest_path": dest_path, "family": family, "faces": faces, "save": save}, slow=True)
+
+
 if __name__ == "__main__":
     mcp.run()

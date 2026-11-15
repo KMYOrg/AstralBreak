@@ -4,6 +4,7 @@
   rounded_frame   둥근 사각 테두리 + 안쪽 채움(+ 위쪽 안쪽 하이라이트) — 9-slice 프레임
   gradient_panel  위 → 아래 그라데이션 + 둥근 모서리 + 테두리 — 패널 배경
   soft_glow       타원 가장자리로 갈수록 투명해지는 빛 — 강조 효과
+  gradient_bar    세로 색 단계를 줄마다 보간(가로는 같은 색) — 게이지 채움(1b 후속 B, 색은 컨셉에서 뽑음)
 
 색은 sRGB hex, 출력은 직선 알파(미리 곱하지 않음) RGBA8. 완전 투명 픽셀도 RGB 를 테두리 · 빛 색으로 채워 쌍선형 필터의 어두운 테두리를 막는다.
 같은 입력 → 같은 바이트(결정적). 안티앨리어싱은 둥근 사각 거리장(픽셀 중심 기준 0.5 px 폭).
@@ -106,7 +107,24 @@ def _soft_glow(w: int, h: int, p: dict) -> bytearray:
     return buf
 
 
-SHAPES = {"rounded_frame": _rounded_frame, "gradient_panel": _gradient_panel, "soft_glow": _soft_glow}
+def _gradient_bar(w: int, h: int, p: dict) -> bytearray:
+    """세로 색 단계(stops — 위 → 아래, 고르게 놓음)를 줄마다 보간 — 가로로는 같은 색(게이지 채움, 1b 후속 B).
+    stops 는 컨셉의 채워진 부분에서 줄마다 뽑은 대표색이다(stages/analyze.derive_gauge_fills)."""
+    stops = [_rgba(c) for c in (p.get("stops") or [])]
+    if len(stops) < 2:
+        raise ProceduralError("gradient_bar needs at least 2 stops")
+    buf = bytearray(w * h * 4)
+    n = len(stops) - 1
+    for y in range(h):
+        t = ((y + 0.5) / h) * n
+        i = min(int(t), n - 1)
+        c = tuple(_lerp(a, b, t - i) for a, b in zip(stops[i], stops[i + 1]))
+        for x in range(w):
+            _store(buf, (y * w + x) * 4, *c)
+    return buf
+
+
+SHAPES = {"rounded_frame": _rounded_frame, "gradient_panel": _gradient_panel, "soft_glow": _soft_glow, "gradient_bar": _gradient_bar}
 
 
 def render(asset: dict) -> tuple[int, int, bytes]:

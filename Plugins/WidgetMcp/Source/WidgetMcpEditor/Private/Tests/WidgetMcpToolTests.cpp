@@ -10,6 +10,9 @@
 
 #include "Blueprint/WidgetTree.h"
 #include "Core/WidgetMcpCommon.h"
+#include "Core/WidgetMcpFonts.h"
+#include "Engine/Font.h"
+#include "Engine/FontFace.h"
 #include "HAL/FileManager.h"
 #include "ImageCore.h"
 #include "ImageUtils.h"
@@ -482,6 +485,88 @@ bool FWidgetMcpGuardTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("compile of the empty canvas ok"), C.bOk && C.Result->GetBoolField(TEXT("ok")));
 	H.Discard();
 	TestNull(TEXT("discarded blueprint is gone"), FindObject<UWidgetBlueprint>(nullptr, *(Wbp + TEXT(".WBP_Guard"))));
+	return true;
+}
+
+// import_font_family (1b-3) — 엔진 Roboto 두 파일을 시험 폴더로 복사해 임포트한다. 성공 경로는 코어를 직접 불러 WidgetFontOutputPaths 를
+// run 접두(/Game/_AutoGen/)로 바꾼 설정 · save=false 로(프로젝트 폰트 폴더에 시험 애셋을 만들지 않게), 거부 경로는 디스패처 + 실제 ini 로.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWidgetMcpImportFontTest, "WidgetMcp.Tools.ImportFont", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+bool FWidgetMcpImportFontTest::RunTest(const FString& Parameters)
+{
+	{
+		FConfigFile File;
+		File.CombineFromBuffer(TEXT("[WidgetMcp]\n+WidgetFontOutputPaths=/Game/\n+WidgetFontOutputPaths=/Game/UI/Fonts\n"), TEXT("WidgetMcpFontTest"));
+		const WidgetMcp::FSettings S = WidgetMcp::LoadSettingsFromFile(File);
+		TestTrue(TEXT("font prefix normalized, mount root dropped"), S.FontOutputPaths.Num() == 1 && S.FontOutputPaths[0] == TEXT("/Game/UI/Fonts/"));
+		TestEqual(TEXT("mount root warned"), S.Warnings.Num(), 1);
+	}
+	TestTrue(TEXT("project config allows /Game/UI/Fonts/ for fonts"), WidgetMcp::LoadSettings().FontOutputPaths.Contains(TEXT("/Game/UI/Fonts/")));
+
+	FHarness H(TEXT("Font"));
+	const FString EngineFonts = FPaths::Combine(FPaths::EngineContentDir(), TEXT("Slate/Fonts"));
+	const FString Regular = FPaths::Combine(H.DiskDir, TEXT("Roboto-Regular.ttf"));
+	const FString Bold = FPaths::Combine(H.DiskDir, TEXT("Roboto-Bold.ttf"));
+	TestEqual(TEXT("copy regular"), IFileManager::Get().Copy(*Regular, *FPaths::Combine(EngineFonts, TEXT("Roboto-Regular.ttf"))), (uint32)COPY_OK);
+	TestEqual(TEXT("copy bold"), IFileManager::Get().Copy(*Bold, *FPaths::Combine(EngineFonts, TEXT("Roboto-Bold.ttf"))), (uint32)COPY_OK);
+
+	WidgetMcp::FSettings S = WidgetMcp::LoadSettings();
+	S.FontOutputPaths = { TEXT("/Game/_AutoGen/") };
+	WidgetMcpFonts::FRequest R;
+	R.DestFolder = H.RunPath + TEXT("/Fonts");
+	R.Family = TEXT("TestRoboto");
+	R.Faces = { { Regular, TEXT("Regular") }, { Bold, TEXT("Bold") } };
+	R.bSave = false;
+	const FEditorMcpRequest Req(FName(TEXT("import_font_family")), TEXT("test"), MakeShared<FJsonObject>());
+	FEditorMcpContext Ctx(Req);
+	FEditorMcpError Err;
+	const TSharedPtr<FJsonObject> Out = WidgetMcpFonts::ImportFamily(S, R, Ctx, Err);
+	TestTrue(FString::Printf(TEXT("import ok (%s %s)"), *Err.Code, *Err.Message), Out.IsValid());
+	if (Out.IsValid())
+	{
+		TestEqual(TEXT("typefaces in order"), Out->GetArrayField(TEXT("typefaces")).Num(), 2);
+		const FString FamilyPath = Out->GetStringField(TEXT("family_asset"));
+		TestEqual(TEXT("family asset path"), WidgetMcp::ToPackagePath(FamilyPath), R.DestFolder + TEXT("/F_TestRoboto"));
+		const UFont* Font = LoadObject<UFont>(nullptr, *FamilyPath);
+		TestNotNull(TEXT("family loads"), Font);
+		if (Font)
+		{
+			TestTrue(TEXT("runtime cache"), Font->FontCacheType == EFontCacheType::Runtime);
+			const TArray<FTypefaceEntry>& Fonts = Font->GetInternalCompositeFont().DefaultTypeface.Fonts;
+			TestEqual(TEXT("two typeface entries"), Fonts.Num(), 2);
+			if (Fonts.Num() == 2)
+			{
+				TestTrue(TEXT("Regular entry"), Fonts[0].Name == FName(TEXT("Regular")));
+				TestTrue(TEXT("Bold entry"), Fonts[1].Name == FName(TEXT("Bold")));
+				const UFontFace* Face = Cast<const UFontFace>(Fonts[1].Font.GetFontFaceAsset());
+				TestTrue(TEXT("Bold entry points at FF_TestRoboto_Bold with data"), Face && Face->GetName() == TEXT("FF_TestRoboto_Bold") && Face->GetFontFaceData()->HasData());
+			}
+		}
+		for (const TSharedPtr<FJsonValue>& V : Out->GetArrayField(TEXT("faces")))
+		{
+			TestTrue(TEXT("each face has sub faces"), V->AsObject()->GetArrayField(TEXT("sub_faces")).Num() > 0);
+		}
+		TestFalse(TEXT("not saved"), Out->GetBoolField(TEXT("saved")));
+	}
+	TestNull(TEXT("refused import leaves nothing (second call)"), WidgetMcpFonts::ImportFamily(S, R, Ctx, Err).Get());
+	TestEqual(TEXT("re-import refused"), Err.Code, FString(TEXT("ASSET_EXISTS")));
+
+	// 거부 경로 — 실제 ini(WidgetFontOutputPaths=/Game/UI/Fonts/)
+	auto Body = [&](const FString& Dest, const FString& File, const FString& Typeface)
+	{
+		return FString::Printf(TEXT(R"({"dest_path":"%s","family":"TestRoboto","faces":[{"file":"%s","typeface":"%s"}],"save":false})"), *Dest, *File, *Typeface);
+	};
+	FCall C = H.Call(TEXT("import_font_family"), Body(H.RunPath + TEXT("/Fonts2"), Regular, TEXT("Regular")));
+	TestEqual(TEXT("run folder is not a font folder"), C.Code, FString(TEXT("OUTPUT_PATH_NOT_ALLOWED")));
+	C = H.Call(TEXT("import_font_family"), Body(TEXT("/Game/UI/Fonts"), Regular, TEXT("Regular")));
+	TestEqual(TEXT("the font prefix itself is refused"), C.Code, FString(TEXT("OUTPUT_PATH_NOT_ALLOWED")));
+	C = H.Call(TEXT("import_font_family"), Body(TEXT("/Game/UI/Fonts/_WidgetMcpTestNever"), Regular, TEXT("Medium")));
+	TestEqual(TEXT("typeface outside the weight vocabulary"), C.Reason, FString(TEXT("BAD_TYPEFACE")));
+	C = H.Call(TEXT("import_font_family"), Body(TEXT("/Game/UI/Fonts/_WidgetMcpTestNever"), TEXT("Saved/nope.ttf"), TEXT("Regular")));
+	TestEqual(TEXT("file outside WidgetImportSourceRoots"), C.Reason, FString(TEXT("DISK_ROOT")));
+	TestFalse(TEXT("nothing created under the project font folder"), WidgetMcp::PackageExists(TEXT("/Game/UI/Fonts/_WidgetMcpTestNever/F_TestRoboto")));
+
+	H.Discard();
+	TestNull(TEXT("discarded family is gone"), FindObject<UFont>(nullptr, *(R.DestFolder + TEXT("/F_TestRoboto.F_TestRoboto"))));
 	return true;
 }
 

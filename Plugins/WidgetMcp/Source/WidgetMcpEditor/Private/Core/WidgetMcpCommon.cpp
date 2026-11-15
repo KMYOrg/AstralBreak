@@ -13,16 +13,21 @@ namespace WidgetMcp
 		void ReadKeys(TFunctionRef<void(const TCHAR*, TArray<FString>&)> GetArray, FSettings& Out)
 		{
 			TArray<FString> Raw;
-			GetArray(TEXT("WidgetOutputPaths"), Raw);
-			for (const FString& R : Raw)
+			const TPair<const TCHAR*, TArray<FString>*> Prefixes[] = { { TEXT("WidgetOutputPaths"), &Out.OutputPaths }, { TEXT("WidgetFontOutputPaths"), &Out.FontOutputPaths } };
+			for (const TPair<const TCHAR*, TArray<FString>*>& K : Prefixes)
 			{
-				const FString P = EditorMcpGuard::NormalizePrefix(R);
-				if (!EditorMcpGuard::IsValidPrefix(P))
+				Raw.Reset();
+				GetArray(K.Key, Raw);
+				for (const FString& R : Raw)
 				{
-					Out.Warnings.Add(FString::Printf(TEXT("[WidgetMcp] WidgetOutputPaths '%s' ignored — needs a folder below a mount root (e.g. /Game/_AutoGen/)"), *R));
-					continue;
+					const FString P = EditorMcpGuard::NormalizePrefix(R);
+					if (!EditorMcpGuard::IsValidPrefix(P))
+					{
+						Out.Warnings.Add(FString::Printf(TEXT("[WidgetMcp] %s '%s' ignored — needs a folder below a mount root (e.g. /Game/_AutoGen/)"), K.Key, *R));
+						continue;
+					}
+					K.Value->AddUnique(P);
 				}
-				Out.OutputPaths.AddUnique(P);
 			}
 			const TPair<const TCHAR*, TArray<FString>*> Dirs[] = { { TEXT("WidgetImportSourceRoots"), &Out.ImportRoots }, { TEXT("WidgetRenderOutputRoots"), &Out.RenderRoots } };
 			for (const TPair<const TCHAR*, TArray<FString>*>& D : Dirs)
@@ -91,6 +96,7 @@ namespace WidgetMcp
 		Obj->SetArrayField(TEXT("output_paths"), StringArray(Settings.OutputPaths));
 		Obj->SetArrayField(TEXT("import_source_roots"), StringArray(Settings.ImportRoots));
 		Obj->SetArrayField(TEXT("render_output_roots"), StringArray(Settings.RenderRoots));
+		Obj->SetArrayField(TEXT("font_output_paths"), StringArray(Settings.FontOutputPaths));
 		Obj->SetArrayField(TEXT("warnings"), StringArray(Settings.Warnings));
 		return Obj;
 	}

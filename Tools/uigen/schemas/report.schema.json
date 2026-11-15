@@ -51,6 +51,7 @@
       }
     },
     "codegen": { "type": "object" },
+    "analyze": { "type": "object", "description": "analyze(LLM) 요약 — 호출 수 · 모델 · 비용(USD 환산) · 토큰 · 재요청 사유 (1b-4)" },
     "roundtrip": { "type": ["object", "null"] },
     "fault": { "type": ["object", "null"], "description": "--inject-fault 로 깨뜨린 것(patches/000.json)" },
     "finalize": { "type": ["object", "null"], "description": "저장 · 폐기 결과" },

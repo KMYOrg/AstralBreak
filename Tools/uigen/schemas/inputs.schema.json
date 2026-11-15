@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:inputs",
+  "title": "uigen inputs v1 (설계 §4-1) — 1b 는 mode concept 만",
+  "description": "진입점 --inputs 로 받는 요청. 실행 중 사람에게 묻지 않으므로 화면이 가져야 할 계약(바인딩 위젯 이름 · 타입 · 데이터)은 여기서 고정한다 — analyze 는 배치 · 스타일 · 에셋만 판단하고, 계약 필드는 normalize · analyze 후처리(코드)가 채운다.",
+  "type": "object",
+  "required": ["schema_version", "mode", "screen_type", "screen_id", "concept", "required_elements", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "mode": { "const": "concept" },
+    "screen_type": { "enum": ["hud", "menu", "options", "dialog"] },
+    "screen_id": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]{0,47}$" },
+    "concept": { "type": "string", "description": "컨셉아트 PNG — inputs.yaml 기준 상대 경로(또는 절대). --concept 로 덮을 수 있다" },
+    "resolution": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 },
+    "language": { "type": "string" },
+    "font": { "type": ["string", "null"], "description": "spec font.family 기본값 — 생략하면 pipeline.yaml fonts.default_family" },
+    "text": { "type": "string", "description": "화면 설명(사람 말) — analyze 프롬프트에 그대로" },
+    "required_elements": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "required": ["id", "kind"], "additionalProperties": false,
+        "properties": { "id": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "kind": { "type": "string" }, "desc": { "type": "string" } }
+      }
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["id", "type", "widget", "widget_type"], "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+          "type": { "enum": ["text", "number", "progress", "flag", "image"] },
+          "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+          "widget_type": { "$ref": "urn:uigen:brief#/$defs/widget_type" },
+          "format": { "type": "string", "pattern": "^0(\\.0+)?$" },
+          "sample": {},
+          "desc": { "type": "string" }
+        }
+      }
+    },
+    "static_text": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["widget", "value"], "additionalProperties": false,
+        "properties": { "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "value": { "type": "string" } }
+      }
+    },
+    "style_keywords": { "type": "array", "items": { "type": "string" } },
+    "note": { "type": "string" }
+  }
+}

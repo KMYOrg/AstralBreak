@@ -4,6 +4,7 @@
 #include "Components/Widget.h"
 #include "Core/WidgetMcpBlueprint.h"
 #include "Core/WidgetMcpCommon.h"
+#include "Core/WidgetMcpFonts.h"
 #include "Core/WidgetMcpRender.h"
 #include "Core/WidgetMcpRunPackages.h"
 #include "Core/WidgetMcpSpec.h"
@@ -87,8 +88,35 @@ namespace WidgetMcpTools
 	{
 		static const TArray<FString> Names = { TEXT("import_ui_textures"), TEXT("create_widget_blueprint"), TEXT("preview_widget_spec"), TEXT("apply_widget_spec"),
 			TEXT("apply_widget_patch"), TEXT("export_widget_spec"), TEXT("compile_widget_blueprint"), TEXT("list_bind_widgets"), TEXT("render_widget"),
-			TEXT("save_widget_run"), TEXT("discard_run_packages") };
+			TEXT("save_widget_run"), TEXT("discard_run_packages"), TEXT("import_font_family") };
 		return Names;
+	}
+
+	bool ReadFontRequest(const FEditorMcpContext& Context, WidgetMcpFonts::FRequest& Out, FEditorMcpError& OutError)
+	{
+		if (!Context.Request.GetRequiredString(TEXT("dest_path"), Out.DestFolder, OutError) || !Context.Request.GetRequiredString(TEXT("family"), Out.Family, OutError))
+		{
+			return false;
+		}
+		const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
+		if (!Context.Request.Params->TryGetArrayField(TEXT("faces"), Arr))
+		{
+			OutError = WidgetMcp::MakeMcpError(EditorMcpErrorCodes::BadRequest, TEXT("faces[] is required"));
+			return false;
+		}
+		for (const TSharedPtr<FJsonValue>& V : *Arr)
+		{
+			const TSharedPtr<FJsonObject> O = V.IsValid() ? V->AsObject() : nullptr;
+			WidgetMcpFonts::FFace F;
+			if (!O.IsValid() || !O->TryGetStringField(TEXT("file"), F.File) || !O->TryGetStringField(TEXT("typeface"), F.Typeface))
+			{
+				OutError = WidgetMcp::MakeMcpError(EditorMcpErrorCodes::BadRequest, TEXT("faces[] items need file and typeface"));
+				return false;
+			}
+			Out.Faces.Add(F);
+		}
+		Out.bSave = Context.Request.GetOptionalBool(TEXT("save"), true);
+		return true;
 	}
 
 	void Register(FEditorMcpDispatcher& Dispatcher)
@@ -378,6 +406,18 @@ namespace WidgetMcpTools
 					return nullptr;
 				}
 				return WidgetMcpRunPackages::Discard(WidgetMcp::LoadSettings(), Run, Context, OutError);
+			});
+
+		Dispatcher.RegisterTool(TEXT("import_font_family"),
+			TEXT("Import font files as a project font family: one UFontFace per file + a composite UFont (F_<family>, Runtime cache) whose default typeface lists them by name — spec font.family = that UFont, font.weight picks the typeface. Params: dest_path (a folder below [WidgetMcp] WidgetFontOutputPaths, e.g. /Game/UI/Fonts/Pretendard), family (identifier), faces[{file (.ttf/.otf under WidgetImportSourceRoots), typeface (Regular|Bold|Light|Italic|Bold Italic)}], save? (default true — project fonts are committed, not run output). Refuses existing names (nothing created) and unloads what it made if anything outside WidgetFontOutputPaths got dirty."),
+			[](FEditorMcpContext& Context, FEditorMcpError& OutError) -> TSharedPtr<FJsonObject>
+			{
+				WidgetMcpFonts::FRequest Request;
+				if (!ReadFontRequest(Context, Request, OutError))
+				{
+					return nullptr;
+				}
+				return WidgetMcpFonts::ImportFamily(WidgetMcp::LoadSettings(), Request, Context, OutError);
 			});
 	}
 }

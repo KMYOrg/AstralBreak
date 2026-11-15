@@ -14,6 +14,7 @@ FAULTS = {
     "offscreen": "첫 영역을 캔버스 너비만큼 오른쪽으로 민다 — 화면 밖 · 영역/말단 배치 실패",
     "overlap": "중심이 가장 가까운 두 영역 중 작은 쪽을 큰 쪽 중심으로 옮긴다 — 겹침 · 영역 배치 실패",
     "drift": "가장 큰 영역을 너비의 25 % 만큼 왼쪽으로 민다 — 영역 배치(IoU)만 실패",
+    "shrink_text": "가장 큰 글자(bbox_intent 높이)의 font.size 를 45 % 로 줄인다 — 영역은 제자리라 결정적 fixer 는 못 고친다(LLM fix 경로, 1b-6)",
 }
 
 
@@ -39,6 +40,16 @@ def _center(b):
 def fault_patch(name: str, spec: dict) -> dict:
     if name not in FAULTS:
         raise StageError("FAULT_UNKNOWN", f"--inject-fault '{name}' — one of {', '.join(FAULTS)}")
+    if name == "shrink_text":
+        norm = spec_mod.normalize(spec)
+        texts = [w for w in norm["widgets"] if w["type"] == "TextBlock" and w.get("bbox_intent")]
+        if not texts:
+            raise StageError("FAULT_NO_TARGET", "shrink_text needs a TextBlock with bbox_intent")
+        t = max(texts, key=lambda w: (float(w["bbox_intent"][3]), w["id"]))
+        size = float(t["font"]["size"])
+        new = max(6, round(size * 0.45))
+        ops = [{"op": "set", "widget": t["id"], "path": "font.size", "value": new, "reason": f"fault shrink_text — {size:g} → {new}"}]
+        return {"schema_version": 1, "base_revision": None, "source": "fault", "note": f"--inject-fault {name}: {FAULTS[name]}", "ops": ops}
     regs = regions(spec)
     if not regs:
         raise StageError("FAULT_NO_TARGET", "the spec has no region (root canvas child with point anchors and bbox_intent) to break")

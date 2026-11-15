@@ -5,8 +5,13 @@
 Phase 1a(손 spec):
     Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --spec-dir Tools/uigen/fixtures/m4_combat_hud
     (+ --inject-fault offscreen|overlap|drift — normalize 뒤 spec 을 깨뜨려 재시도 경로를 돈다 · --keep-failed — 실패해도 저장)
+Phase 1b(컨셉아트):
+    Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/m4_combat_hud_concept/inputs.yaml
+    (+ --concept <png> — inputs 의 concept 을 덮음 · --until analyze — 에디터 없이 spec 까지)
 
-단계: normalize → (inject_fault) → analyze → codegen → generate → refine → [build → verify → (fix → 분기)]… → finalize.
+단계: (preflight) → normalize → analyze → (inject_fault) → codegen → generate → refine → [build → verify → (fix → 분기)]… → finalize.
+  - preflight: LLM 단계가 있는 run(concept 모드 · fix.mode ≠ deterministic)만 — claude 버전 · 로그인 · 구독 인증 확인(core.llm.preflight).
+  - hand_spec 은 analyze 를 건너뛰고 결함 주입이 normalize 바로 뒤, concept 은 analyze 뒤.
   - 시도 k 는 specs/00k.json 을 쓰고, 실패하면 fix 가 patches/00k.json 을 낸다. patch op 종류로 돌아갈 단계를 정한다(core.patch.branch_for):
     build(배치 · 슬롯 · 스타일 · 텍스트) · generate(에셋 — 그 에셋만 → refine → build) · codegen(바인딩 → 재기동 → build).
   - 상한: 재시도 limits.retries(N = 3 — 시도는 최대 N + 1 번). 두 번 연속 실패 게이트 집합이 줄지 않으면(진부분집합이 아니면) 조기 종료,
@@ -27,12 +32,13 @@ import types
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from core import config  # noqa: E402
+from core import llm  # noqa: E402
 from core import metrics  # noqa: E402
 from core import patch as patch_mod  # noqa: E402
 from core import schema  # noqa: E402
 from core.run import LockBusy, Run, RunError, RunLock, new_run_id  # noqa: E402
 from stages import StageError  # noqa: E402
-from stages import build, codegen, fault, finalize, fix, generate, normalize, refine, verify  # noqa: E402
+from stages import analyze, build, codegen, fault, finalize, fix, generate, normalize, refine, verify  # noqa: E402
 
 STAGES = ("normalize", "analyze", "codegen", "generate", "refine", "build", "verify", "finalize")
 
@@ -44,8 +50,11 @@ class StopAt(Exception):
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description="uigen — concept/spec → WBP prototype (Phase 1a: hand spec)")
-    ap.add_argument("--spec-dir", required=True, help="hand spec folder holding brief.json + spec.json (Phase 1a)")
+    ap = argparse.ArgumentParser(description="uigen — concept/spec → WBP prototype (Phase 1a: hand spec · Phase 1b: concept)")
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--spec-dir", help="hand spec folder holding brief.json + spec.json (Phase 1a)")
+    src.add_argument("--inputs", help="inputs.yaml of a concept request (Phase 1b — schemas/inputs.schema.json)")
+    ap.add_argument("--concept", help="concept PNG overriding inputs.yaml 'concept' (only with --inputs)")
     ap.add_argument("--until", choices=STAGES, help="stop after this stage (first attempt for build / verify; no finalize)")
     ap.add_argument("--run-id", help="override the run id (R<yyyymmdd>_<hhmmss>_<ScreenId>)")
     ap.add_argument("--config", help="pipeline.yaml to use (default Tools/uigen/config/pipeline.yaml)")
@@ -54,7 +63,58 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--module-root", help="override codegen.module_root (C++ module folder — tests write into a temp copy)")
     ap.add_argument("--inject-fault", choices=sorted(fault.FAULTS), help="break the spec after normalize to exercise the retry path (1a-4)")
     ap.add_argument("--keep-failed", action="store_true", help="save the run packages even when verify fails")
-    return ap.parse_args(argv)
+    ap.add_argument("--fix-mode", choices=("deterministic", "hybrid", "llm"), help="override pipeline.yaml fix.mode for this run")
+    opts = ap.parse_args(argv)
+    if opts.concept and not opts.inputs:
+        ap.error("--concept needs --inputs")
+    return opts
+
+
+def _extract_fidelity_summary(run: Run) -> dict | None:
+    """refine.json 에서 컨셉에서 따온 에셋(source_mode extract)의 마지막 충실도 — report.recorded.extract_fidelity (기록만, 1b 후속 A)."""
+    if not run.path("refine.json").is_file():
+        return None
+    out = {}
+    for p in run.read_json("refine.json").get("passes", []):
+        for a in p.get("assets", []):
+            f = a.get("fidelity")
+            if f is not None:
+                out[a["asset_id"]] = {k: f.get(k) for k in ("framing", "aspect", "shape_iou", "line_f1", "delta_e00", "compare", "error") if k in f}
+                if a.get("interior"):
+                    out[a["asset_id"]]["interior"] = {k: a["interior"].get(k) for k in ("flattened", "changed_ratio", "holes_before", "fill_color")}
+    if out and run.path("render.png").is_file() and run.path("reference.png").is_file() and run.path("spec.json").is_file():
+        from gen import fidelity
+        try:   # 이식 확인 — 마지막 시도의 WBP 렌더(force_visible) ↔ 컨셉, 같은 상자(기록만)
+            rendered = fidelity.render_comparisons(run.path("reference.png"), run.path("render.png"), run.read_json("spec.json"), set(out),
+                                                   run.path("assets", "compare"))
+        except Exception as exc:  # noqa: BLE001 — 기록 지표라 실패해도 리포트는 쓴다
+            rendered = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+        for aid, recs in rendered.items():
+            if aid in out:
+                out[aid]["render"] = recs
+            elif aid == "error":
+                out["_render_error"] = recs
+    return out or None
+
+
+def _gauge_fidelity_summary(run: Run) -> dict | None:
+    """컨셉에서 채움을 뽑은 게이지(analyze derive_gauge_fills)의 렌더 ↔ 컨셉 — report.recorded.gauge_fidelity (기록만, 1b 후속 B)."""
+    if not (run.path("render.png").is_file() and run.path("reference.png").is_file() and run.path("spec.json").is_file()):
+        return None
+    from gen import fidelity
+    spec = run.read_json("spec.json")
+    derived = {a["asset_id"] for a in spec.get("assets", []) if str(a.get("source", "")).startswith("concept rows")}
+    out = {}
+    for w in spec.get("widgets", []):
+        st = w.get("style") or {}
+        if w.get("type") == "ProgressBar" and (st.get("fill") or {}).get("asset") in derived and w.get("bbox_intent") and isinstance(st.get("percent"), (int, float)):
+            try:
+                out[w["id"]] = fidelity.gauge_vs_concept(run.path("reference.png"), run.path("render.png"), w["bbox_intent"], st["percent"],
+                                                         st.get("bar_fill_type", "left_to_right"))
+                out[w["id"]]["background"] = (st.get("background") or {}).get("draw_as")
+            except Exception as exc:  # noqa: BLE001 — 기록 지표
+                out[w["id"]] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+    return out or None
 
 
 def _codegen_summary(run: Run) -> dict | None:
@@ -68,11 +128,32 @@ def _codegen_summary(run: Run) -> dict | None:
             "verify_match": (cg.get("verify") or {}).get("match"), **({"error": cg["error"]} if cg.get("error") else {})}
 
 
-def _screen_id(spec_dir: pathlib.Path) -> str:
+def _screen_id(opts: argparse.Namespace) -> str:
+    if opts.inputs:
+        try:
+            return str(config.load_yaml(opts.inputs)["screen_id"])
+        except (config.ConfigError, KeyError) as exc:
+            raise RunError("INPUT_UNREADABLE", f"{opts.inputs}: {exc}") from exc
+    spec_dir = pathlib.Path(opts.spec_dir)
     try:
         return json.loads((spec_dir / "brief.json").read_text(encoding="utf-8"))["screen_id"]
     except (OSError, ValueError, KeyError) as exc:
         raise RunError("INPUT_UNREADABLE", f"{spec_dir / 'brief.json'}: {exc}") from exc
+
+
+def _needs_llm(cfg: dict, opts) -> bool:
+    """LLM 단계가 있는 run — concept 모드(analyze) 또는 LLM fix."""
+    return bool(getattr(opts, "inputs", None)) or (cfg.get("fix") or {}).get("mode", "deterministic") != "deterministic"
+
+
+def _preflight(run: Run, opts) -> str:
+    try:
+        info = llm.preflight(run.cfg, cli=getattr(opts, "llm_cli", None))
+    except llm.LlmError as exc:
+        raise StageError(exc.code, str(exc).split(": ", 1)[-1]) from exc
+    run.record["llm_cli"] = info
+    warn = "" if info["version_match"] else f" (expected {info['expected_version']})"
+    return f"claude {info['version']}{warn} — {info['auth_method']} · {info['subscription']}"
 
 
 def _gen_log(run: Run) -> tuple[dict[str, dict], dict[str, int]]:
@@ -122,14 +203,26 @@ def _pipeline(run: Run, opts: argparse.Namespace, ctx: dict) -> str:
     """'pass' | 'fail' (게이트 · 재시도 끝). 단계 실패는 StageError, --until 은 StopAt."""
     limits = run.cfg["limits"]
     retries, patience = int(limits["retries"]), int(limits.get("early_stop_no_progress", 2))
+    concept = bool(getattr(opts, "inputs", None))
+
+    def inject():
+        if opts.inject_fault:
+            run.stage_begin("inject_fault")
+            detail, ctx["fault"] = fault.inject(run, opts.inject_fault)
+            run.stage_end("inject_fault", "ok", detail)
+
+    if _needs_llm(run.cfg, opts):
+        _simple(run, "preflight", lambda: _preflight(run, opts))
     _simple(run, "normalize", lambda: normalize.run(run, opts))
-    if opts.inject_fault:
-        run.stage_begin("inject_fault")
-        detail, ctx["fault"] = fault.inject(run, opts.inject_fault)
-        run.stage_end("inject_fault", "ok", detail)
+    if not concept:
+        inject()
     _until(opts, "normalize")
-    run.stage_begin("analyze")
-    run.stage_end("analyze", "skipped", "hand_spec — spec is given (Phase 1a)")
+    if concept:
+        _simple(run, "analyze", lambda: analyze.run(run, opts))
+        inject()
+    else:
+        run.stage_begin("analyze")
+        run.stage_end("analyze", "skipped", "hand_spec — spec is given (Phase 1a)")
     _until(opts, "analyze")
     for name, mod in (("codegen", codegen), ("generate", generate), ("refine", refine)):
         _simple(run, name, lambda mod=mod: mod.run(run, _opts(opts, attempt=1)))
@@ -221,10 +314,11 @@ def _finalize(run: Run, opts, ctx: dict, outcome: str) -> None:
 
 def execute(opts: argparse.Namespace) -> int:
     cfg = config.load_pipeline(opts.config)
-    spec_dir = pathlib.Path(opts.spec_dir)
+    if getattr(opts, "fix_mode", None):
+        cfg.setdefault("fix", {})["mode"] = opts.fix_mode
     work_root = pathlib.Path(opts.work_root) if opts.work_root else config.repo_path(cfg["paths"]["work_root"])
     metrics_path = pathlib.Path(opts.metrics) if opts.metrics else config.repo_path(cfg["paths"]["metrics"])
-    run_id = opts.run_id or new_run_id(_screen_id(spec_dir))
+    run_id = opts.run_id or new_run_id(_screen_id(opts))
     run = Run(run_id, work_root, cfg, metrics_path)
     with RunLock(work_root, run_id) as lock:
         run.create()
@@ -263,9 +357,20 @@ def execute(opts: argparse.Namespace) -> int:
                   "fixes": ctx["fixes"], "unsupported": last["unsupported"] if last else [], "durations_s": run.durations(),
                   "attempts": ctx["attempts"], "roundtrip": last["roundtrip"] if last else None, "fault": ctx["fault"], "finalize": ctx["finalize"],
                   "artifacts": artifacts, "verify": ("pass" if last["pass"] else "fail") if last else None, "message": ctx["message"]}
+        fidelity = _extract_fidelity_summary(run)
+        if fidelity:
+            report.setdefault("recorded", {})["extract_fidelity"] = fidelity
+        gauges = _gauge_fidelity_summary(run)
+        if gauges:
+            report.setdefault("recorded", {})["gauge_fidelity"] = gauges
         summary = _codegen_summary(run)
         if summary:
             report["codegen"] = summary
+        if run.path("analyze.json").is_file():
+            a = run.read_json("analyze.json")
+            report["analyze"] = {k: a.get(k) for k in ("calls", "cost_usd", "duration_s", "model", "retry_reasons", "ok")}
+            if run.path("analyze/overlay.png").is_file():
+                report["artifacts"]["overlay"] = "analyze/overlay.png"
         schema.require("report", report)
         run.write_json("report.json", report)
         status, message = ctx["status"], ctx["message"]

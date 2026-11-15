@@ -1,3 +1,5 @@
 # uigen 은 Tools/mcp/.venv 를 같이 쓴다(httpx · pytest 는 Tools/mcp/requirements*.txt).
 pyyaml>=6,<7          # config/*.yaml · profiles/*.yaml — 11-14 사용자 승인 설치(6.0.3)
 jsonschema>=4.20      # schemas/*.schema.json (Draft 2020-12 · referencing)
+rapidocr==3.10.0      # refine OCR(구운 글자 검출) — 11-15 사용자 승인 설치(1b-3). 기본 모델 PP-OCRv6 det/rec small 이 휠 안에 있다(실행 중 내려받기 없음)
+onnxruntime==1.32.0   # rapidocr 추론 엔진(CPU). 함께 설치: opencv-python-headless · numpy · Pillow · shapely · pyclipper · omegaconf 등 16개 · 110.8 MB

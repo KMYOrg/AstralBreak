@@ -40,9 +40,26 @@ def test_build_args_shape():
     assert float(args[args.index("--max-budget-usd") + 1]) == CFG["llm"]["stages"]["verifier"]["max_budget_usd"]
     assert int(args[args.index("--max-turns") + 1]) == CFG["llm"]["stages"]["verifier"]["max_turns"]
     assert args[args.index("--allowedTools"):] == ["--allowedTools", "Read"]   # 값이 여러 개인 옵션은 맨 뒤
+    assert args[args.index("--tools") + 1] == "Read" and args.index("--tools") < args.index("--allowedTools")   # 내장 도구 목록 자체를 줄임 [실측 1b-1]
     assert not any(a in llm.FORBIDDEN_ARGS for a in args)
     for p in ("--mcp-config", "--settings", "--append-system-prompt-file"):
         assert pathlib.Path(args[args.index(p) + 1]).is_file(), p
+
+
+def test_cli_schema_strips_meta_and_refuses_top_level_combinators():
+    spec_schema = json.loads((config.UIGEN_DIR / "schemas" / "spec.schema.json").read_text(encoding="utf-8"))
+    args = llm.build_args(["claude"], "verifier", "p", CFG["llm"], spec_schema)
+    sent = json.loads(args[args.index("--json-schema") + 1])
+    assert "$schema" not in sent and "$id" not in sent                     # CLI 검사기가 2020-12 메타 스키마를 모른다 [실측 1b-1]
+    assert sent["$defs"] == spec_schema["$defs"] and "$schema" in spec_schema   # 안쪽($defs · $ref · if-then)은 그대로, 원본은 안 바뀜
+    for bad in ({"type": "object", "allOf": [{"required": ["a"]}]}, {"type": "object", "oneOf": []}, {"type": "array"}, ["x"]):
+        with pytest.raises(llm.LlmError) as e:
+            llm.build_args(["claude"], "verifier", "p", CFG["llm"], bad)
+        assert e.value.code == "LLM_SCHEMA_UNSUPPORTED"
+
+
+def test_tool_names_from_permission_rules():
+    assert llm.tool_names(["Read", "Edit(work/**)", "Read"]) == ["Edit", "Read"]
 
 
 def test_build_args_refuses_bash_and_missing_limits():
@@ -64,6 +81,8 @@ def test_run_stage_ok(fake_env, monkeypatch):
     monkeypatch.setenv("FAKE_CLAUDE_OUTPUT", json.dumps({"fixes": [{"widget": "UltArea", "problem": "too low"}]}))
     out = llm.run_stage("verifier", "look", CFG, SCHEMA, cli=FAKE)
     assert out["structured_output"]["fixes"][0]["widget"] == "UltArea" and out["cost_usd"] == 0.0123 and out["num_turns"] == 2
+    assert out["model"] == "claude-haiku-5-5" and out["tokens"]["cacheCreationInputTokens"] == 7015 and out["terminal_reason"] == "completed"
+    assert "credential_expires_at" not in out                                # 결과 이벤트의 나머지 필드는 옮기지 않는다
     call = _calls(fake_env)[0]
     assert call["argv"][:2] == ["-p", "look"]
     assert pathlib.Path(call["cwd"]).resolve() == config.repo_path(CFG["llm"]["cwd"]).resolve()
@@ -71,12 +90,34 @@ def test_run_stage_ok(fake_env, monkeypatch):
 
 
 @pytest.mark.parametrize("mode, code", [("max_turns", "LLM_MAX_TURNS"), ("not_logged_in", "LLM_NOT_LOGGED_IN"),
-                                        ("no_structured", "LLM_NO_STRUCTURED_OUTPUT"), ("garbage", "LLM_NO_RESULT")])
+                                        ("no_structured", "LLM_NO_STRUCTURED_OUTPUT"), ("garbage", "LLM_NO_RESULT"),
+                                        ("budget", "LLM_BUDGET"), ("api_error", "LLM_API_ERROR"), ("bad_schema_arg", "LLM_NO_RESULT")])
 def test_run_stage_errors(fake_env, monkeypatch, mode, code):
     monkeypatch.setenv("FAKE_CLAUDE_MODE", mode)
     with pytest.raises(llm.LlmError) as e:
         llm.run_stage("verifier", "look", CFG, SCHEMA, cli=FAKE)
     assert e.value.code == code
+    if mode == "budget":
+        assert e.value.details["terminal_reason"] == "budget_exhausted" and e.value.details["cost_usd"] == 0.0019
+
+
+def test_preflight_records_version_and_subscription_only(monkeypatch):
+    monkeypatch.delenv("FAKE_CLAUDE_AUTH", raising=False)
+    monkeypatch.setenv("FAKE_CLAUDE_VERSION", "2.1.325")
+    info = llm.preflight(CFG, cli=FAKE)
+    assert info == {"version": "2.1.325", "expected_version": CFG["llm"]["expected_version"], "version_match": True,
+                    "logged_in": True, "auth_method": "claude.ai", "subscription": "max"}
+    assert "example.com" not in json.dumps(info) and "org-fake" not in json.dumps(info)   # 계정 정보는 남기지 않는다
+    monkeypatch.setenv("FAKE_CLAUDE_VERSION", "9.9.9")
+    assert llm.preflight(CFG, cli=FAKE)["version_match"] is False                          # 다르면 표시만(자동 업데이트)
+
+
+@pytest.mark.parametrize("auth, code", [({"loggedIn": False}, "LLM_NOT_LOGGED_IN"), ({"authMethod": "console"}, "LLM_AUTH_METHOD")])
+def test_preflight_refuses_logged_out_and_token_billing(monkeypatch, auth, code):
+    monkeypatch.setenv("FAKE_CLAUDE_AUTH", json.dumps(auth))
+    with pytest.raises(llm.LlmError) as e:
+        llm.preflight(CFG, cli=FAKE)
+    assert e.value.code == code and "example.com" not in str(e.value.details)
 
 
 def test_run_stage_stream_and_timeout(fake_env, monkeypatch):
@@ -119,8 +160,9 @@ def test_llm_fix_path_with_fake_cli(tmp_path, fake_env, monkeypatch):
 
 
 def test_llm_fix_rejects_invalid_patch(tmp_path, fake_env, monkeypatch):
+    """스키마에 안 맞는 patch — 오류를 붙여 fix 를 1회 다시 부르고, 또 안 되면 예외 대신 op 없음(1b-6: run 은 NO_FIX 로 finalize 까지)."""
     monkeypatch.setenv("FAKE_CLAUDE_OUTPUT", json.dumps({"fixes": [], "ops": [{"op": "set", "widget": "UltArea"}]}))
     run = _run_with_files(tmp_path)
-    with pytest.raises(StageError) as e:
-        fix.llm_propose(run, 1, {"gates": [], "failed": [], "revision": None}, cli=FAKE)
-    assert e.value.code == "LLM_PATCH_INVALID"
+    fixes, ops = fix.llm_propose(run, 1, {"gates": [], "failed": [], "revision": None}, cli=FAKE)
+    assert ops == [] and fixes[-1]["problem"] == "LLM fix produced no usable patch" and "BAD_PATCH" in fixes[-1]["evidence"]
+    assert len(_calls(fake_env)) == 3                                          # verifier 1 + fix 2

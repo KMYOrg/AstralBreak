@@ -105,11 +105,18 @@ def test_brief_spec_mismatch(tmp_path):
     assert json.loads((rd / "run.json").read_text(encoding="utf-8"))["stages"][-1]["code"] == "BRIEF_SPEC_MISMATCH"
 
 
-def test_codex_asset_refused_in_1a(tmp_path, fake_ue):
+def test_backend_outside_allowed_is_refused(tmp_path, fake_ue):
+    """요청한 출처가 backends.allowed 밖이면 대체하지 않고 실패 — 1b 는 codex 를 허용하므로 procedural 만 허용한 설정으로 본다."""
+    import yaml
+    from core import config
+    cfg = config.load_pipeline()
+    cfg["backends"]["allowed"] = ["procedural"]
+    cfg_path = tmp_path / "pipeline_procedural_only.yaml"
+    cfg_path.write_text(yaml.safe_dump(cfg, allow_unicode=True), encoding="utf-8")
     spec = fixture_spec()
     spec["assets"][0]["provenance"] = "codex"
     src = write_fixture(tmp_path / "in", fixture_brief(), spec)
-    assert run_pipeline.main(_args(tmp_path, spec_dir=src)) == run_pipeline.EXIT_FAIL
+    assert run_pipeline.main([*_args(tmp_path, spec_dir=src), "--config", str(cfg_path)]) == run_pipeline.EXIT_FAIL
     rd = tmp_path / "work" / RUN_ID
     assert json.loads((rd / "run.json").read_text(encoding="utf-8"))["stages"][-1]["code"] == "BACKEND_NOT_ALLOWED"
 

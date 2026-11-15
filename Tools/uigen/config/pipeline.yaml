@@ -1,7 +1,7 @@
 # UI 자동 생성 파이프라인 설정 (Docs/Design/ui-autogen-pipeline.md §2 · §3-2). 값은 전부 잠정.
 # 저장소 안 경로는 저장소 루트 기준 상대, 엔진 · 사용자 도구는 절대 경로.
 schema_version: 1
-phase: 1a
+phase: 1b
 
 paths:
   work_root: Tools/uigen/work            # run 별 산출물 — git 무시, Saved 밖(이미지를 Read · 전송할 수 있게)
@@ -38,7 +38,25 @@ limits:
   codex_calls_per_run: 20
 
 backends:
-  allowed: [procedural]                  # 1a — codex · comfy 호출 없음
+  allowed: [procedural, codex]           # 1b-5 — codex 연결(gen/codex.py). comfy 는 Phase 5
+
+codex:                                   # §7 — 공식 codex CLI · built-in image_gen 만 (gen/codex.py, 1b-2)
+  cli: auto                              # auto = PATH 의 codex — npm .cmd 래퍼면 node + codex.js 로 직접(cmd.exe 가 프롬프트를 해석하지 않게) · 또는 [exe, …]
+  expected_version: 0.166.0              # run 시작 때 `codex --version` 기록 — 다르면 표시만
+  home: null                             # null = $CODEX_HOME 또는 ~/.codex — 결과 generated_images/<thread_id>/ 를 찾는 곳(auth.json 은 읽지 않는다)
+  sandbox: workspace-write               # cwd = work/<run>/gen/<asset_id> (git 무시)
+  timeout_s: 600                         # 벽시계 — 넘으면 프로세스 트리를 끝낸다(node → codex.exe)
+  strip_env: [OPENAI_API_KEY, CODEX_API_KEY, AZURE_OPENAI_API_KEY]   # 유료 API 폴백 차단
+  suspect_quota_after_failures: 2        # 식별자 없이 이미지가 안 나온 호출이 연속 N 번이면 한도로 추정(A3 '틀리면')
+
+extract:                                 # 1b 후속 A — 컨셉에서 따오기(spec asset source_mode: extract · codex 편집). 값은 잠정
+  pad: 8                                 # ref_bbox 바깥 여유(px) — 이 상자를 다시 되자른다
+  max_aspect: 3.0                        # [실측 A-1] 편집 출력 캔버스 비율 = 입력 비율, 가장 긴 출력 3:1 — 더 긴 요소는 실제 화면으로 짧은 변을 넓힌다
+  interior_alpha: 0.9                    # frame · panel_bg 안쪽 알파 — [실측 A-1] image_gen 은 안쪽을 거의 불투명(250 ~ 254)으로 낸다. null = 안쪽 단계 끔
+  interior_flatten: true                 # 안쪽을 대표색 한 색으로 칠함 — [실측 A run] 글자 자리를 구멍(알파 6 ~ 19)으로 남긴 판이 나왔다. false = 알파 배수만
+  interior_max_lightness: 35             # 대표색을 고를 픽셀의 L* 상한(금테 · 장식은 L* 60 이상)
+  fixed_size_draw_as: image              # 크기 고정 위젯(점 앵커 영역 안)의 따온 에셋 브러시 box → image — box 는 모서리를 텍스처 픽셀 × margin 으로 그려
+                                         # 큰 텍스처면 모서리가 커지고 가운데가 눌린다(ElementBatcher.cpp:857-860, A run 2). box = 바꾸지 않음
 
 textures:                                # §12-2 5 — 11-14 사용자: EditorIcon 기본 + 큰 배경만 BC7
   compression_default: TC_EditorIcon
@@ -52,8 +70,20 @@ textures:                                # §12-2 5 — 11-14 사용자: EditorI
 render:
   resolutions: [[1920, 1080], [2560, 1080], [1920, 1200]]   # 화면 밖 게이트 — 기준 + 21:9 + 16:10
 
+fonts:                                   # 프로젝트 폰트 (1b-3 — 11-15 사용자 승인: Pretendard v1.3.9 OFL, import_font_family 로 임포트 · 저장)
+  default_family: /Game/UI/Fonts/Pretendard/F_Pretendard.F_Pretendard   # spec font.family 값 — export 가 돌려주는 객체 경로 그대로(왕복 비교)
+  typefaces: [Regular, Bold]             # spec font.weight regular · bold 만 그 타입페이스를 고른다(light · italic 은 첫 항목으로 대체)
+  line_height:                           # [실측 1b-3] TextBlock auto_size 높이(px, 1920×1080 · scale 1) — regular · bold 같음. 엔진 기본은 크기 × 약 1.6
+    16: 26
+    18: 30
+    22: 36
+    26: 43
+    30: 49
+    34: 55
+
 fix:
-  mode: deterministic                    # 1a — 결정적 fixer(11-14 사용자 결정). LLM verifier · fix 는 1b (llm)
+  mode: hybrid                           # 1b-6 — 결정적 fixer 먼저, op 가 없거나 직전 결정적 patch 가 진전이 없으면 LLM verifier → fix (11-15 사용자 결정).
+                                         # deterministic(1a) · llm 도 된다 — run 마다 --fix-mode 로 덮을 수 있다
 
 llm:                                     # §10-1 claude -p 호출 틀(core/llm.py) — 1a 는 fix.mode deterministic 이라 호출 0, 1b 에서 값 보정
   cli: [claude]                          # 독립 실행 claude(~/.local/bin) — 데스크톱 앱과 따로 로그인(구독 계정)
@@ -62,5 +92,7 @@ llm:                                     # §10-1 claude -p 호출 틀(core/llm.
   settings: Tools/uigen/claude_ctx/.claude/settings.json
   mcp_config: Tools/uigen/config/empty_mcp.json
   stages:                                # 출력은 --json-schema(structured_output)로만 — 쓰기 도구 없음, Bash 금지
+    # analyze — 11-15 사용자 결정(잠정 1.0 USD · 턴 6 · 600초). [실측 1b-1] 예산은 턴 사이 검사라 '한 턴 더' 여유 포함, model null = 사용자 기본(claude-opus-5-5)
+    analyze:  { max_budget_usd: 1.0, max_turns: 6, timeout_s: 600, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/analyze.md, model: null }
     verifier: { max_budget_usd: 0.5, max_turns: 8, timeout_s: 300, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/verifier.md, model: null }
     fix:      { max_budget_usd: 0.5, max_turns: 6, timeout_s: 300, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/fix.md, model: null }

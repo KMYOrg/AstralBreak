@@ -13,6 +13,8 @@ class FConfigFile;
  *   +WidgetOutputPaths=/Game/_AutoGen/         쓰기 Tool 이 애셋을 만들 · 바꿀 · 저장 · 폐기할 수 있는 유일한 패키지 경로 접두
  *   +WidgetImportSourceRoots=Tools/uigen/work/ import_ui_textures 가 읽을 수 있는 디스크 폴더
  *   +WidgetRenderOutputRoots=Tools/uigen/work/ render_widget 이 PNG 를 쓰는 디스크 폴더(그 아래 새 · 빈 하위 폴더만)
+ *   +WidgetFontOutputPaths=/Game/UI/Fonts/     import_font_family 만 쓰는 접두 — 프로젝트 폰트는 run 산출물이 아니라 커밋 대상이라
+ *                                              WidgetOutputPaths 와 따로 둔다(설계 §11 '1b 착수 때 정한 것' — §6 '쓰기는 /Game/_AutoGen/ 만'의 예외)
  * 목록이 비면 그 Tool 은 아무 데도 쓰지 · 읽지 않는다.
  */
 namespace WidgetMcp
@@ -25,6 +27,7 @@ namespace WidgetMcp
 		TArray<FString> OutputPaths;     // "/Game/_AutoGen/" (정규화 접두)
 		TArray<FString> ImportRoots;     // "D:/Proj/Tools/uigen/work/"
 		TArray<FString> RenderRoots;
+		TArray<FString> FontOutputPaths; // "/Game/UI/Fonts/" (정규화 접두) — import_font_family 전용
 		TArray<FString> Warnings;
 	};
 

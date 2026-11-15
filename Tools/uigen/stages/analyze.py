@@ -7,7 +7,7 @@ LLM(`claude -p`, prompts/analyze.md)이 판단하는 것은 배치 · 스타일 
   - (1b 후속 B ②) 샘플이 꺼짐(false)인 flag 위젯의 visibility = collapsed
 그 뒤 검사(스키마 · 의미 · brief 맞물림 · 위젯 타입 · bbox · 에셋 · flag 위젯이 상자 패널 안 금지)를 하고, 실패하면 오류 목록과 앞 출력 파일을 주고 **1회** 다시 요청한다.
 두 번째도 실패하면 ANALYZE_INVALID 로 멈춘다(§2-2 '스키마 위반 → 1회 재요청 후 중단').
-통과하면 (1b 후속 B ①) 게이지 채움 · 배경을 컨셉에서 결정적으로 뽑는다(`derive_gauge_fills` → analyze/derived.json).
+통과하면 (1b 후속 B ① · F) 게이지 채움 · 배경을 컨셉에서 결정적으로 뽑는다(`derive_gauge_fills` → analyze/derived.json — 따온 프레임 위면 채움 모양 그대로).
 
 출력: spec.json · specs/000.json · analyze/attempt_NNN.json(LLM 원본) · analyze/attempt_NNN_errors.json · analyze/overlay.png(bbox_intent 를
 reference 위에 그린 사람 눈용) · analyze.json(요약) · llm.jsonl(호출마다 한 줄).
@@ -55,11 +55,28 @@ def _contract_lines(brief: dict) -> list[str]:
     return lines
 
 
+ROLE_HINTS = {"body": "sans — body text, small labels, counters", "title": "serif — titles, banners, big numbers"}
+
+
+def font_lines(cfg: dict, brief: dict) -> str:
+    """프롬프트의 폰트 줄 — 역할마다 폰트 · 용도 · 줄 높이 표(1b 후속 D). 역할이 없으면(엔진 기본) 예전 문장."""
+    roles = config.font_roles(cfg, brief.get("font"))
+    if not roles:
+        return "Project font: engine default (omit font.family). Line height in px per font size: about 1.6 × size."
+    def glyphs(v):
+        g = v.get("glyph_height") or {}
+        parts = [f"{k} ≈ {float(x):g} × size" for k, x in g.items()]
+        return f"; visible glyph height: {', '.join(parts)}" if parts else ""
+    rows = [f"- `{r}` = {v['family'].rsplit('/', 1)[-1].split('.')[0]} ({ROLE_HINTS.get(r, r)}): line height in px per font size "
+            f"{config.line_height_text(v['line_height']) or 'about 1.6 × size'}{glyphs(v)}" for r, v in roles.items()]
+    # 1b 후속 F [실측 C1 렌더] Noto Serif KR 한글 획 높이 = 크기 × 1.32 ~ 1.35, 숫자 1.02 — '글자 높이 ≈ 크기'는 숫자에만 맞아 배너가 1.18 배로 컸다
+    return ("Font roles (set font.role on every TextBlock, omit font.family):\n" + "\n".join(rows) + "\n"
+            "Pick each size from the glyph height you see divided by that font's glyph-height ratio above (Hangul and digits differ — Hangul is taller "
+            "at the same size), then make the TextBlock's bbox_intent that size's line box (height = the line height above, vertically centered on the glyphs).")
+
+
 def build_prompt(run, brief: dict, cfg: dict, retry: dict | None = None) -> str:
     profile = config.load_profile(brief["screen_type"])
-    fonts = cfg.get("fonts") or {}
-    lh = fonts.get("line_height") or {}
-    lh_text = ", ".join(f"{k}→{v}" for k, v in sorted(((int(k), v) for k, v in lh.items()))) or "about 1.6 × size"
     req = "\n".join(f"- {e['id']} ({e['kind']}){': ' + e['desc'] if e.get('desc') else ''}" for e in brief["required_elements"])
     w, h = brief["resolution"]
     gates = profile.get("gates") or {}
@@ -72,7 +89,7 @@ def build_prompt(run, brief: dict, cfg: dict, retry: dict | None = None) -> str:
         "Contract (exact ids and widget types; the pipeline fills binding/text of these after you answer):\n" + "\n".join(_contract_lines(brief)),
         "Required elements:\n" + req,
         f"Style keywords: {', '.join(brief.get('style_keywords') or []) or '-'}",
-        f"Project font: {brief.get('font') or 'engine default'} (omit font.family). Line height in px per font size: {lh_text}.",
+        font_lines(cfg, brief),
         f"Layout gates: region IoU ≥ {gates.get('iou_region_min')}, leaf IoU ≥ {gates.get('iou_leaf_min')}, "
         f"boxes thinner than {gates.get('small_px')} px by center distance ≤ {gates.get('small_center_max_px')} px, sibling overlap ≤ {gates.get('overlap_max_ratio')} "
         f"outside allow_overlap, nothing off-screen at {w}×{h}, 2560×1080 and 1920×1200.",
@@ -84,8 +101,9 @@ def build_prompt(run, brief: dict, cfg: dict, retry: dict | None = None) -> str:
     return "\n\n".join(parts)
 
 
-def apply_contract(spec: dict, brief: dict) -> dict:
-    """LLM 출력에 계약 필드를 채운 새 spec — 판단이 아니라 요청이 정한 값이다."""
+def apply_contract(spec: dict, brief: dict, roles: dict[str, dict] | None = None) -> dict:
+    """LLM 출력에 계약 필드를 채운 새 spec — 판단이 아니라 요청이 정한 값이다.
+    roles(config.font_roles) — TextBlock 의 font.role 을 그 역할의 family 로 바꾸고 role 을 지운다(1b 후속 D). 모르는 역할 · 역할 없음은 body."""
     out = copy.deepcopy(spec)
     out["schema_version"] = 1
     out["canvas"] = list(brief["resolution"])
@@ -109,12 +127,15 @@ def apply_contract(spec: dict, brief: dict) -> dict:
         w = index.get(st["widget"])
         if w and w.get("type") == "TextBlock":
             w["text"] = {"source": "static", "value": st["value"]}
-    if brief.get("font"):
-        for w in out.get("widgets", []):
-            if w.get("type") == "TextBlock":
-                font = w.setdefault("font", {})
-                if not font.get("family"):
-                    font["family"] = brief["font"]
+    for w in out.get("widgets", []):
+        if w.get("type") != "TextBlock":
+            continue
+        font = w.setdefault("font", {})
+        role = font.pop("role", None)
+        if roles and role in roles:
+            font["family"] = roles[role]["family"]
+        elif not font.get("family") and (brief.get("font") or (roles or {}).get("body")):
+            font["family"] = brief.get("font") or roles["body"]["family"]
     return out
 
 
@@ -172,6 +193,8 @@ def check(spec: dict, brief: dict) -> list[str]:
                 errs.append(f"ASSET_REF_BBOX: '{a['asset_id']}' ref_bbox {rb} is outside the canvas")
         elif a["provenance"] == "procedural" and not a.get("procedural"):
             errs.append(f"ASSET_PROCEDURAL: procedural asset '{a['asset_id']}' needs procedural{{shape, …}}")
+        elif a["provenance"] == "procedural" and a["procedural"].get("shape") == "concept_fill":
+            errs.append(f"ASSET_PROCEDURAL: '{a['asset_id']}' — concept_fill is made by the pipeline from the concept; use gradient_bar or rounded_box for a gauge fill")
         elif a["provenance"] not in ("codex", "procedural"):
             errs.append(f"ASSET_PROVENANCE: '{a['asset_id']}' provenance '{a['provenance']}' — Phase 1b uses codex or procedural")
         if max(a["size"]) > 1024:
@@ -197,16 +220,63 @@ def _snake(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
 
-def derive_gauge_fills(spec: dict, reference) -> list[dict]:
-    """1b 후속 B ① — 게이지(ProgressBar) 채움 · 배경을 컨셉에서 결정적으로 뽑는다(LLM · codex 없음).
+def _new_asset_id(w: dict, taken: set) -> str:
+    aid, k = f"{_snake(w['id'])}_fill", 2
+    while aid in taken:
+        aid, k = f"{_snake(w['id'])}_fill_{k}", k + 1
+    taken.add(aid)
+    return aid
 
-    채움: bbox_intent 안 채워진 부분(샘플 percent — left_to_right / right_to_left 만, 양끝 4 % 뺌)의 줄마다 대표색(중앙값) →
+
+def _apply_concept_fill(spec: dict, w: dict, parent: dict, frame: dict, ref, taken: set, gcfg: dict) -> dict:
+    """1b 후속 F — 따온 프레임 위 가로 게이지의 채움을 컨셉 모양 그대로(gen/concept_fill). 못 재면 ConceptFillError."""
+    from gen import concept_fill
+    st = w["style"]
+    end = gcfg.get("end", "scale")
+    m = concept_fill.measure(ref, frame["bbox_intent"], w["bbox_intent"], st["percent"], st.get("bar_fill_type", "left_to_right"), end=end)
+    wx, wy, ww, wh = m["widget_box"]
+    px, py, pw, ph = (float(v) for v in parent["bbox_intent"])
+    pad = [wx - px, wy - py, (px + pw) - (wx + ww), (py + ph) - (wy + wh)]
+    if min(pad) < -BBOX_TOLERANCE_PX:
+        raise concept_fill.ConceptFillError(f"the measured track {m['widget_box']} sticks out of the parent '{parent['id']}' box {parent['bbox_intent']}")
+    pad = [round(max(0.0, v), 1) for v in pad]
+    pad = [int(v) if float(v).is_integer() else v for v in pad]
+    aid = _new_asset_id(w, taken)
+    asset = {"asset_id": aid, "kind": "fill", "provenance": "procedural", "size": [ww, wh], "procedural": {"shape": "concept_fill", **m["params"]},
+             "source": f"concept fill shape inside frame '{frame['id']}' (track {m['widget_box']}, sample {st['percent']:g})"}
+    rec = {"fill_asset": aid, "shape": "concept_fill", "end": end, "widget_box": m["widget_box"], "old_bbox": list(w["bbox_intent"]),
+           "old_padding": (w.get("slot") or {}).get("padding"), "old_fill": st.get("fill"), "old_background": st.get("background"), **m["record"]}
+    if m["margin"]:
+        asset.update(nine_slice=True, margin=m["margin"])
+        st["fill"] = {"draw_as": "box", "asset": aid, "margin": m["margin"]}
+        st["bar_fill_style"] = "scale"
+    else:
+        st["fill"] = {"draw_as": "image", "asset": aid}
+        st.pop("bar_fill_style", None)
+    spec.setdefault("assets", []).append(asset)
+    st["background"] = {"draw_as": "none"}
+    w["bbox_intent"] = [wx, wy, ww, wh]
+    slot = w.setdefault("slot", {"kind": "overlay"})
+    slot.update(padding=pad, h_align="fill", v_align="fill")
+    rec.update(padding=pad, fill=st["fill"], background_from=f"none — extracted frame '{frame['id']}' underneath")
+    return rec
+
+
+def derive_gauge_fills(spec: dict, reference, gauge_cfg: dict | None = None) -> list[dict]:
+    """1b 후속 B ① · F — 게이지(ProgressBar) 채움 · 배경을 컨셉에서 결정적으로 뽑는다(LLM · codex 없음).
+
+    (F, gauge_fill.mode shape — 기본) 같은 Overlay 의 앞(아래) 형제가 컨셉에서 따온 프레임인 가로 게이지: 컨셉 채움의 모양 그대로
+          (gen/concept_fill — 왼쪽 '<' 끝 · 밝은 테두리 · 트랙 띠의 빛 · end scale 이면 진행 끝 테두리 · 번짐) → procedural concept_fill,
+          막대 bbox_intent · slot.padding 을 잰 트랙 상자로, end scale 이면 style.bar_fill_style scale + 채움 box(양끝 여백). 못 재면 아래 B 방식(기록 shape_fallback).
+    (B) 채움: bbox_intent 안 채워진 부분(샘플 percent — left_to_right / right_to_left 만, 양끝 4 % 뺌)의 줄마다 대표색(중앙값) →
           procedural gradient_bar(색 단계 ≤ 48) 에셋 `<위젯>_fill` → style.fill = image. Slate 는 채움 이미지를 바 전체 크기로 그리고
           진행률만큼 자른다([소스] SProgressBar.cpp:237-253) — 가로가 같은 색인 세로 그라데이션이면 그대로 맞다.
     배경: 같은 Overlay 의 앞(아래) 형제가 컨셉에서 따온 프레임이면 none(프레임의 트랙이 보이게), 아니면 안 채워진 부분의 대표색 rounded_box.
     → 바꾼 기록 목록(spec 은 제자리에서 바뀐다)."""
     import numpy as np
     from PIL import Image
+    from gen import concept_fill
+    gcfg = gauge_cfg or {}
     with Image.open(reference) as im:
         ref = np.asarray(im.convert("RGB"))
     H, W = ref.shape[:2]
@@ -224,6 +294,17 @@ def derive_gauge_fills(spec: dict, reference) -> list[dict]:
         if not isinstance(p, (int, float)) or ftype not in ("left_to_right", "right_to_left"):
             out.append({**rec, "skipped": "needs a sample percent and a horizontal fill"})
             continue
+        parent = index.get(w.get("parent"))
+        under = [s for s in spec["widgets"] if s.get("parent") == w.get("parent") and order[s["id"]] < order[w["id"]]
+                 and ((s.get("style") or {}).get("brush") or {}).get("asset") in extract_ids]
+        if gcfg.get("mode", "shape") == "shape" and parent and parent.get("type") == "Overlay" and parent.get("bbox_intent") \
+                and under and under[-1].get("bbox_intent"):
+            try:
+                rec.update(_apply_concept_fill(spec, w, parent, under[-1], ref, taken, gcfg))
+                out.append(rec)
+                continue
+            except concept_fill.ConceptFillError as exc:
+                rec["shape_fallback"] = str(exc)
         x, y, bw, bh = (float(v) for v in w["bbox_intent"])
         y0, y1 = max(0, int(round(y))), min(H, int(round(y + bh)))
         e = GAUGE_EDGE_FRAC
@@ -237,18 +318,13 @@ def derive_gauge_fills(spec: dict, reference) -> list[dict]:
         if len(prof) > GAUGE_MAX_STOPS:
             prof = prof[np.linspace(0, len(prof) - 1, GAUGE_MAX_STOPS).round().astype(int)]
         stops = ["#%02X%02X%02XFF" % tuple(int(round(v)) for v in c) for c in prof]
-        aid, k = f"{_snake(w['id'])}_fill", 2
-        while aid in taken:
-            aid, k = f"{_snake(w['id'])}_fill_{k}", k + 1
-        taken.add(aid)
+        aid = _new_asset_id(w, taken)
         spec.setdefault("assets", []).append({"asset_id": aid, "kind": "fill", "provenance": "procedural", "size": [GAUGE_FILL_WIDTH, max(4, y1 - y0)],
                                               "procedural": {"shape": "gradient_bar", "stops": stops},
                                               "source": f"concept rows {y0}-{y1}, x {fx0}-{fx1} (filled part at sample {p:g})"})
         rec.update(fill_asset=aid, stops=len(stops), sampled=[fx0, y0, fx1 - fx0, y1 - y0], old_fill=st.get("fill"), old_background=st.get("background"))
         st["fill"] = {"draw_as": "image", "asset": aid}
-        parent = index.get(w.get("parent"))
-        under = [s for s in spec["widgets"] if s.get("parent") == w.get("parent") and order[s["id"]] < order[w["id"]]
-                 and ((s.get("style") or {}).get("brush") or {}).get("asset") in extract_ids]
+        st.pop("bar_fill_style", None)
         if parent and parent.get("type") == "Overlay" and under:
             st["background"] = {"draw_as": "none"}
             rec["background_from"] = f"none — extracted frame '{under[-1]['id']}' underneath"
@@ -263,6 +339,194 @@ def derive_gauge_fills(spec: dict, reference) -> list[dict]:
         rec.update(fill=st["fill"], background=st.get("background"))
         out.append(rec)
     return out
+
+
+TEXT_GRADIENT_MIN_DE = 8.0   # 글자 위 · 아래 줄 대표색 ΔE00 이 이 이상이면 세로 그라데이션(잠정)
+TEXT_BAND = 0.25             # 위 · 아래 대표색을 잡을 글자 줄 비율
+
+
+def _hex(rgb, alpha: str = "FF") -> str:
+    return "#%02X%02X%02X" % tuple(int(round(float(v))) for v in rgb[:3]) + alpha
+
+
+def derive_text_fills(spec: dict, reference) -> list[dict]:
+    """1b 후속 D — 글자색 · 세로 그라데이션을 컨셉에서 결정적으로 뽑는다(게이지 채움 B ① 과 같은 방식, LLM · codex 없음).
+
+    TextBlock 의 bbox_intent 안에서 글자 획(fidelity.text_ink — L* Otsu 의 적은 쪽, 획 안쪽)을 찾아 줄마다 대표색을 보고,
+    위 25 % 줄 ↔ 아래 25 % 줄의 ΔE00 이 8 이상이면 font.gradient{top_color, bottom_color} + font.color 흰색(틴트 없음 — 알파는 유지),
+    아니면 font.color = 획 전체 대표색(그라데이션은 지움). 글자를 못 찾으면 LLM 값 그대로. → 바꾼 기록 목록(spec 은 제자리에서 바뀐다)."""
+    import numpy as np
+    from PIL import Image
+    from core import color
+    from gen import fidelity
+    with Image.open(reference) as im:
+        ref = np.asarray(im.convert("RGB"))
+    H, W = ref.shape[:2]
+    out = []
+    for w in spec.get("widgets", []):
+        if w.get("type") != "TextBlock" or not w.get("bbox_intent"):
+            continue
+        t = w.get("text") or {}
+        if not (t.get("value") or t.get("sample")):
+            continue
+        x, y, bw, bh = (float(v) for v in w["bbox_intent"])
+        x0, y0, x1, y1 = max(0, int(x)), max(0, int(y)), min(W, int(np.ceil(x + bw))), min(H, int(np.ceil(y + bh)))
+        rec = {"widget": w["id"], "box": [x0, y0, x1 - x0, y1 - y0]}
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            out.append({**rec, "skipped": "box too small"})
+            continue
+        crop = ref[y0:y1, x0:x1].astype(float)
+        ink = fidelity.text_ink(crop)
+        if ink is None:
+            out.append({**rec, "skipped": "no glyph pixels found"})
+            continue
+        font = w.setdefault("font", {})
+        alpha = spec_mod.canon_color(font.get("color") or "#FFFFFFFF")[7:9]
+        rows = np.where(ink.sum(axis=1) >= 2)[0]
+        whole = np.median(crop[ink], axis=0)
+        rec.update(ink_pixels=int(ink.sum()), rows=int(len(rows)), old_color=font.get("color"), old_gradient=font.get("gradient"))
+        n = max(1, int(round(len(rows) * TEXT_BAND)))
+        if len(rows) >= 4:
+            top_rows, bot_rows = rows[:n], rows[-n:]
+            top = np.median(crop[top_rows][ink[top_rows]], axis=0)
+            bot = np.median(crop[bot_rows][ink[bot_rows]], axis=0)
+            de = float(color.delta_e00(color.srgb_to_lab(top), color.srgb_to_lab(bot)))
+            rec["top_bottom_de00"] = round(de, 2)
+        else:
+            de = 0.0
+        if de >= TEXT_GRADIENT_MIN_DE:
+            font["gradient"] = {"top_color": _hex(top), "bottom_color": _hex(bot)}
+            font["color"] = "#FFFFFF" + alpha
+            rec["gradient"] = font["gradient"]
+        else:
+            font.pop("gradient", None)
+            font["color"] = _hex(whole, alpha)
+            rec["color"] = font["color"]
+        out.append(rec)
+    return out
+
+
+GLOW_PAD = 16          # 글자 상자 밖으로 이만큼 넓혀 획 둘레 밝기를 잰다
+GLOW_BG = (10, 14)     # 바탕 = 획에서 이 거리 띠의 밝기 중앙값
+GLOW_PEAK = (2, 6)     # 빛 판정 = 이 거리 띠들 중 가장 밝은 띠의 (밝기 − 바탕)
+GLOW_TAIL_L = 3.0      # 빛 끝 = 바탕보다 이만큼 밝은 마지막 거리
+GLOW_MAX = 16
+GLOW_GAMMA = 1.5       # WidgetMcpTextMaterials M_TextGlow 기본 Gamma 와 같게(불투명도 = 알파 × (1 − d / size)^Gamma)
+
+
+def derive_text_glow(spec: dict, reference, roles: dict[str, dict], min_excess: float = 8.0) -> list[dict]:
+    """1b 후속 F — 글자 둘레로 번지는 빛을 컨셉에서 결정적으로(LLM · codex 없음).
+
+    TextBlock 마다 bbox_intent(+16 px) 안 글자 획(fidelity.text_ink)에서 거리별 밝기(L) 띠를 재 바탕(10 ~ 14 px 띠)과 비교한다.
+    2 ~ 6 px 띠 중 가장 밝은 것이 바탕보다 min_excess 이상 밝으면 빛: size = 바탕보다 3 이상 밝은 마지막 거리 + 1,
+    색 G = 바탕 B 에서 2 ~ 3 px 띠 색 C 쪽으로 한 채널이 255 에 닿을 때까지 민 색(k 배), 알파 = 1 / (k × (1 − 2.5 / size)^1.5)(0.15 ~ 1)
+    → font.glow{size, color} + font.family = 그 역할의 sdf_family(빛은 거리장 글꼴의 외곽선 층으로 그린다 — WidgetMcpTextMaterials).
+    빛이 없거나 SDF 폰트가 없으면 font.glow 를 지운다(LLM 값은 쓰지 않음). 외곽선과 같이 못 쓰므로 빛이면 outline 을 지운다(기록).
+    → 기록 목록(spec 은 제자리에서 바뀐다)."""
+    import cv2
+    import numpy as np
+    from PIL import Image
+    from gen import fidelity
+    from gen.concept_fill import luminance
+    with Image.open(reference) as im:
+        ref = np.asarray(im.convert("RGB")).astype(float)
+    H, W = ref.shape[:2]
+    by_family = {v["family"]: (r, v) for r, v in roles.items()}
+    out = []
+    for w in spec.get("widgets", []):
+        if w.get("type") != "TextBlock" or not w.get("bbox_intent"):
+            continue
+        t = w.get("text") or {}
+        if not (t.get("value") or t.get("sample")):
+            continue
+        font = w.setdefault("font", {})
+        llm_glow = font.pop("glow", None)
+        x, y, bw, bh = (float(v) for v in w["bbox_intent"])
+        x0, y0, x1, y1 = max(0, int(x)), max(0, int(y)), min(W, int(np.ceil(x + bw))), min(H, int(np.ceil(y + bh)))
+        rec = {"widget": w["id"], **({"llm_glow_dropped": llm_glow} if llm_glow else {})}
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            out.append({**rec, "skipped": "box too small"})
+            continue
+        ink = fidelity.text_ink(ref[y0:y1, x0:x1])
+        if ink is None:
+            out.append({**rec, "skipped": "no glyph pixels found"})
+            continue
+        px0, py0, px1, py1 = max(0, x0 - GLOW_PAD), max(0, y0 - GLOW_PAD), min(W, x1 + GLOW_PAD), min(H, y1 + GLOW_PAD)
+        crop = ref[py0:py1, px0:px1]
+        m = np.zeros(crop.shape[:2], bool)
+        m[y0 - py0:y1 - py0, x0 - px0:x1 - px0] = ink
+        dist = cv2.distanceTransform((~m).astype(np.uint8), cv2.DIST_L2, 5)
+        L = luminance(crop)
+
+        def band(lo, hi):
+            return (dist > lo) & (dist <= hi)
+        bgm = band(*GLOW_BG)
+        if not bgm.any():
+            out.append({**rec, "skipped": "no background ring"})
+            continue
+        bg = float(np.median(L[bgm]))
+        excess = {d: (float(np.median(L[band(d - 1, d)])) - bg) if band(d - 1, d).any() else 0.0 for d in range(1, GLOW_MAX + 1)}
+        peak = max(excess[d] for d in range(GLOW_PEAK[0], GLOW_PEAK[1] + 1))
+        rec.update(background_L=round(bg, 1), excess={d: round(v, 1) for d, v in excess.items() if d <= 12}, peak=round(peak, 1))
+        if peak < min_excess:
+            out.append({**rec, "glow": None})
+            continue
+        size = 2
+        while size + 1 <= GLOW_MAX and excess[size + 1] >= GLOW_TAIL_L:
+            size += 1
+        size = max(3, size + 1)
+        role, info = by_family.get(font.get("family"), (None, {}))
+        sdf = info.get("sdf_family")
+        if not sdf:
+            out.append({**rec, "glow": None, "skipped": f"no SDF font for role {role!r} (fonts.roles.<role>.sdf_family)"})
+            continue
+        C = np.median(crop[band(1, 3)], axis=0)
+        B = np.median(crop[bgm], axis=0)
+        v = C - B
+        pos = v > 1e-6
+        if not pos.any():
+            out.append({**rec, "glow": None, "skipped": "the ring is not brighter in any channel"})
+            continue
+        k = max(1.0, float(np.min((255.0 - B[pos]) / v[pos])))
+        G = np.clip(B + k * v, 0, 255)
+        wgt = (1.0 - 2.5 / size) ** GLOW_GAMMA
+        alpha = float(np.clip(1.0 / (k * max(wgt, 1e-3)), 0.15, 1.0))
+        glow = {"size": int(size), "color": _hex(G, "%02X" % int(round(alpha * 255)))}
+        if (font.get("outline") or {}).get("size"):
+            rec["outline_dropped"] = font.pop("outline")
+        rec.update(glow=glow, old_family=font.get("family"), family=sdf, layout=_glow_layout(w, int(size)))
+        font["glow"] = glow
+        font["family"] = sdf
+        out.append(rec)
+    return out
+
+
+def _glow_layout(w: dict, s: int) -> dict:
+    """빛(외곽선 층 s px)은 TextBlock 상자를 사방 s 만큼 키우고 글자를 그 안에서 s 만큼 들인다([실측 F 에디터 — 위쪽 정렬 상자에서 글자가 s 아래로],
+    ElementBatcher.cpp:1673-1676 · SlateFontRenderer.cpp:205). 글자가 컨셉 자리에 그대로 있게: bbox_intent 를 사방 s 넓히고, 슬롯 padding 을
+    사방 s 줄인다(음수 가능 — 형제 자리 그대로, 빛만 이웃 위로 번진다). 캔버스 점 앵커 슬롯은 위치 += s(2·alignment − 1), 크기(고정이면) += 2s."""
+    before = {"bbox": list(w["bbox_intent"]), "slot": copy.deepcopy(w.get("slot"))}
+    x, y, bw, bh = (float(v) for v in w["bbox_intent"])
+    w["bbox_intent"] = [x - s, y - s, bw + 2 * s, bh + 2 * s]
+    slot = w.get("slot")
+    how = "bbox only"
+    if isinstance(slot, dict):
+        kind = slot.get("kind")
+        if kind == "canvas":
+            a, al = slot.get("anchors") or [0, 0, 0, 0], slot.get("alignment") or [0, 0]
+            if a[0] == a[2] and a[1] == a[3]:
+                pos = slot.get("position") or [0, 0]
+                slot["position"] = [pos[0] + s * (2 * al[0] - 1), pos[1] + s * (2 * al[1] - 1)]
+                if not slot.get("auto_size") and slot.get("size"):
+                    slot["size"] = [slot["size"][0] + 2 * s, slot["size"][1] + 2 * s]
+                how = "canvas position/size"
+            else:
+                how = "bbox only (stretching canvas anchors)"
+        elif kind in ("overlay", "vertical_box", "horizontal_box", "border", "size_box", "button"):
+            p = slot.get("padding") or spec_mod.SLOT_DEFAULTS.get(kind, {}).get("padding") or [0, 0, 0, 0]
+            slot["padding"] = [p[0] - s, p[1] - s, p[2] - s, p[3] - s]
+            how = "slot padding"
+    return {"how": how, "before": before, "bbox": w["bbox_intent"], "slot": copy.deepcopy(slot)}
 
 
 def draw_overlay(run, spec: dict) -> str | None:
@@ -306,6 +570,7 @@ def run(run, opts) -> str:
         raise StageError("NO_REFERENCE", "analyze needs reference.png (normalize concept)")
     out_schema = output_schema()
     cli = getattr(opts, "llm_cli", None)
+    roles = config.font_roles(run.cfg, brief.get("font"))
     calls, errors, retry, spec, retry_reasons = [], [], None, None, []
     for k in range(1, MAX_CALLS + 1):
         prompt = build_prompt(run, brief, run.cfg, retry)
@@ -318,7 +583,7 @@ def run(run, opts) -> str:
         raw = res["structured_output"]
         rel = f"analyze/attempt_{k:03d}.json"
         run.write_json(rel, raw)
-        spec = apply_contract(raw, brief)
+        spec = apply_contract(raw, brief, roles)
         errors = check(spec, brief)
         run.write_json(f"analyze/attempt_{k:03d}_errors.json", {"errors": errors})
         calls.append({"attempt": k, "errors": len(errors), **{x: res.get(x) for x in ("cost_usd", "num_turns", "duration_s", "model", "tokens", "session_id")}})
@@ -331,18 +596,26 @@ def run(run, opts) -> str:
     summary = _record(run, calls, errors, retry_reasons)
     if errors:
         raise StageError("ANALYZE_INVALID", f"analyze output failed {len(errors)} check(s) after {len(calls)} call(s): " + "; ".join(errors[:6]), errors=errors)
-    derived = derive_gauge_fills(spec, run.path("reference.png"))
-    if derived:
+    derived = derive_gauge_fills(spec, run.path("reference.png"), run.cfg.get("gauge_fill"))
+    text_fills = derive_text_fills(spec, run.path("reference.png")) if (run.cfg.get("text_fill") or {}).get("enabled", True) else []
+    tg = run.cfg.get("text_glow") or {}
+    text_glows = derive_text_glow(spec, run.path("reference.png"), roles, float(tg.get("min_excess", 8.0))) if tg.get("enabled", True) else []
+    if derived or text_fills or text_glows:
         schema.require("spec", spec)
-        run.write_json("analyze/derived.json", {"gauge_fills": derived})
+        run.write_json("analyze/derived.json", {"gauge_fills": derived, "text_fills": text_fills, "text_glows": text_glows})
     run.write_json("spec.json", spec)
     run.write_json("specs/000.json", spec)
     overlay = draw_overlay(run, spec)
     n_codex = sum(1 for a in spec.get("assets", []) if a["provenance"] == "codex")
     n_extract = sum(1 for a in spec.get("assets", []) if a["provenance"] == "codex" and a.get("source_mode") == "extract")
     gauges = [d["widget"] for d in derived if d.get("fill_asset")]
+    grads = sum(1 for t in text_fills if t.get("gradient"))
+    solids = sum(1 for t in text_fills if t.get("color") and not t.get("gradient"))
+    glows = [t["widget"] for t in text_glows if t.get("glow")]
     return (f"{len(spec['widgets'])} widgets, {len(spec.get('assets', []))} assets ({n_codex} codex, {n_extract} extract"
-            f"{', gauge fill from the concept: ' + ','.join(gauges) if gauges else ''}) in {len(calls)} call(s) — "
+            f"{', gauge fill from the concept: ' + ','.join(gauges) if gauges else ''}"
+            f"{f', text fill from the concept: {grads} gradient · {solids} solid' if grads or solids else ''}"
+            f"{', text glow from the concept: ' + ','.join(glows) if glows else ''}) in {len(calls)} call(s) — "
             f"API list-price equivalent {summary['cost_usd']:.3f} USD (subscription login — plan usage, not billed), model {summary['model']}"
             f"{', overlay ' + overlay if overlay else ''}")
 

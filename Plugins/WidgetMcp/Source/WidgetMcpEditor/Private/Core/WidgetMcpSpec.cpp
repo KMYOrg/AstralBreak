@@ -20,8 +20,10 @@
 #include "Components/UniformGridSlot.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "Core/WidgetMcpTextMaterials.h"
 #include "Engine/Font.h"
 #include "Engine/Texture2D.h"
+#include "Materials/MaterialInterface.h"
 #include "Misc/PackageName.h"
 #include "Styling/SlateTypes.h"
 
@@ -60,7 +62,7 @@ namespace WidgetMcpSpec
 			static const TMap<FString, TSet<FString>> Keys = {
 				{ TEXT("Border"), { TEXT("brush") } },
 				{ TEXT("Image"), { TEXT("brush") } },
-				{ TEXT("ProgressBar"), { TEXT("background"), TEXT("fill"), TEXT("fill_color"), TEXT("percent"), TEXT("bar_fill_type") } },
+				{ TEXT("ProgressBar"), { TEXT("background"), TEXT("fill"), TEXT("fill_color"), TEXT("percent"), TEXT("bar_fill_type"), TEXT("bar_fill_style") } },
 				{ TEXT("SizeBox"), { TEXT("width_override"), TEXT("height_override") } },
 				{ TEXT("Spacer"), { TEXT("size") } },
 				{ TEXT("UniformGridPanel"), { TEXT("slot_padding"), TEXT("min_slot_width"), TEXT("min_slot_height") } },
@@ -106,6 +108,12 @@ namespace WidgetMcpSpec
 			static const TArray<FNamed<EProgressBarFillType::Type>> T = { { TEXT("left_to_right"), EProgressBarFillType::LeftToRight },
 				{ TEXT("right_to_left"), EProgressBarFillType::RightToLeft }, { TEXT("fill_from_center"), EProgressBarFillType::FillFromCenter },
 				{ TEXT("top_to_bottom"), EProgressBarFillType::TopToBottom }, { TEXT("bottom_to_top"), EProgressBarFillType::BottomToTop } };
+			return T;
+		}
+		/** 1b 후속 F — mask(엔진 기본: 바 전체 크기로 그리고 진행률에서 자름) · scale(진행률 폭으로 늘려 그림 — 채움 box 여백 = 양끝 고정) */
+		const TArray<FNamed<EProgressBarFillStyle::Type>>& FillStyles()
+		{
+			static const TArray<FNamed<EProgressBarFillStyle::Type>> T = { { TEXT("mask"), EProgressBarFillStyle::Mask }, { TEXT("scale"), EProgressBarFillStyle::Scale } };
 			return T;
 		}
 		const TArray<FNamed<ETextJustify::Type>>& Justifies()
@@ -232,6 +240,130 @@ namespace WidgetMcpSpec
 				WidgetMcp::ParseHexColor(Hex, C);
 			}
 			return C;
+		}
+
+		bool IsNullField(const FJsonObject& O, const TCHAR* Key)
+		{
+			const TSharedPtr<FJsonValue>* V = O.Values.Find(Key);
+			return V && (!V->IsValid() || (*V)->IsNull());
+		}
+
+		/** 글자 효과(1b 후속 D) — outline · shadow · letter_spacing · gradient. 기본값(없음)이면 키를 지운다 — 효과 없는 spec 의 정규형이
+		 *  예전과 같게(core/spec.py normalize_font_effects 와 같은 규칙). shadow 는 있으면 보이는 그림자(색 기본 #000000FF), 알파 0 이면 없음 */
+		void NormalizeTextEffects(const TSharedRef<FJsonObject>& Font)
+		{
+			double Spacing = 0.0;
+			if (IsNullField(*Font, TEXT("letter_spacing")) || (Font->TryGetNumberField(TEXT("letter_spacing"), Spacing) && Spacing == 0.0))
+			{
+				Font->RemoveField(TEXT("letter_spacing"));
+			}
+			if (IsNullField(*Font, TEXT("outline")))
+			{
+				Font->RemoveField(TEXT("outline"));
+			}
+			else if (const TSharedPtr<FJsonObject> O = ObjField(*Font, TEXT("outline")))
+			{
+				SetDefault(O.ToSharedRef(), TEXT("size"), N(0));
+				SetDefault(O.ToSharedRef(), TEXT("color"), S(TEXT("#000000FF")));
+				if (NumField(*O, TEXT("size"), 0.0) <= 0.0) { Font->RemoveField(TEXT("outline")); }
+			}
+			if (IsNullField(*Font, TEXT("shadow")))
+			{
+				Font->RemoveField(TEXT("shadow"));
+			}
+			else if (const TSharedPtr<FJsonObject> Sh = ObjField(*Font, TEXT("shadow")))
+			{
+				SetDefault(Sh.ToSharedRef(), TEXT("offset"), Arr({ 1, 1 }));
+				SetDefault(Sh.ToSharedRef(), TEXT("color"), S(TEXT("#000000FF")));
+				FLinearColor C(0, 0, 0, 1);
+				WidgetMcp::ParseHexColor(StrField(*Sh, TEXT("color")), C);
+				if (C.A <= 0.f) { Font->RemoveField(TEXT("shadow")); }
+			}
+			if (IsNullField(*Font, TEXT("gradient")))
+			{
+				Font->RemoveField(TEXT("gradient"));
+			}
+			// 1b 후속 F — glow: size 0 또는 color 알파 0 이면 없음(color 기본 #FFFFFFFF)
+			if (IsNullField(*Font, TEXT("glow")))
+			{
+				Font->RemoveField(TEXT("glow"));
+			}
+			else if (const TSharedPtr<FJsonObject> G = ObjField(*Font, TEXT("glow")))
+			{
+				SetDefault(G.ToSharedRef(), TEXT("size"), N(0));
+				SetDefault(G.ToSharedRef(), TEXT("color"), S(TEXT("#FFFFFFFF")));
+				FLinearColor C(1, 1, 1, 1);
+				WidgetMcp::ParseHexColor(StrField(*G, TEXT("color")), C);
+				if (NumField(*G, TEXT("size"), 0.0) <= 0.0 || C.A <= 0.f) { Font->RemoveField(TEXT("glow")); }
+			}
+		}
+
+		bool ValidateTextEffects(const FJsonObject& Font, const FString& Id, FString& OutError)
+		{
+			FLinearColor C;
+			FString Hex;
+			auto BadColor = [&](const FJsonObject& O, const TCHAR* Key, const TCHAR* Where) -> bool
+			{
+				if (O.TryGetStringField(Key, Hex) && !WidgetMcp::ParseHexColor(Hex, C))
+				{
+					OutError = FString::Printf(TEXT("'%s'.font.%s.%s '%s' is not #RRGGBB(AA)"), *Id, Where, Key, *Hex);
+					return true;
+				}
+				return false;
+			};
+			if (const TSharedPtr<FJsonObject> O = ObjField(Font, TEXT("outline")))
+			{
+				const double Size = NumField(*O, TEXT("size"), 0.0);
+				if (Size < 0.0 || Size > 1024.0 || Size != FMath::RoundToDouble(Size))
+				{
+					OutError = FString::Printf(TEXT("'%s'.font.outline.size %g must be an integer 0..1024"), *Id, Size);
+					return false;
+				}
+				if (BadColor(*O, TEXT("color"), TEXT("outline"))) { return false; }
+			}
+			if (const TSharedPtr<FJsonObject> Sh = ObjField(Font, TEXT("shadow")))
+			{
+				FVector2D Offset;
+				if (Sh->HasField(TEXT("offset")) && !WidgetMcp::ReadVec2(*Sh, TEXT("offset"), Offset))
+				{
+					OutError = FString::Printf(TEXT("'%s'.font.shadow.offset must be [x, y]"), *Id);
+					return false;
+				}
+				if (BadColor(*Sh, TEXT("color"), TEXT("shadow"))) { return false; }
+			}
+			double Spacing = 0.0;
+			if (Font.TryGetNumberField(TEXT("letter_spacing"), Spacing) && (Spacing < -1000.0 || Spacing > 10000.0 || Spacing != FMath::RoundToDouble(Spacing)))
+			{
+				OutError = FString::Printf(TEXT("'%s'.font.letter_spacing %g must be an integer -1000..10000 (1/1000 em)"), *Id, Spacing);
+				return false;
+			}
+			if (Font.HasField(TEXT("gradient")) && !IsNullField(Font, TEXT("gradient")))
+			{
+				const TSharedPtr<FJsonObject> G = ObjField(Font, TEXT("gradient"));
+				FLinearColor T, Bo;
+				if (!G.IsValid() || !WidgetMcp::ParseHexColor(StrField(*G, TEXT("top_color")), T) || !WidgetMcp::ParseHexColor(StrField(*G, TEXT("bottom_color")), Bo))
+				{
+					OutError = FString::Printf(TEXT("'%s'.font.gradient needs top_color and bottom_color (#RRGGBB(AA))"), *Id);
+					return false;
+				}
+			}
+			if (const TSharedPtr<FJsonObject> G = ObjField(Font, TEXT("glow")))
+			{
+				const double Size = NumField(*G, TEXT("size"), 0.0);
+				if (Size < 0.0 || Size > 64.0 || Size != FMath::RoundToDouble(Size))
+				{
+					OutError = FString::Printf(TEXT("'%s'.font.glow.size %g must be an integer 0..64"), *Id, Size);
+					return false;
+				}
+				if (BadColor(*G, TEXT("color"), TEXT("glow"))) { return false; }
+				const TSharedPtr<FJsonObject> O = ObjField(Font, TEXT("outline"));
+				if (Size > 0.0 && O.IsValid() && NumField(*O, TEXT("size"), 0.0) > 0.0)
+				{
+					OutError = FString::Printf(TEXT("'%s' has both font.glow and font.outline — the glow is drawn with the outline layer (one per text)"), *Id);
+					return false;
+				}
+			}
+			return true;
 		}
 
 		// ---- 브러시 --------------------------------------------------------------------------------------------
@@ -597,6 +729,10 @@ namespace WidgetMcpSpec
 			SetDefault(Style.ToSharedRef(), TEXT("fill_color"), S(TEXT("#FFFFFFFF")));
 			SetDefault(Style.ToSharedRef(), TEXT("percent"), N(0));
 			SetDefault(Style.ToSharedRef(), TEXT("bar_fill_type"), S(TEXT("left_to_right")));
+			if (StrField(*Style, TEXT("bar_fill_style")) == TEXT("mask"))
+			{
+				Style->RemoveField(TEXT("bar_fill_style"));   // 1b 후속 F — 기본값은 키를 지운다(core/spec.py 와 같음 — 예전 spec 의 정규형 그대로)
+			}
 		}
 		else if (Type == TEXT("Spacer"))
 		{
@@ -642,10 +778,47 @@ namespace WidgetMcpSpec
 			SetDefault(Font.ToSharedRef(), TEXT("weight"), S(TEXT("bold")));
 			SetDefault(Font.ToSharedRef(), TEXT("color"), S(TEXT("#FFFFFFFF")));
 			SetDefault(Font.ToSharedRef(), TEXT("family"), MakeShared<FJsonValueNull>());
+			NormalizeTextEffects(Font.ToSharedRef());
 			W->SetObjectField(TEXT("font"), Font);
 			SetDefault(W, TEXT("justification"), S(TEXT("left")));
 		}
 		return W;
+	}
+
+	void CollectTextGradients(const FJsonObject& NormalizedWidget, TMap<FString, TPair<FLinearColor, FLinearColor>>& Out)
+	{
+		const TSharedPtr<FJsonObject> Font = ObjField(NormalizedWidget, TEXT("font"));
+		const TSharedPtr<FJsonObject> G = Font.IsValid() ? ObjField(*Font, TEXT("gradient")) : nullptr;
+		if (!G.IsValid())
+		{
+			return;
+		}
+		const FString Top = CanonColorString(StrField(*G, TEXT("top_color")));
+		const FString Bottom = CanonColorString(StrField(*G, TEXT("bottom_color")));
+		FLinearColor T, B;
+		if (WidgetMcp::ParseHexColor(Top, T) && WidgetMcp::ParseHexColor(Bottom, B))
+		{
+			Out.Add(WidgetMcpTextMaterials::GradientKey(Top, Bottom), TPair<FLinearColor, FLinearColor>(T, B));
+		}
+	}
+
+	void CollectTextGlows(const FJsonObject& NormalizedWidget, TMap<FString, WidgetMcpTextMaterials::FGlowSpec>& Out)
+	{
+		const TSharedPtr<FJsonObject> Font = ObjField(NormalizedWidget, TEXT("font"));
+		const TSharedPtr<FJsonObject> G = Font.IsValid() ? ObjField(*Font, TEXT("glow")) : nullptr;
+		if (!G.IsValid())
+		{
+			return;
+		}
+		const FString Hex = CanonColorString(StrField(*G, TEXT("color"), TEXT("#FFFFFFFF")));
+		const int32 Size = FMath::RoundToInt(NumField(*G, TEXT("size"), 0.0));
+		const double FontSize = NumField(*Font, TEXT("size"), 24.0);
+		WidgetMcpTextMaterials::FGlowSpec Spec;
+		if (Size > 0 && WidgetMcp::ParseHexColor(Hex, Spec.Color))
+		{
+			Spec.OutlineEm = WidgetMcpTextMaterials::OutlineEmFor(Size, FontSize);
+			Out.Add(WidgetMcpTextMaterials::GlowKey(Hex, Size, FontSize), Spec);
+		}
 	}
 
 	TSharedRef<FJsonObject> WbpView(const TSharedRef<FJsonObject>& NormalizedWidget)
@@ -722,6 +895,13 @@ namespace WidgetMcpSpec
 				OutError = FString::Printf(TEXT("'%s'.style.bar_fill_type '%s' is unknown"), *Id, *FillName);
 				return false;
 			}
+			EProgressBarFillStyle::Type FillStyle;
+			FString FillStyleName;
+			if (Style->TryGetStringField(TEXT("bar_fill_style"), FillStyleName) && !FromName(FillStyles(), FillStyleName, FillStyle))
+			{
+				OutError = FString::Printf(TEXT("'%s'.style.bar_fill_style '%s' is not mask|scale"), *Id, *FillStyleName);
+				return false;
+			}
 		}
 		const bool bText = Type == TEXT("TextBlock");
 		for (const TCHAR* Key : { TEXT("text"), TEXT("font"), TEXT("justification") })
@@ -753,6 +933,10 @@ namespace WidgetMcpSpec
 				if (Font->TryGetStringField(TEXT("family"), Family) && !Family.IsEmpty() && !LoadObject<UObject>(nullptr, *Family))
 				{
 					OutError = FString::Printf(TEXT("'%s'.font.family '%s' does not load"), *Id, *Family);
+					return false;
+				}
+				if (!ValidateTextEffects(*Font, Id, OutError))
+				{
 					return false;
 				}
 			}
@@ -897,6 +1081,9 @@ namespace WidgetMcpSpec
 			EProgressBarFillType::Type Fill = EProgressBarFillType::LeftToRight;
 			FromName(FillTypes(), StrField(St, TEXT("bar_fill_type"), TEXT("left_to_right")), Fill);
 			Bar->SetBarFillType(Fill);
+			EProgressBarFillStyle::Type FillStyle = EProgressBarFillStyle::Mask;
+			FromName(FillStyles(), StrField(St, TEXT("bar_fill_style"), TEXT("mask")), FillStyle);
+			Bar->SetBarFillStyle(FillStyle);
 		}
 		else if (UButton* Button = Cast<UButton>(Widget))
 		{
@@ -958,8 +1145,53 @@ namespace WidgetMcpSpec
 			FromName(Weights(), StrField(F, TEXT("weight"), TEXT("bold")), Typeface);
 			Font.TypefaceFontName = FName(Typeface);
 			Font.Size = static_cast<float>(NumField(F, TEXT("size"), 24.0));
+			// 글자 효과(1b 후속 D) — 없으면 엔진 기본(외곽선 없음 · 자간 0 · 머티리얼 없음 · 그림자 투명)으로 되돌린다(적용은 목표값 전부)
+			FFontOutlineSettings Outline;
+			if (const TSharedPtr<FJsonObject> O = ObjField(F, TEXT("outline")))
+			{
+				Outline.OutlineSize = FMath::RoundToInt(NumField(*O, TEXT("size"), 0.0));
+				Outline.OutlineColor = ColorField(*O, TEXT("color"), FLinearColor::Black);
+			}
+			// 1b 후속 F — 빛 = 외곽선 층(size px)을 빛 MIC 로(OutlineColor 흰색 — 색 · 알파는 MIC). 검사가 outline 과 같이 못 쓰게 막는다
+			if (const TSharedPtr<FJsonObject> G = ObjField(F, TEXT("glow")))
+			{
+				const int32 GlowSize = FMath::RoundToInt(NumField(*G, TEXT("size"), 0.0));
+				const FString Key = WidgetMcpTextMaterials::GlowKey(CanonColorString(StrField(*G, TEXT("color"), TEXT("#FFFFFFFF"))), GlowSize, Font.Size);
+				UMaterialInterface* const* M = Assets.TextGlows.Find(Key);
+				if (!M || !*M)
+				{
+					OutError = FString::Printf(TEXT("font.glow %s has no prepared material (the reconciler makes it in the run folder on apply)"), *Key);
+					return false;
+				}
+				Outline.OutlineSize = GlowSize;
+				Outline.OutlineColor = FLinearColor::White;
+				Outline.OutlineMaterial = *M;
+			}
+			Font.OutlineSettings = Outline;
+			Font.LetterSpacing = FMath::RoundToInt(NumField(F, TEXT("letter_spacing"), 0.0));
+			Font.FontMaterial = nullptr;
+			if (const TSharedPtr<FJsonObject> G = ObjField(F, TEXT("gradient")))
+			{
+				const FString Key = WidgetMcpTextMaterials::GradientKey(CanonColorString(StrField(*G, TEXT("top_color"))), CanonColorString(StrField(*G, TEXT("bottom_color"))));
+				UMaterialInterface* const* M = Assets.TextGradients.Find(Key);
+				if (!M || !*M)
+				{
+					OutError = FString::Printf(TEXT("font.gradient %s has no prepared material (the reconciler makes it in the run folder on apply)"), *Key);
+					return false;
+				}
+				Font.FontMaterial = *M;
+			}
 			Text->SetFont(Font);
 			Text->SetColorAndOpacity(FSlateColor(ColorField(F, TEXT("color"), FLinearColor::White)));
+			FVector2D ShadowOffset(1.0, 1.0);
+			FLinearColor ShadowColor = FLinearColor::Transparent;
+			if (const TSharedPtr<FJsonObject> Sh = ObjField(F, TEXT("shadow")))
+			{
+				WidgetMcp::ReadVec2(*Sh, TEXT("offset"), ShadowOffset);
+				ShadowColor = ColorField(*Sh, TEXT("color"), FLinearColor::Black);
+			}
+			Text->SetShadowOffset(ShadowOffset);
+			Text->SetShadowColorAndOpacity(ShadowColor);
 			ETextJustify::Type Justify = ETextJustify::Left;
 			FromName(Justifies(), StrField(J, TEXT("justification"), TEXT("left")), Justify);
 			Text->SetJustification(Justify);
@@ -1003,6 +1235,10 @@ namespace WidgetMcpSpec
 			Style->SetStringField(TEXT("fill_color"), WidgetMcp::ToHexColor(Bar->GetFillColorAndOpacity()));
 			Style->SetField(TEXT("percent"), WidgetMcp::Num(Bar->GetPercent()));
 			Style->SetStringField(TEXT("bar_fill_type"), ToName(FillTypes(), Bar->GetBarFillType()));
+			if (Bar->GetBarFillStyle() != EProgressBarFillStyle::Mask)
+			{
+				Style->SetStringField(TEXT("bar_fill_style"), ToName(FillStyles(), Bar->GetBarFillStyle()));   // 기본(mask)은 쓰지 않는다 — 정규화와 같음
+			}
 		}
 		else if (const UButton* Button = Cast<UButton>(Widget))
 		{
@@ -1049,8 +1285,57 @@ PRAGMA_ENABLE_DEPRECATION_WARNINGS
 			const UObject* CdoFont = GetDefault<UTextBlock>()->GetFont().FontObject;
 			if (Font.FontObject == CdoFont) { F->SetField(TEXT("family"), MakeShared<FJsonValueNull>()); }
 			else { F->SetStringField(TEXT("family"), GetPathNameSafe(Font.FontObject)); }
-			if (Font.OutlineSettings.OutlineSize > 0) { NoteUnsupported(Unsupported, Id, TEXT("Font.OutlineSettings"), TEXT("text outline is not in the spec vocabulary")); }
-			if (Font.LetterSpacing != 0) { NoteUnsupported(Unsupported, Id, TEXT("Font.LetterSpacing"), TEXT("not in the spec vocabulary")); }
+			// 글자 효과(1b 후속 D) — 기본값이 아닐 때만 쓴다(정규화가 기본값 키를 지우는 것과 같은 규칙)
+			const FFontOutlineSettings& Outline = Font.OutlineSettings;
+			FLinearColor GlowColor;
+			if (Outline.OutlineSize > 0 && WidgetMcpTextMaterials::ReadGlow(Outline.OutlineMaterial, GlowColor))
+			{
+				// 1b 후속 F — 외곽선 층이 빛 MIC 면 glow{size, color(알파 = GlowAlpha)}
+				TSharedRef<FJsonObject> G = MakeShared<FJsonObject>();
+				G->SetNumberField(TEXT("size"), Outline.OutlineSize);
+				G->SetStringField(TEXT("color"), WidgetMcp::ToHexColor(GlowColor));
+				F->SetObjectField(TEXT("glow"), G);
+				if (Outline.bMiteredCorners || Outline.bSeparateFillAlpha || Outline.bApplyOutlineToDropShadows || !Outline.OutlineColor.Equals(FLinearColor::White))
+				{
+					NoteUnsupported(Unsupported, Id, TEXT("Font.OutlineSettings"), TEXT("a glow outline only carries size and the glow material"));
+				}
+			}
+			else if (Outline.OutlineSize > 0)
+			{
+				TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();
+				O->SetNumberField(TEXT("size"), Outline.OutlineSize);
+				O->SetStringField(TEXT("color"), WidgetMcp::ToHexColor(Outline.OutlineColor));
+				F->SetObjectField(TEXT("outline"), O);
+				if (Outline.bMiteredCorners || Outline.bSeparateFillAlpha || Outline.bApplyOutlineToDropShadows || Outline.OutlineMaterial)
+				{
+					NoteUnsupported(Unsupported, Id, TEXT("Font.OutlineSettings"), TEXT("only outline size and color are in the spec vocabulary"));
+				}
+			}
+			if (Font.LetterSpacing != 0) { F->SetNumberField(TEXT("letter_spacing"), Font.LetterSpacing); }
+			if (Font.FontMaterial)
+			{
+				FLinearColor Top, Bottom;
+				if (WidgetMcpTextMaterials::ReadGradient(Font.FontMaterial, Top, Bottom))
+				{
+					TSharedRef<FJsonObject> G = MakeShared<FJsonObject>();
+					G->SetStringField(TEXT("top_color"), WidgetMcp::ToHexColor(Top));
+					G->SetStringField(TEXT("bottom_color"), WidgetMcp::ToHexColor(Bottom));
+					F->SetObjectField(TEXT("gradient"), G);
+				}
+				else
+				{
+					NoteUnsupported(Unsupported, Id, TEXT("Font.FontMaterial"), TEXT("only pipeline text gradients (M_TextGradient instances) are in the spec vocabulary"));
+				}
+			}
+			if (!FMath::IsNearlyZero(Font.SkewAmount)) { NoteUnsupported(Unsupported, Id, TEXT("Font.SkewAmount"), TEXT("not in the spec vocabulary")); }
+			const FLinearColor ShadowColor = Text->GetShadowColorAndOpacity();
+			if (ShadowColor.A > 0.f)
+			{
+				TSharedRef<FJsonObject> Sh = MakeShared<FJsonObject>();
+				Sh->SetField(TEXT("offset"), WidgetMcp::Vec2(Text->GetShadowOffset()));
+				Sh->SetStringField(TEXT("color"), WidgetMcp::ToHexColor(ShadowColor));
+				F->SetObjectField(TEXT("shadow"), Sh);
+			}
 			Out->SetObjectField(TEXT("font"), F);
 			const FString Justify = ToName(Justifies(), static_cast<ETextJustify::Type>(ReadJustification(Text)));
 			Out->SetStringField(TEXT("justification"), Justify.IsEmpty() ? TEXT("left") : Justify);

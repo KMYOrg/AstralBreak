@@ -116,6 +116,7 @@ namespace WidgetMcpTools
 			Out.Faces.Add(F);
 		}
 		Out.bSave = Context.Request.GetOptionalBool(TEXT("save"), true);
+		Out.bDistanceField = Context.Request.GetOptionalBool(TEXT("distance_field"), false);
 		return true;
 	}
 
@@ -409,7 +410,7 @@ namespace WidgetMcpTools
 			});
 
 		Dispatcher.RegisterTool(TEXT("import_font_family"),
-			TEXT("Import font files as a project font family: one UFontFace per file + a composite UFont (F_<family>, Runtime cache) whose default typeface lists them by name — spec font.family = that UFont, font.weight picks the typeface. Params: dest_path (a folder below [WidgetMcp] WidgetFontOutputPaths, e.g. /Game/UI/Fonts/Pretendard), family (identifier), faces[{file (.ttf/.otf under WidgetImportSourceRoots), typeface (Regular|Bold|Light|Italic|Bold Italic)}], save? (default true — project fonts are committed, not run output). Refuses existing names (nothing created) and unloads what it made if anything outside WidgetFontOutputPaths got dirty."),
+			TEXT("Import font files as a project font family: one UFontFace per file + a composite UFont (F_<family>, Runtime cache) whose default typeface lists them by name — spec font.family = that UFont, font.weight picks the typeface. Params: dest_path (a folder below [WidgetMcp] WidgetFontOutputPaths, e.g. /Game/UI/Fonts/Pretendard), family (identifier), faces[{file (.ttf/.otf under WidgetImportSourceRoots), typeface (Regular|Bold|Light|Italic|Bold Italic)}], save? (default true — project fonts are committed, not run output), distance_field? (default false — UFontFace bEnableDistanceFieldRendering, the SDF font that font.glow needs). Refuses existing names (nothing created) and unloads what it made if anything outside WidgetFontOutputPaths got dirty."),
 			[](FEditorMcpContext& Context, FEditorMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				WidgetMcpFonts::FRequest Request;

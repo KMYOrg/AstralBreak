@@ -8,11 +8,17 @@
 #include "Core/WidgetMcpSpec.h"
 #include "Editor.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "Engine/UserInterfaceSettings.h"
+#include "Fonts/FontCache.h"
+#include "Framework/Application/SlateApplication.h"
+#include "HAL/PlatformProcess.h"
+#include "Rendering/SlateRenderer.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformTime.h"
 #include "ImageCore.h"
 #include "ImageUtils.h"
 #include "RenderingThread.h"
+#include "ShaderCompiler.h"
 #include "Slate/WidgetRenderer.h"
 #include "TextureResource.h"
 #include "UObject/StrongObjectPtr.h"
@@ -129,6 +135,31 @@ namespace WidgetMcpRender
 		}
 		TSharedRef<SWidget> Slate = Instance->TakeWidget();
 		const TArray<uint8>& Lut = SrgbToLinearLut();
+		// 폰트 · 브러시 머티리얼(1b 후속 D — 글자 그라데이션 MIC)의 셰이더가 컴파일 중이면 Slate 는 그 배치를 그리지 않는다 [실측 D] — 기다린다
+		if (GShaderCompilingManager)
+		{
+			GShaderCompilingManager->FinishAllCompilation();
+		}
+		// 1b 후속 F — 거리장(SDF) 글꼴은 글리프를 작업 스레드에서 만들고 처음엔 자리표시 그림을 쓴다(FontCache.cpp:1470 SpawnWithPlaceholder,
+		// 다 되면 UpdateCache 가 바꿔 넣음 — 1872). 에디터 틱이 안 도는 이 함수 안에서는 한 번 미리 그려 요청을 넣고, 잠깐씩 쉬며 UpdateCache 를 돌린다
+		double SdfWarmup = 0.0;
+		if (IsSlateSdfTextFeatureEnabled() && GetDefault<UUserInterfaceSettings>()->bEnableDistanceFieldFontRasterization && FSlateApplication::IsInitialized())
+		{
+			const double W0 = FPlatformTime::Seconds();
+			const FVector2D WarmSize(Request.Resolutions[0].X, Request.Resolutions[0].Y);
+			FWidgetRenderer* Warm = new FWidgetRenderer(/*bUseGammaCorrection*/ true, /*bInClearTarget*/ true);
+			TStrongObjectPtr<UTextureRenderTarget2D> WarmTarget(FWidgetRenderer::CreateTargetFor(WarmSize, TF_Bilinear, /*bUseGammaCorrection*/ true));
+			Warm->DrawWidget(WarmTarget.Get(), Slate, Request.Scale, WarmSize, 0.0f);
+			FlushRenderingCommands();
+			const TSharedRef<FSlateFontCache> FontCache = FSlateApplication::Get().GetRenderer()->GetFontCache();
+			for (int32 i = 0; i < 40; ++i)
+			{
+				FPlatformProcess::Sleep(0.05f);
+				FontCache->UpdateCache();
+			}
+			BeginCleanup(Warm);
+			SdfWarmup = FPlatformTime::Seconds() - W0;
+		}
 
 		TArray<TSharedPtr<FJsonValue>> Renders;
 		TArray<TSharedPtr<FJsonValue>> ProbeResults;
@@ -234,6 +265,7 @@ namespace WidgetMcpRender
 		Out->SetStringField(TEXT("color_correction"), TEXT("gamma=true render, then sRGB->linear per 8-bit channel (design 12-1 A6)"));
 		Out->SetNumberField(TEXT("scale"), Request.Scale);
 		Out->SetBoolField(TEXT("force_visible"), Request.bForceVisible);
+		Out->SetNumberField(TEXT("sdf_warmup_seconds"), WidgetMcp::Round3(SdfWarmup));
 		Out->SetNumberField(TEXT("seconds"), WidgetMcp::Round3(FPlatformTime::Seconds() - Start));
 		return Out;
 	}

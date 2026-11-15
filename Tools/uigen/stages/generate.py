@@ -151,7 +151,8 @@ def run(run, opts) -> str:
             try:
                 backend = choose_backend(asset, routing, allowed)
                 if backend == "procedural":
-                    w, h, rgba = procedural.render(asset)
+                    ref = run.path("reference.png")
+                    w, h, rgba = procedural.render(asset, reference=ref if ref.is_file() else None)
                     path = png.write_rgba(run.path("assets", "raw", f"{aid}.png"), w, h, rgba)
                 elif backend == "codex":
                     w, h, extra = _render_codex(run, asset, spec, session, regenerate=bool(only), attempt=attempt)

@@ -38,7 +38,7 @@ from core import patch as patch_mod  # noqa: E402
 from core import schema  # noqa: E402
 from core.run import LockBusy, Run, RunError, RunLock, new_run_id  # noqa: E402
 from stages import StageError  # noqa: E402
-from stages import analyze, build, codegen, fault, finalize, fix, generate, normalize, refine, verify  # noqa: E402
+from stages import analyze, build, codegen, fault, finalize, fix, generate, normalize, refine, style, verify  # noqa: E402
 
 STAGES = ("normalize", "analyze", "codegen", "generate", "refine", "build", "verify", "finalize")
 
@@ -98,12 +98,12 @@ def _extract_fidelity_summary(run: Run) -> dict | None:
 
 
 def _gauge_fidelity_summary(run: Run) -> dict | None:
-    """컨셉에서 채움을 뽑은 게이지(analyze derive_gauge_fills)의 렌더 ↔ 컨셉 — report.recorded.gauge_fidelity (기록만, 1b 후속 B)."""
+    """컨셉에서 채움을 뽑은 게이지(analyze derive_gauge_fills)의 렌더 ↔ 컨셉 — report.recorded.gauge_fidelity (기록만, 1b 후속 B · F 채움 실루엣)."""
     if not (run.path("render.png").is_file() and run.path("reference.png").is_file() and run.path("spec.json").is_file()):
         return None
     from gen import fidelity
     spec = run.read_json("spec.json")
-    derived = {a["asset_id"] for a in spec.get("assets", []) if str(a.get("source", "")).startswith("concept rows")}
+    derived = {a["asset_id"] for a in spec.get("assets", []) if str(a.get("source", "")).startswith(("concept rows", "concept fill"))}
     out = {}
     for w in spec.get("widgets", []):
         st = w.get("style") or {}
@@ -112,6 +112,8 @@ def _gauge_fidelity_summary(run: Run) -> dict | None:
                 out[w["id"]] = fidelity.gauge_vs_concept(run.path("reference.png"), run.path("render.png"), w["bbox_intent"], st["percent"],
                                                          st.get("bar_fill_type", "left_to_right"))
                 out[w["id"]]["background"] = (st.get("background") or {}).get("draw_as")
+                out[w["id"]]["shape"] = fidelity.gauge_shape(run.path("reference.png"), run.path("render.png"), w["bbox_intent"], st["percent"],
+                                                             st.get("bar_fill_type", "left_to_right"))
             except Exception as exc:  # noqa: BLE001 — 기록 지표
                 out[w["id"]] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
     return out or None
@@ -245,6 +247,7 @@ def _pipeline(run: Run, opts: argparse.Namespace, ctx: dict) -> str:
         run.stage_end("verify", "ok" if res["pass"] else "fail", verify.summary(res))
         _until(opts, "verify")
         if res["pass"]:
+            _style_review(run, opts, ctx, attempt)
             return "pass"
         failed = set(res["failed"])
         if prev_failed is not None:
@@ -285,6 +288,97 @@ def _pipeline(run: Run, opts: argparse.Namespace, ctx: dict) -> str:
             _simple(run, "generate", lambda: generate.run(run, nopts))
             _simple(run, "refine", lambda: refine.run(run, nopts))
     return "fail"   # pragma: no cover — 루프 안에서 끝난다
+
+
+def _style_enabled(run: Run) -> bool:
+    sr = run.cfg.get("style_review") or {}
+    return int(sr.get("rounds", 0)) > 0 and (run.cfg.get("fix") or {}).get("mode", "deterministic") != "deterministic"
+
+
+def _style_review(run: Run, opts, ctx: dict, attempt: int) -> None:
+    """1b 후속 C — 게이트를 통과한 뒤의 외형 검토 라운드(stages/style.py, 설계 §2-2 '통과 뒤 라운드').
+    concept 모드(reference.png 있음)면 영역 · 글자 비교를 늘 기록하고(style/before), 라운드가 켜져 있으면(style_review.rounds · fix.mode ≠ deterministic)
+    style_verifier → style_fix → (에셋 교체면 generate → refine) → build → verify. 게이트가 모두 통과하면 그 라운드를 받고,
+    하나라도 깨지면 버린다: 마지막 통과 spec · manifest(· 교체한 에셋 파일)로 되돌리고 run 패키지를 전부 버린 뒤(build.reset_run) 처음부터 다시
+    build → verify(통과해야 함 — 아니면 STYLE_REVERT_FAILED) — 에디터의 WBP 가 라운드 상태로 저장되지 않게. 합격 판정은 게이트만(결정 6)."""
+    if not run.path("reference.png").is_file():
+        return
+    rounds = int((run.cfg.get("style_review") or {}).get("rounds", 0)) if _style_enabled(run) else 0
+    rec: dict = {"rounds_allowed": rounds, "rounds": []}
+    ctx["style"] = rec
+    run.stage_begin("style_compare")
+    rep = style.compare(run, "before")
+    rec["before"] = rep.get("summary") or {"error": rep.get("error")}
+    run.stage_end("style_compare", "ok", f"before: {json.dumps(rec['before'], ensure_ascii=False)}")
+    last_spec, last_attempt = run.read_json("spec.json"), attempt
+    for k in range(1, rounds + 1):
+        row: dict = {"round": k}
+        rec["rounds"].append(row)
+        run.stage_begin("style")
+        prop = style.propose(run, k, rep, cli=getattr(opts, "llm_cli", None))
+        row.update(findings=len(prop["fixes"]), cost_usd=prop.get("cost_usd"), patch=prop["patch_file"], branch=prop["branch"])
+        if prop["patch"] is None:
+            row.update(action="no_ops", reason=prop.get("error"))
+            run.stage_end("style", "ok", f"round {k}: no style ops — {prop.get('error')}")
+            break
+        try:
+            styled = patch_mod.apply_patch(run.read_json("spec.json"), prop["patch"])
+        except patch_mod.PatchError as exc:   # propose 가 이미 사본 적용을 했다 — 여기 오면 코드 결함
+            row.update(action="invalid", reason=str(exc))
+            run.stage_end("style", "fail", str(exc), code="STYLE_PATCH_INVALID")
+            break
+        # 1b 후속 F — 크기가 바뀐 글자는 자기 가운데를 중심으로만 커지게(padding) + 게이트 기준 상자 = 직전 통과 렌더 상자를 그만큼 키운 것
+        followed = style.follow_text_boxes(run.read_json("spec.json"), styled, run.cfg, style.rendered_boxes(run, last_attempt))
+        if followed:
+            row["text_boxes_followed"] = followed
+        backup = style.snapshot(run, k, prop["assets"])
+        row["ops"] = len(prop["patch"]["ops"])
+        run.write_json("spec.json", styled)
+        run.stage_end("style", "ok", f"round {k}: {row['ops']} op(s) → {prop['branch']} ({prop['patch_file']})")
+        attempt += 1
+        aopts = _opts(opts, attempt=attempt, only_assets=prop["assets"])
+        if prop["branch"] == "generate":
+            _simple(run, "generate", lambda: generate.run(run, aopts))
+            _simple(run, "refine", lambda: refine.run(run, aopts))
+        res = _style_attempt(run, aopts, ctx, attempt, {"style_round": k, "patch": prop["patch_file"], "branch": prop["branch"]})
+        row["verify"] = {"attempt": attempt, "pass": res["pass"], "failed": res["failed"]}
+        if res["pass"]:
+            row["action"] = "accepted"
+            last_spec, last_attempt = run.read_json("spec.json"), attempt
+            rep = style.compare(run, f"round_{k:03d}")
+            row["after"] = rep.get("summary") or {"error": rep.get("error")}
+            continue
+        row["action"] = "reverted"
+        run.stage_begin("style_revert")
+        run.write_json("spec.json", last_spec)
+        restored = style.restore(run, backup)
+        reset = build.reset_run(run)
+        run.stage_end("style_revert", "ok", f"round {k} broke {', '.join(res['failed'])} — back to attempt {last_attempt}'s spec, "
+                                            f"restored {len(restored)} file(s), discarded {len(reset['discarded'])} package(s), rebuilding")
+        row["revert"] = {"to_attempt": last_attempt, "restored": restored, "discarded": len(reset["discarded"])}
+        attempt += 1
+        res = _style_attempt(run, _opts(opts, attempt=attempt), ctx, attempt, {"style_round": k, "revert": True})
+        if not res["pass"]:
+            raise StageError("STYLE_REVERT_FAILED", f"rebuilding the last passing spec failed: {', '.join(res['failed'])}")
+        rep = style.compare(run, f"round_{k:03d}_reverted")
+        break
+    rec["final"] = rep.get("summary") or {"error": rep.get("error")}
+    rec["final_label"] = rep.get("label")
+
+
+def _style_attempt(run: Run, aopts, ctx: dict, attempt: int, extra: dict) -> dict:
+    """외형 라운드의 build → verify 한 번 — 시도 기록(specs/NNN.json · attempts 줄)은 재시도와 같은 모양."""
+    spec_file = f"specs/{attempt:03d}.json"
+    run.write_json(spec_file, run.read_json("spec.json"))
+    row = {"attempt": attempt, "spec": spec_file, "pass": False, "failed": [], "patch": None, "branch": None, "stop": None, "build": None, **extra}
+    ctx["attempts"].append(row)
+    row["build"] = _simple(run, "build", lambda: build.run(run, aopts))
+    run.stage_begin("verify")
+    res = verify.run(run, aopts)
+    ctx["last"] = res
+    row.update({"pass": res["pass"], "failed": res["failed"], "duration_s": res["duration_s"]})
+    run.stage_end("verify", "ok" if res["pass"] else "fail", verify.summary(res))
+    return res
 
 
 def _finalize(run: Run, opts, ctx: dict, outcome: str) -> None:
@@ -363,6 +457,8 @@ def execute(opts: argparse.Namespace) -> int:
         gauges = _gauge_fidelity_summary(run)
         if gauges:
             report.setdefault("recorded", {})["gauge_fidelity"] = gauges
+        if ctx.get("style"):
+            report.setdefault("recorded", {})["style_review"] = ctx["style"]
         summary = _codegen_summary(run)
         if summary:
             report["codegen"] = summary

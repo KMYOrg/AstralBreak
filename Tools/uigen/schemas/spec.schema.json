@@ -134,7 +134,7 @@
       }
     },
     "style": {
-      "description": "타입별로 쓰는 키가 다르다(core/spec.py STYLE_KEYS) — Border · Image: brush / ProgressBar: background · fill · fill_color · percent · bar_fill_type / SizeBox: width_override · height_override / Spacer: size / UniformGridPanel: slot_padding · min_slot_width · min_slot_height / Button: normal · hovered · pressed",
+      "description": "타입별로 쓰는 키가 다르다(core/spec.py STYLE_KEYS) — Border · Image: brush / ProgressBar: background · fill · fill_color · percent · bar_fill_type · bar_fill_style / SizeBox: width_override · height_override / Spacer: size / UniformGridPanel: slot_padding · min_slot_width · min_slot_height / Button: normal · hovered · pressed",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -144,6 +144,10 @@
         "fill_color": { "$ref": "#/$defs/color" },
         "percent": { "type": "number", "minimum": 0, "maximum": 1 },
         "bar_fill_type": { "enum": ["left_to_right", "right_to_left", "fill_from_center", "top_to_bottom", "bottom_to_top"] },
+        "bar_fill_style": {
+          "enum": ["mask", "scale"],
+          "description": "mask(기본) = 채움 이미지를 바 전체 크기로 그리고 진행률에서 자른다, scale = 채움 이미지를 진행률 폭으로 늘려 그린다(채움 box 여백 = 양끝 고정, 1b 후속 F — 컨셉 채움의 진행 끝 테두리 · 번짐)"
+        },
         "width_override": { "type": "number", "minimum": 0 },
         "height_override": { "type": "number", "minimum": 0 },
         "size": { "$ref": "#/$defs/vec2" },
@@ -176,7 +180,27 @@
         "size": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 },
         "weight": { "enum": ["regular", "bold", "light", "italic", "bold_italic"] },
         "color": { "$ref": "#/$defs/color" },
-        "family": { "type": ["string", "null"], "description": "폰트 애셋 경로. null = 엔진 기본(Roboto + 한글 대체) — 1a 는 null(11-14 사용자 결정)" }
+        "family": { "type": ["string", "null"], "description": "폰트 애셋 경로. null = 엔진 기본(Roboto + 한글 대체) — 1a 는 null(11-14 사용자 결정)" },
+        "role": { "enum": ["body", "title"], "description": "analyze 출력에만 — 글자 역할(body = 본문 · 작은 라벨, title = 제목 · 큰 숫자). apply_contract 가 pipeline.yaml fonts.roles 의 family 로 바꾸고 지운다(WBP · 왕복에는 없음, 1b 후속 D)" },
+        "outline": {
+          "type": "object", "additionalProperties": false, "description": "글자 외곽선(FSlateFontInfo.OutlineSettings) — size 0 이면 없음",
+          "properties": { "size": { "type": "integer", "minimum": 0, "maximum": 1024 }, "color": { "$ref": "#/$defs/color" } }
+        },
+        "shadow": {
+          "type": "object", "additionalProperties": false, "description": "글자 그림자(TextBlock ShadowOffset · ShadowColorAndOpacity) — color 알파 0 이면 없음, color 기본 #000000FF · offset 기본 [1, 1]",
+          "properties": { "offset": { "$ref": "#/$defs/vec2" }, "color": { "$ref": "#/$defs/color" } }
+        },
+        "letter_spacing": { "type": "integer", "minimum": -1000, "maximum": 10000, "description": "자간(1/1000 em) — 0 이면 없음" },
+        "gradient": {
+          "type": "object", "additionalProperties": false, "required": ["top_color", "bottom_color"],
+          "description": "글자 세로 그라데이션 — run 폴더의 UI 머티리얼 MIC(FontMaterial). 색 알파는 쓰지 않는다. 쓸 때는 font.color 를 흰색(틴트 없음)으로",
+          "properties": { "top_color": { "$ref": "#/$defs/color" }, "bottom_color": { "$ref": "#/$defs/color" } }
+        },
+        "glow": {
+          "type": "object", "additionalProperties": false, "required": ["size", "color"],
+          "description": "글자 둘레로 부드럽게 번지는 빛(1b 후속 F) — 외곽선 층(size px)을 run 폴더의 빛 머티리얼 MIC 로 그린다. 글꼴이 거리장(SDF) 글꼴이어야 하고(pipeline.yaml fonts.roles.<역할>.sdf_family), outline 과 같이 못 쓴다. size 0 · color 알파 0 이면 없음",
+          "properties": { "size": { "type": "integer", "minimum": 0, "maximum": 64 }, "color": { "$ref": "#/$defs/color" } }
+        }
       }
     },
     "binding": {
@@ -202,7 +226,8 @@
         "nine_slice": { "type": "boolean" },
         "margin": { "$ref": "#/$defs/unit4" },
         "compression": { "enum": ["TC_EditorIcon", "TC_BC7"] },
-        "procedural": { "type": "object", "required": ["shape"], "properties": { "shape": { "enum": ["rounded_frame", "gradient_panel", "soft_glow", "gradient_bar"] } } },
+        "procedural": { "type": "object", "required": ["shape"], "properties": { "shape": { "enum": ["rounded_frame", "gradient_panel", "soft_glow", "gradient_bar", "concept_fill"] } },
+                        "description": "concept_fill(1b 후속 F)은 파이프라인만 쓴다 — analyze 가 컨셉에서 잰 값(gen/concept_fill.measure)으로 reference.png 에서 다시 그린다" },
         "prompt": { "type": "string" },
         "ref_bbox": {
           "description": "reference 픽셀 [x, y, w, h] — codex 생성 때 이 영역을 잘라 참조 이미지(-i)로 준다(1b-4 analyze · 1b-5 generate). extract 면 편집할 요소 상자",

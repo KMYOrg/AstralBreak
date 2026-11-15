@@ -36,6 +36,8 @@ public class WidgetMcpEditor : ModuleRules
 			// FImageView (PNG 저장)
 			"ImageCore",
 			"RenderCore",
+			// GMaxRHIShaderPlatform — 글자 그라데이션 머티리얼 컴파일 오류 확인(1b 후속 D, WidgetMcpTextMaterials)
+			"RHI",
 			"AssetRegistry",
 			// 텍스처 임포트 — UInterchangeManager · 파이프라인(UInterchangeGenericTexturePipeline 은 Interchange 플러그인)
 			"InterchangeCore",

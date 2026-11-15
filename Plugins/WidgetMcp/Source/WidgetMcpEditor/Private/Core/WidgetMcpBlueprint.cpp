@@ -1,4 +1,5 @@
 #include "Core/WidgetMcpBlueprint.h"
+#include "Core/WidgetMcpTextMaterials.h"
 
 #include "AnimMcpLog.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -854,12 +855,45 @@ namespace WidgetMcpBlueprint
 
 		// ---- 사본에 적용 → 확인 → 바꿔 끼우기 ---------------------------------------------------------------------------
 		const WidgetMcp::FWriteGuard Guard;
+		// 글자 그라데이션(1b 후속 D) — 적용 직전에만 WBP 의 run 폴더에 머티리얼을 준비한다(미리보기 · 거부된 요청은 만들지 않음).
+		// 적용이 실패해도 남는 것은 저장 안 한 run 폴더 패키지뿐이다(discard_run_packages 가 같이 버린다)
+		WidgetMcpSpec::FAssets ApplyAssets = Assets;
+		{
+			TMap<FString, TPair<FLinearColor, FLinearColor>> Gradients;
+			TMap<FString, WidgetMcpTextMaterials::FGlowSpec> Glows;     // 1b 후속 F — font.glow(외곽선 층 빛 머티리얼)도 같은 방식
+			for (const FTarget& T : Targets)
+			{
+				if (!T.bKeepUnsupported && T.Norm.IsValid())
+				{
+					WidgetMcpSpec::CollectTextGradients(*T.Norm, Gradients);
+					WidgetMcpSpec::CollectTextGlows(*T.Norm, Glows);
+				}
+			}
+			FString MaterialError;
+			const FString RunFolder = FPackageName::GetLongPackagePath(WBP->GetOutermost()->GetName());
+			if (!WidgetMcpTextMaterials::Prepare(RunFolder, Gradients, ApplyAssets.TextGradients, MaterialError)
+				|| !WidgetMcpTextMaterials::PrepareGlows(RunFolder, Glows, ApplyAssets.TextGlows, MaterialError))
+			{
+				OutError = WidgetMcp::MakeMcpError(EditorMcpErrorCodes::ValidationFailed, MaterialError + TEXT(" — nothing was applied"), TEXT("TEXT_MATERIAL"));
+				return nullptr;
+			}
+			TArray<TSharedPtr<FJsonValue>> MaterialInfo;
+			for (const TPair<FString, UMaterialInterface*>& P : ApplyAssets.TextGradients)
+			{
+				MaterialInfo.Add(MakeShared<FJsonValueObject>(WidgetMcpTextMaterials::Describe(P.Value)));
+			}
+			for (const TPair<FString, UMaterialInterface*>& P : ApplyAssets.TextGlows)
+			{
+				MaterialInfo.Add(MakeShared<FJsonValueObject>(WidgetMcpTextMaterials::Describe(P.Value)));
+			}
+			Out->SetArrayField(TEXT("text_materials"), MaterialInfo);
+		}
 		UWidgetTree* Live = WBP->WidgetTree;
 		UWidgetTree* Work = DuplicateObject<UWidgetTree>(Live, GetTransientPackage(), MakeUniqueObjectName(GetTransientPackage(), UWidgetTree::StaticClass(), TEXT("WidgetMcpWorkTree")));
 		TStrongObjectPtr<UWidgetTree> KeepWork(Work);
 		TSet<FString> Replaced;
 		FString ApplyError;
-		bool bOk = ApplyToTree(Work, Targets, TargetIndex, RootId, Assets, Replaced, ApplyError);
+		bool bOk = ApplyToTree(Work, Targets, TargetIndex, RootId, ApplyAssets, Replaced, ApplyError);
 		TArray<FString> VerifyDiffs;
 		if (bOk)
 		{

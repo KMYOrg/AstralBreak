@@ -123,6 +123,89 @@ def _sheet(panels, vertical: bool):
     return sheet
 
 
+INK_MIN_PIXELS = 30
+INK_MIN_SPREAD = 20.0     # 상자 안 L* 범위가 이보다 좁으면 글자가 없다고 본다
+INK_CORE = 0.3            # 글자 쪽 L* 를 문턱에서 끝값 쪽으로 30 % 들인 '획 안쪽' — 가장자리 안티앨리어싱 · 외곽선 섞임 빼기
+
+
+def text_ink(rgb) -> np.ndarray | None:
+    """글자 상자 안 글자(획 안쪽) 픽셀 (1b 후속 D · C). L* 를 Otsu 로 둘로 나눠 **적은 쪽**을 글자로 본다(글자는 상자의 소수) —
+    어두운 바탕 위 밝은 글자 · 밝은 바탕 위 어두운 글자 모두. 상자가 거의 한 색이거나 획이 너무 적으면 None."""
+    import cv2
+    lab = color.srgb_to_lab(np.asarray(rgb)[:, :, :3])
+    L = lab[..., 0]
+    lo, hi = float(np.percentile(L, 2)), float(np.percentile(L, 98))
+    if hi - lo < INK_MIN_SPREAD:
+        return None
+    L8 = np.clip(np.round(L * 2.55), 0, 255).astype(np.uint8)
+    t8, _ = cv2.threshold(L8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Otsu 와 같은 양자화(L8)로 가른다 — 바탕이 한 값이면 문턱 = 바탕 값이라 실수 L* 로 비교하면 바탕이 '밝은 쪽'이 된다
+    t, lo8, hi8 = float(t8), float(np.percentile(L8, 2)), float(np.percentile(L8, 98))
+    bright = L8 > t
+    if bright.sum() <= (~bright).sum():
+        ink = L8 >= t + max(1.0, INK_CORE * (hi8 - t))
+    else:
+        ink = L8 <= t - INK_CORE * (t - lo8)
+    ink = _text_band(ink)
+    return ink if int(ink.sum()) >= INK_MIN_PIXELS else None
+
+
+INK_LINE_ROW = 0.6        # 상자 폭의 60 % 넘게 칠해진 줄 = 가로 테두리선(글자 줄은 그만큼 차지 않는다)
+INK_BAND_GAP = 3          # 글자 줄 띠 안에서 허용하는 빈 줄
+INK_MIN_PART = 0.1        # 가장 큰 덩어리 대비 이보다 작은 덩어리는 잔조각
+INK_VLINE_W = 0.25        # 1b 후속 F — 폭 ≤ 상자 높이 × 이 값 · 높이 ≥ 상자 높이 × INK_VLINE_H 인 덩어리 = 세로 테두리선
+INK_VLINE_H = 0.8
+
+
+def _text_band(ink) -> np.ndarray:
+    """상자에 걸친 프레임 금테를 뺀다 [실측 D — 증거 run '2/4' 상자 아래 패널 금테가 가짜 그라데이션 ΔE00 28]:
+    가로선 줄(폭 60 % 이상)을 지우고, 빈 줄 3 개까지 이어 붙인 줄 띠 중 획이 가장 많은 띠만 남긴다."""
+    import cv2
+    ink = ink.copy()
+    w = ink.shape[1]
+    counts = ink.sum(axis=1)
+    ink[counts >= INK_LINE_ROW * w] = False
+    # 상자 좌우 끝에 닿은 덩어리(패널 모서리 장식) 빼기 — 남는 획이 절반 이상일 때만 [실측 D — '2/4' 상자 아래 양쪽 모서리 장식]
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(ink.astype(np.uint8), connectivity=8)
+    # 세로 테두리선(상자 높이 80 % 이상 · 폭 ≤ 상자 높이 25 % — 글자 획은 줄 상자의 60 % 를 못 넘는다) 빼기
+    # [실측 F 끝 run 3] 빛 글자 '4.2' 의 넓은 상자에 패널 안쪽 세로선이 걸려 획 상자 = 상자 전체(높이 비 2.0) — 컨셉 선은 6 ~ 8 px, 렌더 선은 1 px
+    hh = ink.shape[0]
+    vlines = [i for i in range(1, n) if stats[i, cv2.CC_STAT_HEIGHT] >= INK_VLINE_H * hh and stats[i, cv2.CC_STAT_WIDTH] <= INK_VLINE_W * hh]
+    if vlines:
+        ink &= ~np.isin(lab, vlines)
+    # [실측 F] '닿음'을 '폭 4 % 안'으로 넓히면 글자가 꽉 찬 상자에서 첫 글자를 지웠다('오의 불가' 폭 비 1.286) — 닿은 것만
+    edge = [i for i in range(1, n) if i not in vlines and (stats[i, cv2.CC_STAT_LEFT] == 0 or stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH] >= w)]
+    if edge:
+        drop = np.isin(lab, edge)
+        if (ink & ~drop).sum() >= 0.5 * ink.sum():
+            ink &= ~drop
+    # 남은 잔조각(장식 끝 · 잡티) — 가장 큰 덩어리의 10 % 미만
+    areas = {i: int(stats[i, cv2.CC_STAT_AREA]) for i in range(1, n) if ink[lab == i].any()}
+    if areas:
+        big = max(areas.values())
+        small = [i for i, a in areas.items() if a < INK_MIN_PART * big]
+        if small:
+            ink &= ~np.isin(lab, small)
+    rows = np.where(ink.sum(axis=1) > 0)[0]
+    if len(rows) == 0:
+        return ink
+    bands, start, prev = [], rows[0], rows[0]
+    for r in rows[1:]:
+        if r - prev > INK_BAND_GAP + 1:
+            bands.append((start, prev))
+            start = r
+        prev = r
+    bands.append((start, prev))
+    best = max(bands, key=lambda b: int(ink[b[0]:b[1] + 1].sum()))
+    keep = np.zeros_like(ink)
+    keep[best[0]:best[1] + 1] = ink[best[0]:best[1] + 1]
+    return keep
+
+
+def ink_box(ink) -> list[int] | None:
+    return bbox_of(ink) if ink is not None else None
+
+
 def render_vs_concept(concept_rgb, render_rgb, exclude=None) -> tuple[dict, object]:
     """WBP 렌더(같은 상자) ↔ 컨셉 — 이식이 맞는지(1b 후속 A, 기록만). 렌더는 검은 바탕 불투명이라 비치는 안쪽은 비교하지 않고
     장식선(테두리 띠 안, 글자 위젯 자리 제외)의 위치 · 대표색과 모양 실루엣만 본다."""
@@ -173,6 +256,118 @@ def render_comparisons(reference_path, render_path, spec: dict, asset_ids, out_d
     return out
 
 
+def _clip_box(bb, W, H, pad: int = 0) -> tuple[int, int, int, int]:
+    x, y, w, h = bb
+    return max(0, int(x) - pad), max(0, int(y) - pad), min(W, int(math.ceil(x + w)) + pad), min(H, int(math.ceil(y + h)) + pad)
+
+
+def text_vs_concept(concept_rgb, render_rgb) -> dict:
+    """글자 상자 하나 — 컨셉 ↔ 렌더 글자 획(text_ink) 상자 · 크기 비 · 중심 차 · 획 대표색 ΔE00 (1b 후속 C, 기록만)."""
+    c, r = np.asarray(concept_rgb)[:, :, :3].astype(float), np.asarray(render_rgb)[:, :, :3].astype(float)
+    ic, ir = text_ink(c), text_ink(r)
+    bc, br = ink_box(ic), ink_box(ir)
+    out: dict = {"ink_box_concept": bc, "ink_box_render": br}
+    if ic is None or ir is None:
+        out["error"] = "no glyph pixels in the " + ("concept" if ic is None else "render")
+        return out
+    cc, cr = np.median(c[ic], axis=0), np.median(r[ir], axis=0)
+    out.update(h_ratio=round(br[3] / bc[3], 3), w_ratio=round(br[2] / bc[2], 3),
+               center_dx=round(br[0] + br[2] / 2 - bc[0] - bc[2] / 2, 1), center_dy=round(br[1] + br[3] / 2 - bc[1] - bc[3] / 2, 1),
+               ink_de00=round(float(color.delta_e00(color.srgb_to_lab(cc), color.srgb_to_lab(cr))), 2),
+               concept_ink="#%02X%02X%02X" % tuple(int(round(v)) for v in cc), render_ink="#%02X%02X%02X" % tuple(int(round(v)) for v in cr))
+    return out
+
+
+def region_report(reference_path, render_path, spec: dict, out_dir, pad: int = 4) -> dict:
+    """1b 후속 C — 영역(루트 직계) · 글자(TextBlock) · 게이지 전부의 컨셉 ↔ 렌더 비교(기록만 — 결정 6). 렌더는 force_visible(render.png):
+    샘플 렌더는 꺼진 flag(배너 등)를 접지만 컨셉에는 그것이 보이기 때문. 렌더는 검은 바탕 불투명이라 비치는 안쪽은 영역 대표색에 섞인다(그대로 기록).
+    → {regions{id: {box, line_f1, shape_iou, delta_e00, representative_de00, sheet}}, texts{id: text_vs_concept + box}, gauges{id: gauge_vs_concept},
+       summary{…}} + out_dir/<영역>.png(컨셉 | 렌더 나란히 — 그 영역의 글자 상자를 노랑으로)."""
+    import pathlib
+    from PIL import Image, ImageDraw
+    ref = np.asarray(Image.open(reference_path).convert("RGB"))
+    ren = np.asarray(Image.open(render_path).convert("RGB"))
+    if ref.shape != ren.shape:
+        return {"error": f"reference {ref.shape[:2]} and render {ren.shape[:2]} differ"}
+    H, W = ref.shape[:2]
+    out_dir = pathlib.Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    widgets = spec.get("widgets", [])
+    root = spec.get("root")
+    by_id = {w["id"]: w for w in widgets}
+
+    def region_of(wid):
+        cur = by_id.get(wid)
+        while cur is not None and cur.get("parent") not in (root, None):
+            cur = by_id.get(cur.get("parent"))
+        return cur["id"] if cur is not None and cur.get("parent") == root else None
+
+    texts = [w for w in widgets if w.get("type") == "TextBlock" and w.get("bbox_intent")]
+    out: dict = {"render": pathlib.Path(render_path).name, "regions": {}, "texts": {}, "gauges": {}}
+    for w in widgets:
+        if w.get("parent") != root or not w.get("bbox_intent"):
+            continue
+        x0, y0, x1, y1 = _clip_box(w["bbox_intent"], W, H, pad)
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            continue
+        excl = np.zeros((y1 - y0, x1 - x0), bool)
+        mine = [t for t in texts if region_of(t["id"]) == w["id"]]
+        for t in mine:
+            tx0, ty0, tx1, ty1 = _clip_box(t["bbox_intent"], W, H, 2)
+            excl[max(0, ty0 - y0):max(0, ty1 - y0), max(0, tx0 - x0):max(0, tx1 - x0)] = True
+        cc, rr = ref[y0:y1, x0:x1], ren[y0:y1, x0:x1]
+        rec, _ = render_vs_concept(cc, rr, excl)
+        rec["representative_de00"] = color.region_delta_e(cc, rr, ~excl)["representative"]
+        rec["box"] = [x0, y0, x1 - x0, y1 - y0]
+        rec["texts"] = [t["id"] for t in mine]
+        pc, pr = Image.fromarray(cc.astype(np.uint8)), Image.fromarray(rr.astype(np.uint8))
+        for p in (pc, pr):
+            d = ImageDraw.Draw(p)
+            for t in mine:
+                tx0, ty0, tx1, ty1 = _clip_box(t["bbox_intent"], W, H)
+                d.rectangle([tx0 - x0, ty0 - y0, tx1 - x0 - 1, ty1 - y0 - 1], outline=(255, 230, 0))
+        name = f"{w['id']}.png"
+        _sheet([("concept", pc), ("render", pr)], vertical=(x1 - x0) >= (y1 - y0)).save(out_dir / name)
+        rec["sheet"] = name
+        out["regions"][w["id"]] = rec
+    for t in texts:
+        bb = list(t["bbox_intent"])
+        g = float(((t.get("font") or {}).get("glow") or {}).get("size") or 0)
+        if g:   # 1b 후속 F — 빛 글자는 analyze 가 상자를 사방 빛 크기만큼 넓혔다 → 원래 줄 상자에서 잰다
+            # [실측 F 끝 run 3] 넓힌 상자가 패널 안쪽 세로선을 덮어 획 상자 = 상자 전체(높이 비 2.015)
+            bb = [bb[0] + g, bb[1] + g, bb[2] - 2 * g, bb[3] - 2 * g]
+        x0, y0, x1, y1 = _clip_box(bb, W, H)
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            continue
+        rec = text_vs_concept(ref[y0:y1, x0:x1], ren[y0:y1, x0:x1])
+        rec.update(box=[x0, y0, x1 - x0, y1 - y0], region=region_of(t["id"]))
+        out["texts"][t["id"]] = rec
+    for w in widgets:
+        st = w.get("style") or {}
+        if w.get("type") == "ProgressBar" and w.get("bbox_intent") and isinstance(st.get("percent"), (int, float)):
+            try:
+                out["gauges"][w["id"]] = gauge_vs_concept(reference_path, render_path, w["bbox_intent"], st["percent"], st.get("bar_fill_type", "left_to_right"))
+                out["gauges"][w["id"]]["shape"] = gauge_shape(reference_path, render_path, w["bbox_intent"], st["percent"], st.get("bar_fill_type", "left_to_right"))
+            except Exception as exc:  # noqa: BLE001 — 기록 지표
+                out["gauges"][w["id"]] = {"error": f"{type(exc).__name__}: {exc}"[:200]}
+    out["summary"] = report_summary(out)
+    return out
+
+
+def report_summary(rep: dict) -> dict:
+    """라운드 전후를 한눈에 — 글자 획 ΔE00 평균 · 글자 높이 비 |1 − r| 평균 · 영역 장식선 F1 평균 · 영역 대표색 ΔE00 평균 · 게이지 채움 줄 단위 평균."""
+    def mean(v):
+        v = [x for x in v if isinstance(x, (int, float))]
+        return round(float(np.mean(v)), 3) if v else None
+    t = [x for x in (rep.get("texts") or {}).values() if "error" not in x]
+    r = list((rep.get("regions") or {}).values())
+    g = [x for x in (rep.get("gauges") or {}).values() if isinstance(x, dict) and x.get("filled")]
+    return {"text_ink_de00": mean([x.get("ink_de00") for x in t]), "text_h_ratio_err": mean([abs(1 - x["h_ratio"]) for x in t if x.get("h_ratio")]),
+            "text_w_ratio_err": mean([abs(1 - x["w_ratio"]) for x in t if x.get("w_ratio")]),
+            "region_line_f1": mean([(x.get("line_f1") or {}).get("f1") for x in r]), "region_de00": mean([x.get("representative_de00") for x in r]),
+            "gauge_fill_rows_de00": mean([x["filled"]["rows"]["mean"] for x in g]), "texts": len(t), "regions": len(r)}
+
+
 def gauge_vs_concept(reference_path, render_path, bbox, percent: float, fill_type: str = "left_to_right", edge: float = 0.04) -> dict:
     """게이지(ProgressBar) 상자에서 채워진 부분 · 빈 부분의 컨셉 ↔ 렌더 대표색 ΔE00(+ 픽셀별 평균) — 1b 후속 B, 기록만.
     렌더는 검은 바탕 불투명이라 빈 부분(비치는 트랙)은 컨셉보다 어둡게 나올 수 있다."""
@@ -198,6 +393,48 @@ def gauge_vs_concept(reference_path, render_path, bbox, percent: float, fill_typ
                                color.srgb_to_lab(np.median(ren[y0:y1, a:b].astype(float), axis=1)))     # 줄마다 대표색 — 세로 그라데이션
         out[name] = {"x": [a, b], "representative": d["representative"], "pixel": d["pixel"],
                      "rows": {"mean": round(float(rows.mean()), 2), "max": round(float(rows.max()), 2)}}
+    return out
+
+
+def gauge_shape(reference_path, render_path, bbox, percent: float, fill_type: str = "left_to_right", tail_px: int = 12) -> dict:
+    """게이지 채움 실루엣 — 막대 상자 안 밝은(L > T) 픽셀의 컨셉 ↔ 렌더 IoU(왼쪽 끝 '<' 모양 · 위아래 범위), 진행 끝 앞까지만(1b 후속 F, 기록만).
+    T = (채운 부분 L 중앙값 + 빈 부분 L 중앙값) / 2 를 컨셉에서(gen/concept_fill 과 같은 밝기). 시작 끝(left_to_right 면 왼쪽)에서 처음 밝은 열의 차도 준다.
+    열 범위는 상자 시작 ~ 진행률 자리 − tail_px — 컨셉의 실제 채움 길이가 샘플과 달라도 끝은 비교하지 않는다."""
+    from PIL import Image
+    from gen.concept_fill import luminance
+    ref = np.asarray(Image.open(reference_path).convert("RGB")).astype(float)
+    ren = np.asarray(Image.open(render_path).convert("RGB")).astype(float)
+    H, W = ref.shape[:2]
+    x, y, bw, bh = (float(v) for v in bbox)
+    p = float(percent)
+    y0, y1 = max(0, int(round(y))), min(H, int(round(y + bh)))
+    flip = fill_type == "right_to_left"
+    if flip:
+        a, b = int(round(x + (1 - p) * bw)) + tail_px, int(round(x + bw))
+    else:
+        a, b = int(round(x)), int(round(x + p * bw)) - tail_px
+    a, b = max(0, a), min(W, b)
+    if b - a < 8 or y1 - y0 < 4:
+        return {"error": "box too small"}
+    Lc, Lr = luminance(ref[y0:y1]), luminance(ren[y0:y1])
+    r0, r1 = int(0.25 * (y1 - y0)), max(int(0.75 * (y1 - y0)), int(0.25 * (y1 - y0)) + 1)
+    fill_cols = slice(int(a + 0.3 * (b - a)), int(a + 0.7 * (b - a)) + 1)
+    e0, e1 = (int(round(x + 0.03 * bw)), int(round(x + max(0.0, (1 - p) - 0.08) * bw))) if flip else \
+        (int(round(x + min(1.0, p + 0.08) * bw)), int(round(x + 0.97 * bw)))
+    if e1 - e0 < 4:
+        return {"error": "no empty part to set the brightness threshold"}
+    T = (float(np.median(Lc[r0:r1, fill_cols])) + float(np.median(Lc[r0:r1, e0:e1]))) / 2.0
+    mc, mr = Lc[:, a:b] > T, Lr[:, a:b] > T
+    out = {"columns": [a, b], "rows": [y0, y1], "threshold": round(T, 1), "iou": iou(mc, mr)}
+    mid = slice(r0, r1)
+    def tip(m):
+        cols = np.where(m[mid].any(axis=0))[0]
+        if len(cols) == 0:
+            return None
+        return int(a + (cols.max() if flip else cols.min()))
+    tc, tr = tip(mc), tip(mr)
+    out.update(tip_concept=tc, tip_render=tr, tip_dx=(tr - tc) if tc is not None and tr is not None else None,
+               rows_concept=int(mc.any(axis=1).sum()), rows_render=int(mr.any(axis=1).sum()))
     return out
 
 

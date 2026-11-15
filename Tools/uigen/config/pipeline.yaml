@@ -71,18 +71,44 @@ render:
   resolutions: [[1920, 1080], [2560, 1080], [1920, 1200]]   # 화면 밖 게이트 — 기준 + 21:9 + 16:10
 
 fonts:                                   # 프로젝트 폰트 (1b-3 — 11-15 사용자 승인: Pretendard v1.3.9 OFL, import_font_family 로 임포트 · 저장)
-  default_family: /Game/UI/Fonts/Pretendard/F_Pretendard.F_Pretendard   # spec font.family 값 — export 가 돌려주는 객체 경로 그대로(왕복 비교)
+  default_family: /Game/UI/Fonts/Pretendard/F_Pretendard.F_Pretendard   # = 역할 body. spec font.family 값 — export 가 돌려주는 객체 경로 그대로(왕복 비교)
   typefaces: [Regular, Bold]             # spec font.weight regular · bold 만 그 타입페이스를 고른다(light · italic 은 첫 항목으로 대체)
-  line_height:                           # [실측 1b-3] TextBlock auto_size 높이(px, 1920×1080 · scale 1) — regular · bold 같음. 엔진 기본은 크기 × 약 1.6
+  line_height:                           # body(Pretendard) — [실측 1b-3 · 1b 후속 D] TextBlock auto_size 높이(px, scale 1) — regular · bold 같음. 엔진 기본은 크기 × 약 1.6
     16: 26
     18: 30
     22: 36
     26: 43
     30: 49
     34: 55
+    44: 71
+    56: 90
+    80: 129
+  glyph_height: { hangul: 1.17, digits: 0.94 }   # 1b 후속 F — 보이는 글자 높이 / 크기 [실측 C1 렌더 '오의 불가' 35/30 · D 숫자 0.94] — analyze 프롬프트가 크기를 고를 때
+  roles:                                 # 1b 후속 D — analyze 가 TextBlock 마다 font.role 을 고르고 apply_contract 가 family 로 바꾼다(body = 위 default_family)
+    title:                               # 제목 · 배너 · 큰 숫자 — Noto Serif KR(notofonts/noto-cjk SubsetOTF KR, OFL — 11-15 사용자 승인)
+      family: /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR.F_NotoSerifKR
+      line_height: { 16: 31, 18: 35, 22: 43, 26: 51, 30: 58, 34: 66, 44: 86, 56: 109, 80: 155 }   # [실측 D] 크기 × 약 1.94, regular · bold 같음
+      glyph_height: { hangul: 1.33, digits: 1.02 }   # 1b 후속 F [실측 C1 렌더] 배너 58/44 · 체인 35/26 · '4.2' 65/64 · '3' 62/61
+      sdf_family: /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_SDF.F_NotoSerifKR_SDF   # 1b 후속 F — 같은 OTF 의 거리장 사본(import_font_family distance_field) — 글자 빛 쓰는 글자만
+
+text_fill:                               # 1b 후속 D — 글자색 · 세로 그라데이션을 컨셉에서 결정적으로(analyze.derive_text_fills). false = LLM 색 그대로
+  enabled: true
+
+text_glow:                               # 1b 후속 F — 글자 둘레 번지는 빛을 컨셉에서 결정적으로(analyze.derive_text_glow → font.glow + 그 역할의 sdf_family)
+  enabled: true
+  min_excess: 8                          # 획 2 ~ 6 px 밖 밝기가 바탕보다 L 이만큼 밝으면 빛(잠정 — [실측 F] '4.2' 15.5, 빛 없는 글자 ≤ 0)
+
+gauge_fill:                              # 1b 후속 F — 따온 프레임 위 가로 게이지 채움(analyze.derive_gauge_fills · gen/concept_fill.py)
+  mode: shape                            # shape = 컨셉 채움 모양 그대로(왼쪽 끝 · 밝은 테두리 · 트랙 띠 빛) · stops = B 의 줄마다 색만(gradient_bar)
+  end: scale                             # scale = 진행 끝 테두리 · 번짐까지(ProgressBar bar_fill_style scale + 채움 box) · mask = 진행률에서 자름(엔진 기본)
+
+style_review:                            # 1b 후속 C — 게이트 통과 뒤 외형 검토 라운드(stages/style.py). 합격 판정은 게이트만, 라운드 뒤 게이트가 깨지면 그 라운드를 버린다
+  rounds: 1                              # 0 = 끔. concept 모드(reference.png 있음) · fix.mode ≠ deterministic 일 때만 돈다
+  max_ops: 16                            # 라운드 patch 의 op 상한
+  max_replace_per_round: 1               # replace_asset(codex 다시 편집 · 생성) — run 의 codex 상한(limits.codex_calls_per_run) 안, 한 번에 하나
 
 fix:
-  mode: hybrid                           # 1b-6 — 결정적 fixer 먼저, op 가 없거나 직전 결정적 patch 가 진전이 없으면 LLM verifier → fix (11-15 사용자 결정).
+  mode: hybrid                          # 1b-6 — 결정적 fixer 먼저, op 가 없거나 직전 결정적 patch 가 진전이 없으면 LLM verifier → fix (11-15 사용자 결정).
                                          # deterministic(1a) · llm 도 된다 — run 마다 --fix-mode 로 덮을 수 있다
 
 llm:                                     # §10-1 claude -p 호출 틀(core/llm.py) — 1a 는 fix.mode deterministic 이라 호출 0, 1b 에서 값 보정
@@ -96,3 +122,6 @@ llm:                                     # §10-1 claude -p 호출 틀(core/llm.
     analyze:  { max_budget_usd: 1.0, max_turns: 6, timeout_s: 600, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/analyze.md, model: null }
     verifier: { max_budget_usd: 0.5, max_turns: 8, timeout_s: 300, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/verifier.md, model: null }
     fix:      { max_budget_usd: 0.5, max_turns: 6, timeout_s: 300, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/fix.md, model: null }
+    # 1b 후속 C — 외형 라운드(잠정). verifier 는 영역 나란히 그림 3 ~ 4장을 읽어 턴이 더 든다
+    style_verifier: { max_budget_usd: 0.6, max_turns: 10, timeout_s: 420, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/style_verifier.md, model: null }
+    style_fix:      { max_budget_usd: 0.5, max_turns: 6, timeout_s: 300, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/style_fix.md, model: null }

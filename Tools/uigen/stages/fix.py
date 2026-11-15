@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 
+from core import config
 from core import geometry as geo
 from core import llm
 from core import patch as patch_mod
@@ -290,13 +291,18 @@ def _gate_summary(gates: list[dict]) -> str:
 
 
 def _line_height_note(cfg: dict, spec: dict) -> str:
-    fonts = cfg.get("fonts") or {}
-    fam = fonts.get("default_family")
-    uses_project = any((w.get("font") or {}).get("family") == fam for w in spec.get("widgets", []) if w.get("type") == "TextBlock")
-    if uses_project and fonts.get("line_height"):
-        table = ", ".join(f"{k}->{v}" for k, v in sorted((int(k), v) for k, v in fonts["line_height"].items()))
-        return f"Text uses the project font {fam}: TextBlock height per font size {table} (about 1.63 x size beyond)."
-    return "Text uses the engine default font: TextBlock height is about 1.6 x font size (16->26, 18->29, 22->35, 26->42, 30->48, 34->54)."
+    """spec 의 TextBlock 이 쓰는 폰트마다 줄 높이 표(1b 후속 D — 역할별 폰트). 표가 없는 폰트(엔진 기본)는 1.6 배 문장."""
+    used = {(w.get("font") or {}).get("family") for w in spec.get("widgets", []) if w.get("type") == "TextBlock"}
+    notes = []
+    for role, r in config.font_roles(cfg).items():
+        fams = [f for f in (r["family"], r.get("sdf_family")) if f and f in used]     # 1b 후속 F — SDF 사본(빛 글자)은 같은 줄 높이
+        if fams and r["line_height"]:
+            notes.append(f"Text with font.family {' or '.join(fams)} (role {role}): TextBlock height per font size "
+                         f"{config.line_height_text(r['line_height'], '->')} (scale proportionally beyond).")
+            used.difference_update(fams)
+    if used:
+        notes.append("Text with other fonts (engine default): TextBlock height is about 1.6 x font size (16->26, 18->29, 22->35, 26->42, 30->48, 34->54).")
+    return " ".join(notes)
 
 
 def _llm_row(run, stage: str, attempt: int, res: dict | None, err: str | None = None, extra: dict | None = None) -> None:

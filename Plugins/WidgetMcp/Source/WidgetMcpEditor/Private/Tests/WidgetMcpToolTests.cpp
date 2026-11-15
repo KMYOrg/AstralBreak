@@ -131,15 +131,17 @@ namespace WidgetMcpToolTests
       "style": { "brush": { "draw_as": "box", "asset": "frame", "margin": [0.1, 0.2, 0.1, 0.2] } } },
     { "id": "PanelBox", "type": "VerticalBox", "parent": "Panel", "slot": { "kind": "border", "padding": [8, 6, 8, 6] } },
     { "id": "Title", "type": "TextBlock", "parent": "PanelBox", "slot": { "kind": "vertical_box", "size_rule": "fill", "fill": 1 },
-      "text": { "value": "체인" }, "font": { "size": 18, "weight": "bold", "color": "#FFF3D6" }, "justification": "center" },
+      "text": { "value": "체인" }, "font": { "size": 18, "weight": "bold", "color": "#FFF3D6",
+        "outline": { "size": 2, "color": "#1A0E05" }, "shadow": { "offset": [2, 3], "color": "#000000B0" }, "letter_spacing": 60,
+        "gradient": { "top_color": "#FFE9A8", "bottom_color": "#C8902E" } }, "justification": "center" },
     { "id": "Label", "type": "TextBlock", "parent": "PanelBox", "slot": { "kind": "vertical_box", "size_rule": "fill", "fill": 2 },
-      "text": { "source": "dynamic", "data": "label", "sample": "4.2" }, "font": { "size": 28, "weight": "regular" } },
+      "text": { "source": "dynamic", "data": "label", "sample": "4.2" }, "font": { "size": 28, "weight": "regular", "glow": { "size": 6, "color": "#FFB04880" } } },
     { "id": "GaugeArea", "type": "Overlay", "parent": "Root",
       "slot": { "kind": "canvas", "anchors": [0.5, 1, 0.5, 1], "alignment": [0.5, 1], "position": [0, -20], "size": [300, 30] } },
     { "id": "Glow", "type": "Image", "parent": "GaugeArea", "slot": { "kind": "overlay", "h_align": "fill", "v_align": "fill" },
       "style": { "brush": { "asset": "glow" } }, "visibility": "collapsed" },
     { "id": "Gauge", "type": "ProgressBar", "parent": "GaugeArea", "slot": { "kind": "overlay", "padding": [6, 6, 6, 6], "h_align": "fill", "v_align": "fill" },
-      "style": { "fill": { "draw_as": "rounded_box", "color": "#E8B54A", "radius": 4 }, "percent": 0.7 } },
+      "style": { "fill": { "draw_as": "rounded_box", "color": "#E8B54A", "radius": 4 }, "percent": 0.7, "bar_fill_style": "scale" } },
     { "id": "Swatch", "type": "Border", "parent": "Root", "slot": { "kind": "canvas", "position": [400, 40], "size": [80, 80] },
       "style": { "brush": { "draw_as": "image", "color": "#202838" } } }
   ]
@@ -280,6 +282,30 @@ bool FWidgetMcpBuildRoundTripTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("brush asset back as asset id"), Panel->GetObjectField(TEXT("style"))->GetObjectField(TEXT("brush"))->GetStringField(TEXT("asset")), FString(TEXT("frame")));
 		TestEqual(TEXT("brush image_size = texture size"), Panel->GetObjectField(TEXT("style"))->GetObjectField(TEXT("brush"))->GetArrayField(TEXT("image_size"))[0]->AsNumber(), 200.0);
 		TestEqual(TEXT("color round-trips"), FindWidget(Exported, TEXT("Title"))->GetObjectField(TEXT("font"))->GetStringField(TEXT("color")), FString(TEXT("#FFF3D6FF")));
+		// 글자 효과(1b 후속 D) — 외곽선 · 그림자 · 자간 · 그라데이션(run 폴더 MIC) 왕복, 효과 없는 글자에는 키가 없다
+		const TSharedPtr<FJsonObject> TitleFont = FindWidget(Exported, TEXT("Title"))->GetObjectField(TEXT("font"));
+		const TSharedPtr<FJsonObject>* Outline = nullptr;
+		TestTrue(TEXT("outline round-trips"), TitleFont->TryGetObjectField(TEXT("outline"), Outline) && (*Outline)->GetNumberField(TEXT("size")) == 2.0
+			&& (*Outline)->GetStringField(TEXT("color")) == TEXT("#1A0E05FF"));
+		const TSharedPtr<FJsonObject>* Shadow = nullptr;
+		TestTrue(TEXT("shadow round-trips"), TitleFont->TryGetObjectField(TEXT("shadow"), Shadow) && (*Shadow)->GetArrayField(TEXT("offset"))[1]->AsNumber() == 3.0
+			&& (*Shadow)->GetStringField(TEXT("color")) == TEXT("#000000B0"));
+		TestEqual(TEXT("letter spacing round-trips"), TitleFont->GetNumberField(TEXT("letter_spacing")), 60.0);
+		const TSharedPtr<FJsonObject>* Gradient = nullptr;
+		TestTrue(TEXT("gradient round-trips"), TitleFont->TryGetObjectField(TEXT("gradient"), Gradient) && (*Gradient)->GetStringField(TEXT("top_color")) == TEXT("#FFE9A8FF")
+			&& (*Gradient)->GetStringField(TEXT("bottom_color")) == TEXT("#C8902EFF"));
+		TestTrue(TEXT("gradient material lives in the run folder"), FindObject<UObject>(nullptr, *(H.RunPath + TEXT("/MI_TextGradient_FFE9A8FF_C8902EFF.MI_TextGradient_FFE9A8FF_C8902EFF"))) != nullptr
+			&& FindObject<UObject>(nullptr, *(H.RunPath + TEXT("/M_TextGradient.M_TextGradient"))) != nullptr);
+		const TSharedPtr<FJsonObject> LabelFont = FindWidget(Exported, TEXT("Label"))->GetObjectField(TEXT("font"));
+		TestFalse(TEXT("no effect keys without effects"), LabelFont->HasField(TEXT("outline")) || LabelFont->HasField(TEXT("shadow")) || LabelFont->HasField(TEXT("letter_spacing")) || LabelFont->HasField(TEXT("gradient")));
+		// 1b 후속 F — 빛(외곽선 층 빛 MIC, 외곽선 키로는 안 나옴) · 진행바 채움 방식 scale 왕복, 빛 없는 글자에는 키가 없다
+		const TSharedPtr<FJsonObject>* TextGlow = nullptr;
+		TestTrue(TEXT("glow round-trips"), LabelFont->TryGetObjectField(TEXT("glow"), TextGlow) && (*TextGlow)->GetNumberField(TEXT("size")) == 6.0
+			&& (*TextGlow)->GetStringField(TEXT("color")) == TEXT("#FFB04880"));
+		TestTrue(TEXT("glow material lives in the run folder"), FindObject<UObject>(nullptr, *(H.RunPath + TEXT("/MI_TextGlow_FFB04880_S6_F280.MI_TextGlow_FFB04880_S6_F280"))) != nullptr
+			&& FindObject<UObject>(nullptr, *(H.RunPath + TEXT("/M_TextGlow.M_TextGlow"))) != nullptr);
+		TestFalse(TEXT("no glow key without a glow"), TitleFont->HasField(TEXT("glow")));
+		TestEqual(TEXT("bar fill style round-trips"), FindWidget(Exported, TEXT("Gauge"))->GetObjectField(TEXT("style"))->GetStringField(TEXT("bar_fill_style")), FString(TEXT("scale")));
 		TestEqual(TEXT("dynamic text shows its sample"), FindWidget(Exported, TEXT("Label"))->GetObjectField(TEXT("text"))->GetStringField(TEXT("value")), FString(TEXT("4.2")));
 		TestEqual(TEXT("Korean text kept"), FindWidget(Exported, TEXT("Title"))->GetObjectField(TEXT("text"))->GetStringField(TEXT("value")), FString(TEXT("체인")));
 	}

@@ -30,6 +30,9 @@ namespace WidgetMcpFonts
 		FString Family;       // "Pretendard" → F_Pretendard · FF_Pretendard_<Typeface>
 		TArray<FFace> Faces;
 		bool bSave = true;
+		/** 1b 후속 F — UFontFace bEnableDistanceFieldRendering(거리장 SDF 글꼴 — 글자 빛 font.glow 가 쓴다). 프로젝트 설정
+		 *  UserInterfaceSettings.bEnableDistanceFieldFontRasterization · CVar UI.SlateSDFText.RasterizationMode 가 켜져 있어야 실제로 SDF 로 그린다 */
+		bool bDistanceField = false;
 	};
 
 	/** spec 굵기 어휘가 고르는 타입페이스 이름 */

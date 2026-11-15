@@ -69,6 +69,34 @@ def load_profile(name: str, root: str | pathlib.Path | None = None) -> dict:
     return data
 
 
+def font_roles(cfg: dict, body_family: str | None = None) -> dict[str, dict]:
+    """글자 역할 → {family, line_height[, glyph_height, sdf_family]} (1b 후속 D · F). body = 요청 폰트(brief.font) 또는 fonts.default_family
+    + fonts.line_height(+ fonts.glyph_height · sdf_family), 나머지 = fonts.roles.<역할>{family, line_height, glyph_height?, sdf_family?}.
+    family 가 없는 역할은 빠진다(폰트를 아직 임포트하지 않음). glyph_height = 보이는 글자 높이 / 크기(한글 · 숫자 — 실측),
+    sdf_family = 같은 폰트의 거리장(SDF) 사본 — 글자 빛(font.glow)을 쓰는 글자만 이것으로 바꾼다."""
+    fonts = cfg.get("fonts") or {}
+    out: dict[str, dict] = {}
+
+    def entry(family, src: dict) -> dict:
+        e = {"family": family, "line_height": dict(src.get("line_height") or {})}
+        for k in ("glyph_height", "sdf_family"):
+            if src.get(k):
+                e[k] = dict(src[k]) if isinstance(src[k], dict) else src[k]
+        return e
+
+    body = body_family or fonts.get("default_family")
+    if body:
+        out["body"] = entry(body, fonts if not body_family or body_family == fonts.get("default_family") else {"line_height": fonts.get("line_height")})
+    for role, r in (fonts.get("roles") or {}).items():
+        if role != "body" and isinstance(r, dict) and r.get("family"):
+            out[role] = entry(r["family"], r)
+    return out
+
+
+def line_height_text(table: dict, sep: str = "→") -> str:
+    return ", ".join(f"{k}{sep}{v}" for k, v in sorted((int(k), v) for k, v in (table or {}).items()))
+
+
 def compression_for(asset: dict, cfg: dict) -> str:
     """spec 에셋의 compression → 종류별 기본(pipeline.yaml textures.compression_by_kind) → 전체 기본."""
     textures = cfg["textures"]

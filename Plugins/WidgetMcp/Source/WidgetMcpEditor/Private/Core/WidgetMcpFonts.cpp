@@ -185,6 +185,12 @@ namespace WidgetMcpFonts
 			Face->SourceFilename = P.FullPath;
 			const int32 Bytes = P.Bytes.Num();
 			Face->FontFaceData->SetData(MoveTemp(P.Bytes));
+			if (Request.bDistanceField)
+			{
+				// PostEditChange → (private) UpdateDeviceRasterizationSettings + CacheSubFaces(SDF 면 글꼴 윤곽 전처리) — FontFace.cpp:151-160 · 220-232
+				Face->bEnableDistanceFieldRendering = true;
+				Face->PostEditChange();
+			}
 			Face->CacheSubFaces();
 			if (Face->SubFaces.Num() == 0)
 			{
@@ -201,6 +207,8 @@ namespace WidgetMcpFonts
 			J->SetStringField(TEXT("file"), P.FullPath);
 			J->SetNumberField(TEXT("bytes"), Bytes);
 			J->SetArrayField(TEXT("sub_faces"), WidgetMcp::StringArray(Face->SubFaces));
+			J->SetBoolField(TEXT("distance_field"), Face->bEnableDistanceFieldRendering);
+			J->SetStringField(TEXT("rasterization_mode"), StaticEnum<EFontRasterizationMode>()->GetNameStringByValue(static_cast<int64>(Face->GetRasterizationSettings().Mode)));
 			FaceJson.Add(MakeShared<FJsonValueObject>(J));
 		}
 		UPackage* FamilyPkg = CreatePackage(*FamilyPackage);

@@ -25,9 +25,10 @@ You are the analyze stage of an unattended UI pipeline for Unreal Engine 5.7 UMG
 - Keep slots and bbox_intent consistent: the box layout you describe (paddings, fill weights) must put each child on its bbox_intent.
 
 ## Text
-- All visible text is a TextBlock with `font` {size, weight "regular"|"bold", color}. Never bake text or numbers into an image asset.
-- Omit `font.family`; the pipeline sets the project font. The prompt gives the font's line height per size — a TextBlock's bbox height is its line height, so choose the size whose line height matches the text's box, and place single-line text in a box slot with `v_align` "center".
-- Colors: sample them from the reference (hex `#RRGGBB` or `#RRGGBBAA`). `justification` left|center|right as drawn.
+- All visible text is a TextBlock with `font` {size, weight "regular"|"bold", color, role}. Never bake text or numbers into an image asset.
+- Omit `font.family`; set `font.role` instead and the pipeline puts the project font of that role. The prompt lists the roles (for example `body` = a sans for body text and small labels, `title` = a serif for titles, banners and big numbers) with each font's line height per size — match the lettering you see (serif strokes → `title`). Size: measure the visible glyph height and divide it by the font's glyph-height ratio from the prompt (Hangul is taller than digits at the same size — e.g. about 1.33 × size for Hangul and 1.0 × size for digits in a serif title font). A TextBlock's bbox height is its **line** height (the table — larger than the glyphs, e.g. a serif at size 66 has a 128 px line), so its `bbox_intent` is the line box of that size, vertically centered on the glyphs; place single-line text in a box slot with `v_align` "center" and give the box enough height for the line.
+- Colors: sample them from the reference (hex `#RRGGBB` or `#RRGGBBAA`). The pipeline afterwards re-samples each text's fill from the reference (a solid color, or a vertical `gradient` when the glyphs fade from top to bottom) — still give your best `color`. `justification` left|center|right as drawn.
+- Optional lettering effects when the reference shows them: `outline` {size px (1–4), color} for a dark rim around the glyphs, `shadow` {offset [x, y] px, color with alpha} for a drop shadow, `letter_spacing` (1/1000 em, e.g. 50–150) for widely tracked titles. Leave them out when the lettering is plain. Do not set `glow` — the pipeline measures a soft glow around the glyphs from the reference and adds it.
 
 ## Style and assets
 - Border / Image: `style.brush` = {draw_as, asset?, color?, margin?, radius?, outline_color?, outline_width?}.

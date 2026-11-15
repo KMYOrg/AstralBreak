@@ -5,6 +5,7 @@
   gradient_panel  위 → 아래 그라데이션 + 둥근 모서리 + 테두리 — 패널 배경
   soft_glow       타원 가장자리로 갈수록 투명해지는 빛 — 강조 효과
   gradient_bar    세로 색 단계를 줄마다 보간(가로는 같은 색) — 게이지 채움(1b 후속 B, 색은 컨셉에서 뽑음)
+  concept_fill    컨셉 채움을 그대로 따온 게이지 채움(1b 후속 F — gen/concept_fill.py, reference.png 가 필요 · 파이프라인만 씀)
 
 색은 sRGB hex, 출력은 직선 알파(미리 곱하지 않음) RGBA8. 완전 투명 픽셀도 RGB 를 테두리 · 빛 색으로 채워 쌍선형 필터의 어두운 테두리를 막는다.
 같은 입력 → 같은 바이트(결정적). 안티앨리어싱은 둥근 사각 거리장(픽셀 중심 기준 0.5 px 폭).
@@ -127,12 +128,23 @@ def _gradient_bar(w: int, h: int, p: dict) -> bytearray:
 SHAPES = {"rounded_frame": _rounded_frame, "gradient_panel": _gradient_panel, "soft_glow": _soft_glow, "gradient_bar": _gradient_bar}
 
 
-def render(asset: dict) -> tuple[int, int, bytes]:
-    """spec 에셋 → (w, h, RGBA 바이트)."""
+def render(asset: dict, reference=None) -> tuple[int, int, bytes]:
+    """spec 에셋 → (w, h, RGBA 바이트). concept_fill(1b 후속 F)은 컨셉(reference.png 경로)에서 잰 값으로 다시 그린다."""
     p = asset.get("procedural") or {}
     shape = p.get("shape")
+    if shape == "concept_fill":
+        from gen import concept_fill
+        if reference is None:
+            raise ProceduralError(f"asset '{asset.get('asset_id')}': concept_fill needs the reference image")
+        try:
+            w, h, rgba = concept_fill.render_bytes(reference, p)
+        except (concept_fill.ConceptFillError, KeyError, ValueError) as exc:
+            raise ProceduralError(f"asset '{asset.get('asset_id')}': concept_fill — {exc}") from exc
+        if [w, h] != [int(v) for v in asset["size"]]:
+            raise ProceduralError(f"asset '{asset.get('asset_id')}': concept_fill drew {w}x{h}, spec says {asset['size']}")
+        return w, h, rgba
     if shape not in SHAPES:
-        raise ProceduralError(f"asset '{asset.get('asset_id')}': unknown procedural shape '{shape}' (known: {sorted(SHAPES)})")
+        raise ProceduralError(f"asset '{asset.get('asset_id')}': unknown procedural shape '{shape}' (known: {sorted(SHAPES) + ['concept_fill']})")
     w, h = (int(v) for v in asset["size"])
     return w, h, bytes(SHAPES[shape](w, h, p))
 

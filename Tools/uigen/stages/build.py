@@ -51,6 +51,25 @@ def save_state(run, state: dict) -> None:
     run.write_json("build.json", state)
 
 
+def reset_run(run, toolchain=None) -> dict:
+    """1b 후속 C — 버린 외형 라운드 되돌리기: 저장 안 한 run 패키지를 전부 버리고(discard_run_packages) build 상태를 '세션이 바뀐 것'처럼
+    비운다(wbp · revision · 텍스처 이름 · manifest ue_path) → 다음 build 가 지금 spec + manifest 에서 처음부터 다시 만든다(결정적).
+    라운드가 만든 텍스처 · 글자 그라데이션 MIC 가 finalize 때 같이 저장되지 않게 한다(save_widget_run 은 run 폴더 일괄)."""
+    state = load_state(run)
+    tc = toolchain or ue_toolchain(run)
+    try:
+        res = tc.call("discard_run_packages", {"run_path": state["run_path"]})
+    except ToolchainError as exc:
+        raise toolchain_error(exc, "style revert: ") from exc
+    state.update(wbp=None, revision=None, textures={}, names_used=[])
+    save_state(run, state)
+    manifest = run.read_json("manifest.json")
+    for a in manifest["assets"]:
+        a["ue_path"] = None
+    run.write_json("manifest.json", manifest)
+    return {"discarded": res.get("discarded", []), "still_dirty": res.get("still_dirty", [])}
+
+
 def ensure_editor(tc, run, rec: dict, attempt: int) -> dict:
     """떠 있는 에디터의 상태 — 없으면 띄우고 브리지 + settle 을 기다린다."""
     status = tc.editor_status()

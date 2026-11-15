@@ -2,7 +2,9 @@
 
 #include "CoreMinimal.h"
 #include "Core/WidgetMcpCommon.h"
+#include "Core/WidgetMcpTextMaterials.h"
 
+class UMaterialInterface;
 class UPanelSlot;
 class UTexture2D;
 class UWidget;
@@ -25,17 +27,25 @@ namespace WidgetMcpSpec
 	bool IsSingleChild(const FString& Type);
 	bool IsPanelType(const FString& Type);
 
-	/** 요청의 assets 맵({asset_id: 텍스처 경로})을 푼 것 */
+	/** 요청의 assets 맵({asset_id: 텍스처 경로})을 푼 것 + (적용 때만) 조정기가 run 폴더에 준비한 글자 그라데이션 머티리얼 */
 	struct FAssets
 	{
 		TMap<FString, UTexture2D*> Textures;
 		TMap<FString, FVector2D> Sizes;
 		TMap<FString, FString> IdByPackage;
+		/** WidgetMcpTextMaterials::GradientKey → MIC (1b 후속 D — font.gradient). 비어 있으면 그라데이션 글자는 적용 오류 */
+		TMap<FString, UMaterialInterface*> TextGradients;
+		/** WidgetMcpTextMaterials::GlowKey → MIC (1b 후속 F — font.glow, 외곽선 층 머티리얼). 비어 있으면 빛 글자는 적용 오류 */
+		TMap<FString, UMaterialInterface*> TextGlows;
 	};
 	bool LoadAssets(const TSharedPtr<FJsonObject>& AssetsMap, FAssets& Out, FEditorMcpError& OutError);
 
 	/** 위젯 하나 정규화 — core/spec.py normalize_widget 과 같은 결과(키 · 기본값 · 색 표기) */
 	TSharedRef<FJsonObject> NormalizeWidget(const TSharedRef<FJsonObject>& Widget, const FString& ParentType, const FAssets& Assets);
+	/** 정규화한 위젯의 font.gradient → Out[키] = (위, 아래) — 조정기가 적용 전에 머티리얼을 준비할 목록 */
+	void CollectTextGradients(const FJsonObject& NormalizedWidget, TMap<FString, TPair<FLinearColor, FLinearColor>>& Out);
+	/** 정규화한 위젯의 font.glow → Out[키] = (색, 외곽선 em) — 조정기가 적용 전에 빛 머티리얼을 준비할 목록 */
+	void CollectTextGlows(const FJsonObject& NormalizedWidget, TMap<FString, WidgetMcpTextMaterials::FGlowSpec>& Out);
 	/** WBP 가 담는 것만 — bbox_intent · binding · note 를 빼고 글자는 {value} 만 */
 	TSharedRef<FJsonObject> WbpView(const TSharedRef<FJsonObject>& NormalizedWidget);
 

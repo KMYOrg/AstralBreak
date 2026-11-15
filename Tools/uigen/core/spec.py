@@ -30,7 +30,7 @@ LEAF = frozenset({"Image", "TextBlock", "ProgressBar", "Spacer"})
 STYLE_KEYS = {
     "Border": {"brush"},
     "Image": {"brush"},
-    "ProgressBar": {"background", "fill", "fill_color", "percent", "bar_fill_type"},
+    "ProgressBar": {"background", "fill", "fill_color", "percent", "bar_fill_type", "bar_fill_style"},
     "SizeBox": {"width_override", "height_override"},
     "Spacer": {"size"},
     "UniformGridPanel": {"slot_padding", "min_slot_width", "min_slot_height"},
@@ -210,6 +210,12 @@ def validate_semantics(spec: dict) -> list[str]:
             for key in ("text", "font", "justification"):
                 if key in w:
                     errs.append(f"TEXT_FIELD: '{wid}' ({wtype}) cannot have '{key}'")
+        elif (w.get("font") or {}).get("role") is not None:
+            errs.append(f"FONT_ROLE: '{wid}' font.role must be resolved to font.family before build (analyze apply_contract)")
+        if wtype == "TextBlock":
+            f = w.get("font") or {}
+            if (f.get("glow") or {}).get("size") and (f.get("outline") or {}).get("size"):
+                errs.append(f"FONT_GLOW_OUTLINE: '{wid}' has both font.glow and font.outline — the glow is drawn with the outline layer (one per text)")
         binding = w.get("binding")
         if binding:
             okay = BINDING_WIDGET_TYPES.get(binding.get("kind"))
@@ -287,6 +293,57 @@ def normalize_brush(brush: dict, asset_sizes: dict[str, list]) -> dict:
     return _canon(b)
 
 
+FONT_EFFECT_KEYS = ("outline", "shadow", "letter_spacing", "gradient", "glow")
+
+
+def normalize_font_effects(font: dict) -> dict:
+    """글자 효과(1b 후속 D · F) — 기본값(없음)이면 키를 지운다. WidgetMcpSpec.cpp NormalizeTextEffects 와 같은 규칙:
+    letter_spacing 0 → 없음 · outline size 0 → 없음(color 기본 #000000FF) · shadow color 알파 0 → 없음(offset 기본 [1, 1], color 기본 #000000FF) ·
+    gradient null → 없음 · glow size 0 또는 color 알파 0 → 없음(color 기본 #FFFFFFFF).
+    role(analyze 출력 전용)은 apply_contract 가 지운다 — 남아 있으면 그대로 둔다(검사가 잡게)."""
+    f = dict(font)
+    g = f.get("glow")
+    if g is None:
+        f.pop("glow", None)
+    elif isinstance(g, dict):
+        g = {"size": 0, "color": "#FFFFFFFF", **g}
+        try:
+            g_alpha = parse_color(g["color"])[3]
+        except (ValueError, TypeError, IndexError):
+            g_alpha = 255
+        if (g.get("size") or 0) <= 0 or g_alpha == 0:
+            f.pop("glow")
+        else:
+            f["glow"] = _canon(g)
+    if f.get("letter_spacing") in (None, 0):
+        f.pop("letter_spacing", None)
+    o = f.get("outline")
+    if o is None:
+        f.pop("outline", None)
+    elif isinstance(o, dict):
+        o = {"size": 0, "color": "#000000FF", **o}
+        if (o.get("size") or 0) <= 0:
+            f.pop("outline")
+        else:
+            f["outline"] = _canon(o)
+    s = f.get("shadow")
+    if s is None:
+        f.pop("shadow", None)
+    elif isinstance(s, dict):
+        s = {"offset": [1, 1], "color": "#000000FF", **s}
+        try:
+            alpha = parse_color(s["color"])[3]
+        except (ValueError, TypeError, IndexError):
+            alpha = 255
+        if alpha == 0:
+            f.pop("shadow")
+        else:
+            f["shadow"] = _canon(s)
+    if "gradient" in f and f["gradient"] is None:
+        f.pop("gradient")
+    return f
+
+
 def normalize_widget(w: dict, parent_type: str | None, asset_sizes: dict[str, list]) -> dict:
     out = _canon(copy.deepcopy(w))
     wtype = out["type"]
@@ -302,6 +359,8 @@ def normalize_widget(w: dict, parent_type: str | None, asset_sizes: dict[str, li
     style = dict(out.get("style") or {})
     for k, v in STYLE_SCALAR_DEFAULTS.get(wtype, {}).items():
         style.setdefault(k, copy.deepcopy(v))
+    if style.get("bar_fill_style") == "mask":       # 1b 후속 F — 기본값(mask)은 키를 지운다(예전 spec 의 정규형 · revision 그대로)
+        style.pop("bar_fill_style")
     for key in list(style):
         if key in BRUSH_KEYS and isinstance(style[key], dict):
             style[key] = normalize_brush(style[key], asset_sizes)
@@ -319,7 +378,7 @@ def normalize_widget(w: dict, parent_type: str | None, asset_sizes: dict[str, li
         out["text"] = text
         font = dict(FONT_DEFAULT)
         font.update(out.get("font") or {})
-        out["font"] = _canon(font)
+        out["font"] = normalize_font_effects(_canon(font))
         out.setdefault("justification", "left")
     if out.get("binding"):
         b = out["binding"]

@@ -25,7 +25,7 @@
       }
     },
     "skipped": { "type": "boolean", "description": "계약 해시가 기존 생성 헤더와 같아 쓰기 · 빌드 · 재기동을 건너뜀" },
-    "reason": { "enum": ["contract_unchanged", "new", "contract_changed", "stale_binary"] },
+    "reason": { "enum": ["contract_unchanged", "new", "contract_changed", "stale_binary", "probe"], "description": "probe = 검증 화면(screens.yaml probe: true) — C++ 없음, 부모 UserWidget" },
     "stale_diff": { "type": "array", "items": { "type": "string" } },
     "files": {
       "type": "array",

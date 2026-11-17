@@ -165,6 +165,23 @@ def _restart_and_verify(tc, run, class_path: str, bindings: list[dict], rec: dic
         raise StageError("CONTRACT_MISMATCH", f"{class_path} after the build does not match the contract: " + "; ".join(diff[:6]), diff=diff)
 
 
+PROBE_CLASS = "/Script/UMG.UserWidget"
+
+
+def _probe(run, spec: dict, screen_id: str, cg: dict, t_start: float) -> str:
+    """1b 후속 G2 — 검증 화면(screens.yaml probe: true): C++ 를 쓰지 · 빌드하지 않는다. 부모 = UserWidget, 계약은 기록만
+    (verify 의 bindings 게이트가 WBP 트리에서 이름 · 타입을 본다). 다른 컨셉으로 보편성을 재는 시험 입력이 Source/ 에 클래스를 남기지 않게."""
+    bindings = [{**e, "setter": None} for e in cppgen.binding_entries(spec)]
+    doc = {"schema_version": 1, "generator": cppgen.generator_id(), "module": "UMG", "api": "-", "ui_dir": "-", "screen": screen_id,
+           "feature": "-", "view_base": "-", "widget": "UserWidget", "bindings": bindings}
+    rec = {"schema_version": 1, "run_id": run.run_id, "screen": screen_id, "class": PROBE_CLASS, "contract_hash": cppgen.contract_hash(doc),
+           "previous_hash": None, "contract": doc, "changes": {"added": [], "demoted": [], "changed": [], "restored": []}, "skipped": True,
+           "reason": "probe", "files": [], "editor": {"was_running": None}, "build": {"ran": False}, "verify": None, "restored": [],
+           "started": metrics.now_iso(), "durations_s": {"codegen": round(time.monotonic() - t_start, 3)}}
+    _write_record(run, rec)
+    return f"skipped — probe screen {screen_id}: no C++ (parent {PROBE_CLASS}, {len(bindings)} binding(s) checked by name · type in the widget tree)"
+
+
 def _write_record(run, rec: dict) -> None:
     rec["finished"] = metrics.now_iso()
     schema.require("codegen", rec)
@@ -184,6 +201,8 @@ def run(run, opts, toolchain=None) -> str:
     screen = screens.get(screen_id)
     if not isinstance(screen, dict):
         raise StageError("SCREEN_UNKNOWN", f"screens.yaml has no screen '{screen_id}'")
+    if screen.get("probe"):
+        return _probe(run, spec, screen_id, cg, t_start)
     errs = cppgen.validate_screen(screen_id, screen)
     if errs:
         raise StageError("SCREEN_CONFIG", "; ".join(errs), errors=errs)

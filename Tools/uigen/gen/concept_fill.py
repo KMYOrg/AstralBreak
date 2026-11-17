@@ -31,6 +31,7 @@ END_IN = 5               # 진행 끝 세로 테두리 폭(몸통 안쪽)
 SPILL_MIN_L = 4.0        # 번짐 = 빈 트랙보다 이만큼 밝은 열
 SPILL_MAX = 24
 END_BLEND = 6
+TRACK_SAMPLE = 60        # 1b 후속 G2 — 게이지 프레임 옮겨 심기: 빈 트랙 맨 오른쪽 이 폭에서 줄 색을 뽑는다
 
 
 class ConceptFillError(ValueError):
@@ -181,6 +182,43 @@ def measure(ref, frame_box, bar_box, percent: float, fill_type: str = "left_to_r
     rec = {"threshold": T, "body_L": round(body_L, 1), "empty_L": round(empty_L, 1), "band": [band_top, band_bot], "track_from": track_from,
            "lead": lead, "spill": spill, "body_box": [x0, y0, x1 - x0 + 1, y1 - y0 + 1], "concept_percent": round((x1 - left + 1) / track_w, 3)}
     return {"params": params, "widget_box": [int(wx), oy + top, int(tw), int(th)], "margin": margin, "record": rec}
+
+
+def unfilled_track(ref, params: dict) -> tuple[np.ndarray, np.ndarray]:
+    """게이지 프레임 옮겨 심기용(1b 후속 G2) — 컨셉에서 채움이 구워진 트랙 자리를 같은 줄 빈 트랙 색으로 메운다.
+    자리 = 트랙 전체(줄 top ~ bot × 열 left ~ right)에서 그 구역 밖까지 이어진 밝은 덩어리(프레임 선 · 양 끝 캡)를 뺀 전부 — 몸통 · 밝은 테두리 ·
+    몸통 쪽 띠 · 번짐 · 몸통과 끊긴 채움 빛 조각 · 채움 끝 뒤로 옅어지는 빛까지. 색 = 그 줄 빈 트랙 맨 오른쪽(right − 4 앞 TRACK_SAMPLE px, 빛이 가장
+    덜 닿은 곳)의 중앙값 — 트랙이 줄마다 고른 한 색이 된다(진행률이 바뀌어도 컨셉 채움 끝 자리에 빛이 남지 않게, 메운 자리와 경계 없이).
+    [실측 G2 전투 HUD run] 채움 끝 + 번짐까지만 메우자 그 뒤 옅은 빛과 단이 졌다(렌더 x 1171 세로 경계).
+    → (자리 마스크, 메운 프레임 조각) — 둘 다 frame_box 좌표 · 컨셉 방향(뒤집기 전). 못 하면 ConceptFillError.
+    [실측 G 후속] 게이지 프레임은 옮겨 심기를 건너뛰어 테두리 · 끝 캡이 run 마다 codex 판 그대로였다(사용자 눈 — G 끝 run 4 가 나음)."""
+    flip = bool(params.get("flip"))
+    crop = _crop(ref, params["frame_box"], flip)
+    L = luminance(crop)
+    left, top, right, bot = (int(v) for v in params["track"])
+    x1, spill, T = int(params["body_end"]), int(params.get("spill", 0)), float(params["threshold"])
+    body = _body_mask(L, T, params["seed"])
+    if body is None:
+        raise ConceptFillError("the seed in the middle of the filled part is not bright")
+    import cv2
+    e_hi = right - 4
+    e_lo = max(x1 + spill + 6, e_hi - TRACK_SAMPLE)
+    if e_hi - e_lo < 4:
+        raise ConceptFillError(f"the empty part of the track is too short to sample ({e_lo}-{e_hi})")
+    rows = np.median(crop[top:bot + 1, e_lo:e_hi], axis=1)
+    region = np.zeros(L.shape, bool)
+    region[top:bot + 1, max(0, left):min(L.shape[1], right + 1)] = True
+    # 밝은 덩어리(몸통 제외) 중 구역 밖까지 이어진 것 = 프레임 선 · 캡 장식 — 그대로. 구역 안에 갇힌 것은 몸통과 끊긴 채움 빛 조각 — 메운다
+    # [실측 G2 — G 크기 끝 run 2 컨셉] 트랙 아래 줄에 채움 빛 조각이 점점이 남았다
+    n, lab = cv2.connectedComponents(((L > T) & ~body).astype(np.uint8), connectivity=8)
+    outside = np.unique(lab[~region & (lab > 0)])
+    hole = region & ~np.isin(lab, outside[outside > 0])
+    out = crop.copy()
+    rr, cc = np.where(hole)
+    out[rr, cc] = rows[rr - top]
+    if flip:
+        out, hole = out[:, ::-1], hole[:, ::-1]
+    return hole, out
 
 
 def render(ref, params: dict) -> np.ndarray:

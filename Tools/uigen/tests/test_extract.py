@@ -20,6 +20,7 @@ from stages import StageError, analyze, generate, refine
 
 FAKE_CODEX = [sys.executable, "-X", "utf8", "-B", str(pathlib.Path(__file__).with_name("fake_codex.py"))]
 CFG = config.load_pipeline()
+CFG_G = {**CFG, "extract": {**CFG["extract"], "cutout": False}}     # 1b 후속 H 앞의 따오기(codex 편집 + 옮겨 심기) — cutout 을 끈 판
 GOLD, DARK, SCENE = (232, 181, 74, 255), (30, 20, 40, 255), (40, 30, 60)
 FRAME = [1600, 150, 280, 120]                 # reference 안 패널 자리
 REF_BBOX = [1598, 148, 284, 124]
@@ -40,8 +41,8 @@ def extract_spec() -> dict:
     return spec
 
 
-def make_run(tmp_path, spec) -> Run:
-    run = Run("R20261115_140000_CombatHUD", tmp_path / "work", CFG, tmp_path / "m.jsonl")
+def make_run(tmp_path, spec, cfg=None) -> Run:
+    run = Run("R20261115_140000_CombatHUD", tmp_path / "work", cfg or CFG, tmp_path / "m.jsonl")
     run.create()
     run.write_json("spec.json", spec)
     run.write_json("brief.json", fixture_brief())
@@ -234,7 +235,7 @@ def test_refine_extract_crops_back_adds_interior_alpha_and_records_fidelity(tmp_
     from gen import procedural
     import run_pipeline
     spec = extract_spec()
-    run = make_run(tmp_path, spec)
+    run = make_run(tmp_path, spec, CFG_G)
     for a in spec["assets"]:
         if a["provenance"] == "procedural":
             w, h, rgba = procedural.render(a)
@@ -249,7 +250,9 @@ def test_refine_extract_crops_back_adds_interior_alpha_and_records_fidelity(tmp_
     detail = refine.run(run, types.SimpleNamespace(attempt=1))
     assert "extracted from the concept: ['chain_panel_bg']" in detail
     log = next(a for a in run.read_json("refine.json")["passes"][0]["assets"] if a["asset_id"] == "chain_panel_bg")
-    assert log["source_mode"] == "extract" and log["crop_back"]["scale"] == [2.0, 2.0] and log["interior"]["changed_ratio"] > 0.3
+    cp = log["concept_pixels"]                                                            # 1b 후속 G — 안쪽 한 색 대신 컨셉 픽셀 옮겨 심기
+    assert log["source_mode"] == "extract" and log["crop_back"]["scale"] == [2.0, 2.0] and cp["applied"] and cp["interior_ratio"] > 0.3
+    assert "interior" not in log and cp["silhouette_iou"] > 0.95 and cp["registration"]["shift_px"] == [0, 0]
     assert log["crop_back"]["target_box"] == REF_BBOX and log["trim_bbox"].startswith("skipped")          # 위젯 상자 그대로 · trim 없음
     f = log["fidelity"]
     assert f["framing"]["center_offset_px"] == [pytest.approx(0, abs=1.5), pytest.approx(0, abs=1.5)] and f["framing"]["iou"] > 0.95

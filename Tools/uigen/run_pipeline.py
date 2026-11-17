@@ -97,6 +97,21 @@ def _extract_fidelity_summary(run: Run) -> dict | None:
     return out or None
 
 
+def _backdrop_summary(run: Run) -> dict | None:
+    """회색 바탕 위 확인(1b 후속 H3 — gen/backdrop.check) — report.recorded.backdrop + assets/compare/backdrop*.png (기록만).
+    렌더는 검정 바탕에 구워 '어둡고 불투명한 칠'과 '투명'을 못 가른다 — 최종 텍스처를 실제 렌더 상자대로 회색 위에 다시 쌓아 본다."""
+    if not all(run.path(f).is_file() for f in ("spec.json", "geometry.json", "manifest.json")):
+        return None
+    from gen import backdrop
+    try:
+        rec = backdrop.check(run.dir)
+    except Exception as exc:  # noqa: BLE001 — 기록 지표
+        return {"error": f"{type(exc).__name__}: {exc}"[:300]}
+    comp = rec.pop("compose", {}) or {}
+    rec["compose"] = {"drawn": len(comp.get("drawn") or []), "missing": comp.get("missing") or []}
+    return rec
+
+
 def _gauge_fidelity_summary(run: Run) -> dict | None:
     """컨셉에서 채움을 뽑은 게이지(analyze derive_gauge_fills)의 렌더 ↔ 컨셉 — report.recorded.gauge_fidelity (기록만, 1b 후속 B · F 채움 실루엣)."""
     if not (run.path("render.png").is_file() and run.path("reference.png").is_file() and run.path("spec.json").is_file()):
@@ -340,6 +355,10 @@ def _style_review(run: Run, opts, ctx: dict, attempt: int) -> None:
         if prop["branch"] == "generate":
             _simple(run, "generate", lambda: generate.run(run, aopts))
             _simple(run, "refine", lambda: refine.run(run, aopts))
+            # 1b 후속 G — 다시 따온 에셋이 충실도에서 나빠졌으면 그 에셋만 옛 것으로(라운드의 다른 op 는 그대로)
+            guard = style.replace_guard(run, backup, prop["assets"], float((run.cfg.get("style_review") or {}).get("replace_guard_tol", 0.02)))
+            if guard:
+                row["replace_guard"] = guard
         res = _style_attempt(run, aopts, ctx, attempt, {"style_round": k, "patch": prop["patch_file"], "branch": prop["branch"]})
         row["verify"] = {"attempt": attempt, "pass": res["pass"], "failed": res["failed"]}
         if res["pass"]:
@@ -362,8 +381,75 @@ def _style_review(run: Run, opts, ctx: dict, attempt: int) -> None:
             raise StageError("STYLE_REVERT_FAILED", f"rebuilding the last passing spec failed: {', '.join(res['failed'])}")
         rep = style.compare(run, f"round_{k:03d}_reverted")
         break
+    if (run.cfg.get("style_review") or {}).get("text_fit"):
+        rep = _text_fit_round(run, opts, ctx, rec, rep, attempt)
     rec["final"] = rep.get("summary") or {"error": rep.get("error")}
     rec["final_label"] = rep.get("label")
+
+
+TEXT_FIT_PASSES = (("size", "text_fit_size"), ("place", "text_fit"))   # (style.text_fit mode, 기록 키 = 시도 style_round · 비교 라벨)
+
+
+def _text_fit_round(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: int) -> dict:
+    """1b 후속 G — 외형 라운드(받든 버리든) 뒤 글자 결정적 맞춤(style.text_fit — LLM 없음), 두 판:
+    크기 판(높이 비로 크기 · 굵기 — 형제 겹침 예측으로 상한) → 위치 판(최신 통과 렌더에서 다시 재 자간 · 중심). 판마다 build → verify 해
+    통과면 받고, 깨지면 외형 라운드와 같이 그 판만 버린다(마지막 통과 spec · run 패키지 버림 · 다시 build → verify 통과해야 함) — 크기 판이 버려져도
+    위치 판은 돈다(한 판에 섞으면 크기 탓 overlap 에 위치 맞춤까지 버려진다). 하나라도 받으면 같은 측정으로 남은 차를 기록. → 마지막 비교 보고."""
+    accepted = False
+    for mode, key in TEXT_FIT_PASSES:
+        rep, attempt, ok = _text_fit_pass(run, opts, ctx, rec, rep, attempt, mode, key)
+        accepted = accepted or ok
+    if accepted:
+        row = rec["text_fit"]
+        try:   # 같은 측정으로 남은 차(기록만 — 적용하지 않음)
+            _, again = style.text_fit(run.read_json("spec.json"), run.path("reference.png"), run.path("render.png"), run.cfg,
+                                      style.rendered_boxes(run, attempt), mode="place")
+            row["residual"] = [{k: t.get(k) for k in ("widget", "center_d", "h_ratio", "w_ratio", "gap_cols", "ink_density", "skipped")} for t in again if t.get("widget")]
+        except Exception as exc:  # noqa: BLE001
+            row["residual"] = {"error": f"{type(exc).__name__}: {exc}"[:200]}
+    return rep
+
+
+def _text_fit_pass(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: int, mode: str, key: str) -> tuple[dict, int, bool]:
+    """글자 맞춤 한 판 — 마지막 통과 렌더(시도 attempt)에서 재고 고쳐 build → verify. → (비교 보고, 마지막 통과 시도, 받았는지)."""
+    row: dict = {"round": key, "mode": mode}
+    rec[key] = row
+    last_spec = run.read_json("spec.json")
+    run.stage_begin(key)
+    try:
+        fitted, recs = style.text_fit(last_spec, run.path("reference.png"), run.path("render.png"), run.cfg, style.rendered_boxes(run, attempt), mode=mode)
+    except Exception as exc:  # noqa: BLE001 — 기록 지표에 기대는 보정이라 실패해도 run 은 통과 그대로
+        row.update(action="error", reason=f"{type(exc).__name__}: {exc}"[:300])
+        run.stage_end(key, "ok", f"text fit ({mode}) skipped — {row['reason']}")
+        return rep, attempt, False
+    row["texts"] = recs
+    changed = style.text_fit_changed(recs)
+    if not changed:
+        row["action"] = "nothing_to_fit"
+        run.stage_end(key, "ok", f"text fit ({mode}): nothing to change")
+        return rep, attempt, False
+    row["changed"] = changed
+    run.write_json("spec.json", fitted)
+    run.stage_end(key, "ok", f"text fit ({mode}): {', '.join(changed)} → build")
+    attempt += 1
+    res = _style_attempt(run, _opts(opts, attempt=attempt), ctx, attempt, {"style_round": key})
+    row["verify"] = {"attempt": attempt, "pass": res["pass"], "failed": res["failed"]}
+    if res["pass"]:
+        row["action"] = "accepted"
+        rep = style.compare(run, key)
+        row["after"] = rep.get("summary") or {"error": rep.get("error")}
+        return rep, attempt, True
+    row["action"] = "reverted"
+    run.stage_begin("style_revert")
+    run.write_json("spec.json", last_spec)
+    reset = build.reset_run(run)
+    run.stage_end("style_revert", "ok", f"text fit ({mode}) broke {', '.join(res['failed'])} — back to the last passing spec, "
+                                        f"discarded {len(reset['discarded'])} package(s), rebuilding")
+    attempt += 1
+    res = _style_attempt(run, _opts(opts, attempt=attempt), ctx, attempt, {"style_round": key, "revert": True})
+    if not res["pass"]:
+        raise StageError("STYLE_REVERT_FAILED", f"rebuilding the last passing spec after the text fit ({mode}) failed: {', '.join(res['failed'])}")
+    return style.compare(run, f"{key}_reverted"), attempt, False
 
 
 def _style_attempt(run: Run, aopts, ctx: dict, attempt: int, extra: dict) -> dict:
@@ -457,6 +543,18 @@ def execute(opts: argparse.Namespace) -> int:
         gauges = _gauge_fidelity_summary(run)
         if gauges:
             report.setdefault("recorded", {})["gauge_fidelity"] = gauges
+        bd = _backdrop_summary(run) if ctx["status"] == "pass" else None
+        if bd:
+            report.setdefault("recorded", {})["backdrop"] = bd
+            if not bd.get("error"):
+                report.setdefault("artifacts", {})["backdrop"] = "assets/compare/backdrop.png" if "backdrop.png" in bd.get("images", []) \
+                    else "assets/compare/backdrop_gray.png"
+        if run.path("normalize.json").is_file():
+            cv = (run.read_json("normalize.json").get("background") or {}).get("convert")
+            if cv:                                # 1b 후속 I — 'UI 만 · 진짜 알파' 자동 변환 출처(gen/concept_convert)
+                report.setdefault("recorded", {})["concept_convert"] = cv
+                if cv.get("used"):
+                    report.setdefault("artifacts", {})["concept_convert"] = cv.get("concept_file")
         if ctx.get("style"):
             report.setdefault("recorded", {})["style_review"] = ctx["style"]
         summary = _codegen_summary(run)

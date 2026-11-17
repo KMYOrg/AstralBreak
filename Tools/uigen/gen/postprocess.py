@@ -205,13 +205,13 @@ def extract_region(bbox, canvas, pad: int = EXTRACT_PAD, max_aspect: float = EXT
     return region, element, ok
 
 
-def extract_input(reference, bbox, text_boxes, dest, pad: int = EXTRACT_PAD, max_aspect: float = EXTRACT_MAX_ASPECT) -> dict:
-    """codex 편집 입력 — reference 에서 extract_region 을 잘라 그 안의 글자 위젯 자리를 inpaint 로 지운다(reference_crop 과 같은 지우기)."""
+def extract_input(reference, bbox, text_boxes, dest, pad: int = EXTRACT_PAD, max_aspect: float = EXTRACT_MAX_ASPECT, image_boxes=()) -> dict:
+    """codex 편집 입력 — reference 에서 extract_region 을 잘라 그 안의 글자 · 런타임 이미지 자리를 inpaint 로 지운다(reference_crop 과 같은 지우기)."""
     from PIL import Image
     with Image.open(reference) as im:
         size = im.size
     region, element, ok = extract_region(bbox, size, pad, max_aspect)
-    info = reference_crop(reference, region, text_boxes, dest, pad=0)
+    info = reference_crop(reference, region, text_boxes, dest, pad=0, image_boxes=image_boxes)
     info.update(element=element, aspect=round(region[2] / region[3], 3), aspect_within_limit=ok, max_aspect=max_aspect)
     return info
 
@@ -273,12 +273,17 @@ def interior_fill(im, alpha: float = INTERIOR_ALPHA, max_lightness: float = INTE
     return Image.fromarray(arr, "RGBA"), info
 
 
-def reference_crop(reference: str | pathlib.Path, bbox, text_boxes, dest: str | pathlib.Path, pad: int = 8) -> dict:
-    """reference 에서 bbox(+pad)를 잘라 codex 참조(-i)로. 그 안의 글자 위젯 자리(text_boxes — reference 좌표)는 지운다(inpaint)
-    — 참조 그림의 글자를 생성기가 베끼지 않게."""
+ERASE_INK_GROW = 3          # 1b 후속 G2 — codex 입력에서 글자는 획(text_ink)을 이만큼 넓힌 자리만 지운다
+
+
+def reference_crop(reference: str | pathlib.Path, bbox, text_boxes, dest: str | pathlib.Path, pad: int = 8, image_boxes=()) -> dict:
+    """reference 에서 bbox(+pad)를 잘라 codex 참조(-i)로. 그 안의 글자 위젯 자리(text_boxes — reference 좌표)는 글자 획 둘레만(획을 못 찾으면 상자 전체),
+    런타임 이미지 자리(image_boxes — 초상화 등)는 상자 전체를 지운다(inpaint) — 참조 그림의 글자 · 그림을 생성기가 베끼지 않게.
+    [실측 G2 파티 HUD] 줄 상자 전체를 지우자 그 아래로 내려온 HP 프레임 윗선이 끊겨 codex 가 다르게 그렸다(렌더에 선 조각 두 개)."""
     import cv2
     import numpy as np
     from PIL import Image
+    from gen import fidelity
     with Image.open(reference) as im:
         rgb = np.asarray(im.convert("RGB")).copy()
     H, W = rgb.shape[:2]
@@ -287,18 +292,28 @@ def reference_crop(reference: str | pathlib.Path, bbox, text_boxes, dest: str | 
     x1, y1 = min(W, int(x + w) + pad), min(H, int(y + h) + pad)
     crop = rgb[y0:y1, x0:x1].copy()
     mask = np.zeros(crop.shape[:2], np.uint8)
-    erased = 0
-    for tb in text_boxes:
+    erased, by_ink = 0, 0
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * ERASE_INK_GROW + 1, 2 * ERASE_INK_GROW + 1))
+    for tb, whole in [(b, False) for b in text_boxes] + [(b, True) for b in image_boxes]:
         tx, ty, tw, th = (float(v) for v in tb)
         ax0, ay0 = max(x0, int(tx) - 2), max(y0, int(ty) - 2)
         ax1, ay1 = min(x1, int(tx + tw) + 2), min(y1, int(ty + th) + 2)
-        if ax1 > ax0 and ay1 > ay0:
+        if ax1 <= ax0 or ay1 <= ay0:
+            continue
+        ink = None if whole else fidelity.text_ink(rgb[max(0, int(ty) - 2):min(H, int(ty + th) + 2), max(0, int(tx) - 2):min(W, int(tx + tw) + 2)])
+        if ink is None:
             mask[ay0 - y0:ay1 - y0, ax0 - x0:ax1 - x0] = 255
-            erased += 1
+        else:
+            bx0, by0 = max(0, int(tx) - 2), max(0, int(ty) - 2)
+            m = cv2.dilate(ink.astype(np.uint8) * 255, k)
+            sub = m[ay0 - by0:ay1 - by0, ax0 - bx0:ax1 - bx0]
+            mask[ay0 - y0:ay0 - y0 + sub.shape[0], ax0 - x0:ax0 - x0 + sub.shape[1]] |= sub
+            by_ink += 1
+        erased += 1
     if erased:
         bgr = cv2.inpaint(crop[:, :, ::-1].copy(), mask, 7, cv2.INPAINT_TELEA)
         crop = bgr[:, :, ::-1]
     dest = pathlib.Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(crop).save(dest, format="PNG")
-    return {"file": dest.name, "region": [x0, y0, x1 - x0, y1 - y0], "text_boxes_erased": erased}
+    return {"file": dest.name, "region": [x0, y0, x1 - x0, y1 - y0], "text_boxes_erased": erased, "erased_by_glyph_ink": by_ink}

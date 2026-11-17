@@ -159,13 +159,15 @@ def no_real_claude(monkeypatch):
 @pytest.fixture(autouse=True)
 def deterministic_fix_by_default(monkeypatch):
     """1b-6 부터 pipeline.yaml fix.mode 가 hybrid(LLM 호출 가능)다 — 파이프라인 시험은 기본을 deterministic 으로 둔다(1a 시험의 전제).
-    LLM fix 를 보는 시험은 run_pipeline 에 --fix-mode hybrid|llm 을 준다(로드 뒤에 덮는다)."""
+    LLM fix 를 보는 시험은 run_pipeline 에 --fix-mode hybrid|llm 을 준다(로드 뒤에 덮는다).
+    (1b 후속 I) 컨셉 자동 변환(codex)도 기본은 끈다 — 보는 시험은 inputs concept_convert 를 준다."""
     from core import config
     real = config.load_pipeline
 
     def load(path=None):
         cfg = real(path)
         cfg.setdefault("fix", {})["mode"] = "deterministic"
+        cfg.setdefault("concept_convert", {})["default"] = "off"
         return cfg
 
     monkeypatch.setattr(config, "load_pipeline", load)

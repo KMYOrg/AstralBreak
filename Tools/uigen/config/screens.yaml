@@ -9,3 +9,9 @@ screens:
     widget: AstralCombatHUDWidget                 # 스텁 — 없을 때만 생성, 이후 사람 소유 (M4 설계 §5 의 이름)
     wbp: WBP_CombatHUD                            # run 마다 /Game/_AutoGen/<run_id>/<wbp> (부모 = 스텁) — 없으면 WBP_<화면 ID>
     promote_path: /Game/UI/HUD                    # Phase 4 승격 대상
+  # 1b 후속 G2 — 검증 화면(probe: true): C++ 를 만들지 않는다(codegen 건너뜀 · 부모 = /Script/UMG.UserWidget · bindings 게이트는 WBP 트리의
+  # 위젯 이름 · 타입). 다른 컨셉으로 파이프라인의 보편성을 재는 시험 입력용 — 입력 · 산출물은 git 무시 폴더(work/_probe · Content/_AutoGen)에만.
+  ProbePartyHUD:
+    probe: true
+  ProbeControlGuide:
+    probe: true

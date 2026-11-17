@@ -59,6 +59,26 @@ def first_run(tmp_path, mod, spec=None):
 # ---------------------------------------------------------------------------------------------------------------------
 # 템플릿 · 계약
 
+def test_probe_screen_writes_no_cpp_and_bindings_are_checked_in_the_tree(tmp_path, mod):
+    """1b 후속 G2 — 검증 화면(screens.yaml probe: true): C++ 를 쓰지 · 빌드하지 않고 부모 = UserWidget, bindings 는 WBP 트리에서 이름 · 타입."""
+    from stages import verify
+    brief = fixture_brief()
+    brief["screen_id"] = "ProbePartyHUD"
+    tc = FakeToolchain(mod)
+    run = make_run(tmp_path, brief=brief)
+    msg = codegen.run(run, opts(mod), toolchain=tc)
+    rec = run.read_json("codegen.json")
+    assert "probe screen" in msg and rec["reason"] == "probe" and rec["skipped"] and rec["class"] == "/Script/UMG.UserWidget" and rec["files"] == []
+    assert not list(mod.rglob("*ViewBase*")) and not list(mod.rglob("*Widget.h"))                 # C++ 를 쓰지 않음
+    contract = rec["contract"]["bindings"]
+    tree = {"widgets": [{"id": b["name"], "type": b["widget_class"]} for b in contract]}
+    assert verify.gate_bindings_probe({}, contract, tree)["pass"]
+    tree["widgets"][0]["type"] = "Spacer"
+    tree["widgets"].pop()
+    g = verify.gate_bindings_probe({}, contract, tree)
+    assert not g["pass"] and g["value"] == 2 and any("missing in the widget tree" in d for d in g["details"]["contract_diff"])
+
+
 def test_render_fixture_setters_and_bindings():
     doc, chash = contract_of(fixture_spec())
     texts = cppgen.render(doc, chash)

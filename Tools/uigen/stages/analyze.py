@@ -75,6 +75,19 @@ def font_lines(cfg: dict, brief: dict) -> str:
             "at the same size), then make the TextBlock's bbox_intent that size's line box (height = the line height above, vertically centered on the glyphs).")
 
 
+def background_line(run) -> str:
+    """1b 후속 H — normalize 의 배경 판정을 프롬프트로(ⓐ ⓑ 는 장면이 없다 — 보이는 것은 전부 UI)."""
+    p = run.path("normalize.json")
+    bg = ((run.read_json("normalize.json").get("background")) or {}) if p.is_file() else {}
+    kind = bg.get("kind")
+    if kind == "transparent":
+        return "Concept background: transparent (a layered UI export) — there is no game scene; everything visible is UI."
+    if kind == "flat":
+        return (f"Concept background: one flat color {bg.get('key_color', '')} (UI drawn alone, shown here over black) — there is no game scene; "
+                "everything visible is UI, including soft glows that fade into the background.")
+    return "Concept background: a game scene behind the UI (a screenshot composite) — only the screen-space UI becomes widgets and assets."
+
+
 def build_prompt(run, brief: dict, cfg: dict, retry: dict | None = None) -> str:
     profile = config.load_profile(brief["screen_type"])
     req = "\n".join(f"- {e['id']} ({e['kind']}){': ' + e['desc'] if e.get('desc') else ''}" for e in brief["required_elements"])
@@ -86,6 +99,7 @@ def build_prompt(run, brief: dict, cfg: dict, retry: dict | None = None) -> str:
         f"- brief: {run.path('brief.json').resolve().as_posix()}",
         f"Screen: {brief['screen_id']} — screen_type '{brief['screen_type']}' (background {profile.get('background', '?')}; the scene behind the HUD is not UI). "
         f"Canvas {w}×{h}. Description: {brief.get('text') or '-'}",
+        background_line(run),
         "Contract (exact ids and widget types; the pipeline fills binding/text of these after you answer):\n" + "\n".join(_contract_lines(brief)),
         "Required elements:\n" + req,
         f"Style keywords: {', '.join(brief.get('style_keywords') or []) or '-'}",
@@ -185,7 +199,9 @@ def check(spec: dict, brief: dict) -> list[str]:
         if a.get("source_mode") == "extract" and not a.get("ref_bbox"):
             errs.append(f"ASSET_REF_BBOX: '{a['asset_id']}' is source_mode extract — give ref_bbox, the tight reference box of the element to extract")
         if a["provenance"] == "codex":
-            codex += 1
+            # 1b 후속 H — extract 에셋은 컨셉 픽셀을 오리므로(ⓐ ⓑ · 작은 요소는 codex 호출 없음, ⓒ 는 실루엣 시드 한 번) 상한은 generate 에만.
+            # run 전체 codex 호출은 limits.codex_calls_per_run 이 막는다
+            codex += int((a.get("source_mode") or "generate") != "extract")
             if not (a.get("prompt") or "").strip():
                 errs.append(f"ASSET_PROMPT: codex asset '{a['asset_id']}' needs a prompt")
             rb = a.get("ref_bbox")
@@ -200,7 +216,7 @@ def check(spec: dict, brief: dict) -> list[str]:
         if max(a["size"]) > 1024:
             errs.append(f"ASSET_SIZE: '{a['asset_id']}' size {a['size']} — keep textures ≤ 1024 px")
     if codex > MAX_CODEX_ASSETS:
-        errs.append(f"ASSET_CODEX_COUNT: {codex} codex assets — at most {MAX_CODEX_ASSETS} (prefer procedural / rounded_box)")
+        errs.append(f"ASSET_CODEX_COUNT: {codex} codex generate assets — at most {MAX_CODEX_ASSETS} (extract assets do not count; prefer procedural / rounded_box)")
     for wid in index:
         if wid in {d["widget"] for d in brief["dynamic_data"]}:
             continue
@@ -260,6 +276,63 @@ def _apply_concept_fill(spec: dict, w: dict, parent: dict, frame: dict, ref, tak
     slot.update(padding=pad, h_align="fill", v_align="fill")
     rec.update(padding=pad, fill=st["fill"], background_from=f"none — extracted frame '{frame['id']}' underneath")
     return rec
+
+
+GLOW_WORDS = ("glow", "halo", "aura", "bloom", "shine", "radian", "빛", "광채", "후광")
+HIDDEN_GLOW_FALLOFF = 0.6      # [실측] 지난 컨셉 run 9 번 중 LLM 이 procedural 로 고른 8 번이 모두 0.6
+HIDDEN_GLOW_ALPHA = 0xCC       # G 끝 run 4(사람 눈 — 게이지 빛이 가장 나음)의 값
+
+
+def derive_hidden_glows(spec: dict, brief: dict, reference) -> list[dict]:
+    """1b 후속 G2 — 컨셉에 안 보이는 빛(flag 이미지 · 시작값 false)을 codex 로 새로 그리면 run 마다 모양이 달라진다
+    [실측 G 크기 끝 run 2] 지난 9 run 중 8 run 은 LLM 이 procedural soft_glow 를 골랐는데 이번 run 만 codex generate(2172×724 캡슐 후광) — 사용자 눈:
+    G 끝 run 4 의 빛이 낫다. → 그런 에셋(codex · source_mode generate · 빛 낱말이 프롬프트 · 위젯 이름 · 요청 설명에 있음)은 결정적으로
+    procedural soft_glow(falloff HIDDEN_GLOW_FALLOFF) — 크기 = 위젯 상자(긴 변 ≤ 1024), 색 = 그 자리 컨셉에서 밝고 채도 높은 픽셀의 중앙값
+    (게이지 빛이면 채움 금색) + 알파 HIDDEN_GLOW_ALPHA. LLM 이 처음부터 procedural soft_glow 를 고른 숨은 빛도 같은 값으로 맞춘다(색 · 알파가 run 마다
+    달랐다). spec 은 제자리에서 바뀐다. → 기록."""
+    import numpy as np
+    from PIL import Image
+    hidden = {d["widget"]: d for d in brief.get("dynamic_data", []) if d.get("type") == "flag" and d.get("sample") is False}
+    descs = {e["id"]: e.get("desc", "") for e in brief.get("required_elements", [])}
+    assets = {a["asset_id"]: a for a in spec.get("assets", [])}
+    ref = None
+    out = []
+    for w in spec.get("widgets", []):
+        if w.get("type") != "Image" or w["id"] not in hidden or not w.get("bbox_intent"):
+            continue
+        for key, brush in (w.get("style") or {}).items():
+            a = assets.get(brush.get("asset")) if key in spec_mod.BRUSH_KEYS and isinstance(brush, dict) else None
+            if not a:
+                continue
+            words = " ".join([str(a.get("prompt", "")), w["id"], str(hidden[w["id"]].get("desc", "")), descs.get(w["id"], "")]).lower()
+            codex_glow = (a.get("provenance") == "codex" and a.get("source_mode") == "generate" and a.get("kind") != "icon"
+                          and any(g in words for g in GLOW_WORDS))
+            # LLM 이 procedural soft_glow 를 골라도 색 · 알파가 run 마다 다르다 — [실측 G2 전투 HUD run] #FFC45A(알파 1.0) → 게이지 둘레 번짐이 진함
+            proc_glow = a.get("provenance") == "procedural" and (a.get("procedural") or {}).get("shape") == "soft_glow"
+            if not (codex_glow or proc_glow):
+                continue
+            if ref is None:
+                ref = np.asarray(Image.open(reference).convert("RGB")).astype(float)
+            x, y, bw, bh = (float(v) for v in (a.get("ref_bbox") or w["bbox_intent"]))
+            H, W = ref.shape[:2]
+            crop = ref[max(0, int(y)):min(H, int(np.ceil(y + bh))), max(0, int(x)):min(W, int(np.ceil(x + bw)))].reshape(-1, 3)
+            color = "#FFFFFF"
+            if len(crop):
+                mx, mn = crop.max(axis=1), crop.min(axis=1)
+                sat = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1), 0)
+                pick = crop[(sat > 0.35) & (mx >= np.percentile(mx, 90))]
+                if len(pick):
+                    color = "#" + "".join("%02X" % int(round(v)) for v in np.median(pick, axis=0))
+            ww, wh = float(w["bbox_intent"][2]), float(w["bbox_intent"][3])
+            k = min(1.0, 1024.0 / max(ww, wh, 1.0))
+            new = {"asset_id": a["asset_id"], "kind": a.get("kind", "ornament"), "provenance": "procedural",
+                   "size": [max(4, int(round(ww * k))), max(4, int(round(wh * k)))],
+                   "procedural": {"shape": "soft_glow", "color": color + "%02X" % HIDDEN_GLOW_ALPHA, "falloff": HIDDEN_GLOW_FALLOFF}}
+            spec["assets"] = [new if s is a else s for s in spec["assets"]]
+            assets[a["asset_id"]] = new
+            out.append({"widget": w["id"], "asset": a["asset_id"], "was": {k2: a.get(k2) for k2 in ("provenance", "source_mode", "size", "prompt")},
+                        "procedural": new["procedural"], "size": new["size"]})
+    return out
 
 
 def derive_gauge_fills(spec: dict, reference, gauge_cfg: dict | None = None) -> list[dict]:
@@ -596,13 +669,14 @@ def run(run, opts) -> str:
     summary = _record(run, calls, errors, retry_reasons)
     if errors:
         raise StageError("ANALYZE_INVALID", f"analyze output failed {len(errors)} check(s) after {len(calls)} call(s): " + "; ".join(errors[:6]), errors=errors)
+    hidden_glows = derive_hidden_glows(spec, brief, run.path("reference.png"))
     derived = derive_gauge_fills(spec, run.path("reference.png"), run.cfg.get("gauge_fill"))
     text_fills = derive_text_fills(spec, run.path("reference.png")) if (run.cfg.get("text_fill") or {}).get("enabled", True) else []
     tg = run.cfg.get("text_glow") or {}
     text_glows = derive_text_glow(spec, run.path("reference.png"), roles, float(tg.get("min_excess", 8.0))) if tg.get("enabled", True) else []
-    if derived or text_fills or text_glows:
+    if derived or text_fills or text_glows or hidden_glows:
         schema.require("spec", spec)
-        run.write_json("analyze/derived.json", {"gauge_fills": derived, "text_fills": text_fills, "text_glows": text_glows})
+        run.write_json("analyze/derived.json", {"gauge_fills": derived, "text_fills": text_fills, "text_glows": text_glows, "hidden_glows": hidden_glows})
     run.write_json("spec.json", spec)
     run.write_json("specs/000.json", spec)
     overlay = draw_overlay(run, spec)
@@ -615,7 +689,8 @@ def run(run, opts) -> str:
     return (f"{len(spec['widgets'])} widgets, {len(spec.get('assets', []))} assets ({n_codex} codex, {n_extract} extract"
             f"{', gauge fill from the concept: ' + ','.join(gauges) if gauges else ''}"
             f"{f', text fill from the concept: {grads} gradient · {solids} solid' if grads or solids else ''}"
-            f"{', text glow from the concept: ' + ','.join(glows) if glows else ''}) in {len(calls)} call(s) — "
+            f"{', text glow from the concept: ' + ','.join(glows) if glows else ''}"
+            f"{', hidden glow → procedural soft_glow: ' + ','.join(h['asset'] for h in hidden_glows) if hidden_glows else ''}) in {len(calls)} call(s) — "
             f"API list-price equivalent {summary['cost_usd']:.3f} USD (subscription login — plan usage, not billed), model {summary['model']}"
             f"{', overlay ' + overlay if overlay else ''}")
 

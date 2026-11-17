@@ -115,7 +115,8 @@ def run(run, opts, toolchain=None) -> str:
     screen = config.load_screens().get(screen_id)
     if not isinstance(screen, dict):
         raise StageError("SCREEN_UNKNOWN", f"screens.yaml has no screen '{screen_id}'")
-    parent_class = f"/Script/{cfg['codegen']['module']}.{screen['widget']}"
+    # 1b 후속 G2 — 검증 화면(probe)은 C++ 가 없어 부모 = UserWidget
+    parent_class = "/Script/UMG.UserWidget" if screen.get("probe") else f"/Script/{cfg['codegen']['module']}.{screen['widget']}"
     rpath = run_path(run)
     wbp_path = f"{rpath}/{wbp_name(screen_id, screen)}"
     tex_cfg = cfg["textures"]

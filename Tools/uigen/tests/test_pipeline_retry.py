@@ -44,8 +44,10 @@ def test_normal_run_passes_and_saves(tmp_path, fake_ue):
     assert next(g for g in report["gates"] if g["name"] == "baked_text")["skipped"]
     assert report["roundtrip"]["equal"] and report["roundtrip"]["revision_matches_build"]
     assert report["finalize"]["action"] == "saved" and report["finalize"]["content_dir"] == f"Content/_AutoGen/{RUN_ID}/"
+    # backdrop = 1b 후속 H3 회색 바탕 위 다시 쌓기(기록만 — 손 spec 은 reference 층이 없어 합성 그림만)
     assert report["artifacts"] == {"render": "render.png", "geometry": "geometry.json", "render_dir": "attempts/001/render",
-                                   "render_sample": "render_sample.png", "lineage": "lineage.json"}
+                                   "render_sample": "render_sample.png", "lineage": "lineage.json", "backdrop": "assets/compare/backdrop_gray.png"}
+    assert report["recorded"]["backdrop"]["background"] == "#808080" and "truth" not in report["recorded"]["backdrop"]
     for f in ("render.png", "render_sample.png", "geometry.json", "build.json", "lineage.json", "specs/001.json", "attempts/001/gates.json"):
         assert (rd / f).is_file(), f
     assert not (rd / "patches").exists()

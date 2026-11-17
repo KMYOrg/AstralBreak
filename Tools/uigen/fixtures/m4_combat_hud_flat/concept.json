@@ -1,0 +1,31 @@
+{
+ "schema_version": 1,
+ "kind": "concept",
+ "created": "2026-11-16T14:53:26",
+ "generator": "codex built-in image_gen",
+ "codex_version": "0.166.0",
+ "thread_id": "01a1e2ea-0a83-78f3-9517-6fd4b471fcf2",
+ "found_by": "thread_id",
+ "prompt_file": "concept_prompt.md",
+ "prompt_sha256": "0a15fe4568add22745f2cfc3dfaa86cbb1e77f79ec23e5c643a270e066884f11",
+ "flat_background": true,
+ "edited_from": null,
+ "file": "concept.png",
+ "sha256": "3d1be47ba59834e673a1cf2706496ab6384efc01e951597c0ee5814c0198717d",
+ "size": [
+  1672,
+  941
+ ],
+ "has_alpha_channel": false,
+ "duration_s": 55.79,
+ "usage": {
+  "input_tokens": 38661,
+  "cached_input_tokens": 31872,
+  "cache_write_input_tokens": 0,
+  "output_tokens": 547,
+  "reasoning_output_tokens": 0
+ },
+ "commands": 0,
+ "record": "Tools/uigen/work/_concept/20261116_145230",
+ "note": "AI-generated stand-in for a hand-made concept (Phase 1b) — replace concept.png with a person's art and rerun"
+}

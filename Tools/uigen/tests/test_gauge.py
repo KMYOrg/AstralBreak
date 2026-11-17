@@ -219,6 +219,54 @@ def test_derive_shape_right_to_left_mirrors(tmp_path):
     assert (tex[:, ::-1] == flat).all()
 
 
+def test_unfilled_track_paints_the_baked_fill_with_the_empty_track(tmp_path):
+    """1b 후속 G2 — 게이지 프레임 옮겨 심기: 트랙 전체(채움 · 띠 · 번짐 포함)를 줄마다 빈 트랙 색으로, 프레임 선 · '<' 캡은 그대로."""
+    import numpy as np
+    from gen import concept_fill
+    ox, oy, ow, oh = FRAME
+    for flip in (False, True):
+        ref = _ref(framed_concept(tmp_path, flip=flip, name=f"framed_{flip}.png"))
+        bar = [ox + ow - (BOX[0] - ox) - BOX[2], BOX[1], BOX[2], BOX[3]] if flip else BOX
+        p = concept_fill.measure(ref, FRAME, bar, 0.7, "right_to_left" if flip else "left_to_right", end="scale")["params"]
+        hole, out = concept_fill.unfilled_track(ref, p)
+        crop = ref[oy:oy + oh, ox:ox + ow].astype(float)
+        X = (lambda x: ow - 1 - x) if flip else (lambda x: x)      # noqa: E731
+        for x, y in ((120, 20), (120, 7), (120, 36), (END + 5, 20), (40, 21), (25, 7), (400, 20)):   # 몸통 · 띠 · 번짐 · '<' 안쪽 · 빈 트랙
+            assert hole[y, X(x)] and np.abs(out[y, X(x)] - np.array(TRACK)).max() <= 2, (flip, x, y)
+        for x, y in ((120, 4), (120, 39), (9, 21), (441, 20)):     # 위 · 아래 프레임 선 · '<' 캡 · 오른쪽 세로선
+            assert not hole[y, X(x)] and (out[y, X(x)] == crop[y, X(x)]).all(), (flip, x, y)
+
+
+def test_hidden_codex_glow_becomes_a_procedural_soft_glow(tmp_path):
+    """1b 후속 G2 — 컨셉에 안 보이는 빛을 codex 로 새로 그리면 run 마다 다르다 [실측 G 크기 끝 run 2] → procedural soft_glow(색 = 그 자리 컨셉)."""
+    ref = concept(tmp_path)
+    spec, brief = gauge_spec(), fixture_brief()
+    glow_w = widget(spec, "UltReadyGlow")
+    aid = glow_w["style"]["brush"]["asset"]
+    spec["assets"] = [a for a in spec["assets"] if a["asset_id"] != aid] + [
+        {"asset_id": aid, "kind": "ornament", "provenance": "codex", "source_mode": "generate", "size": [1024, 106], "ref_bbox": BOX,
+         "prompt": "a soft warm golden horizontal glow halo, no text"}]
+    recs = analyze.derive_hidden_glows(spec, brief, ref)
+    a = next(x for x in spec["assets"] if x["asset_id"] == aid)
+    assert [r["asset"] for r in recs] == [aid] and a["provenance"] == "procedural" and "prompt" not in a and "source_mode" not in a
+    p = a["procedural"]
+    assert p["shape"] == "soft_glow" and p["falloff"] == 0.6 and p["color"].endswith("CC") and a["size"] == [round(glow_w["bbox_intent"][2]), round(glow_w["bbox_intent"][3])]
+    r, g, b = (int(p["color"][i:i + 2], 16) for i in (1, 3, 5))
+    assert r > g > b and r >= 180                                                   # 채움 금색(TOP · BOTTOM 쪽)
+    schema.require("spec", spec)                                                    # 스키마에 맞는 procedural 에셋
+    # LLM 이 procedural soft_glow 를 골라도 같은 값으로(알파 · 색이 run 마다 달랐다 — [실측 G2] #FFC45A 알파 1.0)
+    spec3 = gauge_spec()
+    spec3["assets"] = [x for x in spec3["assets"] if x["asset_id"] != aid] + [
+        {"asset_id": aid, "kind": "ornament", "provenance": "procedural", "size": [800, 60], "procedural": {"shape": "soft_glow", "color": "#FFC45A", "falloff": 0.5}}]
+    analyze.derive_hidden_glows(spec3, brief, ref)
+    assert next(x for x in spec3["assets"] if x["asset_id"] == aid)["procedural"] == p
+    # 빛이 아닌 숨은 이미지 · 아이콘은 그대로
+    spec2 = gauge_spec()
+    spec2["assets"] = [x for x in spec2["assets"] if x["asset_id"] != aid] + [
+        {"asset_id": aid, "kind": "icon", "provenance": "codex", "source_mode": "generate", "size": [64, 64], "prompt": "a glowing star icon"}]
+    assert analyze.derive_hidden_glows(spec2, brief, ref) == []
+
+
 def test_gauge_shape_metric(tmp_path):
     ref = framed_concept(tmp_path)
     box = [FRAME[0] + 19, FRAME[1] + 6, 421, 32]

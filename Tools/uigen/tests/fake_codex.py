@@ -2,7 +2,8 @@
 
 이벤트 모양은 [P0 결과](설계 §7 — thread.started.thread_id · turn.completed.usage · item.* agent_message/command_execution)를 따른다.
 결과 이미지는 $CODEX_HOME/generated_images/<thread_id>/exec-<n>.png 에 쓴다(실제 codex 와 같은 자리).
-모드: ok · other_dir(다른 폴더 이름 — generated_images 차이로 찾기) · cwd(cwd 에만) · no_image · quota(식별자 + 종료 1) · fail(이미지 없이 turn.failed) · sleep
+모드: ok · opaque(투명 픽셀 없는 그림) · other_dir(다른 폴더 이름 — generated_images 차이로 찾기) · cwd(cwd 에만) · no_image · quota(식별자 + 종료 1) ·
+fail(이미지 없이 turn.failed) · sleep
 `--version` · `login status` 는 FAKE_CODEX_VERSION · FAKE_CODEX_LOGIN 으로 답한다.
 """
 import json
@@ -39,12 +40,12 @@ def emit(obj):
     print(json.dumps(obj, ensure_ascii=False), flush=True)
 
 
-def image(path: pathlib.Path):
+def image(path: pathlib.Path, opaque: bool = False):
     w, h = 8, 4
     rgba = bytearray()
     for y in range(h):
         for x in range(w):
-            rgba += bytes((232, 181, 74, 0 if x in (0, w - 1) else 255))
+            rgba += bytes((232, 181, 74, 0 if x in (0, w - 1) and not opaque else 255))
     png.write_rgba(path, w, h, rgba)
 
 
@@ -61,6 +62,8 @@ if mode == "fail":
     sys.exit(1)
 if mode == "ok":
     image(home / "generated_images" / tid / "exec-1.png")
+elif mode == "opaque":                                       # 1b 후속 I — 투명을 요청했는데 투명 픽셀 없이 온 그림
+    image(home / "generated_images" / tid / "exec-1.png", opaque=True)
 elif mode == "other_dir":
     image(home / "generated_images" / "elsewhere" / "exec-2.png")
 elif mode == "cwd":

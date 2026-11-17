@@ -94,6 +94,25 @@ def test_reference_crop_erases_text_boxes(tmp_path):
     assert max(out.getpixel((200 - 92, 100 - 42))) < 200                                # 흰 글자 자리가 주변색으로
 
 
+def test_reference_crop_erases_only_the_glyphs_and_keeps_a_frame_line_in_the_line_box(tmp_path):
+    """1b 후속 G2 — [실측 파티 HUD] 줄 상자 전체를 지우자 그 안으로 내려온 HP 프레임 윗선이 끊겼다 → 글자 획 둘레만 지우고, 런타임 이미지는 상자째."""
+    ref = tmp_path / "ref.png"
+    img = Image.new("RGB", (400, 200), (40, 30, 50))
+    d = ImageDraw.Draw(img)
+    for i in range(4):
+        d.rectangle([160 + 20 * i, 85, 167 + 20 * i, 110], fill=(255, 255, 255))      # 글자 획
+    d.line([(100, 122), (300, 122)], fill=(120, 220, 230), width=2)                     # 줄 상자(80 ~ 125) 아래쪽을 가로지르는 프레임 선
+    d.rectangle([20, 60, 80, 140], fill=(200, 120, 90))                                 # 런타임 이미지 자리의 그림
+    img.save(ref)
+    info = pp.reference_crop(ref, [10, 50, 330, 100], [[150, 80, 100, 45]], tmp_path / "crop.png", image_boxes=[[20, 60, 60, 80]])
+    out = Image.open(tmp_path / "crop.png").convert("RGB")
+    ox, oy = info["region"][:2]
+    assert info["text_boxes_erased"] == 2 and info["erased_by_glyph_ink"] == 1
+    assert max(out.getpixel((163 - ox, 98 - oy))) < 200                                 # 글자 획은 지워짐
+    assert out.getpixel((200 - ox, 122 - oy))[1] > 180                                  # 프레임 선은 그대로
+    assert abs(out.getpixel((50 - ox, 100 - oy))[0] - 200) > 60                         # 런타임 이미지 그림은 상자째 지워짐
+
+
 # ---- generate(codex) ------------------------------------------------------------------------------------------------
 
 @pytest.fixture

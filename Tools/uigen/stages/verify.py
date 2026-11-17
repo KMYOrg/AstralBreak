@@ -91,6 +91,16 @@ def gate_textures(exported: list[dict], manifest: dict, tex_cfg: dict) -> dict:
                 details={"textures": rows, "mismatches": bad, "unreferenced_assets": unreferenced})
 
 
+def gate_bindings_probe(comp: dict, contract: list[dict], exported_spec: dict) -> dict:
+    """1b 후속 G2 — 검증 화면(probe): C++ 클래스가 없어 BindWidget 리플렉션 대신 WBP 트리에서 계약 위젯의 이름 · 타입을 본다."""
+    have = {w["id"]: w.get("type") for w in exported_spec.get("widgets", [])}
+    diff = [f"{b['name']}: missing in the widget tree" if b["name"] not in have else
+            f"{b['name']}: {have[b['name']]} in the tree, contract wants {b['widget_class']}" for b in contract if have.get(b["name"]) != b["widget_class"]]
+    return gate("bindings", not diff, value=len(diff), threshold=0,
+                details={"probe": "no C++ class (probe screen) — names and types checked in the widget tree", "contract_diff": diff,
+                         "contract": len(contract), "missing_bindings": comp.get("missing_bindings", [])})
+
+
 def gate_required(brief: dict, exported_spec: dict) -> dict:
     have = {w["id"] for w in exported_spec.get("widgets", [])}
     missing = [el["id"] for el in brief.get("required_elements", []) if el["id"] not in have]
@@ -182,7 +192,9 @@ def run(run, opts, toolchain=None) -> dict:
     resolutions = [list(map(int, r)) for r in cfg["render"]["resolutions"]]
     if canvas not in resolutions:
         resolutions.insert(0, canvas)
-    contract = run.read_json("codegen.json")["contract"]["bindings"]
+    cg_rec = run.read_json("codegen.json")
+    contract = cg_rec["contract"]["bindings"]
+    probe = cg_rec.get("reason") == "probe"     # 1b 후속 G2 — 검증 화면: C++ 클래스가 없어 bindings 는 WBP 트리에서 이름 · 타입으로
     adir = attempt_dir(run, attempt)
     adir.mkdir(parents=True, exist_ok=True)
     tc = toolchain or ue_toolchain(run)
@@ -200,8 +212,9 @@ def run(run, opts, toolchain=None) -> dict:
         comp = {}
         bridge_failed(["compile"], exc)
     try:
-        live = tc.call("list_bind_widgets", {"asset_path": wbp})["bindings"]
-        gates["bindings"] = gate_bindings(comp, contract, live)
+        if not probe:
+            live = tc.call("list_bind_widgets", {"asset_path": wbp})["bindings"]
+            gates["bindings"] = gate_bindings(comp, contract, live)
     except ToolchainError as exc:
         bridge_failed(["bindings"], exc)
     assets = {a["asset_id"]: a["ue_path"] for a in manifest["assets"] if a.get("ue_path")}
@@ -209,11 +222,13 @@ def run(run, opts, toolchain=None) -> dict:
         export = tc.call("export_widget_spec", {"asset_path": wbp, "assets": assets})
         gates["texture_settings"] = gate_textures(export.get("textures", []), manifest, cfg["textures"])
         gates["required_elements"] = gate_required(brief, export.get("spec") or {})
+        if probe:
+            gates["bindings"] = gate_bindings_probe(comp, contract, export.get("spec") or {})
         gates["roundtrip"], roundtrip = gate_roundtrip(spec, export, manifest)
         roundtrip["revision_matches_build"] = export.get("revision") == state.get("revision")
         unsupported = export.get("unsupported") or []
     except ToolchainError as exc:
-        bridge_failed(["texture_settings", "required_elements", "roundtrip"], exc)
+        bridge_failed(["texture_settings", "required_elements", "roundtrip"] + (["bindings"] if probe else []), exc)
     try:
         rend = tc.call("render_widget", {"asset_path": wbp, "output_dir": (adir / "render").resolve().as_posix(), "resolutions": resolutions,
                                          "force_visible": True, "prefix": "render"})

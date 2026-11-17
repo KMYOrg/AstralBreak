@@ -230,6 +230,679 @@ def _shift_up_fixed_text(w: dict, slot: dict | None, d: float) -> dict | None:
     return None
 
 
+TEXT_FIT_MIN_PX = 2.0         # 이보다 작은 중심 차는 그대로
+TEXT_FIT_MAX_PX = 40.0        # 이보다 큰 차는 측정 오류로 보고 건너뜀(글자 높이 × TEXT_FIT_MAX_H 도 상한) — [실측 G 끝 run 3] 배너 라벨 30 px
+TEXT_FIT_MAX_H = 0.8
+TEXT_FIT_H = (0.88, 1.12)     # 글자 높이 비가 이 밖이면 크기 문제(크기 판 몫) — 위치 판은 위치 · 자간을 재지 않는다
+TEXT_FIT_W_TOL = 0.04         # 폭 비가 이만큼 넘게 다르면 자간으로(글자 2 개 이상)
+TEXT_FIT_MARGIN = 0.3         # 측정 상자 = 컨셉 획 상자 + 획 높이 × 이 비율(최소 6 px)
+TEXT_FIT_WIDEN = 2            # 렌더 획이 측정 상자 끝에 닿으면 그쪽만 여유만큼 넓혀 다시 재는 횟수
+TEXT_FIT_WEIGHT_STEP = 1.22   # 굵기 경계 = Bold/Regular 획 밀도 비의 기하 중간 — [실측 PIL] Pretendard 1.52 → 1.233 · Noto Serif KR 1.49 → 1.221
+TEXT_FIT_TRUST_H = (0.7, 1.4)    # 크기 판 — 높이 비가 이 안이고 폭 비 ÷ 높이 비가 1 ± TEXT_FIT_TRUST_WH 면 측정을 믿고 크기 · 굵기를 판정 — 위치 · 자간은 TEXT_FIT_H.
+                                 # [실측 H2 조작 안내 R184042] 'T' 컨셉 측정이 배지 베벨까지 잡아 0.632 → 크기 40 → 63(배지 밖으로) — 0.6 ~ 1.6 을 좁힘.
+                                 # 하한은 0.75 면 아래 G2 '4.2' 0.742(정당한 보정)를 막아 0.7
+NOTEXT_INK_MIN = 48.0            # 글자 없는 판 차이 마스크 — 글자 상자마다 오츠 문턱(차 > NOTEXT_INK_FLOOR 인 픽셀로), 최소 이것
+NOTEXT_INK_FLOOR = 24.0
+NOTEXT_INK_GROW = 2
+TEXT_FIT_TRUST_WH = 0.3        # [실측 G2 전투 HUD run] 작게 나온 '4.2' 0.742(폭 0.674 → 0.91)를 0.75 하한이 막았다 · 잘린 '2/4' 0.379(폭 0.643 → 1.70)는 걸러야 한다
+TEXT_FIT_SIZE_TOL = 0.04      # 크기 판 — |1 − 높이 비| 가 이 이상이면 새 크기 = round(크기 ÷ 높이 비) — [실측 G 굵기 끝 run] 외형 라운드가 버려지자 배너 0.90 · '4.2' 0.80
+TEXT_FIT_MODES = ("size", "place")
+
+
+def _frame_drop(img, spec: dict):
+    """영역(루트 직계)마다 테두리에 이어진 장식선 덩어리(테두리선 · 모서리 장식 — gen/concept_pixels.frame_lines, 영역 상자를 실루엣으로) → 이미지 크기 마스크(2 px 넓힘).
+    패널 폭 글자 상자('체인' · '2/4')의 획 검출에 모서리 장식이 섞이지 않게(1b 후속 G)."""
+    import cv2
+    import numpy as np
+    from gen import concept_pixels as cp
+    from gen import cutout
+    H, W = img.shape[:2]
+    out = np.zeros((H, W), bool)
+    index = spec_mod.widget_index(spec)
+    root = spec.get("root")
+
+    def region_of(wid):
+        cur = index.get(wid)
+        while cur and cur.get("parent") not in (root, None) and cur.get("parent") in index:
+            cur = index[cur["parent"]]
+        return cur["id"] if cur else wid
+    # 다른 영역의 글자 상자는 이 영역의 테두리선으로 지우지 않는다 — [실측 H3 R20261117_095249] 가운데 엠블럼 영역 상자 오른쪽 끝(x 1280)이 '어빌리티'
+    # 첫 글자를 지나가 '어' 의 'ㅇ' 이 엠블럼 테두리선으로 빠짐 → 컨셉 획 1286 부터(정답 1272) · 높이 비 0.83 · 폭 비 1.17 로 어긋나 크기 판이 건너뛰고 작은 34 가 남았다
+    text_boxes = [(region_of(t["id"]), t["bbox_intent"]) for t in spec.get("widgets", []) if t.get("type") == "TextBlock" and t.get("bbox_intent")]
+    for w in spec.get("widgets", []):
+        if w.get("parent") != spec.get("root") or not w.get("bbox_intent") or w.get("type") == "TextBlock":
+            continue
+        x, y, bw, bh = w["bbox_intent"]
+        x0, y0, x1, y1 = max(0, int(x)), max(0, int(y)), min(W, int(np.ceil(x + bw))), min(H, int(np.ceil(y + bh)))
+        if x1 - x0 < 8 or y1 - y0 < 8:
+            continue
+        crop = img[y0:y1, x0:x1]
+        # 띠처럼 큰 장식선 덩어리(실루엣의 15 % 넘게 — 밝은 청록 띠)는 테두리 띠만 — cutout.frame_keep 과 같은 규칙 [실측 H2 R20261116_212033]
+        # 띠 전체와 거기 닿은 '어빌리티' 획까지 빠져 컨셉 획이 비었고 analyze 의 굵게가 그대로 남았다
+        fl = cutout.frame_keep(crop, np.ones(crop.shape[:2], bool), max(2.0, cp.EDGE_FRAC * min(x1 - x0, y1 - y0)))
+        m = cv2.dilate(fl.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+        for rid, bb in text_boxes:
+            if rid == w["id"]:
+                continue
+            tx0, ty0 = max(x0, int(bb[0])), max(y0, int(bb[1]))
+            tx1, ty1 = min(x1, int(np.ceil(bb[0] + bb[2]))), min(y1, int(np.ceil(bb[1] + bb[3])))
+            if tx1 > tx0 and ty1 > ty0:
+                m[ty0 - y0:ty1 - y0, tx0 - x0:tx1 - x0] = False
+        out[y0:y1, x0:x1] |= m
+    return out
+
+
+def _ink_abs(img, box, gaps: bool = False, drop=None, prefer: str | None = None):
+    """측정 상자 안 글자 획 상자(절대 좌표). gaps 면 (상자, 획 상자 안 세로 투영의 빈 열 수 — 글자 사이 틈, 획 밀도 = 획 픽셀 / 획 상자 넓이).
+    drop = 뺄 픽셀(이미지 크기). prefer = 글자 쪽 밝기('bright' | 'dark' — fidelity.text_ink)."""
+    from gen import fidelity
+    x0, y0, x1, y1 = box
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return (None, None, None) if gaps else None
+    sub = img[y0:y1, x0:x1]
+    ink = fidelity.text_ink(sub, prefer=prefer)
+    if ink is not None and drop is not None:
+        ink = ink & ~drop[y0:y1, x0:x1]
+        if int(ink.sum()) < fidelity.INK_MIN_PIXELS:
+            ink = None
+    bb = fidelity.ink_box(ink)
+    out = [bb[0] + x0, bb[1] + y0, bb[2], bb[3]] if bb else None
+    if not gaps:
+        return out
+    if not bb:
+        return None, None, None
+    core = ink[bb[1]:bb[1] + bb[3], bb[0]:bb[0] + bb[2]]
+    return out, int((~core.any(axis=0)).sum()), round(float(core.sum() / core.size), 4)
+
+
+def _stop_at_others(nb: list, box: list, others) -> list:
+    """넓힌 상자 nb 를 다른 글자 상자(others — [x0, y0, x1, y1]) 앞에서 멈춘다 — 이웃 글자를 끌어오지 않게.
+    원래 box 와 이미 겹친 상자(채움 상자끼리)는 가를 수 없어 무시한다."""
+    x0, y0, x1, y1 = box
+    n0, m0, n1, m1 = nb
+    for o in others:
+        if o[0] < x1 and o[2] > x0 and o[1] < y1 and o[3] > y0:
+            continue
+        if min(o[3], y1) - max(o[1], y0) > 0:          # 세로로 겹침 → 가로로 막음
+            if o[0] >= x1:
+                n1 = min(n1, o[0])
+            if o[2] <= x0:
+                n0 = max(n0, o[2])
+        if min(o[2], x1) - max(o[0], x0) > 0:          # 가로로 겹침 → 세로로 막음
+            if o[1] >= y1:
+                m1 = min(m1, o[1])
+            if o[3] <= y0:
+                m0 = max(m0, o[3])
+    return [int(n0), int(m0), int(n1), int(m1)]
+
+
+def _cut_sides(img, box, bb, drop, prefer: str | None = None) -> list[bool]:
+    """렌더 획이 측정 상자 끝에 닿았거나 걸쳐 잘린 쪽 [왼, 위, 오른, 아래]. text_ink 는 좌우 끝에 닿은 덩어리를 지우므로(모서리 장식 빼기)
+    상자 밖으로 걸쳐 나간 글자는 그냥 사라져 '닿음'으로 안 보인다 — 지우기 전 획으로 다시 본다.
+    [실측 G 크기 끝 run] 크기 판이 배너 라벨을 가운데 중심으로 키우자 왼쪽 끝이 17 px 나가 '체' 가 측정에서 빠졌다(렌더 폭 225 — 실제 약 257)."""
+    from gen import fidelity
+    x0, y0, x1, y1 = box
+    side = [bb[0] <= x0 + 1, bb[1] <= y0 + 1, bb[0] + bb[2] >= x1 - 1, bb[1] + bb[3] >= y1 - 1]
+    raw = fidelity.text_ink(img[y0:y1, x0:x1], drop_edges=False, prefer=prefer)
+    if raw is not None and drop is not None:
+        raw = raw & ~drop[y0:y1, x0:x1]
+    rb = fidelity.ink_box(raw) if raw is not None and raw.any() else None
+    if rb:
+        side[0] = side[0] or rb[0] <= 0
+        side[2] = side[2] or rb[0] + rb[2] >= x1 - x0
+    return side
+
+
+def _notext_text_mask(reference_path, ref, texts) -> "np.ndarray | None":
+    """1b 후속 H2 — 글자 없는 판(normalize 의 reference_notext_color · alpha, 컨셉에 정합됨)이 있으면 컨셉과 판이 다른 픽셀 = 글자 → 마스크(없으면 None).
+    글자 상자(사방 높이 × 0.5 넓힘)마다 차의 오츠 문턱(≥ NOTEXT_INK_MIN) — codex 가 글자를 지우며 배지 원판 · 띠를 조금 다시 그린 차(수십)는 빼고 획(백 넘게)만.
+    [실측 H2 조작 안내 R184042] 밝기로만 가르면 '공격' · '점프' 컨셉 측정이 옆 아이콘까지 175 × 61(정답 87 × 49), 'R' 이 날개 장식까지 198 × 71
+    (정답 36 × 46) — 이 마스크로 둘 다 정답. 키 배지 'E' · 'T' 는 외곽선 · 베벨 차가 남아 여전히 크다(신뢰 범위가 거른다)."""
+    import pathlib
+    import numpy as np
+    from PIL import Image
+    p = pathlib.Path(reference_path)
+    cp, ap = p.with_name("reference_notext_color.png"), p.with_name("reference_notext_alpha.png")
+    if not (cp.is_file() and ap.is_file()):
+        return None
+    with Image.open(cp) as c, Image.open(ap) as a:
+        nt = np.asarray(c.convert("RGB"), float) * (np.asarray(a.convert("L"), float) / 255.0)[..., None]
+    if nt.shape != ref.shape:
+        return None
+    return _diff_text_mask(np.abs(ref - nt).max(axis=2), texts)
+
+
+def _diff_text_mask(diff, texts):
+    """차이 지도(채널 최대 0 ~ 255) → 글자 마스크 — 글자 상자(사방 높이 × 0.5 넓힘)마다 오츠 문턱(≥ NOTEXT_INK_MIN), NOTEXT_INK_GROW 넓힘."""
+    import cv2
+    import numpy as np
+    from gen import cutout
+    H, W = diff.shape
+    mask = np.zeros((H, W), bool)
+    for w in texts:
+        x, y, bw, bh = (float(v) for v in w["bbox_intent"])
+        e = 0.5 * bh
+        x0, y0, x1, y1 = max(0, int(x - e)), max(0, int(y - e)), min(W, int(np.ceil(x + bw + e))), min(H, int(np.ceil(y + bh + e)))
+        sub = diff[y0:y1, x0:x1]
+        v = np.clip(sub[sub > NOTEXT_INK_FLOOR], 0, 255).astype(np.uint8)
+        if v.size < 20:
+            continue
+        t, _ = cv2.threshold(v.reshape(-1, 1), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        mask[y0:y1, x0:x1] |= sub > max(NOTEXT_INK_MIN, float(t))
+    return cutout._dilate(mask, NOTEXT_INK_GROW)
+
+
+RENDER_TEXTFREE_MAX = 3.0   # 글자 상자 밖에서 렌더 ↔ 글자 없는 합성 평균 차가 이보다 크면(합성이 렌더를 못 따라감) 렌더 글자 마스크를 쓰지 않는다
+
+
+def _render_text_mask(render_path, ren, spec: dict, texts) -> "np.ndarray | None":
+    """1b 후속 H3 — 렌더 쪽 '글자 없는 판': 최종 텍스처를 실제 렌더 상자(같은 폴더 geometry.json) · 그리는 순서대로 검정 위에 다시 쌓은 합성(gen/backdrop —
+    렌더와 1/255 안으로 같음, 글자 TextBlock 만 빠짐)과 렌더가 다른 픽셀 = 엔진 글자 → 마스크(못 만들면 None).
+    [실측 H3 R20261117_112216] 렌더 획 측정(text_ink 밝기 가르기)이 두 톤 띠의 밝은 윗면까지 글자로 잡아 '돌진 공격' · '점프' 획 상자가 측정 상자 위 끝에 닿아
+    크기 판이 건너뛰었고(36 — 컨셉은 '공격' 42 와 같은 크기), 키 배지 'E' 는 베벨까지 잡아 건너뛰곤 했다."""
+    import json
+    import pathlib
+    import numpy as np
+    from gen import backdrop
+    rd = pathlib.Path(render_path).parent
+    try:
+        geo = json.loads((rd / "geometry.json").read_text(encoding="utf-8"))
+        man = json.loads((rd / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    H, W = ren.shape[:2]
+    boxes = (geo.get("geometry") or {}).get(f"{W}x{H}")
+    if not boxes:
+        return None
+    textures = {a["asset_id"]: backdrop._load(rd / a["file"]) for a in man.get("assets", []) if a.get("file") and (rd / a["file"]).is_file()}
+    black, _, _ = backdrop.compose(spec, boxes, textures, [W, H], (0, 0, 0))
+    diff = np.abs(ren - black).max(axis=2)
+    outside = ~backdrop.text_mask(spec, boxes, [W, H])
+    if outside.any() and float(diff[outside].mean()) > RENDER_TEXTFREE_MAX:
+        return None
+    return _diff_text_mask(diff, texts)
+
+
+TEXT_POLARITY_DL = 8.0      # 글자색 L* 가 상자 바탕(중앙값) L* 와 이만큼 넘게 다르면 그쪽(밝음 · 어두움)을 글자로 — 아니면 '적은 쪽' 규칙
+
+
+def _text_polarity(w: dict, img, box) -> str | None:
+    """글자 위젯의 글자색(그라데이션이면 위 · 아래 평균, 없으면 기본색) L* 와 측정 상자 바탕 L*(중앙값)로 글자 쪽 밝기 → 'bright' | 'dark' | None."""
+    import numpy as np
+    from core import color as color_mod
+    f = w.get("font") if isinstance(w.get("font"), dict) else {}
+    g = f.get("gradient") if isinstance(f.get("gradient"), dict) else None
+    hexes = [g.get("top_color"), g.get("bottom_color")] if g else [f.get("color") or spec_mod.FONT_DEFAULT.get("color") or "#FFFFFFFF"]
+    rgbs = []
+    for h in hexes:
+        h = str(h or "").lstrip("#")
+        if len(h) >= 6:
+            rgbs.append([int(h[i:i + 2], 16) for i in (0, 2, 4)])
+    x0, y0, x1, y1 = (int(v) for v in box)
+    if not rgbs or x1 - x0 < 4 or y1 - y0 < 4:
+        return None
+    tl = float(color_mod.srgb_to_lab(np.asarray(rgbs, float).mean(axis=0).reshape(1, 3))[0, 0])
+    bl = float(np.median(color_mod.srgb_to_lab(np.asarray(img, float)[y0:y1, x0:x1, :3])[..., 0]))
+    return "bright" if tl > bl + TEXT_POLARITY_DL else ("dark" if tl < bl - TEXT_POLARITY_DL else None)
+
+
+def _concept_ink(ref, box, drop, others, limit, prefer: str | None = None) -> tuple[list[int] | None, int]:
+    """컨셉 글자 획 상자 — analyze 상자가 글자보다 짧으면(획이 잘림) 획 높이 × 0.5 · 1.0 · 1.5 만큼 넓혀 다시 재 원래 획 상자를 품고 더 큰 것을 받는다.
+    넓히는 쪽에 다른 글자 위젯 상자가 있으면(세로로 겹치고 아직 안 닿은 것) 그 앞에서 멈춘다 — 이웃 글자를 끌어오지 않게.
+    [실측 G 끝 run 3] 배너 라벨 상자 끝 1024 · 컨셉 '트' 는 1064 까지 → 잘린 조각은 text_ink 가 '끝에 닿은 덩어리'로 지워 획 상자 222 px(실제 275)."""
+    c = _ink_abs(ref, box, drop=drop, prefer=prefer)
+    grown = 0
+    if c is None:
+        return None, 0
+    h0 = c[3]
+    x0, y0, x1, y1 = box
+    # 잘린 조각은 text_ink 가 '상자 끝에 닿은 덩어리'로 지우므로 조금씩 넓히면 자란 것이 안 보인다 → 넓이를 0.5 · 1.0 · 1.5 배로 차례로
+    for k in (0.5, 1.0, 1.5):
+        e = max(6, int(round(k * h0)))
+        # 가로만 — 세로로 넓히면 위아래 줄('4.2' ↔ '2/4')을 잡는다 · 이웃 글자 상자 앞에서 멈춤
+        nb = _stop_at_others([max(limit[0], x0 - e), y0, min(limit[2], x1 + e), y1], box, others)
+        c2 = _ink_abs(ref, nb, drop=drop, prefer=prefer)
+        if c2 is None or c2 == c:
+            continue
+        # 넓힌 결과가 원래 획 상자를 품을 때만(다른 줄 — 예: '2/4' 위의 '4.2' — 을 잡으면 원래 상자를 안 품는다)
+        if not (c2[0] <= c[0] + 1 and c2[1] <= c[1] + 1 and c2[0] + c2[2] >= c[0] + c[2] - 1 and c2[1] + c2[3] >= c[1] + c[3] - 1):
+            continue
+        if c2[0] < c[0] - 1 or c2[1] < c[1] - 1 or c2[0] + c2[2] > c[0] + c[2] + 1 or c2[1] + c2[3] > c[1] + c[3] + 1:
+            c = c2
+            grown += 1
+    return c, grown
+
+
+def _touches(bb, box, px: int = 1) -> bool:
+    return bb[0] <= box[0] + px or bb[1] <= box[1] + px or bb[0] + bb[2] >= box[2] - px or bb[1] + bb[3] >= box[3] - px
+
+
+def _take_from_neighbour(w: dict, spec: dict, axis: int, d: float) -> dict | None:
+    """가로 · 세로 상자 주축으로 d 옮길 때 이동 방향 이웃에서 |d| 를 가져온다 — 이웃이 Spacer 면 그 크기를, 아니면 이웃의 맞닿은 padding 을
+    (이웃 주축 정렬이 가운데가 아닐 때) 줄인다. → {"neighbour", "from", …} · 이동 방향에 형제가 없으면 {"edge": True} · 여유가 없으면 None.
+    [실측 G 굵기 끝 run] 채움 칸 배너 라벨을 자기 padding ±5 로 옮기자 칸을 넘어 옆 Spacer(BurstGap)와 겹침 → overlap 게이트."""
+    sibs = [s for s in spec.get("widgets", []) if s.get("parent") == w.get("parent")]
+    i = next((k for k, s in enumerate(sibs) if s["id"] == w["id"]), None)
+    if i is None:
+        return None
+    j = i + 1 if d > 0 else i - 1
+    if not 0 <= j < len(sibs):
+        return {"edge": True}
+    nb, a = sibs[j], abs(d)
+    if nb.get("type") == "Spacer":
+        size = list((nb.get("style") or {}).get("size") or spec_mod.STYLE_SCALAR_DEFAULTS.get("Spacer", {}).get("size") or [1, 1])
+        if size[axis] - a < 0:
+            return None
+        size[axis] = round(size[axis] - a, 1)
+        nb.setdefault("style", {})["size"] = size
+        if nb.get("bbox_intent"):
+            bb = [float(v) for v in nb["bbox_intent"]]
+            if d > 0:
+                bb[axis] += a          # 다음 이웃: 시작이 밀리고 끝은 그대로
+            bb[axis + 2] = max(0.0, bb[axis + 2] - a)
+            nb["bbox_intent"] = [round(v, 1) for v in bb]
+        return {"neighbour": nb["id"], "from": "spacer size", "value": size}
+    ns = nb.get("slot") if isinstance(nb.get("slot"), dict) else None
+    if not ns:
+        return None
+    nd = spec_mod.SLOT_DEFAULTS.get(ns.get("kind"), {})
+    if ns.get("h_align" if axis == 0 else "v_align", nd.get("h_align" if axis == 0 else "v_align")) == "center":
+        return None
+    p = list(ns.get("padding") or nd.get("padding") or [0, 0, 0, 0])
+    k = axis if d > 0 else axis + 2                     # 다음 이웃은 앞 여백, 앞 이웃은 뒤 여백
+    if p[k] - a < 0:
+        return None
+    p[k] = round(p[k] - a, 2)
+    ns["padding"] = p
+    return {"neighbour": nb["id"], "from": "padding", "value": p}
+
+
+def _shift_text(w: dict, dx: float, dy: float, spec: dict | None = None, own_main: bool = False) -> dict | None:
+    """글자를 (dx, dy) 옮긴다 — 슬롯이 차지하는 자리는 그대로(형제 · 행이 안 움직임): padding 슬롯은 양쪽 ±(왼 +k · 오른 −k, 위 · 아래도),
+    캔버스는 점 앵커 축만 위치 +=. bbox_intent 도 같이. → 기록 또는 None(옮길 수 없는 슬롯).
+    [소스] SlateCore/Public/Layout/LayoutUtils.h:663-664 — 가운데 정렬 오프셋 = (할당 − 자식)/2 + 앞 여백 − 뒤 여백이라 양쪽 ±k 는 2k 움직인다
+    (왼 · 위 · 채움 = 앞 여백, 오른 · 아래 = −뒤 여백 → k). [실측 G 끝 run 2] 세로 가운데 '3' 을 ±3.5 로 옮기자 7 px 움직였다 → 가운데 축은 k = d/2.
+    가로 · 세로 상자의 주축은 양쪽 ± 가 칸을 넘어 형제와 겹치므로 이동 방향 이웃에서 공간을 가져온다(_take_from_neighbour — 자기 반대쪽 여백에 더함,
+    이웃이 없으면 양쪽 ±, 이웃에 여유가 없거나 주축 가운데 정렬이면 그 축은 안 옮김). own_main = 주축도 자기 양쪽 ± — 호출자가 형제 겹침이 없다고
+    예측했을 때(text_fit 위치 판): 양쪽 ±k 는 auto · 채움 칸 모두 칸 자리를 그대로 두고 위젯만 d 옮긴다 — 겹침은 위젯이 칸 밖으로 나갈 때만 생긴다."""
+    slot = w.get("slot") if isinstance(w.get("slot"), dict) else None
+    if not slot:
+        return None
+    kind = slot.get("kind")
+    if kind in PADDED_SLOTS:
+        d = spec_mod.SLOT_DEFAULTS.get(kind, {})
+        center = [slot.get("h_align", d.get("h_align")) == "center", slot.get("v_align", d.get("v_align")) == "center"]
+        p = list(slot.get("padding") or d.get("padding") or [0, 0, 0, 0])
+        main = {"horizontal_box": 0, "vertical_box": 1}.get(kind)
+        out: dict = {}
+        moves = [dx, dy]
+        for axis, dd in ((0, dx), (1, dy)):
+            if not dd:
+                continue
+            if axis == main and spec is not None and not own_main:
+                took = None if center[axis] else _take_from_neighbour(w, spec, axis, dd)
+                if took is None:
+                    moves[axis] = 0.0
+                    out.setdefault("axis_skipped", []).append(f"{'xy'[axis]}: no room in the neighbour along the box (or centre-aligned main axis)")
+                    continue
+                if not took.get("edge"):
+                    if dd > 0:
+                        p[axis] = round(p[axis] + dd, 2)            # 다음 이웃이 준 만큼 앞 여백
+                    else:
+                        p[axis + 2] = round(p[axis + 2] - dd, 2)    # 앞 이웃이 준 만큼 뒤 여백
+                    out["neighbour"] = took
+                    continue
+            k = dd / 2.0 if center[axis] else dd
+            p[axis], p[axis + 2] = round(p[axis] + k, 2), round(p[axis + 2] - k, 2)
+        dx, dy = moves
+        if not dx and not dy:
+            return {"skipped": out.get("axis_skipped")} if out.get("axis_skipped") else None
+        slot["padding"] = p
+        out["padding"] = p
+    elif kind == "canvas":
+        a = slot.get("anchors") or [0, 0, 0, 0]
+        dx = dx if a[0] == a[2] else 0.0
+        dy = dy if a[1] == a[3] else 0.0
+        if not dx and not dy:
+            return None
+        pos = slot.get("position") or [0, 0]
+        slot["position"] = [round(pos[0] + dx, 1), round(pos[1] + dy, 1)]
+        out = {"position": slot["position"]}
+    else:
+        return None
+    x, y, bw, bh = (float(v) for v in w["bbox_intent"])
+    w["bbox_intent"] = [round(x + dx, 1), round(y + dy, 1), bw, bh]
+    return {**out, "shift": [round(dx, 1), round(dy, 1)]}
+
+
+def _overlap_rule(spec: dict) -> tuple[float, list] | None:
+    """overlap 게이트와 같은 규칙(spec.profile 의 gates.overlap_max_ratio · stacking_parents) — 프로필이 없으면 None."""
+    if not spec.get("profile"):
+        return None
+    try:
+        prof = config.load_profile(spec["profile"])
+        return float(prof["gates"]["overlap_max_ratio"]), list(prof.get("stacking_parents") or [])
+    except Exception:  # noqa: BLE001 — 예측을 못 하면 build 결과(게이트)에 맡긴다
+        return None
+
+
+def _predicted_violations(spec: dict, rendered: dict[str, list], followed: list[dict], rule) -> set[frozenset]:
+    """직전 통과 렌더 상자(rendered)에 follow_text_boxes 의 예상 변화(가운데 중심 성장 grow · 위로 옮김 shift_up)를 넣은 geometry 에서
+    overlap 게이트와 같은 규칙으로 겹치는 형제 쌍."""
+    return _violations(_predicted_rows(spec, rendered, followed), spec, rule)
+
+
+def _violations(rows: list[dict], spec: dict, rule) -> set[frozenset]:
+    from core import geometry as geo
+    return {frozenset((v["a"], v["b"])) for v in geo.overlaps(rows, spec, rule[0], rule[1])["violations"]}
+
+
+def _predicted_rows(spec: dict, rendered: dict[str, list], followed: list[dict]) -> list[dict]:
+    fol = {r["widget"]: r for r in followed}
+    rows = []
+    for w in spec.get("widgets", []):
+        b = rendered.get(w["id"])
+        if not b:
+            continue
+        x, y, bw, bh = (float(v) for v in b)
+        r = fol.get(w["id"]) or {}
+        dw, dh = r.get("grow") or (0.0, 0.0)
+        x, bw, y, bh = x - dw / 2, bw + dw, y - dh / 2, bh + dh
+        su = r.get("shift_up")
+        if su:                        # padding 슬롯은 위쪽만 올라가 높이 +d, 캔버스는 상자째 위로
+            y -= su["by"]
+            if "padding_top" in su:
+                bh += su["by"]
+        rows.append({"id": w["id"], "type": w.get("type"), "parent": w.get("parent"), "x": x, "y": y, "w": bw, "h": bh})
+    return rows
+
+
+def _fit_sizes(before: dict, after: dict, cfg: dict, rendered: dict[str, list] | None, sized: dict[str, dict]) -> tuple[dict, list[dict]]:
+    """크기 판 — 크기를 바꾼 글자(sized: id → 기록)의 상자를 follow_text_boxes 로 가운데 중심으로 키우고, build 전에 형제 겹침을 예측한다:
+    직전 통과 렌더 geometry 에 커질 상자를 넣어 overlap 게이트 규칙으로 재 새로 겹치는 쌍이 있으면 그 글자 크기를 원래 쪽으로 1 씩 줄여 다시
+    (원래 크기까지 가면 그대로 두고 size_capped 기록). 줄 높이 표가 없는 폰트는 상자를 못 따라가니 크기를 되돌린다.
+    [실측 G 굵기 끝 run] 체인 패널이 VerticalBox 인 run 에서 외형 라운드가 '4.2' 를 52 → 65 · '2/4' 를 22 → 25 로 키우자 위아래 글자와 줄 상자가
+    겹쳐(0.29 · 0.48) 라운드가 통째로 버려졌다. → (새 spec, follow 기록)."""
+    import copy
+    rule = _overlap_rule(after) if rendered else None
+    base = _predicted_violations(before, rendered, [], rule) if rule else set()
+    old = {w["id"]: w for w in before.get("widgets", [])}
+    for wid, rec in sized.items():
+        rec["overlap_check"] = "predicted from the last passing render" if rule else "skipped — no render geometry or profile"
+    for _ in range(200):
+        trial = copy.deepcopy(after)
+        followed = follow_text_boxes(before, trial, cfg, rendered)
+        fol = {r["widget"]: r for r in followed}
+        back = {wid: "no line-height table for the font — the box cannot follow" for wid in sized
+                if str((fol.get(wid) or {}).get("skipped", "")).startswith("no line-height")}
+        aw = {w["id"]: w for w in after.get("widgets", [])}
+        step = set()
+        if not back and rule:
+            grown = {wid for wid in sized if float(aw[wid]["font"]["size"]) > float((old[wid].get("font") or {}).get("size") or 24)}
+            for pair in _predicted_violations(trial, rendered, followed, rule) - base:
+                step |= pair & grown                  # 줄인 글자는 겹침을 만들지 않는다 — 키운 쪽만 되돌린다
+        if not back and not step:
+            return trial, followed
+        for wid in list(sized):
+            if wid not in back and wid not in step:
+                continue
+            f, s0 = aw[wid]["font"], float((old[wid].get("font") or {}).get("size") or 24)
+            cur = float(f["size"])
+            nxt = s0 if wid in back else cur + (1 if cur < s0 else -1)
+            if nxt == s0:
+                orig = (old[wid].get("font") or {}).get("size")
+                if orig is None:
+                    f.pop("size", None)
+                else:
+                    f["size"] = orig
+                sized[wid]["size_capped"] = back.get(wid) or f"growing beyond {s0:g} overlaps a sibling (predicted with the overlap gate rule) — size left as it was"
+                sized[wid].pop("size", None)
+                del sized[wid]
+            else:
+                f["size"] = int(nxt)
+                sized[wid]["size"][1] = int(nxt)
+                sized[wid]["size_capped"] = f"capped at {int(nxt)} — a larger size overlaps a sibling (predicted with the overlap gate rule)"
+    return after, follow_text_boxes(before, after, cfg, rendered)   # pragma: no cover — 크기 차이는 많아야 수십 단계
+
+
+def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[str, list] | None = None,
+             mode: str = "place") -> tuple[dict, list[dict]]:
+    """1b 후속 G — 글자 크기 · 굵기 · 위치 결정적 맞춤(외형 라운드 뒤, LLM 없음). 마지막 통과 렌더에서 글자마다 컨셉 ↔ 렌더 획 상자를 같은 측정 상자
+    (컨셉 획 상자 + 여유 — 넓은 위젯 상자에 패널 선 · 이웃 글자가 끼지 않게, 그 글자의 영역 안)에서 재고, 두 판으로 나눠 고친다
+    (run_pipeline._text_fit_round 가 판마다 build → verify — 크기를 바꾼 글자는 그 판에서 위치 · 자간을 안 건드린다):
+      mode "size"(크기 판) — 높이 비가 TEXT_FIT_TRUST_H 안이고 폭 비가 높이 비와 TEXT_FIT_TRUST_WH 안에서 맞을 때만(아니면 잘리거나 섞인 측정으로 봄):
+        · 크기 — |1 − 높이 비| ≥ TEXT_FIT_SIZE_TOL 이면 새 크기 = round(크기 ÷ 높이 비), 상자는 follow_text_boxes(가운데 중심 성장 · 형제 자리 유지),
+          build 전 형제 겹침 예측으로 상한(_fit_sizes).
+        · 굵기 — 획 밀도(획 픽셀 / 획 상자 넓이) 비가 regular ↔ bold 경계(TEXT_FIT_WEIGHT_STEP)를 넘으면 바꾼다.
+      mode "place"(위치 판) — 높이 비가 TEXT_FIT_H 안일 때만:
+        ① 글자 2 개 이상 · 폭 비가 TEXT_FIT_W_TOL 넘게 다르면 자간(글자 사이 px = (컨셉 틈 열 − 렌더 틈 열) / (글자 수 − 1) —
+           틈 열 = 획 상자 안 세로 투영이 빈 열, 글자 모양이 넓어서 생긴 폭 차이는 자간으로 메우지 않는다)
+           — 글자가 길이를 정하는 축은 follow_text_boxes 가 가운데 중심으로 키운다(자리 유지),
+        ② 중심 차(자간 뒤 예상)가 TEXT_FIT_MIN_PX 이상이면 _shift_text 로 옮긴다.
+    측정이 이상하면(획이 측정 상자 끝에 닿음 · 높이 비 범위 밖 · 차가 상한 넘음) 그 글자는 건너뛴다(F 교훈 — 틀린 지표로 고치지 않기).
+    [실측 F run 4] 배너 라벨: 왼쪽 끝은 같고(789) 폭만 좁다(254 vs 275 — 높이 비 1.02) → 중심 dx −10.5 의 몫은 자간, dy −4.5 는 세로 자리.
+    → (새 spec — 입력은 그대로, 기록)."""
+    import copy
+    import math
+    import numpy as np
+    from PIL import Image
+    from gen import fidelity
+    if mode not in TEXT_FIT_MODES:
+        raise ValueError(f"text_fit mode {mode!r} — one of {TEXT_FIT_MODES}")
+    after = copy.deepcopy(spec)
+    ref = np.asarray(Image.open(reference_path).convert("RGB")).astype(float)
+    ren = np.asarray(Image.open(render_path).convert("RGB")).astype(float)
+    if ref.shape != ren.shape:
+        return after, [{"skipped": f"reference {list(ref.shape[:2])} and render {list(ren.shape[:2])} differ"}]
+    H, W = ref.shape[:2]
+    by_id = {w["id"]: w for w in after.get("widgets", [])}
+    root = after.get("root")
+    drop_c, drop_r = _frame_drop(ref, after), _frame_drop(ren, after)
+    typefaces = {str(t).lower() for t in ((cfg.get("fonts") or {}).get("typefaces") or ["Regular", "Bold"])}
+
+    def region_box(w):
+        cur = w
+        while cur.get("parent") not in (root, None) and cur.get("parent") in by_id:
+            cur = by_id[cur["parent"]]
+        return cur.get("bbox_intent") if cur.get("parent") == root and cur is not w else None
+    def line_box(w):
+        bb = list(w["bbox_intent"])
+        g = float(((w.get("font") or {}).get("glow") or {}).get("size") or 0)
+        if g:   # 빛 글자는 analyze 가 상자를 사방 빛 크기만큼 넓혔다(region_report 와 같게 원래 줄 상자로)
+            bb = [bb[0] + g, bb[1] + g, bb[2] - 2 * g, bb[3] - 2 * g]
+        return list(fidelity._clip_box(bb, W, H))
+    texts = [w for w in after.get("widgets", []) if w.get("type") == "TextBlock" and w.get("bbox_intent")]
+    boxes = {w["id"]: line_box(w) for w in texts}
+    nt_mask = _notext_text_mask(reference_path, ref, texts)
+    if nt_mask is not None:     # 컨셉 획 = 글자 없는 판과 다른 픽셀만(밝기 갈라 잡힌 배지 · 아이콘 · 장식은 뺌)
+        drop_c = (drop_c if drop_c is not None else np.zeros((H, W), bool)) | ~nt_mask
+    # 렌더 쪽 글자 없는 합성 차(띠 밝은 면 · 배지 베벨은 뺌) — 밝기 측정을 못 믿을 때만 대신 쓴다(아래). 늘 쓰면 획 굵기 기준이 달라 '어빌리티' 를 굵게로
+    # 오판하고 '회피' 획을 덜 잡았다 [실측 H3 R20261117_113744]
+    rt_mask = _render_text_mask(render_path, ren, after, texts) if nt_mask is not None else None
+    drop_rt = ((drop_r if drop_r is not None else np.zeros((H, W), bool)) | ~rt_mask) if rt_mask is not None else None
+    recs, measured = [], {}
+    for w in texts:
+        rec: dict = {"widget": w["id"]}
+        if nt_mask is not None:
+            rec["concept_mask"] = "text-free concept difference"
+        recs.append(rec)
+        rb = region_box(w)
+        limit = [0, 0, W, H] if not rb else [max(0, int(rb[0])), max(0, int(rb[1])), min(W, int(math.ceil(rb[0] + rb[2]))), min(H, int(math.ceil(rb[1] + rb[3])))]
+        pol = _text_polarity(w, ref, boxes[w["id"]])    # 글자 쪽 밝기 — 컨셉 · 렌더를 같은 쪽으로 잰다
+        if pol:
+            rec["ink_side"] = pol
+        c0, grown = _concept_ink(ref, boxes[w["id"]], drop_c, [b for k, b in boxes.items() if k != w["id"]], limit, prefer=pol)
+        if grown:
+            rec["concept_box_grown"] = grown
+        if c0 is None:
+            rec["skipped"] = "no glyph pixels in the concept box"
+            continue
+        m = max(6, int(round(TEXT_FIT_MARGIN * c0[3])))
+        M = [max(limit[0], c0[0] - m), max(limit[1], c0[1] - m), min(limit[2], c0[0] + c0[2] + m), min(limit[3], c0[1] + c0[3] + m)]
+        lim_box = limit
+        (c2, cg, cd), (r2, rg, rd) = _ink_abs(ref, M, gaps=True, drop=drop_c, prefer=pol), _ink_abs(ren, M, gaps=True, drop=drop_r, prefer=pol)
+        # 렌더 획이 측정 상자의 한쪽 끝에 닿거나 걸쳐 잘리면(_cut_sides) 그쪽만 여유만큼 넓혀 다시(최대 TEXT_FIT_WIDEN 번, 다른 글자 상자 앞까지)
+        # — 컨셉 획 상자가 그대로일 때만 받는다
+        # [실측 G 끝 run 3] 배너 라벨이 컨셉보다 18 px 왼쪽(여유 15 px)이라 닿아서 건너뛰었다
+        others = [b for k, b in boxes.items() if k != w["id"]]
+        for _ in range(TEXT_FIT_WIDEN):
+            if c2 is None or r2 is None or _touches(c2, M):
+                break
+            side = _cut_sides(ren, M, r2, drop_r, pol)
+            if not any(side):
+                break
+            M2 = [max(lim_box[0], M[0] - m) if side[0] else M[0], max(lim_box[1], M[1] - m) if side[1] else M[1],
+                  min(lim_box[2], M[2] + m) if side[2] else M[2], min(lim_box[3], M[3] + m) if side[3] else M[3]]
+            M2 = _stop_at_others(M2, M, others)
+            if M2 == M:
+                break
+            (c3, cg3, cd3), (r3, rg3, rd3) = _ink_abs(ref, M2, gaps=True, drop=drop_c, prefer=pol), _ink_abs(ren, M2, gaps=True, drop=drop_r, prefer=pol)
+            if c3 != c2:
+                break                       # 넓힌 자리에 컨셉의 다른 획(이웃 글자 · 선)이 들어옴 — 그만
+            M, c2, cg, cd, r2, rg, rd = M2, c3, cg3, cd3, r3, rg3, rd3
+            rec["widened"] = rec.get("widened", 0) + 1
+        rec["measure_box"] = [M[0], M[1], M[2] - M[0], M[3] - M[1]]
+        masked = False
+        if drop_rt is not None and c2 is not None and not _touches(c2, M):
+            bad = r2 is None or _touches(r2, M)
+            if not bad:
+                hr, wr = r2[3] / c2[3], r2[2] / c2[2]
+                lo, hi = TEXT_FIT_TRUST_H if mode == "size" else TEXT_FIT_H
+                bad = not lo <= hr <= hi or abs(wr / max(1e-6, hr) - 1.0) > TEXT_FIT_TRUST_WH
+            if bad:     # 밝기 측정을 못 믿음 — 렌더 글자 마스크로 다시(굵기는 기준이 달라 판정 안 함)
+                r3, rg3, rd3 = _ink_abs(ren, M, gaps=True, drop=drop_rt, prefer=pol)
+                if r3 is not None and not _touches(r3, M):
+                    r2, rg, rd, masked = r3, rg3, rd3, True
+                    rec["render_mask"] = "text-free composite difference (brightness measurement not trusted)"
+        if c2 is None or r2 is None:
+            rec["skipped"] = "no glyph pixels in the " + ("concept" if c2 is None else "render") + " measuring box"
+            continue
+        rec.update(concept_ink=c2, render_ink=r2, h_ratio=round(r2[3] / c2[3], 3), w_ratio=round(r2[2] / c2[2], 3), gap_cols=[cg, rg],
+                   ink_density=[cd, rd])
+        if _touches(c2, M) or _touches(r2, M):
+            rec["skipped"] = "glyphs reach the measuring box edge (a neighbour, a frame line or the region edge is inside) — not trusted"
+            continue
+        f = w.get("font") if isinstance(w.get("font"), dict) else None
+        if mode == "size":
+            wh = rec["w_ratio"] / max(1e-6, rec["h_ratio"])
+            if not TEXT_FIT_TRUST_H[0] <= rec["h_ratio"] <= TEXT_FIT_TRUST_H[1] or abs(wh - 1.0) > TEXT_FIT_TRUST_WH:
+                rec["skipped"] = (f"glyph height ratio {rec['h_ratio']} (width/height {wh:.2f}) is outside {list(TEXT_FIT_TRUST_H)} or the width disagrees by more than "
+                                  f"{TEXT_FIT_TRUST_WH:g} — the measurement is not trusted for size or weight (clipped or merged glyphs)")
+                continue
+            # 굵기 — 컨셉 ↔ 렌더 획 밀도 비가 regular ↔ bold 경계(두 굵기 밀도 비의 기하 중간)를 넘으면 바꾼다. 밀도는 크기와 거의 무관하다
+            # [실측 G 끝 run 4] '오의 불가'(Pretendard Bold) 비 0.706 — 컨셉 0.254 ≈ Regular 0.237, 다른 글자 1.00 ~ 1.22 (F run 5 는 높이 비 0.838 · 비 0.72)
+            if f is not None and cd and rd and not masked and {"regular", "bold"} <= typefaces:
+                cur, ratio = f.get("weight") or spec_mod.FONT_DEFAULT["weight"], round(cd / rd, 3)
+                new = "regular" if cur == "bold" and ratio < 1.0 / TEXT_FIT_WEIGHT_STEP else ("bold" if cur == "regular" and ratio > TEXT_FIT_WEIGHT_STEP else None)
+                if new:
+                    f["weight"] = new
+                    rec["weight"] = [cur, new, ratio]
+            # 크기 — 글자 높이는 크기에 비례한다(같은 폰트): 새 크기 = round(크기 ÷ 높이 비), 빛 · 외곽선은 그대로
+            # [실측 G 굵기 끝 run] 외형 라운드가 버려지자 analyze 크기가 남음 — 배너 0.90 · '3' 0.92 · '4.2' 0.80 · '오의 불가' 0.84
+            if f is not None and abs(1.0 - rec["h_ratio"]) >= TEXT_FIT_SIZE_TOL:
+                s0 = float(f.get("size") or spec_mod.FONT_DEFAULT.get("size", 24))
+                s1 = int(round(s0 / rec["h_ratio"]))
+                if s1 != s0 and s1 > 0:
+                    f["size"] = s1
+                    rec["size"] = [int(s0) if s0 == int(s0) else s0, s1, rec["h_ratio"]]
+            continue
+        if not TEXT_FIT_H[0] <= rec["h_ratio"] <= TEXT_FIT_H[1]:
+            rec["skipped"] = f"glyph height ratio {rec['h_ratio']} is outside {list(TEXT_FIT_H)} — the size is the size pass's job"
+            continue
+        measured[w["id"]] = (rec, c2, r2)
+    if mode == "size":
+        after, followed = _fit_sizes(spec, after, cfg, rendered, {r["widget"]: r for r in recs if r.get("size")})
+        if followed:
+            recs.append({"text_boxes_followed": followed})
+        return after, recs
+    before = copy.deepcopy(after)
+    for wid, (rec, c2, r2) in measured.items():
+        w = by_id[wid]
+        f = w.get("font") if isinstance(w.get("font"), dict) else None
+        rec["dw"] = 0
+        t = w.get("text") or {}
+        n = len(t.get("value") or t.get("sample") or "") - 1
+        if f is None or n < 1 or abs(rec["w_ratio"] - 1) < TEXT_FIT_W_TOL:
+            continue
+        size, ls0 = float(f.get("size") or 24), float(f.get("letter_spacing") or 0)
+        px0 = int(size * ls0 / 1000.0)
+        # 폭 차이 전체가 아니라 글자 사이 틈(세로 투영의 빈 열) 차이만 — 컨셉 글꼴이 더 굵고 넓어서 생긴 차이를 자간으로 메우면 글자가 벌어진다
+        # [실측 G 끝 run 1] 폭 차이로 '4.2' 자간 0 → 110 — '4 . 2' 로 벌어짐(컨셉은 숫자가 넓고 틈은 비슷)
+        cg, rg = rec["gap_cols"]
+        step = int(round((cg - rg) / n))
+        px1 = max(0, px0 + step)
+        if not step or abs(step) > 0.25 * size or px1 == px0:
+            continue
+        ls1 = math.ceil(px1 * 1000.0 / size) if px1 > 0 else 0
+        while ls1 and int(size * ls1 / 1000.0) < px1:
+            ls1 += 1
+        if ls1:
+            f["letter_spacing"] = ls1
+        else:
+            f.pop("letter_spacing", None)
+        rec["letter_spacing"] = [ls0, ls1]
+        rec["dw"] = n * (int(size * ls1 / 1000.0) - px0)
+    followed = follow_text_boxes(before, after, cfg, rendered)
+    # 형제 겹침 예측(크기 판과 같은 규칙) — 직전 통과 렌더 상자 + 자간 성장. 옮긴 뒤 새로 겹치는 쌍이 없으면 주축도 자기 padding 으로 옮긴다
+    # [실측 G 크기 끝 run] 크기 판 뒤 '3' 의 앞 여백이 −4 라 배너 라벨(채움 칸 · 왼쪽 정렬, 칸 안 오른쪽에 약 50 px 빈자리)을 이웃 규칙으로 못 옮겼다
+    rule = _overlap_rule(after) if rendered else None
+    rows = _predicted_rows(after, rendered, followed) if rule else []
+    base = _violations(rows, after, rule) if rule else set()
+    for wid, (rec, c2, r2) in measured.items():
+        w = by_id[wid]
+        fx, _ = _axis_follow(w)
+        dw = rec.pop("dw", 0)
+        grow_c = 0.0 if fx is not None else {"left": dw / 2.0, "right": -dw / 2.0}.get(w.get("justification", "left"), 0.0)
+        dx = round(c2[0] + c2[2] / 2.0 - (r2[0] + r2[2] / 2.0 + grow_c), 1)
+        dy = round(c2[1] + c2[3] / 2.0 - (r2[1] + r2[3] / 2.0), 1)
+        lim = max(8.0, min(TEXT_FIT_MAX_PX, TEXT_FIT_MAX_H * c2[3]))
+        rec["center_d"] = [dx, dy]
+        sx = dx if TEXT_FIT_MIN_PX <= abs(dx) <= lim else 0.0
+        sy = dy if TEXT_FIT_MIN_PX <= abs(dy) <= lim else 0.0
+        if abs(dx) > lim or abs(dy) > lim:
+            rec["too_far"] = f"centre difference {[dx, dy]} exceeds {lim:g} px on an axis — that axis is left alone"
+        if sx or sy:
+            own = False
+            row = next((r for r in rows if r["id"] == wid), None)
+            if rule and row is not None:
+                # 새 겹침이 예측되지 않는 이동만 — 전체 → 한 축씩. 다 겹치면 상자 주축은 이웃 규칙(이웃에서 공간을 가져와 안 겹침)만, 나머지는 안 옮김
+                # [실측 G2 파티 HUD] 캔버스 직계 '0 %' 를 위로 3.5 옮기자 옆 영역 HpGaugeArea 와 겹쳐(0.086) 위치 판 전체가 버려졌다
+                def clean(dx, dy):
+                    trial = [dict(r, x=r["x"] + dx, y=r["y"] + dy) if r is row else r for r in rows]
+                    return not (_violations(trial, after, rule) - base)
+                pick = next(((dx, dy) for dx, dy in ((sx, sy), (sx, 0.0), (0.0, sy)) if (dx or dy) and clean(dx, dy)), None)
+                main = {"horizontal_box": 0, "vertical_box": 1}.get((w.get("slot") or {}).get("kind"))
+                if pick is not None:
+                    own = True
+                    if pick != (sx, sy):
+                        rec["axis_dropped"] = f"moving {['x', 'y'][0 if pick[0] == 0 else 1]} too would overlap a sibling (predicted) — that axis is left alone"
+                    sx, sy = pick
+                elif main is not None and (sx if main == 0 else sy):
+                    sx, sy = (sx, 0.0) if main == 0 else (0.0, sy)
+                    rec["axis_dropped"] = "every own-slot move overlaps a sibling (predicted) — only the box axis, with room taken from the neighbour"
+                else:
+                    rec["shift_skipped"] = "every move overlaps a sibling (predicted with the overlap gate rule) — left alone"
+                    continue
+            moved = _shift_text(w, sx, sy, after, own_main=own)
+            if moved and moved.get("shift"):
+                rec.update(moved)
+                main = {"horizontal_box": 0, "vertical_box": 1}.get((w.get("slot") or {}).get("kind"))
+                if own and main is not None and moved["shift"][main]:
+                    rec["own_padding"] = "no new sibling overlap predicted — moved along the box inside its own slot"
+                if row is not None:
+                    row["x"] += moved["shift"][0]
+                    row["y"] += moved["shift"][1]
+            else:
+                rec["shift_skipped"] = (moved or {}).get("skipped") or f"slot kind {(w.get('slot') or {}).get('kind')} cannot be moved without moving its siblings"
+    if followed:
+        recs.append({"text_boxes_followed": followed})
+    return after, recs
+
+
+def text_fit_changed(recs: list[dict]) -> list[str]:
+    return [r["widget"] for r in recs if r.get("widget") and (r.get("shift") or r.get("letter_spacing") or r.get("weight") or r.get("size"))]
+
+
 def rendered_boxes(run, attempt: int) -> dict[str, list]:
     """시도 attempt 의 렌더 geometry(attempts/NNN/geometry.json — 캔버스 해상도)에서 위젯 id → [x, y, w, h]. 없으면 {}."""
     p = run.path("attempts", f"{attempt:03d}", "geometry.json")
@@ -282,10 +955,62 @@ def compare(run, label: str) -> dict:
     return rep
 
 
+def fidelity_score(fid: dict | None) -> float | None:
+    """따온 에셋 충실도 한 수 — 실루엣 IoU · 장식선 F1 · 모서리 F1 최소(있는 것만) 중 가장 낮은 것(1b 후속 G — 라운드 교체 기준)."""
+    if not isinstance(fid, dict):
+        return None
+    vals = [fid.get("shape_iou"), (fid.get("line_f1") or {}).get("f1"), (fid.get("corners") or {}).get("min")]
+    vals = [float(v) for v in vals if isinstance(v, (int, float))]
+    return round(min(vals), 4) if vals else None
+
+
+def _last_fidelity(refine_log: dict, aid: str) -> dict | None:
+    for p in reversed(refine_log.get("passes") or []):
+        for a in p.get("assets") or []:
+            if a.get("asset_id") == aid and a.get("fidelity"):
+                return a["fidelity"]
+    return None
+
+
+def replace_guard(run, backup_rel: str, assets: list[str], tol: float = 0.02) -> list[dict]:
+    """1b 후속 G — 외형 라운드가 다시 따온 에셋의 충실도가 라운드 전보다 tol 넘게 나빠지면 그 에셋만 옛 것(사본의 final · raw · compare ·
+    manifest.json)으로 되돌린다 — 라운드의 다른 op 는 그대로 간다. [실측 F run 4] 배너 다시 따오기가 장식선 F1 0.983 → 0.914 · 선 ΔE00 7.9 → 14.6
+    으로 나빠졌는데 게이트만 보고 받아들여 금테가 노랗게 됐다. → 기록 [{asset, before, after, action}]."""
+    import shutil
+    bdir = run.path(backup_rel)
+    old_log = json.loads((bdir / "refine.json").read_text(encoding="utf-8")) if (bdir / "refine.json").is_file() else {}
+    new_log = run.read_json("refine.json") if run.path("refine.json").is_file() else {}
+    out, restored_ids = [], []
+    for aid in assets:
+        so, sn = fidelity_score(_last_fidelity(old_log, aid)), fidelity_score(_last_fidelity(new_log, aid))
+        rec = {"asset": aid, "before": so, "after": sn, "tol": tol}
+        if so is None or sn is None:
+            out.append({**rec, "action": "kept_new", "reason": "no fidelity record to compare (not an extracted asset)"})
+            continue
+        if sn >= so - tol:
+            out.append({**rec, "action": "kept_new"})
+            continue
+        restored = []
+        for kind in ("final", "raw", "compare"):
+            src = bdir / "assets" / kind / f"{aid}.png"
+            if src.is_file():
+                shutil.copyfile(src, run.path("assets", kind, f"{aid}.png"))
+                restored.append(f"assets/{kind}/{aid}.png")
+        restored_ids.append(aid)
+        out.append({**rec, "action": "restored_old", "restored": restored})
+    if restored_ids and (bdir / "manifest.json").is_file() and run.path("manifest.json").is_file():
+        old_m = {a["asset_id"]: a for a in json.loads((bdir / "manifest.json").read_text(encoding="utf-8"))["assets"]}
+        cur = run.read_json("manifest.json")
+        cur["assets"] = [old_m.get(a["asset_id"], a) if a["asset_id"] in restored_ids else a for a in cur["assets"]]
+        run.write_json("manifest.json", cur)
+    return out
+
+
 def _metric_lines(rep: dict) -> str:
     rows = []
     for rid, r in (rep.get("regions") or {}).items():
-        rows.append(f"- region {rid}: sheet {r.get('sheet')} · frame line F1 {(r.get('line_f1') or {}).get('f1')} · silhouette IoU {r.get('shape_iou')} · "
+        rows.append(f"- region {rid}: sheet {r.get('sheet')} · frame line F1 {(r.get('line_f1') or {}).get('f1')} · corner ornament F1 min "
+                    f"{(r.get('corners') or {}).get('min')} · silhouette IoU {r.get('shape_iou')} · "
                     f"line color ΔE00 {(r.get('delta_e00') or {}).get('lines')} · texts {', '.join(r.get('texts') or []) or '-'}")
     for tid, t in (rep.get("texts") or {}).items():
         if "error" in t:

@@ -55,8 +55,28 @@ extract:                                 # 1b 후속 A — 컨셉에서 따오�
   interior_alpha: 0.9                    # frame · panel_bg 안쪽 알파 — [실측 A-1] image_gen 은 안쪽을 거의 불투명(250 ~ 254)으로 낸다. null = 안쪽 단계 끔
   interior_flatten: true                 # 안쪽을 대표색 한 색으로 칠함 — [실측 A run] 글자 자리를 구멍(알파 6 ~ 19)으로 남긴 판이 나왔다. false = 알파 배수만
   interior_max_lightness: 35             # 대표색을 고를 픽셀의 L* 상한(금테 · 장식은 L* 60 이상)
+  concept_pixels: true                   # 1b 후속 G — frame · panel_bg 에 컨셉 픽셀 옮겨 심기(gen/concept_pixels): codex 결과는 실루엣(알파)만, 색 · 모서리 장식 ·
+                                         # 안쪽 빛은 컨셉 그대로(글자 자리는 줄 보간으로 메움 · 안쪽 알파 = interior_alpha). 게이지가 겹친 프레임 · 실루엣 IoU < 0.85 ·
+                                         # 옮긴 뒤 OCR 자국이면 위 한 색 칠하기로 물러남. false = A 그대로
   fixed_size_draw_as: image              # 크기 고정 위젯(점 앵커 영역 안)의 따온 에셋 브러시 box → image — box 는 모서리를 텍스처 픽셀 × margin 으로 그려
                                          # 큰 텍스처면 모서리가 커지고 가운데가 눌린다(ElementBatcher.cpp:857-860, A run 2). box = 바꾸지 않음
+  cutout: true                           # 1b 후속 H — extract 에셋은 컨셉 픽셀을 오려 쓴다(gen/cutout · refine._cut_entry): 알파 = ⓐ ⓑ reference_alpha ·
+                                         # ⓒ GrabCut(codex 실루엣 시드), 색 = 컨셉, 가려진 자리 줄 보간. 위 interior_flatten · concept_pixels · IoU 물러남은
+                                         # 이 길에서 쓰지 않는다(false = G 그대로). ⓐ ⓑ 와 작은 요소는 codex 를 부르지 않는다(generate.cut_only_reason)
+  cutout_small_px: 64                    # ⓒ 에서 짧은 변이 이보다 작은 요소는 codex 없이 오린다([실측 G2] 54 px 방패 배지 — codex 입력을 17 배로 키워 흐림)
+  overhang: true                         # 실루엣이 위젯 상자 밖(다른 그리는 위젯 자리 아님)으로 이어지면 텍스처 상자를 넓히고 캔버스 직속 장식 Image 로 그린다
+                                         # (사용자 결정 (가') 11-16 — 크기 고정 · 런타임에 안 접히는 위젯만)
+  notext: true                           # 글자 없는 판(inputs concept_notext — make_concept --text-free)이 있으면 글자 구멍만 그 픽셀로(gen/cutout.compose fill_from —
+                                         # 요소마다 ±6 px 재정합, 둘레 차 > 24 이면 줄 보간으로 물러남). false = 판이 있어도 줄 보간
+
+concept_convert:                         # 1b 후속 I — 컨셉을 codex 편집으로 'UI 만 · 진짜 알파' 컨셉 + 글자 없는 판으로 바꿔 ⓐ 로 잇는다(gen/concept_convert,
+                                         # normalize). 합성 스크린샷(ⓒ)은 장면 · 반투명 UI 를 결정적으로 못 가르고(H) 검정 배경(ⓑ)은 어둡고 반투명을 못 가른다(H3)
+  default: auto                          # inputs concept_convert 가 없을 때 — auto = ⓒ 만 · force = ⓑ 도 · off = 예전 경로(사용자 결정 11-17)
+  max_calls: 2                           # 변환 codex 호출 상한(run 당 — 컨셉 · 글자 없는 판, run 전체 상한 limits.codex_calls_per_run 안에서도 셈)
+  aspect_tol: 0.03                       # 변환 결과 비율이 원본과 이만큼 넘게 다르면 버림(구도 유지 실패)
+  transparent_ratio: [0.05, 0.95]        # 변환 결과 투명 픽셀 비율이 이 밖이면 버림(배경이 안 빠졌거나 다 지워짐)
+  text_free: true                        # 글자 없는 판도 받는다(실패해도 ⓐ 로 가되 판 없이)
+  cache_dir: _convert                    # work_root 아래 — <원본 sha256 앞 16>_<프롬프트 sha256 앞 8>/ (다시 돌리면 codex 0, 지우면 다시 받음)
 
 textures:                                # §12-2 5 — 11-14 사용자: EditorIcon 기본 + 큰 배경만 BC7
   compression_default: TC_EditorIcon
@@ -106,6 +126,11 @@ style_review:                            # 1b 후속 C — 게이트 통과 뒤 
   rounds: 1                              # 0 = 끔. concept 모드(reference.png 있음) · fix.mode ≠ deterministic 일 때만 돈다
   max_ops: 16                            # 라운드 patch 의 op 상한
   max_replace_per_round: 1               # replace_asset(codex 다시 편집 · 생성) — run 의 codex 상한(limits.codex_calls_per_run) 안, 한 번에 하나
+  replace_guard_tol: 0.02                # 1b 후속 G — 다시 따온 에셋의 충실도(실루엣 IoU · 장식선 F1 · 모서리 F1 최소)가 라운드 전보다 이만큼 넘게 낮으면 그 에셋만 옛 것으로
+                                         # [실측 F run 4] 배너 다시 따오기 F1 0.983 → 0.914 를 받아 금테가 노래졌다
+  text_fit: true                         # 1b 후속 G — 외형 라운드 뒤 글자 결정적 맞춤(style.text_fit — LLM 없음), 두 판: 크기 판(높이 비로 크기 · 굵기, 형제 겹침 예측으로 상한)
+                                         # → 위치 판(자간 · 중심), 판마다 build → verify 1회 · 깨지면 그 판만 버림.
+                                         # 라운드가 꺼진 deterministic 모드에서도 돈다(컨셉이 있을 때)
 
 fix:
   mode: hybrid                          # 1b-6 — 결정적 fixer 먼저, op 가 없거나 직전 결정적 patch 가 진전이 없으면 LLM verifier → fix (11-15 사용자 결정).

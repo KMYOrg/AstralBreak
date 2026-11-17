@@ -13,6 +13,9 @@ codex 에셋:
     자른 것(3:1 보다 길면 실제 화면으로 짧은 변을 넓힘 · 글자 자리 inpaint, `gen/<id>/<시도>/input.png`), 틀 = codex.EDIT_WRAPPER,
     프롬프트 = analyze 의 asset.prompt(요소 이름 + 지울 것) + EXTRACT_RULES. 되자르기용 영역 · 요소 상자를 gen.jsonl `extract` 에 남긴다(refine 이 쓴다).
     extract 가 실패해도 generate 로 바꾸지 않는다(요청한 방식을 몰래 바꾸지 않음).
+  - **오리기만(1b 후속 H — cut_only_reason)** — ⓐ transparent · ⓑ flat 배경의 extract 에셋과 ⓒ 의 작은 요소(짧은 변 < 64 px)는 codex 를
+    부르지 않는다: raw = 컨셉 조각(backend concept_cut), 실루엣 · 색은 refine 이 컨셉에서 오린다(gen/cutout). ⓒ 의 큰 요소는 위 편집 결과를
+    실루엣 시드로만 쓴다.
 출력: assets/raw/<asset_id>.png · gen.jsonl(에셋마다 한 줄 — backend · ok · duration_s · sha256 · attempt (+ codex: thread_id · usage · found_by · source_mode · extract)).
 재시도에서 replace_asset 로 돌아오면 opts.only_assets 의 에셋만 다시 만든다.
 """
@@ -66,7 +69,65 @@ def codex_prompt(asset: dict, regenerate: bool) -> str:
 
 
 def _text_boxes(spec: dict) -> list:
-    return [w["bbox_intent"] for w in spec.get("widgets", []) if w.get("type") == "TextBlock" and w.get("bbox_intent")]
+    """codex 입력에서 지울 글자 위젯 자리(bbox_intent) — 지우는 것은 상자 안 글자 획 둘레만(postprocess.reference_crop)."""
+    return [w["bbox_intent"] for w in spec.get("widgets", []) if w.get("bbox_intent") and w.get("type") == "TextBlock"]
+
+
+def _image_boxes(spec: dict) -> list:
+    """codex 입력에서 통째로 지울 런타임 이미지(binding kind image — 게임이 넣는 초상화 · 아이콘) 자리.
+    (1b 후속 G2 — [실측 파티 HUD] 초상화 테두리를 따올 상자가 캐릭터 그림을 덮어 그 그림이 테두리 텍스처에 같이 들어갈 뻔했다)"""
+    return [w["bbox_intent"] for w in spec.get("widgets", []) if w.get("bbox_intent") and w.get("type") == "Image"
+            and (w.get("binding") or {}).get("kind") == "image"]
+
+
+def background_kind(run) -> str | None:
+    """normalize 의 배경 판정(1b 후속 H) — concept 모드가 아니거나 기록이 없으면 None."""
+    p = run.path("normalize.json")
+    if not p.is_file():
+        return None
+    return ((run.read_json("normalize.json").get("background")) or {}).get("kind")
+
+
+def cut_only_reason(run, asset: dict) -> str | None:
+    """codex 를 부르지 않고 컨셉 픽셀만으로 따올 extract 에셋인가(1b 후속 H — 설계 H) → 이유 또는 None.
+    ⓐ transparent · ⓑ flat 배경이면 알파가 이미 있으니 전부, ⓒ scene 이면 짧은 변 < cutout_small_px 인 요소(codex 입력을 수십 배로 키워 흐리거나
+    빈 그림 — [실측 G2] 54 px 방패 배지). extract.cutout 이 꺼져 있으면 None(예전 따오기)."""
+    from gen import cutout
+    ext = run.cfg.get("extract") or {}
+    if (asset.get("source_mode") or "generate") != "extract" or not ext.get("cutout", False) or not asset.get("ref_bbox"):
+        return None
+    bg = background_kind(run)
+    if bg in ("transparent", "flat"):
+        return f"background {bg} — the concept alpha is known"
+    small = int(ext.get("cutout_small_px", cutout.SMALL_PX))
+    if min(float(asset["ref_bbox"][2]), float(asset["ref_bbox"][3])) < small:
+        return f"small element (short side < {small} px)"
+    return None
+
+
+def _render_cut(run, asset: dict, reason: str) -> tuple[int, int, dict]:
+    """컨셉 조각을 raw 로(기록 · 비교용 — 실제 오리기는 refine 이 reference 전체에서 한다). gen.jsonl extract 의 영역 · 요소 상자는 codex 따오기와 같은 꼴."""
+    import numpy as np
+    from PIL import Image
+    from gen import postprocess as pp
+    aid = asset["asset_id"]
+    ext = run.cfg.get("extract") or {}
+    with Image.open(run.path("reference.png")) as im:
+        size = im.size
+    region, element, _ = pp.extract_region(asset["ref_bbox"], size, int(ext.get("pad", pp.EXTRACT_PAD)), max_aspect=1e9)
+    x, y, w, h = region
+    if run.path("reference_alpha.png").is_file() and run.path("reference_color.png").is_file():
+        with Image.open(run.path("reference_color.png")) as c, Image.open(run.path("reference_alpha.png")) as a:
+            rgba = np.dstack([np.asarray(c.convert("RGB"))[y:y + h, x:x + w], np.asarray(a.convert("L"))[y:y + h, x:x + w]])
+    else:
+        with Image.open(run.path("reference.png")) as c:
+            arr = np.asarray(c.convert("RGB"))[y:y + h, x:x + w]
+        rgba = np.dstack([arr, np.full(arr.shape[:2], 255, np.uint8)])
+    raw = run.path("assets", "raw", f"{aid}.png")
+    raw.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(rgba.astype(np.uint8), "RGBA").save(raw, format="PNG")
+    return w, h, {"source_mode": "extract", "cut": reason, "extract": {"region": region, "element": element, "aspect": round(w / h, 3),
+                                                                        "aspect_within_limit": True, "cut": True}}
 
 
 class _CodexSession:
@@ -106,7 +167,8 @@ def _render_codex(run, asset: dict, spec: dict, session: _CodexSession, regenera
         ext = run.cfg.get("extract") or {}
         ref = gen_dir / "input.png"
         ref_info = pp.extract_input(run.path("reference.png"), asset["ref_bbox"], _text_boxes(spec), ref,
-                                    pad=int(ext.get("pad", pp.EXTRACT_PAD)), max_aspect=float(ext.get("max_aspect", pp.EXTRACT_MAX_ASPECT)))
+                                    pad=int(ext.get("pad", pp.EXTRACT_PAD)), max_aspect=float(ext.get("max_aspect", pp.EXTRACT_MAX_ASPECT)),
+                                    image_boxes=_image_boxes(spec))
         refs.append(ref)
         extract = {"region": ref_info["region"], "element": ref_info["element"], "aspect": ref_info["aspect"],
                    "aspect_within_limit": ref_info["aspect_within_limit"]}
@@ -114,7 +176,7 @@ def _render_codex(run, asset: dict, spec: dict, session: _CodexSession, regenera
     else:
         if asset.get("ref_bbox") and run.path("reference.png").is_file():
             ref = gen_dir / "ref.png"
-            ref_info = pp.reference_crop(run.path("reference.png"), asset["ref_bbox"], _text_boxes(spec), ref)
+            ref_info = pp.reference_crop(run.path("reference.png"), asset["ref_bbox"], _text_boxes(spec), ref, image_boxes=_image_boxes(spec))
             refs.append(ref)
         prompt, purpose = codex_prompt(asset, regenerate), "the shape, proportions, colors and ornament style of this HUD element"
     raw = run.path("assets", "raw", f"{aid}.png")
@@ -154,6 +216,10 @@ def run(run, opts) -> str:
                     ref = run.path("reference.png")
                     w, h, rgba = procedural.render(asset, reference=ref if ref.is_file() else None)
                     path = png.write_rgba(run.path("assets", "raw", f"{aid}.png"), w, h, rgba)
+                elif backend == "codex" and cut_only_reason(run, asset):
+                    backend = "concept_cut"           # 1b 후속 H — codex 호출 없음(호출 상한을 쓰지 않는다)
+                    w, h, extra = _render_cut(run, asset, cut_only_reason(run, asset))
+                    path = run.path("assets", "raw", f"{aid}.png")
                 elif backend == "codex":
                     w, h, extra = _render_codex(run, asset, spec, session, regenerate=bool(only), attempt=attempt)
                     path = run.path("assets", "raw", f"{aid}.png")

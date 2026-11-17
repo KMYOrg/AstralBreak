@@ -184,3 +184,76 @@ def test_style_round_off_in_deterministic_mode(tmp_path, fake_ue, monkeypatch): 
     assert run_pipeline.main(_args(tmp_path)) == run_pipeline.EXIT_PASS                    # conftest 기본 = deterministic
     sr = _report(tmp_path)["recorded"]["style_review"]
     assert sr["rounds_allowed"] == 0 and sr["rounds"] == [] and "before" in sr
+    # 1b 후속 G — 글자 맞춤은 deterministic 에서도 돈다(가짜 렌더 2×2 라 재지 못하고 건너뜀 — 시도가 늘지 않는다)
+    assert sr["text_fit"]["action"] == "nothing_to_fit" and all("skipped" in t for t in sr["text_fit"]["texts"])
+    assert _report(tmp_path)["attempt"] == 1
+
+
+def _fake_text_fit(monkeypatch, path, value, size_path=None, size_value=None):
+    """가짜 렌더(2×2)로는 획을 못 재므로 text_fit 결과를 흉내 낸다 — 위치 판은 ChainTimerText 의 path 를 value 로,
+    크기 판은 size_path 가 있을 때만 size_value 로(없으면 바꿀 것 없음)."""
+    def fit(spec, ref, ren, cfg, rendered=None, mode="place"):
+        out = copy.deepcopy(spec)
+        p, v = (path, value) if mode == "place" else (size_path, size_value)
+        if p is None:
+            return out, [{"widget": "ChainTimerText", "skipped": "nothing"}]
+        node = widget(out, "ChainTimerText")
+        keys = p.split(".")
+        for k in keys[:-1]:
+            node = node.setdefault(k, {})
+        node[keys[-1]] = v
+        kind = "size" if mode == "size" else ("shift" if p.startswith("slot") else "letter_spacing")
+        return out, [{"widget": "ChainTimerText", kind: v}]
+    monkeypatch.setattr(style, "text_fit", fit)
+
+
+def test_pipeline_text_fit_accepted(tmp_path, fake_ue, monkeypatch):  # noqa: F811
+    _with_reference(monkeypatch)
+    _fake_text_fit(monkeypatch, "font.letter_spacing", 90)
+    assert run_pipeline.main(_args(tmp_path)) == run_pipeline.EXIT_PASS
+    rep = _report(tmp_path)
+    tf = rep["recorded"]["style_review"]["text_fit"]
+    assert tf["action"] == "accepted" and tf["changed"] == ["ChainTimerText"] and rep["attempts"][-1]["style_round"] == "text_fit"
+    final = json.loads((tmp_path / "work" / RUN_ID / "spec.json").read_text(encoding="utf-8"))
+    assert widget(final, "ChainTimerText")["font"]["letter_spacing"] == 90 and rep["finalize"]["action"] == "saved"
+
+
+def test_pipeline_text_fit_that_breaks_a_gate_is_reverted(tmp_path, fake_ue, monkeypatch):  # noqa: F811
+    _with_reference(monkeypatch)
+    _fake_text_fit(monkeypatch, "slot.padding", [0, 60, 0, 0])                                # bbox_intent 는 그대로 — iou_leaf 가 깨진다
+    assert run_pipeline.main(_args(tmp_path)) == run_pipeline.EXIT_PASS
+    rep = _report(tmp_path)
+    tf = rep["recorded"]["style_review"]["text_fit"]
+    assert tf["action"] == "reverted" and "iou_leaf" in tf["verify"]["failed"]
+    assert [a.get("revert", False) for a in rep["attempts"]] == [False, False, True] and rep["attempts"][-1]["pass"]
+    final = json.loads((tmp_path / "work" / RUN_ID / "spec.json").read_text(encoding="utf-8"))
+    assert (widget(final, "ChainTimerText").get("slot") or {}).get("padding") == (widget(fixture_spec(), "ChainTimerText").get("slot") or {}).get("padding")
+    assert rep["status"] == "pass" and [t for t, _ in fake_ue.editor.log][-1] == "save_widget_run"
+
+
+def test_pipeline_text_fit_size_pass_reverted_then_place_pass_still_runs(tmp_path, fake_ue, monkeypatch):  # noqa: F811
+    """크기 판 → 위치 판은 판마다 따로 받고 버린다 — 크기 판이 게이트를 깨도(버림) 위치 판은 최신 통과 렌더에서 돈다."""
+    _with_reference(monkeypatch)
+    _fake_text_fit(monkeypatch, "font.letter_spacing", 90, size_path="slot.padding", size_value=[0, 60, 0, 0])   # 크기 판이 iou_leaf 를 깬다
+    assert run_pipeline.main(_args(tmp_path)) == run_pipeline.EXIT_PASS
+    rep = _report(tmp_path)
+    sr = rep["recorded"]["style_review"]
+    assert sr["text_fit_size"]["action"] == "reverted" and "iou_leaf" in sr["text_fit_size"]["verify"]["failed"]
+    assert sr["text_fit"]["action"] == "accepted" and sr["text_fit"]["changed"] == ["ChainTimerText"] and sr["final_label"] == "text_fit"
+    assert [(a.get("style_round"), a.get("revert", False)) for a in rep["attempts"][1:]] == [("text_fit_size", False), ("text_fit_size", True), ("text_fit", False)]
+    final = json.loads((tmp_path / "work" / RUN_ID / "spec.json").read_text(encoding="utf-8"))
+    tt = widget(final, "ChainTimerText")
+    assert tt["font"]["letter_spacing"] == 90 and (tt.get("slot") or {}).get("padding") == (widget(fixture_spec(), "ChainTimerText").get("slot") or {}).get("padding")
+    assert "residual" in sr["text_fit"] and rep["finalize"]["action"] == "saved"
+
+
+def test_pipeline_text_fit_size_then_place_both_accepted(tmp_path, fake_ue, monkeypatch):  # noqa: F811
+    _with_reference(monkeypatch)
+    _fake_text_fit(monkeypatch, "font.letter_spacing", 90, size_path="font.color", size_value="#E7AE4F")   # 게이트와 무관한 바꿈으로 크기 판 흉내
+    assert run_pipeline.main(_args(tmp_path)) == run_pipeline.EXIT_PASS
+    rep = _report(tmp_path)
+    sr = rep["recorded"]["style_review"]
+    assert sr["text_fit_size"]["action"] == "accepted" and sr["text_fit"]["action"] == "accepted"
+    assert [a.get("style_round") for a in rep["attempts"][1:]] == ["text_fit_size", "text_fit"] and rep["attempt"] == 3
+    tt = widget(json.loads((tmp_path / "work" / RUN_ID / "spec.json").read_text(encoding="utf-8")), "ChainTimerText")
+    assert tt["font"]["color"] == "#E7AE4F" and tt["font"]["letter_spacing"] == 90

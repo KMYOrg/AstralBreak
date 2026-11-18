@@ -164,6 +164,8 @@ appearance:                              # 1b 후속 J-b — 자동 차이 진�
   text_dark_frac: 0.2                    # 획 안 '바탕보다 어두운' 비율 차(외곽선 · 그림자 — LLM 이 넣은 남색 외곽선 0.27 ~ 0.5)
   text_halo_frac: 0.2                    # 핵심 밖 '바탕보다 밝은' 비율 차(빛 번짐)
   seam_dark_px: 90                       # 3 배 절취선 — 한 자리의 어두운 확대 픽셀 수
+  residue_de: 20.0                       # 1b 후속 L 다음 — E1 획에 붙은 잔상: 렌더 글자가 안 덮은 컨셉 획 자리의 텍스처 · 렌더가 글자 없는 바탕 두 추정과 ΔE00 이만큼 넘게('4' 밑 잔상 평균 31)
+  residue_min_px: 6                      # 그 픽셀 덩어리 최소 넓이('4' 밑 잔상 11 px)
 
 fix:
   mode: hybrid                         # 1b-6 — 결정적 fixer 먼저, op 가 없거나 직전 결정적 patch 가 진전이 없으면 LLM verifier → fix (11-15 사용자 결정).

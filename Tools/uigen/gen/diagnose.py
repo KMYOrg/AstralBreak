@@ -43,6 +43,9 @@ DEFAULTS = {
     "bg_cover": 0.3,         # E1 글자 구역 바탕 — 7 × 7 창 안 바탕 픽셀(획 + 2 px 밖) 비율이 이 이상인 자리만 잰다
     "blur_ratio": 0.8,       # E2 뭉개짐 — 위젯 자리 선명도(기울기 에너지) 렌더 ÷ 컨셉이 이 미만이면 오류
     "glow_min": 8.0,         # E7 빛 유무 — 획 2 ~ 6 px 띠가 글자 없는 바탕보다 L 이만큼 밝으면 빛(analyze text_glow.min_excess 와 같은 값)
+    # 1b 후속 L 다음 — E1 획에 붙은 잔상(glyph_residue): 렌더 글자가 안 덮은 컨셉 획 자리의 텍스처 · 렌더가 글자 없는 바탕 두 추정과 ΔE00 이만큼 넘게 다른 픽셀 덩어리
+    "residue_de": 20.0,      # [실측 R20261118_120715 단색 '4' 밑 잔상 11 px · 평균 31.3 · 최대 45.7 — 보호 run 다섯(L-1 · L-2 · controls 셋)은 20 넘는 픽셀 0]
+    "residue_min_px": 6,     # 덩어리 최소 픽셀(같은 자리 124503 은 1 px 둘 — 안 셈)
 }
 # 결함 → 오류 번호(설계 §11 K): E1 얼룩 · 잔상 · E2 뭉개짐 · E3 잘림 · 빠짐 · E4 구멍 · 이중 · E5 절취선 · E6 위치 · E7 효과 유무 · E8 상태 · E9 가장 가까운 선택 아님
 TEXT_CODES = {"size": "E9", "weight": "E9", "color": "E9", "position": "E6", "unmeasured": "E6", "outline": "E7", "glow": "E7", "shadow": "E7", "missing": "E3",
@@ -1071,6 +1074,25 @@ def nearest_weight(dens: float, cur: str, table: dict[str, float]) -> tuple[str,
     return best, dens * table[best] / base
 
 
+CONCEPT_CONTRAST_MIN = 10.0   # 1b 후속 L 다음 — 컨셉 핵심 획 ↔ 둘레 바탕(획 밖 1 ~ 4 px · 후보 밖) 대표색 ΔE00 이 이 미만이면 컨셉 획을 못 찾은 것(바탕을 획으로 잼)
+CONTRAST_RING = (1, 4)        # [실측 R20261118_130201 파티 '100' 0.5 · 이름 2.2 ↔ 정상 글자(보호 run 다섯 · 단색 · 정답 묶음 run) 39.5 이상]
+
+
+def concept_contrast(core, cand, img) -> float | None:
+    """컨셉 핵심 획 대표색(중앙값 Lab) ↔ 둘레 바탕 대표색 ΔE00 — 글자는 바탕과 구별돼야 읽힌다. 둘레 = 핵심 획 밖 1 ~ 4 px 중 획 후보 밖(없으면 후보 밖 고리)."""
+    if int(np.asarray(core).sum()) < TEXT_MIN_CORE:
+        return None
+    ring = _dilate(core, CONTRAST_RING[1]) & ~_dilate(core, CONTRAST_RING[0]) & ~np.asarray(cand, bool)
+    if int(ring.sum()) < 10:
+        ring = _dilate(cand, CONTRAST_RING[1]) & ~_dilate(cand, CONTRAST_RING[0])
+        if int(ring.sum()) < 10:
+            return None
+    img = np.asarray(img, float)
+    a = np.median(color.srgb_to_lab(img[np.asarray(core, bool)]), axis=0)
+    b = np.median(color.srgb_to_lab(img[ring]), axis=0)
+    return float(color.delta_e00(a, b))
+
+
 def compare_text(w: dict, masks: dict, ref_black, render, compose_black, s: dict, render_bg=None, no_sdf: set | None = None,
                  concept_bg=None, weights: dict | None = None) -> dict:
     """글자 하나 — 오류(causes → 번호 TEXT_CODES)와 근사(approx: 가장 가까운 선택을 골랐는데 남은 차 — 표현 한계)."""
@@ -1080,6 +1102,17 @@ def compare_text(w: dict, masks: dict, ref_black, render, compose_black, s: dict
     if c is None:
         rec["record_only"] = "no concept glyph found (hidden state or not drawn) — not compared"
         return rec
+    # 1b 후속 L 다음 — 컨셉 '획'이 둘레 바탕과 구별되지 않으면 글자가 아니라 바탕(번진 텍스처 상자와 다른 투명 틈)을 잰 것: 크기 · 위치 · 색 · 효과 전부 못 믿는다
+    # [사용자 눈 R20261118_130201 파티 'Lv 100' — 컨셉 '100' 핵심 획 L* 0.5(실제 글자는 흰 빛 글자) · 대비 0.5, 렌더도 글자 맞춤이 그 측정대로 검정 · 52 로
+    # 바꿔 색 차 0.37 · 높이 비 0.96 '같음' — 실제 렌더는 검정 · 약 1.5 배]
+    cct = concept_contrast(masks["concept"], masks["concept_cand"], ref_black)
+    if cct is not None:
+        rec["concept_contrast"] = round(cct, 1)
+        if cct < CONCEPT_CONTRAST_MIN:
+            rec["unmeasured"] = {"concept_contrast": round(cct, 1),
+                                 "note": "the concept 'glyph' matches its surroundings — the concept glyph was not found (background measured as glyph), nothing compared"}
+            rec.update(causes=["unmeasured"], codes=[TEXT_CODES["unmeasured"]], fixable=False)
+            return rec
     if r is None:
         causes.append("missing")
         rec["causes"] = causes
@@ -1194,6 +1227,115 @@ def compare_text(w: dict, masks: dict, ref_black, render, compose_black, s: dict
                                           or (k == "glow" and (has_glow or glow_on(gc, float(s["glow_min"]))))
                                           for k in causes)   # 글자 맞춤(크기 판 — 색 · 외곽선 J-c · 빛 J · K)
     return rec
+
+
+RESIDUE_SIGMAS = (2.0, 4.0, 8.0, 16.0)   # 매끈한 글자 없는 바탕 — 원천 가우스 가중 평균, 받침이 모자란 픽셀만 다음 반경(refine._smooth_fill 과 같은 생각)
+RESIDUE_SUPPORT = 0.05
+RESIDUE_SRC_GAP = 3                      # 바탕 원천 = 컨셉 글자 획(후보 · 핵심) · 빛 반경에서 이만큼(px) 밖
+
+
+def _smooth_bg(img, src) -> tuple[np.ndarray, np.ndarray]:
+    """원천(src) 픽셀의 정규화 가우스 평균 → (바탕 HxWx3, 받침 있음 HxW)."""
+    import cv2
+    w = np.asarray(src, np.float32)
+    img = np.asarray(img, np.float32)
+    out = np.zeros(img.shape, np.float32)
+    done = np.zeros(w.shape, bool)
+    if not w.any():
+        return out, done
+    for s in RESIDUE_SIGMAS:
+        den = cv2.GaussianBlur(w, (0, 0), s)
+        ok = (den > RESIDUE_SUPPORT) & ~done
+        if ok.any():
+            num = np.dstack([cv2.GaussianBlur(img[..., i] * w, (0, 0), s) for i in range(3)])
+            out[ok] = num[ok] / den[ok][:, None]
+            done |= ok
+        if done.all():
+            break
+    return out, done
+
+
+def _shift_min_de(a, b, box, r: int = SHIFT_TOL) -> np.ndarray:
+    """ΔE00(a, b 를 ±r px 옮긴 것)의 최소 — 상자 [x0, y0, x1, y1) 안만(판이 구조선을 1 ~ 2 px 어긋나게 다시 그림)."""
+    x0, y0, x1, y1 = box
+    H, W = np.shape(a)[:2]
+    la = color.srgb_to_lab(np.asarray(a, float)[y0:y1, x0:x1])
+    best = None
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            ys = np.clip(np.arange(y0, y1) + dy, 0, H - 1)
+            xs = np.clip(np.arange(x0, x1) + dx, 0, W - 1)
+            d = color.delta_e00(la, color.srgb_to_lab(np.asarray(b, float)[np.ix_(ys, xs)]))
+            best = d if best is None else np.minimum(best, d)
+    return np.asarray(best, np.float32)
+
+
+def glyph_residue(ref_text, comp, gm: dict, texts: list[dict], notext_black=None, render=None, de_min: float = DEFAULTS["residue_de"],
+                  min_px: int = DEFAULTS["residue_min_px"]) -> dict:
+    """E1 획에 붙은 잔상(1b 후속 L 다음 — 외부 · 단색 입력 검증 틀).
+    글자 구역 바탕 E1 은 모든 글자 획(컨셉 · 렌더 후보) + 2 px 와 컨셉 획 4 px 안 효과를 빼고 재서, 컨셉 획 자리에 텍스처가 남긴 글자 조각(메움이 획 끝을
+    덜 덮음)이 렌더 글자 바로 옆에 보여도 못 봤다 [사용자 눈 R20261118_120715 단색 '2/4' — '4' 밑 잔상, 글자 구역 바탕 국소 최대 9.78 < 10]. 그 자리는
+    컨셉이 글자라 '컨셉과 같나'로는 판정이 안 된다 — 글자 없는 바탕 추정과 견준다.
+    자리 = 컨셉 글자 획(후보 · 핵심 + 1 px) 중 렌더 글자(모든 글자의 렌더 후보 · 렌더 핵심 + 1 px)가 안 덮은 픽셀 — 렌더가 텍스처를 그대로 보여 주는 곳.
+    잔상 = 텍스처 합성과 렌더가 **둘 다** 글자 없는 바탕 두 추정 **모두**와 ΔE00 de_min 넘게 다른 픽셀: ① 컨셉 글자 바깥(모든 글자 획 · 빛 반경 + 3 px 밖)의
+    가우스 가중 평균 ② 글자 없는 판 ±2 px 이동 최소(판이 지킨 구조선 · 판으로 메운 자리). 엔진 글자 차이(빛 · 그림자 · 외곽선 · 글꼴 모양)는 렌더에만 있어
+    텍스처 합성이 바탕과 같다 → min 으로 빠진다(텍스처 합성 ↔ 컨셉 · 렌더 ↔ 컨셉 min 과 같은 원리). render 가 None 이면 텍스처 합성만(오프라인 replay —
+    보이는지는 모름, 자리는 컨셉 획 전체).
+    → {wid: {"zone_px", "px"(de_min 넘는 픽셀), "max_de", "blobs": [{box, area, mean_de, max_de}](넓이 ≥ min_px, 큰 순)}}"""
+    import cv2
+    H, W = np.shape(ref_text)[:2]
+    if not gm:
+        return {}
+    concept_all = np.zeros((H, W), bool)
+    render_all = np.zeros((H, W), bool)
+    glowz = np.zeros((H, W), bool)
+    for w in texts:
+        v = gm.get(w["id"])
+        if not v:
+            continue
+        concept_all |= v["concept_cand"] | v["concept"]
+        render_all |= v["render_cand"] | _dilate(v["render"], 1)
+        f = w.get("font") if isinstance(w.get("font"), dict) else {}
+        gl = float((f.get("glow") or {}).get("size") or 0)
+        if gl > 0:
+            glowz |= _dilate(v["concept"], int(round(gl)))
+    bg_s, ok_s = _smooth_bg(ref_text, ~_dilate(concept_all | glowz, RESIDUE_SRC_GAP))
+    out = {}
+    for w in texts:
+        k = w["id"]
+        v = gm.get(k)
+        if not v:
+            continue
+        zone = _dilate(v["concept"] | v["concept_cand"], 1) & ok_s
+        if render is not None:
+            zone &= ~render_all
+        zp = int(zone.sum())
+        if not zp:
+            out[k] = {"zone_px": 0, "px": 0, "max_de": 0.0, "blobs": []}
+            continue
+        bb = _bbox(_dilate(zone, 1))
+        x0, y0, x1, y1 = bb[0], bb[1], bb[0] + bb[2], bb[1] + bb[3]
+        z = zone[y0:y1, x0:x1]
+        sides = [comp] + ([render] if render is not None else [])
+        d = None
+        for img in sides:
+            de = delta_e(np.asarray(img, float)[y0:y1, x0:x1], bg_s[y0:y1, x0:x1])
+            if notext_black is not None:
+                de = np.minimum(de, _shift_min_de(img, notext_black, (x0, y0, x1, y1)))
+            d = de if d is None else np.minimum(d, de)
+        d = np.where(z, d, 0.0).astype(np.float32)
+        m = d > float(de_min)
+        blobs = []
+        n, lab, st, _ = cv2.connectedComponentsWithStats(m.astype(np.uint8), connectivity=8)
+        for i in range(1, n):
+            if st[i, cv2.CC_STAT_AREA] < int(min_px):
+                continue
+            sel = lab == i
+            blobs.append({"box": [int(st[i, 0] + x0), int(st[i, 1] + y0), int(st[i, 2]), int(st[i, 3])], "area": int(st[i, cv2.CC_STAT_AREA]),
+                          "mean_de": round(float(d[sel].mean()), 1), "max_de": round(float(d[sel].max()), 1)})
+        blobs.sort(key=lambda b_: -b_["area"] * b_["mean_de"])
+        out[k] = {"zone_px": zp, "px": int(m.sum()), "max_de": round(float(d.max()), 1), "blobs": blobs}
+    return out
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1593,6 +1735,14 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
             defects.append({"stage": "texture", "code": "E1", "box": _bbox(blob), "area": area, "max_de": round(float(loc_t[blob].max()), 1),
                             "mean_de": round(float(loc_t[blob].mean()), 1), "widgets": near[:3], "fixable": False,
                             "cause": "smear — the background around the text differs from the concept (text fill tone / shape)"})
+    # E1 획에 붙은 잔상(1b 후속 L 다음) — 위 바탕 검사가 빼는 컨셉 획 자리 중 렌더 글자가 안 덮은 곳에서 텍스처 · 렌더가 글자 없는 바탕과 다름
+    residue = glyph_residue(ref_text, comp_state, gm, texts, notext_black, render=base, de_min=float(s["residue_de"]), min_px=int(s["residue_min_px"]))
+    rec["text_residue"] = {k: {"zone_px": v["zone_px"], "px": v["px"], "max_de": v["max_de"], "blobs": v["blobs"][:3]} for k, v in residue.items()}
+    for k, v in residue.items():
+        for b in v["blobs"]:
+            defects.append({"stage": "texture", "code": "E1", "box": b["box"], "area": b["area"], "max_de": b["max_de"], "mean_de": b["mean_de"],
+                            "widgets": [k], "fixable": False,
+                            "cause": "residue — the texture keeps part of the concept glyph where the render glyph does not cover it (text fill missed the stroke)"})
 
     # E2 뭉개짐(1b 후속 K) — 텍스처가 그리는 자리마다 선명도(밝기 기울기 에너지) 렌더 ÷ 컨셉 · 텍셀 밀도(텍스처 px ÷ 화면 px — < 1 은 늘려 그림)
     blur_rows = []

@@ -2,7 +2,8 @@
 문턱 · 측정을 바꾸면 이 묶음으로 다시 잰다(몇 장에 맞추는 보정을 끊는다). 외부 화면이 섞여 git 무시 work/_golden/ — 시험은 없으면 건너뛴다.
 
   python golden.py snapshot   # work/ 의 원본 run 에서 진단에 필요한 파일만 work/_golden/<run>/ 로 복사(이미 있으면 건너뜀) + golden.json
-  python golden.py check      # 묶음 전부 진단 → 항목마다 잡힘 / 놓침, '오류 아님' 항목(expect none)은 깨끗함 / 거짓 양성
+  python golden.py check      # 묶음 전부 진단 → 항목마다 잡힘 / 놓침, '오류 아님' 항목(expect none)은 깨끗함 / 거짓 양성,
+                              # 보호 run(expect clean_run — 잘 나온 끝 run 은 run 전체 오류 0 유지)은 유지 / 깨짐
 """
 from __future__ import annotations
 
@@ -49,6 +50,29 @@ ITEMS = [
     {"name": "'체인' ㄴ 받침 바탕 얼룩(거짓 양성)", "run": "R20261118_175104_CombatHUD", "expect": "none", "codes": ["E1"],
      "widgets": ["ChainTitleText", "ChainTimerText"], "box": [1729, 208, 24, 20],
      "found": "11-18 L-1 run — 빛 여백으로 넓은 '4.2' core 가 '체인' 아래와 겹쳐 '인' ㄴ 받침 오른쪽 반이 '4.2' 몫 → 걸러져 바탕 E1 27(실제는 글자 획)"},
+    # 1b 후속 L 다음 — 외부 · 단색 입력 사람 눈(11-18 L 끝 run 뒤, 인계 uigen-L2-handoff '사용자 사람 눈 · 결정'). 자리는 각 run compare.png 로 확인
+    {"name": "'2/4' '4' 밑 잔상", "run": "R20261118_120715_CombatHUD", "codes": ["E1"], "widgets": ["ChainCountText"], "box": [1723, 282, 13, 10],
+     "found": "11-18 사용자 사람 눈 — 단색, 텍스처가 컨셉 '4' 발 오른쪽 끝을 남김(렌더 '4' 가 안 덮음). 진단은 '오류 0' 이었음 — 글자 구역 바탕 검사가 "
+              "렌더 획 + 2 px 를 빼 사각지대(국소 최대 9.78) → E1 획에 붙은 잔상(glyph_residue) [1727, 286, 5, 3] 11 px · 평균 ΔE00 31.3"},
+    {"name": "'2/4' 아래 금선 위 혹", "run": "R20261118_124503_CombatHUD", "codes": ["E1"], "widgets": ["ChainCountText"], "box": [1675, 295, 13, 9],
+     "found": "11-18 사용자 사람 눈 — 단색, refine 판 메우기(same_struct 로 지킨 금선 자리 + 획 3 px 경계)가 남긴 밝은 혹, 글자 구역 바탕 E1 [1677, 297, 9, 5]"},
+    {"name": "'2/4' 위치(커져 내려가 금선에 걸림)", "run": "R20261118_124503_CombatHUD", "widgets": ["ChainCountText"], "causes": ["position"],
+     "found": "11-18 사용자 사람 눈 — 단색, '2/4' 가 커지고 내려가 패널 아래 금선에 걸림(E6 position — 중심 차 (3.5, 3.0) · 허용 3.3)"},
+    {"name": "'0 %' 위치", "run": "R20261118_130201_ProbePartyHUD", "widgets": ["LinkPercentText"], "causes": ["position"],
+     "found": "11-18 사용자 사람 눈 — 파티, '0 %' 가 아래로(E6 position — 중심 차 (−1.5, −10.0) · 허용 3.5)"},
+    {"name": "'Lv 100' — '100' 검정 · 1.5 배(컨셉 획 측정 실패)", "run": "R20261118_130201_ProbePartyHUD", "widgets": ["LevelText"], "causes": ["unmeasured"],
+     "found": "11-18 사용자 사람 눈 'Lv 100 텍스트 아쉬움' — 실측: 'Lv' 위치 차 (+0.5, +2.0) · 허용 3.2(기준 안 — 항목 아님, 사용자 결정), '100' 은 컨셉 획 마스크가 "
+              "번진 파란 상자의 어두운 틈을 글자로 재(대비 0.5) 글자 맞춤이 검정 · 40 → 52 로 바꿈, 진단은 색 차 0.37 '같음' → 대비 안전망 E6 unmeasured"},
+    # 보호 — 지금 잘 나온 끝 run 은 run 전체 오류 0 유지(expect clean_run — 결함 하나라도 나오면 깨짐). 외부 · 단색 입력 규칙을 고치다 L-2 와 그 뒤 고친 것이
+    # 다시 꼬이지 않게 [L-1 · L-3 교훈 — 판 메우기 규칙 하나를 고칠 때마다 다른 입력 · 다른 글자에서 새 결함]
+    {"name": "보호: L-2 원래 전투 HUD", "run": "R20261118_191532_CombatHUD", "expect": "clean_run",
+     "found": "11-18 L-2 확인 run — 오류 0 · 근사 2(진단 거짓 양성 E1 고침 뒤)"},
+    {"name": "보호: L-1 원래 전투 HUD", "run": "R20261118_184602_CombatHUD", "expect": "clean_run",
+     "found": "11-18 진단 거짓 양성 E1 고침 끝 run — 오류 0 · 근사 0"},
+    {"name": "보호: controls_alpha", "run": "R20261118_180405_ProbeControlGuide", "expect": "clean_run",
+     "found": "11-18 L-2 회귀 run — 오류 0"},
+    {"name": "보호: controls", "run": "R20261118_125054_ProbeControlGuide", "expect": "clean_run",
+     "found": "11-18 L-3 끝 run — 지금 코드 오프라인 재진단 오류 0"},
 ]
 FILES = ["spec.json", "geometry.json", "manifest.json", "normalize.json", "reference.png", "reference_color.png", "reference_alpha.png", "render.png",
          "refine.json", "specs/000.json"]
@@ -85,6 +109,11 @@ def _overlap(a, b) -> bool:
 
 
 def matches(item: dict, rec: dict) -> list[dict]:
+    if item.get("expect") == "clean_run":
+        # 보호 run — 결함 하나하나가 '걸림'(위젯 · 분류 가리지 않음). 진단을 못 하면(건너뜀) 그것도 깨짐
+        if rec.get("skipped"):
+            return [{"skipped": rec["skipped"]}]
+        return [{k: d.get(k) for k in ("n", "code", "stage", "cause", "box", "widgets")} for d in rec.get("defects") or []]
     if item.get("state_extra"):
         extra = set((rec.get("state") or {}).get("force_visible_extra") or [])
         return [{"state": sorted(extra)}] if set(item["state_extra"]) <= extra else []
@@ -112,10 +141,19 @@ def check(cfg=None) -> list[dict]:
         if it["run"] not in recs:
             recs[it["run"]] = diagnose.diagnose(GOLDEN / it["run"], None, cfg, pictures=False)
         hit = matches(it, recs[it["run"]])
-        none = it.get("expect") == "none"
-        res.append({"name": it["name"], "run": it["run"], "expect": "none" if none else "defect", "caught": bool(hit),
-                    "ok": not hit if none else bool(hit), "hits": hit[:3]})
+        exp = it.get("expect") if it.get("expect") in ("none", "clean_run") else "defect"
+        res.append({"name": it["name"], "run": it["run"], "expect": exp, "caught": bool(hit),
+                    "ok": bool(hit) if exp == "defect" else not hit, "hits": hit[:3], "n_hits": len(hit)})
     return res
+
+
+TAGS = {"defect": ("caught ", "MISSED "), "none": ("clean  ", "FALSE+ "), "clean_run": ("kept0  ", "BROKEN ")}
+
+
+def summary_line(rs: list[dict]) -> str:
+    part = {e: [r for r in rs if r["expect"] == e] for e in TAGS}
+    return (f"{sum(r['ok'] for r in part['defect'])}/{len(part['defect'])} caught · {sum(r['ok'] for r in part['none'])}/{len(part['none'])} clean · "
+            f"{sum(r['ok'] for r in part['clean_run'])}/{len(part['clean_run'])} protected(errors 0)")
 
 
 if __name__ == "__main__":
@@ -125,9 +163,8 @@ if __name__ == "__main__":
     elif sys.argv[1:] == ["check"]:
         rs = check()
         for r in rs:
-            tag = ("clean  " if r["ok"] else "FALSE+ ") if r["expect"] == "none" else ("caught " if r["ok"] else "MISSED ")
-            print(tag + r["name"], r["hits"][:1])
-        det, non = [r for r in rs if r["expect"] == "defect"], [r for r in rs if r["expect"] == "none"]
-        print(f"{sum(r['ok'] for r in det)}/{len(det)} caught · {sum(r['ok'] for r in non)}/{len(non)} clean")
+            tag = TAGS[r["expect"]][0 if r["ok"] else 1]
+            print(tag + r["name"], (f"{r['n_hits']} errors " if r["expect"] == "clean_run" and r["n_hits"] else "") + str(r["hits"][:1]))
+        print(summary_line(rs))
     else:
         print(__doc__)

@@ -38,7 +38,7 @@ from core import patch as patch_mod  # noqa: E402
 from core import schema  # noqa: E402
 from core.run import LockBusy, Run, RunError, RunLock, new_run_id  # noqa: E402
 from stages import StageError  # noqa: E402
-from stages import analyze, build, codegen, fault, finalize, fix, generate, normalize, refine, style, verify  # noqa: E402
+from stages import analyze, build, codegen, fault, finalize, fix, generate, layer, normalize, refine, style, verify  # noqa: E402
 
 STAGES = ("normalize", "analyze", "codegen", "generate", "refine", "build", "verify", "finalize")
 
@@ -110,6 +110,23 @@ def _backdrop_summary(run: Run) -> dict | None:
     comp = rec.pop("compose", {}) or {}
     rec["compose"] = {"drawn": len(comp.get("drawn") or []), "missing": comp.get("missing") or []}
     return rec
+
+
+def _diagnosis_summary(run: Run, last: dict | None) -> dict | None:
+    """1b 후속 J-b — 마지막 verify 의 진단(gen/diagnose — run 폴더 diagnosis.json) → report.recorded.diagnosis(결함 · 원인 단계 · 글자 · 그림)."""
+    if not last or not run.path("diagnosis.json").is_file():
+        return None
+    d = run.read_json("diagnosis.json")
+    if d.get("attempt") != last.get("attempt"):
+        return {"stale": f"diagnosis.json is from attempt {d.get('attempt')}, the last verify is attempt {last.get('attempt')}"}
+    seams = d.get("seams") or {}
+    return {"attempt": d.get("attempt"), "truth": d.get("truth"), "summary": d.get("summary"), "badness": d.get("badness"), "maps": d.get("maps"),
+            "defects": (d.get("defects") or [])[:40], "hidden_states": d.get("hidden_states"),
+            "seams": {k: seams.get(k) for k in ("zone_px", "dark_px", "dark_mean", "worst", "layers")} | {"spots": (seams.get("spots") or [])[:10]},
+            "texts": [{k: t.get(k) for k in ("widget", "h_ratio", "w_ratio", "center_d", "density_ratio", "color_de", "dark_frac", "halo_frac", "causes",
+                                             "record_only")} for t in d.get("texts") or []],
+            "conversion": d.get("conversion"), "pictures": [f"attempts/{d.get('attempt'):03d}/diagnosis/{p}" for p in d.get("pictures") or []],
+            "settings": d.get("settings")}
 
 
 def _gauge_fidelity_summary(run: Run) -> dict | None:
@@ -237,6 +254,10 @@ def _pipeline(run: Run, opts: argparse.Namespace, ctx: dict) -> str:
     if concept:
         _simple(run, "analyze", lambda: analyze.run(run, opts))
         inject()
+        # 1b 후속 J-a — 기능 단위 레이어(정적 장식은 판 한 장으로, 기능 요소만 따로) — analyze 뒤 결정적 단계
+        _simple(run, "layer", lambda: layer.run(run, opts))
+        if run.path("layer.json").is_file() and run.read_json("layer.json").get("applied"):
+            run.write_json("specs/000.json", run.read_json("spec.json"))
     else:
         run.stage_begin("analyze")
         run.stage_end("analyze", "skipped", "hand_spec — spec is given (Phase 1a)")
@@ -261,10 +282,16 @@ def _pipeline(run: Run, opts: argparse.Namespace, ctx: dict) -> str:
         row.update({"pass": res["pass"], "failed": res["failed"], "duration_s": res["duration_s"]})
         run.stage_end("verify", "ok" if res["pass"] else "fail", verify.summary(res))
         _until(opts, "verify")
-        if res["pass"]:
+        if _structural_pass(res):
+            # 1b 후속 J-b — 구조 게이트가 통과하면 외형 라운드 · 글자 맞춤(결정적 고침)을 돌고, 합격은 마지막 진단이 깨끗할 때만
             _style_review(run, opts, ctx, attempt)
-            return "pass"
-        failed = set(res["failed"])
+            last = ctx["last"]
+            if last["pass"]:
+                return "pass"
+            ctx["attempts"][-1]["stop"] = "APPEARANCE"
+            ctx["message"] = _appearance_message(last)
+            return "fail"
+        failed = set(verify.structural_failed(res))
         if prev_failed is not None:
             no_progress = 0 if failed < prev_failed else no_progress + 1
         prev_failed = failed
@@ -278,7 +305,7 @@ def _pipeline(run: Run, opts: argparse.Namespace, ctx: dict) -> str:
                               f"{', '.join(res['failed'])}")
             return "fail"
         run.stage_begin("fix")
-        prop = fix.propose(run, attempt, res)
+        prop = fix.propose(run, attempt, _structural_only(res))
         ctx["fixes"].extend({"attempt": attempt, **f} for f in prop["fixes"])
         if prop["patch"] is None:
             row["stop"] = "NO_FIX"
@@ -305,6 +332,46 @@ def _pipeline(run: Run, opts: argparse.Namespace, ctx: dict) -> str:
     return "fail"   # pragma: no cover — 루프 안에서 끝난다
 
 
+def _structural_pass(res: dict) -> bool:
+    return bool(res.get("structural_pass", res["pass"]))
+
+
+def _structural_only(res: dict) -> dict:
+    """fix 에 넘길 결과 — appearance 는 빼고(외형은 재시도 fixer 가 아니라 외형 라운드 · 글자 맞춤 몫)."""
+    return {**res, "failed": verify.structural_failed(res), "gates": [g for g in res["gates"] if g["name"] != verify.APPEARANCE]}
+
+
+def _appearance(res: dict) -> dict | None:
+    return next((g for g in res.get("gates", []) if g["name"] == verify.APPEARANCE), None)
+
+
+def _appearance_badness(res: dict) -> tuple[int, float]:
+    g = _appearance(res)
+    if not g or g.get("skipped") or (g.get("details") or {}).get("error"):
+        return (0, 0.0) if not g or g.get("skipped") else (10 ** 6, 0.0)
+    return int(g.get("value") or 0), float((g.get("details") or {}).get("badness") or 0.0)
+
+
+def _round_ok(res: dict, before: dict | None) -> bool:
+    """외형 라운드 · 글자 맞춤 판을 받을지 — 구조 게이트 통과 + 진단이 나빠지지 않음(결함 수가 줄거나, 같으면 나쁨 정도가 2 % 넘게 늘지 않음)."""
+    if not _structural_pass(res):
+        return False
+    if before is None:
+        return True
+    a, b = _appearance_badness(res), _appearance_badness(before)
+    return a[0] < b[0] or (a[0] == b[0] and a[1] <= b[1] * 1.02 + 1e-6)
+
+
+def _appearance_message(res: dict) -> str:
+    g = _appearance(res) or {}
+    d = g.get("details") or {}
+    if d.get("error"):
+        return f"appearance diagnosis failed: {d['error']}"
+    top = "; ".join(f"#{x.get('n')} {x.get('stage')} {'/'.join(x.get('widgets') or [])}: {x.get('cause')}" for x in (d.get("defects") or [])[:6])
+    return (f"structural gates pass but the appearance diagnosis found {g.get('value')} local defect(s) {d.get('by_stage')} — not fixed "
+            f"deterministically: {top}")
+
+
 def _style_enabled(run: Run) -> bool:
     sr = run.cfg.get("style_review") or {}
     return int(sr.get("rounds", 0)) > 0 and (run.cfg.get("fix") or {}).get("mode", "deterministic") != "deterministic"
@@ -321,6 +388,7 @@ def _style_review(run: Run, opts, ctx: dict, attempt: int) -> None:
     rounds = int((run.cfg.get("style_review") or {}).get("rounds", 0)) if _style_enabled(run) else 0
     rec: dict = {"rounds_allowed": rounds, "rounds": []}
     ctx["style"] = rec
+    ctx["accepted"] = ctx["last"]            # 1b 후속 J-b — 라운드 받기 기준(구조 통과 + 진단이 이것보다 나빠지지 않음)
     run.stage_begin("style_compare")
     rep = style.compare(run, "before")
     rec["before"] = rep.get("summary") or {"error": rep.get("error")}
@@ -359,10 +427,17 @@ def _style_review(run: Run, opts, ctx: dict, attempt: int) -> None:
             guard = style.replace_guard(run, backup, prop["assets"], float((run.cfg.get("style_review") or {}).get("replace_guard_tol", 0.02)))
             if guard:
                 row["replace_guard"] = guard
-        res = _style_attempt(run, aopts, ctx, attempt, {"style_round": k, "patch": prop["patch_file"], "branch": prop["branch"]})
-        row["verify"] = {"attempt": attempt, "pass": res["pass"], "failed": res["failed"]}
-        if res["pass"]:
+        try:
+            res = _style_attempt(run, aopts, ctx, attempt, {"style_round": k, "patch": prop["patch_file"], "branch": prop["branch"]})
+        except StageError as exc:
+            # 1b 후속 K — 라운드 op 를 build 가 거절하면(왕복 검사 등) run 을 멈추지 않고 그 라운드만 버린다
+            # [실측 K R20261118_090350 파티 HUD — LLM 이 초상화 이미지 브러시에 radius 를 넣어 VALIDATION_FAILED 로 run 전체가 멈춤]
+            row["build_error"] = {"code": exc.code, "message": str(exc)[:300]}
+            res = {"pass": False, "failed": ["build"], "gates": [], "structural_pass": False}
+        row["verify"] = {"attempt": attempt, "pass": res["pass"], "failed": res["failed"], "appearance": _appearance_badness(res)}
+        if _round_ok(res, ctx.get("accepted")):
             row["action"] = "accepted"
+            ctx["accepted"] = res
             last_spec, last_attempt = run.read_json("spec.json"), attempt
             rep = style.compare(run, f"round_{k:03d}")
             row["after"] = rep.get("summary") or {"error": rep.get("error")}
@@ -372,13 +447,15 @@ def _style_review(run: Run, opts, ctx: dict, attempt: int) -> None:
         run.write_json("spec.json", last_spec)
         restored = style.restore(run, backup)
         reset = build.reset_run(run)
-        run.stage_end("style_revert", "ok", f"round {k} broke {', '.join(res['failed'])} — back to attempt {last_attempt}'s spec, "
+        run.stage_end("style_revert", "ok", f"round {k} broke {', '.join(res['failed'])} (appearance {_appearance_badness(res)} vs "
+                                            f"{_appearance_badness(ctx.get('accepted') or {})}) — back to attempt {last_attempt}'s spec, "
                                             f"restored {len(restored)} file(s), discarded {len(reset['discarded'])} package(s), rebuilding")
         row["revert"] = {"to_attempt": last_attempt, "restored": restored, "discarded": len(reset["discarded"])}
         attempt += 1
         res = _style_attempt(run, _opts(opts, attempt=attempt), ctx, attempt, {"style_round": k, "revert": True})
-        if not res["pass"]:
+        if not _structural_pass(res):
             raise StageError("STYLE_REVERT_FAILED", f"rebuilding the last passing spec failed: {', '.join(res['failed'])}")
+        ctx["accepted"] = res
         rep = style.compare(run, f"round_{k:03d}_reverted")
         break
     if (run.cfg.get("style_review") or {}).get("text_fit"):
@@ -399,6 +476,21 @@ def _text_fit_round(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: in
     for mode, key in TEXT_FIT_PASSES:
         rep, attempt, ok = _text_fit_pass(run, opts, ctx, rec, rep, attempt, mode, key)
         accepted = accepted or ok
+        if mode == "size" and ok and any(t.get("color") or t.get("outline") for t in (rec.get(key) or {}).get("texts", []) if isinstance(t, dict)):
+            # 1b 후속 J-c — 이 판에서 글자색을 고쳤으면 크기 판을 한 번 더: 색이 틀린 렌더 글자는 높이를 못 믿어 크기를 건너뛴다
+            # [실측 J R20261117_175018 — 남색 '점프' 높이 비 0.51 → 색만 고침, 다음 렌더에서 0.918]
+            rep, attempt, ok = _text_fit_pass(run, opts, ctx, rec, rep, attempt, mode, f"{key}_after_color")
+            accepted = accepted or ok
+    # 1b 후속 K — 위치 판 뒤 마지막 진단에 고칠 수 있는 글자 결함(크기 · 굵기 · 색 · 외곽선 · 빛)이 남으면 크기 판을 한 번 더(가장 가까운 굵기는 경계 근처에서
+    # 렌더마다 갈린다 [실측 K R20261117_234013 '체인 버스트' 밀도 비 위치 판 전 1.07 · 뒤 1.11 — Bold ↔ Black 경계 1.07])
+    try:
+        last = run.read_json("diagnosis.json")
+    except (OSError, ValueError):
+        last = {}
+    if any(d.get("stage") == "text" and d.get("fixable") and set(d.get("causes") or []) & {"size", "weight", "color", "outline", "glow", "shadow", "glow_strength"}
+           for d in last.get("defects") or []):
+        rep, attempt, ok = _text_fit_pass(run, opts, ctx, rec, rep, attempt, "size", "text_fit_size_final")
+        accepted = accepted or ok
     if accepted:
         row = rec["text_fit"]
         try:   # 같은 측정으로 남은 차(기록만 — 적용하지 않음)
@@ -410,14 +502,30 @@ def _text_fit_round(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: in
     return rep
 
 
-def _text_fit_pass(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: int, mode: str, key: str) -> tuple[dict, int, bool]:
-    """글자 맞춤 한 판 — 마지막 통과 렌더(시도 attempt)에서 재고 고쳐 build → verify. → (비교 보고, 마지막 통과 시도, 받았는지)."""
-    row: dict = {"round": key, "mode": mode}
+def _text_causes(res: dict | None) -> dict[str, set]:
+    """마지막 진단의 글자 결함 — 위젯 → 원인 집합."""
+    d = ((_appearance(res or {}) or {}).get("details") or {})
+    out: dict[str, set] = {}
+    for x in d.get("defects") or []:
+        if x.get("stage") == "text":
+            for wid in x.get("widgets") or []:
+                out.setdefault(wid, set()).update(x.get("causes") or [c.strip() for c in str(x.get("cause", "")).split(",") if c.strip()])
+    return out
+
+
+def _text_fit_pass(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: int, mode: str, key: str,
+                   only: set | None = None) -> tuple[dict, int, bool]:
+    """글자 맞춤 한 판 — 마지막 통과 렌더(시도 attempt)에서 재고 고쳐 build → verify. → (비교 보고, 마지막 통과 시도, 받았는지).
+    판이 진단을 나쁘게 해 버려지면(1b 후속 J) 그 판에서 글자 결함 원인이 줄어든 글자만 골라 한 번 더(only — `<key>_partial`) — 한 글자 탓에 판 전체가
+    버려졌다 [실측 J R20261117_192631 · 201408 파티 HUD — 방패 숫자 · 이름 측정 탓에 HP 숫자 크기까지 버려짐]."""
+    row: dict = {"round": key, "mode": mode, **({"only": sorted(only)} if only is not None else {})}
     rec[key] = row
     last_spec = run.read_json("spec.json")
+    before_causes = _text_causes(ctx.get("accepted"))
     run.stage_begin(key)
     try:
-        fitted, recs = style.text_fit(last_spec, run.path("reference.png"), run.path("render.png"), run.cfg, style.rendered_boxes(run, attempt), mode=mode)
+        fitted, recs = style.text_fit(last_spec, run.path("reference.png"), run.path("render.png"), run.cfg, style.rendered_boxes(run, attempt), mode=mode,
+                                      **({"only": only} if only is not None else {}))
     except Exception as exc:  # noqa: BLE001 — 기록 지표에 기대는 보정이라 실패해도 run 은 통과 그대로
         row.update(action="error", reason=f"{type(exc).__name__}: {exc}"[:300])
         run.stage_end(key, "ok", f"text fit ({mode}) skipped — {row['reason']}")
@@ -433,13 +541,26 @@ def _text_fit_pass(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: int
     run.stage_end(key, "ok", f"text fit ({mode}): {', '.join(changed)} → build")
     attempt += 1
     res = _style_attempt(run, _opts(opts, attempt=attempt), ctx, attempt, {"style_round": key})
-    row["verify"] = {"attempt": attempt, "pass": res["pass"], "failed": res["failed"]}
-    if res["pass"]:
+    row["verify"] = {"attempt": attempt, "pass": res["pass"], "failed": res["failed"], "appearance": _appearance_badness(res)}
+    if _round_ok(res, ctx.get("accepted")):
         row["action"] = "accepted"
+        ctx["accepted"] = res
         rep = style.compare(run, key)
         row["after"] = rep.get("summary") or {"error": rep.get("error")}
         return rep, attempt, True
     row["action"] = "reverted"
+    # 글자별로 다시 고를 몫 — 이 판에서 원인이 줄어든(없어진 포함) 글자, 새 원인이 생긴 글자는 뺀다
+    keep = set()
+    struct_failed = [g for g in res.get("gates", []) if not g.get("pass") and g["name"] != verify.APPEARANCE]
+    if only is None and len(changed) >= 2 and all(g["name"] == "overlap" for g in struct_failed):
+        # 겹침만 깨졌으면 겹친 글자는 빼고 고른다 [실측 J R20261117_195827 — '오의 불가' 크기 탓 overlap 에 다른 글자 셋 크기까지 버려짐]
+        involved = {v.get(k) for g in struct_failed for v in ((g.get("details") or {}).get("violations") or []) for k in ("a", "b")}
+        after_causes = _text_causes(res)
+        for wid in changed:
+            b, a = before_causes.get(wid, set()), after_causes.get(wid, set())
+            if wid not in involved and a <= b and len(a) < len(b):
+                keep.add(wid)
+        row["better_texts"] = sorted(keep)
     run.stage_begin("style_revert")
     run.write_json("spec.json", last_spec)
     reset = build.reset_run(run)
@@ -447,9 +568,13 @@ def _text_fit_pass(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: int
                                         f"discarded {len(reset['discarded'])} package(s), rebuilding")
     attempt += 1
     res = _style_attempt(run, _opts(opts, attempt=attempt), ctx, attempt, {"style_round": key, "revert": True})
-    if not res["pass"]:
+    if not _structural_pass(res):
         raise StageError("STYLE_REVERT_FAILED", f"rebuilding the last passing spec after the text fit ({mode}) failed: {', '.join(res['failed'])}")
-    return style.compare(run, f"{key}_reverted"), attempt, False
+    ctx["accepted"] = res
+    rep = style.compare(run, f"{key}_reverted")
+    if keep and keep != set(changed):
+        return _text_fit_pass(run, opts, ctx, rec, rep, attempt, mode, f"{key}_partial", only=keep)
+    return rep, attempt, False
 
 
 def _style_attempt(run: Run, aopts, ctx: dict, attempt: int, extra: dict) -> dict:
@@ -557,6 +682,9 @@ def execute(opts: argparse.Namespace) -> int:
                     report.setdefault("artifacts", {})["concept_convert"] = cv.get("concept_file")
         if ctx.get("style"):
             report.setdefault("recorded", {})["style_review"] = ctx["style"]
+        dg = _diagnosis_summary(run, last)
+        if dg:
+            report.setdefault("recorded", {})["diagnosis"] = dg
         summary = _codegen_summary(run)
         if summary:
             report["codegen"] = summary

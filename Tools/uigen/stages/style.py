@@ -26,6 +26,7 @@ STYLE_SET_EXACT = {"font.color", "font.weight", "font.size", "font.family", "fon
                    "font.outline", "font.shadow", "font.gradient"}
 STYLE_SET_PREFIXES = ("style.", "font.outline.", "font.shadow.", "font.gradient.")
 FIX_CALLS = 2
+TEXT_WIDGETS = ("TextBlock", "RichTextBlock")
 
 
 def allowed_path(path: str) -> bool:
@@ -51,10 +52,17 @@ def guard_style_ops(ops: list[dict], spec: dict, brief: dict, cfg: dict, codex_b
     replaces = 0
     if len(ops) > max_ops:
         errs.append(f"{len(ops)} ops — at most {max_ops} per round")
+    types = {w["id"]: w.get("type") for w in spec.get("widgets", [])}
     for i, op in enumerate(ops):
         kind = op.get("op")
         if kind == "set":
             path = str(op.get("path", ""))
+            if types.get(op.get("widget")) in TEXT_WIDGETS:
+                # 1b 후속 J-c — 글자 스타일(크기 · 굵기 · 외곽선 · 빛 · 색 · 자리)은 결정적 측정만(analyze 파생 · 글자 맞춤 · 진단) — [실측 R20261117_154442]
+                # 외형 라운드가 측정 오판을 키워 왼쪽 라벨에 남색 외곽선 2 px · 굵게를 넣었다
+                errs.append(f"op {i}: set {op.get('widget')}.{path} — text widgets are styled and placed by deterministic measurement only "
+                            "(colour · glow from the concept, size · weight · position by the text fit); leave text alone in the style round")
+                continue
             if not allowed_path(path):
                 errs.append(f"op {i}: set {op.get('widget')}.{path} — the style round may only set style.*, font.color/weight/size/family/outline/shadow/"
                             "letter_spacing/gradient, slot.padding or justification (layout already passes the gates)")
@@ -292,19 +300,25 @@ def _frame_drop(img, spec: dict):
     return out
 
 
-def _ink_abs(img, box, gaps: bool = False, drop=None, prefer: str | None = None):
+def _ink_abs(img, box, gaps: bool = False, drop=None, prefer: str | None = None, mask=None):
     """측정 상자 안 글자 획 상자(절대 좌표). gaps 면 (상자, 획 상자 안 세로 투영의 빈 열 수 — 글자 사이 틈, 획 밀도 = 획 픽셀 / 획 상자 넓이).
-    drop = 뺄 픽셀(이미지 크기). prefer = 글자 쪽 밝기('bright' | 'dark' — fidelity.text_ink)."""
+    drop = 뺄 픽셀(이미지 크기). prefer = 글자 쪽 밝기('bright' | 'dark' — fidelity.text_ink).
+    mask(1b 후속 J-c) = 그 글자의 핵심 획 마스크(gen/diagnose.run_text_masks — 진단과 같은 획, 빛 번짐 제외) — 있으면 밝기 가르기 대신 그것."""
     from gen import fidelity
     x0, y0, x1, y1 = box
     if x1 - x0 < 4 or y1 - y0 < 4:
         return (None, None, None) if gaps else None
-    sub = img[y0:y1, x0:x1]
-    ink = fidelity.text_ink(sub, prefer=prefer)
-    if ink is not None and drop is not None:
-        ink = ink & ~drop[y0:y1, x0:x1]
+    if mask is not None:
+        ink = mask[y0:y1, x0:x1].copy()
         if int(ink.sum()) < fidelity.INK_MIN_PIXELS:
             ink = None
+    else:
+        sub = img[y0:y1, x0:x1]
+        ink = fidelity.text_ink(sub, prefer=prefer)
+        if ink is not None and drop is not None:
+            ink = ink & ~drop[y0:y1, x0:x1]
+            if int(ink.sum()) < fidelity.INK_MIN_PIXELS:
+                ink = None
     bb = fidelity.ink_box(ink)
     out = [bb[0] + x0, bb[1] + y0, bb[2], bb[3]] if bb else None
     if not gaps:
@@ -336,13 +350,21 @@ def _stop_at_others(nb: list, box: list, others) -> list:
     return [int(n0), int(m0), int(n1), int(m1)]
 
 
-def _cut_sides(img, box, bb, drop, prefer: str | None = None) -> list[bool]:
+def _cut_sides(img, box, bb, drop, prefer: str | None = None, mask=None) -> list[bool]:
     """렌더 획이 측정 상자 끝에 닿았거나 걸쳐 잘린 쪽 [왼, 위, 오른, 아래]. text_ink 는 좌우 끝에 닿은 덩어리를 지우므로(모서리 장식 빼기)
     상자 밖으로 걸쳐 나간 글자는 그냥 사라져 '닿음'으로 안 보인다 — 지우기 전 획으로 다시 본다.
     [실측 G 크기 끝 run] 크기 판이 배너 라벨을 가운데 중심으로 키우자 왼쪽 끝이 17 px 나가 '체' 가 측정에서 빠졌다(렌더 폭 225 — 실제 약 257)."""
     from gen import fidelity
     x0, y0, x1, y1 = box
     side = [bb[0] <= x0 + 1, bb[1] <= y0 + 1, bb[0] + bb[2] >= x1 - 1, bb[1] + bb[3] >= y1 - 1]
+    if mask is not None:        # 핵심 획 마스크는 상자와 무관하게 그 글자 전체 — 상자 밖에 획이 남았는지로
+        import numpy as np
+        out = mask.copy()
+        out[y0:y1, x0:x1] = False
+        if out.any():
+            ys, xs = np.nonzero(out)
+            side = [side[0] or xs.min() < x0, side[1] or ys.min() < y0, side[2] or xs.max() >= x1, side[3] or ys.max() >= y1]
+        return side
     raw = fidelity.text_ink(img[y0:y1, x0:x1], drop_edges=False, prefer=prefer)
     if raw is not None and drop is not None:
         raw = raw & ~drop[y0:y1, x0:x1]
@@ -446,14 +468,18 @@ def _text_polarity(w: dict, img, box) -> str | None:
     return "bright" if tl > bl + TEXT_POLARITY_DL else ("dark" if tl < bl - TEXT_POLARITY_DL else None)
 
 
-def _concept_ink(ref, box, drop, others, limit, prefer: str | None = None) -> tuple[list[int] | None, int]:
+def _concept_ink(ref, box, drop, others, limit, prefer: str | None = None, mask=None) -> tuple[list[int] | None, int]:
     """컨셉 글자 획 상자 — analyze 상자가 글자보다 짧으면(획이 잘림) 획 높이 × 0.5 · 1.0 · 1.5 만큼 넓혀 다시 재 원래 획 상자를 품고 더 큰 것을 받는다.
     넓히는 쪽에 다른 글자 위젯 상자가 있으면(세로로 겹치고 아직 안 닿은 것) 그 앞에서 멈춘다 — 이웃 글자를 끌어오지 않게.
     [실측 G 끝 run 3] 배너 라벨 상자 끝 1024 · 컨셉 '트' 는 1064 까지 → 잘린 조각은 text_ink 가 '끝에 닿은 덩어리'로 지워 획 상자 222 px(실제 275)."""
-    c = _ink_abs(ref, box, drop=drop, prefer=prefer)
+    c = _ink_abs(ref, box, drop=drop, prefer=prefer, mask=mask)
     grown = 0
     if c is None:
         return None, 0
+    if mask is not None:        # 핵심 획 마스크는 이미 그 글자 전체 — 상자를 넓혀 다시 잴 필요 없음(상자 밖 획까지)
+        import numpy as np
+        ys, xs = np.nonzero(mask)
+        return [int(xs.min()), int(ys.min()), int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1)], 0
     h0 = c[3]
     x0, y0, x1, y1 = box
     # 잘린 조각은 text_ink 가 '상자 끝에 닿은 덩어리'로 지우므로 조금씩 넓히면 자란 것이 안 보인다 → 넓이를 0.5 · 1.0 · 1.5 배로 차례로
@@ -666,7 +692,7 @@ def _fit_sizes(before: dict, after: dict, cfg: dict, rendered: dict[str, list] |
 
 
 def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[str, list] | None = None,
-             mode: str = "place") -> tuple[dict, list[dict]]:
+             mode: str = "place", only: set | None = None) -> tuple[dict, list[dict]]:
     """1b 후속 G — 글자 크기 · 굵기 · 위치 결정적 맞춤(외형 라운드 뒤, LLM 없음). 마지막 통과 렌더에서 글자마다 컨셉 ↔ 렌더 획 상자를 같은 측정 상자
     (컨셉 획 상자 + 여유 — 넓은 위젯 상자에 패널 선 · 이웃 글자가 끼지 않게, 그 글자의 영역 안)에서 재고, 두 판으로 나눠 고친다
     (run_pipeline._text_fit_round 가 판마다 build → verify — 크기를 바꾼 글자는 그 판에서 위치 · 자간을 안 건드린다):
@@ -699,6 +725,11 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
     root = after.get("root")
     drop_c, drop_r = _frame_drop(ref, after), _frame_drop(ren, after)
     typefaces = {str(t).lower() for t in ((cfg.get("fonts") or {}).get("typefaces") or ["Regular", "Bold"])}
+    try:
+        from core import config as config_mod
+        font_roles = config_mod.font_roles(cfg)
+    except Exception:  # noqa: BLE001
+        font_roles = {}
 
     def region_box(w):
         cur = w
@@ -713,7 +744,16 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
         return list(fidelity._clip_box(bb, W, H))
     texts = [w for w in after.get("widgets", []) if w.get("type") == "TextBlock" and w.get("bbox_intent")]
     boxes = {w["id"]: line_box(w) for w in texts}
-    nt_mask = _notext_text_mask(reference_path, ref, texts)
+    # 1b 후속 J-c — 진단(gen/diagnose)과 같은 획: 컨셉 = 글자 없는 텍스처 합성 · 판과 다른 픽셀 중 핵심 획(빛 번짐 제외), 렌더 = 렌더 ↔ 글자 없는 합성.
+    # [실측 J-b 기준선 154442] 밝기 · 판 차이 측정이 빛 번짐까지 획으로 잡아 보통 → 굵게 · 40 → 46 으로 키웠고 '회피' 는 덜 잡아 38 → 31
+    import pathlib
+    from gen import diagnose
+    gm = None
+    try:
+        gm = diagnose.run_text_masks(pathlib.Path(render_path).parent, spec, render_path)
+    except Exception:  # noqa: BLE001 — 마스크가 없으면 예전 밝기 측정
+        gm = None
+    nt_mask = _notext_text_mask(reference_path, ref, texts) if gm is None else None
     if nt_mask is not None:     # 컨셉 획 = 글자 없는 판과 다른 픽셀만(밝기 갈라 잡힌 배지 · 아이콘 · 장식은 뺌)
         drop_c = (drop_c if drop_c is not None else np.zeros((H, W), bool)) | ~nt_mask
     # 렌더 쪽 글자 없는 합성 차(띠 밝은 면 · 배지 베벨은 뺌) — 밝기 측정을 못 믿을 때만 대신 쓴다(아래). 늘 쓰면 획 굵기 기준이 달라 '어빌리티' 를 굵게로
@@ -722,16 +762,27 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
     drop_rt = ((drop_r if drop_r is not None else np.zeros((H, W), bool)) | ~rt_mask) if rt_mask is not None else None
     recs, measured = [], {}
     for w in texts:
+        if only is not None and w["id"] not in only:
+            continue                # 1b 후속 J — 판을 글자별로 다시 짤 때(run_pipeline._text_fit_pass) 고를 글자만
         rec: dict = {"widget": w["id"]}
-        if nt_mask is not None:
+        g = (gm or {}).get(w["id"])
+        mc = g["concept"] if g is not None and g["concept"].sum() >= 20 else None
+        mr = g["render"] if g is not None and g["render"].sum() >= 20 and mc is not None else None
+        if mc is None:
+            mr = None
+        if mc is not None:
+            rec["concept_mask"] = "core glyph strokes (gen/diagnose — text-free texture composite · text-free concept, glow excluded)"
+        elif nt_mask is not None:
             rec["concept_mask"] = "text-free concept difference"
         recs.append(rec)
         rb = region_box(w)
         limit = [0, 0, W, H] if not rb else [max(0, int(rb[0])), max(0, int(rb[1])), min(W, int(math.ceil(rb[0] + rb[2]))), min(H, int(math.ceil(rb[1] + rb[3])))]
+        if mc is not None:
+            limit = [0, 0, W, H]        # 핵심 획 마스크는 이미 그 글자만 — 영역 상자로 자르지 않는다(영역 밖으로 나간 획도 잰다)
         pol = _text_polarity(w, ref, boxes[w["id"]])    # 글자 쪽 밝기 — 컨셉 · 렌더를 같은 쪽으로 잰다
         if pol:
             rec["ink_side"] = pol
-        c0, grown = _concept_ink(ref, boxes[w["id"]], drop_c, [b for k, b in boxes.items() if k != w["id"]], limit, prefer=pol)
+        c0, grown = _concept_ink(ref, boxes[w["id"]], drop_c, [b for k, b in boxes.items() if k != w["id"]], limit, prefer=pol, mask=mc)
         if grown:
             rec["concept_box_grown"] = grown
         if c0 is None:
@@ -739,31 +790,45 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
             continue
         m = max(6, int(round(TEXT_FIT_MARGIN * c0[3])))
         M = [max(limit[0], c0[0] - m), max(limit[1], c0[1] - m), min(limit[2], c0[0] + c0[2] + m), min(limit[3], c0[1] + c0[3] + m)]
+        if mr is not None:      # 마스크 측정 — 렌더 획 전체가 들게(어긋난 글자도 잘리지 않게)
+            ys_, xs_ = np.nonzero(mr)
+            M = [max(0, min(M[0], int(xs_.min()) - m)), max(0, min(M[1], int(ys_.min()) - m)), min(W, max(M[2], int(xs_.max()) + 1 + m)),
+                 min(H, max(M[3], int(ys_.max()) + 1 + m))]
         lim_box = limit
-        (c2, cg, cd), (r2, rg, rd) = _ink_abs(ref, M, gaps=True, drop=drop_c, prefer=pol), _ink_abs(ren, M, gaps=True, drop=drop_r, prefer=pol)
+        if mc is not None and mr is not None:
+            # 1b 후속 J-c — 진단(gen/diagnose._stats)과 같은 정의: 마스크 전체 · 1 ~ 99 백분위 획 상자 · 상자 안 밀도 · 빈 열 — 맞춤과 진단이 같은 숫자를 본다
+            # [실측 J R20261117_181500 '2/4' — 측정 상자로 자른 맞춤 1.03 ↔ 진단 1.08 ~ 1.12 로 엇갈려 크기 결함이 남았다]
+            sc_, sr_ = diagnose._stats(mc, ref), diagnose._stats(mr, ren)
+            (c2, cg, cd) = (sc_["box"], sc_["gap_cols"], sc_["density"]) if sc_ else (None, None, None)
+            (r2, rg, rd) = (sr_["box"], sr_["gap_cols"], sr_["density"]) if sr_ else (None, None, None)
+        else:
+            (c2, cg, cd), (r2, rg, rd) = (_ink_abs(ref, M, gaps=True, drop=drop_c, prefer=pol, mask=mc),
+                                          _ink_abs(ren, M, gaps=True, drop=drop_r, prefer=pol, mask=mr))
         # 렌더 획이 측정 상자의 한쪽 끝에 닿거나 걸쳐 잘리면(_cut_sides) 그쪽만 여유만큼 넓혀 다시(최대 TEXT_FIT_WIDEN 번, 다른 글자 상자 앞까지)
         # — 컨셉 획 상자가 그대로일 때만 받는다
         # [실측 G 끝 run 3] 배너 라벨이 컨셉보다 18 px 왼쪽(여유 15 px)이라 닿아서 건너뛰었다
         others = [b for k, b in boxes.items() if k != w["id"]]
-        for _ in range(TEXT_FIT_WIDEN):
+        for _ in range(0 if (mc is not None and mr is not None) else TEXT_FIT_WIDEN):     # 마스크 측정은 넓힐 필요 없음
             if c2 is None or r2 is None or _touches(c2, M):
                 break
-            side = _cut_sides(ren, M, r2, drop_r, pol)
+            side = _cut_sides(ren, M, r2, drop_r, pol, mask=mr)
             if not any(side):
                 break
             M2 = [max(lim_box[0], M[0] - m) if side[0] else M[0], max(lim_box[1], M[1] - m) if side[1] else M[1],
                   min(lim_box[2], M[2] + m) if side[2] else M[2], min(lim_box[3], M[3] + m) if side[3] else M[3]]
-            M2 = _stop_at_others(M2, M, others)
+            if mr is None:
+                M2 = _stop_at_others(M2, M, others)
             if M2 == M:
                 break
-            (c3, cg3, cd3), (r3, rg3, rd3) = _ink_abs(ref, M2, gaps=True, drop=drop_c, prefer=pol), _ink_abs(ren, M2, gaps=True, drop=drop_r, prefer=pol)
+            (c3, cg3, cd3), (r3, rg3, rd3) = (_ink_abs(ref, M2, gaps=True, drop=drop_c, prefer=pol, mask=mc),
+                                              _ink_abs(ren, M2, gaps=True, drop=drop_r, prefer=pol, mask=mr))
             if c3 != c2:
                 break                       # 넓힌 자리에 컨셉의 다른 획(이웃 글자 · 선)이 들어옴 — 그만
             M, c2, cg, cd, r2, rg, rd = M2, c3, cg3, cd3, r3, rg3, rd3
             rec["widened"] = rec.get("widened", 0) + 1
         rec["measure_box"] = [M[0], M[1], M[2] - M[0], M[3] - M[1]]
         masked = False
-        if drop_rt is not None and c2 is not None and not _touches(c2, M):
+        if drop_rt is not None and mr is None and c2 is not None and not _touches(c2, M):
             bad = r2 is None or _touches(r2, M)
             if not bad:
                 hr, wr = r2[3] / c2[3], r2[2] / c2[2]
@@ -783,15 +848,42 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
             rec["skipped"] = "glyphs reach the measuring box edge (a neighbour, a frame line or the region edge is inside) — not trusted"
             continue
         f = w.get("font") if isinstance(w.get("font"), dict) else None
+        if mode == "size" and f is not None and mc is not None and mr is not None:
+            col = _fit_color(f, ref, ren, mc, mr)       # 1b 후속 J-c — 글자색 · 그라데이션도 진단과 같은 핵심 획에서(결정적)
+            if col:
+                rec["color"] = col
+            ol = _fit_outline(f, ref, ren, g)           # 외곽선도 컨셉에서 잰 것만(J-c — LLM 외곽선은 analyze 에서 걷었다)
+            if ol:
+                rec["outline" if "new" in ol else "outline_skipped"] = ol
+            gl = _fit_glow(f, ref, ren, g, font_roles)  # 1b 후속 J — 빛 크기도 같은 측정(핵심 획 밖 밝은 비율)으로
+            if gl:
+                rec["glow"] = gl
+            sd = _fit_shadow(f, ref, ren, g)            # 1b 후속 L-3c — 그림자 유무 · 오프셋 · 색도 진단과 같은 측정(diagnose.shadow_measure)
+            if sd:
+                rec["shadow"] = sd
         if mode == "size":
             wh = rec["w_ratio"] / max(1e-6, rec["h_ratio"])
-            if not TEXT_FIT_TRUST_H[0] <= rec["h_ratio"] <= TEXT_FIT_TRUST_H[1] or abs(wh - 1.0) > TEXT_FIT_TRUST_WH:
+            if not diagnose.measure_trusted(rec["h_ratio"], rec["w_ratio"]):     # 1b 후속 K — 진단과 같은 신뢰 규칙(폭 · 높이가 맞으면 1.6 까지)
                 rec["skipped"] = (f"glyph height ratio {rec['h_ratio']} (width/height {wh:.2f}) is outside {list(TEXT_FIT_TRUST_H)} or the width disagrees by more than "
                                   f"{TEXT_FIT_TRUST_WH:g} — the measurement is not trusted for size or weight (clipped or merged glyphs)")
                 continue
             # 굵기 — 컨셉 ↔ 렌더 획 밀도 비가 regular ↔ bold 경계(두 굵기 밀도 비의 기하 중간)를 넘으면 바꾼다. 밀도는 크기와 거의 무관하다
             # [실측 G 끝 run 4] '오의 불가'(Pretendard Bold) 비 0.706 — 컨셉 0.254 ≈ Regular 0.237, 다른 글자 1.00 ~ 1.22 (F run 5 는 높이 비 0.838 · 비 0.72)
-            if f is not None and cd and rd and not masked and {"regular", "bold"} <= typefaces:
+            from gen import diagnose as _dg
+            wtab = _dg.weight_table(cfg, f.get("family")) if f is not None else None
+            cur0 = (f.get("weight") or spec_mod.FONT_DEFAULT["weight"]) if f is not None else None
+            resizing = abs(1.0 - rec["h_ratio"]) >= TEXT_FIT_SIZE_TOL
+            if resizing and wtab and cur0 in (wtab or {}):
+                rec["weight_deferred"] = "the size changes in this pass — stroke density depends on the size (small text renders denser), weight is judged next pass"
+            elif f is not None and cd and rd and not masked and wtab and cur0 in wtab:
+                # 1b 후속 K E9 — 가진 굵기(fonts.weight_density) 중 컨셉 밀도에 가장 가까운 것(로그 거리, 진단과 같은 규칙 · 여유)
+                cur, ratio = cur0, round(cd / rd, 3)
+                best, w_after = _dg.nearest_weight(rd / cd, cur, wtab)
+                new = best if best != cur and abs(math.log(w_after)) + _dg.DEFAULTS["weight_margin"] < abs(math.log(rd / cd)) else None
+                if new:
+                    f["weight"] = new
+                    rec["weight"] = [cur, new, ratio]
+            elif f is not None and cd and rd and not masked and {"regular", "bold"} <= typefaces:
                 cur, ratio = f.get("weight") or spec_mod.FONT_DEFAULT["weight"], round(cd / rd, 3)
                 new = "regular" if cur == "bold" and ratio < 1.0 / TEXT_FIT_WEIGHT_STEP else ("bold" if cur == "regular" and ratio > TEXT_FIT_WEIGHT_STEP else None)
                 if new:
@@ -808,6 +900,11 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
             continue
         if not TEXT_FIT_H[0] <= rec["h_ratio"] <= TEXT_FIT_H[1]:
             rec["skipped"] = f"glyph height ratio {rec['h_ratio']} is outside {list(TEXT_FIT_H)} — the size is the size pass's job"
+            continue
+        if not diagnose.measure_trusted(rec["h_ratio"], rec["w_ratio"]):
+            # 1b 후속 K — 폭 · 높이가 안 맞는 측정(잘리거나 섞인 획)의 가운데로 옮기지 않는다 [실측 K R20261118_010950 단색 '2/4' — 폭 비 0.45 측정으로
+            # (−5.5, +8.5) 옮겨 패널 아래 금선과 겹침]
+            rec["skipped"] = f"width ratio {rec['w_ratio']} disagrees with height ratio {rec['h_ratio']} — the measurement is not trusted for moving"
             continue
         measured[w["id"]] = (rec, c2, r2)
     if mode == "size":
@@ -855,6 +952,16 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
         grow_c = 0.0 if fx is not None else {"left": dw / 2.0, "right": -dw / 2.0}.get(w.get("justification", "left"), 0.0)
         dx = round(c2[0] + c2[2] / 2.0 - (r2[0] + r2[2] / 2.0 + grow_c), 1)
         dy = round(c2[1] + c2[3] / 2.0 - (r2[1] + r2[3] / 2.0), 1)
+        just = w.get("justification", "left")
+        # 끝 맞춤 · 가운데 맞춤 판정은 이 판의 자간을 넣은 뒤 예상 폭으로(진단 E6 이 받은 뒤 렌더를 재는 것과 같은 상태) — 자간 전 폭으로 끝 맞춤을 고르고
+        # 진단은 자간 뒤 폭(모양 차 8 % 안)으로 가운데를 봐 6.5 px 어긋남이 됐다 [실측 L-2 R20261118_171644 '체인 버스트' 0.90 → 0.937]
+        wh_after = (r2[2] + dw) / max(1e-6, c2[2]) / max(1e-6, rec["h_ratio"])
+        rec["w_over_h_after"] = round(wh_after, 3)
+        if fx is None and just in ("left", "right") and abs(wh_after - 1.0) > 0.08:
+            # 1b 후속 K — 글자 모양 폭이 달라(글꼴 결 — 근사) 가운데를 맞추면 정렬 끝이 어긋난다: 정렬 끝(왼 · 오른쪽)을 맞춘다(진단 E6 과 같은 규칙,
+            # 폭이 같은 글자는 예전처럼 가운데) [실측 J 남은 일 R20261117_215853 HP 현재치 — 오른쪽 정렬 · 렌더 20 % 넓음, 가운데 맞춤 뒤 끝 9 px 어긋남]
+            dx = round((c2[0] - r2[0]) if just == "left" else ((c2[0] + c2[2]) - (r2[0] + r2[2])), 1)
+            rec["anchor"] = f"{just} edge (glyph widths differ — w/h {wh_after:.2f} after the spacing)"
         lim = max(8.0, min(TEXT_FIT_MAX_PX, TEXT_FIT_MAX_H * c2[3]))
         rec["center_d"] = [dx, dy]
         sx = dx if TEXT_FIT_MIN_PX <= abs(dx) <= lim else 0.0
@@ -900,7 +1007,227 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
 
 
 def text_fit_changed(recs: list[dict]) -> list[str]:
-    return [r["widget"] for r in recs if r.get("widget") and (r.get("shift") or r.get("letter_spacing") or r.get("weight") or r.get("size"))]
+    return [r["widget"] for r in recs if r.get("widget") and (r.get("shift") or r.get("letter_spacing") or r.get("weight") or r.get("size") or r.get("color")
+                                                            or r.get("outline") or r.get("glow") or r.get("shadow"))]
+
+
+GLOW_GAP = 0.15               # 1b 후속 J — 핵심 획 밖 '바탕보다 밝은' 비율(빛 번짐) 차가 이보다 크면 빛 크기를 비율만큼 고친다(진단 text_halo_frac 0.2 보다 앞에서)
+GLOW_SCALE = (0.5, 1.5)       # 한 번에 바꿀 빛 크기 배율 범위
+
+
+GLOW_NONE = 0.05              # 컨셉 빛 번짐 비율이 이 미만이면 빛 없음으로 본다(빛을 뗀다)
+
+
+def _add_glow(f: dict, ref, ren, g: dict, roles: dict | None) -> dict | None:
+    """1b 후속 K E7 — 컨셉은 빛나는데 렌더 글자엔 빛이 없으면(진단 E7 과 같은 기준: 컨셉 띠 밝기 − 렌더 ≥ 문턱/2) 빛을 넣는다: 크기 = 컨셉 측정 크기,
+    색 = analyze derive_text_glow 와 같은 식(바탕 B 에서 1 ~ 3 px 띠 색 C 쪽으로 한 채널이 255 에 닿을 때까지), 글꼴 = 그 역할의 SDF 사본.
+    [실측 K R20261118_002153 '오의 불가' — analyze 측정 7.9 로 문턱 8 바로 아래라 빛을 안 붙였고, 진단은 8.2 로 E7 — 맞춤이 넣는 길이 없었다]."""
+    import cv2
+    import numpy as np
+    from gen import diagnose
+    gmin = diagnose.DEFAULTS["glow_min"]
+    gc = diagnose.glow_measure(ref, g.get("concept_glow_bg"), g["concept"])
+    gr = diagnose.glow_measure(ren, g.get("render_bg"), g["render"])
+    if not gc or not gr or not diagnose.glow_on(gc, gmin) or diagnose.glow_on(gr, gmin) or gc["peak"] - gr["peak"] < gmin / 2:
+        return None
+    sdf = next((r.get("sdf_family") for r in (roles or {}).values() if f.get("family") in (r.get("family"), r.get("sdf_family")) and r.get("sdf_family")), None)
+    if not sdf:
+        return {"skipped": "the concept glows but this font has no SDF copy", "peak": [gc["peak"], gr["peak"]]}
+    core = np.asarray(g["concept"], bool)
+    dist = cv2.distanceTransform((~core).astype(np.uint8), cv2.DIST_L2, 5)
+    band = (dist > 1) & (dist <= 3)
+    bgb = (dist > 10) & (dist <= 14)
+    bgimg = g.get("concept_glow_bg") if g.get("concept_glow_bg") is not None else g.get("concept_bg")
+    if not band.any() or not bgb.any() or bgimg is None:
+        return None
+    C, B = np.median(np.asarray(ref, float)[band], axis=0), np.median(np.asarray(bgimg, float)[band], axis=0)
+    v = C - B
+    pos = v > 1e-6
+    if not pos.any():
+        return None
+    size = max(3, int(gc["size"] or 3))
+    k = max(1.0, float(np.min((255.0 - B[pos]) / v[pos])))
+    G = np.clip(B + k * v, 0, 255)
+    alpha = float(np.clip(1.0 / (k * max((1.0 - 2.5 / size) ** 1.5, 1e-3)), 0.15, 1.0))
+    f["glow"] = {"size": size, "color": "#" + "".join(f"{int(round(c)):02X}" for c in G) + f"{int(round(alpha * 255)):02X}"}
+    old_family = f.get("family")
+    f["family"] = sdf
+    return {"old": 0, "new": size, "added": True, "color": f["glow"]["color"], "family": [old_family, sdf], "peak": [gc["peak"], gr["peak"]]}
+
+
+def _fit_glow(f: dict, ref, ren, g: dict, roles: dict | None = None) -> dict | None:
+    """1b 후속 J — 빛(font.glow) 크기를 진단과 같은 마스크 · 바탕의 빛 번짐 비율로 맞춘다: 새 크기 = 크기 × (컨셉 비율 ÷ 렌더 비율)(GLOW_SCALE 안 · 최소 2).
+    [실측 J R20261117_204115 파티 HUD 'Lv' — analyze 빛 크기 10 이 컨셉보다 넓어 비율 0.32 ↔ 0.54]. 외곽선이 있는 글자는 안 건드린다. → 기록 또는 None."""
+    from gen import diagnose
+    gl = f.get("glow") if isinstance(f.get("glow"), dict) else None
+    cb, rb = g.get("concept_bg"), g.get("render_bg")
+    if (not gl or not gl.get("size")) and not f.get("outline") and cb is not None and rb is not None:
+        return _add_glow(f, ref, ren, g, roles)
+    if not gl or not gl.get("size") or f.get("outline") or cb is None or rb is None:
+        return None
+    # 1b 후속 K E7 — 진단 · analyze 와 같은 빛 측정(diagnose.glow_measure — 획 둘레 고리 ↔ 글자 없는 바탕)으로 유무 · 크기
+    gc = diagnose.glow_measure(ref, g.get("concept_glow_bg"), g["concept"])
+    gr = diagnose.glow_measure(ren, rb, g["render"])
+    if not gc or not gr:
+        return None
+    old = int(round(float(gl["size"])))
+    gmin = diagnose.DEFAULTS["glow_min"]
+    fc, fr = (0.0, gc["frac"]), (0.0, gr["frac"])
+    if not diagnose.glow_on(gc, gmin) and diagnose.glow_on(gr, gmin) and gr["peak"] - gc["peak"] >= gmin / 2:
+        # 컨셉엔 빛 번짐이 사실상 없다(analyze derive_text_glow 가 두 톤 띠 밝기를 빛으로 오판) — 빛을 떼고 그 역할의 보통 글꼴로
+        # [실측 J R20261117_213212 조작 안내 '점프' — 컨셉 빛 비율 0.007, SDF 빛 글자가 굵게 재져 굵기 결함]
+        f.pop("glow", None)
+        fam = f.get("family")
+        for r in (roles or {}).values():
+            if fam and fam == r.get("sdf_family"):
+                f["family"] = r["family"]
+        return {"old": old, "new": 0, "dropped": True, "family": f.get("family"), "peak": [gc["peak"], gr["peak"]], "halo_frac": [fc[1], fr[1]]}
+    if not (diagnose.glow_on(gc, gmin) and diagnose.glow_on(gr, gmin)):
+        return None
+    if abs(gc["size"] - gr["size"]) <= 1:
+        # 1b 후속 L-2 사람 눈 — 크기가 맞으면 세기(띠 밝기)를 빛 색 알파로 맞춘다(진단 E9 glow_strength 와 같은 기준 · 같은 측정). 크기를 바꾸는 판에선
+        # 띠 밝기도 같이 바뀌어 다음 판으로 미룬다 [사용자 눈 R20261118_142524 '오의 불가' — 렌더 빛이 더 세고 붉음, 띠 밝기 30.7 ↔ 42.7 · 알파 0.96]
+        st = _glow_strength(gl, gc, gr, gmin)
+        if not st:
+            return None
+        f["glow"] = {**gl, "color": st["color"]}
+        return {"old": old, "new": old, "alpha": st["alpha"], "size_measured": [gc["size"], gr["size"]], "peak": [gc["peak"], gr["peak"]]}
+    k = min(GLOW_SCALE[1], max(GLOW_SCALE[0], gc["size"] / max(1, gr["size"])))
+    new = max(2, int(round(old * k)))
+    if new == old:
+        new = max(2, old - 1) if gr["size"] > gc["size"] else old + 1
+    if new == old:
+        return None
+    f["glow"] = {**gl, "size": new}
+    return {"old": old, "new": new, "size_measured": [gc["size"], gr["size"]], "peak": [gc["peak"], gr["peak"]]}
+
+
+def _glow_strength(gl: dict, gc: dict, gr: dict, gmin: float) -> dict | None:
+    """빛 세기 맞춤 — 진단과 같은 기준(띠 밝기 비 > GLOW_PEAK_TOL · 차 ≥ 문턱/2)이면 새 알파 = 알파 × (컨셉 띠 밝기 ÷ 렌더 띠 밝기). 알파 0.15 ~ 1.0.
+    엔진 빛(SDF 외곽선 층 머티리얼)의 띠 밝기(L*)는 알파에 거의 비례한다 [실측 R20261118_163950 '오의 불가' — 알파 0.957 → 0.52 에 41.0 → 21.3(비 0.54 ↔ 0.52).
+    처음 쓴 선형 휘도(L* 세제곱) 모델은 절반으로 내려 반대로 어긋났다]. → {color, alpha} 또는 None."""
+    import numpy as np
+    from gen import diagnose
+    a = diagnose.glow_alpha({"glow": gl})
+    if a is None:
+        return None
+    ratio = max(gr["peak"], 1e-3) / max(gc["peak"], 1e-3)
+    if abs(gr["peak"] - gc["peak"]) < gmin / 2 or max(ratio, 1.0 / ratio) <= diagnose.GLOW_PEAK_TOL:
+        return None
+    if gr["peak"] <= 0:
+        return None
+    lo, hi = diagnose.GLOW_ALPHA_RANGE
+    na = float(np.clip(a * min(4.0, max(0.25, gc["peak"] / gr["peak"])), lo, hi))
+    if abs(na - a) < 0.02:
+        return None
+    h = str(gl.get("color") or "#FFFFFF").lstrip("#")[:6]
+    return {"color": f"#{h.upper()}{int(round(na * 255)):02X}", "alpha": [round(a, 3), round(na, 3)]}
+
+
+def _fit_shadow(f: dict, ref, ren, g: dict) -> dict | None:
+    """1b 후속 L-3c — 글자 그림자(font.shadow{offset, color})를 진단과 같은 측정(diagnose.shadow_measure — 옮긴 획 자리 ↔ 글자 없는 바탕, 반대쪽 빼기)으로
+    컨셉에 있고 렌더에 없으면 넣고(오프셋 · 색 = 컨셉에서 잰 값), 렌더에만 있으면 뺀다 — 진단 E7 과 같은 문턱(넣기 · 떼기 한 기준 — K 교훈: 문턱이 다르면 진동).
+    [사람 눈 L — 원래 전투 HUD '체인 버스트' · '체인' · '2/4' 오른쪽 아래 얇은 그림자]. → 기록 또는 None."""
+    from gen import diagnose
+    rb = g.get("render_bg")
+    if rb is None:
+        return None
+    sc = diagnose.shadow_measure(ref, g.get("concept_glow_bg"), g["concept"])
+    sr = diagnose.shadow_measure(ren, rb, g["render"])
+    if not sc or not sr or sc["present"] == sr["present"] or abs(sc["dark"] - sr["dark"]) < diagnose.SHADOW_MIN / 2:
+        return None
+    old = f.get("shadow")
+    if sc["present"]:
+        f["shadow"] = {"offset": list(sc["offset"]), "color": sc["color"]}
+    elif old:
+        f.pop("shadow", None)
+    else:
+        return None
+    return {"old": old, "new": f.get("shadow"), "dark": [sc["dark"], sr["dark"]], "offset_measured": sc["offset"]}
+
+
+OUTLINE_FRAC = 0.2            # 컨셉 획 후보 중 '바탕보다 어두운' 비율이 이 이상이면 외곽선이 있는 글자(진단 text_dark_frac 과 같은 값)
+OUTLINE_GAP = 0.15            # 렌더와 그 비율 차가 이보다 크면 외곽선을 넣거나 뺀다
+OUTLINE_OVER_GLOW = 0.45      # 1b 후속 J — 컨셉 획 후보의 어두운 비율이 이 이상이면(굵은 외곽선) 빛 대신 외곽선 — 빛 측정(획 2 ~ 6 px 밖 밝기)은 굵은 어두운 테 바깥
+                              # 바탕(방패 금속)을 빛으로 잰다 [실측 J R20261117_192631 파티 HUD 방패 '10' — 컨셉 어두운 비율 0.66 ↔ 렌더 0, 빛 때문에 외곽선을 못 넣음]
+
+
+def _fit_outline(f: dict, ref, ren, g: dict) -> dict | None:
+    """1b 후속 J-c — 외곽선(획 둘레 어두운 테)을 진단과 같은 마스크 · 바탕으로 재 컨셉에 있고 렌더에 없으면 넣고(두께 = 어두운 테 넓이 ÷ 핵심 획 둘레,
+    1 ~ 4 px · 색 = 그 픽셀 중앙값), 렌더에만 있으면 뺀다. [실측 J R20261117_184207 단색 '오의 불가' — 컨셉 0.39 ↔ 렌더 0.15]. → 기록 또는 None."""
+    import numpy as np
+    from gen import diagnose
+    cb, rb = g.get("concept_bg"), g.get("render_bg")
+    if cb is None or rb is None:
+        return None
+    fc = diagnose._edge_fracs(g["concept_cand"], g["concept"], ref, cb)
+    fr = diagnose._edge_fracs(g["render_cand"], g["render"], ren, rb)
+    if not fc or not fr or abs(fr[0] - fc[0]) <= OUTLINE_GAP:
+        return None
+    old = f.get("outline")
+    glow_dropped = None
+    if fc[0] >= OUTLINE_FRAC and fr[0] < fc[0]:
+        if (f.get("glow") or {}).get("size"):
+            if fc[0] < OUTLINE_OVER_GLOW:
+                # 빛은 외곽선 층으로 그린다(글자 하나에 하나 — WidgetMcp 가 둘 다 있으면 거절) [실측 J R20261117_191858 'ShieldCountText']
+                return {"skipped": "the text glows — the glow uses the outline layer, so no outline is added", "dark_frac": [round(fc[0], 3), round(fr[0], 3)]}
+            glow_dropped = f.pop("glow")          # 굵은 외곽선이 빛보다 앞선다(OUTLINE_OVER_GLOW) — 빛 크기만큼 넓힌 상자는 그대로(외곽선이 그 안에 든다)
+        from core import color as cm
+        cand, core = g["concept_cand"], g["concept"]
+        dl = cm.srgb_to_lab(np.asarray(ref, float)[cand])[..., 0] - cm.srgb_to_lab(np.asarray(cb, float)[cand])[..., 0]
+        dark = np.zeros_like(cand)
+        dark[cand] = dl < -8
+        dark &= ~core
+        ring = diagnose._dilate(core, 1) & ~core
+        size = int(min(4, max(1, round(int(dark.sum()) / max(1, int(ring.sum()))))))
+        c = np.median(np.asarray(ref, float)[dark], axis=0) if dark.any() else np.zeros(3)
+        f["outline"] = {"size": size, "color": "#%02X%02X%02XFF" % tuple(int(round(min(255.0, max(0.0, float(v))))) for v in c)}
+    elif fr[0] > fc[0] and old:
+        f.pop("outline", None)
+    else:
+        return None
+    return {"old": old, "new": f.get("outline"), "dark_frac": [round(fc[0], 3), round(fr[0], 3)], **({"glow_dropped": glow_dropped} if glow_dropped else {})}
+
+
+TEXT_FIT_COLOR_DE = 6.0       # 컨셉 ↔ 렌더 핵심 획 대표색(위 · 아래 반 중 큰 쪽) ΔE00 이 이보다 크면 글자색을 컨셉 쪽으로
+TEXT_FIT_GRADIENT_DE = 8.0    # 컨셉 핵심 획 위 · 아래 반 대표색 차가 이보다 크면 세로 그라데이션(아니면 한 색)
+
+
+def _fit_color(f: dict, ref, ren, mc, mr) -> dict | None:
+    """1b 후속 J-c — 글자색을 진단과 같은 핵심 획(빛 번짐 제외)의 대표색으로: 위 · 아래 반 중앙값이 렌더와 TEXT_FIT_COLOR_DE 넘게 다르면 바꾼다
+    (위 · 아래 차 > TEXT_FIT_GRADIENT_DE 면 gradient + color 흰색, 아니면 한 색). [실측 J R20261117_174247] analyze 색 파생이 두 톤 띠 위 '점프' 를
+    남색으로 잡아 렌더 글자가 남색이었다(진단 '색 · 외곽선'). → 기록 또는 None."""
+    import numpy as np
+    from core import color as cm
+
+    def halves(img, m):
+        ys = np.nonzero(m)[0]
+        mid = float(np.median(ys))
+        rows = np.arange(img.shape[0])[:, None]
+        top, bot = img[m & (rows <= mid)], img[m & (rows > mid)]
+        if not len(top) or not len(bot):
+            return None
+        return np.median(img[m], axis=0), np.median(top, axis=0), np.median(bot, axis=0)
+
+    def de(a, b):
+        return float(cm.delta_e00(cm.srgb_to_lab(np.asarray(a, float).reshape(1, 3)), cm.srgb_to_lab(np.asarray(b, float).reshape(1, 3)))[0])
+
+    def hexc(c):
+        return "#%02X%02X%02XFF" % tuple(int(round(min(255.0, max(0.0, float(v))))) for v in c)
+    c, r = halves(ref, mc), halves(ren, mr)
+    if c is None or r is None:
+        return None
+    d_now = max(de(c[1], r[1]), de(c[2], r[2]))
+    if d_now <= TEXT_FIT_COLOR_DE:
+        return None
+    old = {"color": f.get("color"), "gradient": f.get("gradient")}
+    if de(c[1], c[2]) > TEXT_FIT_GRADIENT_DE:
+        f["gradient"] = {"top_color": hexc(c[1]), "bottom_color": hexc(c[2])}
+        f["color"] = "#FFFFFFFF"
+    else:
+        f.pop("gradient", None)
+        f["color"] = hexc(c[0])
+    return {"old": old, "new": {"color": f.get("color"), "gradient": f.get("gradient")}, "core_de_before": round(d_now, 2)}
 
 
 def rendered_boxes(run, attempt: int) -> dict[str, list]:

@@ -39,9 +39,10 @@ def test_normal_run_passes_and_saves(tmp_path, fake_ue):
     schema.require("report", report)
     assert report["status"] == "pass" and report["verify"] == "pass" and report["attempt"] == 1
     assert [g["name"] for g in report["gates"]] == ["compile", "bindings", "texture_settings", "offscreen", "overlap", "required_elements",
-                                                    "iou_region", "iou_leaf", "baked_text", "roundtrip"]
+                                                    "iou_region", "iou_leaf", "baked_text", "roundtrip", "appearance"]
     assert all(g["pass"] for g in report["gates"])
     assert next(g for g in report["gates"] if g["name"] == "baked_text")["skipped"]
+    assert "hand spec" in next(g for g in report["gates"] if g["name"] == "appearance")["skipped"]   # 1b 후속 J-b — 손 spec 은 비교할 레퍼런스 없음
     assert report["roundtrip"]["equal"] and report["roundtrip"]["revision_matches_build"]
     assert report["finalize"]["action"] == "saved" and report["finalize"]["content_dir"] == f"Content/_AutoGen/{RUN_ID}/"
     # backdrop = 1b 후속 H3 회색 바탕 위 다시 쌓기(기록만 — 손 spec 은 reference 층이 없어 합성 그림만)

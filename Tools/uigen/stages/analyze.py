@@ -257,11 +257,30 @@ def _apply_concept_fill(spec: dict, w: dict, parent: dict, frame: dict, ref, tak
         raise concept_fill.ConceptFillError(f"the measured track {m['widget_box']} sticks out of the parent '{parent['id']}' box {parent['bbox_intent']}")
     pad = [round(max(0.0, v), 1) for v in pad]
     pad = [int(v) if float(v).is_integer() else v for v in pad]
+    canvas_slot = None
+    if parent.get("type") == "CanvasPanel":
+        # 1b 후속 J — 캔버스 부모(점 앵커만): 위치 · 크기를 잰 트랙 상자로(fixer 와 같은 식 — position += d + alignment × dsize)
+        # [실측 J R20261117_201408 파티 HUD — analyze 가 HP 게이지를 Overlay 대신 PlayerArea 캔버스에 둬 컨셉 모양 채움을 건너뜀]
+        slot = w.get("slot") or {}
+        an, al = slot.get("anchors") or [0, 0, 0, 0], slot.get("alignment") or [0, 0]
+        if slot.get("kind") != "canvas" or an[0] != an[2] or an[1] != an[3] or "position" not in slot or "size" not in slot:
+            raise concept_fill.ConceptFillError(f"gauge '{w['id']}' canvas slot is not a point-anchored position/size slot")
+        ox_, oy_, ow_, oh_ = (float(v) for v in w["bbox_intent"])
+        d = [wx - ox_, wy - oy_]
+        ds = [ww - ow_, wh - oh_]
+        canvas_slot = {**slot, "position": [round(float(slot["position"][i]) + d[i] + float(al[i]) * ds[i], 1) for i in (0, 1)],
+                       "size": [ww, wh]}
     aid = _new_asset_id(w, taken)
-    asset = {"asset_id": aid, "kind": "fill", "provenance": "procedural", "size": [ww, wh], "procedural": {"shape": "concept_fill", **m["params"]},
+    tsize = list(m.get("texture_size") or [ww, wh])
+    asset = {"asset_id": aid, "kind": "fill", "provenance": "procedural", "size": tsize, "procedural": {"shape": "concept_fill", **m["params"]},
              "source": f"concept fill shape inside frame '{frame['id']}' (track {m['widget_box']}, sample {st['percent']:g})"}
     rec = {"fill_asset": aid, "shape": "concept_fill", "end": end, "widget_box": m["widget_box"], "old_bbox": list(w["bbox_intent"]),
            "old_padding": (w.get("slot") or {}).get("padding"), "old_fill": st.get("fill"), "old_background": st.get("background"), **m["record"]}
+    if m.get("percent") is not None:
+        # 1b 후속 J — 미리보기 진행률 = 컨셉이 그린 진행률(채움 구간 ÷ 막대 폭) — 렌더가 컨셉 상태와 1:1(진단 비교). 런타임 값은 게임이 넣는다
+        rec["sample_percent"] = st["percent"]
+        st["percent"] = m["percent"]
+        rec["preview_percent"] = m["percent"]
     if m["margin"]:
         asset.update(nine_slice=True, margin=m["margin"])
         st["fill"] = {"draw_as": "box", "asset": aid, "margin": m["margin"]}
@@ -272,6 +291,13 @@ def _apply_concept_fill(spec: dict, w: dict, parent: dict, frame: dict, ref, tak
     spec.setdefault("assets", []).append(asset)
     st["background"] = {"draw_as": "none"}
     w["bbox_intent"] = [wx, wy, ww, wh]
+    if canvas_slot is not None:
+        canvas_slot = {k: (int(v) if isinstance(v, float) and v.is_integer() else v) for k, v in canvas_slot.items()}
+        canvas_slot["position"] = [int(v) if float(v).is_integer() else v for v in canvas_slot["position"]]
+        w["slot"] = canvas_slot
+        rec.update(canvas_slot={"position": canvas_slot["position"], "size": canvas_slot["size"]}, fill=st["fill"],
+                   background_from=f"none — extracted frame '{frame['id']}' underneath")
+        return rec
     slot = w.setdefault("slot", {"kind": "overlay"})
     slot.update(padding=pad, h_align="fill", v_align="fill")
     rec.update(padding=pad, fill=st["fill"], background_from=f"none — extracted frame '{frame['id']}' underneath")
@@ -370,14 +396,29 @@ def derive_gauge_fills(spec: dict, reference, gauge_cfg: dict | None = None) -> 
         parent = index.get(w.get("parent"))
         under = [s for s in spec["widgets"] if s.get("parent") == w.get("parent") and order[s["id"]] < order[w["id"]]
                  and ((s.get("style") or {}).get("brush") or {}).get("asset") in extract_ids]
-        if gcfg.get("mode", "shape") == "shape" and parent and parent.get("type") == "Overlay" and parent.get("bbox_intent") \
-                and under and under[-1].get("bbox_intent"):
+        frame = None
+        if parent and parent.get("type") in ("Overlay", "CanvasPanel") and under:
+            # 프레임 = 게이지 상자의 80 % 이상을 덮는 앞 형제 중 마지막(가장 위) — '바로 앞 형제'는 패널 전체 Overlay 에서 배지였다
+            # [실측 J R20261117_203005 파티 HUD — PlayerPanel Overlay 의 앞 형제 = PortraitBadge → 막대가 측정 상자 밖]
+            gx, gy, gw, gh = (float(v) for v in w["bbox_intent"])
+
+            def cover(s):
+                sx, sy, sw, sh = (float(v) for v in s["bbox_intent"])
+                ix_ = max(0.0, min(gx + gw, sx + sw) - max(gx, sx)) * max(0.0, min(gy + gh, sy + sh) - max(gy, sy))
+                return ix_ / max(1.0, gw * gh)
+            fr = [s for s in under if s.get("bbox_intent") and cover(s) >= 0.8]
+            frame = fr[-1] if fr else None
+        if frame is None and parent and parent.get("type") in ("Overlay", "CanvasPanel") and float(p) >= concept_fill.FULL_MIN:
+            frame = w     # 가득 찬 게이지는 둘레 프레임 선이 필요 없다 — 자기 상자를 넓혀 잰다(_measure_full FULL_PAD)
+        if gcfg.get("mode", "shape") == "shape" and parent and parent.get("bbox_intent") and frame and frame.get("bbox_intent"):
             try:
-                rec.update(_apply_concept_fill(spec, w, parent, under[-1], ref, taken, gcfg))
+                rec.update(_apply_concept_fill(spec, w, parent, frame, ref, taken, gcfg))
                 out.append(rec)
                 continue
             except concept_fill.ConceptFillError as exc:
                 rec["shape_fallback"] = str(exc)
+            except (ValueError, IndexError) as exc:      # 측정 결함이 analyze 를 죽이지 않게 — 예전 방식으로 물러남(기록)
+                rec["shape_fallback"] = f"{type(exc).__name__}: {exc}"
         x, y, bw, bh = (float(v) for v in w["bbox_intent"])
         y0, y1 = max(0, int(round(y))), min(H, int(round(y + bh)))
         e = GAUGE_EDGE_FRAC
@@ -487,7 +528,50 @@ GLOW_MAX = 16
 GLOW_GAMMA = 1.5       # WidgetMcpTextMaterials M_TextGlow 기본 Gamma 와 같게(불투명도 = 알파 × (1 − d / size)^Gamma)
 
 
-def derive_text_glow(spec: dict, reference, roles: dict[str, dict], min_excess: float = 8.0) -> list[dict]:
+def snap_weights(spec: dict, cfg: dict) -> list[dict]:
+    """1b 후속 K — 글자 굵기를 그 family 가 가진 굵기로(fonts.weight_density — 밀도가 가장 가까운 것). 없는 굵기를 고르면 엔진이 첫 타입페이스로
+    바꿔 그려 글자 맞춤이 고칠 수 없었다. → 기록(바꾼 것만)."""
+    from gen import diagnose
+    out = []
+    for w in spec.get("widgets", []):
+        f = w.get("font") if isinstance(w.get("font"), dict) else None
+        if w.get("type") != "TextBlock" or not f:
+            continue
+        table = diagnose.weight_table(cfg, f.get("family"))
+        cur = f.get("weight") or "bold"
+        if not table or cur in table:
+            continue
+        ref = {"light": 0.85, "regular": 1.0, "medium": 1.18, "semibold": 1.33, "bold": 1.49, "extrabold": 1.63, "black": 1.7,
+               "italic": 1.0, "bold_italic": 1.49}.get(cur, 1.0)
+        import math
+        new = min(table, key=lambda k: abs(math.log(table[k] / ref)))
+        f["weight"] = new
+        out.append({"widget": w["id"], "weight_snapped": [cur, new]})
+    return out
+
+
+def _notext_black(run, spec: dict | None = None):
+    """normalize 가 컨셉에 정합한 글자 없는 판(곧은 색 × 알파 — reference.png 와 같은 검정 위) 또는 None (1b 후속 K — 빛 바탕)."""
+    import numpy as np
+    from PIL import Image
+    try:
+        nt = (run.read_json("normalize.json").get("background") or {}).get("notext") or {}
+    except (OSError, ValueError):
+        return None
+    if not nt.get("used") or not run.path(str(nt.get("color"))).is_file() or not run.path(str(nt.get("alpha"))).is_file():
+        return None
+    with Image.open(run.path(nt["color"])) as c, Image.open(run.path(nt["alpha"])) as a:
+        col, alpha = np.asarray(c.convert("RGB"), float), np.asarray(a.convert("L"), float) / 255.0
+    from gen import diagnose
+    if spec is not None and not diagnose.residue_free(nt) and run.path("reference_alpha.png").is_file() and run.path("reference_color.png").is_file():
+        # 투명 위 글자 자리의 판 잔상은 지우고 잰다(진단 · refine 과 같은 함수) — 잔상이 바탕이면 그 글자의 빛을 못 잰다 [실측 K R20261117_234013 '오의 불가']
+        # (L-2 원본 아트는 글자를 그린 적 없어 건너뜀 — diagnose.residue_free)
+        with Image.open(run.path("reference_color.png")) as c, Image.open(run.path("reference_alpha.png")) as a:
+            col, alpha, _ = diagnose.clear_text_residue(col, alpha, np.asarray(c.convert("RGB"), float), np.asarray(a.convert("L"), float) / 255.0, spec)
+    return col * alpha[..., None]
+
+
+def derive_text_glow(spec: dict, reference, roles: dict[str, dict], min_excess: float = 8.0, background=None) -> list[dict]:
     """1b 후속 F — 글자 둘레로 번지는 빛을 컨셉에서 결정적으로(LLM · codex 없음).
 
     TextBlock 마다 bbox_intent(+16 px) 안 글자 획(fidelity.text_ink)에서 거리별 밝기(L) 띠를 재 바탕(10 ~ 14 px 띠)과 비교한다.
@@ -538,16 +622,19 @@ def derive_text_glow(spec: dict, reference, roles: dict[str, dict], min_excess: 
             out.append({**rec, "skipped": "no background ring"})
             continue
         bg = float(np.median(L[bgm]))
-        excess = {d: (float(np.median(L[band(d - 1, d)])) - bg) if band(d - 1, d).any() else 0.0 for d in range(1, GLOW_MAX + 1)}
-        peak = max(excess[d] for d in range(GLOW_PEAK[0], GLOW_PEAK[1] + 1))
-        rec.update(background_L=round(bg, 1), excess={d: round(v, 1) for d, v in excess.items() if d <= 12}, peak=round(peak, 1))
-        if peak < min_excess:
+        # 1b 후속 K E7 — 빛은 진단 · 글자 맞춤과 같은 함수(diagnose.glow_measure)로: 바탕 = 같은 자리의 글자 없는 판(있으면) — 예전 '획 10 ~ 14 px 밖
+        # 띠 밝기' 바탕은 두 톤 띠 위 글자에서 띠 밝기를 빛으로 봤다 [실측 J 남은 일 사람 눈 — '돌진 공격' · '공격' 컨셉에 없는 청록 빛]
+        from gen import diagnose
+        bgc = background[py0:py1, px0:px1] if background is not None else None
+        gmz = diagnose.glow_measure(crop, bgc, m, min_excess)
+        if gmz is None:
+            out.append({**rec, "skipped": "no glyph pixels found"})
+            continue
+        peak, size = gmz["peak"], gmz["size"]
+        rec.update(background_L=round(bg, 1), excess=gmz["excess"], peak=peak, glow_background="text-free plate" if bgc is not None else "ring 10-14 px")
+        if not gmz["present"]:
             out.append({**rec, "glow": None})
             continue
-        size = 2
-        while size + 1 <= GLOW_MAX and excess[size + 1] >= GLOW_TAIL_L:
-            size += 1
-        size = max(3, size + 1)
         role, info = by_family.get(font.get("family"), (None, {}))
         sdf = info.get("sdf_family")
         if not sdf:
@@ -570,7 +657,30 @@ def derive_text_glow(spec: dict, reference, roles: dict[str, dict], min_excess: 
         rec.update(glow=glow, old_family=font.get("family"), family=sdf, layout=_glow_layout(w, int(size)))
         font["glow"] = glow
         font["family"] = sdf
+        pairs = _glow_overlap_pairs(spec, w, rec["layout"]["before"]["bbox"])
+        if pairs:
+            rec["allow_overlap_added"] = pairs
         out.append(rec)
+    return out
+
+
+def _glow_overlap_pairs(spec: dict, w: dict, before) -> list[list[str]]:
+    """빛 여백(투명)으로 넓힌 글자 상자가 원래 줄 상자로는 안 겹치던 형제와 겹치면 그 쌍을 allow_overlap 에 넣는다 — 빛이 이웃 위로 번지는 것은
+    배치 충돌이 아니다. [실측 J R20261117_185327 · 185828 · 190342 — 단색 컨셉 '오의 불가' 줄 상자 871 ~ 929 ↔ 게이지 영역 930 ~, 빛 8 px 로 넓힌
+    상자가 10 % 겹쳐 overlap 게이트에서 세 번 연속 멈춤]. → 더한 쌍."""
+    def inter(a, b):
+        return min(a[0] + a[2], b[0] + b[2]) > max(a[0], b[0]) and min(a[1] + a[3], b[1] + b[3]) > max(a[1], b[1])
+    out = []
+    bb = w.get("bbox_intent")
+    for o in spec.get("widgets", []):
+        ob = o.get("bbox_intent")
+        if o["id"] == w["id"] or o.get("parent") != w.get("parent") or not ob or not bb:
+            continue
+        if inter(bb, ob) and not inter(before, ob):
+            pair = sorted([w["id"], o["id"]])
+            if pair not in spec.setdefault("allow_overlap", []):
+                spec["allow_overlap"].append(pair)
+                out.append(pair)
     return out
 
 
@@ -673,10 +783,14 @@ def run(run, opts) -> str:
     derived = derive_gauge_fills(spec, run.path("reference.png"), run.cfg.get("gauge_fill"))
     text_fills = derive_text_fills(spec, run.path("reference.png")) if (run.cfg.get("text_fill") or {}).get("enabled", True) else []
     tg = run.cfg.get("text_glow") or {}
-    text_glows = derive_text_glow(spec, run.path("reference.png"), roles, float(tg.get("min_excess", 8.0))) if tg.get("enabled", True) else []
-    if derived or text_fills or text_glows or hidden_glows:
+    text_glows = derive_text_glow(spec, run.path("reference.png"), roles, float(tg.get("min_excess", 8.0)), background=_notext_black(run, spec)) \
+        if tg.get("enabled", True) else []
+    text_effects = strip_llm_text_effects(spec) if (run.cfg.get("text_style") or {}).get("deterministic_only", True) else []
+    text_effects += snap_weights(spec, run.cfg)
+    if derived or text_fills or text_glows or hidden_glows or text_effects:
         schema.require("spec", spec)
-        run.write_json("analyze/derived.json", {"gauge_fills": derived, "text_fills": text_fills, "text_glows": text_glows, "hidden_glows": hidden_glows})
+        run.write_json("analyze/derived.json", {"gauge_fills": derived, "text_fills": text_fills, "text_glows": text_glows, "hidden_glows": hidden_glows,
+                                                "text_effects_dropped": text_effects})
     run.write_json("spec.json", spec)
     run.write_json("specs/000.json", spec)
     overlay = draw_overlay(run, spec)
@@ -693,6 +807,21 @@ def run(run, opts) -> str:
             f"{', hidden glow → procedural soft_glow: ' + ','.join(h['asset'] for h in hidden_glows) if hidden_glows else ''}) in {len(calls)} call(s) — "
             f"API list-price equivalent {summary['cost_usd']:.3f} USD (subscription login — plan usage, not billed), model {summary['model']}"
             f"{', overlay ' + overlay if overlay else ''}")
+
+
+def strip_llm_text_effects(spec: dict) -> list[dict]:
+    """1b 후속 J-c — 글자 스타일은 결정적 측정만: LLM(analyze)이 고른 글자 외곽선 · 그림자는 걷는다(색 · 그라데이션 · 빛은 derive_text_fills ·
+    derive_text_glow 가 컨셉에서 재고, 크기 · 굵기 · 자리는 글자 맞춤이 잰다). [실측 J-b 기준선 R20261117_095249 · 120813] analyze 가 넣은 남색 외곽선
+    1 px 가 진단에서 획 안 어두운 비율 0.17 ~ 0.5(컨셉 0 ~ 0.07)로 남았다. → 기록."""
+    out = []
+    for w in spec.get("widgets", []):
+        f = w.get("font")
+        if w.get("type") not in ("TextBlock", "RichTextBlock") or not isinstance(f, dict):
+            continue
+        rec = {k: f.pop(k) for k in ("outline", "shadow") if f.get(k)}
+        if rec:
+            out.append({"widget": w["id"], **rec})
+    return out
 
 
 def _record(run, calls: list[dict], errors: list[str], retry_reasons: list[str]) -> dict:

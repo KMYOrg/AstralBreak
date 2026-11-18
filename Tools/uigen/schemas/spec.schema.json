@@ -47,6 +47,7 @@
           "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4
         },
         "visibility": { "enum": ["visible", "collapsed", "hidden", "hit_test_invisible", "self_hit_test_invisible"] },
+        "designer_hidden": { "type": "boolean", "description": "1b 후속 L-2 — UMG 디자이너 미리보기에서 감춤(bHiddenInDesigner — 디자이너는 visibility 를 무시한다). finalize 가 컨셉이 그리지 않은 숨은 위젯에 켠다. 런타임 · 렌더 영향 없음" },
         "style": { "$ref": "#/$defs/style" },
         "text": { "$ref": "#/$defs/text" },
         "font": { "$ref": "#/$defs/font" },
@@ -178,7 +179,7 @@
       "additionalProperties": false,
       "properties": {
         "size": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 },
-        "weight": { "enum": ["regular", "bold", "light", "italic", "bold_italic"] },
+        "weight": { "enum": ["regular", "bold", "light", "italic", "bold_italic", "medium", "semibold", "extrabold", "black"] },
         "color": { "$ref": "#/$defs/color" },
         "family": { "type": ["string", "null"], "description": "폰트 애셋 경로. null = 엔진 기본(Roboto + 한글 대체) — 1a 는 null(11-14 사용자 결정)" },
         "role": { "enum": ["body", "title"], "description": "analyze 출력에만 — 글자 역할(body = 본문 · 작은 라벨, title = 제목 · 큰 숫자). apply_contract 가 pipeline.yaml fonts.roles 의 family 로 바꾸고 지운다(WBP · 왕복에는 없음, 1b 후속 D)" },
@@ -234,8 +235,8 @@
           "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4
         },
         "source_mode": {
-          "description": "codex 에셋만(1b 후속 A) — extract = 컨셉에 보이는 요소를 ref_bbox 자르기의 codex 편집으로 따옴, generate(없을 때 기본) = 새로 그림(ref_bbox 는 스타일 참조)",
-          "enum": ["generate", "extract"]
+          "description": "codex 에셋만(1b 후속 A) — extract = 컨셉에 보이는 요소를 ref_bbox 자르기의 codex 편집으로 따옴, generate(없을 때 기본) = 새로 그림(ref_bbox 는 스타일 참조). plate = 1b 후속 J-a 정적 판(stages/layer — provenance provided, refine 이 컨셉에서 굽는다)",
+          "enum": ["generate", "extract", "plate"]
         },
         "anchor": { "type": "boolean" },
         "source": { "type": "string" }

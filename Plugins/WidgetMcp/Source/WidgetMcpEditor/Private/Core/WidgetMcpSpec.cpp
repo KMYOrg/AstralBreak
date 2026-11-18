@@ -124,8 +124,10 @@ namespace WidgetMcpSpec
 		/** 굵기 → Roboto(엔진 기본) 타입페이스 이름 */
 		const TArray<FNamed<const TCHAR*>>& Weights()
 		{
+			// 1b 후속 K — 굵기 변형(Medium · SemiBold · ExtraBold · Black)도 고른다: 글자 맞춤이 가진 굵기 중 컨셉에 가장 가까운 것을 고르게
 			static const TArray<FNamed<const TCHAR*>> T = { { TEXT("regular"), TEXT("Regular") }, { TEXT("bold"), TEXT("Bold") }, { TEXT("light"), TEXT("Light") },
-				{ TEXT("italic"), TEXT("Italic") }, { TEXT("bold_italic"), TEXT("Bold Italic") } };
+				{ TEXT("italic"), TEXT("Italic") }, { TEXT("bold_italic"), TEXT("Bold Italic") }, { TEXT("medium"), TEXT("Medium") },
+				{ TEXT("semibold"), TEXT("SemiBold") }, { TEXT("extrabold"), TEXT("ExtraBold") }, { TEXT("black"), TEXT("Black") } };
 			return T;
 		}
 
@@ -719,6 +721,11 @@ namespace WidgetMcpSpec
 		}
 		const FTypeEntry* Entry = FindType(Type);
 		SetDefault(W, TEXT("visibility"), S(Entry && Entry->bPanelVisibility ? TEXT("self_hit_test_invisible") : TEXT("visible")));
+		bool bDesignerHidden = false;
+		if (W->TryGetBoolField(TEXT("designer_hidden"), bDesignerHidden) && !bDesignerHidden)
+		{
+			W->RemoveField(TEXT("designer_hidden"));   // 1b 후속 L-2 — 기본값(false)은 키를 지운다(core/spec.py 와 같음 — 역추출과 같은 정규형)
+		}
 		TSharedPtr<FJsonObject> Style = ObjField(*W, TEXT("style"));
 		if (!Style.IsValid())
 		{
@@ -1042,6 +1049,13 @@ namespace WidgetMcpSpec
 			FromName(Visibilities(), VisName, Vis);
 		}
 		Widget->SetVisibility(Vis);
+#if WITH_EDITORONLY_DATA
+		// 1b 후속 L-2 사람 눈 — UMG 디자이너는 Visibility 를 무시하고 bHiddenInDesigner 만 본다(UMG Widget.cpp SynchronizeProperties
+		// '디자이너에서는 늘 보이는 상태'). designer_hidden = 컨셉이 그리지 않은 숨은 위젯 → 디자이너 미리보기를 컨셉 상태로(런타임 렌더는 영향 없음)
+		bool bDesignerHidden = false;
+		J.TryGetBoolField(TEXT("designer_hidden"), bDesignerHidden);
+		Widget->bHiddenInDesigner = bDesignerHidden;
+#endif
 
 		const TSharedPtr<FJsonObject> Style = ObjField(J, TEXT("style"));
 		auto BrushOr = [&](const TCHAR* Key, const FSlateBrush& Fallback, FSlateBrush& Out) -> bool
@@ -1203,6 +1217,9 @@ namespace WidgetMcpSpec
 	{
 		const FString Id = Widget->GetName();
 		Out->SetStringField(TEXT("visibility"), ToName(Visibilities(), Widget->GetVisibility()));
+#if WITH_EDITORONLY_DATA
+		if (Widget->bHiddenInDesigner) { Out->SetBoolField(TEXT("designer_hidden"), true); }   // 1b 후속 L-2 — 기본(false)은 키 없음(정규형과 같음)
+#endif
 		if (!FMath::IsNearlyEqual(Widget->GetRenderOpacity(), 1.f)) { NoteUnsupported(Unsupported, Id, TEXT("RenderOpacity"), TEXT("not in the spec vocabulary")); }
 		if (!Widget->GetRenderTransform().IsIdentity()) { NoteUnsupported(Unsupported, Id, TEXT("RenderTransform"), TEXT("not in the spec vocabulary")); }
 		if (!Widget->GetIsEnabled()) { NoteUnsupported(Unsupported, Id, TEXT("bIsEnabled"), TEXT("disabled widgets are not in the spec vocabulary")); }

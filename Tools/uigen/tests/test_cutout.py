@@ -494,8 +494,10 @@ def test_normalize_aligns_the_text_free_concept_and_refine_fills_text_from_it(tm
     run.write_json("normalize.json", {"schema_version": 1, "mode": "concept", **fit})
     generate.run(run, types.SimpleNamespace(attempt=1))
     refine.run(run, types.SimpleNamespace(attempt=1))
-    comp = run.read_json("refine.json")["passes"][0]["assets"][0]["compose"]
-    assert comp["notext"]["used"] and comp["notext"]["shift"] == [0, 0] and comp["notext"]["diff"] < 3 and "text-free" in comp["fill"]
+    log0 = run.read_json("refine.json")["passes"][0]["assets"][0]
+    # 1b 후속 J — 판이 있으면 글자마다 '판과 다른 글자 획'만 판 픽셀로(refine._plate_item_fill — 사각 구멍 compose 는 못 맞춘 글자만)
+    gf = log0["cut"]["glyph_fill"][0]
+    assert gf["used"] and gf["shift"] == [0, 0] and gf["diff"] < 3 and not (log0["compose"].get("notext") or {}).get("used")
     far = tmp_path / "far.png"
     _flat_notext(tmp_path / "concept.png", far, 40, 0)
     fit2 = normalize._fit_reference(tmp_path / "concept.png", tmp_path / "f" / "reference.png", [1920, 1080], notext=far)
@@ -519,7 +521,7 @@ def test_refine_treats_a_mark_also_in_the_text_free_concept_as_decoration(tmp_pa
     generate.run(run, types.SimpleNamespace(attempt=1))
     refine.run(run, types.SimpleNamespace(attempt=1))
     log = run.read_json("refine.json")["passes"][0]["assets"][0]
-    assert "text_marks_first" not in log["cut"] and log["compose"]["notext"]["used"] and len(calls) == 2      # 텍스처 · 판 조각 한 번씩
+    assert "text_marks_first" not in log["cut"] and log["cut"]["glyph_fill"][0]["used"] and len(calls) == 2      # 텍스처 · 판 조각 한 번씩
     assert log["ocr_decor"]["boxes"][0]["in_text_free_concept"] and log["ocr_decor"]["boxes"][0]["box"] == [480.0, 330.0, 60.0, 50.0]
     assert {a["asset_id"]: a for a in run.read_json("manifest.json")["assets"]}["panel_tex"]["ocr_text"] == ""
 

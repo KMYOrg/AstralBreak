@@ -11,6 +11,8 @@
   iou_leaf          말단 위젯 IoU ≥ iou_leaf_min · min(w, h) < small_px 면 중심점 거리 ≤ small_center_max_px
   baked_text        생성 에셋 OCR 검출 0 — procedural 은 건너뜀(통과 + 이유)
   roundtrip         export → core.spec.roundtrip_equal(정규화 비교) · GUID 맵 누락 0
+  appearance        (1b 후속 J-b) 레퍼런스 ↔ 렌더 국소 차이 진단 결함 0 — gen/diagnose(국소 지도 · 회색 합성 · 3 배 절취선 · 글자 획 맞대기 ·
+                    원인 단계). concept 모드만(손 spec 은 건너뜀). 구조 게이트(위 10 개)와 따로 본다 — 결과의 structural_pass 가 그것만의 통과.
 
 출력: attempts/NNN/{gates.json, geometry.json, render/, sample/} · run 폴더의 render.png(기준 해상도 · force_visible) ·
       render_sample.png(brief sample 을 overrides 로 — 사람 눈용, 게이트 아님) · geometry.json(마지막 시도).
@@ -29,8 +31,37 @@ from core.ue import ToolchainError
 from stages import StageError, ue_toolchain
 from stages.build import package_of
 
-GATES = ("compile", "bindings", "texture_settings", "offscreen", "overlap", "required_elements", "iou_region", "iou_leaf", "baked_text", "roundtrip")
+GATES = ("compile", "bindings", "texture_settings", "offscreen", "overlap", "required_elements", "iou_region", "iou_leaf", "baked_text", "roundtrip",
+         "appearance")
 RENDER_GATES = ("offscreen", "overlap", "iou_region", "iou_leaf")
+APPEARANCE = "appearance"
+
+
+def structural_failed(result: dict) -> list[str]:
+    """구조 게이트(appearance 밖) 중 실패 — 재시도 · fix 는 이것만 본다(외형 진단은 통과 뒤 외형 라운드 · 글자 맞춤이 몫)."""
+    return [n for n in result.get("failed", []) if n != APPEARANCE]
+
+
+def appearance_gate(run, attempt: int, rendered: bool, render_state=None) -> tuple[dict, dict | None]:
+    """1b 후속 J-b — gen/diagnose 진단 → appearance 게이트 + 기록(run 폴더 diagnosis.json · attempts/NNN/diagnosis/).
+    render_state(overrides) → PNG(1b 후속 K): 숨은 위젯을 컨셉 상태로 켜고 끈 엔진 렌더 — 사람 눈 그림 compare.png(run 폴더에도 복사) · E8."""
+    from gen import diagnose
+    if not diagnose.enabled(run.cfg):
+        return gate(APPEARANCE, True, skipped="appearance.enabled is off"), None
+    if not run.path("reference.png").is_file():
+        return gate(APPEARANCE, True, skipped="no reference (hand spec) — nothing to compare"), None
+    if not rendered:
+        return gate(APPEARANCE, False, details={"error": "the render failed this attempt — nothing to diagnose"}), None
+    try:
+        rec = diagnose.diagnose(run.dir, attempt_dir(run, attempt) / "diagnosis", run.cfg, render_state=render_state)
+    except Exception as exc:  # noqa: BLE001 — 진단이 깨지면 실패로 남긴다(통과로 넘기지 않음)
+        return gate(APPEARANCE, False, details={"error": f"{type(exc).__name__}: {exc}"[:300]}), None
+    rec["attempt"] = attempt
+    cp = attempt_dir(run, attempt) / "diagnosis" / "compare.png"
+    if cp.is_file():
+        shutil.copyfile(cp, run.path("compare.png"))
+    run.write_json("diagnosis.json", rec)
+    return diagnose.gate(rec), rec
 
 
 def gate(name: str, ok: bool, value=None, threshold=None, details=None, skipped: str | None = None) -> dict:
@@ -255,10 +286,20 @@ def run(run, opts, toolchain=None) -> dict:
         artifacts["render_sample"] = "render_sample.png"
     except (ToolchainError, OSError, KeyError, IndexError) as exc:
         notes["sample_render_error"] = str(exc)
+    def render_state(overrides):   # 1b 후속 K — 컨셉 상태(숨은 위젯 켜고 끔 — 진행률 · 글자는 spec 미리보기 그대로) 엔진 렌더
+        r = tc.call("render_widget", {"asset_path": wbp, "output_dir": (adir / "state").resolve().as_posix(), "resolutions": [canvas],
+                                      "force_visible": False, "overrides": overrides, "prefix": "state"})
+        return r["renders"][0]["png"]
+    gates[APPEARANCE], diag = appearance_gate(run, attempt, "render" in artifacts, render_state)
+    if diag and diag.get("pictures"):
+        artifacts["diagnosis"] = f"attempts/{attempt:03d}/diagnosis/{diag['pictures'][0]}"
+    if run.path("compare.png").is_file():
+        artifacts["compare"] = "compare.png"
 
     ordered = [gates[n] for n in GATES if n in gates]
     failed = [g["name"] for g in ordered if not g["pass"]]
     result = {"schema_version": 1, "run_id": run.run_id, "attempt": attempt, "pass": not failed, "failed": failed, "gates": ordered,
+              "structural_pass": not [n for n in failed if n != APPEARANCE],
               "roundtrip": roundtrip, "unsupported": unsupported, "artifacts": artifacts, "notes": notes, "wbp": wbp,
               "revision": state.get("revision"), "duration_s": round(time.monotonic() - t0, 3)}
     run.write_json(f"attempts/{attempt:03d}/gates.json", result)

@@ -96,7 +96,7 @@ def overlaps(geometry: list[dict], spec: dict, max_ratio: float, stacking_parent
     for g in geometry:
         if g.get("parent"):
             siblings.setdefault(g["parent"], []).append(g)
-    checked, skipped, allowed_n, violations = 0, 0, 0, []
+    checked, skipped, allowed_n, spacer_n, violations = 0, 0, 0, 0, []
     for parent, kids in siblings.items():
         ptype = (gi.get(parent) or {}).get("type")
         for i in range(len(kids)):
@@ -108,6 +108,11 @@ def overlaps(geometry: list[dict], spec: dict, max_ratio: float, stacking_parent
                 if frozenset((a["id"], b["id"])) in allowed:
                     allowed_n += 1
                     continue
+                if "Spacer" in (a.get("type"), b.get("type")):
+                    # 1b 후속 L-3a — 스페이서는 그리지 않는 배치용 빈칸이라 겹쳐도 가리는 것이 없다. 글자 상자의 작은 음수 padding 이 옆 스페이서에 걸친 채
+                    # 세로로 옮기면 '형제 겹침'으로 예측돼 위치 판이 세로 축을 버렸다 [실측 K R20261118_093320 단색 '3' — BurstSpacer 0.164, 세로 19.5 px 남음]
+                    spacer_n += 1
+                    continue
                 ba, bb = box(a), box(b)
                 small = min(area(ba), area(bb))
                 if small <= 0:
@@ -117,7 +122,7 @@ def overlaps(geometry: list[dict], spec: dict, max_ratio: float, stacking_parent
                 ratio = inter / small
                 if ratio > max_ratio:
                     violations.append({"a": a["id"], "b": b["id"], "parent": parent, "ratio": r3(ratio), "intersection": r3(inter)})
-    return {"checked": checked, "skipped_stacking": skipped, "allowed": allowed_n, "violations": violations}
+    return {"checked": checked, "skipped_stacking": skipped, "allowed": allowed_n, "skipped_spacer": spacer_n, "violations": violations}
 
 
 def placement(spec: dict, geometry: list[dict], gates: dict) -> dict[str, list[dict]]:

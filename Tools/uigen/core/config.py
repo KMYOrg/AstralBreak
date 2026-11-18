@@ -71,7 +71,8 @@ def load_profile(name: str, root: str | pathlib.Path | None = None) -> dict:
 
 def font_roles(cfg: dict, body_family: str | None = None) -> dict[str, dict]:
     """글자 역할 → {family, line_height[, glyph_height, sdf_family]} (1b 후속 D · F). body = 요청 폰트(brief.font) 또는 fonts.default_family
-    + fonts.line_height(+ fonts.glyph_height · sdf_family), 나머지 = fonts.roles.<역할>{family, line_height, glyph_height?, sdf_family?}.
+    + fonts.line_height(+ fonts.glyph_height · sdf_family, 또는 fonts.roles.body.sdf_family — 기본 폰트일 때만),
+    나머지 = fonts.roles.<역할>{family, line_height, glyph_height?, sdf_family?}.
     family 가 없는 역할은 빠진다(폰트를 아직 임포트하지 않음). glyph_height = 보이는 글자 높이 / 크기(한글 · 숫자 — 실측),
     sdf_family = 같은 폰트의 거리장(SDF) 사본 — 글자 빛(font.glow)을 쓰는 글자만 이것으로 바꾼다."""
     fonts = cfg.get("fonts") or {}
@@ -79,14 +80,18 @@ def font_roles(cfg: dict, body_family: str | None = None) -> dict[str, dict]:
 
     def entry(family, src: dict) -> dict:
         e = {"family": family, "line_height": dict(src.get("line_height") or {})}
-        for k in ("glyph_height", "sdf_family"):
+        for k in ("glyph_height", "sdf_family", "weight_density", "typefaces"):     # 1b 후속 K — 굵기 변형 · 굵기별 획 밀도(가장 가까운 굵기)
             if src.get(k):
-                e[k] = dict(src[k]) if isinstance(src[k], dict) else src[k]
+                e[k] = dict(src[k]) if isinstance(src[k], dict) else (list(src[k]) if isinstance(src[k], list) else src[k])
         return e
 
     body = body_family or fonts.get("default_family")
     if body:
-        out["body"] = entry(body, fonts if not body_family or body_family == fonts.get("default_family") else {"line_height": fonts.get("line_height")})
+        default_body = not body_family or body_family == fonts.get("default_family")
+        out["body"] = entry(body, fonts if default_body else {"line_height": fonts.get("line_height")})
+        rb = (fonts.get("roles") or {}).get("body")
+        if default_body and isinstance(rb, dict) and rb.get("sdf_family"):      # 1b 후속 J — fonts.roles.body.sdf_family(Pretendard SDF 사본)
+            out["body"]["sdf_family"] = rb["sdf_family"]
     for role, r in (fonts.get("roles") or {}).items():
         if role != "body" and isinstance(r, dict) and r.get("family"):
             out[role] = entry(r["family"], r)

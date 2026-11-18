@@ -326,7 +326,7 @@ def test_text_fit_place_leaves_a_canvas_move_that_would_overlap_a_region(tmp_pat
     assert next(w for w in after["widgets"] if w["id"] == "Pct")["slot"]["position"] == [158.0, 92]
 
 
-NOTO = "/Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR.F_NotoSerifKR"     # 줄 높이 표 22 → 43 · 26 → 51 · 30 → 58
+NOTO = "/Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_W.F_NotoSerifKR_W"     # 줄 높이 표 22 → 43 · 26 → 51 · 30 → 58
 
 
 def _stack_spec(parent_type: str) -> dict:

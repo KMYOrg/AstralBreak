@@ -30,19 +30,46 @@ def _cfg(**sr):
 
 def test_guard_allows_only_appearance_ops():
     spec, brief = fixture_spec(), fixture_brief()
-    ok = [{"op": "set", "widget": "ChainTitleText", "path": "font.color", "value": "#E7AE4F"},
-          {"op": "set", "widget": "ChainTitleText", "path": "font.outline", "value": {"size": 2, "color": "#2A1405"}},
-          {"op": "set", "widget": "ChainTitleText", "path": "font.family", "value": TITLE},
-          {"op": "set", "widget": "ChainTimerText", "path": "slot.padding", "value": [0, 4, 0, 0]},
-          {"op": "set", "widget": "UltGauge", "path": "style.fill.color", "value": "#F2B544"}]
+    ok = [{"op": "set", "widget": "UltGauge", "path": "style.fill.color", "value": "#F2B544"},
+          {"op": "set", "widget": "UltGauge", "path": "slot.padding", "value": [12, 8, 12, 8]},
+          {"op": "set", "widget": "ChainPanel", "path": "style.brush.color", "value": "#FFFFFFEE"}]
     assert style.guard_style_ops(ok, spec, brief, _cfg(), 5) == []
     bad = [{"op": "set", "widget": "ChainPanel", "path": "slot.position", "value": [0, 0]},
-           {"op": "set", "widget": "ChainTitleText", "path": "font.family", "value": "/Game/Other.Other"},
-           {"op": "set", "widget": "ChainTitleText", "path": "bbox_intent", "value": [0, 0, 1, 1]},
+           {"op": "set", "widget": "UltGauge", "path": "bbox_intent", "value": [0, 0, 1, 1]},
            {"op": "move", "widget": "ChainTitleText", "parent": "Root"}]
     errs = style.guard_style_ops(bad, spec, brief, _cfg(), 5)
-    assert any("slot.position" in e for e in errs) and any("project fonts" in e for e in errs) and any("bbox_intent" in e for e in errs)
+    assert any("slot.position" in e for e in errs) and any("bbox_intent" in e for e in errs)
     assert any("'move'" in e for e in errs)
+
+
+def test_guard_rejects_every_text_op():
+    """1b 후속 J-c — 글자 스타일(크기 · 굵기 · 외곽선 · 빛 · 색 · 자리)은 결정적 측정만 — 외형 라운드의 글자 위젯 op 는 모두 거절."""
+    spec, brief = fixture_spec(), fixture_brief()
+    text_ops = [{"op": "set", "widget": "ChainTitleText", "path": "font.color", "value": "#E7AE4F"},
+                {"op": "set", "widget": "ChainTitleText", "path": "font.outline", "value": {"size": 2, "color": "#2A1405"}},
+                {"op": "set", "widget": "ChainTitleText", "path": "font.family", "value": TITLE},
+                {"op": "set", "widget": "ChainTimerText", "path": "font.size", "value": 30},
+                {"op": "set", "widget": "ChainTimerText", "path": "slot.padding", "value": [0, 4, 0, 0]}]
+    errs = style.guard_style_ops(text_ops, spec, brief, _cfg(), 5)
+    assert len(errs) == len(text_ops) and all("text widgets" in e for e in errs)
+
+
+def test_fit_color_from_core_strokes():
+    """1b 후속 J-c — 글자색은 핵심 획 대표색으로: 렌더가 남색이면 컨셉 흰색으로, 컨셉이 위 · 아래로 다르면 그라데이션, 같으면 그대로."""
+    ref = np.zeros((40, 60, 3))
+    ren = np.zeros((40, 60, 3))
+    m = np.zeros((40, 60), bool)
+    m[10:30, 10:50] = True
+    ref[m] = (245, 245, 235)
+    ren[m] = (20, 40, 110)
+    f = {"color": "#142C6EFF"}
+    rec = style._fit_color(f, ref, ren, m, m)
+    assert rec and f["color"] == "#F5F5EBFF" and "gradient" not in f and rec["core_de_before"] > 30
+    ref[10:20, 10:50], ref[20:30, 10:50] = (250, 230, 160), (200, 130, 40)        # 금색 세로 그라데이션
+    f2 = {"color": "#FFFFFFFF"}
+    style._fit_color(f2, ref, ren, m, m)
+    assert f2["gradient"] == {"top_color": "#FAE6A0FF", "bottom_color": "#C88228FF"} and f2["color"] == "#FFFFFFFF"
+    assert style._fit_color({"color": "#FFFFFFFF"}, ren, ren, m, m) is None                  # 같으면 그대로
 
 
 def test_guard_limits_asset_redos():
@@ -89,12 +116,12 @@ def test_region_report_compares_regions_and_text(tmp_path):
     assert "error" in fidelity.region_report(ref, tmp_path / "small.png" if png.write_rgba(tmp_path / "small.png", 2, 2, bytes(16)) else ren, spec, tmp_path / "c3")
 
 
-FINDING = {"fixes": [{"widget": "ChainTitleText", "gate": "style", "problem": "title is white, the concept is gold", "evidence": "glyph ΔE00 18",
-                      "suggested_op": {"op": "set", "widget": "ChainTitleText", "path": "font.color", "value": "#E7AE4F"}}]}
-GOLD = {"op": "set", "widget": "ChainTitleText", "path": "font.color", "value": "#E7AE4F", "reason": "concept glyph colour"}
+FINDING = {"fixes": [{"widget": "UltGauge", "gate": "style", "problem": "fill is pale, the concept is gold", "evidence": "fill ΔE00 18",
+                      "suggested_op": {"op": "set", "widget": "UltGauge", "path": "style.fill.color", "value": "#E7AE4F"}}]}
+GOLD = {"op": "set", "widget": "UltGauge", "path": "style.fill.color", "value": "#E7AE4F", "reason": "concept fill colour"}
 SHRINK = {"op": "set", "widget": "ChainTimerText", "path": "font.size", "value": 15, "reason": "too big"}
-# 1b 후속 F — 글자 크기를 바꾸면 bbox_intent 가 따라가므로(style.follow_text_boxes) 게이트를 깨는 라운드는 위치를 미는 op 로 흉내 낸다
-PUSH = {"op": "set", "widget": "ChainTimerText", "path": "slot.padding", "value": [0, 60, 0, 0], "reason": "pushes the number down"}
+# 게이트를 깨는 라운드는 막대를 미는 op 로 흉내 낸다(1b 후속 J-c — 글자 위젯 op 는 가드가 거절)
+PUSH = {"op": "set", "widget": "UltGauge", "path": "slot.padding", "value": [12, 40, 12, 0], "reason": "pushes the bar down"}
 
 
 def _style_run(tmp_path):
@@ -149,7 +176,7 @@ def test_pipeline_style_round_accepted(tmp_path, fake_ue, fake_llm, monkeypatch)
     sr = rep["recorded"]["style_review"]
     assert sr["rounds"][0]["action"] == "accepted" and rep["attempt"] == 2 and rep["attempts"][1]["style_round"] == 1
     rd = tmp_path / "work" / RUN_ID
-    assert widget(json.loads((rd / "spec.json").read_text(encoding="utf-8")), "ChainTitleText")["font"]["color"] == "#E7AE4F"
+    assert widget(json.loads((rd / "spec.json").read_text(encoding="utf-8")), "UltGauge")["style"]["fill"]["color"] == "#E7AE4F"
     assert rep["finalize"]["action"] == "saved" and sr["before"]["regions"] == 0 and sr["final_label"] == "round_001"   # 가짜 렌더 2×2 — 영역 없음
 
 
@@ -163,20 +190,21 @@ def test_pipeline_style_round_that_breaks_a_gate_is_reverted(tmp_path, fake_ue, 
     assert [a.get("revert", False) for a in rep["attempts"]] == [False, False, True] and rep["attempts"][-1]["pass"]
     rd = tmp_path / "work" / RUN_ID
     final = json.loads((rd / "spec.json").read_text(encoding="utf-8"))
-    assert (widget(final, "ChainTimerText").get("slot") or {}).get("padding") == (widget(fixture_spec(), "ChainTimerText").get("slot") or {}).get("padding")
+    assert (widget(final, "UltGauge").get("slot") or {}).get("padding") == (widget(fixture_spec(), "UltGauge").get("slot") or {}).get("padding")
     tools = [t for t, _ in fake_ue.editor.log]
     assert "discard_run_packages" in tools and tools.count("create_widget_blueprint") == 2          # 버리고 처음부터 다시 만들었다
     assert tools[-1] == "save_widget_run" and rep["status"] == "pass" and rep["verify"] == "pass"
 
 
-def test_pipeline_style_round_shrinking_text_moves_its_box(tmp_path, fake_ue, fake_llm, monkeypatch):  # noqa: F811
-    """1b 후속 F — C1 에서 막혔던 '크기를 크게 줄이기'(옛 bbox_intent 와 말단 IoU < 0.70)가 상자가 따라가 받아들여진다."""
+def test_pipeline_style_round_text_ops_are_rejected(tmp_path, fake_ue, fake_llm, monkeypatch):  # noqa: F811
+    """1b 후속 J-c — LLM 이 글자 크기를 바꾸려 해도(두 번) 가드가 거절해 라운드는 op 없이 끝나고 spec 글자는 그대로."""
     _with_reference(monkeypatch)
-    monkeypatch.setenv("FAKE_CLAUDE_OUTPUTS", json.dumps([FINDING, {"ops": [SHRINK]}]))
+    monkeypatch.setenv("FAKE_CLAUDE_OUTPUTS", json.dumps([FINDING, {"ops": [SHRINK]}, {"ops": [SHRINK]}]))
     assert run_pipeline.main(_args(tmp_path, "--fix-mode", "hybrid")) == run_pipeline.EXIT_PASS
     row = _report(tmp_path)["recorded"]["style_review"]["rounds"][0]
-    moved = row.get("text_boxes_followed") or []
-    assert row["action"] == "accepted" and [m["widget"] for m in moved] == ["ChainTimerText"] and moved[0]["size"][1] == 15
+    assert row["action"] == "no_ops" and "text widgets" in row["reason"]
+    final = json.loads((tmp_path / "work" / RUN_ID / "spec.json").read_text(encoding="utf-8"))
+    assert widget(final, "ChainTimerText")["font"].get("size") == widget(fixture_spec(), "ChainTimerText")["font"].get("size")
 
 
 def test_style_round_off_in_deterministic_mode(tmp_path, fake_ue, monkeypatch):  # noqa: F811
@@ -227,7 +255,7 @@ def test_pipeline_text_fit_that_breaks_a_gate_is_reverted(tmp_path, fake_ue, mon
     assert tf["action"] == "reverted" and "iou_leaf" in tf["verify"]["failed"]
     assert [a.get("revert", False) for a in rep["attempts"]] == [False, False, True] and rep["attempts"][-1]["pass"]
     final = json.loads((tmp_path / "work" / RUN_ID / "spec.json").read_text(encoding="utf-8"))
-    assert (widget(final, "ChainTimerText").get("slot") or {}).get("padding") == (widget(fixture_spec(), "ChainTimerText").get("slot") or {}).get("padding")
+    assert (widget(final, "UltGauge").get("slot") or {}).get("padding") == (widget(fixture_spec(), "UltGauge").get("slot") or {}).get("padding")
     assert rep["status"] == "pass" and [t for t, _ in fake_ue.editor.log][-1] == "save_widget_run"
 
 

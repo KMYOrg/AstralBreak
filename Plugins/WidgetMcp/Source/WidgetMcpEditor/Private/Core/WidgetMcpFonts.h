@@ -9,7 +9,7 @@
  * 엔진 UFontFileImportFactory::FactoryCreateBinary(EditorFactories.cpp:5077)와 같은 순서를 대화창 없이 밟는다:
  *   UFontFace — SourceFilename · FontFaceData->SetData(파일 바이트) · CacheSubFaces (Hinting · LoadingPolicy 는 기본값)
  *   UFont     — FontCacheType = Runtime(UFontFactory 와 같음) · CompositeFont.DefaultTypeface.Fonts = [{Name = 타입페이스, Font = FFontData(Face)}]
- * 타입페이스 이름은 spec 굵기 어휘가 고르는 이름(WidgetMcpSpec Weights — Regular · Bold · Light · Italic · Bold Italic)만 받는다.
+ * 타입페이스 이름은 spec 굵기 어휘가 고르는 이름(WidgetMcpSpec Weights — Regular · Bold · Light · Italic · Bold Italic · Medium · SemiBold · ExtraBold · Black)만 받는다.
  * 그래야 spec font.family = 이 UFont 경로, font.weight = regular/bold 가 그대로 그 타입페이스를 고른다.
  *
  * 안전장치: 대상 폴더는 [WidgetMcp] WidgetFontOutputPaths 아래 하위 폴더만(접두 자체는 거부) · 원본 파일은 WidgetImportSourceRoots 안 ·

@@ -65,11 +65,102 @@ def _crop(ref, frame_box, flip: bool) -> np.ndarray:
     return c[:, ::-1] if flip else c
 
 
+def _lead(body: np.ndarray, top: int, bot: int, left: int, right: int, x0: int, x1: int) -> int:
+    """왼쪽 끝 모양이 끝나는 열(트랙 기준) — 몸통 세로 폭이 안정 구간의 LEAD_EXTENT 에 닿는 첫 열 + LEAD_PAD. 못 재면 -1."""
+    ext = body[top:bot + 1, left:right + 1].sum(axis=0)
+    stable = float(np.median(ext[(x0 - left) + (x1 - x0) // 4:(x0 - left) + (x1 - x0) // 2]))
+    hit = np.where(ext >= LEAD_EXTENT * stable)[0]
+    return int(hit[0]) + LEAD_PAD if len(hit) else -1
+
+
+def _measure_full(ref, frame_box, bar_box, flip: bool, end: str) -> dict:
+    """1b 후속 J — 가득 찬 게이지(컨셉 진행률 ≥ FULL_MIN): 빈 부분이 없어 빈 트랙 밝기 대신 막대 둘레 어두운 띠(막대 줄 ± 반 높이의 아래 20 %)로
+    문턱을 잡고, 몸통 · 띠 · 양끝 모양(왼쪽 · 오른쪽 lead)을 잰다. 텍스처 = 트랙 전체 컨셉 조각(1:1), 진행률이 줄면 양끝은 고정 · 몸통만 준다.
+    [실측 J R20261117_192631 파티 HUD] HP 1.0 이 'sample percent 1' 로 빠져 사각 gradient_bar — 화살 끝 '<' '>' 빠짐 · 막대 위 6 px 구멍(국소 ΔE00 29)."""
+    ox, oy, ow, oh = (int(round(v)) for v in frame_box)
+    # 프레임 상자를 FULL_PAD 넓혀 잰다 — analyze 프레임 상자가 막대 둘레 선을 자르면 띠 끝(선)을 못 찾는다
+    # [실측 J R20261117_192631 — HpFrame 상자 위 끝 = 막대 위 5 px, 선은 그 밖]
+    H_, W_ = np.asarray(ref).shape[:2]
+    nx, ny = max(0, ox - FULL_PAD), max(0, oy - FULL_PAD)
+    ox, oy, ow, oh = nx, ny, min(W_, ox + ow + FULL_PAD) - nx, min(H_, oy + oh + FULL_PAD) - ny
+    crop = _crop(ref, [ox, oy, ow, oh], flip)
+    L = luminance(crop)
+    bx, by, bw, bh = (float(v) for v in bar_box)
+    bx = (ox + ow) - (bx + bw) if flip else bx - ox
+    by -= oy
+    r0, r1 = int(round(by + 0.25 * bh)), max(int(round(by + 0.75 * bh)), int(round(by + 0.25 * bh)) + 1)
+    if r0 < 0 or r1 > oh:
+        raise ConceptFillError("bar box rows are outside the frame box")
+    c0, c1 = int(bx + 0.15 * bw), max(int(bx + 0.85 * bw), int(bx + 0.15 * bw) + 1)
+    if c0 < 0 or c1 > ow:
+        raise ConceptFillError(f"bar box {list(bar_box)} is outside the frame box {list(frame_box)}")
+    body_L = float(np.median(L[r0:r1, c0:c1]))
+    q0, q1 = max(0, int(round(by - 0.5 * bh))), min(oh, int(round(by + 1.5 * bh)))
+    if q1 <= q0:
+        raise ConceptFillError("no rows around the full bar to measure the dark band")
+    dark_L = float(np.percentile(L[q0:q1, c0:c1], 20))
+    if body_L - dark_L < MIN_CONTRAST:
+        raise ConceptFillError(f"full bar L {body_L:.0f} vs the dark band around it L {dark_L:.0f} — contrast below {MIN_CONTRAST:g}")
+    T = round((body_L + dark_L) / 2.0, 1)
+    seed = [int(round(bx + 0.5 * bw)), int(round(by + 0.5 * bh))]
+    body = _body_mask(L, T, seed)
+    if body is None:
+        raise ConceptFillError("the seed in the middle of the full bar is not bright")
+    ys, xs = np.where(body)
+    x0, x1, y0, y1 = int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
+    if x0 <= 2 or x1 >= ow - 3 or y0 <= 1 or y1 >= oh - 2:
+        raise ConceptFillError(f"the bright bar touches the frame box edge (x {x0}-{x1}, y {y0}-{y1}) — it leaked into the frame lines")
+    if x1 - x0 < 0.6 * bw or y1 - y0 + 1 < 0.4 * bh:
+        raise ConceptFillError(f"the bright bar is too small ({x1 - x0 + 1}×{y1 - y0 + 1} px against the bar box {bw:.0f}×{bh:.0f})")
+    cols = np.linspace(x0 + 0.3 * (x1 - x0), x0 + 0.7 * (x1 - x0), 9).round().astype(int)
+    spans = [(int(r.min()), int(r.max())) for r in (np.where(body[:, c])[0] for c in cols) if len(r)]
+    body_top, body_bot = int(np.median([s[0] for s in spans])), int(np.median([s[1] for s in spans]))
+    tb = []
+    for c in cols:
+        t, b = body_top, body_bot
+        while t > 0 and L[t - 1, c] <= T:
+            t -= 1
+        while b < oh - 1 and L[b + 1, c] <= T:
+            b += 1
+        tb.append((t, b))
+    top, bot = int(np.median([v[0] for v in tb])), int(np.median([v[1] for v in tb]))
+    band_top, band_bot = body_top - top, bot - body_bot
+    track_from = "body columns (full bar)"
+    if top <= 0 or bot >= oh - 1 or max(band_top, band_bot) > MAX_BAND or min(band_top, band_bot) < 0:
+        # 막대 둘레에 문턱보다 밝은 선이 없다 — 막대 자체(밝은 테두리 포함)가 트랙 [실측 J 파티 HUD — 위 · 아래 L 48 ~ 92 청록 띠 뒤 바로 어둠]
+        top, bot, band_top, band_bot = body_top, body_bot, 0, 0
+        track_from = "body rows (no frame line beside the full bar)"
+    band = int(round((band_top + band_bot) / 2.0))
+    left, right = max(0, x0 - band - 1), min(ow - 1, x1 + band + 1)
+    lead = _lead(body, top, bot, left, right, x0, x1)
+    rb = body[:, ::-1]
+    rlead = _lead(rb, top, bot, ow - 1 - right, ow - 1 - left, ow - 1 - x1, ow - 1 - x0)
+    seg = right - left + 1
+    if lead <= 0 or rlead <= 0 or lead + rlead > 0.6 * seg:
+        raise ConceptFillError(f"the end shapes of the full bar do not settle (lead {lead}, right lead {rlead})")
+    th = bot - top + 1
+    params = {"frame_box": [ox, oy, ow, oh], "flip": flip, "threshold": T, "seed": seed, "track": [left, top, right, bot],
+              "body_end": x1, "lead": lead, "rlead": rlead, "band_radius": max(band_top, band_bot) + 1, "end": "scale", "end_in": 0, "spill": 0,
+              "full": True, "texture": "concept"}
+    wx = ox + (ow - left - seg) if flip else ox + left
+    ml, mr = round(lead / seg, 4), round(rlead / seg, 4)
+    rec = {"full": True, "threshold": T, "body_L": round(body_L, 1), "dark_L": round(dark_L, 1), "band": [band_top, band_bot],
+           "track_from": track_from, "lead": lead, "rlead": rlead, "body_box": [x0, y0, x1 - x0 + 1, y1 - y0 + 1], "concept_percent": 1.0}
+    return {"params": params, "widget_box": [int(wx), oy + top, int(seg), int(th)], "margin": [mr, 0.0, ml, 0.0] if flip else [ml, 0.0, mr, 0.0],
+            "record": rec, "texture_size": [int(seg), int(th)], "percent": 1.0}
+
+
+FULL_MIN = 0.97          # 1b 후속 J — 컨셉 진행률이 이 이상이면 가득 찬 게이지로 잰다(_measure_full)
+FULL_PAD = 16            # 가득 찬 게이지는 프레임 상자를 이만큼 넓혀 잰다(띠 끝 선이 상자 밖일 수 있음)
+
+
 def measure(ref, frame_box, bar_box, percent: float, fill_type: str = "left_to_right", end: str = "scale") -> dict:
     """→ {"params": {...}, "widget_box": [x, y, w, h], "margin": [l, 0, r, 0] | None, "record": {...}}. 못 재면 ConceptFillError(이유)."""
     if fill_type not in ("left_to_right", "right_to_left"):
         raise ConceptFillError(f"bar_fill_type {fill_type} — only horizontal fills")
     p = float(percent)
+    if p >= FULL_MIN and end == "scale":
+        return _measure_full(ref, frame_box, bar_box, fill_type == "right_to_left", end)
     if not 0.15 <= p <= 0.9:
         raise ConceptFillError(f"sample percent {p:g} — needs both a filled and an empty part to measure (0.15 ~ 0.9)")
     flip = fill_type == "right_to_left"
@@ -174,14 +265,23 @@ def measure(ref, frame_box, bar_box, percent: float, fill_type: str = "left_to_r
     tw = right - left + 1 + (spill if end == "scale" else 0)
     th = bot - top + 1
     wx = ox + (ow - left - tw) if flip else ox + left
-    margin = None
+    margin, tex_size, percent = None, [int(tw), int(th)], None
     if end == "scale":
-        ml, mr = round(lead / tw, 4), round((END_IN + spill + 1) / tw, 4)
+        # 1b 후속 J — 채움 텍스처 = 컨셉의 채워진 구간 그대로(왼쪽 끝 · 몸통 · 진행 끝 · 번짐 — render_concept_segment). scale 로 그리면 칠할 폭 = 막대 폭 ×
+        # 진행률이라 미리보기 진행률 = 구간 폭 ÷ 막대 폭이면 컨셉과 1:1, 다른 진행률에선 양끝(margin) 고정 · 몸통만 늘어난다.
+        # [실측 J-b 기준선 R20261117_134535] 줄마다 대표색 한 줄 몸통은 컨셉의 밝은 결을 지워 국소 ΔE00 10 ~ 22, 진행률 0.7(입력 sample)로 그려
+        # 채움 끝이 컨셉보다 약 25 px 짧았다(최대 80) · 왼쪽 끝 알파 밖 어두운 초승달
+        seg = x1 - left + 1 + spill
+        params["texture"] = "concept"
+        ml, mr = round(lead / seg, 4), round((END_IN + spill + 1) / seg, 4)
         margin = [mr, 0.0, ml, 0.0] if flip else [ml, 0.0, mr, 0.0]
+        tex_size = [int(seg), int(th)]
+        percent = round(seg / tw, 4)
     track_w = right - left + 1
     rec = {"threshold": T, "body_L": round(body_L, 1), "empty_L": round(empty_L, 1), "band": [band_top, band_bot], "track_from": track_from,
            "lead": lead, "spill": spill, "body_box": [x0, y0, x1 - x0 + 1, y1 - y0 + 1], "concept_percent": round((x1 - left + 1) / track_w, 3)}
-    return {"params": params, "widget_box": [int(wx), oy + top, int(tw), int(th)], "margin": margin, "record": rec}
+    return {"params": params, "widget_box": [int(wx), oy + top, int(tw), int(th)], "margin": margin, "record": rec, "texture_size": tex_size,
+            "percent": percent}
 
 
 def unfilled_track(ref, params: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -193,26 +293,16 @@ def unfilled_track(ref, params: dict) -> tuple[np.ndarray, np.ndarray]:
     → (자리 마스크, 메운 프레임 조각) — 둘 다 frame_box 좌표 · 컨셉 방향(뒤집기 전). 못 하면 ConceptFillError.
     [실측 G 후속] 게이지 프레임은 옮겨 심기를 건너뛰어 테두리 · 끝 캡이 run 마다 codex 판 그대로였다(사용자 눈 — G 끝 run 4 가 나음)."""
     flip = bool(params.get("flip"))
-    crop = _crop(ref, params["frame_box"], flip)
-    L = luminance(crop)
+    hole, crop = track_hole(ref, params)
     left, top, right, bot = (int(v) for v in params["track"])
-    x1, spill, T = int(params["body_end"]), int(params.get("spill", 0)), float(params["threshold"])
-    body = _body_mask(L, T, params["seed"])
-    if body is None:
-        raise ConceptFillError("the seed in the middle of the filled part is not bright")
-    import cv2
+    x1, spill = int(params["body_end"]), int(params.get("spill", 0))
+    if params.get("full"):
+        raise ConceptFillError("a full gauge has no empty part in the concept to take the track colour from")
     e_hi = right - 4
     e_lo = max(x1 + spill + 6, e_hi - TRACK_SAMPLE)
     if e_hi - e_lo < 4:
         raise ConceptFillError(f"the empty part of the track is too short to sample ({e_lo}-{e_hi})")
     rows = np.median(crop[top:bot + 1, e_lo:e_hi], axis=1)
-    region = np.zeros(L.shape, bool)
-    region[top:bot + 1, max(0, left):min(L.shape[1], right + 1)] = True
-    # 밝은 덩어리(몸통 제외) 중 구역 밖까지 이어진 것 = 프레임 선 · 캡 장식 — 그대로. 구역 안에 갇힌 것은 몸통과 끊긴 채움 빛 조각 — 메운다
-    # [실측 G2 — G 크기 끝 run 2 컨셉] 트랙 아래 줄에 채움 빛 조각이 점점이 남았다
-    n, lab = cv2.connectedComponents(((L > T) & ~body).astype(np.uint8), connectivity=8)
-    outside = np.unique(lab[~region & (lab > 0)])
-    hole = region & ~np.isin(lab, outside[outside > 0])
     out = crop.copy()
     rr, cc = np.where(hole)
     out[rr, cc] = rows[rr - top]
@@ -221,9 +311,63 @@ def unfilled_track(ref, params: dict) -> tuple[np.ndarray, np.ndarray]:
     return hole, out
 
 
+def track_hole(ref, params: dict) -> tuple[np.ndarray, np.ndarray]:
+    """채움이 덮는 트랙 자리(측정 방향 — flip 이면 뒤집힌 좌표) = 트랙 구역에서 구역 밖까지 이어진 밝은 덩어리(프레임 선 · 끝 캡)를 뺀 전부 → (자리, 측정 방향 crop)."""
+    import cv2
+    flip = bool(params.get("flip"))
+    crop = _crop(ref, params["frame_box"], flip)
+    L = luminance(crop)
+    left, top, right, bot = (int(v) for v in params["track"])
+    T = float(params["threshold"])
+    body = _body_mask(L, T, params["seed"])
+    if body is None:
+        raise ConceptFillError("the seed in the middle of the filled part is not bright")
+    region = np.zeros(L.shape, bool)
+    region[top:bot + 1, max(0, left):min(L.shape[1], right + 1)] = True
+    # 밝은 덩어리(몸통 제외) 중 구역 밖까지 이어진 것 = 프레임 선 · 캡 장식 — 그대로. 구역 안에 갇힌 것은 몸통과 끊긴 채움 빛 조각 — 메운다
+    # [실측 G2 — G 크기 끝 run 2 컨셉] 트랙 아래 줄에 채움 빛 조각이 점점이 남았다
+    if params.get("full"):
+        # 가득 찬 게이지 = 막대 실루엣(몸통 + 띠 반지름) — 트랙 사각형 전체면 화살 끝 바깥 어두운 모서리까지 채움이 불투명하게 칠했다
+        # [실측 J R20261117_205334 — HP 오른쪽 끝 모서리 '이중' 국소 ΔE00 36]
+        r = int(params.get("band_radius", 1))
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+        return region & cv2.dilate(body.astype(np.uint8), k).astype(bool), crop
+    n, lab = cv2.connectedComponents(((L > T) & ~body).astype(np.uint8), connectivity=8)
+    outside = np.unique(lab[~region & (lab > 0)])
+    return region & ~np.isin(lab, outside[outside > 0]), crop
+
+
+def render_concept_segment(ref, params: dict) -> np.ndarray:
+    """1b 후속 J — 채움 텍스처 = 컨셉의 채워진 구간(트랙 왼쪽 끝 ~ 몸통 끝 + 번짐) 픽셀 그대로, 알파 = unfilled_track 이 빈 트랙으로 메우는 자리
+    (프레임 선 · 끝 캡처럼 구역 밖까지 이어진 밝은 덩어리는 투명 — 아래 판이 그린다). → (h, seg, 4) float RGBA."""
+    import cv2
+    flip = bool(params.get("flip"))
+    hole, crop = track_hole(ref, params)
+    left, top, right, bot = (int(v) for v in params["track"])
+    # 가득 찬 게이지(full)는 트랙 전체(양끝 띠 포함), 아니면 왼쪽 끝 ~ 몸통 끝 + 번짐
+    seg = right - left + 1 if params.get("full") else int(params["body_end"]) - left + 1 + int(params.get("spill", 0))
+    c = crop[top:bot + 1, left:left + seg]
+    a = hole[top:bot + 1, left:left + seg].astype(np.float32)
+    if c.shape[1] != seg:
+        raise ConceptFillError(f"the filled segment ({seg} px) runs past the frame box")
+    a = np.maximum(a, cv2.blur(a, (3, 3)) * (a > 0))            # 가장자리 그대로(안 넓힘)
+    out = np.dstack([c, a * 255.0])
+    clear = out[..., 3] < 1.0
+    if clear.any() and (~clear).any():
+        # 완전 투명 픽셀 RGB = 가장 가까운 보이는 픽셀 색(이중선형 필터의 어두운 테두리 방지)
+        _, lab = cv2.distanceTransformWithLabels(clear.astype(np.uint8), cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_PIXEL)
+        src = np.argwhere(~clear)
+        idx = lab[clear] - 1
+        out[clear, :3] = out[src[idx, 0], src[idx, 1], :3]
+    out = np.clip(out, 0.0, 255.0)
+    return out[:, ::-1] if flip else out
+
+
 def render(ref, params: dict) -> np.ndarray:
     """→ (h, w, 4) float RGBA(0 ~ 255, 직선 알파). measure 가 준 값으로 언제나 같은 그림."""
     import cv2
+    if params.get("end") == "scale" and params.get("texture") == "concept":
+        return render_concept_segment(ref, params)
     flip = bool(params.get("flip"))
     crop = _crop(ref, params["frame_box"], flip)
     L = luminance(crop)

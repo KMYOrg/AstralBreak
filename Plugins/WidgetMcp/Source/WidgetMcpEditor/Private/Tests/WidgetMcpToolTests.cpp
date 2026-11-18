@@ -585,7 +585,8 @@ bool FWidgetMcpImportFontTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("run folder is not a font folder"), C.Code, FString(TEXT("OUTPUT_PATH_NOT_ALLOWED")));
 	C = H.Call(TEXT("import_font_family"), Body(TEXT("/Game/UI/Fonts"), Regular, TEXT("Regular")));
 	TestEqual(TEXT("the font prefix itself is refused"), C.Code, FString(TEXT("OUTPUT_PATH_NOT_ALLOWED")));
-	C = H.Call(TEXT("import_font_family"), Body(TEXT("/Game/UI/Fonts/_WidgetMcpTestNever"), Regular, TEXT("Medium")));
+	// 어휘 밖 굵기 — 1b 후속 K 가 Medium · SemiBold · ExtraBold · Black 을 어휘에 넣어 예전 예('Medium')는 거절되지 않았다(WidgetMcpFonts AllowedTypefaces)
+	C = H.Call(TEXT("import_font_family"), Body(TEXT("/Game/UI/Fonts/_WidgetMcpTestNever"), Regular, TEXT("Thin")));
 	TestEqual(TEXT("typeface outside the weight vocabulary"), C.Reason, FString(TEXT("BAD_TYPEFACE")));
 	C = H.Call(TEXT("import_font_family"), Body(TEXT("/Game/UI/Fonts/_WidgetMcpTestNever"), TEXT("Saved/nope.ttf"), TEXT("Regular")));
 	TestEqual(TEXT("file outside WidgetImportSourceRoots"), C.Reason, FString(TEXT("DISK_ROOT")));

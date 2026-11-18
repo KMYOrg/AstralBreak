@@ -64,6 +64,22 @@ def test_convert_scene_concept_twice_uses_the_cache(env, monkeypatch):
     assert rec3["codex_calls"] == 2 and rec3["cache_dir"] != rec["cache_dir"]
 
 
+def test_flat_concept_gets_only_an_element_free_plate_once(env, monkeypatch):
+    """1b 후속 J-a — ⓑ 단색 컨셉은 변환하지 않고 요소 없는 판만 codex 1 회(검정 배경 유지 프롬프트) — 두 번째는 캐시."""
+    src = env / "flat.png"
+    arr = np.zeros((80, 160, 3), np.uint8)
+    arr[20:60, 30:130] = (200, 150, 60)
+    Image.fromarray(arr).save(src)
+    run = _run(env, "R20261117_153000_CombatHUD")
+    rec = concept_convert.plate_only(run, src, {**INPUTS, "data": [{"id": "g", "type": "progress", "widget": "Dash"}]}, cli=FAKE)
+    assert rec["used"] and rec["codex_calls"] == 1 and run.path("convert", "concept_notext.png").is_file() and not rec["plate"]["cached"]
+    prompt = run.path("convert", "call_plate", "prompt.txt").read_text(encoding="utf-8")
+    assert "solid black background" in prompt and "empty the gauge" in prompt and "transparent background (PNG alpha)" not in prompt
+    rec2 = concept_convert.plate_only(_run(env, "R20261117_153100_CombatHUD"), src, {**INPUTS, "data": [{"id": "g", "type": "progress", "widget": "Dash"}]},
+                                      cli=["no-such-codex"])
+    assert rec2["used"] and rec2["codex_calls"] == 0 and rec2["plate"]["cached"] and rec2["cache_dir"] == rec["cache_dir"]
+
+
 def test_convert_rejects_a_result_without_transparency_and_keeps_the_rejection(env, monkeypatch):
     src = env / "scene.png"
     _scene(src)

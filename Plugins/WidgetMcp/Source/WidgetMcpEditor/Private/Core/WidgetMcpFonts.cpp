@@ -69,7 +69,8 @@ namespace WidgetMcpFonts
 	const TArray<FString>& AllowedTypefaces()
 	{
 		// WidgetMcpSpec.cpp Weights() 의 값(굵기 → 타입페이스 이름)과 같아야 한다 — spec font.weight 가 이 이름으로 타입페이스를 고른다
-		static const TArray<FString> Names = { TEXT("Regular"), TEXT("Bold"), TEXT("Light"), TEXT("Italic"), TEXT("Bold Italic") };
+		static const TArray<FString> Names = { TEXT("Regular"), TEXT("Bold"), TEXT("Light"), TEXT("Italic"), TEXT("Bold Italic"), TEXT("Medium"), TEXT("SemiBold"),
+			TEXT("ExtraBold"), TEXT("Black") };
 		return Names;
 	}
 

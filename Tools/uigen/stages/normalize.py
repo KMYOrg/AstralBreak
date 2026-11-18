@@ -7,6 +7,8 @@
     reference_color.png 를 남기고 refine 의 오리기가 그 알파 · 색을 쓴다(gen/cutout). normalize.json background 에 판정 기록.
   - (1b 후속 H2) inputs concept_notext(같은 컨셉에서 글자만 지운 판 — make_concept --text-free)가 있으면 같은 배경 처리 · 배치로 맞추고 위상 상관으로
     정합해 reference_notext_color.png · reference_notext_alpha.png 를 남긴다(refine 이 글자 구멍만 채우고, 글자 맞춤이 컨셉 획을 잰다).
+  - (1b 후속 L-2) concept_source generated_textfree(make_concept --text-free-first — 글자 없이 그린 원본 아트): 원본 아트 = 아트(reference_art_*) ·
+    글자 없는 판(reference_notext_*), inputs concept_text_ref(글자 참고판)를 원본 아트에 정합해 글자 획만 옮겨 붙인 그림 = reference*(gen/text_ref).
   - brief: 계약(바인딩 위젯 이름 · 위젯 타입 · 데이터 · 고정 글자)은 inputs 가 정한 그대로, 폰트 기본값은 pipeline.yaml fonts.default_family.
 text · multi_ref 는 Phase 3.
 
@@ -108,11 +110,39 @@ def _inputs_errors(inputs: dict) -> list[str]:
     return errs
 
 
-def _fit_reference(src: pathlib.Path, dst: pathlib.Path, size: list[int], background: str | None = "auto", notext: pathlib.Path | None = None) -> dict:
+def concept_source(inputs: dict, concept_path) -> dict:
+    """1b 후속 K-a → L-2 — {value: generated | external | generated_textfree, from}. inputs concept_source 가 먼저, 없으면 컨셉 옆 concept.json(make_concept
+    출처 기록): codex 가 새로 그렸고(edited_from 없음) → generated, 편집(외부 그림 바꾸기) · 기록 없음 → external, `--text-free-first` 원본 아트 → generated_textfree.
+    L-2 인데 codex 가 두 번 다 글자를 그렸으면(make_concept 기록 text_free_first.status text_drawn) 글자 든 컨셉 — generated(L-1 길)로 물러난다."""
+    v = inputs.get("concept_source")
+    side = pathlib.Path(concept_path).with_name("concept.json")
+    try:
+        rec = json.loads(side.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        rec = None
+    tff = (rec or {}).get("text_free_first") or {}
+    if v == "generated_textfree" or (v is None and tff):
+        if tff.get("status") == "text_drawn":
+            return {"value": "generated", "from": f"{side.name} (text-free first fell back)",
+                    "textfree_fallback": "codex drew text into the text-free art on both tries — the concept is treated as a concept with text (L-1)"}
+        return {"value": "generated_textfree", "from": "inputs" if v else f"{side.name} (text-free first)"}
+    if v in ("generated", "external"):
+        return {"value": v, "from": "inputs"}
+    if rec is None:
+        return {"value": "external", "from": "no concept.json next to the concept"}
+    if rec.get("kind") == "concept" and "codex" in str(rec.get("generator", "")) and not rec.get("edited_from"):
+        return {"value": "generated", "from": f"{side.name} (codex generated)"}
+    return {"value": "external", "from": f"{side.name} (edited from {rec.get('edited_from')})" if rec.get("edited_from") else side.name}
+
+
+def _fit_reference(src: pathlib.Path, dst: pathlib.Path, size: list[int], background: str | None = "auto", notext: pathlib.Path | None = None,
+                   textfree_art: bool = False, text_ref: pathlib.Path | None = None, text_ref_skip: str | None = None) -> dict:
     """컨셉 → 기준 해상도 RGB PNG. 비율 차이 ≤ 1 % 면 늘리고, 넘으면 가운데 맞춤 + 검은 띠.
     (1b 후속 H) 배경 판정(gen/cutout.classify — ⓐ transparent · ⓑ flat · ⓒ scene, inputs concept_background 가 auto 가 아니면 그것)을 하고,
     ⓐ ⓑ 는 dst 옆에 reference_alpha.png(L — 알파) · reference_color.png(RGB — 곧은 색: ⓐ 는 PNG 색, ⓑ 는 배경색 언믹싱)를 남긴다.
-    그때 reference.png 는 곧은 색을 검정 위에 얹은 것(렌더 바탕이 검정 — ⓑ 키가 검정이면 원본과 같다). 띠 자리는 알파 0."""
+    그때 reference.png 는 곧은 색을 검정 위에 얹은 것(렌더 바탕이 검정 — ⓑ 키가 검정이면 원본과 같다). 띠 자리는 알파 0.
+    (1b 후속 L-2) textfree_art = 컨셉이 글자 없이 그린 원본 아트 — ⓐ ⓑ 면 _fit_text_ref 가 원본 아트를 아트 · 글자 없는 판 파일로 남기고, 글자 참고판이
+    있으면 정합해 reference* 를 '원본 아트 + 참고판 글자'로 바꾼다(background.textfree)."""
     import numpy as np
     from PIL import Image   # rapidocr 와 함께 설치(1b-3) — normalize(concept) 만 쓴다
     from gen import cutout
@@ -169,6 +199,8 @@ def _fit_reference(src: pathlib.Path, dst: pathlib.Path, size: list[int], backgr
                    transparent_ratio=round(float((a < 0.02).mean()), 4))
     if notext is not None:
         rec["notext"] = _fit_notext(notext, dst, src_arr, bg, place, (tw, th))
+    if textfree_art and bg["kind"] != "scene":
+        rec["textfree"] = _fit_text_ref(text_ref, dst, src_arr, bg, place, (tw, th), skip=text_ref_skip)
     return {"src_size": [sw, sh], "dst_size": [tw, th], "mode": mode, "aspect_diff": round(diff, 5),
             "scale": [round(v, 6) for v in scale], "offset": offset, "background": rec}
 
@@ -221,6 +253,60 @@ def _fit_notext(src: pathlib.Path, dst: pathlib.Path, concept_arr, bg: dict, pla
     return rec
 
 
+# 1b 후속 L-2 — 원본 아트(글자 없이 그린 그림 — 사람이 승인한 픽셀 정답)의 파일 이름. 아트 · 글자 없는 판이 같은 그림이다
+ART_FILES = ("reference_art_color.png", "reference_art_alpha.png")
+NOTEXT_FILES = ("reference_notext_color.png", "reference_notext_alpha.png")
+TEXTREF_FILES = ("reference_textref_color.png", "reference_textref_alpha.png", "reference_textref_paste.png")
+
+
+def _fit_text_ref(src: pathlib.Path | None, dst: pathlib.Path, concept_arr, bg: dict, place, size, skip: str | None = None) -> dict:
+    """1b 후속 L-2 ④ — 원본 아트(지금 dst 옆 reference_color · reference_alpha)를 아트 · 글자 없는 판 파일로 남기고, 글자 참고판(make_concept
+    --text-free-first 의 codex 편집)이 있으면 컨셉과 같은 배치 · 배경 처리로 맞춘 뒤 원본 아트에 정합해(gen/text_ref.merge — 참고판을 옮김) 참고판
+    글자 획만 원본 아트 위에 옮겨 붙인 그림으로 reference* 를 바꾼다. 검사(이동 · 글자 상자 · 칸 밖 차이)에 떨어지면 reference* = 원본 아트 그대로
+    (글자는 사양 — analyze 가 어휘에서). → {"text_ref": 기록, "art": [색, 알파], "notext": [색, 알파]}."""
+    import shutil
+
+    import numpy as np
+    from PIL import Image
+    from gen import cutout, text_ref
+    rc, ra = dst.with_name("reference_color.png"), dst.with_name("reference_alpha.png")
+    for (s_, d_) in ((rc, ART_FILES[0]), (ra, ART_FILES[1]), (rc, NOTEXT_FILES[0]), (ra, NOTEXT_FILES[1])):
+        shutil.copyfile(s_, dst.with_name(d_))
+    out = {"art": list(ART_FILES), "notext": list(NOTEXT_FILES)}
+    if src is None:
+        out["text_ref"] = {"used": False, "reason": skip or "no concept_text_ref — texts come from the spec (analyze picks them from the vocabulary)"}
+        return out
+    sh, sw = concept_arr.shape[:2]
+    with Image.open(src) as im:
+        has_a = "A" in im.getbands()
+        src_size = list(im.size)
+        arr = np.asarray((im.convert("RGBA") if has_a else im.convert("RGB")).resize((sw, sh), Image.Resampling.LANCZOS))
+    if bg["kind"] == "flat":
+        col, alpha, _ = cutout.flat_unmix(arr[..., :3], bg["key"])
+    else:
+        col = arr[..., :3].astype(float)
+        alpha = arr[..., 3].astype(float) / 255.0 if has_a else concept_arr[..., 3].astype(float) / 255.0
+    t_a = np.clip(place(alpha), 0.0, 1.0)
+    pm = np.dstack([place(col[..., i] * alpha) for i in range(3)])
+    t_col = np.clip(np.where(t_a[..., None] > 1e-4, pm / np.maximum(t_a, 1e-4)[..., None], 0.0), 0, 255)
+    with Image.open(rc) as c, Image.open(ra) as a:
+        a_col, a_a = np.asarray(c.convert("RGB"), float), np.asarray(a.convert("L"), float) / 255.0
+    c_col, c_a, (tw_col, tw_a), rec = text_ref.merge(a_col, a_a, t_col, t_a)
+    rec = {"src": src.name, "src_size": src_size, **rec}
+    paste = rec.pop("paste", None)
+    Image.fromarray(np.clip(tw_col, 0, 255).round().astype(np.uint8), "RGB").save(dst.with_name(TEXTREF_FILES[0]), format="PNG")
+    Image.fromarray((np.clip(tw_a, 0, 1) * 255).round().astype(np.uint8), "L").save(dst.with_name(TEXTREF_FILES[1]), format="PNG")
+    rec["aligned"] = list(TEXTREF_FILES[:2])
+    if rec.get("used"):
+        Image.fromarray((paste * 255).astype(np.uint8), "L").save(dst.with_name(TEXTREF_FILES[2]), format="PNG")
+        rec["paste_mask"] = TEXTREF_FILES[2]
+        Image.fromarray(np.clip(c_col * c_a[..., None], 0, 255).round().astype(np.uint8), "RGB").save(dst, format="PNG")
+        Image.fromarray((np.clip(c_a, 0, 1) * 255).round().astype(np.uint8), "L").save(ra, format="PNG")
+        Image.fromarray(np.clip(c_col, 0, 255).round().astype(np.uint8), "RGB").save(rc, format="PNG")
+    out["text_ref"] = rec
+    return out
+
+
 def run_concept(run, opts) -> str:
     src = pathlib.Path(opts.inputs)
     try:
@@ -243,9 +329,25 @@ def run_concept(run, opts) -> str:
     if not screen:
         raise StageError("SCREEN_UNKNOWN", f"screen_id '{inputs['screen_id']}' is not in screens.yaml")
     resolution = list(inputs.get("resolution") or [1920, 1080])
+    # 1b 후속 K-a → L-2 — 컨셉 출처(inputs concept_source 가 없으면 컨셉 옆 concept.json — make_concept 출처). generated_textfree = 원본 아트(L-2)
+    src_rec = concept_source(inputs, concept)
+    l2 = src_rec["value"] == "generated_textfree"
+    text_ref, text_ref_skip = None, None
+    if l2 and inputs.get("concept_text_ref"):
+        if getattr(opts, "concept", None):
+            text_ref_skip = "the concept was given on the command line — concept_text_ref belongs to the inputs concept"
+        else:
+            text_ref = pathlib.Path(inputs["concept_text_ref"])
+            if not text_ref.is_absolute():
+                text_ref = src.parent / text_ref
+            if not text_ref.is_file():
+                # 참고판이 없으면(만들기 실패 등) 글자는 사양으로 — 설계 L-2 가드 '실패면 참고판 없이 사양'
+                text_ref, text_ref_skip = None, f"concept_text_ref image {inputs['concept_text_ref']} does not exist — texts come from the spec"
     # 글자 없는 판(1b 후속 H — make_concept --text-free) — inputs.yaml 기준 상대 경로. 컨셉을 명령줄로 바꿨으면 그 컨셉의 판이 아니라 쓰지 않는다
     notext, notext_skip = None, None
-    if inputs.get("concept_notext"):
+    if inputs.get("concept_notext") and l2:
+        notext_skip = "L-2 — the original art is the text-free plate (concept_notext is not used)"
+    elif inputs.get("concept_notext"):
         if getattr(opts, "concept", None):
             notext_skip = "the concept was given on the command line — concept_notext belongs to the inputs concept"
         else:
@@ -278,14 +380,41 @@ def run_concept(run, opts) -> str:
         conv = {"used": False, "mode": mode, "source_kind": src_kind.get("kind"),
                 "reason": "the concept already has real alpha" if src_kind.get("kind") == "transparent"
                 else f"concept_convert {mode} does not convert a {src_kind.get('kind')} concept"}
+        # 1b 후속 J-a — ⓑ 단색 컨셉에 글자 없는 판이 없으면 요소 없는 판만 codex 로 한 번(캐시) — 글자 자리를 줄 보간 대신 판 획으로
+        if src_kind.get("kind") == "flat" and notext is None and not notext_skip and not l2 and concept_convert.settings(run.cfg).get("plate_for_flat", True):
+            plate = concept_convert.plate_only(run, concept, inputs, cli=getattr(opts, "codex_cli", None))
+            conv["plate_only"] = plate
+            if plate.get("used"):
+                notext = run.path(plate["file"])
     try:
-        fit = _fit_reference(concept, run.path("reference.png"), resolution, background, notext=notext)
+        fit = _fit_reference(concept, run.path("reference.png"), resolution, background, notext=notext, textfree_art=l2, text_ref=text_ref,
+                             text_ref_skip=text_ref_skip)
     except (OSError, ValueError) as exc:
         raise StageError("INPUT_UNREADABLE", f"{concept}: {exc}") from exc
     if notext_skip:
         fit["background"]["notext"] = {"used": False, "reason": notext_skip}
     if conv is not None:
         fit["background"]["convert"] = conv
+    # 1b 후속 K-a → L-1 — 컨셉 출처. 정답 = 사람이 승인한 그림: 글자 든 컨셉(generated · external)이면 아트 = 컨셉 픽셀, codex 가 다시 그린 글자 없는 판은
+    # 글자 획 아래(정답 없는 자리)에만(외부 컨셉 길과 하나). 원본 생성 아트(L-2 generated_textfree — 글자 없이 그린 그림이 승인한 정답)만 아트 모드(role original).
+    fit["background"]["concept_source"] = src_rec
+    nt0 = fit["background"].get("notext") or {}
+    if src_rec["value"] == "generated_textfree":
+        tf = fit["background"].pop("textfree", None)
+        if tf and fit["background"]["kind"] in ("transparent", "flat"):
+            # L-2 — 아트 = 원본 아트(전 화면 픽셀 정답 — 게이지 채움 · 런타임 그림까지 그린 그림: K 의 '요소 없는 판'이 아님 → element_free False),
+            # 글자 없는 판 = 같은 원본 아트(글자를 그린 적 없음 → 투명 위 글자 잔상 지우기 안 함 text_residue False), 레퍼런스 = 원본 아트 + 참고판 글자
+            tr = tf["text_ref"]
+            fit["background"]["text_ref"] = tr
+            fit["background"]["notext"] = {"used": True, "role": "original_art", "color": tf["notext"][0], "alpha": tf["notext"][1], "shift_px": [0.0, 0.0],
+                                           "text_residue": False, **({"inputs_notext_ignored": notext_skip} if notext_skip else {})}
+            fit["background"]["art"] = {"used": True, "role": "original", "color": tf["art"][0], "alpha": tf["art"][1], "element_free": False,
+                                        "text_residue": False, "text_ref_used": bool(tr.get("used"))}
+        else:
+            fit["background"]["art"] = {"used": False, "reason": f"background {fit['background']['kind']} — the original art needs the concept alpha"}
+    elif src_rec["value"] == "generated":
+        fit["background"]["art"] = {"used": False, "reason": "L-1 — the approved picture is the concept with text: art = concept pixels, the redrawn "
+                                    "text-free plate only under glyphs" + ("" if nt0.get("used") else " (no text-free plate aligned)")}
     font = inputs.get("font") or (run.cfg.get("fonts") or {}).get("default_family")
     dynamic = []
     for d in inputs["data"]:
@@ -296,7 +425,8 @@ def run_concept(run, opts) -> str:
         dynamic.append(e)
     brief = {"schema_version": 1, "run_id": run.run_id, "mode": "concept", "screen_type": inputs["screen_type"], "screen_id": inputs["screen_id"],
              "resolution": resolution, "language": inputs.get("language", "ko"), "font": font, "text": inputs.get("text", ""),
-             "required_elements": inputs["required_elements"], "dynamic_data": dynamic, "static_text": inputs.get("static_text", []),
+             "required_elements": inputs["required_elements"], "dynamic_data": dynamic,
+             "static_text": [{"widget": s["widget"], "value": s["value"]} for s in inputs.get("static_text", [])],   # desc(L-2 참고판 칸 설명)는 brief 밖
              "style_keywords": inputs.get("style_keywords", []),
              "references": [{"path": "reference.png", "role": "layout", "role_source": "user"}], "conflicts": [],
              "binding_contract": {"class": "UUserWidget" if screen.get("probe") else f"U{screen['widget']}",
@@ -311,6 +441,10 @@ def run_concept(run, opts) -> str:
     bg = fit["background"]
     nt = bg.get("notext")
     nt_txt = "" if not nt else (f" — text-free concept aligned (shift {nt['shift_px']})" if nt.get("used") else f" — text-free concept not used ({nt.get('reason')})")
+    if (bg.get("art") or {}).get("role") == "original":
+        tr = bg.get("text_ref") or {}
+        nt_txt = (" — L-2 original text-free art" + (f", text reference aligned (shift {tr.get('shift_px')}, glyph pixels {tr.get('paste_px')})"
+                                                     if tr.get("used") else f", no text reference ({tr.get('reason')})"))
     cv = bg.get("convert") or {}
     cv_txt = ""
     if cv.get("used"):

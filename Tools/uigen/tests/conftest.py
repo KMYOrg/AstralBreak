@@ -174,6 +174,19 @@ def deterministic_fix_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_flat_plate_by_default(monkeypatch):
+    """1b 후속 J-a — ⓑ 단색 컨셉의 요소 없는 판(codex 1 회)은 시험 기본에서 끈다 — 보는 시험은 cfg concept_convert.plate_for_flat_in_tests: true."""
+    from gen import concept_convert
+    real = concept_convert.settings
+
+    def settings(cfg):
+        out = real(cfg)
+        out["plate_for_flat"] = bool(((cfg or {}).get("concept_convert") or {}).get("plate_for_flat_in_tests", False))
+        return out
+    monkeypatch.setattr(concept_convert, "settings", settings)
+
+
+@pytest.fixture(autouse=True)
 def no_real_codex(monkeypatch, tmp_path):
     """실제 codex CLI 금지 — 생성 시험은 가짜 codex(tests/fake_codex.py)를 cli= 로 넘긴다. CODEX_HOME 도 임시 폴더로(실제 ~/.codex 를 보지 않게)."""
     from gen import codex

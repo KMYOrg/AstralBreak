@@ -42,12 +42,16 @@
       "type": "array",
       "items": {
         "type": "object", "required": ["widget", "value"], "additionalProperties": false,
-        "properties": { "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "value": { "type": "string" } }
+        "properties": { "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "value": { "type": "string" },
+                        "desc": { "type": "string", "description": "1b 후속 L-2 — 글자 칸 설명(make_concept --text-free-first 의 참고판 편집 프롬프트 — 좌표 없이 자리 · 모양만)" } }
       }
     },
     "style_keywords": { "type": "array", "items": { "type": "string" } },
     "concept_notext": { "type": "string", "description": "1b 후속 H — 같은 컨셉에서 글자만 지운 판(make_concept.py --text-free) — refine 이 글자 구멍을 이 픽셀로 채운다" },
     "concept_background": { "enum": ["auto", "transparent", "flat", "scene"], "description": "1b 후속 H — 컨셉 배경 종류. auto = normalize 가 판정(알파 있음 → transparent · 테두리 한 색 → flat · 아니면 scene)" },
+    "separate": { "type": "array", "items": { "type": "string" }, "description": "1b 후속 J-a — 정적 판에 굽지 않고 따로 그릴 요소(위젯 id — 나중에 애니메이션 등). 바인딩 · flag · 버튼 · 크기가 변하는 9-slice 는 적지 않아도 따로" },
+    "concept_source": { "enum": ["generated", "external", "generated_textfree"], "description": "1b 후속 K-a → L — generated = 우리가 만든 글자 든 컨셉(L-1: 아트 = 컨셉 픽셀 + 글자 자리만 글자 없는 판) · external = 외부 그림(같은 길, 오류 0 + 근사) · generated_textfree = (L-2) 글자 없이 그린 원본 아트(make_concept --text-free-first — 아트 · 글자 없는 판 = 원본 아트, 글자 스타일은 concept_text_ref 참고판에서). 없으면 컨셉 옆 concept.json(make_concept 출처)으로" },
+    "concept_text_ref": { "type": "string", "description": "1b 후속 L-2 — 글자 참고판(원본 아트에 codex 편집 1 회로 글자만 얹은 그림 — make_concept --text-free-first). normalize 가 원본 아트에 정합해 글자 획만 옮겨 붙인다(검사 실패 · 없음 → 글자는 사양). inputs.yaml 기준 상대 경로" },
     "concept_convert": { "enum": ["auto", "force", "off"], "description": "1b 후속 I — codex 편집으로 'UI 만 · 진짜 알파' 컨셉 + 글자 없는 판으로 바꿔 ⓐ 로 잇기. auto = scene 만 · force = flat 도 · off = 안 함(없으면 pipeline.yaml concept_convert.default)" },
     "note": { "type": "string" }
   }

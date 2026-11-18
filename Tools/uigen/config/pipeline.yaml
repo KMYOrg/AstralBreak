@@ -76,6 +76,7 @@ concept_convert:                         # 1b 후속 I — 컨셉을 codex 편�
   aspect_tol: 0.03                       # 변환 결과 비율이 원본과 이만큼 넘게 다르면 버림(구도 유지 실패)
   transparent_ratio: [0.05, 0.95]        # 변환 결과 투명 픽셀 비율이 이 밖이면 버림(배경이 안 빠졌거나 다 지워짐)
   text_free: true                        # 글자 없는 판도 받는다(실패해도 ⓐ 로 가되 판 없이)
+  plate_for_flat: true                   # 1b 후속 J-a — ⓑ 단색 컨셉(변환 안 함)에 글자 없는 판이 없으면 요소 없는 판만 codex 1 회(캐시) — 글자 자리를 판 획으로
   cache_dir: _convert                    # work_root 아래 — <원본 sha256 앞 16>_<프롬프트 sha256 앞 8>/ (다시 돌리면 codex 0, 지우면 다시 받음)
 
 textures:                                # §12-2 5 — 11-14 사용자: EditorIcon 기본 + 큰 배경만 BC7
@@ -91,8 +92,8 @@ render:
   resolutions: [[1920, 1080], [2560, 1080], [1920, 1200]]   # 화면 밖 게이트 — 기준 + 21:9 + 16:10
 
 fonts:                                   # 프로젝트 폰트 (1b-3 — 11-15 사용자 승인: Pretendard v1.3.9 OFL, import_font_family 로 임포트 · 저장)
-  default_family: /Game/UI/Fonts/Pretendard/F_Pretendard.F_Pretendard   # = 역할 body. spec font.family 값 — export 가 돌려주는 객체 경로 그대로(왕복 비교)
-  typefaces: [Regular, Bold]             # spec font.weight regular · bold 만 그 타입페이스를 고른다(light · italic 은 첫 항목으로 대체)
+  default_family: /Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W   # 1b 후속 K — 굵기 5 종(Regular · Medium · SemiBold · Bold · ExtraBold) family. = 역할 body. spec font.family 값 — export 가 돌려주는 객체 경로 그대로(왕복 비교)
+  typefaces: [Regular, Medium, SemiBold, Bold, ExtraBold]   # 1b 후속 K — body family 가 가진 타입페이스(spec font.weight 가 고름 — 없는 굵기는 첫 항목으로 대체)
   line_height:                           # body(Pretendard) — [실측 1b-3 · 1b 후속 D] TextBlock auto_size 높이(px, scale 1) — regular · bold 같음. 엔진 기본은 크기 × 약 1.6
     16: 26
     18: 30
@@ -104,15 +105,34 @@ fonts:                                   # 프로젝트 폰트 (1b-3 — 11-15 �
     56: 90
     80: 129
   glyph_height: { hangul: 1.17, digits: 0.94 }   # 1b 후속 F — 보이는 글자 높이 / 크기 [실측 C1 렌더 '오의 불가' 35/30 · D 숫자 0.94] — analyze 프롬프트가 크기를 고를 때
+  weight_density:                        # 1b 후속 K → L-2 — family 마다 가진 굵기 → 획 밀도(획 픽셀 / 획 상자의 잉크 있는 열 — 빈 열(낱말 · 글자 사이 틈) 뺌, Regular = 1) [실측 PIL — 한글 · 숫자 11 낱말 × 24 · 36 · 56 px 기하 평균, uigenL2/weight_density.py]. 빈 열을 빼야 자간이 굵기 판정을 안 바꾼다(L-2 체인 버스트 — 자간 +2 px 에 밀도 비 0.936 → 0.898). 예전(상자 전체) 값: Pretendard 1.176 · 1.348 · 1.488 · 1.628, Noto 1.271 · 1.482 · 1.692
+                                         # 글자 맞춤 · 진단(E9)이 '가진 굵기 중 컨셉에 가장 가까운 것'을 고른다. 표에 없는 family 는 예전 규칙(Regular ↔ Bold 1.22 · 진단 1.3 배)
+    /Game/UI/Fonts/Pretendard/F_Pretendard.F_Pretendard: { regular: 1.0, bold: 1.433 }
+    /Game/UI/Fonts/Pretendard/F_Pretendard_SDF.F_Pretendard_SDF: { regular: 1.0, bold: 1.433 }
+    /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR.F_NotoSerifKR: { regular: 1.0, bold: 1.462 }
+    /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_SDF.F_NotoSerifKR_SDF: { regular: 1.0, bold: 1.462 }
+    /Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W: { regular: 1.0, medium: 1.156, semibold: 1.312, bold: 1.433, extrabold: 1.552 }
+    /Game/UI/Fonts/Pretendard/F_Pretendard_W_SDF.F_Pretendard_W_SDF: { regular: 1.0, medium: 1.156, semibold: 1.312, bold: 1.433, extrabold: 1.552 }
+    /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_W.F_NotoSerifKR_W: { regular: 1.0, semibold: 1.27, bold: 1.462, black: 1.672 }
+    /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_W_SDF.F_NotoSerifKR_W_SDF: { regular: 1.0, semibold: 1.27, bold: 1.462, black: 1.672 }
   roles:                                 # 1b 후속 D — analyze 가 TextBlock 마다 font.role 을 고르고 apply_contract 가 family 로 바꾼다(body = 위 default_family)
-    title:                               # 제목 · 배너 · 큰 숫자 — Noto Serif KR(notofonts/noto-cjk SubsetOTF KR, OFL — 11-15 사용자 승인)
-      family: /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR.F_NotoSerifKR
+    body:                                # family · 줄 높이는 위 default_family · line_height — 여기엔 SDF 사본만(기본 폰트일 때만 쓰임)
+      sdf_family: /Game/UI/Fonts/Pretendard/F_Pretendard_W_SDF.F_Pretendard_W_SDF   # 1b 후속 J — 같은 TTF 의 거리장 사본(import_font_family distance_field, Msdf) — 글자 빛 쓰는 본문 글자만
+    title:                              # 제목 · 배너 · 큰 숫자 — Noto Serif KR(notofonts/noto-cjk SubsetOTF KR, OFL — 11-15 사용자 승인)
+      family: /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_W.F_NotoSerifKR_W   # 1b 후속 K — 굵기 4 종(Regular · SemiBold · Bold · Black)
       line_height: { 16: 31, 18: 35, 22: 43, 26: 51, 30: 58, 34: 66, 44: 86, 56: 109, 80: 155 }   # [실측 D] 크기 × 약 1.94, regular · bold 같음
       glyph_height: { hangul: 1.33, digits: 1.02 }   # 1b 후속 F [실측 C1 렌더] 배너 58/44 · 체인 35/26 · '4.2' 65/64 · '3' 62/61
-      sdf_family: /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_SDF.F_NotoSerifKR_SDF   # 1b 후속 F — 같은 OTF 의 거리장 사본(import_font_family distance_field) — 글자 빛 쓰는 글자만
+      sdf_family: /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_W_SDF.F_NotoSerifKR_W_SDF   # 1b 후속 F — 같은 OTF 의 거리장 사본(import_font_family distance_field) — 글자 빛 쓰는 글자만
 
 text_fill:                               # 1b 후속 D — 글자색 · 세로 그라데이션을 컨셉에서 결정적으로(analyze.derive_text_fills). false = LLM 색 그대로
   enabled: true
+
+text_style:                              # 1b 후속 J-c — 글자 스타일(크기 · 굵기 · 외곽선 · 빛 · 색)은 결정적 측정만
+  deterministic_only: true               # analyze LLM 이 고른 글자 외곽선 · 그림자를 걷는다(외형 라운드는 글자 위젯 op 금지 — style.guard_style_ops)
+
+layers:                                  # 1b 후속 J-a — 기능 단위 레이어(stages/layer): 정적 장식은 판 한 장으로, 기능 요소만 따로
+  enabled: true                          # ⓐ ⓑ(컨셉 알파를 앎)만 — ⓒ 는 예전처럼 요소마다 오린다
+  plate_max: 2048                        # 정적 판 텍스처 긴 변 상한(사용자 결정 11-17 — 넘으면 가장 투명한 열 · 줄에서 나눔)
 
 text_glow:                               # 1b 후속 F — 글자 둘레 번지는 빛을 컨셉에서 결정적으로(analyze.derive_text_glow → font.glow + 그 역할의 sdf_family)
   enabled: true
@@ -132,8 +152,21 @@ style_review:                            # 1b 후속 C — 게이트 통과 뒤 
                                          # → 위치 판(자간 · 중심), 판마다 build → verify 1회 · 깨지면 그 판만 버림.
                                          # 라운드가 꺼진 deterministic 모드에서도 돈다(컨셉이 있을 때)
 
+appearance:                              # 1b 후속 J-b — 자동 차이 진단 게이트(gen/diagnose · verify appearance). 값은 잠정 — [실측 J-b 기준선] 지난 최종 run 8 개로 보정
+  enabled: true                          # 국소 결함 0 이어야 run 통과(구조 게이트 10 개와 따로 — 외형 라운드 · 글자 맞춤은 '진단이 나빠지지 않음'으로 받는다)
+  local_de: 10.0                         # 7 × 7 창 평균 ΔE00 문턱 — 사용자가 찾은 E · T 배지 양옆 선 11 ~ 17, 다이아몬드 이중 10.4 ~ 10.6
+  min_area: 24                           # 결함 덩어리 최소 넓이(px)
+  text_h_tol: 0.08                       # 글자 획 높이 비 |1 − 비| — '회피' 작아짐 0.75 · '어빌리티' 0.83
+  text_pos_px: 3.0                       # 글자 중심 차 허용(px) — 글자 높이 × text_pos_k 와 큰 쪽('돌진 공격' 24.5 px 어긋남)
+  text_pos_k: 0.1
+  text_weight: 1.3                       # 획 밀도 비 허용 — 굵기 둘(밀도 비 약 1.52)의 반 단계 1.233 + 잡음 — 왼쪽 라벨 굵게 1.39 ~ 1.54 는 잡고 그 사이 굵기(어빌리티 1.245)는 둔다
+  text_color_de: 12.0                    # 핵심 획 대표색 ΔE00
+  text_dark_frac: 0.2                    # 획 안 '바탕보다 어두운' 비율 차(외곽선 · 그림자 — LLM 이 넣은 남색 외곽선 0.27 ~ 0.5)
+  text_halo_frac: 0.2                    # 핵심 밖 '바탕보다 밝은' 비율 차(빛 번짐)
+  seam_dark_px: 90                       # 3 배 절취선 — 한 자리의 어두운 확대 픽셀 수
+
 fix:
-  mode: hybrid                          # 1b-6 — 결정적 fixer 먼저, op 가 없거나 직전 결정적 patch 가 진전이 없으면 LLM verifier → fix (11-15 사용자 결정).
+  mode: hybrid                         # 1b-6 — 결정적 fixer 먼저, op 가 없거나 직전 결정적 patch 가 진전이 없으면 LLM verifier → fix (11-15 사용자 결정).
                                          # deterministic(1a) · llm 도 된다 — run 마다 --fix-mode 로 덮을 수 있다
 
 llm:                                     # §10-1 claude -p 호출 틀(core/llm.py) — 1a 는 fix.mode deterministic 이라 호출 0, 1b 에서 값 보정

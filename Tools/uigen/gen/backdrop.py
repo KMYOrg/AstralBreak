@@ -193,12 +193,18 @@ def _progress_layers(st: dict, w: int, h: int, textures, missing, wid) -> list[t
     return out
 
 
-def compose(spec: dict, boxes: list[dict], textures: dict, canvas, background=GRAY) -> tuple[np.ndarray, np.ndarray, dict]:
+OWNER_ALPHA = 0.1          # owners=True — 픽셀마다 이보다 불투명하게 마지막으로 그린 위젯(맨 위)
+
+
+def compose(spec: dict, boxes: list[dict], textures: dict, canvas, background=GRAY, owners: bool = False) -> tuple[np.ndarray, np.ndarray, dict]:
     """spec 그리는 순서 · boxes(geometry 한 해상도 — 실제 렌더 상자) · textures {asset_id: 곧은 RGBA float} → (RGB float, 덮임 0 ~ 1, 기록).
-    섞기는 곧은 색 sRGB 값 그대로(src·a + dst·(1 − a)). 보이지 않는(visible false) 위젯과 그 아래는 그리지 않는다."""
+    섞기는 곧은 색 sRGB 값 그대로(src·a + dst·(1 − a)). 보이지 않는(visible false) 위젯과 그 아래는 그리지 않는다.
+    owners 면 기록에 'owner'(픽셀마다 맨 위 위젯 번호 — 없으면 -1) · 'owner_ids'(번호 → 위젯 id)를 더한다(1b 후속 J 진단)."""
     W, H = int(canvas[0]), int(canvas[1])
     acc = np.ones((H, W, 3), float) * np.asarray(background, float)[None, None]
     cov = np.zeros((H, W), float)
+    owner = np.full((H, W), -1, np.int32) if owners else None
+    owner_ids: list[str] = []
     geo = {b["id"]: b for b in boxes}
     drawn, missing, skipped_text, hidden = [], [], [], set()
     for w in paint_order(spec):
@@ -232,8 +238,17 @@ def compose(spec: dict, boxes: list[dict], textures: dict, canvas, background=GR
             a = np.clip(sub[..., 3] / 255.0, 0, 1)
             acc[cy0:cy1, cx0:cx1] = sub[..., :3] * a[..., None] + acc[cy0:cy1, cx0:cx1] * (1 - a[..., None])
             cov[cy0:cy1, cx0:cx1] = a + cov[cy0:cy1, cx0:cx1] * (1 - a)
+            if owner is not None:
+                if not owner_ids or owner_ids[-1] != w["id"]:
+                    owner_ids.append(w["id"])
+                sel = a > OWNER_ALPHA
+                o = owner[cy0:cy1, cx0:cx1]
+                o[sel] = len(owner_ids) - 1
             drawn.append(w["id"])
-    return np.clip(acc, 0, 255), cov, {"drawn": sorted(set(drawn)), "missing": missing, "text_skipped": skipped_text}
+    info = {"drawn": sorted(set(drawn)), "missing": missing, "text_skipped": skipped_text}
+    if owner is not None:
+        info.update(owner=owner, owner_ids=owner_ids)
+    return np.clip(acc, 0, 255), cov, info
 
 
 def text_mask(spec: dict, boxes: list[dict], canvas, pad: int = TEXT_PAD) -> np.ndarray:

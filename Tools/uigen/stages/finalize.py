@@ -1,6 +1,7 @@
 """finalize — run 패키지 저장 또는 폐기 (설계 §2-2 finalize · 결정 5).
 
 통과: save_widget_run(/Game/_AutoGen/<run_id>) → Content/_AutoGen/<run_id>/ (git 무시) + lineage.json.
+  (1b 후속 L-2) 저장 직전 컨셉이 그리지 않은 숨은 위젯에 designer_hidden(UMG 'Hide in Designer')을 켜 한 번 더 적용 — 디자이너 미리보기 = 컨셉 상태.
 실패: discard_run_packages — 저장 안 한 run 패키지를 버린다. --keep-failed 면 실패해도 저장한다(lineage.status = fail).
 build 가 에디터를 건드리지 않았으면(build.json 없음) 할 일이 없다. 에디터 세션이 build 때와 다르면(그사이 재기동) 패키지는 이미 사라졌다.
 """
@@ -29,6 +30,47 @@ def _lineage(run, state: dict, outcome: str, saved: list[str], extra: dict) -> d
     return doc
 
 
+def _designer_hidden(run, tc, state: dict) -> dict | None:
+    """1b 후속 L-2 사람 눈 — UMG 디자이너는 위젯 Visibility 를 무시하고 모두 보이게 그려(bHiddenInDesigner 만 봄) 컨셉이 그리지 않은 숨은 위젯(게이지
+    가득 참 빛 등)이 미리보기에 겹쳤다 [사용자 눈 R20261118_142524 WBP_CombatHUD — 반투명 빈 트랙 뒤로 금빛]. 저장 직전 마지막 진단의 '컨셉이 안 그린
+    숨은 위젯'(state.force_visible_extra)에 spec designer_hidden 을 켜 한 번 더 적용한다 — 디자이너 미리보기 = 컨셉 상태(compare.png). 런타임 · 렌더 무관.
+    → 기록 또는 None(할 일 없음). 실패해도 저장은 한다(기록만)."""
+    from core import spec as spec_mod
+    from stages import build
+    if not run.path("diagnosis.json").is_file() or not run.path("spec.json").is_file():
+        return None
+    try:
+        hide = set((run.read_json("diagnosis.json").get("state") or {}).get("force_visible_extra") or [])
+    except (OSError, ValueError):
+        return None
+    spec = run.read_json("spec.json")
+    changed = []
+    for w in spec.get("widgets", []):
+        want = w["id"] in hide and w.get("visibility") in ("collapsed", "hidden")
+        if bool(w.get("designer_hidden")) != want:
+            changed.append(w["id"])
+        if want:
+            w["designer_hidden"] = True
+        else:
+            w.pop("designer_hidden", None)
+    if not changed:
+        return {"applied": False, "widgets": sorted(hide), "reason": "already as the concept state"} if hide else None
+    schema.require("spec", spec)
+    manifest = run.read_json("manifest.json")
+    norm = spec_mod.normalize(spec)
+    try:
+        res = tc.call("apply_widget_spec", {"asset_path": state["wbp"]["asset_path"], "spec": {"root": norm["root"], "widgets": norm["widgets"],
+                                                                                            "locked": norm["locked"]},
+                                            "assets": {a["asset_id"]: a["ue_path"] for a in manifest["assets"]}, "expected_revision": state["revision"]})
+    except ToolchainError as exc:
+        return {"applied": False, "widgets": sorted(hide), "error": {"code": exc.code, "message": str(exc)[:300]}}
+    run.write_json("spec.json", spec)
+    state["revision"] = res["revision_after"]
+    build.save_state(run, state)
+    return {"applied": True, "widgets": sorted(w["id"] for w in spec["widgets"] if w.get("designer_hidden")), "changed": changed,
+            "ops": len(res.get("ops") or []), "verified": res.get("verified")}
+
+
 def run(run, opts, outcome: str, extra: dict | None = None, toolchain=None) -> dict:
     """outcome = pass | fail. 결과 {action: saved | discarded | none, …} — report.finalize 로 남는다."""
     extra = extra or {}
@@ -46,12 +88,13 @@ def run(run, opts, outcome: str, extra: dict | None = None, toolchain=None) -> d
                     "run_path": rpath}
         keep = bool(getattr(opts, "keep_failed", False))
         if outcome == "pass" or keep:
+            designer = _designer_hidden(run, tc, state) if state.get("wbp") else None
             res = tc.call("save_widget_run", {"run_path": rpath})
             saved = sorted(res.get("saved", []) + res.get("already_saved", []))
             lineage = _lineage(run, state, outcome, saved, extra) if state.get("wbp") else None
             return {"action": "saved", "run_path": rpath, "saved": res.get("saved", []), "already_saved": res.get("already_saved", []),
                     "content_dir": f"Content/{rpath.removeprefix('/Game/')}/", "lineage": "lineage.json" if lineage else None,
-                    **({"kept_failed": True} if outcome != "pass" else {})}
+                    **({"designer_hidden": designer} if designer else {}), **({"kept_failed": True} if outcome != "pass" else {})}
         res = tc.call("discard_run_packages", {"run_path": rpath})
         return {"action": "discarded", "run_path": rpath, "discarded": res.get("discarded", []), "still_dirty": res.get("still_dirty", [])}
     except ToolchainError as exc:

@@ -148,17 +148,54 @@ def test_concept_fill_measures_the_track_and_draws_the_shape(tmp_path):
     assert m["record"]["band"] == [4, 4] and abs(m["record"]["concept_percent"] - (END - left + 1) / (right - left + 1)) < 1e-3
     x, y, w, h = m["widget_box"]
     assert (x, y, h) == (FRAME[0] + left, FRAME[1] + 6, 32) and w == right - left + 1 + p["spill"]
-    assert m["margin"][0] == round(p["lead"] / w, 4) and m["margin"][2] == round((p["end_in"] + p["spill"] + 1) / w, 4)
+    # 1b 후속 J — 채움 텍스처 = 컨셉의 채워진 구간(왼쪽 끝 ~ 진행 끝 + 번짐) 그대로, 양끝 margin 은 그 폭 기준, 미리보기 진행률 = 구간 ÷ 막대 폭
+    seg = END - left + 1 + p["spill"]
+    assert p["texture"] == "concept" and m["texture_size"] == [seg, 32] and m["percent"] == round(seg / w, 4)
+    assert m["margin"][0] == round(p["lead"] / seg, 4) and m["margin"][2] == round((p["end_in"] + p["spill"] + 1) / seg, 4)
     tex = concept_fill.render(ref, p)
-    assert tex.shape == (32, w, 4)
-    assert tex[0, 0, 3] == 0                                   # 왼쪽 위 모서리 = '<' 바깥(프레임이 보이게)
-    assert tex[16, 26 - left, 3] == 255 and tex[16, 26 - left, 0] > 200     # '<' 끝 안쪽 몸통
+    assert tex.shape == (32, seg, 4)
+    crop = ref[FRAME[1] + 6:FRAME[1] + 38, FRAME[0] + left:FRAME[0] + left + seg].astype(float)
     mid = 120 - left
-    assert tex[1, mid, 3] == 255 and abs(tex[1, mid, 0] - BAND[0]) <= 3     # 몸통 구간 = 줄 대표색, 위 띠(밝아진 트랙)까지
-    assert abs(tex[10, mid, 0] - (BODY_TOP[0] + (BODY_BOTTOM[0] - BODY_TOP[0]) * 6 / 23)) <= 4
-    assert tex[16, w - 1, 3] < 40 and tex[16, w - p["spill"] - 2, 3] == 255  # 진행 끝 테두리는 불투명, 번짐은 끝으로 갈수록 투명
+    assert tex[16, mid, 3] == 255 and (tex[16, mid, :3] == crop[16, mid]).all()          # 몸통 = 컨셉 픽셀 그대로
+    assert tex[1, mid, 3] == 255 and (tex[1, mid, :3] == crop[1, mid]).all()             # 위 띠(밝아진 트랙)까지
+    assert tex[16, 26 - left, 3] == 255 and tex[16, 26 - left, 0] > 200                  # '<' 끝 안쪽 몸통
+    assert tex[16, seg - 1, 3] == 255 and (tex[16, seg - 1, :3] == crop[16, seg - 1]).all()   # 번짐 끝까지 컨셉 픽셀(아래 판은 빈 트랙)
     w2, h2, raw = concept_fill.render_bytes(tmp_path / "framed.png", p)
-    assert (w2, h2) == (w, 32) and raw == concept_fill.render_bytes(tmp_path / "framed.png", p)[2]      # 같은 값 → 같은 바이트
+    assert (w2, h2) == (seg, 32) and raw == concept_fill.render_bytes(tmp_path / "framed.png", p)[2]      # 같은 값 → 같은 바이트
+    old = {k: v for k, v in p.items() if k != "texture"}                                 # 예전 spec(texture 없음)은 예전 그림
+    assert concept_fill.render(ref, old).shape == (32, w, 4)
+
+
+def test_concept_fill_full_bar_takes_the_whole_track_with_both_end_shapes(tmp_path):
+    """1b 후속 J — 가득 찬 게이지(1.0): 빈 부분 없이 둘레 어두운 띠로 문턱 → 트랙 전체 1:1 조각, 양끝 모양(lead · rlead) 고정 margin, 미리보기 1.0.
+    둘레에 밝은 선이 없으면 막대 자체가 트랙(파티 HUD — 프레임 상자가 막대 위 5 px 에서 끊겨도 FULL_PAD 로 넓혀 잰다)."""
+    import numpy as np
+    from gen import concept_fill
+    ox, oy, ow, oh = 600, 180, 920, 38
+    im = Image.new("RGB", (1920, 1080), (8, 10, 14))
+    d = ImageDraw.Draw(im)
+    for y in range(185, 214):                                      # 화살 '<' '>' 양끝 막대, 위 · 아래 밝은 테두리
+        k = round(abs(y - 199) * 18 / 14)
+        d.line([(625 + k, y), (1527 - k, y)], fill=(170, 245, 75) if y < 199 else (70, 225, 40))
+    d.line([(643, 185), (1509, 185)], fill=(220, 255, 210))
+    d.line([(643, 213), (1509, 213)], fill=(220, 255, 210))
+    p = tmp_path / "full.png"
+    im.save(p)
+    ref = _ref(p)
+    m = concept_fill.measure(ref, [ox, oy, ow, oh], [634, 186, 884, 26], 1.0, end="scale")
+    pr = m["params"]
+    x, y, w, h = m["widget_box"]
+    assert pr["full"] and m["percent"] == 1.0 and m["record"]["track_from"].startswith("body rows")
+    assert abs(x - 624) <= 1 and abs(y - 185) <= 1 and abs((x + w) - 1529) <= 1 and abs((y + h) - 214) <= 1
+    assert 10 <= pr["lead"] <= 40 and 10 <= pr["rlead"] <= 40 and m["margin"] == [round(pr["lead"] / w, 4), 0.0, round(pr["rlead"] / w, 4), 0.0]
+    tex = concept_fill.render(ref, pr)
+    assert tex.shape == (h, w, 4) and (tex[..., 3] == 255).mean() > 0.95                  # 트랙 전체를 덮는다(아래 판 = 빈 트랙)
+    crop = ref[y:y + h, x:x + w].astype(float)
+    assert np.abs(tex[..., :3] - crop).max() < 1                                           # 컨셉 픽셀 그대로(화살 끝 포함)
+    hole, _ = concept_fill.track_hole(ref, pr)
+    assert hole.sum() == (tex[..., 3] > 0).sum()
+    with pytest.raises(concept_fill.ConceptFillError):
+        concept_fill.unfilled_track(ref, pr)                                                # 빈 트랙 색은 못 뽑음 — 판은 요소 없는 판으로
 
 
 def test_derive_shape_mode_puts_the_bar_on_the_measured_track(tmp_path):
@@ -172,10 +209,12 @@ def test_derive_shape_mode_puts_the_bar_on_the_measured_track(tmp_path):
     assert rec["shape"] == "concept_fill" and g["bbox_intent"] == [x, y, w, h] and rec["old_bbox"] == BOX
     assert g["slot"]["padding"] == [x - FRAME[0], 6, FRAME[0] + FRAME[2] - x - w, 6] and g["slot"]["h_align"] == "fill"
     assert g["style"]["bar_fill_style"] == "scale" and g["style"]["fill"]["draw_as"] == "box" and g["style"]["fill"]["margin"] == a["margin"]
-    assert g["style"]["background"] == {"draw_as": "none"} and a["nine_slice"] is True and a["size"] == [w, h]
+    assert g["style"]["background"] == {"draw_as": "none"} and a["nine_slice"] is True and a["size"][1] == h
+    # 1b 후속 J — 텍스처 = 컨셉 채움 구간 폭, 미리보기 진행률 = 그 폭 ÷ 막대 폭(입력 sample 은 기록)
+    assert g["style"]["percent"] == rec["preview_percent"] and abs(a["size"][0] - g["style"]["percent"] * w) < 1 and rec["sample_percent"] == 0.7
     assert a["procedural"]["shape"] == "concept_fill" and a["source"].startswith("concept fill")
     assert schema.errors("spec", spec) == [] and spec_mod.validate_semantics(spec) == []
-    assert procedural.render(a, reference=ref)[:2] == (w, h)
+    assert procedural.render(a, reference=ref)[:2] == tuple(a["size"])
     with pytest.raises(procedural.ProceduralError):
         procedural.render(a)                                    # reference 없으면 못 그린다
     norm = spec_mod.normalize(spec)

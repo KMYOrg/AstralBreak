@@ -7,7 +7,10 @@
      · --flat(1b 후속 H — UI 만 · 단색 검정 배경 · 장면 없음 · 가장 큰 크기: 컨셉 픽셀을 오려 쓰기 좋은 컨셉)
      · --edit <concept.png>(1b 후속 H — 그 컨셉을 프롬프트대로 codex 편집해 새 컨셉으로 — '컨셉을 ~식으로 바꿔 줘')
      · --transparent(1b 후속 H3 — UI 만 · 진짜 알파 투명 배경: normalize ⓐ 가 알파를 그대로 쓴다, --flat 과 함께 못 씀)
-     · --text-free(1b 후속 H2 — concept.png 에서 글자만 지운 concept_notext.png, 원본이 투명이면 알파를 지키라고 덧붙임))
+     · --text-free(1b 후속 H2 — concept.png 에서 글자만 지운 concept_notext.png, 원본이 투명이면 알파를 지키라고 덧붙임)
+     · --text-free-first(1b 후속 L-2 — 글자 없는 원본 아트 concept.png(진짜 알파 · 글자 칸은 비움, OCR 로 글자가 보이면 1 회 다시 → 그래도면 글자 든
+       컨셉으로 물러남 — L-1) + 그 아트에 글자만 얹은 참고판 concept_text_ref.png(codex 편집 1 회 — inputs static_text · sample 값). --inputs(기본
+       <out-dir>/inputs.yaml) · 호출 상한 기본 3))
 
 출력: <out-dir>/concept.png · concept.json(출처 — codex 버전 · thread_id · 프롬프트 sha256 · 크기 · 시각), 호출 기록 · 이벤트 원문은
 work/_concept/<시각>/ (git 무시). codex 호출은 한 번에 하나(work/.codex.lock) · ChatGPT 로그인 확인 · stdin 닫음 · API 키 환경 변수 제거(gen/codex.py).
@@ -92,6 +95,19 @@ TEXT_FREE_PROMPT = (
 )
 TEXT_FREE_PURPOSE = "keep every UI element, line, color, position and size identical; only remove the text"
 
+# 1b 후속 L-2 — 글자 없는 원본 아트(--text-free-first): 진짜 알파 UI 만 + 글자 칸은 비워 둠(칸 자리 설명은 프롬프트 파일 — 좌표 없음).
+# 이 아트가 사람이 승인하는 픽셀 정답이고, 글자 스타일은 이어지는 참고판(codex 편집 — gen/text_ref)에서 잰다.
+NO_TEXT_RULES = (
+    "- Draw NO text at all: no letters, digits, numbers, words, labels, captions, symbols, runes, pseudo-text or watermark anywhere in the image. "
+    "The game writes every text and number itself later.\n"
+    "- Every place where a text or number will go stays an empty slot: show only the element's own surface there (the panel's fill, the banner's "
+    "surface, or empty transparent space). Do not draw placeholder boxes, lines or frames for the slots.\n"
+)
+TEXT_FREE_FIRST_RULES = TRANSPARENT_RULES + NO_TEXT_RULES
+TEXT_FREE_RETRY = ("\n\nThe previous image still contained letters or numbers. Draw the same UI again with absolutely no text of any kind — "
+                   "every text slot stays empty.\n")
+TEXT_FREE_FIRST_CALLS = 3      # 원본 아트 · (글자가 보이면) 한 번 더 · 참고판
+
 
 def parse_args(argv=None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="make one screen concept image with codex built-in image_gen (Phase 1b input)")
@@ -102,8 +118,12 @@ def parse_args(argv=None) -> argparse.Namespace:
                     help="1b 후속 H3 — UI only on a genuinely transparent background (real alpha — normalize keeps it as is); with --text-free keeps the alpha")
     ap.add_argument("--edit", help="1b 후속 H — edit this concept image with the prompt (concept change) instead of drawing a new one")
     ap.add_argument("--text-free", action="store_true", help="1b 후속 H — from <out-dir>/concept.png make concept_notext.png (codex removes the text only)")
+    ap.add_argument("--text-free-first", action="store_true",
+                    help="1b 후속 L-2 — draw the text-free original art (concept.png, real alpha, empty text slots) and then the text reference "
+                         "(concept_text_ref.png — codex adds only the inputs texts)")
+    ap.add_argument("--inputs", help="1b 후속 L-2 — inputs.yaml for the text reference texts (default <out-dir>/inputs.yaml)")
     ap.add_argument("--force", action="store_true", help="replace an existing concept.png")
-    ap.add_argument("--max-calls", type=int, default=1, help="codex calls allowed in this invocation (default 1 — plan usage)")
+    ap.add_argument("--max-calls", type=int, default=None, help="codex calls allowed in this invocation (default 1 — plan usage; 3 with --text-free-first)")
     ap.add_argument("--config", help="pipeline.yaml to use")
     ap.add_argument("--work-root", help="override paths.work_root")
     return ap.parse_args(argv)
@@ -123,6 +143,13 @@ def main(argv=None, *, cli: list[str] | None = None) -> int:
         print("make_concept: --flat and --transparent are exclusive (black background vs real alpha)", file=sys.stderr)
         return EXIT_FAIL
     cfg = config.load_pipeline(opts.config)
+    if opts.text_free_first:
+        if opts.flat or opts.edit or opts.text_free:
+            print("make_concept: --text-free-first draws a new transparent art — not with --flat / --edit / --text-free", file=sys.stderr)
+            return EXIT_FAIL
+        return _text_free_first(opts, cfg, cli)
+    if opts.max_calls is None:
+        opts.max_calls = 1
     out_dir = pathlib.Path(opts.out_dir)
     prompt_file = pathlib.Path(opts.prompt_file) if opts.prompt_file else out_dir / "concept_prompt.md"
     dest = out_dir / ("concept_notext.png" if opts.text_free else "concept.png")
@@ -190,6 +217,101 @@ def main(argv=None, *, cli: list[str] | None = None) -> int:
                       "has_alpha_channel": rec.get("has_alpha_channel"), "transparent_ratio": rec.get("transparent_ratio"),
                       "duration_s": rec.get("duration_s")}, ensure_ascii=False))
     return EXIT_FAIL if no_alpha else EXIT_OK
+
+
+def _ocr_boxes(path: pathlib.Path) -> list[dict]:
+    """원본 아트에 그려진 글자(OCR 검출 상자 — 구운 글자 문턱 0.7, 장식 오검출은 그 아래 [실측 1b-5])."""
+    from core import ocr
+    return list(ocr.detect(path).get("boxes") or [])
+
+
+def _text_free_first(opts, cfg: dict, cli) -> int:
+    """1b 후속 L-2 ① ② — 글자 없는 원본 아트(concept.png) → 그 아트에 글자만 얹은 참고판(concept_text_ref.png). 결과는 inputs
+    `concept_source: generated_textfree` · `concept_text_ref` 로 쓴다(normalize 가 정합 · 검사 — 여기 검사는 기록 · 알림용)."""
+    from gen import text_ref
+    out_dir = pathlib.Path(opts.out_dir)
+    prompt_file = pathlib.Path(opts.prompt_file) if opts.prompt_file else out_dir / "concept_prompt.md"
+    inputs_path = pathlib.Path(opts.inputs) if opts.inputs else out_dir / "inputs.yaml"
+    dest, ref_dest = out_dir / "concept.png", out_dir / "concept_text_ref.png"
+    if (dest.exists() or ref_dest.exists()) and not opts.force:
+        print(f"make_concept: {dest} or {ref_dest} already exists — pass --force to replace them", file=sys.stderr)
+        return EXIT_FAIL
+    try:
+        base = prompt_file.read_text(encoding="utf-8").strip()
+        inputs = config.load_yaml(inputs_path)
+    except (OSError, config.ConfigError) as exc:
+        print(f"make_concept: {exc}", file=sys.stderr)
+        return EXIT_FAIL
+    items = text_ref.text_items(inputs)
+    if not items:
+        print(f"make_concept: {inputs_path} has no static_text / text · number sample to put on the text reference", file=sys.stderr)
+        return EXIT_FAIL
+    art_prompt = base + TEXT_FREE_FIRST_RULES
+    ref_prompt = text_ref.text_ref_prompt(inputs)
+    work_root = pathlib.Path(opts.work_root) if opts.work_root else codex.work_root(cfg)
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    gen_dir = work_root / "_concept" / stamp
+    max_calls = opts.max_calls if opts.max_calls is not None else TEXT_FREE_FIRST_CALLS
+    budget = codex.CallBudget(gen_dir / "codex_calls.jsonl", max_calls, int(codex.codex_cfg(cfg).get("suspect_quota_after_failures", 2)))
+    attempts, art_rec, ref_rec, ref_check, ref_error = [], None, None, None, None
+    try:
+        with codex.CodexLock(work_root, f"make_concept:{stamp}"):
+            info = codex.preflight(cfg, cli=cli)
+            for k in (1, 2):
+                tmp = gen_dir / f"art_{k}.png"
+                art_rec = codex.generate(art_prompt + (TEXT_FREE_RETRY if k == 2 else ""), tmp, gen_dir / f"call_art_{k}", cfg, budget=budget,
+                                         meta={"purpose": "concept_text_free_first", "attempt": k}, cli=cli)
+                boxes = _ocr_boxes(tmp)
+                attempts.append({"attempt": k, "file": _rel(tmp), "ocr_boxes": boxes, "sha256": art_rec.get("sha256"),
+                                 "transparent_ratio": art_rec.get("transparent_ratio"), "thread_id": art_rec.get("thread_id")})
+                if not boxes:
+                    break
+            status = "ok" if not attempts[-1]["ocr_boxes"] else "text_drawn"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes((gen_dir / f"art_{len(attempts)}.png").read_bytes())
+            if status == "ok":
+                try:
+                    tmp_ref = gen_dir / "text_ref.png"
+                    ref_rec = codex.generate(ref_prompt, tmp_ref, gen_dir / "call_text_ref", cfg, budget=budget, refs=[dest],
+                                             ref_purpose=text_ref.TEXT_REF_PURPOSE, meta={"purpose": "concept_text_ref"}, cli=cli, edit=True)
+                    ref_dest.write_bytes(tmp_ref.read_bytes())
+                    ref_check = text_ref.check_files(dest, ref_dest)
+                except codex.CodexQuota:
+                    raise
+                except codex.CodexError as exc:
+                    ref_error = f"{exc.code}: {str(exc)[:200]}"
+    except codex.CodexQuota as exc:
+        print(json.dumps({"status": "quota", "code": exc.code, "message": str(exc), "gen_dir": gen_dir.as_posix()}, ensure_ascii=False))
+        return EXIT_QUOTA
+    except codex.CodexError as exc:
+        print(json.dumps({"status": "fail", "code": exc.code, "message": str(exc), "gen_dir": gen_dir.as_posix()}, ensure_ascii=False))
+        return EXIT_FAIL
+    meta = {"schema_version": 1, "kind": "concept", "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "generator": "codex built-in image_gen",
+            "codex_version": info["version"], "thread_id": art_rec.get("thread_id"), "found_by": art_rec.get("found_by"),
+            "prompt_file": prompt_file.name, "prompt_sha256": hashlib.sha256(art_prompt.encode("utf-8")).hexdigest(),
+            "flat_background": False, "transparent_background": True, "transparent_ratio": art_rec.get("transparent_ratio"), "edited_from": None,
+            "file": dest.name, "sha256": art_rec["sha256"], "size": art_rec["size"], "has_alpha_channel": art_rec.get("has_alpha_channel"),
+            "duration_s": art_rec.get("duration_s"), "usage": art_rec.get("usage"), "record": _rel(gen_dir),
+            "text_free_first": {"status": status, "attempts": attempts, "text_ref": ref_dest.name if ref_rec else None,
+                                **({"fallback": "codex drew text on both tries — normalize treats this concept as a concept with text (L-1)"}
+                                   if status != "ok" else {})},
+            "note": "L-2 original text-free art (the approved pixel truth) — the text reference concept_text_ref.png only gives the text style"}
+    (out_dir / "concept.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    if ref_rec:
+        rmeta = {"schema_version": 1, "kind": "concept_text_ref", "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "generator": "codex built-in image_gen",
+                 "edited_from": dest.name, "thread_id": ref_rec.get("thread_id"), "texts": items,
+                 "prompt_sha256": hashlib.sha256(ref_prompt.encode("utf-8")).hexdigest(), "file": ref_dest.name, "sha256": ref_rec["sha256"],
+                 "size": ref_rec["size"], "has_alpha_channel": ref_rec.get("has_alpha_channel"), "transparent_ratio": ref_rec.get("transparent_ratio"),
+                 "duration_s": ref_rec.get("duration_s"), "check": ref_check,
+                 "note": "the same art with only the texts added by codex — glyph style reference (background pixels are not the truth)"}
+        (out_dir / "concept_text_ref.json").write_text(json.dumps(rmeta, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    summary = {"status": status if status != "ok" else ("ok" if ref_rec and (ref_check or {}).get("used") else "no_text_ref"),
+               "art": dest.as_posix(), "attempts": len(attempts), "art_text_boxes": [len(a["ocr_boxes"]) for a in attempts],
+               "text_ref": ref_dest.as_posix() if ref_rec else None, "text_ref_error": ref_error,
+               "text_ref_check": {k: (ref_check or {}).get(k) for k in ("used", "reason", "shift_px", "checks", "glyph_px", "paste_px")} if ref_check else None,
+               "codex_calls": len(attempts) + (1 if (ref_rec or ref_error) else 0)}
+    print(json.dumps(summary, ensure_ascii=False))
+    return EXIT_OK
 
 
 def _has_alpha(path: pathlib.Path | None) -> bool:

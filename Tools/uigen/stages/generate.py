@@ -130,6 +130,24 @@ def _render_cut(run, asset: dict, reason: str) -> tuple[int, int, dict]:
                                                                         "aspect_within_limit": True, "cut": True}}
 
 
+def _render_plate_raw(run, asset: dict) -> tuple[int, int, dict]:
+    """정적 판(1b 후속 J-a) raw = 판 상자의 컨셉 조각(곧은 색 · 판 마스크 알파 — 기록용). 상자 · 마스크는 stages/layer 의 layer.json."""
+    import numpy as np
+    from PIL import Image
+    aid = asset["asset_id"]
+    lay = run.read_json("layer.json") if run.path("layer.json").is_file() else {}
+    p = next((x for x in lay.get("plates", []) if x.get("asset") == aid), None)
+    if p is None:
+        raise StageError("PLATE_UNKNOWN", f"'{aid}' is a static plate but layer.json has no plate for it", asset=aid)
+    x, y, w, h = (int(v) for v in p["box"])
+    with Image.open(run.path("reference_color.png")) as c, Image.open(run.path("layer", f"plate_{p['widget'][len('StaticPlate'):]}.png")) as m:
+        rgba = np.dstack([np.asarray(c.convert("RGB"))[y:y + h, x:x + w], np.asarray(m.convert("L"))[y:y + h, x:x + w]])
+    raw = run.path("assets", "raw", f"{aid}.png")
+    raw.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(rgba.astype(np.uint8), "RGBA").save(raw, format="PNG")
+    return w, h, {"source_mode": "plate", "plate": {"box": p["box"], "region": p["region"]}}
+
+
 class _CodexSession:
     """이 단계에서 codex 를 처음 쓸 때 잠금 · 시작 검사 · 호출 상한을 연다."""
 
@@ -211,8 +229,13 @@ def run(run, opts) -> str:
             t0 = time.monotonic()
             extra: dict = {}
             try:
-                backend = choose_backend(asset, routing, allowed)
-                if backend == "procedural":
+                plate = asset.get("source_mode") == "plate"
+                backend = "concept_plate" if plate else choose_backend(asset, routing, allowed)
+                if plate:
+                    # 1b 후속 J-a — 정적 판(stages/layer): codex 없음, 텍스처는 refine 이 컨셉에서 굽는다(_plate_entry) — raw 는 기록용 컨셉 조각
+                    w, h, extra = _render_plate_raw(run, asset)
+                    path = run.path("assets", "raw", f"{aid}.png")
+                elif backend == "procedural":
                     ref = run.path("reference.png")
                     w, h, rgba = procedural.render(asset, reference=ref if ref.is_file() else None)
                     path = png.write_rgba(run.path("assets", "raw", f"{aid}.png"), w, h, rgba)

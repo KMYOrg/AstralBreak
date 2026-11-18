@@ -356,6 +356,8 @@ def normalize_widget(w: dict, parent_type: str | None, asset_sizes: dict[str, li
                 slot.setdefault(k, copy.deepcopy(v))
         out["slot"] = _canon(slot)
     out.setdefault("visibility", "self_hit_test_invisible" if wtype in PANEL_TYPES else "visible")
+    if out.get("designer_hidden") is False:       # 1b 후속 L-2 — 기본값(false)은 키를 지운다(WidgetMcp 정규형 · 역추출과 같음)
+        out.pop("designer_hidden")
     style = dict(out.get("style") or {})
     for k, v in STYLE_SCALAR_DEFAULTS.get(wtype, {}).items():
         style.setdefault(k, copy.deepcopy(v))

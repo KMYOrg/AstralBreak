@@ -12,8 +12,8 @@ from core import spec as spec_mod
 from gen import fidelity
 from stages import analyze, fix
 
-TITLE = "/Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR.F_NotoSerifKR"
-BODY = "/Game/UI/Fonts/Pretendard/F_Pretendard.F_Pretendard"
+TITLE = "/Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_W.F_NotoSerifKR_W"
+BODY = "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W"
 CFG = {"fonts": {"default_family": BODY, "line_height": {16: 26, 30: 49},
                  "roles": {"title": {"family": TITLE, "line_height": {16: 31, 30: 57}}}}}
 
@@ -24,6 +24,40 @@ def test_font_roles_from_config():
     assert config.font_roles(CFG, "/Game/Other.Other")["body"]["family"] == "/Game/Other.Other"     # 요청 폰트가 body 를 덮는다
     assert "title" not in config.font_roles({"fonts": {"default_family": BODY, "roles": {"title": {"family": None}}}})
     assert config.line_height_text({30: 49, 16: 26}) == "16→26, 30→49"
+    # 1b 후속 J — 본문 SDF 사본은 fonts.roles.body.sdf_family(기본 폰트일 때만 — 요청 폰트가 덮으면 그 폰트의 사본은 모름)
+    body_sdf = "/Game/UI/Fonts/Pretendard/F_Pretendard_W_SDF.F_Pretendard_W_SDF"
+    cfg2 = copy.deepcopy(CFG)
+    cfg2["fonts"]["roles"]["body"] = {"sdf_family": body_sdf}
+    r2 = config.font_roles(cfg2)
+    assert r2["body"]["sdf_family"] == body_sdf and r2["body"]["family"] == BODY and set(r2) == {"body", "title"}
+    assert "sdf_family" not in config.font_roles(cfg2, "/Game/Other.Other")["body"]
+
+
+def test_fit_outline_strong_outline_wins_over_a_measured_glow():
+    """1b 후속 J — 굵은 어두운 테(컨셉 어두운 비율 ≥ OUTLINE_OVER_GLOW)는 빛 대신 외곽선(방패 '10'), 옅은 테면 빛을 지킨다."""
+    import numpy as np
+    from gen import diagnose
+    from stages import style
+    h, w = 40, 60
+    core = np.zeros((h, w), bool)
+    core[10:30, 20:26] = core[10:14, 20:40] = True
+    cand = diagnose._dilate(core, 3)
+    bg = np.full((h, w, 3), 170.0)                                               # 금속 방패 바탕
+    ren = bg.copy()
+    ren[core] = 245
+    ref = bg.copy()
+    ref[cand] = 10                                                               # 굵은 검은 외곽선
+    ref[core] = 245
+    g = {"concept_cand": cand, "concept": core, "render_cand": cand, "render": core, "concept_bg": bg, "render_bg": bg}
+    f = {"size": 28, "glow": {"size": 6, "color": "#FFFFFF60"}}
+    r = style._fit_outline(f, ref, ren, g)
+    assert r["glow_dropped"]["size"] == 6 and "glow" not in f and f["outline"]["size"] >= 1 and f["outline"]["color"].startswith("#0A0A0A")
+    thin = bg.copy()
+    thin[cand] = 10
+    thin[diagnose._dilate(core, 2)] = 245                                        # 바깥 1 px 만 어두움 → 비율 낮음
+    f2 = {"size": 28, "glow": {"size": 6, "color": "#FFFFFF60"}}
+    r2 = style._fit_outline(f2, thin, ren, g)
+    assert (r2 is None or "skipped" in r2) and f2["glow"]["size"] == 6
 
 
 def test_apply_contract_maps_roles_to_families_and_drops_role():
@@ -93,7 +127,7 @@ def _concept(tmp_path, top, bottom, box=(780, 111, 240, 42), bg=(25, 15, 10)):
 
 
 # --- 1b 후속 F — 글자 빛(derive_text_glow) · 외형 라운드 글자 상자 따라가기 --------------------------------------------------------
-TITLE_SDF = "/Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_SDF.F_NotoSerifKR_SDF"
+TITLE_SDF = "/Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_W_SDF.F_NotoSerifKR_W_SDF"
 
 
 def _glow_concept(tmp_path, halo=True, box=(780, 111, 240, 42), name="glow.png"):

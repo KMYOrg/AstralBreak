@@ -191,7 +191,7 @@ def test_pipeline_concept_until_analyze(tmp_path, fake_llm, monkeypatch):
     assert run_pipeline.main(args) == run_pipeline.EXIT_INCOMPLETE
     d = tmp_path / "work" / "R20261115_120000_CombatHUD"
     rec = json.loads((d / "run.json").read_text(encoding="utf-8"))
-    assert [s["name"] for s in rec["stages"]] == ["preflight", "normalize", "analyze"]
+    assert [s["name"] for s in rec["stages"]] == ["preflight", "normalize", "analyze", "layer"]   # 1b 후속 J-a — analyze 뒤 기능 단위 레이어
     assert rec["llm_cli"]["auth_method"] == "claude.ai" and "example.com" not in json.dumps(rec)
     report = json.loads((d / "report.json").read_text(encoding="utf-8"))
     assert report["status"] == "incomplete" and report["analyze"]["calls"] == 1 and report["artifacts"]["overlay"] == "analyze/overlay.png"

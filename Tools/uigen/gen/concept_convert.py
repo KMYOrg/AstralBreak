@@ -60,6 +60,102 @@ def build_prompt(inputs: dict, source_kind: str) -> str:
     return "\n".join(lines).strip() + make_concept.TRANSPARENT_EDIT_RULES
 
 
+def element_free_lines(inputs: dict) -> list[str]:
+    """1b 후속 J-a — '요소 없는 판'(글자 없는 판을 넓힘)에서 글자와 함께 지울 기능 요소 — 게이지 채움(빈 트랙만 남김) · 런타임 그림(초상화 등 —
+    틀은 남김) · inputs separate. flag(켜고 끄는 패널 · 배너 · 빛)는 지우지 않는다(대개 홀로 서 있어 아래가 투명이고, 그 안 글자 자리를 이 판으로 메운다).
+    없으면 빈 목록 — 프롬프트가 예전 글자 없는 판과 같아 캐시가 그대로 맞는다."""
+    req = {e["id"]: e.get("desc") or e["id"] for e in inputs.get("required_elements") or []}
+    lines = []
+    for d in inputs.get("data") or []:
+        name = d.get("desc") or req.get(d["widget"]) or d["widget"]
+        if d.get("type") == "progress":
+            lines.append(f"- empty the gauge \"{name}\": remove its coloured fill so only the empty track inside the frame shows (keep the frame)")
+        elif d.get("type") == "image":
+            lines.append(f"- remove the picture shown in \"{name}\" (the game puts its own picture there): keep its frame, show the frame's empty background inside")
+    for sid in inputs.get("separate") or []:
+        lines.append(f"- remove \"{req.get(sid, sid)}\" and continue what lies behind it")
+    return lines
+
+
+def notext_prompt(inputs: dict | None = None) -> str:
+    """글자 없는 판(→ 요소 없는 판) 프롬프트 — TEXT_FREE_PROMPT + 지울 기능 요소(있으면) + 투명 유지."""
+    import make_concept
+    extra = element_free_lines(inputs or {})
+    body = make_concept.TEXT_FREE_PROMPT.strip()
+    if extra:
+        body += "\nAlso remove these elements the game draws on its own (continue what lies behind them exactly):\n" + "\n".join(extra)
+    return body + "\n" + make_concept.TEXT_FREE_TRANSPARENT.strip()
+
+
+FLAT_KEEP = ("The attached image has a solid black background — keep that background exactly: the same black everywhere outside the UI, "
+             "not transparent, no new backdrop, no checkerboard.")
+
+
+def plate_prompt_flat(inputs: dict | None = None) -> str:
+    """ⓑ 단색 배경 컨셉의 요소 없는 판 프롬프트 — notext_prompt 와 같되 투명 대신 검정 배경 유지."""
+    import make_concept
+    extra = element_free_lines(inputs or {})
+    body = make_concept.TEXT_FREE_PROMPT.strip()
+    if extra:
+        body += "\nAlso remove these elements the game draws on its own (continue what lies behind them exactly):\n" + "\n".join(extra)
+    return body + "\n" + FLAT_KEEP
+
+
+def plate_only(run, src: pathlib.Path, inputs: dict, *, cli: list[str] | None = None) -> dict:
+    """1b 후속 J-a — ⓑ(단색 배경) 컨셉은 변환하지 않지만 요소 없는 판이 없으면 글자 자리를 줄 보간으로 메워 글자 사각형 안 장식(배너 장식 끝)이
+    지워졌다 [실측 J R20261117_184207 '체인 버스트' 위 장식 끝]. → 같은 컨셉에서 요소 없는 판만 codex 편집 1 회(캐시 — 다시 돌리면 0).
+    → {"used", "file"(run 기준) …}. 실패해도 예외 없이 used False · 이유."""
+    cfg = run.cfg
+    st = settings(cfg)
+    src = pathlib.Path(src)
+    src_sha = _sha(src)
+    prompt = plate_prompt_flat(inputs)
+    psha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    cdir = codex.work_root(cfg) / str(st["cache_dir"]) / f"{src_sha[:16]}_plate_{psha[:8]}"
+    cache_file, ppath = cdir / "convert.json", cdir / "concept_notext.png"
+    rec: dict = {"used": False, "source": _rel(src), "source_sha256": src_sha, "prompt_sha256": psha, "cache_dir": _rel(cdir), "codex_calls": 0}
+    cache = json.loads(cache_file.read_text(encoding="utf-8")) if cache_file.is_file() else {}
+    n = cache.get("plate") if cache.get("prompt_sha256") == psha else None
+    lock = None
+    try:
+        if n and (not n.get("ok") or (ppath.is_file() and _sha(ppath) == n.get("sha256"))):
+            n = {**n, "cached": True}
+        else:
+            cdir.mkdir(parents=True, exist_ok=True)
+            budget = codex.CallBudget(run.path("codex_calls.jsonl"), int((cfg.get("limits") or {}).get("codex_calls_per_run", 20)),
+                                      int(codex.codex_cfg(cfg).get("suspect_quota_after_failures", 2)))
+            lock = codex.CodexLock(codex.work_root(cfg), f"{run.run_id}:plate")
+            lock.__enter__()
+            if not run.record.get("codex_cli"):
+                run.record["codex_cli"] = codex.preflight(cfg, cli=cli)
+            import make_concept
+            try:
+                rec["codex_calls"] += 1
+                r = codex.generate(prompt, ppath, run.path("convert", "call_plate"), cfg, budget=budget, refs=[src], ref_purpose=make_concept.TEXT_FREE_PURPOSE,
+                                   meta={"purpose": "flat_element_free_plate"}, cli=cli, edit=True)
+            except codex.CodexError as exc:
+                rec["reason"] = f"element-free plate failed ({exc.code}: {str(exc)[:160]}) — text holes are filled as before"
+                return rec
+            ok_aspect, d_aspect = _aspect_ok(tuple(r["size"]), _size(src), float(st["aspect_tol"]))
+            n = {"ok": ok_aspect, "reason": None if ok_aspect else f"aspect differs from the concept by {d_aspect}", "sha256": r.get("sha256"),
+                 "size": r.get("size"), "thread_id": r.get("thread_id"), "duration_s": r.get("duration_s"), "cached": False}
+            cache_file.write_text(json.dumps({"schema_version": 1, "source": _rel(src), "source_sha256": src_sha, "prompt_sha256": psha, "prompt": prompt,
+                                              "plate": n}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        rec["plate"] = n
+        if not n.get("ok"):
+            rec["reason"] = f"element-free plate rejected ({n.get('reason')})"
+            return rec
+        out = run.path("convert")
+        out.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ppath, out / "concept_notext.png")
+        rec.update(used=True, file="convert/concept_notext.png")
+        return rec
+    finally:
+        if lock is not None:
+            lock.__exit__(None, None, None)
+        run.write_json("convert/plate.json", rec)
+
+
 def _sha(path: pathlib.Path) -> str:
     return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
 
@@ -166,7 +262,7 @@ def convert(run, src: pathlib.Path, inputs: dict, mode: str, kind: str, *, cli: 
             rec["notext"] = {"used": False, "reason": "concept_convert.text_free is off"}
             return rec
         import make_concept
-        nt_prompt = make_concept.TEXT_FREE_PROMPT.strip() + "\n" + make_concept.TEXT_FREE_TRANSPARENT.strip()
+        nt_prompt = notext_prompt(inputs)          # 1b 후속 J-a — 요소 없는 판(게이지 채움 · 런타임 그림도) — 지울 것이 없으면 예전 글자 없는 판과 같은 프롬프트
         nsha = hashlib.sha256(nt_prompt.encode("utf-8")).hexdigest()
         n = cache.get("notext") if cache.get("notext", {}).get("from_sha256") == c.get("sha256") and cache.get("notext", {}).get("prompt_sha256") == nsha else None
         npath = cdir / "concept_notext.png"

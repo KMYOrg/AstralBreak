@@ -5,7 +5,7 @@ run 폴더에서 refine 직전 spec(`specs/000.json` — 넘침 장식 없음. �
 해서 잰다.
 
     Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/replay_refine.py <out_dir> <run_dir> [<run_dir> ...]
-    (+ --final: 최종 spec.json · refine.json 으로 — 글자 맞춤 뒤 글자 상자 조건)
+    (+ --final: 최종 spec.json · refine.json 으로 — 글자 맞춤 뒤 글자 상자 조건 · --layer: 1b 후속 J-a 정적 판 단계를 먼저)
 
 출력 <out_dir>/<run_id>/ (out_dir 는 work 밖 스크래치 권장 — run 하나에 수십 MB):
   replay.png(컨셉 회색 | 합성 회색 | 차이 — 빨강 = 구멍 · 파랑 = 이중) · per_texture.png(오리는 텍스처마다 혼자) · owners.png(픽셀마다 가장 큰 알파를 준
@@ -32,9 +32,10 @@ from PIL import Image  # noqa: E402
 from core import color, config  # noqa: E402
 from core.run import Run  # noqa: E402
 from gen import backdrop  # noqa: E402
+from gen import diagnose  # noqa: E402
 from stages import refine  # noqa: E402
 
-COPY = ["gen.jsonl", "normalize.json", "inputs.json", "brief.json", "analyze/derived.json"]
+COPY = ["gen.jsonl", "normalize.json", "inputs.json", "brief.json", "analyze/derived.json", "layer.json"]   # layer.json — J-a 판 run(specs/000 에 이미 판)
 GRAY = np.asarray(backdrop.GRAY, float)
 HOLE = 0.25
 DOUBLE = 0.15
@@ -60,6 +61,9 @@ def copy_run(src: pathlib.Path, out: pathlib.Path, final_spec: bool) -> pathlib.
         shutil.copy2(src / "specs" / "000.json", dst / "spec.json")
     for p in src.glob("reference*.png"):
         shutil.copy2(p, dst / p.name)
+    for p in src.glob("layer/*.png"):                      # J-a 판 마스크
+        (dst / "layer").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, dst / "layer" / p.name)
     (dst / "assets" / "raw").mkdir(parents=True, exist_ok=True)
     for p in (src / "assets" / "raw").glob("*.png"):
         shutil.copy2(p, dst / "assets" / "raw" / p.name)
@@ -82,88 +86,18 @@ def blobs(m: np.ndarray) -> tuple[int, int]:
     return len(big), int(sum(st[i, cv2.CC_STAT_AREA] for i in big))
 
 
-ZOOM = 3                    # 확대 모사 배율 — 디자이너 확대 · 1:1 이 아닌 해상도에서 텍스처를 따로따로 늘릴 때(곧은 알파 이중선형 — Slate 와 같이)
-ZOOM_BG = 40.0              # 확대 모사 바탕(디자이너 어두운 격자 정도)
-ZOOM_DARK = 20.0            # 컨셉 한 장 확대보다 이만큼(0 ~ 255) 넘게 어두우면 절취선 픽셀
 ZOOM_PICTURE = False        # --zoom-picture: <run>/zoom.png(컨셉 한 장 확대 | 나눈 텍스처 확대 — 크다)
+ZOOM = diagnose.ZOOM        # 확대 모사는 파이프라인 진단(gen/diagnose.zoom_seams — 1b 후속 J-b 에서 옮김)과 같은 함수
+zoom_seams = diagnose.zoom_seams
 
 
-def zoom_seams(spec: dict, boxes: list[dict], textures: dict, rc, ra, bbox, tmask, scale: int = ZOOM, picture=None) -> dict:
-    """나눈 텍스처를 각각 scale 배 늘려 겹친 그림 ↔ 컨셉 한 장을 늘린 그림 — 텍스처 경계의 절취선(덮임 모자람 · 투명 픽셀 색 섞임)을 잰다.
-    image 브러시만(텍스처가 상자보다 크면 늘려 그림) — 9-slice · 글자는 뺀다. 세는 자리 = 두 텍스처 이상의 보이는 픽셀이 2 px 안에 맞닿는 경계
-    (글자 상자 + 6 px 밖 · 컨셉 알파 > 0.05). bbox = 캔버스 [x0, y0, x1, y1]. 줄 띠로 나눠 계산(메모리)."""
-    import cv2
-    geo = {b["id"]: b for b in boxes}
-    lays = []
-    for w in backdrop.paint_order(spec):
-        st = w.get("style") or {}
-        br = st.get("brush") or st.get("normal") or {}
-        g = geo.get(w["id"])
-        if not g or not isinstance(br, dict) or br.get("draw_as") != "image" or br.get("asset") not in textures:
-            continue
-        t = textures[br["asset"]].astype(np.float32)
-        if g["w"] <= 0 or g["h"] <= 0:
-            continue
-        lays.append((t, float(g["x"]), float(g["y"]), float(g["w"]), float(g["h"])))     # 텍스처가 상자보다 크면(2 배 등) 늘려 그림
-    ref = np.dstack([rc, ra * 255.0]).astype(np.float32)
-    x0, y0, x1, y1 = (int(v) for v in bbox)
-    H, W = ra.shape
-    count = np.zeros((H, W), np.int16)
-    k5 = np.ones((5, 5), np.uint8)
-    for t, ox, oy, bw, bh in lays:
-        sup = np.zeros((H, W), np.uint8)
-        ix, iy, iw, ih = int(round(ox)), int(round(oy)), int(round(bw)), int(round(bh))
-        ta = cv2.resize(t[..., 3], (iw, ih), interpolation=cv2.INTER_AREA) if (t.shape[1], t.shape[0]) != (iw, ih) else t[..., 3]
-        cx0, cy0, cx1, cy1 = max(0, ix), max(0, iy), min(W, ix + iw), min(H, iy + ih)
-        if cx1 > cx0 and cy1 > cy0:
-            sup[cy0:cy1, cx0:cx1] = ta[cy0 - iy:cy1 - iy, cx0 - ix:cx1 - ix] > 0
-        count += cv2.dilate(sup, k5).astype(np.int16)
-    seam = (count >= 2) & ~tmask & (ra > 0.05)
-    dark, total, worst, rows, hits = 0, 0.0, 0.0, [], []
-    for ty in range(y0, y1, 120):
-        ty1 = min(y1, ty + 120)
-        gx, gy = np.meshgrid((np.arange((x1 - x0) * scale) + 0.5) / scale + x0, (np.arange((ty1 - ty) * scale) + 0.5) / scale + ty)
-
-        def comp(layers):
-            acc = np.full(gx.shape + (3,), ZOOM_BG, np.float32)
-            for t, ox, oy, bw, bh in layers:
-                # Slate: 상자(쿼드) 밖은 그리지 않고, 상자 안 가장자리는 텍셀을 고정(clamp) 샘플링 — 텍스처 바깥을 투명으로 섞지 않는다
-                u, v = gx - ox, gy - oy
-                sx, sy = t.shape[1] / bw, t.shape[0] / bh
-                s = cv2.remap(t, (u * sx - 0.5).astype(np.float32), (v * sy - 0.5).astype(np.float32), cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-                inside = (u >= 0) & (v >= 0) & (u < bw) & (v < bh)
-                s[~inside] = 0
-                al = s[..., 3:] / 255.0
-                acc = s[..., :3] * al + acc * (1 - al)
-            return acc
-        split, single = comp(lays), comp([(ref, 0.0, 0.0, float(W), float(H))])
-        d = (single - split).mean(axis=2)
-        zone = np.repeat(np.repeat(seam[ty:ty1, x0:x1], scale, axis=0), scale, axis=1)
-        m = (d > ZOOM_DARK) & zone
-        iy, ix = np.nonzero(m)
-        hits.append(np.stack([(iy // scale) + ty, (ix // scale) + x0], axis=1))
-        dark += int(m.sum())
-        total += float(d[m].sum())
-        worst = max(worst, float(d[zone].max()) if zone.any() else 0.0)
-        if picture is not None:
-            rows.append(np.concatenate([single, np.full((single.shape[0], 6, 3), 255, np.float32), split], axis=1))
-    if picture is not None and rows:
-        Image.fromarray(np.clip(np.concatenate(rows, axis=0), 0, 255).astype(np.uint8)).save(picture)
-    pts = np.concatenate(hits, axis=0) if hits else np.zeros((0, 2), int)
-    alpha_hist = np.histogram(ra[pts[:, 0], pts[:, 1]], bins=[0, 0.3, 0.6, 0.9, 0.97, 1.01])[0].tolist() if len(pts) else []
-    spots = []
-    if len(pts):                                                # 어두운 자리 덩어리(캔버스) — 큰 것 5 개
-        mk = np.zeros((H, W), np.uint8)
-        mk[pts[:, 0], pts[:, 1]] = 1
-        n, _, st, _ = cv2.connectedComponentsWithStats(cv2.dilate(mk, k5), connectivity=8)
-        for i in sorted(range(1, n), key=lambda q: -st[q, cv2.CC_STAT_AREA])[:5]:
-            spots.append([int(st[i, 0]), int(st[i, 1]), int(st[i, 2]), int(st[i, 3])])
-    return {"scale": scale, "bbox": [x0, y0, x1, y1], "zone_px": int(seam.sum()), "alpha_hist": alpha_hist, "spots": spots, "dark_px": dark, "dark_mean": round(total / max(1, dark), 1), "worst": round(worst, 1)}
-
-
-def replay(src: pathlib.Path, out: pathlib.Path, final_spec: bool = False) -> dict:
+def replay(src: pathlib.Path, out: pathlib.Path, final_spec: bool = False, with_layer: bool = False) -> dict:
     dst = copy_run(src, out, final_spec)
     run = Run(src.name, out, config.load_pipeline(), out / "metrics.jsonl")
+    layer_detail = None
+    if with_layer:                                       # 1b 후속 J-a — 기능 단위 레이어(정적 판)를 먼저
+        from stages import layer
+        layer_detail = layer.run(run, types.SimpleNamespace())
     detail = refine.run(run, types.SimpleNamespace(attempt=99, only_assets=None))
     spec = json.loads((dst / "spec.json").read_text(encoding="utf-8"))
     canvas = spec.get("canvas") or [1920, 1080]
@@ -222,6 +156,8 @@ def replay(src: pathlib.Path, out: pathlib.Path, final_spec: bool = False) -> di
         rec["textures"] = list(covs)                         # per_texture.png 순서(왼쪽 → 오른쪽, 위 → 아래) = owners.png 색 순서(PALETTE)
         rec["zoom_seams"] = zoom_seams(spec, boxes, textures, rc, ra, [x0, y0, x1, y1], tmask, picture=dst / "zoom.png" if ZOOM_PICTURE else None)
     rec["refine"] = detail[:200]
+    if layer_detail is not None:
+        rec["layer"] = layer_detail[:300]
     return rec
 
 
@@ -230,6 +166,7 @@ def main(argv=None) -> int:
     ap.add_argument("out_dir")
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--final", action="store_true", help="use the final spec.json · refine.json (text boxes after text_fit)")
+    ap.add_argument("--layer", action="store_true", help="run the J-a layer stage (static plates) before refine")
     ap.add_argument("--zoom-picture", action="store_true", help=f"also save <run>/zoom.png ({ZOOM}x magnified: one concept | split textures)")
     opts = ap.parse_args(argv)
     global ZOOM_PICTURE
@@ -238,7 +175,7 @@ def main(argv=None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     recs = []
     for r in opts.runs:
-        rec = replay(pathlib.Path(r), out, opts.final)
+        rec = replay(pathlib.Path(r), out, opts.final, opts.layer)
         recs.append(rec)
         print(json.dumps({k: v for k, v in rec.items() if k not in ("textures", "refine")}, ensure_ascii=False), flush=True)
     (out / "summary.json").write_text(json.dumps(recs, ensure_ascii=False, indent=1), encoding="utf-8")

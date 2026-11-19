@@ -48,6 +48,13 @@ SET = [
     {"name": "controls", "run": "R20261118_125054_ProbeControlGuide", "input": "조작 안내(controls)", "protect": True},
     {"name": "controls_orig", "run": "R20261118_125624_ProbeControlGuide", "input": "조작 안내 원본(합성 스크린샷 → 변환, work/_probe/controls)"},
     {"name": "party", "run": "R20261118_130201_ProbePartyHUD", "input": "파티 HUD(합성 스크린샷 → 변환, work/_probe/party)"},
+    # 1b 후속 L 다음 고침 끝 run(11-19) — 위 옛 run 은 고친 결함의 refine replay 재료로 남긴다
+    {"name": "combat_l1_1119", "run": "R20261119_005755_CombatHUD", "input": "원래 전투 HUD L-1 — 11-19 끝 run", "protect": True},
+    {"name": "combat_l2_1119", "run": "R20261119_010312_CombatHUD", "input": "원래 전투 HUD L-2 — 11-19 끝 run", "protect": True},
+    {"name": "combat_flat_1119", "run": "R20261119_001742_CombatHUD", "input": "단색 전투 HUD — 11-19 끝 run", "protect": True},
+    {"name": "party_1119", "run": "R20261119_003127_ProbePartyHUD", "input": "파티 HUD — 11-19 끝 run", "protect": True},
+    {"name": "controls_orig_1119", "run": "R20261119_003647_ProbeControlGuide", "input": "조작 안내 원본 — 11-19 끝 run", "protect": True},
+    {"name": "controls_alpha_dbl", "run": "R20261119_004119_ProbeControlGuide", "input": "controls_alpha — '돌진 공격' 이중 글자 run(글자색 추정 고침 전 텍스처)"},
 ]
 TEXT_FIELDS = ("h_ratio", "w_ratio", "center_d", "density_ratio", "color_de", "concept_contrast", "edge_d")
 EPS = {"h_ratio": 0.005, "w_ratio": 0.005, "density_ratio": 0.01, "color_de": 0.5, "concept_contrast": 1.0, "edge_d": 0.5, "center_d": 0.5}

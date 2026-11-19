@@ -775,6 +775,14 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
         elif nt_mask is not None:
             rec["concept_mask"] = "text-free concept difference"
         recs.append(rec)
+        cct = g.get("concept_contrast") if g is not None else None
+        if cct is not None and cct < diagnose.CONCEPT_CONTRAST_MIN:
+            # 1b 후속 L 다음 — 진단 E6 unmeasured 와 같은 판정: 컨셉 '획'이 둘레와 구별 안 되면 바탕을 글자로 잰 것 — 그 측정으로 색 · 크기 · 외곽선을
+            # 바꾸지 않는다 [실측 L 다음 파티 R20261118_130201 'Lv 100' — 번진 텍스처 상자의 어두운 틈을 '100' 으로 재 #EDF2F4 · 40 · 빛 → 검정 · 52 · 외곽선]
+            rec.update(concept_contrast=round(float(cct), 1),
+                       skipped=f"concept glyph contrast {cct:.1f} < {diagnose.CONCEPT_CONTRAST_MIN:g} — the concept glyph was not found "
+                               "(background measured as glyph, same rule as the diagnosis E6 unmeasured)")
+            continue
         rb = region_box(w)
         limit = [0, 0, W, H] if not rb else [max(0, int(rb[0])), max(0, int(rb[1])), min(W, int(math.ceil(rb[0] + rb[2]))), min(H, int(math.ceil(rb[1] + rb[3])))]
         if mc is not None:
@@ -1092,6 +1100,13 @@ def _fit_glow(f: dict, ref, ren, g: dict, roles: dict | None = None) -> dict | N
             return None
         f["glow"] = {**gl, "color": st["color"]}
         return {"old": old, "new": old, "alpha": st["alpha"], "size_measured": [gc["size"], gr["size"]], "peak": [gc["peak"], gr["peak"]]}
+    st = _glow_strength(gl, gc, gr, gmin)
+    if st and (gc["size"] > gr["size"]) == (st["alpha"][1] < st["alpha"][0]):
+        # 1b 후속 L 다음 — 크기와 세기가 반대로 가야 하면(키워야 하는데 렌더 띠가 이미 더 밝음 · 줄여야 하는데 더 어두움) 세기(알파)를 먼저 — 크기를 키운 판이
+        # 띠 밝기를 더 올려(27.1 → 31.1) 판이 버려지고 세기 E9 가 남았다 [실측 파티 R20261119_002317 '0 %' — 빛 크기 11 ↔ 9 · 띠 22.6 ↔ 27.1]. 크기는 다음 판
+        f["glow"] = {**gl, "color": st["color"]}
+        return {"old": old, "new": old, "alpha": st["alpha"], "size_measured": [gc["size"], gr["size"]], "peak": [gc["peak"], gr["peak"]],
+                "size_deferred": "glow size and strength pull opposite ways — strength first"}
     k = min(GLOW_SCALE[1], max(GLOW_SCALE[0], gc["size"] / max(1, gr["size"])))
     new = max(2, int(round(old * k)))
     if new == old:

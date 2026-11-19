@@ -63,6 +63,10 @@ ITEMS = [
     {"name": "'Lv 100' — '100' 검정 · 1.5 배(컨셉 획 측정 실패)", "run": "R20261118_130201_ProbePartyHUD", "widgets": ["LevelText"], "causes": ["unmeasured"],
      "found": "11-18 사용자 사람 눈 'Lv 100 텍스트 아쉬움' — 실측: 'Lv' 위치 차 (+0.5, +2.0) · 허용 3.2(기준 안 — 항목 아님, 사용자 결정), '100' 은 컨셉 획 마스크가 "
               "번진 파란 상자의 어두운 틈을 글자로 재(대비 0.5) 글자 맞춤이 검정 · 40 → 52 로 바꿈, 진단은 색 차 0.37 '같음' → 대비 안전망 E6 unmeasured"},
+    # 1b 후속 L 다음 고침 — 이 세션 compare.png 확인(사람 눈 전): 새 analyze 상자에서 판 메우기 글자색 추정이 띠 색으로 잡혀 텍스처에 컨셉 글자가 남고 엔진 글자가
+    # 겹침(이중). 진단은 컨셉 획(컨셉 ↔ 텍스처 차)이 비어 건너뛰었다(오류 0) → E1 baked
+    {"name": "'돌진 공격' 이중 글자(텍스처에 컨셉 글자 남음)", "run": "R20261119_004119_ProbeControlGuide", "codes": ["E1"], "widgets": ["DashLabelText"],
+     "causes": ["baked"], "found": "11-19 L 다음 고침 controls_alpha run compare.png — 진단 오류 0 이었음(컨셉 획 빈 글자 건너뜀)"},
     # 보호 — 지금 잘 나온 끝 run 은 run 전체 오류 0 유지(expect clean_run — 결함 하나라도 나오면 깨짐). 외부 · 단색 입력 규칙을 고치다 L-2 와 그 뒤 고친 것이
     # 다시 꼬이지 않게 [L-1 · L-3 교훈 — 판 메우기 규칙 하나를 고칠 때마다 다른 입력 · 다른 글자에서 새 결함]
     {"name": "보호: L-2 원래 전투 HUD", "run": "R20261118_191532_CombatHUD", "expect": "clean_run",
@@ -73,6 +77,10 @@ ITEMS = [
      "found": "11-18 L-2 회귀 run — 오류 0"},
     {"name": "보호: controls", "run": "R20261118_125054_ProbeControlGuide", "expect": "clean_run",
      "found": "11-18 L-3 끝 run — 지금 코드 오프라인 재진단 오류 0"},
+    # 1b 후속 L 다음 고침 끝 run(11-19) — 외부 · 단색 입력이 처음으로 오류 0
+    {"name": "보호: 단색 전투 HUD", "run": "R20261119_001742_CombatHUD", "expect": "clean_run", "found": "11-19 L 다음 고침 — 오류 0 · 근사 3"},
+    {"name": "보호: 파티 HUD", "run": "R20261119_003127_ProbePartyHUD", "expect": "clean_run", "found": "11-19 L 다음 고침 — 오류 0 · 근사 10"},
+    {"name": "보호: 조작 안내 원본", "run": "R20261119_003647_ProbeControlGuide", "expect": "clean_run", "found": "11-19 L 다음 고침 — 오류 0 · 근사 3"},
 ]
 FILES = ["spec.json", "geometry.json", "manifest.json", "normalize.json", "reference.png", "reference_color.png", "reference_alpha.png", "render.png",
          "refine.json", "specs/000.json"]

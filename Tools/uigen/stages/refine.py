@@ -1066,7 +1066,7 @@ def _cut_entry(run, asset: dict, raw, backend: str, gen_rec: dict, spec: dict | 
         left, done = [], []
         orig = (col_t.copy(), a_t.copy())
         for t in texts:
-            r = _plate_item_fill(col_t, a_t, fill_from[0], fill_from[1], t, orig=orig)
+            r = _plate_item_fill(col_t, a_t, fill_from[0], fill_from[1], t, orig=orig, others=[o["box"] for o in texts if o is not t])
             done.append({"text": t.get("id"), **{k: v for k, v in r.items() if k in ("used", "shift", "diff", "hole_px", "reason", "alpha_from", "halo_px",
                                                                                       "line_up_diff", "plate_clear_px")}})
             if not (r.get("used") or r.get("nothing")):
@@ -1286,26 +1286,110 @@ def _plate_same(cw, aw, ntc_w, nta_w, P: int, ratio: bool = True):
     return (best < dg.INK_FLOOR) | ((cmag > dg.INK_FLOOR) & (pmax >= PLATE_SAME_RATIO * cmag))
 
 
-def _narrow_neigh_fill(col, a, win, cw, aw, g0, rect, glow: float, bh: float, why: str, **extra) -> dict:
+def _other_text_mask(others, x0: int, y0: int, h: int, w: int):
+    """1b 후속 L 다음 — 같은 판 · 조각의 다른 글자 상자(창 좌표, 넓히지 않음) → (합친 마스크, 상자마다 마스크). 없으면 (None, [])."""
+    import numpy as np
+    masks = []
+    for b in others or []:
+        bx, by, bw, bh = (float(v) for v in b)
+        m = np.zeros((h, w), bool)
+        m[max(0, int(by) - y0):max(0, min(h, int(np.ceil(by + bh)) - y0)), max(0, int(bx) - x0):max(0, min(w, int(np.ceil(bx + bw)) - x0))] = True
+        if m.any():
+            masks.append(m)
+    if not masks:
+        return None, []
+    return np.logical_or.reduce(masks), masks
+
+
+GLYPH_LIKE_MIN = 0.5        # 글자색 근처 픽셀 중 상자 테두리에 안 닿는 덩어리 몫이 이 미만이면 띠 · 바탕 색으로 본다
+GLYPH_LIKE_GAIN = 0.2       # 사양 글자색 쪽이 이만큼 더 글자 같으면 그것으로
+
+
+def _glyph_like(m, own) -> float:
+    """1b 후속 L 다음 — 마스크(상자 안) 중 상자 테두리에 안 닿는 덩어리의 몫. 글자 획은 상자 안에 떠 있고 띠 · 바탕은 테두리까지 이어진다."""
+    import cv2
+    import numpy as np
+    m = np.asarray(m, bool)
+    n = int(m.sum())
+    if n < 20:
+        return 0.0
+    k, lab = cv2.connectedComponents(m.astype(np.uint8), connectivity=8)
+    border = own & ~cv2.erode(own.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+    touch = np.unique(lab[border & m])
+    return float((m & ~np.isin(lab, touch[touch > 0])).sum()) / n
+
+
+PLATE_STRUCT_OVERLAP = 0.1 # 투명 위 글자 · 빛 자리(획 + 빛 + 3 px)의 이 비율 이상이 상자 밖으로 이어진 불투명 구조물(+3 px)이면 판 중앙값 메움
+THIN_LINE_GAP = 3          # 가는 선 = 위아래(좌우) 이만큼(px) 떨어진 두 픽셀 모두와 미리 곱한 색 채널 최대 차 > INK_MIN 인 픽셀의 긴 줄
+
+
+def _thin_lines(cw, aw, bh: float):
+    """1b 후속 L 다음 — 컨셉의 길고 가는 가로 · 세로 선(막대 윗선 · 테두리선 — 글자보다 긴: 가로 1.5 × 상자 높이 · 세로 1.05 ×). 넓은 띠 · 트랙 · 글자 빛 고리는 아님
+    (계단 경계는 한쪽과만 다르다). 채널 최대 차 — 밝기로 재면 초록 막대 위 청록 윗선이 막대와 같게 나왔다 [실측 L 다음 오프라인 파티 130201 HP 숫자 밑]."""
+    import cv2
+    import numpy as np
+    from gen import diagnose as dg
+    pm = cw * aw[..., None]
+    g = THIN_LINE_GAP
+    out = np.zeros(aw.shape, bool)
+    for axis, ker in ((0, np.ones((1, max(3, int(1.5 * bh))), np.uint8)), (1, np.ones((max(3, int(1.05 * bh)), 1), np.uint8))):
+        p = np.pad(pm, ((g, g), (0, 0), (0, 0)) if axis == 0 else ((0, 0), (g, g), (0, 0)), mode="edge")
+        a_, b_ = (p[:-2 * g], p[2 * g:]) if axis == 0 else (p[:, :-2 * g], p[:, 2 * g:])
+        ridge = (np.abs(pm - a_).max(axis=2) > dg.INK_MIN) & (np.abs(pm - b_).max(axis=2) > dg.INK_MIN)
+        out |= cv2.morphologyEx(ridge.astype(np.uint8), cv2.MORPH_OPEN, ker) > 0
+    return out
+
+
+OTHER_SHARE_MARGIN = 0.25   # 획 후보 덩어리가 다른 글자 상자 안 비율이 자기 상자 안 비율보다 이만큼 넘게 크면 그 글자 몫(이 글자 획 아님)
+
+
+def _drop_other_glyphs(cand, own, other_masks):
+    """1b 후속 L 다음 — 획 후보 덩어리 중 다른 글자 몫(다른 상자 안 비율 > 자기 상자 안 비율 + OTHER_SHARE_MARGIN)은 뺀다. 상자가 겹친 같은 몫(동점)은 둘 다
+    메운다(예전 그대로). [실측 L 다음 오프라인 단색 R20261118_124503 — 원래 컨셉으로 '2/4' 획을 찾자 창이 위 '4.2' 의 '.' · '2' 아랫부분까지 잡아 정합이 흔들리고
+    가는 '/' 가 두께 규칙(STROKE_SHARE)에 걸려 빠졌다]"""
+    import cv2
+    import numpy as np
+    if not other_masks or not cand.any():
+        return cand
+    k, lab = cv2.connectedComponents(cand.astype(np.uint8), connectivity=8)
+    drop = []
+    for i in range(1, k):
+        sel = lab == i
+        mine = float(own[sel].mean())
+        theirs = max(float(m[sel].mean()) for m in other_masks)
+        if theirs > mine + OTHER_SHARE_MARGIN:
+            drop.append(i)
+    return cand & ~np.isin(lab, drop) if drop else cand
+
+
+def _narrow_neigh_fill(col, a, win, cw, aw, g0, rect, glow: float, bh: float, why: str, orig_w=None, oth=None, **extra) -> dict:
     """1b 후속 L-3b — 판 정합이 안 되는 글자의 둘레 컨셉 메움(제자리에서 고침): 바꿀 자리 = 획(g0) + PLATE_GLYPH_GROW, 빛 글자면 빛 반경 안에서 '매끈한 바탕
     (획 · 빛 반경 밖 원천의 가우스 가중 평균)보다 PLATE_HALO_L 넘게 밝은' 픽셀 중 획에 이어진 것(글자보다 긴 가로 · 세로 구조선 제외 — 판 길 K (나) 와 같은 규칙),
-    글자 상자(+2) 안까지. 원천 = 바꿀 자리 밖에서 둘레 대표색(빛 반경 밖 고리 중앙값)과 채널 차 PLATE_FILL_SOURCE_DIFF 미만(이웃 글자 · 밝은 장식 가장자리 빼기)."""
+    글자 상자(+2) 안까지. 원천 = 바꿀 자리 밖에서 둘레 대표색(빛 반경 밖 고리 중앙값)과 채널 차 PLATE_FILL_SOURCE_DIFF 미만(이웃 글자 · 밝은 장식 가장자리 빼기).
+    1b 후속 L 다음 — 판정 · 원천은 원래 컨셉(orig_w — 앞 글자 메움 전)에서, 다른 글자 상자(oth, +2 px) 안은 원천 · 둘레에서 뺀다(이웃 글자 빛이 메움으로 번짐)."""
     import cv2
     import numpy as np
     from gen import cutout
     from gen import diagnose as dg
     y0, y1, x0, x1 = win
     h, w = aw.shape
-    pm_w = cw * aw[..., None]
+    co, ao = orig_w if orig_w is not None else (cw, aw)
+    pm_w = co * ao[..., None]
+    pm_cur = cw * aw[..., None]
+    free = ~dg._dilate(oth, 2) if oth is not None else np.ones((h, w), bool)
     gr = int(np.ceil(glow))
     reach = dg._dilate(g0, gr + PLATE_GLYPH_GROW + NARROW_EDGE_PX)
     ring = dg._dilate(reach, cutout.NOTEXT_RING) & ~reach
+    if int((ring & free).sum()) >= 10:
+        ring &= free
     med = np.median(pm_w[ring], axis=0) if int(ring.sum()) >= 10 else np.median(pm_w[~reach], axis=0)
     similar = np.abs(pm_w - med).max(axis=2) < PLATE_FILL_SOURCE_DIFF
+    if int((similar & free & ~reach).sum()) >= 10:
+        similar &= free
     hole = dg._dilate(g0, PLATE_GLYPH_GROW)
     # 원천 = 둘레 대표색과 비슷한 픽셀(이웃 장식 · 막대 색이 구멍으로 번지지 않게). 거르지 않으면 트랙 끝에 걸친 '0 %' 에 위 초록 막대가 흘러내렸다 —
     # 거르면 그 자리 트랙이 다수(투명)에 밀려 짧아진다(판이 트랙까지 지운 모호한 자리 — 진단에 맡김) [실측 L 오프라인 092315 '0 %']
-    bg_pm, _ = _smooth_fill(pm_w, aw, ~reach & similar)
+    bg_pm, _ = _smooth_fill(pm_w, ao, ~reach & similar)
     # 획에 이어진 '매끈한 바탕과 다른' 픽셀 — 밝은 빛만이 아니라 어두운 외곽선 · 그림자도(채널 최대 차 — 파란 빛은 루마 가중치가 작아 루마로는 못 넘었다)
     # [실측 L run R20261118_113122 배너 '3' — 외곽선이 텍스처에 남아 baked_text 0.709 · L-3b 오프라인 092315 이름 파란 빛 잔상]
     br = reach & (np.abs(pm_w - bg_pm).max(axis=2) > NARROW_DIFF)
@@ -1320,22 +1404,26 @@ def _narrow_neigh_fill(col, a, win, cw, aw, g0, rect, glow: float, bh: float, wh
     hole &= rect
     if not hole.any():
         return {"used": False, "reason": "no glyph pixels to fill inside the text box", "nothing": True}
-    fpm, fa = _smooth_fill(pm_w, aw, ~hole & similar if int((~hole & similar).sum()) >= 10 else ~hole)
+    fpm, fa = _smooth_fill(pm_w, ao, ~hole & similar if int((~hole & similar).sum()) >= 10 else ~hole)
     blend = cv2.GaussianBlur(dg._dilate(hole, 1).astype(np.float32), (0, 0), 1.0).astype(float)
     blend = np.clip(np.where(hole, 1.0, blend), 0.0, 1.0)
     out_a = blend * fa + (1 - blend) * aw
-    pm = blend[..., None] * fpm + (1 - blend)[..., None] * pm_w
+    pm = blend[..., None] * fpm + (1 - blend)[..., None] * pm_cur
     col[y0:y1, x0:x1] = np.where(out_a[..., None] > 1e-4, pm / np.maximum(out_a, 1e-4)[..., None], cw)
     a[y0:y1, x0:x1] = out_a
     return {"used": True, "shift": [0, 0], "hole_px": int(hole.sum()), "halo_px": halo_px, "whole": False, "alpha_from": why, "fill": "smooth", **extra}
 
 
-def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, orig=None) -> dict:
+def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, orig=None, others=None) -> dict:
     """정적 판의 한 글자(또는 게이지 막대) 자리를 글자 없는 판 픽셀로(제자리에서 고침) → 기록. used False 면 고치지 않음(이유).
     바꿀 자리 = 컨셉 ↔ 판이 다른 글자 획(gen/diagnose 와 같은 정의 — 가는 선 · 상자 밖 덩어리 · 가는 호 빼기) + PLATE_GLYPH_GROW + 빛 —
     글자 상자 사각형 전체를 바꾸면 codex 판이 몇 px 다르게 다시 그린 배지 테두리가 사각형 가장자리에서 어긋나 '배지 양옆 선'이 됐다
     [실측 J-a 오프라인 R20261117_154442 — E · T · R 배지 양옆 국소 ΔE00 최대 17.6]. whole(OCR 이 자국을 잡은 뒤) · 게이지 막대는 상자째.
-    정합 = 획 둘레로 ±NOTEXT_SHIFT(cutout._notext_shift), 판 알파 수준 맞춤(_notext_alpha_gain) · 흐린 경계 섞기는 cutout.compose 와 같다."""
+    정합 = 획 둘레로 ±NOTEXT_SHIFT(cutout._notext_shift), 판 알파 수준 맞춤(_notext_alpha_gain) · 흐린 경계 섞기는 cutout.compose 와 같다.
+    1b 후속 L 다음 — 판정(획 · 글자색 · 구조물 · 투명 위 글자 · 판 정합 · 메움 원천)은 모두 원래 컨셉(orig — 앞 글자 메움 전)에서 하고 결과만 col · a 에 쓴다:
+    앞 글자 메움이 바꾼 그림으로 획을 찾으면 순서에 따라 결과가 갈렸다 [실측 L 다음 오프라인 단색 R20261118_124503 — 빛 여백으로 넓은 '4.2' 상자의 메움이 '2/4' 의
+    '4' 를 먹고 발 끝만 남겨, '2/4' 는 남은 발을 작은 덩어리로 버려 텍스처 잔상 12 px(진단 E1 '4' 밑 잔상)]. others = 같은 판 · 조각의 다른 글자 상자 — 그 글자 몫
+    획은 빼고(_drop_other_glyphs), 그 상자 안은 메움 원천 · 둘레에서 뺀다."""
     import cv2
     import numpy as np
     from gen import cutout
@@ -1350,9 +1438,13 @@ def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, 
     x1, y1 = min(W, int(np.ceil(bx + bw)) + m), min(H, int(np.ceil(by + bh)) + m)
     if x1 - x0 < 4 or y1 - y0 < 4:
         return {"used": False, "reason": "outside the plate"}
-    cw, aw = col[y0:y1, x0:x1], a[y0:y1, x0:x1]
+    cw_cur, aw_cur = col[y0:y1, x0:x1], a[y0:y1, x0:x1]
+    # 판정 · 원천 = 원래 컨셉(cw · aw), 결과 섞기 = 지금 그림(cw_cur · aw_cur)
+    cw, aw = (orig[0][y0:y1, x0:x1], orig[1][y0:y1, x0:x1]) if orig is not None else (cw_cur.copy(), aw_cur.copy())
     ntc_w, nta_w = ntc_pad[y0:y1 + 2 * P, x0:x1 + 2 * P], nta_pad[y0:y1 + 2 * P, x0:x1 + 2 * P]
     h, w = aw.shape
+    oth, oth_list = _other_text_mask(others, x0, y0, h, w) if not (item.get("gauge") or whole) else (None, [])
+    free = ~dg._dilate(oth, 2) if oth is not None else np.ones((h, w), bool)
     own = np.zeros((h, w), bool)
     own[max(0, int(by) - y0):min(h, int(np.ceil(by + bh)) - y0), max(0, int(bx) - x0):min(w, int(np.ceil(bx + bw)) - x0)] = True
     rect = dg._dilate(own, 2)
@@ -1366,8 +1458,8 @@ def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, 
         if sh.get("diff") is None or sh["diff"] > cutout.NOTEXT_MAX_DIFF:
             dx, dy = 0, 0
         nc, na = ntc_w[P + dy:P + dy + h, P + dx:P + dx + w], nta_w[P + dy:P + dy + h, P + dx:P + dx + w]
-        col[y0:y1, x0:x1] = np.where(hole[..., None], nc, cw)
-        a[y0:y1, x0:x1] = np.where(hole, na, aw)
+        col[y0:y1, x0:x1] = np.where(hole[..., None], nc, cw_cur)
+        a[y0:y1, x0:x1] = np.where(hole, na, aw_cur)
         return {"used": True, "shift": [int(dx), int(dy)], "diff": sh.get("diff"), "hole_px": int(hole.sum()), "whole": True, "mask": "full gauge track"}
 
     near = None
@@ -1378,7 +1470,7 @@ def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, 
         # 바뀌었다 [실측 J R20261117_174247 — 글자 오른쪽 국소 ΔE00 17.6]
         from core import color as color_mod
         d0 = np.abs(cw * aw[..., None] - ntc_w[P:P + h, P:P + w] * nta_w[P:P + h, P:P + w][..., None]).max(axis=2)
-        strong = own & (d0 > dg.INK_MIN)
+        strong = _drop_other_glyphs(own & (d0 > dg.INK_MIN), own, oth_list)
         # 1b 후속 L-3b — 상자 밖으로 이어진 덩어리(모서리 장식 — 판이 다르게 다시 그려 '가장 다른 픽셀'이 됨)는 글자색 원천에서 뺀다 [실측 L run R20261118_115506
         # 단색 — 패널 폭 '2/4' 상자에서 글자색을 금색 장식으로 잡아 '2/' 는 못 잡고 오른쪽 아래 장식을 지움]
         strong_f = dg._filter_glyph_parts(strong, own)
@@ -1394,7 +1486,19 @@ def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, 
             cols = [np.asarray(c, float) for c in (item.get("colors") or [])]
         if cols:
             lab = color_mod.srgb_to_lab(cw)
-            near = np.min([color_mod.delta_e00(lab, color_mod.srgb_to_lab(np.asarray(c, float).reshape(1, 1, 3))) for c in cols], axis=0) < PLATE_TEXT_DE
+
+            def near_of(cs):
+                return np.min([color_mod.delta_e00(lab, color_mod.srgb_to_lab(np.asarray(c, float).reshape(1, 1, 3))) for c in cs], axis=0) < PLATE_TEXT_DE
+            near = near_of(cols)
+            spec_cols = [np.asarray(c, float) for c in (item.get("colors") or [])]
+            if spec_cols:
+                # 1b 후속 L 다음 — 잰 글자색이 띠 · 바탕 색이면(그 색 근처 픽셀이 상자 테두리에 닿는 큰 면) 사양 글자색이 글자 같을 때 그것으로 [실측 controls_alpha
+                # R20261119_004119 '돌진 공격' — 새 analyze 상자에서 획 후보 거르기가 띠 조각만 남겨 글자색 (44, 136, 192) → 글자가 텍스처에 남아 이중 글자].
+                # 반대(사양색이 띠의 어두운 면 — J '점프')면 잰 색 그대로
+                ns = near_of(spec_cols)
+                gm_, gs_ = _glyph_like(near & own, own), _glyph_like(ns & own, own)
+                if gm_ < GLYPH_LIKE_MIN and gs_ >= gm_ + GLYPH_LIKE_GAIN:
+                    near = ns
 
     def plate_text(nc, na):
         """1b 후속 L-3b — 판에 남은 글자 자국(codex 판이 못 지운 획): 판 픽셀이 판 자기 둘레(미디언 — 글자 높이 크기 창)와 INK_MIN 넘게 다름 · 글자 상자 근처만.
@@ -1404,7 +1508,13 @@ def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, 
         pm_n = np.clip(np.asarray(nc, float) * np.asarray(na, float)[..., None], 0, 255).astype(np.uint8)
         k = max(5, int(round(bh)) | 1)
         med_n = cv2.medianBlur(pm_n, min(k, 255)).astype(float)
-        return (np.abs(pm_n.astype(float) - med_n).max(axis=2) > dg.INK_MIN) & dg._dilate(own, int(round(e)))
+        pt = (np.abs(pm_n.astype(float) - med_n).max(axis=2) > dg.INK_MIN) & dg._dilate(own, int(round(e)))
+        # 1b 후속 L 다음 — 글자보다 긴 가로 · 세로 선(판의 테두리 금선 등 구조물)은 판에 남은 글자 자국이 아니다 — 판 정합이 1 px 어긋나면 금선이 '자국'이 돼
+        # 획 근처 금선 자리를 둘레 메움으로 바꿔 혹 · 끊김 [실측 L 다음 오프라인 단색 R20261118_124503 '2/4' — 이동 (0, −1)]
+        p8 = pt.astype(np.uint8)
+        lh = cv2.morphologyEx(p8, cv2.MORPH_OPEN, np.ones((1, max(3, int(1.5 * bh))), np.uint8)) > 0
+        lv = cv2.morphologyEx(p8, cv2.MORPH_OPEN, np.ones((max(3, int(1.05 * bh)), 1), np.uint8)) > 0
+        return pt & ~dg._dilate(lh | lv, 1) if (lh.any() or lv.any()) else pt
 
     def glyph_of(nc, na):
         if item.get("gauge") or whole:
@@ -1422,7 +1532,7 @@ def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, 
             # 판에도 있는 구조물(장식 · 테두리선 — 판이 몇 px 어긋나고 밝기가 달라도)은 획이 아니다 [실측 L run R20261118_115506 단색 — 패널 폭 '2/4' 상자 안
             # 모서리 장식 하이라이트 · 아래 금선이 글자색 근처라 획으로 잡혀 얼룩]
             cand &= ~same_struct
-        return dg._filter_glyph_parts(dg._drop_small(cand), own)
+        return dg._filter_glyph_parts(dg._drop_small(_drop_other_glyphs(cand, own, oth_list)), own)
     same_struct = _plate_same(cw, aw, ntc_w, nta_w, P, ratio=False) & (aw > 0.5) if near is not None else None
     g0 = glyph_of(ntc_w[P:P + h, P:P + w], nta_w[P:P + h, P:P + w])
     if not g0.any():
@@ -1435,6 +1545,7 @@ def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, 
         n_o, lab_o = cv2.connectedComponents((aw > 0.5).astype(np.uint8), connectivity=8)
         cross = np.unique(lab_o[(lab_o > 0) & ~rect])
         protect = dg._dilate(np.isin(lab_o, cross[cross > 0]), 3) if len(cross) else np.zeros_like(rect)
+        protect_raw = protect.copy()
         if near is not None and protect.any():
             # 글자색에 가까운 픽셀(+ 빛 반경)은 지키지 않는다 — 빛 번짐이 글자 아랫획을 상자 밖 막대 · 프레임과 한 덩어리로 이어 글자가 판에 남았다
             # [실측 J R20261117_205334 파티 HUD 이름 — 컨셉 획 아래 반이 판에 남아 진단 높이 비 1.6]
@@ -1447,24 +1558,53 @@ def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, 
             protect &= ~(dg._dilate(near & rect, int(np.ceil(glow)) + 2) & ~dg._dilate(same, 1))
         h0 = rect & ~protect
         r0 = dg._dilate(rect, cutout.NOTEXT_RING) & ~rect & ~protect
+        # 1b 후속 L 다음 — 둘레 고리 · 메움 원천에서 다른 글자 상자(+2 px)는 뺀다: 이웃 글자 빛(컨셉 알파 0.7 ~ 0.9)이 고리 중앙값이 돼 투명 위 '100' 자리를
+        # 불투명 남색 상자로 메웠다 [실측 L 다음 오프라인 파티 R20261118_130201 — LevelText 고리 알파 0.765, 그 상자 틈을 글자로 재 글자 맞춤이 검정 · 52]
+        if int((r0 & free).sum()) >= 20:
+            r0 &= free
         clear0 = float(np.median(aw[r0])) if int(r0.sum()) >= 20 else None
 
-        def neigh_fill(why: str, **extra) -> dict:
-            blend = cv2.GaussianBlur(dg._dilate(h0, cutout.NOTEXT_GROW).astype(np.float32), (0, 0), cutout.NOTEXT_BLUR).astype(float)
-            blend = np.clip(np.where(h0, 1.0, np.where(protect, 0.0, blend)), 0.0, 1.0)     # 지킨 구조물은 흐린 경계로도 안 섞음(L-3b)
-            # 원천 = 둘레 대표(미리 곱한 색 중앙값)에 가까운 픽셀만 — 줄 보간이 이웃 장식의 밝은 가장자리를 끌어와 회색 줄무늬가 됐다
-            # [실측 J R20261117_205334 파티 HUD 이름 — 초상화 테두리 가장자리]
-            pm_w = cw * aw[..., None]
-            med = np.median(pm_w[r0], axis=0) if int(r0.sum()) else np.zeros(3)
-            similar = np.abs(pm_w - med).max(axis=2) < PLATE_FILL_SOURCE_DIFF
-            src_ok = ~h0 & (similar if int((similar & r0).sum()) >= 10 else True)
-            # 1b 후속 L-3b — 매끈한 메움(원천 가우스 가중 평균). 줄 보간은 줄마다 다른 양끝 원천을 이어 가로 줄무늬를 남겼다 [실측 K R20261118_092315 이름]
-            fpm, fa = _smooth_fill(pm_w, aw, src_ok)
-            out_a = blend * fa + (1 - blend) * aw
-            pm = blend[..., None] * fpm + (1 - blend)[..., None] * pm_w
-            col[y0:y1, x0:x1] = np.where(out_a[..., None] > 1e-4, pm / np.maximum(out_a, 1e-4)[..., None], cw)
+        def neigh_fill(why: str, plate_fill: bool = False, **extra) -> dict:
+            hh, prot = h0, protect
+            if plate_fill:
+                # 판 메움 길은 글자 · 빛 반경 안에서 길고 가는 선(막대 윗선 — 판이 1 px 어긋나 다시 그림, J · K)만 지킨다: 컨셉 빛으로 상자 밖 트랙과 이어진 글자 빛 고리
+                # (글자색에서 먼 주황 빛)가 '판도 밝다'(_plate_same 밝기 비)로 구조물이 돼 텍스처에 남았다 [실측 L 다음 오프라인 파티 130201 '0 %'] — 그 밑 트랙은
+                # 판이 그린 트랙 끝(중앙값)으로
+                # 빛 자리 = 획 + 빛 크기 + 5 px, 그 밖 빛 크기 × 2 + 6 px 까지는 판에 그만큼 밝은 것이 없는 픽셀(투명 위 빛 끝)만 — 컨셉 빛은 분석 빛 크기보다
+                # 넓어 아래 끝이 막대 윗선 위 어두운 이빨로 남았고 [실측 같은 run HP 숫자], 바깥 고리를 '판과 다른 픽셀' 전부로 넓히자 '0 %' 둘레 트랙까지 판
+                # 트랙으로 바뀌어 '0' 모양 자국이 났다
+                gi = int(np.ceil(glow))
+                zone = dg._dilate(g0, gi + PLATE_GLYPH_GROW + 2) | (dg._dilate(g0, 2 * gi + 6) & ~(_plate_same(cw, aw, ntc_w, nta_w, P) & (aw > 0.5)))
+                # 판과 ±2 px 안에서 같은 구조물(사선 화살 끝 등 가는 선 판정 밖)도 지킨다 [실측 같은 run HP 최대치 오른쪽 화살 끝 자국]
+                keep = dg._dilate(_thin_lines(cw, aw, bh), 1) | (_plate_same(cw, aw, ntc_w, nta_w, P, ratio=False) & (aw > 0.5))
+                prot = protect & ~(zone & ~keep)
+                hh = rect & ~prot
+            blend = cv2.GaussianBlur(dg._dilate(hh, cutout.NOTEXT_GROW).astype(np.float32), (0, 0), cutout.NOTEXT_BLUR).astype(float)
+            blend = np.clip(np.where(hh, 1.0, np.where(prot, 0.0, blend)), 0.0, 1.0)     # 지킨 구조물은 흐린 경계로도 안 섞음(L-3b)
+            if plate_fill:
+                # 1b 후속 L 다음 — 판만 투명하다고 본 글자(컨셉 둘레는 빛 · 이웃 막대로 불투명): 둘레 컨셉으로 메우면 그 막대 색이 상자를 덮었다 [실측 L 다음 오프라인
+                # 파티 130201 NameText — 고리 알파 0.99, 이름 상자가 HP 막대 초록]. 판(이동 0)을 글자 높이 반 크기 중앙값으로 — 판에 남은 글자 자국 · 잔상은 뭉개고
+                # 투명 · 옅은 막대 빛만 남는다(알파 이득 없음 — 유령 숫자 K 교훈)
+                k = max(5, int(round(0.5 * bh)) | 1)
+                pm8 = np.clip(nta_w[P:P + h, P:P + w][..., None] * ntc_w[P:P + h, P:P + w], 0, 255).astype(np.uint8)
+                fpm = cv2.medianBlur(pm8, min(k, 255)).astype(float)
+                fa = cv2.medianBlur(np.clip(nta_w[P:P + h, P:P + w] * 255, 0, 255).astype(np.uint8), min(k, 255)).astype(float) / 255.0
+            else:
+                # 원천 = 둘레 대표(미리 곱한 색 중앙값)에 가까운 픽셀만 — 줄 보간이 이웃 장식의 밝은 가장자리를 끌어와 회색 줄무늬가 됐다
+                # [실측 J R20261117_205334 파티 HUD 이름 — 초상화 테두리 가장자리]
+                pm_w = cw * aw[..., None]
+                med = np.median(pm_w[r0], axis=0) if int(r0.sum()) else np.zeros(3)
+                similar = np.abs(pm_w - med).max(axis=2) < PLATE_FILL_SOURCE_DIFF
+                src_ok = ~h0 & (similar if int((similar & r0).sum()) >= 10 else True)
+                if int((src_ok & free).sum()) >= 10:
+                    src_ok &= free
+                # 1b 후속 L-3b — 매끈한 메움(원천 가우스 가중 평균). 줄 보간은 줄마다 다른 양끝 원천을 이어 가로 줄무늬를 남겼다 [실측 K R20261118_092315 이름]
+                fpm, fa = _smooth_fill(pm_w, aw, src_ok)
+            out_a = blend * fa + (1 - blend) * aw_cur
+            pm = blend[..., None] * fpm + (1 - blend)[..., None] * (cw_cur * aw_cur[..., None])
+            col[y0:y1, x0:x1] = np.where(out_a[..., None] > 1e-4, pm / np.maximum(out_a, 1e-4)[..., None], cw_cur)
             a[y0:y1, x0:x1] = out_a
-            return {"used": True, "shift": [0, 0], "hole_px": int(h0.sum()), "whole": False, "alpha_from": why, **extra}
+            return {"used": True, "shift": [0, 0], "hole_px": int(hh.sum()), "whole": False, "alpha_from": why, **extra}
         if int(r0.sum()) >= 20 and h0.any():
             na0 = nta_w[P:P + h, P:P + w]
             mism0 = float(np.median(np.abs(na0[r0] - aw[r0])))
@@ -1475,27 +1615,43 @@ def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, 
             # 넓힌 상자가 배너 밖으로 나가 배너 위 '3' 을 투명 위 글자로 봐 외곽선이 남았다 [실측 L run R20261118_113122 — baked_text 0.709]
             rg = int(np.ceil(glow)) + PLATE_GLYPH_GROW
             ring_g = dg._dilate(g0, rg + cutout.NOTEXT_RING) & ~dg._dilate(g0, rg)
+            if int((ring_g & free).sum()) >= 20:
+                ring_g &= free
             clear_g = float(np.median(aw[ring_g])) if int(ring_g.sum()) >= 20 else 1.0
-            if clear_g < PLATE_CLEAR_ALPHA or (mism0 > PLATE_ALPHA_MISMATCH and clear0 < PLATE_CLEAR_ALPHA):
-                return neigh_fill("concept neighbourhood — text on a (nearly) transparent concept (the text-free concept is not used)",
-                                  alpha_mismatch=round(mism0, 3), ring_alpha=round(clear0, 3), glyph_ring_alpha=round(clear_g, 3))
+            # 1b 후속 L 다음 — 글자 없는 판이 글자 · 빛 자리(획 + 빛 반경, 지킨 구조물 빼고)를 투명하게 그렸으면 그것도 투명 위 글자: 컨셉 빛이 분석 빛 크기보다
+            # 넓으면 획 둘레 고리도 빛 속이라 불투명으로 재 좁은 메움으로 갔고, 남은 빛 번짐 · 이웃 원천이 이름 둘레 회청 · 초록 얼룩이 됐다
+            # [실측 L 다음 오프라인 파티 130201 NameText — 고리 알파 ≥ 0.35, 판 알파는 그 자리 거의 0]. 판 픽셀은 여기서도 안 쓴다(알파 판정만)
+            zone_g = dg._dilate(g0, rg) & rect & ~protect
+            plate_g = float(np.median(na0[zone_g])) if int(zone_g.sum()) >= 20 else 1.0
+            zg = dg._dilate(g0, rg) & rect
+            struct_g = float((protect_raw & zg).sum()) / max(1, int(zg.sum()))
+            meas = {"alpha_mismatch": round(mism0, 3), "ring_alpha": round(clear0, 3), "glyph_ring_alpha": round(clear_g, 3), "plate_zone_alpha": round(plate_g, 3),
+                    "struct_overlap": round(struct_g, 3)}
+            concept_clear = clear_g < PLATE_CLEAR_ALPHA or (mism0 > PLATE_ALPHA_MISMATCH and clear0 < PLATE_CLEAR_ALPHA)
+            # 판이 글자 · 빛 자리를 투명하게 그렸고, 컨셉 둘레가 불투명하거나(빛 · 이웃 막대 — 둘레 메움이 그 색이 됨) 글자 · 빛 자리가 상자 밖으로 이어진 불투명
+            # 구조물(트랙 · 막대 — 빛으로 이어짐)과 겹치면 판(중앙값)으로 — 트랙 끝에 걸친 '0 %' 처럼 글자 밑 정답이 없는 자리는 판이 그린 트랙 끝이 유일한 근거.
+            # 둘레가 투명하고 구조물과 안 겹치면 예전대로 둘레 컨셉 — 판(codex)이 컨셉의 옅은 바탕 빛(알파 0.1)까지 지운 단색 '오의 불가' 를 투명으로 만들었다
+            # [실측 L 다음 오프라인 단색 120715 — 글자 구역 바탕 국소 최대 9.9 → 12.9]. 판이 거기를 불투명하게 그렸으면(J — codex 판의 투명 위 '오의 불가') 둘레 컨셉
+            if plate_g < PLATE_CLEAR_ALPHA and (not concept_clear or struct_g >= PLATE_STRUCT_OVERLAP):
+                return neigh_fill("text-free concept median (glyph-sized) — the text-free concept is transparent under the text", plate_fill=True, **meas)
+            if concept_clear:
+                return neigh_fill("concept neighbourhood — text on a (nearly) transparent concept (the text-free concept is not used)", **meas)
     else:
         neigh_fill = None
     # 빛 글자는 정합 둘레를 빛 반경 밖으로 — 둘레가 빛 번짐 안이면 codex 판(빛까지 지움)과 늘 25 ~ 28 차이로 정합 실패였다
     # [실측 J R20261117_210351 파티 HUD 이름 · HP 숫자 — 둘레 보간으로 물러나 컨셉 획 측정이 깨짐]
     gr = int(np.ceil(glow))
     # 정합은 원래 컨셉에 대고(orig) — 앞 글자를 먼저 메운 결과가 둘레를 바꿔 같은 글자가 순서에 따라 정합 11 ↔ 30 으로 갈렸다 [실측 L 오프라인 092315 '0 %']
-    cw_r, aw_r = (orig[0][y0:y1, x0:x1], orig[1][y0:y1, x0:x1]) if orig is not None else (cw, aw)
-    sh = cutout._notext_shift(cw_r, aw_r, dg._dilate(g0, gr) if gr else g0, dg._dilate(g0, 3 + gr), ntc_w, nta_w, strokes=g0)
+    sh = cutout._notext_shift(cw, aw, dg._dilate(g0, gr) if gr else g0, dg._dilate(g0, 3 + gr), ntc_w, nta_w, strokes=g0)
     if sh.get("diff") is None or sh["diff"] > cutout.NOTEXT_MAX_DIFF:
         if neigh_fill is not None and h0.any() and int(r0.sum()) >= 20:
             # 정합이 안 되면 둘레 컨셉으로 — 단 좁은 자리만(획 + 안티앨리어싱 + 획에 이어진 실제 빛 픽셀, 판 정합 길의 K (나) 와 같은 범위) · 매끈한 가우스 가중
             # 메움. 글자 상자 전체를 줄 보간으로 메우자 가로 줄무늬가 생기고 그 줄무늬가 컨셉 획 측정을 오염시켜 글자색까지 어둡게 맞췄다
             # [실측 K R20261118_092315 파티 HUD 이름 — 회청색 + 줄무늬 · 측정 불가]. 예전 물러남(cutout.compose 줄 상자 + 가로 여유)은 이웃 장식까지 팠다
             # [실측 J R20261117_204115 — 초상화 테두리 오른쪽 8 × 33 구멍]
-            return _narrow_neigh_fill(col, a, (y0, y1, x0, x1), cw, aw, g0, rect, glow, bh,
+            return _narrow_neigh_fill(col, a, (y0, y1, x0, x1), cw_cur, aw_cur, g0, rect, glow, bh,
                                       f"concept neighbourhood around the glyphs — the text-free concept does not line up (ring diff {sh.get('diff')})",
-                                      line_up_diff=sh.get("diff"))
+                                      orig_w=(cw, aw), oth=oth, line_up_diff=sh.get("diff"))
         return {"used": False, "reason": f"text-free concept does not line up here (ring diff {sh.get('diff')}, ring {sh.get('ring_px')} px)", **sh}
     dx, dy = sh["shift"]
     nc, na = ntc_w[P + dy:P + dy + h, P + dx:P + dx + w], nta_w[P + dy:P + dy + h, P + dx:P + dx + w]
@@ -1556,7 +1712,7 @@ def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, 
         # 1b 후속 L-3b — 판이 글자 자리를 투명하게 비웠다(구멍 안 판 알파가 그 픽셀의 둘레 컨셉 매끈한 메움 알파보다 PLATE_ALPHA_MISMATCH 넘게 낮음) — 그 픽셀은
         # 둘레 메움. 픽셀마다 비교 — 트랙 끝에 걸친 글자는 둘레 절반이 투명이라 고리 중앙값 하나로는 못 가린다
         # [실측 K R20261118_092315 파티 HUD '0 %' — 트랙 위 글자 자리가 판에서 투명, 텍스처에 어두운 '0%' 모양 구멍]
-        fpm, fa = _smooth_fill(cw * aw[..., None], aw, ~hole)
+        fpm, fa = _smooth_fill(cw * aw[..., None], aw, ~hole & free if int((~hole & free).sum()) >= 10 else ~hole)
         low = hole & (na2 < fa - PLATE_ALPHA_MISMATCH)
         pt = plate_text(nc, na)
         if pt is not None:
@@ -1566,9 +1722,9 @@ def _plate_item_fill(col, a, ntc_pad, nta_pad, item: dict, whole: bool = False, 
             na2 = np.where(low, fa, na2)
             grec = {**grec, "alpha_from": grec.get("alpha_from") or "text-free concept — its transparent glyph holes from the concept neighbourhood",
                     "plate_clear_px": int(low.sum())}
-    out_a = blend * na2 + (1 - blend) * aw
-    pm = blend[..., None] * nc * na2[..., None] + (1 - blend)[..., None] * cw * aw[..., None]
-    out_c = np.where(out_a[..., None] > 1e-4, pm / np.maximum(out_a, 1e-4)[..., None], cw)
+    out_a = blend * na2 + (1 - blend) * aw_cur
+    pm = blend[..., None] * nc * na2[..., None] + (1 - blend)[..., None] * cw_cur * aw_cur[..., None]
+    out_c = np.where(out_a[..., None] > 1e-4, pm / np.maximum(out_a, 1e-4)[..., None], cw_cur)
     col[y0:y1, x0:x1], a[y0:y1, x0:x1] = out_c, out_a
     return {"used": True, "shift": [dx, dy], "diff": sh["diff"], "hole_px": int(hole.sum()), "whole": bool(whole or item.get("gauge")),
             **({"tone": tone} if tone is not None else {}),
@@ -1713,7 +1869,8 @@ def _plate_entry(run, asset: dict, spec: dict) -> tuple[dict, dict]:
             # 글자 없는 판이 있으면 글자마다 '판과 다른 획'만 판 픽셀로(_plate_item_fill) — 못 맞춘 글자만 아래 줄 보간으로
             left = []
             for it in items:
-                r = _plate_item_fill(col, a, nt_pad[0], nt_pad[1], it, whole=whole, orig=(col0, a0))
+                r = _plate_item_fill(col, a, nt_pad[0], nt_pad[1], it, whole=whole, orig=(col0, a0),
+                                     others=[o["box"] for o in texts if o is not it])
                 recs.append({"item": it["id"], **r})
                 if not r.get("used") and not r.get("nothing") and it.get("mask") is None:
                     left.append(it)

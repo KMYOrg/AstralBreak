@@ -102,8 +102,13 @@ def propose_deterministic(spec: dict, gates_list: list[dict], geometry: list[dic
         for w in movers:
             candidates.setdefault(w, set()).add("overlap")
 
+    leaf_fixes, leaf_ops, leaf_done = _none_image_leaf_ops(index, candidates, gi)
+    fixes.extend(leaf_fixes)
+    ops.extend(leaf_ops)
     targets: dict[str, set[str]] = {}
     for wid, gs in candidates.items():
+        if wid in leaf_done:
+            continue
         t = _canvas_target(index, root, wid)
         if t is None:
             fixes.append({"widget": wid, "gate": sorted(gs)[0], "problem": "no canvas-slot ancestor to move", "evidence": "the widget is the root"})
@@ -193,15 +198,16 @@ def _deterministic_stalled(run, attempt: int, failed_now: list[str]) -> bool:
     return not set(failed_now) < prev_failed
 
 
-def propose(run, attempt: int, verify_result: dict, mode: str | None = None) -> dict:
-    """attempts/NNN/fixes.json · patches/NNN.json 을 쓴다. {fixes, patch(None 이면 고칠 것 없음), branch, assets} 를 돌려준다."""
+def propose(run, attempt: int, verify_result: dict, mode: str | None = None, rejected: list[str] | None = None) -> dict:
+    """attempts/NNN/fixes.json · patches/NNN.json 을 쓴다. {fixes, patch(None 이면 고칠 것 없음), branch, assets} 를 돌려준다.
+    rejected(1b 후속 L 다음 고침 (가)) — 같은 시도의 앞 patch 를 편집기 build 가 거절한 이유(LLM 에 붙인다)."""
     mode = mode or (run.cfg.get("fix") or {}).get("mode", "deterministic")
     spec = run.read_json("spec.json")
     if mode == "deterministic":
         fixes, ops = propose_deterministic(spec, verify_result["gates"], _geometry(run, spec, attempt))
         source = "deterministic"
     elif mode == "llm":
-        fixes, ops = llm_propose(run, attempt, verify_result)
+        fixes, ops = llm_propose(run, attempt, verify_result, rejected=rejected)
         source = "llm"
     elif mode == "hybrid":
         fixes, ops = propose_deterministic(spec, verify_result["gates"], _geometry(run, spec, attempt))
@@ -210,7 +216,7 @@ def propose(run, attempt: int, verify_result: dict, mode: str | None = None) -> 
         if not ops or stalled:
             why = "the deterministic fixer has no op" if not ops else "the previous deterministic patch did not shrink the failing gate set"
             run.log(f"fix: hybrid → LLM ({why})")
-            l_fixes, ops = llm_propose(run, attempt, verify_result)
+            l_fixes, ops = llm_propose(run, attempt, verify_result, rejected=rejected)
             fixes = fixes + l_fixes
             source = "llm"
     else:
@@ -247,6 +253,60 @@ GUARDED_SET_ROOTS = {"bbox_intent": "bbox_intent is the target measured from the
 
 def _contract_widgets(brief: dict) -> set[str]:
     return {d["widget"] for d in brief.get("dynamic_data", [])} | {s["widget"] for s in brief.get("static_text", [])}
+
+
+NONE_BRUSH_SIZE = ("a brush with draw_as none cannot hold image_size — the editor's spec form drops it, so the build fails its round-trip check. "
+                   "To give an invisible image a size, set the whole brush to {\"draw_as\": \"image\", \"color\": \"#FFFFFF00\", \"image_size\": [w, h]} "
+                   "(no asset, fully transparent — draws nothing), or size it with its slot")
+INVISIBLE_IMAGE_COLOR = "#FFFFFF00"
+
+
+def _brushes(style, path: str = "style"):
+    """style 안의 브러시(draw_as 를 가진 dict) — (경로, dict)."""
+    if isinstance(style, dict):
+        if "draw_as" in style:
+            yield path, style
+        for k, v in style.items():
+            if isinstance(v, dict):
+                yield from _brushes(v, f"{path}.{k}")
+
+
+def vocabulary_errors(spec_after: dict, ops: list[dict]) -> list[str]:
+    """1b 후속 L 다음 고침 (나) — patch 가 건드린 위젯에 편집기(WidgetMcp 정규형 · 역추출)가 담지 못하는 값이 남았나: draw_as none 브러시의 image_size
+    [실측 controls_alpha R20261119_004942 · 005341 — LLM fixer 가 그 값을 넣어 build 가 VALIDATION_FAILED, run 전체가 멈춤]."""
+    touched = {op.get("widget") for op in ops if op.get("op") == "set"}
+    touched |= {op["widget"].get("id") for op in ops if op.get("op") == "add_widget" and isinstance(op.get("widget"), dict)}
+    index = spec_mod.widget_index(spec_after)
+    errs = []
+    for wid in sorted(w for w in touched if w):
+        for path, b in _brushes((index.get(wid) or {}).get("style")):
+            if b.get("draw_as") == "none" and "image_size" in b:
+                errs.append(f"{wid}.{path}: {NONE_BRUSH_SIZE}")
+    return errs
+
+
+def _none_image_leaf_ops(index: dict, candidates: dict[str, set[str]], gi: dict) -> tuple[list[dict], list[dict], set[str]]:
+    """1b 후속 L 다음 고침 (다) — iou_leaf 가 실패한 잎이 draw_as none Image 이고 캔버스가 아닌 슬롯(Overlay · 박스 — 원하는 크기 = 브러시 ImageSize,
+    기본 32 × 32)이면 그 브러시를 투명 image 브러시 + image_size = bbox_intent 크기로(아무것도 안 그림 — 어휘 안). 판이 그린 아이콘 · 배지 자리 표시
+    [실측 controls_alpha 004942 — EKeyBadge 32 × 55 ↔ 66 × 66]. → (fixes, ops, 처리한 위젯)."""
+    fixes, ops, done = [], [], set()
+    for wid, gs in candidates.items():
+        w = index.get(wid) or {}
+        b = (w.get("style") or {}).get("brush") if isinstance(w.get("style"), dict) else None
+        intent = w.get("bbox_intent")
+        if ("iou_leaf" not in gs or w.get("type") != "Image" or not isinstance(b, dict) or b.get("draw_as") != "none" or not intent
+                or (w.get("slot") or {}).get("kind") == "canvas"):
+            continue
+        g = gi.get(wid)
+        size = [spec_mod.canon_number(float(intent[2])), spec_mod.canon_number(float(intent[3]))]
+        why = (f"iou_leaf — draw_as none image in a {(w.get('slot') or {}).get('kind')} slot takes the brush size (default 32x32): measured "
+               f"{[geo.r3(v) for v in geo.box(g)] if g is not None else None} vs bbox_intent {intent} — transparent image brush of the intent size")
+        op = {"op": "set", "widget": wid, "path": "style.brush", "value": {"draw_as": "image", "color": INVISIBLE_IMAGE_COLOR, "image_size": size}, "reason": why}
+        fixes.append({"widget": wid, "gate": "iou_leaf", "problem": "invisible (draw_as none) image sized by its brush, not its intent", "evidence": why,
+                      "suggested_op": op})
+        ops.append(op)
+        done.add(wid)
+    return fixes, ops, done
 
 
 def guard_ops(ops: list[dict], spec: dict, brief: dict) -> list[str]:
@@ -311,7 +371,7 @@ def _llm_row(run, stage: str, attempt: int, res: dict | None, err: str | None = 
                                    **({"error": err} if err else {}), **(extra or {})})
 
 
-def llm_propose(run, attempt: int, verify_result: dict, cli: list[str] | None = None) -> tuple[list[dict], list[dict]]:
+def llm_propose(run, attempt: int, verify_result: dict, cli: list[str] | None = None, rejected: list[str] | None = None) -> tuple[list[dict], list[dict]]:
     """verifier → fix (설계 §8-3). LLM 실패 · 쓸 수 없는 patch 는 예외가 아니라 op 없음 + fixes 에 이유(run 은 NO_FIX 로 finalize 까지)."""
     adir = run.path("attempts", f"{attempt:03d}")
     spec = run.read_json("spec.json")
@@ -340,7 +400,9 @@ def llm_propose(run, attempt: int, verify_result: dict, cli: list[str] | None = 
             f"Spec (current, absolute path — Read it): {files['spec'].resolve().as_posix()}\n"
             + (f"Measured geometry of this attempt: {files['geometry'].resolve().as_posix()}\n" if "geometry" in files else "")
             + f"Failed gates:\n{summary}\nVerifier fixes:\n{json.dumps(fixes, ensure_ascii=False)}\n{_line_height_note(run.cfg, spec)}\n"
-            f"Contract widgets (their binding and text are fixed): {', '.join(sorted(_contract_widgets(brief)))}.")
+            f"Contract widgets (their binding and text are fixed): {', '.join(sorted(_contract_widgets(brief)))}."
+            + ("\n\nThe editor build REJECTED the previous patch for this attempt — do not repeat what it rejected:\n" + "\n".join(f"- {e}" for e in rejected)
+               if rejected else ""))
     prompt, errs, ops = base, [], []
     for k in range(1, FIX_CALLS + 1):
         try:
@@ -355,7 +417,8 @@ def llm_propose(run, attempt: int, verify_result: dict, cli: list[str] | None = 
             errs.append("the patch has no ops")
         if not errs:
             try:
-                patch_mod.apply_patch(spec, {"schema_version": 1, "source": "fix", "ops": ops})
+                after = patch_mod.apply_patch(spec, {"schema_version": 1, "source": "fix", "ops": ops})
+                errs = vocabulary_errors(after, ops)        # (나) 편집기가 담지 못하는 값 — build 전에 거절하고 다시
             except patch_mod.PatchError as exc:
                 errs = [str(exc)] + [str(e) for e in (exc.details.get("errors") or [])[:8]]
         _llm_row(run, "fix", attempt, f, extra={"call": k, "ops": len(ops), "errors": len(errs)})

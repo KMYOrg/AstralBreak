@@ -49,7 +49,8 @@ DEFAULTS = {
 }
 # 결함 → 오류 번호(설계 §11 K): E1 얼룩 · 잔상 · E2 뭉개짐 · E3 잘림 · 빠짐 · E4 구멍 · 이중 · E5 절취선 · E6 위치 · E7 효과 유무 · E8 상태 · E9 가장 가까운 선택 아님
 TEXT_CODES = {"size": "E9", "weight": "E9", "color": "E9", "position": "E6", "unmeasured": "E6", "outline": "E7", "glow": "E7", "shadow": "E7", "missing": "E3",
-              "glow_strength": "E9"}
+              "glow_strength": "E9", "baked": "E1"}
+BAKED_KEEP = 0.6                    # 1b 후속 L 다음 — 글자 없는 판과 다른 컨셉 글자 픽셀의 이만큼 이상을 텍스처 합성이 그대로(INK_FLOOR 안) 가지면 '텍스처에 글자가 남음'
 GLOW_PEAK_TOL = 1.25               # 1b 후속 L-2 사람 눈 — 둘 다 빛날 때 띠 밝기(glow_measure peak) 비가 이보다 크면 빛 세기 다름(그리고 차 ≥ 문턱/2)
 GLOW_ALPHA_RANGE = (0.15, 1.0)     # 빛 세기 어휘 = font.glow.color 알파(analyze derive_text_glow · style._add_glow 와 같은 범위)
 INK_MIN, INK_FLOOR = 48.0, 24.0     # 글자 차이 마스크 — 오츠 문턱 하한 · 후보 하한(style._diff_text_mask 와 같은 값)
@@ -638,9 +639,10 @@ def notext_unused(rd: pathlib.Path) -> set[str]:
         if lg.get("source_mode") != "plate":
             continue
         for wn in lg.get("windows") or []:
-            # '둘레 컨셉'으로 메운 글자(투명 위 · 상자 안 · L-3b 획 둘레 좁은 메움). 판 색에 알파만 둘레인 '… (text-free concept alpha disagrees)' 는 판을 쓴 것
+            # '둘레 컨셉'으로 메운 글자(투명 위 · 상자 안 · L-3b 획 둘레 좁은 메움). 판 색에 알파만 둘레인 '… (text-free concept alpha disagrees)' 는 판을 쓴 것.
+            # 1b 후속 L 다음 — 판 중앙값 메움('text-free concept median')도 판 픽셀 그대로가 아니다(판의 글자 자국을 뭉갬) — 컨셉 획은 텍스처 합성과의 차로
             if wn.get("item") and (not wn.get("used") or str(wn.get("alpha_from") or "").startswith(
-                    ("concept neighbourhood —", "concept neighbourhood inside", "concept neighbourhood around"))):
+                    ("concept neighbourhood —", "concept neighbourhood inside", "concept neighbourhood around", "text-free concept median"))):
                 out.add(wn["item"])
     return out
 
@@ -1093,6 +1095,21 @@ def concept_contrast(core, cand, img) -> float | None:
     return float(color.delta_e00(a, b))
 
 
+def baked_glyphs(masks: dict, ref_black, compose_black, concept_bg) -> dict | None:
+    """1b 후속 L 다음 — 텍스처에 컨셉 글자가 남았나: 글자 상자 안 컨셉 ↔ 글자 없는 판 차 > INK_MIN 인 픽셀(작은 잡티 빼고 ≥ 3 × TEXT_MIN_CORE) 중
+    텍스처 합성이 컨셉과 INK_FLOOR 안으로 같은 몫 ≥ BAKED_KEEP. 판이 없으면(판을 안 쓴 글자) None."""
+    if concept_bg is None:
+        return None
+    own = np.asarray(masks.get("own"), bool)
+    g = _drop_small(own & (maxabs(ref_black, concept_bg) > INK_MIN))
+    n = int(g.sum())
+    if n < 3 * TEXT_MIN_CORE:
+        return None
+    kept = g & (maxabs(compose_black, ref_black) <= INK_FLOOR)
+    frac = float(kept.sum()) / n
+    return {"glyph_px": n, "kept_frac": round(frac, 3), "box": _bbox(kept)} if frac >= BAKED_KEEP else None
+
+
 def compare_text(w: dict, masks: dict, ref_black, render, compose_black, s: dict, render_bg=None, no_sdf: set | None = None,
                  concept_bg=None, weights: dict | None = None) -> dict:
     """글자 하나 — 오류(causes → 번호 TEXT_CODES)와 근사(approx: 가장 가까운 선택을 골랐는데 남은 차 — 표현 한계)."""
@@ -1100,6 +1117,14 @@ def compare_text(w: dict, masks: dict, ref_black, render, compose_black, s: dict
     rec: dict = {"widget": w["id"], "concept": c, "render": r, "approx": []}
     causes = []
     if c is None:
+        # 1b 후속 L 다음 — 컨셉 획 = 컨셉 ↔ 텍스처 합성 차라, 텍스처가 컨셉 글자를 그대로 남기면 획이 비어 아무 말 없이 건너뛰었다(렌더 = 남은 글자 + 엔진 글자
+        # 이중) [사람 눈 아님 — 이 세션 compare.png 확인, controls_alpha R20261119_004119 '돌진 공격' 진단 오류 0]. 글자 없는 판과 다른 컨셉 글자 픽셀을 텍스처가
+        # 그대로 가지면 E1 baked
+        bk = baked_glyphs(masks, ref_black, compose_black, concept_bg)
+        if bk:
+            rec["baked"] = bk
+            rec.update(causes=["baked"], codes=[TEXT_CODES["baked"]], fixable=False)
+            return rec
         rec["record_only"] = "no concept glyph found (hidden state or not drawn) — not compared"
         return rec
     # 1b 후속 L 다음 — 컨셉 '획'이 둘레 바탕과 구별되지 않으면 글자가 아니라 바탕(번진 텍스처 상자와 다른 투명 틈)을 잰 것: 크기 · 위치 · 색 · 효과 전부 못 믿는다
@@ -1466,6 +1491,8 @@ def run_text_masks(run_dir, spec: dict, render_path=None) -> dict | None:
     for k, v in gm.items():                  # 외곽선 · 빛 맞춤(style._fit_outline · _fit_glow)이 진단과 같은 바탕으로 재게
         v["concept_bg"], v["render_bg"] = comp_state, comp_black
         v["concept_glow_bg"] = notext_black if notext_black is not None and k not in skip else None
+        # 1b 후속 L 다음 — 글자 맞춤도 진단과 같은 측정 실패 안전망(컨셉 대비 < CONCEPT_CONTRAST_MIN 이면 그 글자 안 건드림)
+        v["concept_contrast"] = concept_contrast(v["concept"], v["concept_cand"], ref_black) if v.get("concept_cand") is not None else None
     return gm
 
 
@@ -1793,7 +1820,7 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
 
     for t in trecs:
         if t.get("causes"):
-            bx = (t.get("render") or t.get("concept") or {}).get("box") or (widgets[t["widget"]].get("bbox_intent") or [0, 0, 0, 0])
+            bx = (t.get("render") or t.get("concept") or t.get("baked") or {}).get("box") or (widgets[t["widget"]].get("bbox_intent") or [0, 0, 0, 0])
             defects.append({"stage": "text", "box": [int(v) for v in bx], "widgets": [t["widget"]], "causes": t["causes"], "fixable": bool(t.get("fixable")),
                             "cause": ", ".join(t["causes"]) + (f" ({t['glow_note']})" if t.get("glow_note") else ""), "code": (t.get("codes") or ["E9"])[0],
                             "codes": t.get("codes"),

@@ -274,7 +274,15 @@ def _pipeline(run: Run, opts: argparse.Namespace, ctx: dict) -> str:
         run.write_json(spec_file, run.read_json("spec.json"))
         row = {"attempt": attempt, "spec": spec_file, "pass": False, "failed": [], "patch": None, "branch": None, "stop": None, "build": None}
         ctx["attempts"].append(row)
-        row["build"] = _simple(run, "build", lambda: build.run(run, aopts))
+        try:
+            row["build"] = _simple(run, "build", lambda: build.run(run, aopts))
+        except StageError as exc:
+            # 1b 후속 L 다음 고침 (가) — 직전 fix patch 를 편집기가 거절하면 run 을 멈추지 않고 patch 전 spec 으로 되돌려 이유를 붙여 fix 를 1 회 다시
+            # (외형 라운드의 build 거절 받기와 같은 모양) [실측 controls_alpha R20261119_004942 · 005341 — LLM fixer 의 none 브러시 image_size 로 VALIDATION_FAILED]
+            if not _refix_after_build_rejection(run, ctx, attempt, exc):
+                raise
+            run.write_json(spec_file, run.read_json("spec.json"))
+            row["build"] = _simple(run, "build", lambda: build.run(run, aopts))
         _until(opts, "build")
         run.stage_begin("verify")
         res = verify.run(run, aopts)
@@ -330,6 +338,36 @@ def _pipeline(run: Run, opts: argparse.Namespace, ctx: dict) -> str:
             _simple(run, "generate", lambda: generate.run(run, nopts))
             _simple(run, "refine", lambda: refine.run(run, nopts))
     return "fail"   # pragma: no cover — 루프 안에서 끝난다
+
+
+def _refix_after_build_rejection(run, ctx: dict, attempt: int, exc: StageError) -> bool:
+    """(가) 직전 시도의 fix patch(build 로 돌아가는 것)를 build 가 거절 — 그 patch 전 spec(specs/<직전>.json)으로 되돌리고 거절 이유를 붙여 fix 를 1 회 다시.
+    새 patch 가 없거나 build 밖 분기면 False(호출자가 원래 오류를 다시 던진다). 거절된 patch 는 patches/<직전>_rejected.json 으로 남긴다."""
+    if attempt <= 1 or len(ctx["attempts"]) < 2 or ctx.get("last") is None:
+        return False
+    prev = ctx["attempts"][-2]
+    if not prev.get("patch") or prev.get("branch") != "build" or prev.get("refixed"):
+        return False
+    msg = f"{exc.code}: {str(exc)[:500]}"
+    run.stage_end("build", "fail", f"the fix patch {prev['patch']} was rejected by the editor — back to {prev['spec']} and one more fix call ({msg[:200]})",
+                  code=exc.code)
+    run.write_json(prev["patch"].replace(".json", "_rejected.json"), run.read_json(prev["patch"]))
+    run.write_json("spec.json", run.read_json(prev["spec"]))
+    run.stage_begin("fix")
+    prop = fix.propose(run, attempt - 1, _structural_only(ctx["last"]), rejected=[msg])
+    ctx["fixes"].extend({"attempt": attempt - 1, "after_build_rejection": True, **f} for f in prop["fixes"])
+    prev["refixed"] = {"rejected": msg[:300], "patch": prop["patch_file"], "branch": prop["branch"]}
+    if prop["patch"] is None or prop["branch"] != "build":
+        run.stage_end("fix", "fail", f"no build-only patch after the editor rejection (branch {prop['branch']})", code="NO_FIX")
+        return False
+    try:
+        fixed = patch_mod.apply_patch(run.read_json("spec.json"), prop["patch"])
+    except patch_mod.PatchError:
+        run.stage_end("fix", "fail", "the new patch does not apply", code="NO_FIX")
+        return False
+    run.write_json("spec.json", fixed)
+    run.stage_end("fix", "ok", f"{len(prop['patch']['ops'])} op(s) after the editor rejection ({prop['patch_file']})")
+    return True
 
 
 def _structural_pass(res: dict) -> bool:

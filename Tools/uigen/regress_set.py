@@ -92,19 +92,40 @@ def _diag_record(rec: dict) -> dict:
         texts[t["widget"]] = {**{k: t.get(k) for k in TEXT_FIELDS if t.get(k) is not None}, "causes": t.get("causes") or [],
                               "approx": sorted({a["kind"] for a in t.get("approx") or []}),
                               "glow_peak": [(g.get("concept") or {}).get("peak"), (g.get("render") or {}).get("peak")] if g else None}
+    sc = rec.get("state_checks") or {}
     return {"errors": sm["errors"], "approx": sm["approx"], "by_code": sm["by_code"], "badness": rec.get("badness"),
-            "defects": [{k: d.get(k) for k in ("n", "code", "stage", "widgets", "box", "area", "max_de", "causes")} | {"cause": str(d.get("cause"))[:90]}
+            "defects": [{k: d.get(k) for k in ("n", "code", "stage", "widgets", "box", "area", "max_de", "causes", "check")} | {"cause": str(d.get("cause"))[:90]}
                         for d in rec.get("defects") or []],
+            # 1b 후속 L 다음 — 상태 검사(S1 숨김 흔적 · S2 게이지 끝): 기록만이면 여기에만, 오류면 defects 에도(check 키)
+            "state": _state_record(sc),
             "texts": texts, "text_background": rec.get("text_background"),
             "text_residue": {k: {"px": v["px"], "max_de": v["max_de"], "blobs": len(v["blobs"])} for k, v in (rec.get("text_residue") or {}).items()},
             "maps": {k: (rec.get("maps") or {}).get(k) for k in ("black_local_max", "gray_local_max")}}
 
 
+def _state_record(sc: dict) -> dict:
+    """상태 검사 기록(diagnose state_checks 또는 _texture_metrics 의 같은 모양) → 비교용 요약."""
+    if not sc:
+        return {}
+    return {"mode": sc.get("mode"), "error": sc.get("error"),
+            "findings": [{k: f.get(k) for k in ("check", "widgets", "box", "area", "max_de", "percent", "backgrounds")} for f in sc.get("findings") or []],
+            "hidden": {r["widget"]: {k: r.get(k) for k in ("local_max", "blobs", "skipped", "overhang_px") if r.get(k) is not None}
+                       for r in (sc.get("hidden_trace") or {}).get("roots") or []},
+            "gauges": {g["widget"]: {k: g.get(k) for k in ("states", "end_unchanged_frac", "zero_max", "skipped", "end_shape")}
+                       for g in (sc.get("gauge_states") or {}).get("gauges") or []},
+            # 1b 후속 L 다음 L-1 글자 완전 지우기 — S4 글자마다 국소 최대(바탕별) · 덩어리
+            "texts": {t["widget"]: {k: t.get(k) for k in ("local_max", "value_local_max", "blobs", "skipped", "contour_len", "value_contour_len", "state")
+                                    if t.get(k) is not None}
+                      for t in (sc.get("text_trace") or {}).get("texts") or []}}
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # ② replay + 글자 상자 안 텍스처 지표
 
-def _texture_metrics(dst: pathlib.Path, s: dict) -> tuple[dict, np.ndarray, dict]:
-    """replay 사본(dst)의 텍스처로 — 렌더 없이 합성만. → (글자마다 지표, 회색 위 합성 HxWx3, 글자 상자)."""
+def _texture_metrics(dst: pathlib.Path, s: dict) -> tuple[dict, np.ndarray, dict, dict]:
+    """replay 사본(dst)의 텍스처로 — 렌더 없이 합성만. → (글자마다 지표, 회색 위 합성 HxWx3, 글자 상자, 상태 검사 기록).
+    1b 후속 L 다음 — 상태 검사(gen/state_check S1 · S2 — 합성)를 replay 텍스처로도: 판 메우기 규칙(F1)이 숨는 글자 자리 흔적을 지웠는지 본다
+    (S2 는 replay 가 procedural 채움을 다시 그리지 않아 옛 채움 그대로 — 옛 run 의 게이지 끝 결함 목록)."""
     import cv2
     import replay_refine
     spec = json.loads((dst / "spec.json").read_text(encoding="utf-8"))
@@ -123,7 +144,7 @@ def _texture_metrics(dst: pathlib.Path, s: dict) -> tuple[dict, np.ndarray, dict
     if dg.art_mode(bg) and (dst / str(art.get("color"))).is_file():
         truth = dg._load_rgb(dst / art["color"]) * dg._load_l(dst / art["alpha"])[..., None]      # L-2 — 텍스처의 정답 = 원본 아트
     comp, cov, _ = backdrop.compose(spec, boxes, textures, canvas, (0, 0, 0))
-    not_drawn, _ = dg.hidden_state_split(spec, boxes, textures, canvas, truth, comp, comp, cov, ref_text=ref_text, notext_black=notext)
+    not_drawn, states = dg.hidden_state_split(spec, boxes, textures, canvas, truth, comp, comp, cov, ref_text=ref_text, notext_black=notext)
     sp = dg._without(spec, not_drawn) if not_drawn else spec
     comp_s = backdrop.compose(sp, boxes, textures, canvas, (0, 0, 0))[0] if not_drawn else comp
     gray = backdrop.compose(sp, boxes, textures, canvas, backdrop.GRAY)[0]
@@ -161,18 +182,85 @@ def _texture_metrics(dst: pathlib.Path, s: dict) -> tuple[dict, np.ndarray, dict
                 row.update(bg_local_max=round(float(loc[z].max()), 2), bg_local_p95=round(float(np.percentile(loc[z], 95)), 2),
                            bg_over_px=int((loc[z] > T).sum()))
         out[w["id"]] = row
-    return out, gray, crops
+    from gen import state_check
+    glyphs = {k: (v["concept"] | v["concept_cand"]) for k, v in gm.items()}
+    ht = state_check.hidden_trace(spec, boxes, textures, canvas, dg._load_rgb(dst / "reference_color.png"), dg._load_l(dst / "reference_alpha.png"), states, glyphs, s)
+    gs = state_check.gauge_states(sp, boxes, textures, canvas, s, comp_s, ref_png=dg._load_rgb(dst / "reference.png"))
+    # 1b 후속 L 다음 L-1 글자 완전 지우기 — S4 글자 밑 흔적을 replay 텍스처로(G1 · G2 판 메우기 규칙이 글자 흔적을 지웠는지). 글자 지우기 마감 — refine 고르기와
+    # 같은 함수(diagnose.composite_text_trace — 가는 선 · 숨는 묶음 포함)
+    tt, _ = dg.composite_text_trace(dst, spec, boxes, textures, s, gm=gm)
+    state = {"mode": "replay", "findings": [{k: v for k, v in f.items() if k != "mask"} for f in ht["findings"] + gs["findings"] + tt["findings"]],
+             "hidden_trace": {"roots": ht["roots"]}, "gauge_states": {"gauges": gs["gauges"]}, "text_trace": {"texts": tt["texts"]}}
+    return out, gray, crops, state
 
 
-def run_set(label: str, out: pathlib.Path, only: set | None, replay: bool, pictures: bool) -> dict:
+def gate_summary(refine_path: pathlib.Path) -> dict:
+    """1b 후속 L 다음 — 글자 지우기 다음: replay refine 고르기 기록(refine.json 마지막 고르기) → 입력마다 표.
+    ① V1 검증 A — 에셋 · 후보마다 바꿀 수 있는 자리 밖 다른 픽셀 수(0 이어야) ② 글자마다 고른 판 ↔ 예전 판(off) S4 — 같은 잣대(고르기 확인 합성), 나빠짐 =
+    고른 판 S4 > max(off, 3.0) + 0.5 또는 결함 수 > off ③ 수동 확인(정답 없음 · 복잡 배경) · OCR 먼 검출 · 반복 보강."""
+    try:
+        doc = json.loads(refine_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    eg, logs = None, []
+    for p in doc.get("passes") or []:
+        if p.get("erase_gate"):
+            eg, logs = p["erase_gate"], p.get("assets") or []
+    if not eg:
+        return {}
+    texts, outside, manual, far, retries = {}, {}, [], [], []
+    for lg in logs:
+        te = lg.get("text_erase") or (lg.get("cut") or {}).get("text_erase") or {}
+        g = te.get("gate") or {}
+        if not g:
+            continue
+        aid = lg.get("asset_id")
+        last = (g.get("verify") or [{}])[-1].get("scores") or {}
+        for t, m in (g.get("plan") or {}).items():
+            off = ((g.get("scores") or {}).get(t) or {}).get("off") or {}
+            fin = last.get(t) or {}
+            worse = bool(fin and off and (fin.get("local", 0) > max(off.get("local", 0), 3.0) + 0.5 or fin.get("findings", 0) > off.get("findings", 0)))
+            worse = worse or bool(fin and off and fin.get("bg_px") is not None and off.get("bg_px") is not None and fin["bg_px"] > off["bg_px"] + 24)
+            texts[t] = {"asset": aid, "plan": m, "off": [off.get("local"), off.get("findings")], "chosen": [fin.get("local"), fin.get("findings")],
+                        "lift": [off.get("lift"), fin.get("lift")], "bg_px": [off.get("bg_px"), fin.get("bg_px")], "worse": worse}
+    for aid, r in eg.items():
+        outside[aid] = r.get("outside_changed_px") or {}
+        manual += [{**m, "asset": aid} for m in r.get("manual_check") or []]
+        far += [{**f, "asset": aid} for f in r.get("ocr_far") or []]
+        retries += [{**x, "asset": aid} for x in r.get("retries") or []]
+    return {"texts": texts, "outside_changed_px": outside, "outside_total": sum(int(v or 0) for o in outside.values() for v in o.values() if (v or 0) > 0),
+            "worse": sorted(t for t, v in texts.items() if v["worse"]), "manual_check": manual, "ocr_far": far, "retries": retries,
+            "complex": sorted({m["widget"] for m in manual if m.get("reason") == "complex_background"})}
+
+
+def _apply_sets(cfg: dict, sets: list[str]) -> dict:
+    """--set a.b=값(여러 번) — pipeline.yaml 값을 이 실행에서만 덮는다(1b 후속 L 다음 G1 · G2 겨루기 — extract.text_erase · text_fill). 값은 YAML 로 읽음."""
+    import copy
+    import yaml
+    cfg = copy.deepcopy(cfg)
+    for kv in sets:
+        k, _, v = kv.partition("=")
+        node = cfg
+        parts = k.split(".")
+        for p in parts[:-1]:
+            node = node.setdefault(p, {})
+        node[parts[-1]] = yaml.safe_load(v)
+    return cfg
+
+
+def run_set(label: str, out: pathlib.Path, only: set | None, replay: bool, pictures: bool, sets: list[str] | None = None) -> dict:
     import replay_refine
     cfg = config.load_pipeline()
+    if sets:
+        cfg = _apply_sets(cfg, sets)
+        patched = cfg
+        config.load_pipeline = lambda path=None: patched      # replay_refine 이 같은 값으로 refine 을 다시 돌게
     s = dg.settings(cfg)
     base = out / label
     if base.exists() and any(base.iterdir()):
         raise SystemExit(f"regress_set: {base} already has files — use a new label")
     base.mkdir(parents=True, exist_ok=True)
-    meta = {"label": label, "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "code": _code_state(), "entries": []}
+    meta = {"label": label, "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "code": _code_state(), "sets": sets or [], "entries": []}
     for e in SET:
         if only and e["name"] not in only:
             continue
@@ -188,21 +276,25 @@ def run_set(label: str, out: pathlib.Path, only: set | None, replay: bool, pictu
         if replay:
             try:
                 rr = replay_refine.replay(src, ed / "replay", False, False)
-                tm, gray, crops = _texture_metrics(ed / "replay" / src.name, s)
+                tm, gray, crops, rstate = _texture_metrics(ed / "replay" / src.name, s)
+                row["replay_state"] = _state_record(rstate)
                 from PIL import Image
                 Image.fromarray(np.clip(gray, 0, 255).round().astype(np.uint8)).save(ed / "gray.png")
                 row["replay"] = {k: rr.get(k) for k in ("gray_de00_mean", "gray_de00_p95", "alpha_mae", "cliffs_compose_only", "holes", "doubles", "missing")}
                 row["replay"]["zoom_dark_px"] = (rr.get("zoom_seams") or {}).get("dark_px")
                 row["text_texture"] = tm
                 row["crops"] = crops
+                row["erase_gate"] = gate_summary(ed / "replay" / src.name / "refine.json")      # 글자 지우기 다음 — V1 · 고른 판 ↔ 예전 판 S4 표
             except Exception as exc:  # noqa: BLE001 — 한 입력 실패가 묶음을 멈추지 않게(기록)
                 row["replay_error"] = f"{type(exc).__name__}: {exc}"[:300]
         (ed / "record.json").write_text(json.dumps(row, ensure_ascii=False, indent=1, default=float) + "\n", encoding="utf-8")
         meta["entries"].append({k: row[k] for k in ("name", "run", "input") if k in row})
         d = row["diag"]
         res_px = sum(v.get("residue_px", 0) for v in (row.get("text_texture") or {}).values())
+        egs = row.get("erase_gate") or {}
         print(f"== {e['name']:<15} {e['run']}  errors {d.get('errors')} {d.get('by_code')}  approx {d.get('approx')}  "
               f"replay gray {(row.get('replay') or {}).get('gray_de00_mean')}  tex residue px {res_px}  ({time.time() - t0:.0f}s)"
+              + (f"  erase: outside px {egs.get('outside_total')} · worse {egs.get('worse')} · manual {len(egs.get('manual_check') or [])}" if egs else "")
               + (f"  REPLAY ERROR {row['replay_error']}" if row.get("replay_error") else ""), flush=True)
     (base / "set.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     return meta
@@ -259,14 +351,36 @@ def compare(old_label: str, new_label: str, out: pathlib.Path, all_texts: bool =
         lines.append("")
         lines.append(f"== {e['name']} ({e['run']}) — errors {do.get('errors')} → {dn.get('errors')} · approx {do.get('approx')} → {dn.get('approx')}"
                      f" · by_code {do.get('by_code')} → {dn.get('by_code')}" + ("   [protected — must stay 0]" if e.get("protect") else ""))
-        if e.get("protect") and dn.get("errors"):
+        n_state = sum(1 for d in dn.get("defects") or [] if d.get("check"))
+        if e.get("protect") and (dn.get("errors") or 0) - n_state > 0:
             lines.append("   !! protected run has errors now")
             ent["protected_broken"] = True
+        if e.get("protect") and n_state:
+            lines.append(f"   !! protected run — {n_state} state-check error(s) (new check on the run's own textures, not a regression)")
+            ent["protected_state_errors"] = n_state
         dd = diff_defects(do.get("defects") or [], dn.get("defects") or [])
-        for tag, rows in (("+ new ", dd["new"]), ("- gone", dd["gone"])):
+        # 1b 후속 L 다음 — 상태 검사(check 키)가 오류로 올라 새로 생긴 결함은 회귀가 아니라 옛 run 텍스처에 있던 결함(따로 셈 · 표시)
+        st_new = [d for d in dd["new"] if d.get("check")]
+        dd["new"] = [d for d in dd["new"] if not d.get("check")]
+        for tag, rows in (("+ new ", dd["new"]), ("- gone", dd["gone"]), ("+ state", st_new)):
             for d in rows:
                 lines.append(f"   {tag} {d.get('code')} {d.get('stage'):<9} {','.join(d.get('widgets') or [])[:40]:<40} box {d.get('box')} max {d.get('max_de')}  {d.get('cause')}")
-        ent["defects_new"], ent["defects_gone"] = len(dd["new"]), len(dd["gone"])
+        ent["defects_new"], ent["defects_gone"], ent["state_new"] = len(dd["new"]), len(dd["gone"]), len(st_new)
+        for key, tag in (("state", "state(diag)"), ("replay_state", "state(replay)")):
+            so = (do.get("state") if key == "state" else ro.get(key)) or {}
+            sn = (dn.get("state") if key == "state" else rn.get(key)) or {}
+            if not (so or sn):
+                continue
+            fo = [(f.get("check"), tuple(f.get("widgets") or [])[:1]) for f in so.get("findings") or []]
+            fn = [(f.get("check"), tuple(f.get("widgets") or [])[:1]) for f in sn.get("findings") or []]
+            ent[f"{key}_findings"] = [len(fo), len(fn)]
+            if fo != fn or so.get("error") != sn.get("error"):
+                lines.append(f"   ~ {tag} findings {len(fo)} → {len(fn)}: old {sorted(set(fo))} new {sorted(set(fn))}" + (f"  error {sn.get('error')}" if sn.get("error") else ""))
+            for kind in ("hidden", "gauges", "texts"):
+                for wid in sorted(set(so.get(kind) or {}) | set(sn.get(kind) or {})):
+                    a, b = (so.get(kind) or {}).get(wid), (sn.get(kind) or {}).get(wid)
+                    if a != b:
+                        lines.append(f"   ~ {tag} {kind} {wid:<16} {a} → {b}")
         # 글자 측정값 차
         tch = []
         for wid in sorted(set(do.get("texts") or {}) | set(dn.get("texts") or {})):
@@ -284,6 +398,21 @@ def compare(old_label: str, new_label: str, out: pathlib.Path, all_texts: bool =
             if a != b:
                 lines.append(f"   ~ residue {wid:<20} {a} → {b}")
         ent["texts_changed"] = tch
+        # 글자 지우기 다음 — replay 고르기 표(새 기준선): V1 검증 A(자리 밖 0 이어야) · 글자마다 고른 판 ↔ 예전 판(off) S4(나빠짐 0 이어야) · 수동 확인
+        egn = rn.get("erase_gate") or {}
+        if egn:
+            ent["erase_outside_px"] = egn.get("outside_total")
+            ent["erase_worse"] = egn.get("worse")
+            ent["manual_check"] = [(m.get("widget"), m.get("reason")) for m in egn.get("manual_check") or []]
+            lines.append(f"   erase gate: outside-zone px {egn.get('outside_total')} (must be 0) · worse than the old plate {egn.get('worse') or 'none'}"
+                         + (f" · manual check {ent['manual_check']}" if ent["manual_check"] else "")
+                         + (f" · OCR far {len(egn.get('ocr_far') or [])}" if egn.get("ocr_far") else "")
+                         + (f" · retries {len(egn.get('retries') or [])}" if egn.get("retries") else ""))
+            if egn.get("outside_total"):
+                lines.append(f"   !! V1 — erase candidate changed pixels outside its zones: {egn.get('outside_changed_px')}")
+            for t, v in sorted((egn.get("texts") or {}).items()):
+                lines.append(f"     S4 {t:<22} {str(v['plan']):<14} off {v['off']} → chosen {v['chosen']}  lift {v['lift']}  bg_px {v.get('bg_px')}"
+                             + ("  !! WORSE" if v["worse"] else ""))
         # replay 지표 · 글자 상자 안 텍스처
         if ro.get("replay") and rn.get("replay"):
             ch = {k: [ro["replay"].get(k), rn["replay"].get(k)] for k in rn["replay"] if _num_diff(ro["replay"].get(k), rn["replay"].get(k), 1e-3)}
@@ -341,6 +470,7 @@ def main(argv=None) -> int:
     r.add_argument("--only", default="")
     r.add_argument("--no-replay", action="store_true")
     r.add_argument("--no-pictures", action="store_true")
+    r.add_argument("--set", action="append", default=[], help="pipeline.yaml 값 덮기 a.b=값(여러 번) — 이 실행만")
     c = sub.add_parser("compare")
     c.add_argument("old")
     c.add_argument("new")
@@ -351,7 +481,7 @@ def main(argv=None) -> int:
         for e in SET:
             print(f"{e['name']:<15} {e['run']:<36} {'protected ' if e.get('protect') else ''}{e['input']}")
     elif o.cmd == "run":
-        run_set(o.label, pathlib.Path(o.out), set(filter(None, o.only.split(","))) or None, not o.no_replay, not o.no_pictures)
+        run_set(o.label, pathlib.Path(o.out), set(filter(None, o.only.split(","))) or None, not o.no_replay, not o.no_pictures, o.set)
     else:
         compare(o.old, o.new, pathlib.Path(o.out), o.all_texts)
     return 0

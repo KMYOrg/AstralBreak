@@ -5,6 +5,7 @@
 #include "Core/WidgetMcpBlueprint.h"
 #include "Core/WidgetMcpCommon.h"
 #include "Core/WidgetMcpFonts.h"
+#include "Core/WidgetMcpPromote.h"
 #include "Core/WidgetMcpRender.h"
 #include "Core/WidgetMcpRunPackages.h"
 #include "Core/WidgetMcpSpec.h"
@@ -88,7 +89,7 @@ namespace WidgetMcpTools
 	{
 		static const TArray<FString> Names = { TEXT("import_ui_textures"), TEXT("create_widget_blueprint"), TEXT("preview_widget_spec"), TEXT("apply_widget_spec"),
 			TEXT("apply_widget_patch"), TEXT("export_widget_spec"), TEXT("compile_widget_blueprint"), TEXT("list_bind_widgets"), TEXT("render_widget"),
-			TEXT("save_widget_run"), TEXT("discard_run_packages"), TEXT("import_font_family") };
+			TEXT("save_widget_run"), TEXT("discard_run_packages"), TEXT("import_font_family"), TEXT("promote_widget") };
 		return Names;
 	}
 
@@ -419,6 +420,20 @@ namespace WidgetMcpTools
 					return nullptr;
 				}
 				return WidgetMcpFonts::ImportFamily(WidgetMcp::LoadSettings(), Request, Context, OutError);
+			});
+
+		Dispatcher.RegisterTool(TEXT("promote_widget"),
+			TEXT("Promote a person-chosen run: copy every package of a saved run folder into a new project UI folder (the run stays as it is). Only when a person asks — never from the unattended pipeline. Params: run_path (/Game/_AutoGen/<run_id>, finalized by save_widget_run), dest_path (a new, empty folder below [WidgetMcp] WidgetPromotionPaths, e.g. /Game/UI/HUD/CombatHUD), dry_run? (plan only), confirm? (required to copy). The engine AdvancedCopyPackages duplicates, remaps references among the copies, compiles and saves; afterwards the copies must not reference /Game/_AutoGen/. Refuses (nothing copied) a non-empty dest (never overwrites), an unsaved or dirty run and a run that depends on another run folder."),
+			[](FEditorMcpContext& Context, FEditorMcpError& OutError) -> TSharedPtr<FJsonObject>
+			{
+				WidgetMcpPromote::FRequest Request;
+				if (!Context.Request.GetRequiredString(TEXT("run_path"), Request.RunFolder, OutError) || !Context.Request.GetRequiredString(TEXT("dest_path"), Request.DestFolder, OutError))
+				{
+					return nullptr;
+				}
+				Request.bDryRun = Context.Request.GetOptionalBool(TEXT("dry_run"), false);
+				Request.bConfirm = Context.Request.GetOptionalBool(TEXT("confirm"), false);
+				return WidgetMcpPromote::Run(WidgetMcp::LoadSettings(), Request, Context, OutError);
 			});
 	}
 }

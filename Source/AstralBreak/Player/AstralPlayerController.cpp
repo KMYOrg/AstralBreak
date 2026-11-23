@@ -11,6 +11,7 @@
 #include "System/AstralAssetManager.h"
 #include "System/AstralPartySubsystem.h"
 #include "UI/Debug/AstralDebugWidget.h"
+#include "UI/HUD/AstralCombatHUDWidget.h"
 
 namespace
 {
@@ -48,6 +49,8 @@ namespace
 AAstralPlayerController::AAstralPlayerController(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+	// 승격본(M4 단위 C, L-1 run R20261119_091634) — 소프트 참조라 애셋이 없어도 클래스 로드는 깨지지 않는다(BeginPlayingState 가 경고만)
+	CombatHUDWidgetClass = TSoftClassPtr<UAstralCombatHUDWidget>(FSoftObjectPath(TEXT("/Game/UI/HUD/CombatHUD/WBP_CombatHUD.WBP_CombatHUD_C")));
 }
 
 void AAstralPlayerController::PreInitializeComponents()
@@ -62,6 +65,11 @@ void AAstralPlayerController::BeginPlay()
 
 void AAstralPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (CombatHUDWidget)
+	{
+		CombatHUDWidget->RemoveFromParent();
+		CombatHUDWidget = nullptr;
+	}
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -79,6 +87,11 @@ UAstralAbilitySystemComponent* AAstralPlayerController::GetAstralAbilitySystemCo
 {
 	const AAstralPlayerState* AstralPS = GetAstralPlayerState();
 	return (AstralPS ? AstralPS->GetAstralAbilitySystemComponent() : nullptr);
+}
+
+UAstralCombatHUDWidget* AAstralPlayerController::GetCombatHUDWidget() const
+{
+	return CombatHUDWidget;
 }
 
 void AAstralPlayerController::PostProcessInput(const float DeltaTime, const bool bGamePaused)
@@ -101,6 +114,32 @@ void AAstralPlayerController::BeginPlayingState()
 		if (DebugWidget)
 		{
 			DebugWidget->AddToViewport(100);
+		}
+	}
+
+	// 전투 HUD — 로컬 컨트롤러만, 디버그 위젯 아래(z 0). 연결 시점(폰 · ASC · GameState)은 위젯이 이벤트로 받는다.
+	// 컨트롤러가 유지된 채 월드가 바뀌었으면(seamless travel) 옛 월드의 위젯을 버리고 새로 만든다
+	if (IsLocalController())
+	{
+		if (CombatHUDWidget && CombatHUDWidget->GetWorld() != GetWorld())
+		{
+			CombatHUDWidget->RemoveFromParent();
+			CombatHUDWidget = nullptr;
+		}
+		if (!CombatHUDWidget && !CombatHUDWidgetClass.IsNull())
+		{
+			if (UClass* HUDClass = CombatHUDWidgetClass.LoadSynchronous())
+			{
+				CombatHUDWidget = CreateWidget<UAstralCombatHUDWidget>(this, HUDClass);
+				if (CombatHUDWidget)
+				{
+					CombatHUDWidget->AddToViewport(0);
+				}
+			}
+			else
+			{
+				UE_LOG(LogAstral, Warning, TEXT("BeginPlayingState: 전투 HUD 클래스 '%s' 를 불러오지 못함 — HUD 없이 진행"), *CombatHUDWidgetClass.ToString());
+			}
 		}
 	}
 

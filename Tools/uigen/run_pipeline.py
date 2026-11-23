@@ -126,7 +126,9 @@ def _diagnosis_summary(run: Run, last: dict | None) -> dict | None:
             "texts": [{k: t.get(k) for k in ("widget", "h_ratio", "w_ratio", "center_d", "density_ratio", "color_de", "dark_frac", "halo_frac", "causes",
                                              "record_only")} for t in d.get("texts") or []],
             "conversion": d.get("conversion"), "pictures": [f"attempts/{d.get('attempt'):03d}/diagnosis/{p}" for p in d.get("pictures") or []],
-            "settings": d.get("settings")}
+            "settings": d.get("settings"),
+            # 1b 후속 L 다음 — 글자 지우기 다음: '수동 확인 필요' 줄(사용자 결정 ③ 정답 없음 — 오류 대신 표시 · V8 복잡 배경 — 기록)
+            **({"manual_check": d["manual_check"]} if d.get("manual_check") else {})}
 
 
 def _gauge_fidelity_summary(run: Run) -> dict | None:
@@ -723,6 +725,12 @@ def execute(opts: argparse.Namespace) -> int:
         dg = _diagnosis_summary(run, last)
         if dg:
             report.setdefault("recorded", {})["diagnosis"] = dg
+            if dg.get("manual_check"):
+                # 글자 지우기 다음 — '수동 확인 필요' 줄(정답 없음 = 오류 대신 표시 · 복잡 배경 = 기록) — 보고서 맨 위 recorded 에도
+                report["recorded"]["manual_check"] = dg["manual_check"]
+                for m in dg["manual_check"]:
+                    run.log(f"manual check needed — {m.get('reason')} under '{m.get('widget')}'"
+                            + (f" ({len(m.get('findings') or [])} S4 finding(s) shown as manual check, not errors)" if m.get("reason") == "no_truth" else ""))
         summary = _codegen_summary(run)
         if summary:
             report["codegen"] = summary

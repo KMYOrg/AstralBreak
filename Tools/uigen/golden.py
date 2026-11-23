@@ -67,6 +67,36 @@ ITEMS = [
     # 겹침(이중). 진단은 컨셉 획(컨셉 ↔ 텍스처 차)이 비어 건너뛰었다(오류 0) → E1 baked
     {"name": "'돌진 공격' 이중 글자(텍스처에 컨셉 글자 남음)", "run": "R20261119_004119_ProbeControlGuide", "codes": ["E1"], "widgets": ["DashLabelText"],
      "causes": ["baked"], "found": "11-19 L 다음 고침 controls_alpha run compare.png — 진단 오류 0 이었음(컨셉 획 빈 글자 건너뜀)"},
+    # 1b 후속 L 다음 — 상태 렌더 검증(gen/state_check): 컨셉 한 상태만 보고 정한 픽셀 주인 · 다른 상태 추측. 진단은 컨셉 상태 하나를 검정 바탕에서만 봐 '오류 0'
+    {"name": "'오의 불가' 숨김 흔적(판 회색 둥근 상자 · 어두운 덩어리)", "run": "R20261119_091634_CombatHUD", "codes": ["E8"], "widgets": ["UltBlockedText"],
+     "checks": ["hidden_trace"], "found": "11-19 사용자 인게임(M4 C 승격 HUD) — 시작 때 숨는 '오의 불가' 자리 판5 에 남은 메움(아래 게이지 트랙을 원천으로 끌어옴). "
+                                          "글자를 켠 컨셉 상태 렌더에선 글자가 덮고, 회색 합성은 글자 상자를 빼 못 봤다"},
+    {"name": "게이지 100 % 끝 어두운 사각형(채움 번짐이 트랙 밖)", "run": "R20261119_091634_CombatHUD", "codes": ["E8"], "widgets": ["UltGauge"],
+     "checks": ["gauge_outside"], "found": "11-19 사용자 인게임 — concept 채움 번짐 24 px(알파 1, 빈 트랙 색)이 100 % 에서 트랙 끝을 넘어 끝 장식을 덮음(70 % 미리보기는 빈 트랙 위라 같음)"},
+    # 1b 후속 L 다음 L-1 글자 완전 지우기 — 사용자 눈(144231 compare.png · 인게임 판단): 좁은 글자 메움 경계 · 컨셉 70 % 진행 끝을 그대로 쓴 채움 오른쪽 여백.
+    # 컨셉 상태 렌더에선 엔진 글자 · 빛과 컨셉 진행률이 그 자리를 덮어 진단 '오류 0'
+    {"name": "'4.2' 빛 윤곽(글자 밑 흔적)", "run": "R20261119_144231_CombatHUD", "codes": ["E8"], "widgets": ["ChainTimerText"], "checks": ["text_trace"],
+     "found": "11-19 사용자 눈 — 체인 패널 텍스처에 '4.2' 빛 바깥 테두리가 주황 윤곽으로(값이 바뀌면 보임). 메움 경계 고리 — 텍스처가 판보다 L 6 넘게 밝은 픽셀 2 466"},
+    {"name": "게이지 100 % 오른쪽 끝이 끝 장식 호를 덮음", "run": "R20261119_144231_CombatHUD", "codes": ["E8"], "widgets": ["UltGauge"], "checks": ["gauge_end_cover"],
+     "found": "11-19 사용자 눈 — 100 % 오른쪽 끝이 곧은 세로 테두리(컨셉 70 % 진행 끝)로 끝나 끝 장식 안쪽 호를 덮음. S2 는 트랙 상자 밖만 봐 못 봤다"},
+    {"name": "'4.2' 획 잔상(투명 위 글자 길로 빠짐)", "run": "R20261119_143110_CombatHUD", "codes": ["E1"], "widgets": ["ChainTimerText"],
+     "found": "11-19 상태 렌더 검증 단위 — analyze 가 '4.2' 에 빛 7 · 상자 331 px 를 줘 오리기 글자 메움이 '투명 위 글자' 둘레 메움으로 가 획을 놓침(E1 잔상 8)"},
+    # 1b 후속 L 다음 — 글자 지우기 마감: L-1 결과 run 사용자 눈(11-19). S4(3 × 3 > 5)는 가는 윤곽 · 어두운 판의 낮은 대비 흔적을 못 봤다
+    {"name": "'4' 옅은 안쪽 윤곽(가는 선)", "run": "R20261119_190059_CombatHUD", "codes": ["E8"], "widgets": ["ChainTimerText"], "checks": ["text_contour"],
+     "found": "11-19 사용자 눈 — 빈 값 체인 패널 2 배 확대 '4' 윤곽. 원인 = 판 구조물 지킴(same_struct)이 자리 안에 갇힌 codex 판의 덜 지운 '4' 흔적을 지켜 컨셉 빛 "
+              "테두리가 남음(385 px) + 섞임 띠의 판 색. 3 × 3 국소 3.1(문턱 5 아래) → 가는 선 골격 87 px"},
+    {"name": "배너 '체인 버스트' · '3' 글자 모양 얼룩(낮은 대비 — 기록 지표)", "run": "R20261119_190059_CombatHUD", "widgets": ["BurstLabelText", "BurstCountText"],
+     "lift_min": 4.0, "found": "11-19 사용자 눈 — 배너 텍스처(텍스처째 숨는 위젯)의 좁은 판 메움 경계 · 남은 어두운 외곽 그림자. 어두운 판(L* ≈ 9)이라 ΔE00 1.5 — 게이트 "
+                                  "S4 문턱 아래, 밝힌 검정(× 3, 기록만) 4.5 · 깨끗한 L-2 0.5"},
+    {"name": "파티 '0 %' 어두운 '0' 테두리 · 구멍", "run": "R20261119_003127_ProbePartyHUD", "codes": ["E8"], "widgets": ["LinkPercentText"],
+     "checks": ["text_trace", "text_contour"], "found": "11-19 사용자 눈 — 판 중앙값 메움이 '0' 테두리를 남기고 안쪽을 어둡게 비움(S4 34.7 ~ 50 · 가는 선 283)"},
+    # 1b 후속 L 다음 — 글자 지우기 다음(11-20 사용자 눈 — 마감 결과 run): 판정 사각 둘
+    {"name": "파티 HP 숫자 막대 윗선 위 빛 자국(판에 없는 선)", "run": "R20261120_005215_ProbePartyHUD", "codes": ["E8"], "widgets": ["HpCurrentText"],
+     "checks": ["text_trace"], "found": "11-20 사용자 눈 — 글자 빈 값 파티 텍스처에서 HP 막대 테두리가 깨끗하지 않음. 막대 윗선 약 5 px 위 녹색 빛 반원 22 × 2(7.1)가 "
+                                         "'짧은 변 ≤ 2 px = 구조선' 규칙으로 기록만 → V2(판에도 있는 선만 구조선)로 결함"},
+    {"name": "L-1 배너 글자 자리 점(harmonic 경계 잡티 — 기록 지표)", "run": "R20261119_235452_CombatHUD", "widgets": ["BurstLabelText"], "lift_min": 3.0,
+     "found": "11-20 사용자 눈 — 배너 텍스처 글자 지운 자리 작은 어두운 점들(× 3 밝힘). 엔진 S4 1.6 · 합성 밝힌 검정 3.41(덩어리 < 24 px 라 V3 오류 문턱 아래) — "
+              "기록 지표로 지키고 V4(경계 잡티 빼기)로 고침"},
     # 보호 — 지금 잘 나온 끝 run 은 run 전체 오류 0 유지(expect clean_run — 결함 하나라도 나오면 깨짐). 외부 · 단색 입력 규칙을 고치다 L-2 와 그 뒤 고친 것이
     # 다시 꼬이지 않게 [L-1 · L-3 교훈 — 판 메우기 규칙 하나를 고칠 때마다 다른 입력 · 다른 글자에서 새 결함]
     {"name": "보호: L-2 원래 전투 HUD", "run": "R20261118_191532_CombatHUD", "expect": "clean_run",
@@ -81,6 +111,8 @@ ITEMS = [
     {"name": "보호: 단색 전투 HUD", "run": "R20261119_001742_CombatHUD", "expect": "clean_run", "found": "11-19 L 다음 고침 — 오류 0 · 근사 3"},
     {"name": "보호: 파티 HUD", "run": "R20261119_003127_ProbePartyHUD", "expect": "clean_run", "found": "11-19 L 다음 고침 — 오류 0 · 근사 10"},
     {"name": "보호: 조작 안내 원본", "run": "R20261119_003647_ProbeControlGuide", "expect": "clean_run", "found": "11-19 L 다음 고침 — 오류 0 · 근사 3"},
+    {"name": "보호: L-2 원래 전투 HUD(글자 지우기 마감 끝)", "run": "R20261120_004053_CombatHUD", "expect": "clean_run",
+     "found": "11-20 글자 지우기 마감 L-2 run — 오류 0 · 근사 3, 끝 덮개(UltGaugeEndCap) 포함"},
 ]
 FILES = ["spec.json", "geometry.json", "manifest.json", "normalize.json", "reference.png", "reference_color.png", "reference_alpha.png", "render.png",
          "refine.json", "specs/000.json"]
@@ -118,16 +150,31 @@ def _overlap(a, b) -> bool:
 
 def matches(item: dict, rec: dict) -> list[dict]:
     if item.get("expect") == "clean_run":
-        # 보호 run — 결함 하나하나가 '걸림'(위젯 · 분류 가리지 않음). 진단을 못 하면(건너뜀) 그것도 깨짐
+        # 보호 run — 결함 하나하나가 '걸림'(위젯 · 분류 가리지 않음). 진단을 못 하면(건너뜀) 그것도 깨짐.
+        # 1b 후속 L 다음 — 상태 검사(check 키 — S1 숨김 흔적 · S2 게이지 끝)가 오류로 올라 그 run 자기 텍스처에서 찾은 결함은 회귀가 아니라 그 run 에 있던 같은 종류
+        # 결함이라 보호 판정에서 빼고 따로 센다(state_protected_hits — check 출력 · summary_line 에 표시)
         if rec.get("skipped"):
             return [{"skipped": rec["skipped"]}]
-        return [{k: d.get(k) for k in ("n", "code", "stage", "cause", "box", "widgets")} for d in rec.get("defects") or []]
+        return [{k: d.get(k) for k in ("n", "code", "stage", "cause", "box", "widgets")} for d in rec.get("defects") or [] if not d.get("check")]
     if item.get("state_extra"):
         extra = set((rec.get("state") or {}).get("force_visible_extra") or [])
         return [{"state": sorted(extra)}] if set(item["state_extra"]) <= extra else []
     out = []
-    for d in rec.get("defects") or []:
+    # 1b 후속 L 다음 — 상태 검사(S1 · S2)가 기록만(record)일 때도 그 발견으로 잡힘을 본다(오류 모드면 이미 defects 에 있다). 보호 run(위)은 오류만 센다
+    sc = rec.get("state_checks") or {}
+    if item.get("lift_min") is not None:
+        # 글자 지우기 마감 — 게이트 문턱 아래 낮은 대비 흔적: S4 '밝힌 검정'(기록만) 국소 최대가 이 이상이면 잡힘(오류가 아니라 기록 지표로 지킴)
+        for t in (sc.get("text_trace") or {}).get("texts") or []:
+            v = (t.get("local_max") or {}).get("lift")
+            if t.get("widget") in (item.get("widgets") or []) and v is not None and v >= float(item["lift_min"]):
+                out.append({"widget": t["widget"], "lift": v, "state": t.get("state")})
+        return out
+    # 오류 모드에서도 기록만인 새 검사(appearance.state_record_only — record_only 표시)의 발견도 잡힘으로 본다
+    extra = [f for f in sc.get("findings") or [] if sc.get("mode") != "error" or f.get("record_only")]
+    for d in list(rec.get("defects") or []) + extra:
         if not set(item.get("widgets") or []) & set(d.get("widgets") or []):
+            continue
+        if item.get("checks") and d.get("check") not in item["checks"]:
             continue
         if item.get("box") and not _overlap(item["box"], d.get("box")):
             continue
@@ -150,8 +197,13 @@ def check(cfg=None) -> list[dict]:
             recs[it["run"]] = diagnose.diagnose(GOLDEN / it["run"], None, cfg, pictures=False)
         hit = matches(it, recs[it["run"]])
         exp = it.get("expect") if it.get("expect") in ("none", "clean_run") else "defect"
-        res.append({"name": it["name"], "run": it["run"], "expect": exp, "caught": bool(hit),
-                    "ok": bool(hit) if exp == "defect" else not hit, "hits": hit[:3], "n_hits": len(hit)})
+        row = {"name": it["name"], "run": it["run"], "expect": exp, "caught": bool(hit),
+               "ok": bool(hit) if exp == "defect" else not hit, "hits": hit[:3], "n_hits": len(hit)}
+        if exp == "clean_run":
+            st = [{k: d.get(k) for k in ("check", "widgets", "box", "max_de")} for d in recs[it["run"]].get("defects") or [] if d.get("check")]
+            if st:
+                row["state_hits"] = st
+        res.append(row)
     return res
 
 
@@ -160,8 +212,10 @@ TAGS = {"defect": ("caught ", "MISSED "), "none": ("clean  ", "FALSE+ "), "clean
 
 def summary_line(rs: list[dict]) -> str:
     part = {e: [r for r in rs if r["expect"] == e] for e in TAGS}
+    st = [r for r in part["clean_run"] if r.get("state_hits")]
     return (f"{sum(r['ok'] for r in part['defect'])}/{len(part['defect'])} caught · {sum(r['ok'] for r in part['none'])}/{len(part['none'])} clean · "
-            f"{sum(r['ok'] for r in part['clean_run'])}/{len(part['clean_run'])} protected(errors 0)")
+            f"{sum(r['ok'] for r in part['clean_run'])}/{len(part['clean_run'])} protected(errors 0)"
+            + (f" · state-check errors in {len(st)} protected run(s) (their own textures — listed)" if st else ""))
 
 
 if __name__ == "__main__":
@@ -172,7 +226,8 @@ if __name__ == "__main__":
         rs = check()
         for r in rs:
             tag = TAGS[r["expect"]][0 if r["ok"] else 1]
-            print(tag + r["name"], (f"{r['n_hits']} errors " if r["expect"] == "clean_run" and r["n_hits"] else "") + str(r["hits"][:1]))
+            print(tag + r["name"], (f"{r['n_hits']} errors " if r["expect"] == "clean_run" and r["n_hits"] else "") + str(r["hits"][:1])
+                  + (f"  state-check {[(h['check'], h['widgets'][:1]) for h in r['state_hits']]}" if r.get("state_hits") else ""))
         print(summary_line(rs))
     else:
         print(__doc__)

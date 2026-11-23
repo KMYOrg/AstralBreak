@@ -11,6 +11,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Core/WidgetMcpCommon.h"
 #include "Core/WidgetMcpFonts.h"
+#include "Core/WidgetMcpPromote.h"
 #include "Engine/Font.h"
 #include "Engine/FontFace.h"
 #include "HAL/FileManager.h"
@@ -594,6 +595,63 @@ bool FWidgetMcpImportFontTest::RunTest(const FString& Parameters)
 
 	H.Discard();
 	TestNull(TEXT("discarded family is gone"), FindObject<UFont>(nullptr, *(R.DestFolder + TEXT("/F_TestRoboto.F_TestRoboto"))));
+	return true;
+}
+
+// promote_widget (M4 단위 C 가 앞당긴 최소판) — 거절 경로만 본다. 성공 경로는 run 이 디스크에 저장돼 있어야 해서(엔진 복사는 디스크의 패키지를 읽는다)
+// 시험 파일을 남기지 않으려고 여기서 돌리지 않는다 — 실제 승격(L-1 → /Game/UI/HUD/CombatHUD)의 사후 검증과 AstralBreak.Net.CombatHUD.* 가 그 몫이다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWidgetMcpPromoteTest, "WidgetMcp.Tools.Promote", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+bool FWidgetMcpPromoteTest::RunTest(const FString& Parameters)
+{
+	{
+		FConfigFile File;
+		File.CombineFromBuffer(TEXT("[WidgetMcp]\n+WidgetPromotionPaths=/Game/\n+WidgetPromotionPaths=/Game/UI/HUD\n"), TEXT("WidgetMcpPromoteTest"));
+		const WidgetMcp::FSettings S = WidgetMcp::LoadSettingsFromFile(File);
+		TestTrue(TEXT("promotion prefix normalized, mount root dropped"), S.PromotionPaths.Num() == 1 && S.PromotionPaths[0] == TEXT("/Game/UI/HUD/"));
+		TestEqual(TEXT("mount root warned"), S.Warnings.Num(), 1);
+	}
+	TestTrue(TEXT("project config allows /Game/UI/HUD/ for promotion"), WidgetMcp::LoadSettings().PromotionPaths.Contains(TEXT("/Game/UI/HUD/")));
+
+	FHarness H(TEXT("Promote"));
+	const FString Wbp = H.RunPath + TEXT("/WBP_Promote");
+	FCall C = H.Call(TEXT("create_widget_blueprint"), FString::Printf(TEXT(R"({"asset_path":"%s"})"), *Wbp));
+	TestTrue(TEXT("an unsaved run blueprint"), C.bOk);
+
+	const FString NeverDest = TEXT("/Game/UI/HUD/_WidgetMcpTestNever");
+	auto Body = [](const FString& Run, const FString& Dest, const TCHAR* Extra)
+	{
+		return FString::Printf(TEXT(R"({"run_path":"%s","dest_path":"%s"%s})"), *Run, *Dest, Extra);
+	};
+	const TCHAR* const Dry = TEXT(R"(,"dry_run":true)");
+
+	C = H.Call(TEXT("promote_widget"), Body(H.RunPath, NeverDest, TEXT("")));
+	TestEqual(TEXT("neither dry_run nor confirm"), C.Reason, FString(TEXT("MISSING_CONFIRM")));
+	C = H.Call(TEXT("promote_widget"), Body(TEXT("/Game/UI/Fonts"), NeverDest, Dry));
+	TestEqual(TEXT("run outside WidgetOutputPaths"), C.Code, FString(TEXT("OUTPUT_PATH_NOT_ALLOWED")));
+	C = H.Call(TEXT("promote_widget"), Body(H.RunPath, TEXT("/Game/UI/_WidgetMcpTestNever"), Dry));
+	TestEqual(TEXT("dest outside WidgetPromotionPaths"), C.Reason, FString(TEXT("OUTSIDE_PROMOTION_PATHS")));
+	C = H.Call(TEXT("promote_widget"), Body(H.RunPath, TEXT("/Game/UI/HUD"), Dry));
+	TestEqual(TEXT("the promotion prefix itself is refused"), C.Reason, FString(TEXT("OUTSIDE_PROMOTION_PATHS")));
+	C = H.Call(TEXT("promote_widget"), Body(H.RunPath, H.RunPath + TEXT("/Copy"), Dry));
+	TestEqual(TEXT("dest inside the run paths"), C.Reason, FString(TEXT("DEST_IS_RUN_PATH")));
+	C = H.Call(TEXT("promote_widget"), Body(H.RunPath, NeverDest, Dry));
+	TestEqual(TEXT("a never-saved run is refused"), C.Reason, FString(TEXT("RUN_NOT_SAVED")));
+
+	// dest 가 비어 있지 않음 — 코어를 직접, 승격 접두를 /Game/UI/ 로 바꾼 설정으로 이미 커밋된 /Game/UI/Fonts 를 dest 로 준다(run 검사보다 먼저 본다)
+	WidgetMcp::FSettings S = WidgetMcp::LoadSettings();
+	S.PromotionPaths = { TEXT("/Game/UI/") };
+	WidgetMcpPromote::FRequest R;
+	R.RunFolder = H.RunPath;
+	R.DestFolder = TEXT("/Game/UI/Fonts");
+	R.bDryRun = true;
+	const FEditorMcpRequest Req(FName(TEXT("promote_widget")), TEXT("test"), MakeShared<FJsonObject>());
+	FEditorMcpContext Ctx(Req);
+	FEditorMcpError Err;
+	TestNull(TEXT("a non-empty dest is refused"), WidgetMcpPromote::Run(S, R, Ctx, Err).Get());
+	TestEqual(TEXT("non-empty dest → ASSET_EXISTS"), Err.Code, FString(TEXT("ASSET_EXISTS")));
+
+	TestFalse(TEXT("nothing created under the promotion folder"), WidgetMcp::PackageExists(NeverDest + TEXT("/WBP_Promote")));
+	H.Discard();
 	return true;
 }
 

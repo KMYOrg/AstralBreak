@@ -154,5 +154,18 @@ def import_font_family(dest_path: str, family: str, faces: list[dict], save: boo
     return _call("import_font_family", {"dest_path": dest_path, "family": family, "faces": faces, "save": save}, slow=True)
 
 
+@mcp.tool()
+def promote_widget(run_path: str, dest_path: str, dry_run: bool = False, confirm: bool = False) -> dict:
+    """Promote a person-chosen run: copy a saved run folder into a new project UI folder (the run stays as it is). Only when a person asks.
+
+    Args:
+        run_path: A finalized run folder (save_widget_run), e.g. "/Game/_AutoGen/R20261119_091634_CombatHUD".
+        dest_path: A new, empty folder below [WidgetMcp] WidgetPromotionPaths, e.g. "/Game/UI/HUD/CombatHUD" (never overwrites).
+        dry_run: Show the plan (source → dest, external dependencies) without copying.
+        confirm: Required to copy — pass after a person approved the dry_run.
+    """
+    return _call("promote_widget", {"run_path": run_path, "dest_path": dest_path, "dry_run": dry_run, "confirm": confirm}, slow=True)
+
+
 if __name__ == "__main__":
     mcp.run()

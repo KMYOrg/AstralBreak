@@ -6,6 +6,7 @@
 #include "AstralPlayerController.generated.h"
 
 class UAstralAbilitySystemComponent;
+class UAstralCombatHUDWidget;
 class AAstralPlayerState;
 /**
  *
@@ -23,6 +24,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Astral|PlayerController")
 	UAstralAbilitySystemComponent* GetAstralAbilitySystemComponent() const;
+
+	/** 전투 HUD — 로컬 컨트롤러만 갖는다(없으면 null). 자동 시험이 읽는다 */
+	UAstralCombatHUDWidget* GetCombatHUDWidget() const;
 
 	/**
 	 * 클라→서버 로드아웃 발신 — 3단 소스의 1단(PS.Loadout)을 채운다 (캐시 미스/타 서버 도착 시 복원 경로).
@@ -87,7 +91,21 @@ protected:
 	bool IsPartyLeader() const;
 
 private:
-	
+
+	/*
+	 * HUD — 처음 생기는 플레이어용 화면 (설계 Docs/Design/m4-ult-chain.md §5 · §6 'C 구현 결과')
+	 */
+
+	/**
+	 * 전투 HUD 의 WBP. 기본값은 promote_widget 으로 승격한 /Game/UI/HUD/CombatHUD/WBP_CombatHUD — BP_PlayerController 는 값을 저장하지 않아 이것을 물려받는다.
+	 * 다른 그림으로 바꾸려면 BP 에서 덮어쓴다. 비우면 HUD 를 만들지 않는다
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|HUD")
+	TSoftClassPtr<UAstralCombatHUDWidget> CombatHUDWidgetClass;
+
+	UPROPERTY()
+	TObjectPtr<UAstralCombatHUDWidget> CombatHUDWidget;
+
 	/*
 	 * Debug Members
 	 */

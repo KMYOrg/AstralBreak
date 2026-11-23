@@ -46,8 +46,8 @@ def _rgb_over_gray(rgba):
     return np.asarray(rgb)[:, :, ::-1].copy()
 
 
-def detect(image, *, min_score: float = DEFAULT_MIN_SCORE, min_area_px: int = DEFAULT_MIN_AREA_PX) -> dict:
-    """image = 경로 또는 PIL 이미지. → {boxes:[{box:[x, y, w, h], score}], count, max_score, engine}."""
+def detect(image, *, min_score: float = DEFAULT_MIN_SCORE, min_area_px: int = DEFAULT_MIN_AREA_PX, max_boxes: int = 20) -> dict:
+    """image = 경로 또는 PIL 이미지. → {boxes:[{box:[x, y, w, h], score}], count, max_score, engine}. max_boxes = 기록할 상자 상한(count 는 전체)."""
     from PIL import Image
     im = Image.open(image) if isinstance(image, (str, pathlib.Path)) else image
     arr = _rgb_over_gray(im)
@@ -62,5 +62,5 @@ def detect(image, *, min_score: float = DEFAULT_MIN_SCORE, min_area_px: int = DE
             score = float(raw_scores[i]) if raw_scores is not None and i < len(raw_scores) else 1.0
             if score >= min_score and w * h >= min_area_px:
                 boxes.append({"box": [round(x), round(y), round(w), round(h)], "score": round(score, 3)})
-    return {"engine": ENGINE_NAME, "count": len(boxes), "max_score": max((b["score"] for b in boxes), default=0.0), "boxes": boxes[:20],
+    return {"engine": ENGINE_NAME, "count": len(boxes), "max_score": max((b["score"] for b in boxes), default=0.0), "boxes": boxes[:max_boxes],
             "min_score": min_score, "min_area_px": min_area_px}

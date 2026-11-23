@@ -9,6 +9,7 @@ B 의 `gradient_bar` 는 채운 부분에서 줄마다 색만 뽑아 사각형�
   2. 트랙 상자 — 오른쪽은 몸통 가운데 줄을 따라 빈 트랙 끝 프레임 선(L > T)까지, 위 · 아래는 빈 쪽 열에서 가운데 줄부터 프레임 선까지
      (채운 쪽 띠 안의 경사면 밝은 줄에 걸리지 않게 — 빈 쪽이 짧으면 몸통 열에서), 왼쪽은 몸통 왼쪽 끝 − 띠 폭(띠도 '<' 를 따른다).
   3. 진행 끝(end = scale) — 몸통 오른쪽 끝의 세로 테두리(end_in px)와 빈 트랙으로 번진 빛(spill — 빈 트랙보다 L 4 이상 밝은 열, 최대 24 px).
+     1b 후속 L 다음 F2 — 컨셉 채움 텍스처(texture concept)는 번짐을 빼고(spill 0) 잰 값은 spill_measured 로만 — 번짐 열이 100 % 에서 트랙 밖 끝 장식을 덮었다.
 텍스처(`render`, 같은 값 → 같은 바이트): 트랙 상자 1:1.
   - 왼쪽 끝(lead px): 컨셉 픽셀 그대로, 알파 = 몸통 ∪ (몸통에서 띠 폭 안 · 어두운 쪽 · 몸통과 4-연결) — 그 밖(프레임 선 · 장식)은 투명.
   - 가운데: 줄마다 대표색(컨셉 몸통 구간의 중앙값, 띠 포함 — 가로로는 같은 색) — 왼쪽 끝과 8 px 섞음.
@@ -17,6 +18,10 @@ B 의 `gradient_bar` 는 채운 부분에서 줄마다 색만 뽑아 사각형�
     양끝은 고정, 가운데만 진행률만큼 늘어난다([소스] SProgressBar.cpp:141-157 클립 · Scale 이면 칠할 폭 = W·p, ElementBatcher.cpp:857-867 box 여백 고정).
     end = mask(Slate 기본): 진행률 자리에서 딱 자르므로 오른쪽 끝 구간 없음.
   - right_to_left 는 프레임 상자 안에서 좌우를 뒤집어 같은 계산을 한 뒤 되뒤집는다.
+  - 1b 후속 L 다음 G3 — 끝 모양(end_shape): 오른쪽 고정 여백(컨셉 70 % 의 곧은 진행 끝)은 100 % 에서 트랙 끝 장식 안쪽 호를 덮었다 [실측 R20261119_144231
+    사용자 눈]. 컨셉 빈 트랙 오른쪽 끝(track_hole 윤곽 — 끝 장식 안쪽 호까지)을 줄마다 재(offsets = right − 그 줄 hole 끝) 여백 = END_IN + 1 + 호 깊이로
+    넓히고, 여백 알파 = 100 % 자리의 hole · 진행 끝 테두리는 그 줄 hole 끝을 따라 그린다 — 100 % 에서 왼쪽 '<' 처럼 호에 맞게 들어간다. 대신 중간 진행률의
+    끝은 곧은 선이 아니라 호 모양(컨셉 70 % 와 다름 → 진단 근사 gauge_end_shape, state_check.end_shape_zones). 호 깊이 0(곧은 끝)이면 예전 그대로.
 """
 from __future__ import annotations
 
@@ -32,6 +37,7 @@ SPILL_MIN_L = 4.0        # 번짐 = 빈 트랙보다 이만큼 밝은 열
 SPILL_MAX = 24
 END_BLEND = 6
 TRACK_SAMPLE = 60        # 1b 후속 G2 — 게이지 프레임 옮겨 심기: 빈 트랙 맨 오른쪽 이 폭에서 줄 색을 뽑는다
+END_SHAPE_MAX = 24       # 1b 후속 L 다음 G3 — 빈 트랙 끝 호 깊이를 찾는 폭(px) — 넘으면 끝 모양 없이(예전 곧은 끝)
 
 
 class ConceptFillError(ValueError):
@@ -259,9 +265,16 @@ def measure(ref, frame_box, bar_box, percent: float, fill_type: str = "left_to_r
                 if float(np.mean(L[top:bot + 1, x] - empty_rows)) < SPILL_MIN_L:
                     break
                 spill += 1
+    # 1b 후속 L 다음 F2 — 컨셉 채움 텍스처(texture concept)에서 번짐을 뺀다(spill 0 — 잰 값은 spill_measured 로 기록만). scale + box 여백 고정이라 번짐 열은
+    # 오른쪽 여백에 들어 100 % 에서 트랙 끝을 넘어 끝 장식을 덮었다(번짐 열 = 빈 트랙 색 · 알파 1 → 어두운 사각형) [실측 R20261119_091634 사용자 인게임].
+    # 번짐 알파를 '빈 트랙보다 밝은 만큼'(render 의 절차 길 식)으로만 줘도 진행 끝 바로 뒤 빛(알파 0.75)이 100 % 끝 장식에 남아 상태 검사 S2 를 못 넘었다
+    # [실측 같은 run 오프라인 — 트랙 밖 국소 ΔE00 최대 15.9 · 27 px > 10] → 번짐 0. 컨셉 진행률의 끝 빛은 진단이 근사 gauge_end_glow 로 기록(state_check.end_glow_zones)
+    spill_measured, spill = (spill, 0) if end == "scale" else (0, spill)
     params = {"frame_box": [ox, oy, ow, oh], "flip": flip, "threshold": T, "seed": seed, "track": [left, top, right, bot],
               "body_end": x1, "lead": lead, "band_radius": max(band_top, band_bot) + 1, "profile": prof, "end": end,
               "end_in": END_IN if end == "scale" else 0, "spill": spill}
+    if spill_measured:
+        params["spill_measured"] = spill_measured
     tw = right - left + 1 + (spill if end == "scale" else 0)
     th = bot - top + 1
     wx = ox + (ow - left - tw) if flip else ox + left
@@ -273,15 +286,165 @@ def measure(ref, frame_box, bar_box, percent: float, fill_type: str = "left_to_r
         # 채움 끝이 컨셉보다 약 25 px 짧았다(최대 80) · 왼쪽 끝 알파 밖 어두운 초승달
         seg = x1 - left + 1 + spill
         params["texture"] = "concept"
-        ml, mr = round(lead / seg, 4), round((END_IN + spill + 1) / seg, 4)
+        right_m = END_IN + spill + 1
+        end_cap = None
+        if not spill:
+            # 1b 후속 L 다음 — 글자 지우기 마감 H4 (나)(사용자 결정 11-19): 채움 오른쪽 끝은 곧게(컨셉 70 % 진행 끝 그대로 — 중간 진행률에 호 · '>' 가 안 나옴),
+            # 가득 차면 끝 장식 호에 맞게 = 따로 '끝 덮개' 이미지(end_cap — analyze 가 채움 위에 위젯 하나)가 덮는다. G3(채움 여백을 호 모양으로)는 중간 진행률 끝이
+            # 뾰족 · 계단이었다 [사용자 눈 R20261119_190059]
+            es = end_shape(ref, params)
+            if es is not None and es["margin"] + lead < seg:
+                end_cap = es
+        ml, mr = round(lead / seg, 4), round(right_m / seg, 4)
         margin = [mr, 0.0, ml, 0.0] if flip else [ml, 0.0, mr, 0.0]
         tex_size = [int(seg), int(th)]
         percent = round(seg / tw, 4)
     track_w = right - left + 1
     rec = {"threshold": T, "body_L": round(body_L, 1), "empty_L": round(empty_L, 1), "band": [band_top, band_bot], "track_from": track_from,
            "lead": lead, "spill": spill, "body_box": [x0, y0, x1 - x0 + 1, y1 - y0 + 1], "concept_percent": round((x1 - left + 1) / track_w, 3)}
-    return {"params": params, "widget_box": [int(wx), oy + top, int(tw), int(th)], "margin": margin, "record": rec, "texture_size": tex_size,
-            "percent": percent}
+    if spill_measured:
+        rec["spill_measured"] = spill_measured
+    if params.get("end_shape"):
+        rec["end_shape"] = {"depth": params["end_shape"]["depth"], "margin": params["end_shape"]["margin"]}
+    out = {"params": params, "widget_box": [int(wx), oy + top, int(tw), int(th)], "margin": margin, "record": rec, "texture_size": tex_size,
+           "percent": percent}
+    if end == "scale" and end_cap is not None:
+        out["end_cap"] = end_cap
+        rec["end_cap"] = {"depth": end_cap["depth"]}
+    return out
+
+
+def end_shape(ref, params: dict) -> dict | None:
+    """G3 — 컨셉 빈 트랙 오른쪽 끝 모양(측정 방향): 줄(top ~ bot)마다 offsets = right − 그 줄 hole 이 끝 END_SHAPE_MAX px 구간 시작부터 처음 끊기는 열
+    (구간 시작이 hole 이 아니면 None). 마지막 hole 열로 재면 끝 장식 안쪽 선 너머 hole 까지 닿아, 중간 진행률에서 그 선 자리가 가는 틈으로 비쳤다
+    [실측 오프라인 R20261119_144231 — 50 % 끝에 ')' 모양 빈 트랙 선]. 호 깊이 = offsets 최대, 여백 = END_IN + 1 + 깊이. 곧은 끝(깊이 0) · 못 재면 None."""
+    try:
+        hole, _ = track_hole(ref, params)
+    except ConceptFillError:
+        return None
+    left, top, right, bot = (int(v) for v in params["track"])
+    lo = max(int(params["body_end"]) + 1, right - END_SHAPE_MAX)
+    offs: list[int | None] = []
+    for r in range(top, bot + 1):
+        run = hole[r, lo:right + 1]
+        if not run[0]:
+            offs.append(None)
+            continue
+        gap = np.nonzero(~run)[0]
+        last = int(gap[0]) - 1 if len(gap) else len(run) - 1
+        offs.append(int(right - (lo + last)))
+    valid = [o for o in offs if o is not None]
+    if not valid or max(valid) <= 0:
+        return None
+    depth = int(max(valid))
+    return {"offsets": offs, "depth": depth, "margin": END_IN + 1 + depth}
+
+
+def _apply_end_shape(c, a, crop, params: dict, hole, seg: int) -> None:
+    """G3 — 채움 텍스처(c · a — 측정 방향, 트랙 줄 × seg 열)의 오른쪽 여백을 빈 트랙 끝 모양으로(제자리). 여백 열 j 는 100 % 에서 트랙 열 right − (seg − 1 − j):
+    알파 = 줄의 끝(offsets)까지 1 · 그 너머 0(끝 장식 · 프레임은 투명), 색 = 마지막 가운데 열 색, 줄 끝에서 END_IN + 1 열 = 컨셉 진행 끝 테두리(그 줄)."""
+    es = params["end_shape"]
+    left, top, right, bot = (int(v) for v in params["track"])
+    x1 = int(params["body_end"])
+    mR = int(es["margin"])
+    m0 = seg - mR
+    if m0 < 1:
+        return
+    bcol = c[:, m0 - 1].copy()
+    for i, o in enumerate(es["offsets"]):
+        c[i, m0:] = bcol[i]
+        if o is None:
+            a[i, m0:] = 0.0
+            continue
+        e = seg - 1 - int(o)
+        a[i, m0:] = (np.arange(m0, seg) <= e).astype(np.float32) * (a[i, m0 - 1] > 0)
+        bs = e - END_IN
+        k0 = max(bs, m0)
+        if e >= k0:
+            c[i, k0:e + 1] = crop[top + i, x1 - END_IN + (k0 - bs):x1 + 1]
+
+
+END_CAP_PAD = 3          # 1b 후속 L 다음 H4 — 끝 덮개 열 = 트랙 끝에서 호 깊이 + 이만큼(px — 호 안쪽 안티앨리어싱)
+END_CAP_SOFT = 2         # 호 안쪽 가장자리 부드럽게 — 덮개 불투명 픽셀 왼쪽 이만큼(px)은 컨셉 밝기를 호 색 ↔ 빈 트랙 색으로 풀어 분수 알파(계단 없음)
+END_CAP_MIN_DL = 10.0    # 그때 호 ↔ 빈 트랙 밝기 차가 이보다 작으면 풀지 않음(알파 0)
+
+
+def end_cap_cols(params: dict, es: dict) -> tuple[int, int]:
+    """끝 덮개 열(측정 방향 — 트랙 끝 right 까지)."""
+    left, top, right, bot = (int(v) for v in params["track"])
+    return max(int(params["body_end"]) + 1, right - int(es["depth"]) - END_CAP_PAD), right
+
+
+def end_cap_box(params: dict, es: dict) -> list[int]:
+    """끝 덮개 캔버스 상자 [x, y, w, h](뒤집기 반영)."""
+    ox, oy, ow, oh = (int(v) for v in params["frame_box"])
+    left, top, right, bot = (int(v) for v in params["track"])
+    c0, c1 = end_cap_cols(params, es)
+    x = ox + (ow - 1 - c1) if params.get("flip") else ox + c0
+    return [int(x), oy + top, c1 - c0 + 1, bot - top + 1]
+
+
+def render_end_cap(ref, params: dict) -> np.ndarray:
+    """1b 후속 L 다음 H4 (나) — 끝 덮개(procedural concept_end_cap): 트랙 끝 열(end_cap_cols)에서 끝 장식 안쪽 호부터 바깥(줄마다 hole 이 처음 끊기는 열 — end_shape
+    offsets · 트랙 구역 밖까지 이어진 밝은 구조물)은 판이 그리는 그림 그대로(빈 트랙 덧칠 unfilled_track — 판과 같은 픽셀이라 중간 진행률엔 안 보임) 알파 1,
+    그 왼쪽 END_CAP_SOFT px 는 컨셉 밝기를 호 ↔ 빈 트랙 색으로 풀어 분수 알파 + 호 색(가장자리 부드럽게 — 줄 끝 0/1 계단 없음), 나머지 투명.
+    가득 찬 채움(곧은 끝 — 트랙 끝까지)이 호를 넘는 부분을 덮는다. → (h, w, 4) float RGBA(0 ~ 255, 직선 알파, 캔버스 방향)."""
+    import cv2
+    es = params["end_cap"]
+    hole, crop = track_hole(ref, params)
+    _, filled = unfilled_track(ref, {k: v for k, v in params.items() if k not in ("end_cap", "shape")})
+    if params.get("flip"):
+        filled = filled[:, ::-1]
+    left, top, right, bot = (int(v) for v in params["track"])
+    c0, c1 = end_cap_cols(params, es)
+    L = luminance(crop)
+    h, w = bot - top + 1, c1 - c0 + 1
+    col = np.asarray(filled, float)[top:bot + 1, c0:c1 + 1].copy()
+    a = np.zeros((h, w), np.float32)
+    offs = es.get("offsets") or []
+    track_L = np.zeros(h)
+    for i in range(h):
+        r = top + i
+        o = offs[i] if i < len(offs) else None
+        b = c0 if o is None else right - int(o) + 1
+        a[i, max(0, b - c0):] = 1.0
+        a[i] = np.maximum(a[i], (~hole[r, c0:c1 + 1]).astype(np.float32))       # 구역 밖까지 이어진 밝은 구조물(프레임 선 · 호)
+        hv = hole[r, c0:c1 + 1] & (a[i] < 1)
+        track_L[i] = float(np.median(luminance(col[i][hv][None])[0])) if hv.any() else float(np.median(L[r, c0:c1 + 1]))
+    for i in range(h):
+        r = top + i
+        for j in range(1, w):
+            if a[i, j] < 1 or a[i, j - 1] >= 1:
+                continue
+            La = float(L[r, c0 + j])
+            if La - track_L[i] < END_CAP_MIN_DL:
+                continue
+            for k in range(1, END_CAP_SOFT + 1):
+                jj = j - k
+                if jj < 0 or a[i, jj] > 0:
+                    break
+                t = float(np.clip((L[r, c0 + jj] - track_L[i]) / (La - track_L[i]), 0.0, 1.0))
+                if t <= 0.02:
+                    break
+                a[i, jj] = t
+                col[i, jj] = crop[r, c0 + j]
+    out = np.dstack([col, a * 255.0])
+    clear = out[..., 3] < 1.0
+    if clear.any() and (~clear).any():
+        _, lab = cv2.distanceTransformWithLabels(clear.astype(np.uint8), cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_PIXEL)
+        src = np.argwhere(~clear)
+        idx = lab[clear] - 1
+        out[clear, :3] = out[src[idx, 0], src[idx, 1], :3]
+    out = np.clip(out, 0.0, 255.0)
+    return out[:, ::-1] if params.get("flip") else out
+
+
+def render_end_cap_bytes(reference_path, params: dict) -> tuple[int, int, bytes]:
+    from PIL import Image
+    with Image.open(reference_path) as im:
+        ref = np.asarray(im.convert("RGB"))
+    arr = np.round(render_end_cap(ref, params)).astype(np.uint8)
+    return int(arr.shape[1]), int(arr.shape[0]), arr.tobytes()
 
 
 def unfilled_track(ref, params: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -295,7 +458,8 @@ def unfilled_track(ref, params: dict) -> tuple[np.ndarray, np.ndarray]:
     flip = bool(params.get("flip"))
     hole, crop = track_hole(ref, params)
     left, top, right, bot = (int(v) for v in params["track"])
-    x1, spill = int(params["body_end"]), int(params.get("spill", 0))
+    # 1b 후속 L 다음 F2 — 번짐을 뺀 채움(spill 0)도 빈 트랙 색 표본 자리는 잰 번짐 뒤(spill_measured) — 판 트랙 색이 예전과 같은 바이트
+    x1, spill = int(params["body_end"]), int(params.get("spill_measured", params.get("spill", 0)))
     if params.get("full"):
         raise ConceptFillError("a full gauge has no empty part in the concept to take the track colour from")
     e_hi = right - 4
@@ -351,6 +515,9 @@ def render_concept_segment(ref, params: dict) -> np.ndarray:
     if c.shape[1] != seg:
         raise ConceptFillError(f"the filled segment ({seg} px) runs past the frame box")
     a = np.maximum(a, cv2.blur(a, (3, 3)) * (a > 0))            # 가장자리 그대로(안 넓힘)
+    if params.get("end_shape") and not params.get("full"):
+        c = c.copy()
+        _apply_end_shape(c, a, crop, params, hole, seg)          # G3 — 오른쪽 여백 = 빈 트랙 끝 호 모양
     out = np.dstack([c, a * 255.0])
     clear = out[..., 3] < 1.0
     if clear.any() and (~clear).any():

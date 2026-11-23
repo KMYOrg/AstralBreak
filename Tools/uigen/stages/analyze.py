@@ -209,7 +209,7 @@ def check(spec: dict, brief: dict) -> list[str]:
                 errs.append(f"ASSET_REF_BBOX: '{a['asset_id']}' ref_bbox {rb} is outside the canvas")
         elif a["provenance"] == "procedural" and not a.get("procedural"):
             errs.append(f"ASSET_PROCEDURAL: procedural asset '{a['asset_id']}' needs procedural{{shape, …}}")
-        elif a["provenance"] == "procedural" and a["procedural"].get("shape") == "concept_fill":
+        elif a["provenance"] == "procedural" and a["procedural"].get("shape") in ("concept_fill", "concept_end_cap"):
             errs.append(f"ASSET_PROCEDURAL: '{a['asset_id']}' — concept_fill is made by the pipeline from the concept; use gradient_bar or rounded_box for a gauge fill")
         elif a["provenance"] not in ("codex", "procedural"):
             errs.append(f"ASSET_PROVENANCE: '{a['asset_id']}' provenance '{a['provenance']}' — Phase 1b uses codex or procedural")
@@ -297,11 +297,62 @@ def _apply_concept_fill(spec: dict, w: dict, parent: dict, frame: dict, ref, tak
         w["slot"] = canvas_slot
         rec.update(canvas_slot={"position": canvas_slot["position"], "size": canvas_slot["size"]}, fill=st["fill"],
                    background_from=f"none — extracted frame '{frame['id']}' underneath")
-        return rec
-    slot = w.setdefault("slot", {"kind": "overlay"})
-    slot.update(padding=pad, h_align="fill", v_align="fill")
-    rec.update(padding=pad, fill=st["fill"], background_from=f"none — extracted frame '{frame['id']}' underneath")
+    else:
+        slot = w.setdefault("slot", {"kind": "overlay"})
+        slot.update(padding=pad, h_align="fill", v_align="fill")
+        rec.update(padding=pad, fill=st["fill"], background_from=f"none — extracted frame '{frame['id']}' underneath")
+    if m.get("end_cap") and gcfg.get("end_cap", True):
+        rec["end_cap"] = _add_end_cap(spec, w, parent, m, taken)
     return rec
+
+
+END_CAP_SUFFIX = "EndCap"
+
+
+def _add_end_cap(spec: dict, w: dict, parent: dict, m: dict, taken: set) -> dict:
+    """1b 후속 L 다음 — 글자 지우기 마감 H4 (나)(사용자 결정 11-19): 가득 찬 게이지 끝 덮개 — 채움 위(같은 부모 · 게이지 바로 다음)에 Image 하나
+    (<게이지>EndCap · procedural concept_end_cap — 컨셉 끝 장식 안쪽 호부터 바깥, 가장자리 분수 알파). 채움은 곧은 끝이라 중간 진행률은 컨셉 70 % 끝과 같고,
+    100 % 에서 호를 넘는 부분을 이 덮개가 덮는다. 덮개 픽셀 = 판이 그리는 그림이라 중간 진행률엔 안 보인다. C++ · 바인딩 없음(넘침 장식 Image 와 같은 틀) —
+    게이지가 런타임에 접히는(flag · 숨김) 위젯이면 덮개가 같이 안 접혀 만들지 않는다(기록). → 기록."""
+    from gen import concept_fill
+    if (w.get("binding") or {}).get("kind") == "flag" or w.get("visibility") in ("collapsed", "hidden"):
+        return {"skipped": "the gauge itself can collapse at runtime — an end cap would stay visible"}
+    es = m["end_cap"]
+    box = concept_fill.end_cap_box(m["params"], es)
+    c0, c1 = concept_fill.end_cap_cols(m["params"], es)
+    aid = f"{_snake(w['id'])}_end_cap"
+    k = 2
+    while aid in taken:
+        aid, k = f"{_snake(w['id'])}_end_cap_{k}", k + 1
+    taken.add(aid)
+    asset = {"asset_id": aid, "kind": "ornament", "provenance": "procedural", "size": [int(box[2]), int(box[3])],
+             "procedural": {"shape": "concept_end_cap", **m["params"], "end_cap": es, "cap_cols": [int(c0), int(c1)]},
+             "source": f"end cap of the concept gauge fill '{w['id']}' (end ornament arc depth {es['depth']}) — covers the straight fill end at 100%"}
+    x, y, bw, bh = (int(v) for v in box)
+    wid = f"{w['id']}{END_CAP_SUFFIX}"
+    deco = {"id": wid, "type": "Image", "parent": w.get("parent"), "bbox_intent": [x, y, bw, bh], "style": {"brush": {"draw_as": "image", "asset": aid}}}
+    if parent.get("type") == "CanvasPanel":
+        slot = dict(w.get("slot") or {})
+        al = slot.get("alignment") or [0, 0]
+        gx, gy, gw, gh = (float(v) for v in w["bbox_intent"])
+        pos = [round(float(slot["position"][0]) + (x - gx) + float(al[0]) * (bw - gw), 1), round(float(slot["position"][1]) + (y - gy) + float(al[1]) * (bh - gh), 1)]
+        deco["slot"] = {**slot, "position": [int(v) if float(v).is_integer() else v for v in pos], "size": [bw, bh]}
+        pairs = spec.setdefault("allow_overlap", [])
+        for s_ in spec.get("widgets", []):
+            sb = s_.get("bbox_intent")
+            if s_.get("parent") == w.get("parent") and s_["id"] != wid and sb and \
+                    min(x + bw, sb[0] + sb[2]) > max(x, sb[0]) and min(y + bh, sb[1] + sb[3]) > max(y, sb[1]):
+                pr = sorted([wid, s_["id"]])
+                if pr not in pairs:
+                    pairs.append(pr)
+    else:
+        px, py, pw, ph = (float(v) for v in parent["bbox_intent"])
+        pad = [x - px, y - py, (px + pw) - (x + bw), (py + ph) - (y + bh)]
+        deco["slot"] = {"kind": "overlay", "padding": [int(v) if float(v).is_integer() else round(v, 1) for v in pad], "h_align": "fill", "v_align": "fill"}
+    idx = next(i for i, x_ in enumerate(spec["widgets"]) if x_["id"] == w["id"])
+    spec["widgets"].insert(idx + 1, deco)
+    spec.setdefault("assets", []).append(asset)
+    return {"widget": wid, "asset": aid, "box": [x, y, bw, bh], "depth": int(es["depth"]), "cols": [int(c0), int(c1)]}
 
 
 GLOW_WORDS = ("glow", "halo", "aura", "bloom", "shine", "radian", "빛", "광채", "후광")
@@ -384,7 +435,7 @@ def derive_gauge_fills(spec: dict, reference, gauge_cfg: dict | None = None) -> 
     taken = {a["asset_id"] for a in spec.get("assets", [])}
     order = {w["id"]: i for i, w in enumerate(spec.get("widgets", []))}
     out = []
-    for w in spec.get("widgets", []):
+    for w in list(spec.get("widgets", [])):          # 끝 덮개(_add_end_cap)가 위젯을 끼워 넣는다 — 사본으로 돈다
         if w.get("type") != "ProgressBar" or not w.get("bbox_intent"):
             continue
         st = w.setdefault("style", {})
@@ -394,7 +445,7 @@ def derive_gauge_fills(spec: dict, reference, gauge_cfg: dict | None = None) -> 
             out.append({**rec, "skipped": "needs a sample percent and a horizontal fill"})
             continue
         parent = index.get(w.get("parent"))
-        under = [s for s in spec["widgets"] if s.get("parent") == w.get("parent") and order[s["id"]] < order[w["id"]]
+        under = [s for s in spec["widgets"] if s.get("parent") == w.get("parent") and order.get(s["id"], 10 ** 9) < order[w["id"]]
                  and ((s.get("style") or {}).get("brush") or {}).get("asset") in extract_ids]
         frame = None
         if parent and parent.get("type") in ("Overlay", "CanvasPanel") and under:

@@ -144,14 +144,16 @@ def test_concept_fill_measures_the_track_and_draws_the_shape(tmp_path):
     m = concept_fill.measure(ref, FRAME, BOX, 0.7, end="scale")
     p = m["params"]
     left, top, right, bot = p["track"]
-    assert (top, bot, right) == (6, 37, 439) and p["body_end"] == END and 18 <= left <= 20 and 8 <= p["spill"] <= 10
+    # 1b 후속 L 다음 F2 — 번짐은 재서 기록만(spill_measured), 채움 텍스처 · 막대 상자에는 안 넣음(spill 0 — 100 % 에서 트랙 밖 끝 장식을 덮었다)
+    assert (top, bot, right) == (6, 37, 439) and p["body_end"] == END and 18 <= left <= 20 and p["spill"] == 0 and 8 <= p["spill_measured"] <= 10
     assert m["record"]["band"] == [4, 4] and abs(m["record"]["concept_percent"] - (END - left + 1) / (right - left + 1)) < 1e-3
+    assert m["record"]["spill_measured"] == p["spill_measured"]
     x, y, w, h = m["widget_box"]
-    assert (x, y, h) == (FRAME[0] + left, FRAME[1] + 6, 32) and w == right - left + 1 + p["spill"]
-    # 1b 후속 J — 채움 텍스처 = 컨셉의 채워진 구간(왼쪽 끝 ~ 진행 끝 + 번짐) 그대로, 양끝 margin 은 그 폭 기준, 미리보기 진행률 = 구간 ÷ 막대 폭
-    seg = END - left + 1 + p["spill"]
+    assert (x, y, h) == (FRAME[0] + left, FRAME[1] + 6, 32) and w == right - left + 1          # 막대 상자 = 트랙(번짐 없음)
+    # 1b 후속 J — 채움 텍스처 = 컨셉의 채워진 구간(왼쪽 끝 ~ 진행 끝) 그대로, 양끝 margin 은 그 폭 기준, 미리보기 진행률 = 구간 ÷ 막대 폭
+    seg = END - left + 1
     assert p["texture"] == "concept" and m["texture_size"] == [seg, 32] and m["percent"] == round(seg / w, 4)
-    assert m["margin"][0] == round(p["lead"] / seg, 4) and m["margin"][2] == round((p["end_in"] + p["spill"] + 1) / seg, 4)
+    assert m["margin"][0] == round(p["lead"] / seg, 4) and m["margin"][2] == round((p["end_in"] + 1) / seg, 4)
     tex = concept_fill.render(ref, p)
     assert tex.shape == (32, seg, 4)
     crop = ref[FRAME[1] + 6:FRAME[1] + 38, FRAME[0] + left:FRAME[0] + left + seg].astype(float)
@@ -159,11 +161,18 @@ def test_concept_fill_measures_the_track_and_draws_the_shape(tmp_path):
     assert tex[16, mid, 3] == 255 and (tex[16, mid, :3] == crop[16, mid]).all()          # 몸통 = 컨셉 픽셀 그대로
     assert tex[1, mid, 3] == 255 and (tex[1, mid, :3] == crop[1, mid]).all()             # 위 띠(밝아진 트랙)까지
     assert tex[16, 26 - left, 3] == 255 and tex[16, 26 - left, 0] > 200                  # '<' 끝 안쪽 몸통
-    assert tex[16, seg - 1, 3] == 255 and (tex[16, seg - 1, :3] == crop[16, seg - 1]).all()   # 번짐 끝까지 컨셉 픽셀(아래 판은 빈 트랙)
+    assert tex[16, seg - 1, 3] == 255 and (tex[16, seg - 1, :3] == crop[16, seg - 1]).all()   # 진행 끝 테두리까지 컨셉 픽셀(번짐 열 없음)
     w2, h2, raw = concept_fill.render_bytes(tmp_path / "framed.png", p)
     assert (w2, h2) == (seg, 32) and raw == concept_fill.render_bytes(tmp_path / "framed.png", p)[2]      # 같은 값 → 같은 바이트
     old = {k: v for k, v in p.items() if k != "texture"}                                 # 예전 spec(texture 없음)은 예전 그림
     assert concept_fill.render(ref, old).shape == (32, w, 4)
+    # 예전 spec(번짐 든 concept 채움 — F2 전 run)은 예전 그림 그대로(같은 값 → 같은 바이트)
+    oldsp = {**p, "spill": p["spill_measured"]}
+    oldsp.pop("spill_measured")
+    assert concept_fill.render(ref, oldsp).shape == (32, seg + p["spill_measured"], 4)
+    hole_new, out_new = concept_fill.unfilled_track(ref, p)
+    hole_old, out_old = concept_fill.unfilled_track(ref, oldsp)
+    assert (hole_new == hole_old).all() and (out_new == out_old).all()                   # 판 빈 트랙 색 표본 자리 = 잰 번짐 뒤(예전과 같은 바이트)
 
 
 def test_concept_fill_full_bar_takes_the_whole_track_with_both_end_shapes(tmp_path):

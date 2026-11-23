@@ -1,7 +1,7 @@
 # M4 오의 + 체인 버스트 설계
 
 작성일: 2026-11-13 · 대상: UE 5.7.4 · 기준 커밋: `2aea26c`(+ M3 뒤 다듬기 — 작성 당시 미커밋, 이후 `5e9cc47`) · 기획 원문: [game-plan.md](game-plan.md) M4 절 · 앞 단계: [m3-enemy-ai.md](m3-enemy-ai.md)
-상태: **설계 승인(2026-11-13, "단위 A 착수") · 단위 A 구현 · 자동 검증 완료(커밋 `e785aca`, 결과는 [§6](#단위-a-구현-결과-2026-11-13)) · 단위 B 구현 · 자동 검증 완료(2026-11-13, 커밋 `88a4813`, 결과는 [§6](#단위-b-구현-결과-2026-11-13)) · 사용자 눈 확인 뒤 규칙 3건 지시 → **B 다듬기 설계([§3 끝](#b-다듬기--사용자-지시-3건-2026-11-13)) · 구현 · 자동 검증 완료(2026-11-14, 커밋 `88a4813`, 결과는 [§6](#단위-b-다듬기-구현-결과-2026-11-14)) — 남은 것 = B 다듬기 눈 확인(사용자).** 단위 C ~ E 미착수.**
+상태: **설계 승인(2026-11-13, "단위 A 착수") · 단위 A 구현 · 자동 검증 완료(커밋 `e785aca`, 결과는 [§6](#단위-a-구현-결과-2026-11-13)) · 단위 B 구현 · 자동 검증 완료(2026-11-13, 커밋 `88a4813`, 결과는 [§6](#단위-b-구현-결과-2026-11-13)) · 사용자 눈 확인 뒤 규칙 3건 지시 → **B 다듬기 설계([§3 끝](#b-다듬기--사용자-지시-3건-2026-11-13)) · 구현 · 자동 검증 완료(2026-11-14, 커밋 `88a4813`, 결과는 [§6](#단위-b-다듬기-구현-결과-2026-11-14)) — 남은 것 = B 다듬기 눈 확인(사용자).** **단위 C(HUD) 구현 · 자동 검증 완료(2026-11-19, 미커밋, 결과는 [§6](#단위-c-구현-결과-2026-11-19)) — 남은 것 = C 눈 확인(사용자).** 단위 D · E 미착수.**
 
 M4(오의 · 체인 버스트)의 설계를 이 문서 하나에 쌓는다. 참고작은 그랑블루 판타지 리링크다(사용자 지정, 2026-11-13) — 규칙의 뼈대를 이해하는 용도이고 복제 대상이 아니다.
 
@@ -367,6 +367,102 @@ M4(오의 · 체인 버스트)의 설계를 이 문서 하나에 쌓는다. 참�
 4. 헛침: `FillUlt` 뒤 적이 없는 쪽을 보고 `R` → 동작이 끝나면 `ULT` 가 80 이 되고 체인 줄은 그대로다. 체인이 열려 있을 때 헛치면 `(paused)` 였던 남은 시간이 그 값에서 다시 줄어든다.
 
 서버 로그에는 `[Chain] ult started by ...` · `... hit, ended at ...` · `... missed ...` · `burst #N xM` 줄이 남는다.
+
+### 단위 C 구현 결과 (2026-11-19)
+
+상태: **구현 · 자동 검증 완료(미커밋). 남은 것 = 사용자 눈 확인(2인 PIE).** 화면 그림은 UI 자동 생성 파이프라인([ui-autogen-pipeline.md](ui-autogen-pipeline.md))의 첫 실전 산출물이다. 시작할 때 아래 결정 5개를 한 번에 물었고(답은 전부 추천안), 구현안(파일 · 연결 표 · 시험)을 보인 뒤 사용자 답 "이대로 진행"(2026-11-19)을 받았다.
+
+| # | 정할 것 | 결정 |
+| ---: | :--- | :--- |
+| 1 | WBP 를 `/Game/_AutoGen/`(git 무시)에서 정식 위치로 옮기는 방식 | WidgetMcp `promote_widget` 최소판을 앞당겼다(파이프라인 설계의 Phase 4 도구). run 폴더 통째 복사 · 원본 run 은 그대로 · 복사본끼리 참조를 다시 잇는다 · 대상이 있으면 거절 · 사람이 요청할 때만(무인 파이프라인에는 넣지 않음) |
+| 2 | 쓸 WBP | L-1 `R20261119_091634_CombatHUD`(원래 컨셉, 근사 1) |
+| 3 | '오의 불가' | 발동 실패 통지를 받은 순간 내 ASC 에 `State.Ult.Blocked` 가 있으면 잠깐 띄운다(누를 때만). ini 의 실패 사유 태그는 설정하지 않았다 |
+| 4 | '○○ 시전 중' · 멈춘 타이머 표시(B 다듬기가 바란 것) | 이번에는 안 한다 — 바인딩 계약에도 컨셉에도 자리가 없다. 멈춤은 남은 시간 숫자가 멈추는 것으로 보인다 |
+| 5 | 자동 시험 | 2인 멀티 PIE 시험을 더한다 — 바인딩 위젯의 값(비율 · 글자 · Visibility)을 직접 읽는다 |
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `UI/HUD/AstralCombatHUDWidget.h` · `.cpp` (uigen 이 만든 사람 소유 스텁) | 게임 연결 전부 — 아래 연결 표. 생성 베이스 `AutoGen/AstralCombatHUDViewBase` 는 손대지 않았다(계약 `sha1:5ae0d80a…` 그대로) |
+| `Player/AstralPlayerController.h` · `.cpp` | `CombatHUDWidgetClass`(소프트 클래스, C++ 기본값 = 승격본 WBP) · `BeginPlayingState` 에서 로컬 컨트롤러만 생성(z 0 — 디버그 위젯 100 아래) · `GetCombatHUDWidget()` · `EndPlay` 에서 떼기 |
+| `Plugins/WidgetMcp/.../Core/WidgetMcpPromote.h` · `.cpp` (새로) | `promote_widget` — 엔진 `IAssetTools::AdvancedCopyPackages`(기본 경로: 불러 와 복제 → 복사본끼리 참조 교체 → BP 컴파일 → 저장)를 대화상자 없이 부르고 사후 검증 |
+| `Plugins/WidgetMcp/.../Core/WidgetMcpCommon.h` · `.cpp` · `Tools/WidgetMcpTools.cpp` · `WidgetMcpEditor.Build.cs` | 설정 키 `WidgetPromotionPaths` · Tool 등록 · `AssetTools` 모듈 |
+| `Plugins/WidgetMcp/.../Tests/WidgetMcpToolTests.cpp` | `WidgetMcp.Tools.Promote` — 거절 경로(confirm 없음 · run 이 run 경로 밖 · 대상이 승격 경로 밖 / 승격 접두 자체 / run 경로 안 · 저장 안 된 run · 비어 있지 않은 대상) |
+| `Tools/mcp/widget_mcp/server.py` | 대화용 래퍼 `promote_widget` |
+| `Config/DefaultEngine.ini` `[WidgetMcp]` | `+WidgetPromotionPaths=/Game/UI/HUD/` |
+| `AstralBreakEditor/Private/Tests/AstralCombatHUDPieTests.cpp` (새로) · `AstralBreakEditor.Build.cs` | 멀티 PIE 2인 시험 2개(`AstralBreak.Net.CombatHUD.ListenPIE` · `.DedicatedPIE`). 모듈에 `UMG` · `SlateCore`(위젯 값을 읽는다) |
+
+| 애셋 | 내용 |
+| :--- | :--- |
+| `Content/UI/HUD/CombatHUD/` (새로, 16개) | L-1 run 의 승격본 — `WBP_CombatHUD`(부모 `UAstralCombatHUDWidget`) · 텍스처 `T_*` 9 · 글자 머티리얼 `M_TextGlow` · `M_TextGradient` · `MI_*` 4. 폰트는 이미 커밋된 `/Game/UI/Fonts/` 의 것을 그대로 가리킨다 |
+
+- 기존 애셋은 바꾸지 않았다. `BP_PlayerController` 는 새 프로퍼티 값을 저장하고 있지 않아 C++ 기본값(승격본)을 물려받는다 — 다른 그림으로 바꾸려면 BP 에서 덮어쓴다.
+
+**연결 표** — 화면은 상태를 갖지 않는다(§5). 연결 시점도 이벤트로 받는다(폴링 없음).
+
+| 화면(바인딩) | 원천 · 시점 |
+| :--- | :--- |
+| 연결 | 소유 컨트롤러의 `OnPossessedPawnChanged`(클라이언트는 `OnRep_Pawn` 에서도 나간다) → 그 폰의 `PawnExtension::OnAbilitySystemInitialized_RegisterAndCall` → ASC. GameState 는 `UWorld::GameStateSetEvent` → 체인 컴포넌트(없는 맵이면 패널은 계속 접힘) |
+| `UltGauge` · `UltReadyGlow` | `UltGauge` · `MaxUltGauge` 값 변화 통지 → 비율, 가득이면 강조 |
+| `ChainPanel` · `ChainCountText` | `OnChainStateChanged` → 단계가 열림일 때만 보임, 글자 `참가자 수/GetMaxParticipants()` |
+| `ChainTimerText` | 열려 있고 돌고 있을 때만 틱마다 `GetRemainingSeconds()`(서버 시간에서 계산). 멈추면 멈춘 값을 한 번 그리고 틱이 멈춘다 |
+| `BurstBanner` · `BurstCountText` | `LastBurstChainId` 가 바뀌면 인원을 넣어 띄우고 `BurstBannerSeconds` 뒤 접는다(§6 B 9번 · B 다듬기 6번 — 단계가 아니라 번호 변화) |
+| `UltBlockedText` | `AbilityFailedCallbacks` 에서 실패한 것이 오의(asset tag `Ability.Ult`)이고 그때 내 ASC 에 `State.Ult.Blocked` 가 있으면 띄우고 `UltBlockedSeconds` 뒤 접는다. 게이지 부족은 조용히 무시한다(§4) |
+
+**구현 때 정한 것**
+
+1. **승격 대상은 화면마다 하위 폴더**다(`/Game/UI/HUD/CombatHUD/`). run 마다 `M_TextGlow` 같은 같은 이름이 생겨서, `/Game/UI/HUD/` 바로 아래에 두면 다음 화면의 승격이 이름 충돌로 막힌다. 설정 키는 승격 접두 자체를 대상으로 받지 않는다.
+2. **승격 경로는 설정 키 `[WidgetMcp] WidgetPromotionPaths`**(DefaultEngine.ini)다 — AnimGraphMcp `PromotionPaths` · 폰트의 `WidgetFontOutputPaths` 와 같은 방식. 브리프의 쓰기 범위 밖이라 구현안에서 따로 승인받았다.
+3. **승격의 거절 순서**: confirm → run 경로 → 대상 경로(승격 접두 아래 · run 경로 밖) → 대상이 비어 있는가(레지스트리 · 메모리 · 디스크 파일) → 레지스트리 로딩 → run 이 저장 · 깨끗한가 → 다른 run 에 기대는가. 복사 뒤 검증(대상 파일 · 레지스트리 의존성에 `/Game/_AutoGen/` 없음 · 클래스 같음 · BP 컴파일 오류 없음 · 부모 같음 · 대상 밖 새 더티 없음)이 실패하면 오류를 돌려주되 되돌리지 않는다(엔진이 저장까지 끝낸 뒤다).
+4. **WBP 클래스 지정은 컨트롤러의 C++ 기본값**(소프트 참조)이다 — BP 애셋을 고치지 않으려는 것이다. 애셋이 없으면 경고만 남기고 HUD 없이 간다.
+5. **HUD 를 만드는 자리는 디버그 위젯과 같은 `BeginPlayingState`**(§8 의 3번이 풀렸다). 컨트롤러가 유지된 채 월드가 바뀌었으면(seamless travel) 옛 위젯을 버리고 새로 만드는 가드를 넣었다 — 시험하지 않았다.
+6. **게이지는 매번 ASC 의 지금 값 두 개로 계산**한다. 속성 세트는 AbilitySet 이 주므로 클라이언트에는 늦게 올 수 있고, 최대치가 기본값 그대로면 변화 통지가 오지 않기 때문이다.
+7. **표시 시간(잠정)** — 버스트 배너 2.5초 · '오의 불가' 1.5초. 위젯 프로퍼티(`BurstBannerSeconds` · `UltBlockedSeconds`)라 WBP 에서 고친다.
+
+**자동 검증 [실측]** — DebugGame 에디터 1회.
+
+승격(`promote_widget`, dry_run → confirm): 16개 복사 · 저장, 사후 검증 통과. WBP 상태 3(최신) · 부모 `AstralCombatHUDWidget` · 생성 클래스 `WBP_CombatHUD_C`. 바깥 의존성은 폰트 3개(`F_NotoSerifKR_W` · `F_NotoSerifKR_W_SDF` · `F_Pretendard_W_SDF`)뿐이다. 원본 run 의 파일 시각은 그대로다(09:22). 텍스처 9개는 임포트 기록(`contentImportPath`)에 원본 run 폴더 경로 글자를 그대로 갖고 있다 — 재임포트용 에디터 전용 정보이고 패키지 참조는 아니다(레지스트리 의존성 검사 통과).
+
+HUD 시험(2인 한 세션, `CombatTestMap`). A = 첫 클라이언트 자리, B = 다른 자리(리슨이면 호스트). 적 `BP_Enemy_Melee` 를 서버에서 세워 AI 컨트롤러를 떼고 HP 100000. 두 히어로가 250 cm 거리에서 적을 본다. 입력은 자기 자리 ASC 에 입력 태그로 넣었다.
+
+| # | 본 것 | Dedicated | 리슨 |
+| :--- | :--- | :--- | :--- |
+| H0 | 두 자리에 HUD — 클래스가 승격본 WBP, 뷰포트 안, 바인딩 위젯 8개가 다 있음. 자기 자리 ASC · 체인 컴포넌트에 붙음. 게이지 비율 = 자기 자리 값, 강조 = 가득 여부, 패널 · 배너 · '오의 불가' 접힘 | 통과 | 통과 |
+| H1 | 게이지가 모자란 채 A 가 누름 → 발동 없음, '오의 불가' 안 뜸 | 통과 | 통과 |
+| H2 | 두 사람 `FillUlt` → 두 HUD 비율 1 · 강조 보임 | 통과 | 통과 |
+| H3 | A 가 쓰는 동안 차단이 B 자리에 복제된 뒤 B 가 누름 → B HUD 에 '오의 불가'(1초 안), B 발동 없음, A HUD 에는 없음, 체인 패널 아직 없음. A HUD 비율 0 · 강조 접힘. '오의 불가' 는 0.3초 뒤에도 떠 있고 그 뒤 접힘 | 통과 | 통과 |
+| H4 | A 가 맞히고 끝남 → 서버 체인 #1 열림. 두 HUD 에 패널 · `1/4` · 남은 시간이 0 초과 윈도우(6.0) 이하, 0.5초 뒤 0.2초 넘게 줄어듦 | 통과 | 통과 |
+| H5 | B 가 쓰는 동안(서버 · 두 자리 모두 멈춤 상태) → 두 HUD 의 남은 시간 글자가 0.5초 동안 그대로, 패널 · `1/4` 유지 | 통과 | 통과 |
+| H6 | B 가 맞히고 끝남 → 서버 버스트 #1 ×2. 두 HUD 에 배너 · `2` · 패널 접힘, 그 뒤 배너 접힘. 게이지 비율은 계속 자기 자리 값 | 통과 | 통과 |
+
+- 빌드는 DebugGame · Development(`-DisableAdaptiveUnity`) 둘 다 `Result: Succeeded`(오류 · 경고 0).
+- **회귀:** 같은 에디터에서 `AstralBreak.` 전체 1회 — **57/57 통과**(기존 55 + HUD 2, 실패 0, 412초, 첫 실행에서). HUD 시험은 Dedicated 11.2초 · 리슨 11.0초. 경고는 `LogCrowdFollowing: Unable to find RecastNavMesh` 뿐이다(오의 · 체인 · 파티 흐름 시험과 같은 줄이 HUD 시험에도). 이어서 `WidgetMcp.` 전체 1회 — **7/7 통과**(기존 6 + Promote). 경고는 바인딩을 일부러 빼는 기존 시험의 것뿐이다.
+- 에디터는 `quit_editor` — 더티가 `WidgetMcp.Spike` 시험의 패키지(`/Game/_AutoGen/Spike/…`) 하나뿐이라 폐기로 내렸고, 프로세스 소멸을 확인했다.
+- 단계별 값(읽은 남은 시간 숫자 등)은 이 기록에 없다. 시험의 값 줄(`ASTRAL_PIETEST`)은 에디터 로그(`Saved/Logs`)에만 남는데, 개발 세션에서 `Saved` 읽기가 막혀 있었다.
+
+**돌리지 않은 것**
+
+- `promote_widget` 성공 경로의 자동 시험 — 거절 경로만 시험한다(성공 경로는 run 을 디스크에 저장해야 해서 시험 파일이 남는다). 성공 경로는 위의 L-1 승격 1회가 실측이다.
+- 3 · 4인 체인의 `N/4` · 버스트 배너 3 · 4 — 2인만 봤다. 헛친 오의 뒤의 HUD(80 % 게이지 · 멈춘 타이머 재개)도 시험하지 않았다.
+- 허브(체인 컴포넌트 없음) · `RaidMap` · 허브 → 레이드 이동 뒤의 HUD, seamless travel 가드, 폰이 바뀐 뒤(부활) 다시 붙는 것.
+- 별도 프로세스 · 지연(단위 E). 화면 모양 — 위치 · 크기 · 글자 렌더 · 디버그 위젯과 겹침 — 은 사람 눈 확인 몫이다.
+
+**알고 남긴 것**
+
+- '○○ 시전 중' 표시가 없다(결정 4). B 다듬기 절의 '복제 상태에 누가 쓰는 중인가 · 멈췄는가가 더해진다 — HUD 가 구분해 보여 줄 수 있어야' 중 화면 쪽 몫이 남았다. 바인딩 계약에 항목을 더하면 생긴다(계약 변경 → codegen → UBT 빌드 → 새 run → 승격).
+- 멈춘 동안 남은 시간 숫자가 멈출 뿐 '멈춤' 표시는 없다.
+
+**사용자 눈 확인** — `CombatTestMap` 을 PIE 2인(리슨)으로 띄운다. `BP_Enemy_Melee` 는 오의 한 방에 죽으므로 **쓰기 직전에 자기 창에서 `SpawnEnemy`** 를 한다(내 앞 400 cm — 스윕 안이다).
+
+1. 두 창에 전투 HUD 가 보인다 — 오의 게이지는 비어 있고 체인 패널 · 버스트 배너 · '오의 불가' 는 없다. 디버그 위젯이 그 위에 겹쳐 그려진다.
+2. A 창에서 `R`(게이지 0) → 아무것도 뜨지 않는다('오의 불가' 도 안 뜬다).
+3. 두 창에서 `FillUlt` → 게이지가 가득 차고 강조(빛)가 켜진다.
+4. A 창에서 `SpawnEnemy` → `R`. **쓰는 동안** B 창에서 `R` → B 창에 '오의 불가' 가 1.5초쯤 떴다가 사라진다. A 창의 게이지가 비고 강조가 꺼진다.
+5. A 의 동작이 **끝나면** 두 창에 체인 패널이 뜬다 — `1/4`, 남은 시간이 6.0 에서 줄어든다.
+6. 남은 시간 안에 B 창에서 `SpawnEnemy` → `R`. 쓰는 동안 두 창의 남은 시간 숫자가 멈춘다.
+7. B 의 동작이 끝나면 체인 패널이 사라지고 버스트 배너에 `2` 가 2.5초쯤 뜬다.
+8. (선택) 헛침: `FillUlt` 뒤 적이 없는 쪽을 보고 `R` → 끝나면 게이지가 80 % 로 돌아온다.
+
+볼 것은 ① 각 요소의 위치 · 크기 · 글자가 L-1 컨셉(run 의 compare.png)과 맞는가 ② 숫자(남은 시간 · `1/4` · `2`)가 읽히는가 ③ 디버그 위젯이 HUD 를 가리는가다.
 
 ## 7. 종료 조건
 

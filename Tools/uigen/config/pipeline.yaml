@@ -68,6 +68,22 @@ extract:                                 # 1b 후속 A — 컨셉에서 따오�
                                          # (사용자 결정 (가') 11-16 — 크기 고정 · 런타임에 안 접히는 위젯만)
   notext: true                           # 글자 없는 판(inputs concept_notext — make_concept --text-free)이 있으면 글자 구멍만 그 픽셀로(gen/cutout.compose fill_from —
                                          # 요소마다 ±6 px 재정합, 둘레 차 > 24 이면 줄 보간으로 물러남). false = 판이 있어도 줄 보간
+  text_erase: all                        # 1b 후속 L 다음 G1 — 글자 든 컨셉(아트 모드 아님) 글자 지울 범위: off = 좁은 메움(K (나)) · values = 값이 바뀌는 글자(바인딩
+                                         # number · text)만 · values_glow = 값 글자 + 빛 글자 · all = 모든 글자(시작 때 숨는 글자는 밑 텍스처가 같이 숨을 때만 — 배너).
+                                         # 글자 지우기 마감(11-19 사용자 결정 'all'): 글자마다 지운 판 후보(lama · harmonic)와 좁은 판(예전 판)을 refine 끝에 게이트와 같은
+                                         # 함수(캔버스 합성 S4 · 가는 선 · 숨는 묶음)로 견주어 예전보다 나빠지는 글자는 예전 판(refine._gate_erase_choice)
+  text_fill: lama                        # G2 — lama 후보의 메우기: plate = 정합된 글자 없는 판 + 색조 평면 보정 · lama = 외부 인페인팅(아래 모델 — 없거나 실패하면 plate ·
+                                         # harmonic 으로 물러나 기록). 판 정합 · 판 중앙값 · 투명 위 글자 둘레 · 좁은 둘레 길 모두 같은 후보 셋(lama · harmonic · off)
+  lama_model: work/_models/lama_fp32.onnx   # Tools/uigen 기준 — Hugging Face Carve/LaMa-ONNX lama_fp32.onnx(Apache-2.0, 512 × 512). 실행 중 내려받지 않는다
+  text_erase_methods: [lama, harmonic]   # 1b 후속 L 다음 — 글자 지우기 다음: 지운 판 후보(refine.ERASE_METHODS 안). clear_alpha(V5 투명 바탕 글자 — 알파 꼬리 ·
+                                         # 판 구조물 · 가림 라플라스)는 옵트인 — 파티 Lv 에서 S4 는 0 이 됐지만 컨셉 상태 E1 얼룩 9 를 새로 만들었다(고르기는 S4 만 봄)
+  text_erase_ocr: true                   # 1b 후속 L 다음 — 글자 지우기 다음 V7: 컨셉 OCR 검출(refine_concept_ocr.json — run 에 한 번) 중 글자 상자와 겹친 상자 + 6 px 를 지울 수 있는
+                                         # 범위에 합침(획 찾기 · rect_e — 상자째 지우지 않음). V6 반복 보강 = 결함 · OCR 잔여물 남은 글자만 여백 단계 @1 · @2(refine.ERASE_RETRIES)
+  text_fill_complex: none                # V8 — 복잡 배경 글자의 생성형 메우기 백엔드 자리: none | comfy_flux_fill | comfy_qwen_edit (11-20 사용자 결정 — 인터페이스만,
+                                         # 워크플로 · 모델은 Phase 5 ComfyUI 와 함께. 있으면 같은 마스크 · 합성 · V1 · S4 고르기를 거친다). 지금은 판정 · 기록 · 수동 확인 줄만
+  complex_background:                    # V8 — 지울 자리 둘레 6 px 띠의 엣지 밀도(미리 곱한 루마 소벨 > 40 비율) · 색 분산(L* 표준편차)이 둘 다 넘으면 복잡 배경
+    edge_frac: 0.35
+    l_std: 12.0
 
 concept_convert:                         # 1b 후속 I — 컨셉을 codex 편집으로 'UI 만 · 진짜 알파' 컨셉 + 글자 없는 판으로 바꿔 ⓐ 로 잇는다(gen/concept_convert,
                                          # normalize). 합성 스크린샷(ⓒ)은 장면 · 반투명 UI 를 결정적으로 못 가르고(H) 검정 배경(ⓑ)은 어둡고 반투명을 못 가른다(H3)
@@ -141,6 +157,8 @@ text_glow:                               # 1b 후속 F — 글자 둘레 번지�
 gauge_fill:                              # 1b 후속 F — 따온 프레임 위 가로 게이지 채움(analyze.derive_gauge_fills · gen/concept_fill.py)
   mode: shape                            # shape = 컨셉 채움 모양 그대로(왼쪽 끝 · 밝은 테두리 · 트랙 띠 빛) · stops = B 의 줄마다 색만(gradient_bar)
   end: scale                             # scale = 진행 끝 테두리 · 번짐까지(ProgressBar bar_fill_style scale + 채움 box) · mask = 진행률에서 자름(엔진 기본)
+  end_cap: true                          # 1b 후속 L 다음 H4 (나)(사용자 결정 11-19) — 채움 끝은 곧게, 컨셉 빈 트랙 끝에 끝 장식 호가 있으면 채움 위에 '끝 덮개' Image
+                                         # (<게이지>EndCap · procedural concept_end_cap)가 100 % 에서 호를 넘는 부분을 덮는다. false = 덮개 없음(100 % 에 호를 덮음 — S2 오류)
 
 style_review:                            # 1b 후속 C — 게이트 통과 뒤 외형 검토 라운드(stages/style.py). 합격 판정은 게이트만, 라운드 뒤 게이트가 깨지면 그 라운드를 버린다
   rounds: 1                              # 0 = 끔. concept 모드(reference.png 있음) · fix.mode ≠ deterministic 일 때만 돈다
@@ -166,6 +184,15 @@ appearance:                              # 1b 후속 J-b — 자동 차이 진�
   seam_dark_px: 90                       # 3 배 절취선 — 한 자리의 어두운 확대 픽셀 수
   residue_de: 20.0                       # 1b 후속 L 다음 — E1 획에 붙은 잔상: 렌더 글자가 안 덮은 컨셉 획 자리의 텍스처 · 렌더가 글자 없는 바탕 두 추정과 ΔE00 이만큼 넘게('4' 밑 잔상 평균 31)
   residue_min_px: 6                      # 그 픽셀 덩어리 최소 넓이('4' 밑 잔상 11 px)
+  state_checks: error                    # 1b 후속 L 다음 — 상태 검사(gen/state_check — S1 숨김 흔적 · S2 게이지 끝): record = 기록만 · error = 오류(E8) · off. 11-19 묶음 26 run 기록만 재진단 거짓 양성 0 → error
+  text_trace_de: 5.0                     # 1b 후속 L 다음 L-1 글자 완전 지우기 — S4 글자 밑 흔적(빈 값 · 다른 값): 자리 안만의 3 × 3 창 평균 문턱
+  text_trace_min_area: 24
+  text_line_plate: error                 # 1b 후속 L 다음 — 글자 지우기 다음 V2: 선 모양 덩어리는 글자 없는 판에도 있는 선일 때만 구조선(기록만), 판에 없는 선은 결함 —
+                                         # 11-20 묶음 32 run 기록만 재진단: 발견 = 파티 HP 막대 윗선 위 빛 자국(실제)뿐 → error
+  text_lift_mode: error                  # V3: 어두운 판 자리(둘레 L* < 20)의 밝힌 검정(× 3) 국소 > text_lift_de 덩어리 = 결함(check text_lift) — 11-20 묶음 63 덩어리 그림 분류
+  text_lift_de: 4.0                      # 모두 실제(최저 3.7), 깨끗한 판 덩어리 0 → 거짓 양성 0 문턱 4.0
+  state_record_only: []                  # 오류 모드에서도 기록만 둘 check — 11-19 S4 · S2 보강을 기록만으로 묶음(정답 30 · 회귀 14 run) 재진단: 발견은 모두 같은 종류 실제
+                                         # 결함(게이지 끝 덮음 · '4.2' · 단색 '2/4' · 파티 '0 %' · 이름 · 조작 안내 'o'), 거짓 양성 = 파티 HP 막대 윗선 23 × 2 하나 → 선 모양 걸러 0 → 비움(오류)
 
 fix:
   mode: hybrid                         # 1b-6 — 결정적 fixer 먼저, op 가 없거나 직전 결정적 patch 가 진전이 없으면 LLM verifier → fix (11-15 사용자 결정).

@@ -13,7 +13,8 @@ namespace WidgetMcp
 		void ReadKeys(TFunctionRef<void(const TCHAR*, TArray<FString>&)> GetArray, FSettings& Out)
 		{
 			TArray<FString> Raw;
-			const TPair<const TCHAR*, TArray<FString>*> Prefixes[] = { { TEXT("WidgetOutputPaths"), &Out.OutputPaths }, { TEXT("WidgetFontOutputPaths"), &Out.FontOutputPaths } };
+			const TPair<const TCHAR*, TArray<FString>*> Prefixes[] = { { TEXT("WidgetOutputPaths"), &Out.OutputPaths }, { TEXT("WidgetFontOutputPaths"), &Out.FontOutputPaths },
+				{ TEXT("WidgetPromotionPaths"), &Out.PromotionPaths } };
 			for (const TPair<const TCHAR*, TArray<FString>*>& K : Prefixes)
 			{
 				Raw.Reset();
@@ -97,6 +98,7 @@ namespace WidgetMcp
 		Obj->SetArrayField(TEXT("import_source_roots"), StringArray(Settings.ImportRoots));
 		Obj->SetArrayField(TEXT("render_output_roots"), StringArray(Settings.RenderRoots));
 		Obj->SetArrayField(TEXT("font_output_paths"), StringArray(Settings.FontOutputPaths));
+		Obj->SetArrayField(TEXT("promotion_paths"), StringArray(Settings.PromotionPaths));
 		Obj->SetArrayField(TEXT("warnings"), StringArray(Settings.Warnings));
 		return Obj;
 	}

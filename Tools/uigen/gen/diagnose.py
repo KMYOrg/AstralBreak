@@ -46,6 +46,30 @@ DEFAULTS = {
     # 1b 후속 L 다음 — E1 획에 붙은 잔상(glyph_residue): 렌더 글자가 안 덮은 컨셉 획 자리의 텍스처 · 렌더가 글자 없는 바탕 두 추정과 ΔE00 이만큼 넘게 다른 픽셀 덩어리
     "residue_de": 20.0,      # [실측 R20261118_120715 단색 '4' 밑 잔상 11 px · 평균 31.3 · 최대 45.7 — 보호 run 다섯(L-1 · L-2 · controls 셋)은 20 넘는 픽셀 0]
     "residue_min_px": 6,     # 덩어리 최소 픽셀(같은 자리 124503 은 1 px 둘 — 안 셈)
+    # 1b 후속 L 다음 — 상태 검사(gen/state_check — S1 숨김 흔적 · S2 게이지 끝): record = 기록만(rec state_checks) · error = 오류(E8 상태) · off.
+    # 묶음(정답 · 회귀) 26 run 기록만 재진단 거짓 양성 0 뒤 error [실측 11-19 — 발견은 모두 같은 종류 실제 결함]
+    "state_checks": "error",
+    # 1b 후속 L 다음 L-1 글자 완전 지우기 — S4 글자 밑 흔적(state_check.text_trace): 자리 안만의 3 × 3 창 평균 문턱 · 덩어리 최소 넓이
+    "text_trace_de": 5.0,
+    "text_trace_min_area": 24,
+    # 1b 후속 L 다음 — 글자 지우기 마감: S4 가는 선(state_check text_contour) — 자리 안 픽셀 차 문턱 · 골격 길이 문턱
+    "text_contour_de": 2.5,
+    "text_contour_len": 40,
+    "text_contour_link": 1,   # 가는 선 — 이만큼(px) 틈은 잇고 잼
+    # S4 '밝힌 검정'(검정 합성 × 이 값) — 기록만(local_max.lift · refine 글자 지우기 고르기). 어두운 판의 낮은 대비 흔적은 ΔE00 이 작게 재진다
+    # [실측 R20261119_190059 배너 '체인 버스트' 검정 1.47 · 밝힘 4.54, 깨끗한 L-2 0.5]. 0 이면 안 잼
+    "text_trace_lift": 3.0,
+    # 1b 후속 L 다음 — 글자 지우기 다음 V2: 선 모양 덩어리(짧은 변 ≤ 2 px · 곧은 가는 선)는 글자 없는 판에도 있는 선일 때만 구조선(기록만) — record = 판에 없는 선도
+    # 기록만(line_like 의 in_plate False), error = 판에 없는 선은 결함. [실측 11-20 묶음 32 run 기록만 재진단 — 선 모양 발견 = 파티 run 셋의 같은 HP 숫자 막대
+    # 윗선 위 빛 반원 자국 23 × 2(판에 없음 · closer 0.51 · 판 대비 4.1 — 사용자 눈 실제 흔적)뿐, 판에 있는 선 0 → 거짓 양성 0] → error
+    "text_line_plate": "error",
+    # V3: 밝힌 검정 — record = 기록만(lift_like), error = 어두운 판 자리(둘레 L* < state_check.LIFT_DARK_L)에서 밝힘 국소 > text_lift_de 덩어리를 결함(check text_lift).
+    # [실측 11-20 묶음 32 run — 어두운 자리 밝힘 덩어리(국소 > 3.0, ≥ 24 px) 63 개(18 run)를 그림으로 분류: 모두 실제 흔적(최저 3.7 = 190059 '4' 가는 윤곽, 4.1 · 5.2 = 파티
+    # 빛 줄기), 깨끗한 판(L-2 셋 · 새 L-1 235452)은 덩어리 0(국소 최대 3.6) → 거짓 양성 0 문턱 4.0] → error
+    "text_lift_mode": "error",
+    "text_lift_de": 4.0,
+    # 오류 모드에서도 기록만 둘 check(새 검사 — 묶음 거짓 양성 0 확인 전까지)
+    "state_record_only": [],
 }
 # 결함 → 오류 번호(설계 §11 K): E1 얼룩 · 잔상 · E2 뭉개짐 · E3 잘림 · 빠짐 · E4 구멍 · 이중 · E5 절취선 · E6 위치 · E7 효과 유무 · E8 상태 · E9 가장 가까운 선택 아님
 TEXT_CODES = {"size": "E9", "weight": "E9", "color": "E9", "position": "E6", "unmeasured": "E6", "outline": "E7", "glow": "E7", "shadow": "E7", "missing": "E3",
@@ -57,6 +81,7 @@ INK_MIN, INK_FLOOR = 48.0, 24.0     # 글자 차이 마스크 — 오츠 문턱 
 CORE_SPREAD = 15.0                  # 획 후보 L* 폭(p90 − p10)이 이보다 넓으면 오츠로 갈라 글자색 쪽만(빛 번짐 · 안티앨리어싱 빼기)
 TEXT_MIN_CORE = 20                  # 핵심 획이 이보다 적으면 글자 없음
 HIDDEN_PAD = 4
+END_GLOW_FRAC = 0.6                 # F2 — 국소 결함 상자의 이만큼 이상이 번짐 뺀 채움의 진행 끝 빛 자리(state_check.end_glow_zones)면 근사 gauge_end_glow
 TEXT_ZONE_PAD = 4
 ZOOM = 3
 ZOOM_BG = 40.0
@@ -1035,13 +1060,164 @@ def _refine_spec(rd: pathlib.Path, spec: dict) -> dict:
         return spec
 
 
-def _notext_cleared(rd: pathlib.Path, nt: dict, spec: dict):
-    """글자 없는 판(검정 위 미리 곱한 색) — 투명 위 글자 자리 잔상은 지운 것(clear_text_residue — refine 아트 · analyze 와 같음)."""
+def notext_layers(rd: pathlib.Path, nt: dict, spec: dict) -> tuple:
+    """글자 없는 판 (곧은 색, 알파) — 투명 위 글자 자리 잔상은 지운 것(clear_text_residue — refine 아트 · analyze 와 같음)."""
     spec = _refine_spec(rd, spec)
     col, alpha = _load_rgb(rd / nt["color"]), _load_l(rd / nt["alpha"])
     if not residue_free(nt) and (rd / "reference_color.png").is_file() and (rd / "reference_alpha.png").is_file():
         col, alpha, _ = clear_text_residue(col, alpha, _load_rgb(rd / "reference_color.png"), _load_l(rd / "reference_alpha.png"), spec)
+    return col, alpha
+
+
+def _notext_cleared(rd: pathlib.Path, nt: dict, spec: dict):
+    """글자 없는 판(검정 위 미리 곱한 색) — 투명 위 글자 자리 잔상은 지운 것(clear_text_residue — refine 아트 · analyze 와 같음)."""
+    col, alpha = notext_layers(rd, nt, spec)
     return col * alpha[..., None]
+
+
+MANUAL_CHECKS = ("text_trace", "text_contour", "text_lift", "text_value_trace", "text_value_contour")
+MANUAL_OVERLAP = 0.6                # 결함 상자의 이만큼 이상이 '정답 없음' 자리(+ 빛 + 4 px) 안이어야 수동 확인으로 돌림
+
+
+def manual_checks(rd: pathlib.Path) -> list[dict]:
+    """1b 후속 L 다음 — 글자 지우기 다음(사용자 결정 ③ · V8): refine 마지막 고르기(refine.json passes[].erase_gate[].manual_check)의 수동 확인 표시 —
+    reason no_truth(글자 밑 정답 없는 자리 — 근거 · 자리 상자) · complex_background(복잡 배경 — 기록만)."""
+    try:
+        doc = json.loads((pathlib.Path(rd) / "refine.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out: list[dict] = []
+    for p in doc.get("passes") or []:
+        eg = p.get("erase_gate")
+        if eg:
+            out = [{**m, "asset": aid} for aid, r in eg.items() for m in (r.get("manual_check") or [])]
+    return out
+
+
+def manual_match(f: dict, checks: list[dict], spec: dict) -> dict | None:
+    """S4 결함 f 가 '정답 없음' 표시(같은 글자 · 자리 상자 + 빛 + 4 px 안에 결함 상자의 MANUAL_OVERLAP 이상)에 드는가 → 그 표시 또는 None. 다른 결함은 그대로 오류."""
+    if f.get("check") not in MANUAL_CHECKS or not f.get("widgets") or not f.get("box"):
+        return None
+    index = {w["id"]: w for w in spec.get("widgets", [])}
+    x, y, w, h = (float(v) for v in f["box"])
+    for m in checks:
+        if m.get("reason") != "no_truth" or m.get("widget") != f["widgets"][0] or not m.get("box"):
+            continue
+        fw = index.get(m["widget"]) or {}
+        gl = float(((fw.get("font") or {}).get("glow") or {}).get("size") or 0) if isinstance(fw.get("font"), dict) else 0.0
+        bx, by, bw, bh = (float(v) for v in m["box"])
+        p = gl + 4.0
+        ix = max(0.0, min(x + w, bx + bw + p) - max(x, bx - p))
+        iy = max(0.0, min(y + h, by + bh + p) - max(y, by - p))
+        if ix * iy >= MANUAL_OVERLAP * max(1.0, w * h):
+            return {"reason": "no_truth", "box": m["box"], "evidence": m.get("evidence")}
+    return None
+
+
+def composite_text_trace(rd: pathlib.Path, spec: dict, boxes: list[dict], textures: dict, s: dict, gm: dict | None = None,
+                         cache: dict | None = None) -> tuple[dict, dict]:
+    """1b 후속 L 다음 — 글자 지우기 마감: 게이트와 같은 함수(text_glyph_masks + state_check.text_trace — 가는 선 · 숨는 묶음 포함)로 S4 를 텍스처 합성만으로
+    (엔진 없음). refine 의 글자 지우기 고르기(텍스처 후보마다 캔버스 합성)와 회귀 묶음 replay 가 같이 쓴다 — 텍스처 단독 점수는 캔버스 합성 · 다른 텍스처
+    겹침 · 바탕 셋이 달라 조작 안내 악화를 못 가렸다 [실측 회귀 k_final_1119]. gm 을 주면 그 글자 획(후보끼리 같은 자리로 견주게).
+    cache = 같은 run 의 컨셉 · 판 읽기를 다시 안 하게(부르는 쪽 dict). → (tt, {gm, comp, not_drawn, texts})."""
+    from gen import state_check
+    c = cache if cache is not None else {}
+    canvas = [int(v) for v in (spec.get("canvas") or [1920, 1080])]
+    if "ref_text" not in c:
+        norm = json.loads((rd / "normalize.json").read_text(encoding="utf-8"))
+        bgrec = norm.get("background") or {}
+        nt = bgrec.get("notext") or {}
+        rc, ra = _load_rgb(rd / "reference_color.png"), _load_l(rd / "reference_alpha.png")
+        ref_text = rc * ra[..., None]
+        notext = _notext_cleared(rd, nt, spec) if nt.get("used") and (rd / str(nt.get("color"))).is_file() else None
+        plate = notext_layers(rd, nt, spec) if nt.get("used") and (rd / str(nt.get("color"))).is_file() and (rd / str(nt.get("alpha"))).is_file() else None
+        truth = ref_text
+        art = bgrec.get("art") or {}
+        if art_mode(bgrec) and (rd / str(art.get("color"))).is_file():
+            truth = _load_rgb(rd / art["color"]) * _load_l(rd / art["alpha"])[..., None]
+        c.update(ref_text=ref_text, rc=rc, ra=ra, notext=notext, plate=plate, truth=truth, bgrec=bgrec, skip=notext_unused(rd))
+    geo = {b["id"]: b for b in boxes}
+    comp, cov, _ = backdrop.compose(spec, boxes, textures, canvas, (0, 0, 0))
+    not_drawn, states = hidden_state_split(spec, boxes, textures, canvas, c["truth"], comp, comp, cov, ref_text=c["ref_text"], notext_black=c["notext"])
+    sp = _without(spec, not_drawn) if not_drawn else spec
+    comp_s = backdrop.compose(sp, boxes, textures, canvas, (0, 0, 0))[0] if not_drawn else comp
+    texts = [w for w in spec.get("widgets", []) if w.get("type") in backdrop.TEXT_TYPES and w["id"] not in not_drawn and w.get("bbox_intent")]
+    if gm is None:
+        gm = text_glyph_masks(c["ref_text"], comp_s, comp_s, texts, geo, c["notext"], render_bg=comp_s, notext_skip=c["skip"], color_gate=art_mode(c["bgrec"]))
+    roots = _hidden_roots(spec)
+    off_ids: set[str] = set()
+    for r_ in roots:
+        off_ids |= _subtree(spec, r_)
+    sp_off = _without(spec, off_ids)
+    bgs = (("black", (0, 0, 0)), ("gray", backdrop.GRAY), ("white", (255, 255, 255)))
+    imgs = {k: backdrop.compose(sp_off, boxes, textures, canvas, bg)[0] for k, bg in bgs}
+    groups = state_check.texture_groups(spec, textures)
+    for g_ in groups:
+        off_g: set[str] = set()
+        for r_ in roots:
+            if r_ != g_["root"]:
+                off_g |= _subtree(spec, r_)
+        sp_g = _without(spec, off_g)
+        g_["images"] = {k: backdrop.compose(sp_g, boxes, textures, canvas, bg)[0] for k, bg in bgs}
+        g_["render"] = None
+    tt = state_check.text_trace(spec, boxes, canvas, c["rc"], c["ra"], c["plate"], gm, s, imgs, groups=groups)
+    bg = text_zone_bg(c["ref_text"], c["truth"], comp_s, gm, texts, c["notext"], s)
+    return tt, {"gm": gm, "comp": comp_s, "not_drawn": not_drawn, "texts": texts, "states": states, "bg": bg}
+
+
+def text_zone_bg(ref_text, truth, comp, gm: dict, texts: list[dict], notext, s: dict) -> dict:
+    """1b 후속 L 다음 — 글자 지우기 다음: 컨셉 상태 글자 구역 바탕(렌더 없이 텍스처 합성만 — 진단 E1 글자 구역 바탕 · regress_set 텍스처 지표와 같은 정의): 글자 상자
+    + TEXT_ZONE_PAD + 빛에서 컨셉 글자 획(후보 · 핵심 + 4 px 붙은 차 · 빛 반경 · 밝은 빛) + 2 px 를 뺀 자리의 합성 ↔ 정답 7 × 7 국소 ΔE00. 엔진이 그 위에 글자 · 빛만
+    그리므로 이 자리의 합성 차는 컨셉 상태에서 그대로 보인다 — 지운 판 고르기가 빈 값 S4 만 보고 고른 판이 컨셉 상태 E1 을 만들었다 [실측 R20261122_135359 파티 방패
+    lama — E1 75, R20261120_142400 Lv clear_alpha — E1 9]. → {글자: {"bg_max", "bg_px": 국소 > local_de 픽셀}}."""
+    import cv2
+    H, W = comp.shape[:2]
+    eff_bg = notext if notext is not None else comp
+    brighter = (color.srgb_to_lab(ref_text)[..., 0] - color.srgb_to_lab(eff_bg)[..., 0]) > 4.0
+    attached = maxabs(ref_text, eff_bg) > INK_FLOOR
+    strokes = np.zeros((H, W), bool)
+    for w in texts:
+        v = gm.get(w["id"])
+        if v is None:
+            continue
+        gl = float(((w.get("font") or {}).get("glow") or {}).get("size") or 0) if isinstance(w.get("font"), dict) else 0.0
+        strokes |= v["concept_cand"] | v["concept"] | (_dilate(v["concept"], 4) & attached)
+        if gl:
+            strokes |= _dilate(v["concept"], int(round(gl))) | (_dilate(v["concept"], GLOW_MAXD) & brighter)
+    strokes = _dilate(strokes, 2)
+    de = delta_e(comp, truth)
+    T, cov = float(s["local_de"]), float(s["bg_cover"])
+    out = {}
+    for w in texts:
+        f = w.get("font") if isinstance(w.get("font"), dict) else {}
+        gl = float((f.get("glow") or {}).get("size") or 0)
+        zone = _box_mask((H, W), w["bbox_intent"], TEXT_ZONE_PAD + gl) & ~strokes
+        if not zone.any():
+            continue
+        c_ = cv2.blur(zone.astype(np.float32), (WIN, WIN))
+        loc = np.where(c_ >= cov, cv2.blur((de * zone).astype(np.float32), (WIN, WIN)) / np.maximum(c_, 1e-6), 0.0)
+        z = zone & (c_ >= cov)
+        if z.any():
+            out[w["id"]] = {"bg_max": round(float(loc[z].max()), 2), "bg_px": int((loc[z] > T).sum())}
+    return out
+
+
+def trace_scores(tt: dict) -> dict:
+    """composite_text_trace 결과 → 글자마다 {"local": 바탕 셋 최대 3 × 3 국소, "lift": 밝힌 검정(기록), "contour": 가는 선 골격 길이 최대,
+    "findings": 결함 수(text_trace · text_contour)}."""
+    out = {}
+    for t in tt.get("texts") or []:
+        if t.get("skipped"):
+            continue
+        lm = t.get("local_max") or {}
+        out[t["widget"]] = {"local": round(max([v for k, v in lm.items() if k != "lift"] or [0.0]), 2), "lift": round(float(lm.get("lift") or 0.0), 2),
+                            "contour": int(t.get("contour_len") or 0), "findings": 0}
+    for f in tt.get("findings") or []:
+        if f.get("check") in ("text_trace", "text_contour", "text_lift") and f.get("widgets"):
+            w0 = f["widgets"][0]
+            if w0 in out:
+                out[w0]["findings"] += 1
+    return out
 
 
 def glow_alpha(f: dict | None) -> float | None:
@@ -1496,6 +1672,13 @@ def run_text_masks(run_dir, spec: dict, render_path=None) -> dict | None:
     return gm
 
 
+def _state_render(render_state, overrides: dict, name: str, shape):
+    """1b 후속 L 다음 — verify render_state(overrides, name) 로 다른 상태 엔진 렌더(출력 폴더 = 이름마다 — 같은 폴더면 OUTPUT_DIR_NOT_EMPTY) → HxWx3 또는 None."""
+    p = render_state(overrides, name)
+    img = _load_rgb(p) if p else None
+    return img if img is not None and img.shape[:2] == tuple(shape) else None
+
+
 def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None = None, pictures: bool = True, render_state=None) -> dict:
     """run 폴더(spec · geometry · manifest · render.png · reference*) → 진단 기록(defects · summary · badness …) + 그림(out_dir).
     render_state(overrides) → PNG 경로: 숨은 위젯을 컨셉 상태로 켜고 끈 엔진 렌더(verify — 사람 눈 그림 compare.png 가운데 · E8). 없으면 base.
@@ -1520,6 +1703,7 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
     else:
         return {"skipped": f"background {kind} — the concept has no alpha (scene composite), the render cannot be compared pixel by pixel"}
     ref_text = rc * ra[..., None]            # 글자 든 컨셉 — 글자 획 · 글자 스타일 비교(사양을 잰 그림)
+    rc0, ra0 = rc, ra                        # 상태 검사 S1 (라) '컨셉 그대로' — 글자 든 컨셉(아트 모드 바꿈 전)
     widgets = {w["id"]: w for w in spec.get("widgets", [])}
     geo = {b["id"]: b for b in boxes}
     art = bgrec.get("art") or {}
@@ -1709,6 +1893,38 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
         item["fixable"] = False
         defects.append(item)
     defects.sort(key=lambda r: -r["area"] * r["mean_de"])
+    # F2(1b 후속 L 다음) — 번짐을 뺀 concept_fill 채움(spill 0 · spill_measured > 0)의 컨셉 상태 진행 끝 빛 자리는 근사: 한 brush(scale + box 여백 고정)로는
+    # 컨셉 진행률의 끝 빛과 100 % 의 트랙 끝 맞춤을 같이 못 한다(번짐을 남기면 100 % 에서 트랙 밖 끝 장식을 덮음 — 상태 검사 S2 가 지킨다).
+    # 그 자리 안이 상자 넓이 END_GLOW_FRAC 이상인 국소 결함은 오류에서 빼 근사 gauge_end_glow 로 [실측 R20261119_091634 — 100 % 끝 어두운 사각형]
+    gauge_approx = []
+    from gen import state_check
+    # G3(1b 후속 L 다음) — 끝 모양(end_shape) 채움의 컨셉 상태 진행 끝 자리도 근사 gauge_end_shape(중간 진행률의 끝이 호 모양 — 100 % 는 S2 보강이 지킨다)
+    glow_zones = state_check.end_glow_zones(spec, (H, W)) + state_check.end_shape_zones(spec, (H, W))
+    if glow_zones:
+        kept = []
+        for d in defects:
+            x, y, bw, bh = d["box"]
+            # 같은 채움의 끝 빛 · 끝 모양 자리는 이어져 있다 — 그 합에서 넓이 비를 보고 더 많이 겹친 쪽 종류로
+            z = None
+            for asset in {z_["asset"] for z_ in glow_zones}:
+                zs = [z_ for z_ in glow_zones if z_["asset"] == asset]
+                um = np.zeros_like(zs[0]["mask"])
+                for z_ in zs:
+                    um |= z_["mask"]
+                if float(um[y:y + bh, x:x + bw].mean()) >= END_GLOW_FRAC:
+                    z = max(zs, key=lambda z_: float(z_["mask"][y:y + bh, x:x + bw].mean()))
+                    break
+            if z is None:
+                kept.append(d)
+                continue
+            if z.get("kind") == "gauge_end_shape":
+                gauge_approx.append({"widget": (z["widgets"] or [z["asset"]])[0], "kind": "gauge_end_shape", "box": d["box"], "area": d["area"],
+                                     "max_de": d.get("max_de"), "note": f"concept-state progress end follows the empty-track end arc ({z['depth']} px deep) "
+                                                                        "so 100% fits the end cap — the concept draws a straight end here"})
+                continue
+            gauge_approx.append({"widget": (z["widgets"] or [z["asset"]])[0], "kind": "gauge_end_glow", "box": d["box"], "area": d["area"], "max_de": d.get("max_de"),
+                                 "note": f"concept-state end glow left out — the fill has no spill ({z['spill_measured']} px measured) so 100% stays inside the track"})
+        defects = kept
 
     # E1 글자 구역 바탕(1b 후속 K) — 국소 지도가 빼던 글자 구역도, 모든 글자 획(컨셉 · 렌더 후보 + 2 px)을 뺀 바탕 픽셀에서 잰다.
     # 차 = min(렌더 ↔ 컨셉, 텍스처 합성 ↔ 컨셉): 텍스처 메움의 색조 · 모양 차(얼룩 · 잔상)는 둘 다 다르고, 엔진 글자 효과(빛)만 다르면 렌더만 다르다(E7 몫),
@@ -1843,7 +2059,7 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
     # 컨셉이 그린 위젯(미리보기 · 샘플과 다른 상태). 사람 눈 그림 compare.png 는 컨셉 상태로 그린다(verify 가 그 상태로 렌더 — 못 맞추면 E8 오류)
     rec["state"] = {"force_visible_extra": sorted(h["widget"] for h in states if not h["drawn_in_concept"]),
                     "drawn_hidden_at_start": sorted(h["widget"] for h in states if h["drawn_in_concept"])}
-    approx = [{"widget": t["widget"], **a} for t in trecs for a in t.get("approx") or []]
+    approx = [{"widget": t["widget"], **a} for t in trecs for a in t.get("approx") or []] + gauge_approx
     rec["approx"] = approx
     badness = 0.0
     for d in defects:
@@ -1912,10 +2128,123 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                         rec["summary"]["by_code"]["E8"] = rec["summary"]["by_code"].get("E8", 0) + 1
         except Exception as exc:  # noqa: BLE001 — 상태 렌더 실패는 기록(그림은 base 로)
             rec["state"]["render_error"] = f"{type(exc).__name__}: {exc}"[:300]
+    # 상태 검사(1b 후속 L 다음 — gen/state_check): S1 숨김 흔적(시작 때 숨는 위젯을 끈 게임 기본 상태 — 검정 엔진 렌더 · 회색 · 흰 바탕 합성, 숨는 글자 상자도
+    # 빼지 않음 = S3) · S2 게이지 끝(진행률 0 · 0.05 · 1.0). 엔진 렌더(verify render_state)가 없으면 합성(정답 묶음 · 회귀 묶음 오프라인) — 기록만(record) · 오류(error, E8)
+    band = None
+    sc_mode = str(s.get("state_checks") or "record")
+    if sc_mode != "off":
+        sc: dict = {"mode": sc_mode}
+        try:
+            engine = render_state is not None and bool(rec["state"].get("render"))
+            roots = _hidden_roots(spec)
+            rend_off = None
+            if engine and roots:
+                try:
+                    rend_off = _state_render(render_state, {r: {"visible": False} for r in roots}, "state_off", (H, W))
+                except Exception as exc:  # noqa: BLE001 — 기록하고 합성으로
+                    sc["render_off_error"] = f"{type(exc).__name__}: {exc}"[:200]
+            glyphs = {k: (v["concept"] | v["concept_cand"]) for k, v in gm.items()}
+            ht = state_check.hidden_trace(spec, boxes, textures, canvas, rc0, ra0, states, glyphs, s, render_off=rend_off)
+            ov_state = {h["widget"]: {"visible": bool(h["drawn_in_concept"])} for h in states}
+            rp = None
+            if engine:
+                def rp(wid, p):
+                    ov = {**ov_state, wid: {**ov_state.get(wid, {}), "percent": float(p)}}
+                    return _state_render(render_state, ov, f"state_{wid}_{int(round(float(p) * 100)):03d}", (H, W))
+            base_g = shown if engine else comp_state
+            ref_png = _load_rgb(rd / "reference.png")
+            gs = state_check.gauge_states(spec_state, boxes, textures, canvas, s, base_g, render_pct=rp, ref_png=ref_png)
+            # S4 글자 밑 흔적(1b 후속 L 다음 L-1 글자 완전 지우기) — 모든 글자 빈 값 상태(텍스처 합성 · 엔진 text "")와 값 글자를 다른 값으로 그린 엔진 렌더
+            tt, notext_imgs, values_img, group_imgs = None, None, None, {}
+            try:
+                off_ids: set[str] = set()
+                for r_ in roots:
+                    off_ids |= _subtree(spec, r_)
+                notext_imgs = {"black": backdrop.compose(_without(spec, off_ids), boxes, textures, canvas, (0, 0, 0))[0],
+                               "gray": ht["images"]["gray"], "white": ht["images"]["white"]}
+                plate = notext_layers(rd, nt, spec) if nt.get("used") and (rd / str(nt.get("color"))).is_file() and (rd / str(nt.get("alpha"))).is_file() else None
+                r_nt = r_val = None
+                if engine:
+                    ov0 = {r_: {"visible": False} for r_ in roots}
+                    ov_nt = {**ov0, **{w_["id"]: {"text": ""} for w_ in spec.get("widgets", []) if w_.get("type") in backdrop.TEXT_TYPES and w_["id"] not in off_ids}}
+                    try:
+                        r_nt = _state_render(render_state, ov_nt, "state_notext", (H, W))
+                        vals = state_check.value_overrides(spec)
+                        if vals and r_nt is not None:
+                            r_val = _state_render(render_state, {**ov0, **vals}, "state_values", (H, W))
+                    except Exception as exc:  # noqa: BLE001 — 기록하고 합성으로
+                        sc["render_text_error"] = f"{type(exc).__name__}: {exc}"[:200]
+                # S4 숨는 묶음(글자 지우기 마감) — 텍스처째 숨는 위젯(배너)은 그것만 켠 글자 없는 상태로(합성 · 엔진 visible + text "")
+                groups = state_check.texture_groups(spec, textures)
+                for g_ in groups:
+                    off_g: set[str] = set()
+                    for r_ in roots:
+                        if r_ != g_["root"]:
+                            off_g |= _subtree(spec, r_)
+                    sp_g = _without(spec, off_g)
+                    g_["images"] = {k_: backdrop.compose(sp_g, boxes, textures, canvas, bg_)[0]
+                                    for k_, bg_ in (("black", (0, 0, 0)), ("gray", backdrop.GRAY), ("white", (255, 255, 255)))}
+                    g_["render"] = None
+                    if engine:
+                        ov_g = {**{r_: {"visible": False} for r_ in roots if r_ != g_["root"]}, g_["root"]: {"visible": True},
+                                **{w_["id"]: {"text": ""} for w_ in spec.get("widgets", []) if w_.get("type") in backdrop.TEXT_TYPES and w_["id"] not in off_g}}
+                        try:
+                            g_["render"] = _state_render(render_state, ov_g, f"state_notext_{g_['root']}", (H, W))
+                        except Exception as exc:  # noqa: BLE001 — 기록하고 합성으로
+                            sc.setdefault("render_group_errors", []).append(f"{g_['root']}: {type(exc).__name__}: {exc}"[:200])
+                tt = state_check.text_trace(spec, boxes, canvas, rc0, ra0, plate, gm, s, notext_imgs, renderer="engine" if r_nt is not None else "composite",
+                                            render_values=r_val, render_notext=r_nt, groups=groups)
+                if r_nt is not None:
+                    notext_imgs["black"] = r_nt
+                values_img = r_val
+                group_imgs = {g_["root"]: {"images": {**g_["images"], **({"black": g_["render"]} if g_["render"] is not None else {})},
+                                           "renderer": "engine" if g_["render"] is not None else "composite",
+                                           "box": [geo[g_["root"]][k_] for k_ in ("x", "y", "w", "h")] if g_["root"] in geo else None} for g_ in groups}
+            except Exception as exc:  # noqa: BLE001 — 검사가 깨지면 기록
+                sc["text_trace_error"] = f"{type(exc).__name__}: {exc}"[:300]
+            findings = [{k: v for k, v in f.items() if k != "mask"} for f in ht["findings"] + gs["findings"] + (tt["findings"] if tt else [])]
+            rec_only = set(s.get("state_record_only") or [])
+            # 사용자 결정 ③(11-20) — refine 이 '정답 없음'(근거 기록)으로 표시한 글자 자리 안의 S4 결함은 오류 대신 '정답 없음 — 수동 확인 필요'(다른 결함은 그대로 오류)
+            mchecks = manual_checks(rd)
+            for f in findings:
+                if f.get("check") in rec_only:
+                    f["record_only"] = True
+                mm = manual_match(f, mchecks, spec)
+                if mm:
+                    f["manual_check"] = mm
+            if mchecks:
+                rec["manual_check"] = [{**m, "findings": [{k: f.get(k) for k in ("check", "box", "max_de", "area")} for f in findings
+                                                          if (f.get("manual_check") or {}).get("box") == m.get("box") and f.get("widgets", [None])[0] == m.get("widget")]}
+                                       for m in mchecks]
+                rec["summary"]["manual_check"] = sum(1 for f in findings if f.get("manual_check"))
+            sc.update(hidden_trace={"renderer": ht["renderer"], "roots": ht["roots"]}, gauge_states={"renderer": gs["renderer"], "gauges": gs["gauges"]},
+                      findings=findings)
+            if tt is not None:
+                sc["text_trace"] = {"renderer": tt["renderer"], "texts": tt["texts"], **({"values": tt["values"]} if tt.get("values") else {}),
+                                    **({"line_like": tt["line_like"]} if tt.get("line_like") else {}), **({"groups": tt["groups"]} if tt.get("groups") else {}),
+                                    **({"lift_like": tt["lift_like"]} if tt.get("lift_like") else {})}
+            band = {"off": ht["images"], "off_renderer": ht["renderer"], "gauges": gs["images"], "gauge_base": base_g,
+                    "gauge_boxes": {k: [geo[k]["x"], geo[k]["y"], geo[k]["w"], geo[k]["h"]] for k in gs["images"] if k in geo},
+                    "gauge_renderer": {g_["widget"]: g_.get("renderer") for g_ in gs["gauges"]},
+                    "notext": notext_imgs, "notext_renderer": tt["renderer"] if tt else None, "values": values_img, "notext_groups": group_imgs}
+            if sc_mode == "error" and findings:
+                for f in [f_ for f_ in findings if not f_.get("record_only") and not f_.get("manual_check")]:
+                    defects.append(dict(f))
+                    defects[-1]["n"] = len(defects)
+                    rec["summary"]["by_code"]["E8"] = rec["summary"]["by_code"].get("E8", 0) + 1
+                    rec["summary"]["by_stage"]["state"] = rec["summary"]["by_stage"].get("state", 0) + 1
+                    rec["badness"] = round(rec["badness"] + f["area"] / 100.0, 3)
+                rec["summary"]["defects"] = rec["summary"]["errors"] = len(defects)
+        except Exception as exc:  # noqa: BLE001 — 검사가 깨지면 기록(오류 모드면 아래 게이트가 못 넘게 표시)
+            sc["error"] = f"{type(exc).__name__}: {exc}"[:300]
+        rec["state_checks"] = sc
     if pictures and out_dir is not None:
         try:
             rec["pictures"] = _pictures(pathlib.Path(out_dir), ref_black, base, comp_state, heat, defects)
-            rec["pictures"].append(compare_picture(pathlib.Path(out_dir) / "compare.png", ref_text, shown, heat, defects, trecs, gm))
+            man = [f for f in (rec.get("state_checks") or {}).get("findings") or [] if f.get("manual_check")]
+            cx = [m for m in rec.get("manual_check") or [] if m.get("reason") == "complex_background"]
+            rec["pictures"].append(compare_picture(pathlib.Path(out_dir) / "compare.png", ref_text, shown, heat, defects, trecs, gm, band=band,
+                                                   manual=man, complex_bg=cx))
         except Exception as exc:  # noqa: BLE001 — 그림 실패는 기록만
             rec["pictures_error"] = f"{type(exc).__name__}: {exc}"[:300]
     if out_dir is not None:
@@ -1965,9 +2294,87 @@ def _pictures(out: pathlib.Path, ref, ren, comp, loc, defects) -> list[str]:
     return names
 
 
-def compare_picture(path: pathlib.Path, ref, shown, heat, defects, trecs, gm) -> str:
+BAND_LABEL_H = 22
+BAND_PAD = 24          # 상태 띠의 게이지 조각 = 막대 상자 + 이만큼(px — 프레임 끝 장식까지)
+
+
+def _band_rows(band: dict, top_w: int) -> list:
+    """1b 후속 L 다음 — compare.png 상태 띠: ① 게임 기본 상태(시작 때 숨는 위젯 끔) — 엔진(또는 합성) 검정 | 회색 바탕 합성 | 흰 바탕 합성(절반 크기)
+    ② 게이지마다 컨셉 상태 | 0 % | 5 % | 100 % 조각(1:1, 두 장씩). 글자는 cv2 기본 글꼴이라 영문."""
+    import cv2
+    sep = 4
+
+    def tile(img, label, scale):
+        a = np.clip(img, 0, 255).astype(np.uint8)
+        if scale != 1:
+            a = cv2.resize(a, (max(1, int(a.shape[1] * scale)), max(1, int(a.shape[0] * scale))), interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_NEAREST)
+        lab = np.full((BAND_LABEL_H, a.shape[1], 3), 30, np.uint8)
+        cv2.putText(lab, label[:90], (4, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (230, 230, 230), 1, cv2.LINE_AA)
+        return np.concatenate([lab, a], axis=0)
+
+    def hcat(ts):
+        h = max(t.shape[0] for t in ts)
+        ts = [np.pad(t, ((0, h - t.shape[0]), (0, 0), (0, 0)), constant_values=255) for t in ts]
+        out = [ts[0]]
+        for t in ts[1:]:
+            out += [np.full((h, sep, 3), 255, np.uint8), t]
+        return np.concatenate(out, axis=1)
+    rows = []
+    off = band.get("off") or {}
+    names = (("black", f"game start (start-hidden widgets off) - {band.get('off_renderer', 'composite')} on black"),
+             ("gray", "game start - texture composite on gray"), ("white", "game start - texture composite on white"))
+    ts = [tile(off[k], lbl, 0.5) for k, lbl in names if off.get(k) is not None]
+    if ts:
+        rows.append(hcat(ts))
+    # 1b 후속 L 다음 L-1 글자 완전 지우기 — S4: 모든 글자 빈 값(엔진 또는 합성 검정 | 회색 | 흰 바탕 합성) · 값 글자를 다른 값으로(엔진)
+    nt_ = band.get("notext") or {}
+    ts = [tile(nt_[k], lbl, 0.5) for k, lbl in (("black", f"every text empty - {band.get('notext_renderer') or 'composite'} on black"),
+                                                 ("gray", "every text empty - texture composite on gray"),
+                                                 ("white", "every text empty - texture composite on white")) if nt_.get(k) is not None]
+    if band.get("values") is not None:
+        ts.append(tile(band["values"], "value texts at another value - engine", 0.5))
+    for k in range(0, len(ts), 3):
+        rows.append(hcat(ts[k:k + 3]))
+    # 글자 지우기 마감 — S4 숨는 묶음: 텍스처째 숨는 위젯(배너)만 켜고 글자 빈 값(엔진 또는 합성 검정 | 회색 | 흰 바탕 합성), 그 위젯 상자 + BAND_PAD 1:1
+    for root, gr in (band.get("notext_groups") or {}).items():
+        bb, imgs = gr.get("box"), gr.get("images") or {}
+        if not bb or not imgs:
+            continue
+        H, W = next(iter(imgs.values())).shape[:2]
+        x0, y0 = max(0, int(bb[0]) - BAND_PAD), max(0, int(bb[1]) - BAND_PAD)
+        x1, y1 = min(W, int(np.ceil(bb[0] + bb[2])) + BAND_PAD), min(H, int(np.ceil(bb[1] + bb[3])) + BAND_PAD)
+        per = max(1, min(3, (top_w + sep) // max(1, (x1 - x0) + sep)))
+        scale = 1.0 if per >= 2 else max(0.25, top_w / float(x1 - x0))
+        ts = [tile(imgs[k][y0:y1, x0:x1], f"{root} shown, texts empty - {gr.get('renderer') if k == 'black' else 'composite'} on {k}", min(1.0, scale))
+              for k in ("black", "gray", "white") if imgs.get(k) is not None]
+        for k in range(0, len(ts), per):
+            rows.append(hcat(ts[k:k + per]))
+    for wid, imgs in (band.get("gauges") or {}).items():
+        bb = (band.get("gauge_boxes") or {}).get(wid)
+        if not bb:
+            continue
+        H, W = next(iter(imgs.values())).shape[:2]
+        x0, y0 = max(0, int(bb[0]) - BAND_PAD), max(0, int(bb[1]) - BAND_PAD)
+        x1, y1 = min(W, int(np.ceil(bb[0] + bb[2])) + BAND_PAD), min(H, int(np.ceil(bb[1] + bb[3])) + BAND_PAD)
+        rend = (band.get("gauge_renderer") or {}).get(wid) or {}
+        items = [("concept state", band.get("gauge_base"))] + [(f"{p:.0%} - {rend.get(p, 'composite')}", im) for p, im in sorted(imgs.items())]
+        scale = 1.0 if 2 * (x1 - x0) + sep <= top_w else max(0.25, (top_w - sep) / (2.0 * (x1 - x0)))
+        ts = [tile(im[y0:y1, x0:x1], f"{wid} {lbl}", scale) for lbl, im in items if im is not None]
+        for k in range(0, len(ts), 2):
+            rows.append(hcat(ts[k:k + 2]))
+    return rows
+
+
+MANUAL_COLOR = (255, 64, 255)      # 수동 확인(정답 없음) 표시 색 — 오류 단계 색과 겹치지 않게
+
+
+def compare_picture(path: pathlib.Path, ref, shown, heat, defects, trecs, gm, band: dict | None = None, manual: list | None = None,
+                    complex_bg: list | None = None) -> str:
     """1b 후속 K — 사람 눈 비교 그림: 위 = 컨셉 | 컨셉 상태 렌더 | 국소 차이(글자 구역 바탕 포함, 결함 번호 · 오류 번호) — 절반 크기,
-    아래 = 글자마다 3 배 확대 타일(컨셉 | 렌더 + 오류 · 근사 표시). 보고 전에 이 그림을 본다(force_visible render.png 는 기계용)."""
+    아래 = 글자마다 3 배 확대 타일(컨셉 | 렌더 + 오류 · 근사 표시). 보고 전에 이 그림을 본다(force_visible render.png 는 기계용).
+    1b 후속 L 다음 — band(상태 검사 그림)가 있으면 맨 아래 상태 띠(_band_rows — 게임 기본 상태 · 게이지 0 / 5 / 100 % · 밝은 바탕).
+    글자 지우기 다음(사용자 결정 ③) — manual(오류 대신 '정답 없음 — 수동 확인 필요'로 돌린 S4 결함)은 국소 차이 판에 자홍 상자 'M' · 위 판 바로 밑 줄로 눈에 띄게,
+    complex_bg(V8 복잡 배경 글자 — 기록)도 그 줄에."""
     import cv2
     from PIL import Image
     H, W = heat.shape
@@ -1978,10 +2385,30 @@ def compare_picture(path: pathlib.Path, ref, shown, heat, defects, trecs, gm) ->
         c = STAGE_COLORS.get(d["stage"], (255, 255, 255))
         cv2.rectangle(panels[2], (x - 3, y - 3), (x + w + 3, y + h + 3), c, 2)
         cv2.putText(panels[2], f"{d['n']}:{d.get('code', '')}", (x, max(14, y - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, c, 2, cv2.LINE_AA)
+    for f in manual or []:
+        x, y, w, h = (int(v) for v in f["box"])
+        for p in (panels[1], panels[2]):
+            cv2.rectangle(p, (x - 4, y - 4), (x + w + 4, y + h + 4), MANUAL_COLOR, 3)
+            cv2.putText(p, "M:no truth", (x, max(14, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, MANUAL_COLOR, 2, cv2.LINE_AA)
     sep = np.full((H, 8, 3), 255, np.uint8)
     top = np.concatenate([panels[0], sep, panels[1], sep, panels[2]], axis=1)
     top = np.asarray(Image.fromarray(top).resize((top.shape[1] // 2, H // 2), Image.Resampling.LANCZOS))
     rows = []
+    notes = []
+    for f in manual or []:
+        ev = (f.get("manual_check") or {}).get("evidence") or {}
+        notes.append((f"MANUAL CHECK - no ground truth under '{(f.get('widgets') or ['?'])[0]}' ({f.get('check')} max {f.get('max_de')}): "
+                      f"concept alpha {ev.get('concept_alpha')} vs text-free plate {ev.get('plate_alpha')}, {ev.get('px')} px - not counted as an error",
+                      MANUAL_COLOR))
+    for m in complex_bg or []:
+        bg = m.get("background") or {}
+        notes.append((f"MANUAL CHECK - complex background under '{m.get('widget')}' (edge {bg.get('edge_frac')} / L* std {bg.get('l_std')}, "
+                      f"generative fill backend: {m.get('backend', 'none')}) - recorded only", (255, 180, 64)))
+    if notes:
+        bar = np.full((26 * len(notes) + 6, top.shape[1], 3), 30, np.uint8)
+        for k, (txt, c) in enumerate(notes):
+            cv2.putText(bar, txt[:150], (8, 20 + 26 * k), cv2.FONT_HERSHEY_SIMPLEX, 0.6, c, 1, cv2.LINE_AA)
+        rows.append(bar)
     for t in trecs:
         c, r = t.get("concept"), t.get("render")
         boxes = [b["box"] for b in (c, r) if b]
@@ -2004,6 +2431,8 @@ def compare_picture(path: pathlib.Path, ref, shown, heat, defects, trecs, gm) ->
         tiles = [np.pad(tl, ((0, lab.shape[0] - th), (0, 0), (0, 0)), constant_values=255) for tl in tiles]
         sp = np.full((lab.shape[0], 6, 3), 255, np.uint8)
         rows.append(np.concatenate([lab, tiles[0], sp, tiles[1]], axis=1))
+    if band:
+        rows += _band_rows(band, top.shape[1])
     out = [top]
     if rows:
         wmax = max([top.shape[1]] + [r_.shape[1] for r_ in rows])
@@ -2019,6 +2448,9 @@ def gate(rec: dict) -> dict:
         return {"name": "appearance", "pass": True, "skipped": rec["skipped"]}
     if rec.get("error"):
         return {"name": "appearance", "pass": False, "details": {"error": rec["error"]}}
+    sc = rec.get("state_checks") or {}
+    if sc.get("mode") == "error" and sc.get("error"):
+        return {"name": "appearance", "pass": False, "details": {"error": f"state checks failed: {sc['error']}"}}
     sm = rec.get("summary") or {}
     top = [{k: d.get(k) for k in ("n", "code", "stage", "cause", "box", "area", "widgets", "fixable", "max_de")} for d in (rec.get("defects") or [])[:20]]
     return {"name": "appearance", "pass": sm.get("defects", 0) == 0, "value": sm.get("defects", 0), "threshold": 0,

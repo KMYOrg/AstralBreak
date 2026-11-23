@@ -521,7 +521,12 @@ def test_refine_treats_a_mark_also_in_the_text_free_concept_as_decoration(tmp_pa
     generate.run(run, types.SimpleNamespace(attempt=1))
     refine.run(run, types.SimpleNamespace(attempt=1))
     log = run.read_json("refine.json")["passes"][0]["assets"][0]
-    assert "text_marks_first" not in log["cut"] and log["cut"]["glyph_fill"][0]["used"] and len(calls) == 2      # 텍스처 · 판 조각 한 번씩
+    # 텍스처 · 판 조각 한 번씩 — 굽기마다(글자 지우기 마감: 지울 글자가 있으면 방법마다 lama · harmonic · off 셋을 굽고 refine 끝에 고른다)
+    # 글자 지우기 다음 V7 — 컨셉 OCR 한 번(refine_concept_ocr.json) · V6 — 판에도 있는 자국은 잔여물이 아니라 반복 보강 없음
+    erasing = bool((log["cut"].get("text_erase") or {}).get("texts"))
+    builds = 1 + len(set(refine.erase_methods(run.cfg)) - {"lama"}) + 1 if erasing else 1     # lama 첫 판 + 나머지 후보 + off
+    assert "text_marks_first" not in log["cut"] and log["cut"]["glyph_fill"][0]["used"] and len(calls) == 2 * builds + (1 if erasing else 0)
+    assert not (((log["cut"].get("text_erase") or {}).get("gate") or {}).get("retries"))
     assert log["ocr_decor"]["boxes"][0]["in_text_free_concept"] and log["ocr_decor"]["boxes"][0]["box"] == [480.0, 330.0, 60.0, 50.0]
     assert {a["asset_id"]: a for a in run.read_json("manifest.json")["assets"]}["panel_tex"]["ocr_text"] == ""
 

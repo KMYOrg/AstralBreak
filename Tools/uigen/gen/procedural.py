@@ -143,8 +143,20 @@ def render(asset: dict, reference=None) -> tuple[int, int, bytes]:
         if [w, h] != [int(v) for v in asset["size"]]:
             raise ProceduralError(f"asset '{asset.get('asset_id')}': concept_fill drew {w}x{h}, spec says {asset['size']}")
         return w, h, rgba
+    if shape == "concept_end_cap":
+        # 1b 후속 L 다음 — 글자 지우기 마감 H4 (나): 가득 찬 게이지 끝 덮개(gen/concept_fill.render_end_cap — 컨셉 끝 장식 호부터 바깥)
+        from gen import concept_fill
+        if reference is None:
+            raise ProceduralError(f"asset '{asset.get('asset_id')}': concept_end_cap needs the reference image")
+        try:
+            w, h, rgba = concept_fill.render_end_cap_bytes(reference, p)
+        except (concept_fill.ConceptFillError, KeyError, ValueError) as exc:
+            raise ProceduralError(f"asset '{asset.get('asset_id')}': concept_end_cap — {exc}") from exc
+        if [w, h] != [int(v) for v in asset["size"]]:
+            raise ProceduralError(f"asset '{asset.get('asset_id')}': concept_end_cap drew {w}x{h}, spec says {asset['size']}")
+        return w, h, rgba
     if shape not in SHAPES:
-        raise ProceduralError(f"asset '{asset.get('asset_id')}': unknown procedural shape '{shape}' (known: {sorted(SHAPES) + ['concept_fill']})")
+        raise ProceduralError(f"asset '{asset.get('asset_id')}': unknown procedural shape '{shape}' (known: {sorted(SHAPES) + ['concept_fill', 'concept_end_cap']})")
     w, h = (int(v) for v in asset["size"])
     return w, h, bytes(SHAPES[shape](w, h, p))
 

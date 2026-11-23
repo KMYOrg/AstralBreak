@@ -44,7 +44,8 @@ def structural_failed(result: dict) -> list[str]:
 
 def appearance_gate(run, attempt: int, rendered: bool, render_state=None) -> tuple[dict, dict | None]:
     """1b 후속 J-b — gen/diagnose 진단 → appearance 게이트 + 기록(run 폴더 diagnosis.json · attempts/NNN/diagnosis/).
-    render_state(overrides) → PNG(1b 후속 K): 숨은 위젯을 컨셉 상태로 켜고 끈 엔진 렌더 — 사람 눈 그림 compare.png(run 폴더에도 복사) · E8."""
+    render_state(overrides, name="state") → PNG(1b 후속 K): 숨은 위젯을 컨셉 상태로 켜고 끈 엔진 렌더 — 사람 눈 그림 compare.png(run 폴더에도 복사) · E8.
+    1b 후속 L 다음 — 상태 검사(gen/state_check)가 같은 함수로 게임 기본 상태 · 게이지 진행률 렌더를 이름(폴더)마다 더 받는다."""
     from gen import diagnose
     if not diagnose.enabled(run.cfg):
         return gate(APPEARANCE, True, skipped="appearance.enabled is off"), None
@@ -286,9 +287,10 @@ def run(run, opts, toolchain=None) -> dict:
         artifacts["render_sample"] = "render_sample.png"
     except (ToolchainError, OSError, KeyError, IndexError) as exc:
         notes["sample_render_error"] = str(exc)
-    def render_state(overrides):   # 1b 후속 K — 컨셉 상태(숨은 위젯 켜고 끔 — 진행률 · 글자는 spec 미리보기 그대로) 엔진 렌더
-        r = tc.call("render_widget", {"asset_path": wbp, "output_dir": (adir / "state").resolve().as_posix(), "resolutions": [canvas],
-                                      "force_visible": False, "overrides": overrides, "prefix": "state"})
+    def render_state(overrides, name="state"):   # 1b 후속 K — 컨셉 상태(숨은 위젯 켜고 끔 — 진행률 · 글자는 spec 미리보기 그대로) 엔진 렌더
+        # 1b 후속 L 다음 — 상태 검사(게임 기본 상태 · 게이지 0 / 5 / 100 %)는 이름마다 다른 폴더(render_widget 은 빈 폴더에만 쓴다)
+        r = tc.call("render_widget", {"asset_path": wbp, "output_dir": (adir / name).resolve().as_posix(), "resolutions": [canvas],
+                                      "force_visible": False, "overrides": overrides, "prefix": name})
         return r["renders"][0]["png"]
     gates[APPEARANCE], diag = appearance_gate(run, attempt, "render" in artifacts, render_state)
     if diag and diag.get("pictures"):

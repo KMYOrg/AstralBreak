@@ -1,0 +1,931 @@
+"""상태 검사 (1b 후속 L 다음 — 상태 렌더 검증, 11-19) — 컨셉 한 장이 그린 상태 밖의 상태를 그려 둘레 · 컨셉 상태와 맞댄다.
+
+매핑(layer · refine 판 · concept_fill 채움)은 컨셉 한 장(한 상태)만 보고 픽셀 주인과 다른 상태를 추측하고, 진단은 그 상태 하나를 검정 바탕에서만 봐서
+그 추측을 성공으로 판정했다 [실측 R20261119_091634 사용자 인게임 — ① 시작 때 숨는 '오의 불가' 자리 판에 회색 둥근 상자 · 어두운 덩어리(검정 위에선 안
+보이고, 진단은 글자를 컨셉 상태로 켠 렌더만 봐 글자가 덮음) ② 게이지 100 % 에서 채움 번짐 24 px 가 트랙 끝을 넘어 끝 장식을 어두운 사각형으로 덮음
+(70 % 미리보기는 빈 트랙 위라 컨셉과 같음)].
+
+S1 숨김 흔적(hidden_trace) — 시작 때 숨는 위젯(diagnose._hidden_roots — 그 아래 전부)을 모두 끈 게임 기본 상태를 검정 엔진 렌더(없으면 검정 합성) ·
+   회색 · 흰 바탕 텍스처 합성(gen/backdrop)으로 그리고, 컨셉이 그 위젯을 그린 것(hidden_state_split 의 drawn_in_concept)마다 그 자리(글자 = 상자 + 빛 +
+   4 px, 그 밖 = 상자 + 4 px — 다른 보이는 글자 · 런타임 그림 자리는 뺌)에서 둘레로 설명되지 않는 덩어리를 찾는다. 설명 =
+   (가) 둘레 가까이: 둘레 고리(RING px)의 가우스 가중 평균(σ NEAR_SIGMAS — 받침이 있는 자리만)
+   (나) 띠: 같은 줄(열)의 양끝 둘레 대표색이 BAND_DE 안으로 같으면 그 사이 선형 보간(자리를 가로지르는 구조선 · 빛 띠 — 게이지 테두리 윗선)
+   (다) 둘레 대표색(고리 중앙값 — 자리 안은 둘레처럼 비어야 한다)
+   (라) 컨셉 그대로: 컨셉이 그린 글자 · 빛 자리(컨셉 글자 획 + 빛 + FOOT_PAD, 글자 아닌 위젯은 상자) 밖에서 컨셉 픽셀과 같음(그 자리의 구조물 — 테두리 가운데 장식)
+   픽셀 차 = 그중 가장 작은 ΔE00 → 자리 안만의 7 × 7 창 평균 > local_de 인 자리 덩어리(넓이 ≥ min_area) — 바탕 셋 중 하나라도.
+S2 게이지 끝(gauge_states) — 가로 게이지마다 진행률 0 · 0.05 · 1.0 렌더(엔진 — 없으면 합성): 트랙 상자 밖(막대 상자 + GAUGE_PAD 안 — 프레임 · 끝 장식)
+   이 컨셉 상태 렌더와 국소 차 > local_de(트랙 밖만의 창 평균 — 트랙 안 채움 차가 번져 들지 않게) · 1.0 에서 트랙 끝 구간이 0 과 같음(채움이 안 닿음 —
+   END_SAME_FRAC 넘게 ΔE00 < END_SAME_DE) · 0 에서 트랙 안(보이는 글자 자리 뺌)이 채움 없는 합성과 국소 차 > local_de(채움이 남음).
+S3 — S1 의 회색 · 흰 바탕 합성 지표는 시작 때 숨는 글자 상자를 빼지 않는다(backdrop.text_mask · 진단 글자 구역 제외를 안 쓴다 — 그 자리가 검사 대상).
+S4 글자 밑 흔적(text_trace — 1b 후속 L 다음 L-1 글자 완전 지우기) — 모든 글자를 빈 값으로 그린 상태(엔진 overrides text "" · 텍스처 합성 = 글자 없음)에서
+   보이는 글자(시작 때 숨는 글자는 S1 몫)마다 자리 = 컨셉 글자 획(후보 · 핵심) + 빛 꼬리(glow_measure, ≤ TEXT_TAIL_MAX) + TEXT_ZONE_PAD ∩ 상자 + 빛 + 4 px.
+   설명 = S1 (가) · (나) · (다) + (마) 글자 없는 판 ±2 px 이동 최소(판이 그린 띠 · 테두리) + (라) 컨셉 그대로 — 단 (라)는 컨셉이 글자 · 빛을 그린 자리
+   (핵심 획 + TEXT_CORE_PAD ∪ 빛 꼬리 안 '컨셉이 판(±2 px 이동 최대)보다 L* TEXT_GLOW_DL 넘게 밝은' 픽셀) 밖에서만 — 빈 값에선 컨셉 글자 · 빛이 정답이
+   아니다. 자리가 겹친 글자는 한 덩어리로(둘레 고리 공유). 판정 = 자리 안만의 3 × 3 창 평균 > text_trace_de · 덩어리 ≥ text_trace_min_area —
+   S1 의 7 × 7 · 10 은 얇은 빛 윤곽을 못 본다 [실측 R20261119_144231 체인 패널 '4.2' 빛 윤곽 — 3 × 3 최대 7.1 · 7 × 7 최대 5.8, 깨끗한 L-2 010312 ·
+   보호 run(판 설명 넣은 뒤) 3 × 3 최대 ≤ 4.8]. 값이 바뀌는 글자(바인딩 number · text)는 같은 형식 다른 값(_other_value)으로도 그려(엔진만) 새 글자 +
+   빛 자리를 뺀 옛 자리에서 같은 판정(text_value_trace).
+S4 보강(1b 후속 L 다음 — 글자 지우기 마감, 11-19):
+   숨는 묶음 — 시작 때 숨는 위젯 중 자기 · 자손이 텍스처를 그리는 것(texture_groups — 배너)은 그 위젯만 켠 글자 없는 상태(합성 · 엔진 visible + text "")로
+     그 아래 글자 자리를 같은 판정(결함 · 기록에 state). 글자만 숨는 것('오의 불가')은 S1 · F1 그대로.
+   가는 선(text_contour) — 자리 안 픽셀 차 > text_contour_de 가 8-연결로 골격 길이 ≥ text_contour_len · 두께 ≤ CONTOUR_THICK(곧은 가로 · 세로 선은 구조선 —
+     line_like 기록만). 3 × 3 평균은 1 px 윤곽(국소 3.1)을 못 봤다 [실측 R20261119_190059 '4' 안쪽 윤곽].
+   (마) 글자 없는 판은 이 자리 둘레 고리에 색조 맞춘 사본(_tone_matched) — 판 그대로면 둘레와 색조가 다른 판 조각을 글자 자리에 붙인 얼룩까지 '판과 같음'.
+   밝힌 검정(lift — 검정 합성 × text_trace_lift)은 기록만(local_max.lift) — refine 글자 지우기 고르기가 쓴다(어두운 판의 낮은 대비 흔적).
+S2 보강(gauge_end_cover · gauge_end_gap) — concept_fill 게이지는 1.0 에서 트랙 끝 구간(끝에서 max(END_COLS, END_SHAPE_FRAC × 트랙 폭)) 안의 컨셉 트랙
+   hole(concept_fill.track_hole — 끝 장식 안쪽 호까지) 밖 프레임 구조물이 0 렌더와 국소 차 > local_de(채움이 끝 장식 호를 덮음 — S2 는 트랙 상자 밖만 봐 못 봤다
+   [실측 R20261119_144231 사용자 눈 — 100 % 오른쪽 끝 곧은 테두리]) · 그 구간 hole 이 0 렌더와 END_SAME_FRAC 넘게 같음(호 안 빈 트랙을 못 채움).
+S4 보강(1b 후속 L 다음 — 글자 지우기 다음, 11-20):
+   V2 구조선 규칙 좁힘 — 선 모양 덩어리(짧은 변 ≤ TEXT_LINE_MAX · 곧은 가는 선)는 글자 없는 판(색조 맞춘 판 ±2 px)에도 있는 선일 때만 구조선(기록만, plate_line).
+     판에 없는 선은 appearance.text_line_plate: error 면 결함(line_not_in_plate) — 막대 윗선 위에 남은 글자 빛 자국이 '구조선'으로 빠졌다.
+   V3 밝힌 검정 — 둘레 고리 검정 합성 L*(ring_l) · 밝힘 국소 > LIFT_RECORD_DE 덩어리(lift_like) 기록. appearance.text_lift_mode: error 면 어두운 판 자리
+     (ring_l < LIFT_DARK_L)의 밝힘 국소 > text_lift_de 덩어리를 결함(check text_lift).
+결과 = 결함 dict(stage state · code E8 · check) — diagnose 가 appearance.state_checks 에 따라 기록만(record) 또는 오류로(error) — appearance.state_record_only
+   에 든 check 는 오류 모드에서도 기록만(새 검사를 묶음 거짓 양성 0 확인 전까지).
+"""
+from __future__ import annotations
+
+import copy
+
+import numpy as np
+
+from gen import backdrop
+from gen import diagnose as dg
+
+WHITE = (255, 255, 255)
+RING = 6                    # 둘레 고리 폭(px)
+NEAR_SIGMAS = (2.0, 4.0)    # (가) 둘레 가까이 — 이 크기의 가우스 가중 평균만(멀리는 띠 · 대표색 · 컨셉으로만 설명)
+NEAR_SUPPORT = 0.05
+BAND_DE = 10.0              # (나) 같은 줄(열) 양끝 둘레 대표색 ΔE00 이 이보다 작으면 띠
+BAND_MIN_PX = 2             # 양끝 둘레 각각 이만큼 이상 픽셀이 있어야 띠
+FOOT_PAD = 3                # (라) 컨셉 글자 · 빛 자리 = 컨셉 글자 획 + 빛 + 이만큼
+GAUGE_PAD = 8               # S2 트랙 밖 = 막대 상자 + 이만큼(px) 안
+GAUGE_STATES = (0.0, 0.05, 1.0)
+END_COLS = 8                # S2 1.0 트랙 끝 구간 = 끝에서 max(이만큼, 트랙 폭 × END_FRAC) px(맨 끝 2 px 뺌) × 트랙 가운데 절반 줄
+END_FRAC = 0.03
+END_SAME_DE = 5.0           # 그 구간이 0 렌더와 ΔE00 이만큼 안이면 '안 바뀜'(채움이 안 닿음)
+END_SAME_FRAC = 0.3
+END_SHAPE_FRAC = 0.08       # S2 보강 — 끝 장식 호를 보는 트랙 끝 구간(트랙 폭 비)
+TEXT_TAIL_MAX = 24          # S4 — 글자 빛 꼬리 상한(px — glow_measure max_d)
+TEXT_ZONE_PAD = 3           # S4 자리 = 컨셉 글자 획 + 빛 꼬리 + 이만큼
+TEXT_CORE_PAD = 2           # S4 (라) 금지 자리 = 핵심 획 + 이만큼 ∪ 빛 픽셀
+TEXT_GLOW_DL = 3.0          # S4 빛 픽셀 = 컨셉 L* − 판 ±2 px 이동 최대 L* > 이것(판에도 있는 구조물은 빛 아님)
+TEXT_LOCAL = 3              # S4 국소 창(px)
+TEXT_LINE_MAX = 2           # S4 덩어리 상자의 짧은 변이 이 이하면 선 모양(구조선) — 기록(line_like)만
+# 1b 후속 L 다음 — 글자 지우기 마감: S4 가는 선(text_contour). 3 × 3 창 평균(text_trace)은 1 px 윤곽(국소 3.1)을 못 봤다 [실측 R20261119_190059 체인 패널 '4' —
+# 판 구조물 지킴이 남긴 컨셉 빛 테두리 선 385 px · 섞임 띠의 판 색 고리]. 자리 안 픽셀 차(설명 최소 ΔE00) > CONTOUR_DE 가 8-연결로 이어진 덩어리의 골격 길이 ≥ CONTOUR_LEN
+# 이고 두께(넓이 ÷ 골격 길이) ≤ CONTOUR_THICK(두꺼운 덩어리는 text_trace 몫). 값은 appearance.text_contour_de · text_contour_len 으로 덮음
+CONTOUR_DE = 2.5
+CONTOUR_LEN = 40
+CONTOUR_THICK = 3.0
+CONTOUR_LINK = 1            # 가는 선 — 이만큼(px) 틈은 잇고 잼(text_contour_link 로 덮음)
+CONTOUR_LINK_DENSITY = 0.3  # 이은 덩어리에서 원래 픽셀 비율 하한(흩어진 잡티 빼기)
+CONTOUR_LINE_SHORT = 5      # 가는 선 덩어리 상자 짧은 변 ≤ 이것 · 긴 변 ≥ 짧은 변 × CONTOUR_LINE_RATIO 면 곧은 구조선(기록만)
+CONTOUR_LINE_RATIO = 4.0
+# 1b 후속 L 다음 — 글자 지우기 다음 V2: 선 모양 덩어리(짧은 변 ≤ TEXT_LINE_MAX · 곧은 가는 선)를 구조선(기록만)으로 보는 것은 **그 선이 글자 없는 판에도 있을 때만**
+# — 선 픽셀의 LINE_PLATE_FRAC 이상이 색조 맞춘 판 ±2 px 이동 최소 차(d_s)가 판 바탕(둘레 고리 판 중앙값)과의 차(d_b)보다 LINE_PLATE_MARGIN 넘게 작고(판의 선이
+# 바탕보다 그 선을 잘 설명) 판의 그 자리(±2 px 최대)가 판 바탕과 text_trace_de 넘게 다를 때(판에 실제로 선이 있음). 아니면 판에 없는 선 = 글자 흔적
+# [실측 R20261120_005215 파티 HP 숫자 — 막대 윗선 약 5 px 위의 녹색 빛 반원 띠 22 × 2 · 7.1 이 '구조선'으로 빠졌다(사용자 눈)]
+LINE_PLATE_FRAC = 0.6
+LINE_PLATE_MARGIN = 2.0
+# 1b 후속 L 다음 — 글자 지우기 다음 V3: 밝힌 검정(lift)은 어두운 판 자리(둘레 고리 검정 합성 L* < LIFT_DARK_L)에서만 판정 후보 — 밝은 자리는 × 3 이 255 로
+# 잘려 뜻이 없다. 기록 덩어리 = 밝힘 3 × 3 국소 > LIFT_RECORD_DE(보정용 낮은 문턱)
+LIFT_DARK_L = 20.0
+LIFT_RECORD_DE = 3.0
+
+
+def _glow(w: dict) -> float:
+    f = w.get("font") if isinstance(w.get("font"), dict) else {}
+    return float((f.get("glow") or {}).get("size") or 0)
+
+
+def _gbox(g: dict) -> list[float]:
+    return [g["x"], g["y"], g["w"], g["h"]]
+
+
+def masked_local(de, m, cover_min: float):
+    """자리 m 안 픽셀만의 7 × 7 창 평균(자리 밖 값이 번져 들지 않게) — 창 안 자리 비율 < cover_min 이면 0."""
+    import cv2
+    mf = np.asarray(m, np.float32)
+    c = cv2.blur(mf, (dg.WIN, dg.WIN))
+    v = cv2.blur((np.asarray(de, np.float32) * mf), (dg.WIN, dg.WIN)) / np.maximum(c, 1e-6)
+    return np.where(c >= cover_min, v, 0.0)
+
+
+def _blobs(flag, loc, min_area: int) -> list[dict]:
+    import cv2
+    out = []
+    n, lab, _, _ = cv2.connectedComponentsWithStats(cv2.dilate(flag.astype(np.uint8), np.ones((3, 3), np.uint8)), connectivity=8)
+    for i in range(1, n):
+        blob = (lab == i) & flag
+        area = int(blob.sum())
+        if area < min_area:
+            continue
+        out.append({"mask": blob, "box": dg._bbox(blob), "area": area, "max_de": round(float(loc[blob].max()), 1), "mean_de": round(float(loc[blob].mean()), 1)})
+    return out
+
+
+def _near_estimate(img, ring):
+    """(가) 둘레 고리 픽셀의 가우스 가중 평균 — σ 작은 것부터, 받침(가중치 합) ≥ NEAR_SUPPORT 인 자리만. → (추정 HxWx3, 받침 있음 HxW)."""
+    import cv2
+    w = ring.astype(np.float32)
+    est = np.zeros(img.shape, np.float32)
+    done = np.zeros(ring.shape, bool)
+    for s in NEAR_SIGMAS:
+        den = cv2.GaussianBlur(w, (0, 0), s)
+        ok = (den > NEAR_SUPPORT) & ~done
+        if ok.any():
+            num = np.dstack([cv2.GaussianBlur((img[..., i] * w).astype(np.float32), (0, 0), s) for i in range(3)])
+            est[ok] = num[ok] / den[ok][:, None]
+            done |= ok
+    return est, done
+
+
+def _band_estimate(img, zone, ring, axis: int):
+    """(나) 띠 — 줄(axis 0) · 열(axis 1)마다 자리 양끝 바로 밖 둘레(RING px)의 중앙값 둘이 BAND_DE 안으로 같으면 그 사이 선형 보간. → (추정, 있음)."""
+    from core import color
+    if axis == 1:
+        e, v = _band_estimate(np.transpose(img, (1, 0, 2)), zone.T, ring.T, 0)
+        return np.transpose(e, (1, 0, 2)), v.T
+    H, W = zone.shape
+    est = np.zeros(img.shape, np.float32)
+    valid = np.zeros((H, W), bool)
+    rows = np.nonzero(zone.any(axis=1))[0]
+    ends = []
+    for y in rows:
+        xs = np.nonzero(zone[y])[0]
+        x0, x1 = int(xs.min()), int(xs.max())
+        lm = ring[y, max(0, x0 - RING):x0]
+        rm = ring[y, x1 + 1:x1 + 1 + RING]
+        if int(lm.sum()) < BAND_MIN_PX or int(rm.sum()) < BAND_MIN_PX:
+            continue
+        L = np.median(img[y, max(0, x0 - RING):x0][lm], axis=0)
+        R = np.median(img[y, x1 + 1:x1 + 1 + RING][rm], axis=0)
+        ends.append((y, x0, x1, L, R))
+    if not ends:
+        return est, valid
+    Ls = np.array([e[3] for e in ends], float)
+    Rs = np.array([e[4] for e in ends], float)
+    de = color.delta_e00(color.srgb_to_lab(Ls.reshape(-1, 1, 3)), color.srgb_to_lab(Rs.reshape(-1, 1, 3))).reshape(-1)
+    for (y, x0, x1, L, R), d in zip(ends, de):
+        if d >= BAND_DE:
+            continue
+        t = (np.arange(x0, x1 + 1) - (x0 - 1)) / float(x1 + 1 - (x0 - 1))
+        est[y, x0:x1 + 1] = L[None, :] * (1 - t[:, None]) + R[None, :] * t[:, None]
+        valid[y, x0:x1 + 1] = True
+    return est, valid
+
+
+def explain_diff(img, concept, zone, ring, foot, extra=None) -> np.ndarray:
+    """자리 안 픽셀마다 '둘레 · 컨셉으로 설명되는 가장 가까운 값'과의 ΔE00(가 · 나 · 다 · 라 중 최소). 자리 밖은 0.
+    extra = 더 넣을 설명 ΔE00 지도들(S4 (마) 글자 없는 판 ±2 px 이동 최소)."""
+    from core import color
+    img = np.asarray(img, np.float32)
+    lab = color.srgb_to_lab(img)
+
+    def de_to(est):
+        return color.delta_e00(lab, color.srgb_to_lab(np.asarray(est, np.float32))).astype(np.float32)
+    big = np.float32(1e9)
+    d = np.full(zone.shape, big, np.float32)
+    est, ok = _near_estimate(img, ring)
+    if ok.any():
+        d = np.where(ok, np.minimum(d, de_to(est)), d)
+    for ax in (0, 1):
+        est, ok = _band_estimate(img, zone, ring, ax)
+        if ok.any():
+            d = np.where(ok, np.minimum(d, de_to(est)), d)
+    if ring.any():
+        med = np.median(img[ring], axis=0)
+        d = np.minimum(d, de_to(np.broadcast_to(med, img.shape)))
+    if concept is not None:
+        d = np.where(~foot, np.minimum(d, de_to(concept)), d)
+    for e in extra or []:
+        d = np.minimum(d, np.asarray(e, np.float32))
+    return np.where(zone, d, 0.0).astype(np.float32)
+
+
+def _crop_box(m, pad: int, shape):
+    bb = dg._bbox(m)
+    H, W = shape
+    x0, y0 = max(0, bb[0] - pad), max(0, bb[1] - pad)
+    return x0, y0, min(W, bb[0] + bb[2] + pad), min(H, bb[1] + bb[3] + pad)
+
+
+def hidden_trace(spec: dict, boxes: list[dict], textures: dict, canvas, concept_rgb, concept_a, states: list[dict], glyphs: dict, s: dict,
+                 render_off=None) -> dict:
+    """S1 — → {"roots": [자리마다 기록], "findings": [결함], "images": {"black", "gray", "white"}(게임 기본 상태 — compare.png 띠), "renderer"}."""
+    W, H = int(canvas[0]), int(canvas[1])
+    geo = {b["id"]: b for b in boxes}
+    widgets = {w["id"]: w for w in spec.get("widgets", [])}
+    roots = dg._hidden_roots(spec)
+    off_ids: set[str] = set()
+    for r in roots:
+        off_ids |= dg._subtree(spec, r)
+    spec_off = dg._without(spec, off_ids)
+    gray, gcov, ginfo = backdrop.compose(spec_off, boxes, textures, canvas, backdrop.GRAY, owners=True)
+    white = backdrop.compose(spec_off, boxes, textures, canvas, WHITE)[0]
+    renderer = "engine" if render_off is not None else "composite"
+    black = render_off if render_off is not None else backdrop.compose(spec_off, boxes, textures, canvas, (0, 0, 0))[0]
+    imgs = {"black": black, "gray": gray, "white": white}
+    out = {"renderer": renderer, "roots": [], "findings": [], "images": imgs}
+    if not roots:
+        return out
+    owner, owner_ids = ginfo.get("owner"), ginfo.get("owner_ids", [])
+    excl = np.zeros((H, W), bool)
+    for w in spec.get("widgets", []):
+        g = geo.get(w["id"])
+        if not g or not g.get("visible", True) or w["id"] in off_ids or g["w"] <= 0 or g["h"] <= 0:
+            continue
+        if w.get("type") in backdrop.TEXT_TYPES:
+            excl |= dg._box_mask((H, W), _gbox(g), dg.HIDDEN_PAD + _glow(w))      # 보이는 엔진 글자 — 합성엔 없다
+        elif w.get("type") == "Image" and (w.get("binding") or {}).get("kind") == "image":
+            excl |= dg._box_mask((H, W), _gbox(g), 2)                              # 런타임 그림(정답 없음)
+    ca = np.asarray(concept_a, np.float32)[..., None]
+    concepts = {k: np.asarray(concept_rgb, np.float32) * ca + np.asarray(bg, np.float32) * (1 - ca)
+                for k, bg in (("black", (0, 0, 0)), ("gray", backdrop.GRAY), ("white", WHITE))}
+    drawn = {h["widget"]: h for h in states}
+    T, cover, min_area = float(s["local_de"]), float(s["bg_cover"]), int(s["min_area"])
+    for r in roots:
+        h = drawn.get(r)
+        if h is None or not h.get("drawn_in_concept"):
+            out["roots"].append({"widget": r, "skipped": "the concept does not draw it — the game-start state is the concept state (main diagnosis)"})
+            continue
+        zone = np.zeros((H, W), bool)
+        foot = np.zeros((H, W), bool)
+        for i in sorted(dg._subtree(spec, r)):
+            g = geo.get(i)
+            if not g or g["w"] <= 0 or g["h"] <= 0:
+                continue
+            w = widgets[i]
+            if w.get("type") in backdrop.TEXT_TYPES:
+                gl = _glow(w)
+                zone |= dg._box_mask((H, W), _gbox(g), dg.HIDDEN_PAD + gl)
+                gm = glyphs.get(i)
+                foot |= dg._dilate(gm, int(np.ceil(gl)) + FOOT_PAD) if gm is not None and gm.any() else dg._box_mask((H, W), _gbox(g), gl)
+            else:
+                zone |= dg._box_mask((H, W), _gbox(g), dg.HIDDEN_PAD)
+                foot |= dg._box_mask((H, W), _gbox(g))
+        zone &= ~excl
+        rec = {"widget": r, "zone_px": int(zone.sum())}
+        # 기록만 — 숨는 글자 아닌 위젯 상자 바로 밖(+ HIDDEN_PAD)에 정적 판이 그리는 픽셀(넘침 장식 조각이 판에 남아 위젯이 숨어도 보임). 컨셉과 같은 픽셀이라
+        # (라)가 설명해 결함으로는 안 센다 — 판 소유는 layer 몫 [실측 R20261119_091634 — 배너 양끝 · 아래 문장 판1 · 2 · 3]
+        ring_out = np.zeros((H, W), bool)
+        for i in dg._subtree(spec, r):
+            g = geo.get(i)
+            if g and g["w"] > 0 and g["h"] > 0 and widgets[i].get("type") not in backdrop.TEXT_TYPES:
+                ring_out |= dg._box_mask((H, W), _gbox(g), dg.HIDDEN_PAD) & ~dg._box_mask((H, W), _gbox(g))
+        if ring_out.any() and owner is not None:
+            plate_ids = [k for k, oid in enumerate(owner_ids) if str(oid).startswith("StaticPlate")]
+            ov = ring_out & (gcov > 0.1) & np.isin(owner, plate_ids)
+            if ov.any():
+                rec["overhang_px"] = int(ov.sum())
+                rec["overhang_owners"] = sorted({owner_ids[k] for k in np.unique(owner[ov])})
+        if rec["zone_px"] < min_area:
+            out["roots"].append({**rec, "skipped": "no spot left after the visible texts"})
+            continue
+        x0, y0, x1, y1 = _crop_box(zone, RING + dg.WIN, (H, W))
+        z = zone[y0:y1, x0:x1]
+        ring = dg._dilate(z, RING) & ~z & ~excl[y0:y1, x0:x1]
+        rec["ring_px"] = int(ring.sum())
+        if rec["ring_px"] < 20:
+            out["roots"].append({**rec, "skipped": "no ring around the spot"})
+            continue
+        f = foot[y0:y1, x0:x1]
+        flag = np.zeros(z.shape, bool)
+        best = np.zeros(z.shape, np.float32)
+        which: dict[str, np.ndarray] = {}
+        rec["local_max"] = {}
+        for k, img in imgs.items():
+            d = explain_diff(img[y0:y1, x0:x1], concepts[k][y0:y1, x0:x1], z, ring, f)
+            loc = masked_local(d, z, cover)
+            fl = (loc > T) & z
+            rec["local_max"][k] = round(float(loc[z].max()), 2)
+            which[k] = fl
+            flag |= fl
+            best = np.maximum(best, np.where(z, loc, 0.0))
+        bl = _blobs(flag, best, min_area)
+        rec["blobs"] = len(bl)
+        out["roots"].append(rec)
+        for b in bl:
+            bgs = [k for k, fl in which.items() if (fl & b["mask"]).any()]
+            m = b["mask"]
+            top = []
+            if owner is not None:
+                own = owner[y0:y1, x0:x1][m]
+                ids, cnt = np.unique(own[own >= 0], return_counts=True)
+                top = [owner_ids[k] for k in ids[np.argsort(-cnt)][:2]]
+            bx = b["box"]
+            out["findings"].append({"stage": "state", "code": "E8", "check": "hidden_trace", "box": [bx[0] + x0, bx[1] + y0, bx[2], bx[3]], "area": b["area"],
+                                    "max_de": b["max_de"], "mean_de": b["mean_de"], "widgets": [r] + [t for t in top if t != r], "backgrounds": bgs,
+                                    "renderer": renderer, "fixable": False,
+                                    "cause": f"hidden trace — with '{r}' hidden (game start) its spot shows a blob the surroundings do not explain "
+                                             f"({', '.join(bgs)} backdrop)"})
+    return out
+
+
+def _other_digit(ch: str) -> str:
+    return str((int(ch) + 5) % 10) if ch.isdigit() else ch
+
+
+def value_overrides(spec: dict) -> dict:
+    """S4 — 값이 바뀌는 글자(text.source dynamic + sample)의 같은 형식 다른 값(숫자마다 + 5 mod 10 — '4.2' → '9.7' · '2/4' → '7/9' · '3' → '8', 숫자 밖 글자는
+    그대로). 시작 때 숨는 글자는 뺀다(S1 몫). → {위젯: {"text": 값}}."""
+    hidden: set[str] = set()
+    for r in dg._hidden_roots(spec):
+        hidden |= dg._subtree(spec, r)
+    out = {}
+    for w in spec.get("widgets", []):
+        t = w.get("text") if isinstance(w.get("text"), dict) else {}
+        if w.get("type") in backdrop.TEXT_TYPES and t.get("source") == "dynamic" and t.get("sample") not in (None, "") and w["id"] not in hidden:
+            v = "".join(_other_digit(c) for c in str(t["sample"]))
+            if v != str(t["sample"]):
+                out[w["id"]] = {"text": v}
+    return out
+
+
+def thin(m) -> np.ndarray:
+    """Zhang-Suen 골격(8-연결 한 줄) — 가는 선 길이 재기(S4 text_contour). OpenCV ximgproc · scikit-image 가 없어 numpy 로."""
+    img = np.pad(np.asarray(m, bool).astype(np.uint8), 1)
+    while True:
+        changed = False
+        for step in (0, 1):
+            p2, p3, p4 = img[:-2, 1:-1], img[:-2, 2:], img[1:-1, 2:]
+            p5, p6, p7 = img[2:, 2:], img[2:, 1:-1], img[2:, :-2]
+            p8, p9, c = img[1:-1, :-2], img[:-2, :-2], img[1:-1, 1:-1]
+            nb = [p2, p3, p4, p5, p6, p7, p8, p9, p2]
+            B = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
+            A = sum(((nb[i] == 0) & (nb[i + 1] == 1)).astype(np.uint8) for i in range(8))
+            m1, m2 = (p2 * p4 * p6, p4 * p6 * p8) if step == 0 else (p2 * p4 * p8, p2 * p6 * p8)
+            rem = (c == 1) & (B >= 2) & (B <= 6) & (A == 1) & (m1 == 0) & (m2 == 0)
+            if rem.any():
+                img[1:-1, 1:-1][rem] = 0
+                changed = True
+        if not changed:
+            return img[1:-1, 1:-1].astype(bool)
+
+
+def contour_blobs(flag, de, min_len: int, max_thick: float, link: int = 0) -> list[dict]:
+    """S4 가는 선 — flag(설명 안 되는 픽셀) 8-연결 덩어리 중 골격 길이 ≥ min_len · 두께(넓이 ÷ 길이) ≤ max_thick → [{mask, box, area, length, thick, max_de}].
+    link > 0 이면 link px 틈은 잇고 잰다(덩어리 = 넓힌 것의 8-연결, 길이 = 넓힌 덩어리 골격, 두께 = 원래 픽셀 ÷ 길이, 원래 픽셀이 넓힌 덩어리의
+    CONTOUR_LINK_DENSITY 아래면 흩어진 잡티라 뺌) — 1 px 끊긴 윤곽 조각이 따로 재져 골격 24 px 로 문턱 아래였다 [실측 R20261119_190059 '4']."""
+    import cv2
+    out = []
+    f8 = np.asarray(flag, np.uint8)
+    grown = cv2.dilate(f8, np.ones((2 * link + 1, 2 * link + 1), np.uint8)) if link > 0 else f8
+    n, lab, st, _ = cv2.connectedComponentsWithStats(grown, connectivity=8)
+    for i in range(1, n):
+        x, y, w, h, area_g = (int(v) for v in st[i])
+        if max(w, h) < min_len // 2:
+            continue
+        sub_g = lab[y:y + h, x:x + w] == i
+        sub = sub_g & (f8[y:y + h, x:x + w] > 0)
+        area = int(sub.sum())
+        if area < min_len // 2:
+            continue
+        if link > 0 and area < CONTOUR_LINK_DENSITY * area_g:
+            continue
+        L = int(thin(sub_g).sum()) if link > 0 else int(thin(sub).sum())
+        if L < min_len or area / max(1, L) > max_thick:
+            continue
+        m = np.zeros(flag.shape, bool)
+        m[y:y + h, x:x + w] = sub
+        out.append({"mask": m, "box": [x, y, w, h], "area": area, "length": L, "thick": round(area / max(1, L), 2),
+                    "max_de": round(float(np.asarray(de)[m].max()), 1), "mean_de": round(float(np.asarray(de)[m].mean()), 1)})
+    return out
+
+
+def texture_groups(spec: dict, textures: dict) -> list[dict]:
+    """S4 숨는 묶음(1b 후속 L 다음 — 글자 지우기 마감) — 시작 때 숨는 위젯 중 자기 · 자손이 텍스처를 그리는(브러시 에셋 — draw_as none 아님 · 텍스처 있음)
+    것은 글자와 그 밑 텍스처가 같이 숨는다(배너 BurstBanner — S1 은 숨은 상태만 보고 F1 은 '글자만 숨는' 경우라 아무도 배너가 뜬 상태의 글자 밑을 안 봤다).
+    → [{"root", "texts": 그 아래 글자 id 집합}] — 글자만 숨는 것('오의 불가')은 빠짐(S1 · F1 그대로)."""
+    out = []
+    widgets = {w["id"]: w for w in spec.get("widgets", [])}
+    for r in dg._hidden_roots(spec):
+        sub = dg._subtree(spec, r)
+        texts = {i for i in sub if widgets.get(i, {}).get("type") in backdrop.TEXT_TYPES}
+        draws = False
+        for i in sub:
+            for k, b in ((widgets.get(i) or {}).get("style") or {}).items():
+                if isinstance(b, dict) and b.get("asset") and b.get("draw_as", "image") != "none" and b["asset"] in textures:
+                    draws = True
+        if texts and draws:
+            out.append({"root": r, "texts": texts})
+    return out
+
+
+TONE_MAX = 40.0             # S4 (마) 판 색조 맞춤 채널당 상한(refine.PLATE_TONE_MAX 와 같음)
+
+
+def _tone_matched(plate, img, ring, box) -> np.ndarray:
+    """S4 (마) — 글자 없는 판을 이 자리 둘레 고리(ring — 상자 box 좌표)에서 그림(img)에 색조 맞춘 사본(전체 크기, 상자 안만 바꿈 — 채널마다 평면 a + bx + cy,
+    ± TONE_MAX). 판 그대로를 설명으로 쓰면 텍스처가 둘레와 색조가 다른 판 픽셀을 글자 자리에 붙인 얼룩(글자 모양 어두운 자국)까지 '판과 같다'로 설명했다
+    [실측 R20261119_190059 배너 '체인 버스트' · '3' — 사용자 눈, 판 그대로 설명이면 3 × 3 최대 1.79]. 띠 · 테두리 위 글자(판이 그 구조를 그림 — (마)의 이유)는
+    둘레도 판과 같은 색조라 맞춤이 거의 0."""
+    x0, y0, x1, y1 = box
+    P = np.asarray(plate, np.float32)
+    sub_p, sub_i = P[y0:y1, x0:x1], np.asarray(img, np.float32)[y0:y1, x0:x1]
+    if int(ring.sum()) < 20:
+        return P
+    yy, xx = np.nonzero(ring)
+    h, w = ring.shape
+    A = np.stack([np.ones(len(xx)), xx / max(1.0, w), yy / max(1.0, h)], axis=1)
+    coef, *_ = np.linalg.lstsq(A, (sub_i - sub_p)[ring], rcond=None)
+    gy, gx = np.mgrid[0:h, 0:w]
+    corr = np.clip(coef[0][None, None] + coef[1][None, None] * (gx / max(1.0, w))[..., None] + coef[2][None, None] * (gy / max(1.0, h))[..., None],
+                   -TONE_MAX, TONE_MAX)
+    out = P.copy()
+    out[y0:y1, x0:x1] = np.clip(sub_p + corr, 0, 255)
+    return out
+
+
+def plate_line(m, img, plate_tm, ring, box, ds, T: float) -> dict:
+    """V2 — 선 모양 덩어리 m(상자 box 좌표)이 글자 없는 판에도 있는 선인가. img · plate_tm = 같은 바탕의 그림 · 색조 맞춘 판(전체 크기), ring = 둘레 고리(상자 좌표),
+    ds = 그림 ↔ 색조 맞춘 판 ±2 px 이동 최소 ΔE00(상자 좌표 — (마) 설명). → {"in_plate", "closer", "plate_contrast"}."""
+    import cv2
+    from core import color
+    x0, y0, x1, y1 = box
+    m = np.asarray(m, bool)
+    if not m.any() or plate_tm is None or int(ring.sum()) < 10:
+        return {"in_plate": None}
+    P = np.asarray(plate_tm, np.float32)[y0:y1, x0:x1]
+    I = np.asarray(img, np.float32)[y0:y1, x0:x1]
+    bgP = np.median(P[ring], axis=0)
+    lab_bg = color.srgb_to_lab(np.broadcast_to(bgP, I.shape).astype(np.float32))
+    d_b = color.delta_e00(color.srgb_to_lab(I), lab_bg)
+    closer = float(np.mean(np.asarray(ds)[m] < d_b[m] - LINE_PLATE_MARGIN))
+    dP = color.delta_e00(color.srgb_to_lab(P), lab_bg).astype(np.float32)
+    dP = cv2.dilate(dP, np.ones((2 * dg.SHIFT_TOL + 1, 2 * dg.SHIFT_TOL + 1), np.uint8))      # ±2 px 이동 중 가장 뚜렷한 판 픽셀
+    pc = float(np.median(dP[m]))
+    return {"in_plate": bool(closer >= LINE_PLATE_FRAC and pc > T), "closer": round(closer, 2), "plate_contrast": round(pc, 1)}
+
+
+def _shift_max_l(img, box, r: int = 2) -> np.ndarray:
+    """상자 안 픽셀마다 ±r px 옮긴 img 의 L* 최대(판에도 있는 구조물 — 다시 그린 판의 몇 px 어긋남을 덮음)."""
+    from core import color
+    x0, y0, x1, y1 = box
+    H, W = np.shape(img)[:2]
+    L = color.srgb_to_lab(np.asarray(img, np.float32)[max(0, y0 - r):min(H, y1 + r), max(0, x0 - r):min(W, x1 + r)])[..., 0]
+    ox, oy = x0 - max(0, x0 - r), y0 - max(0, y0 - r)
+    Lp = np.pad(L, ((r, r), (r, r)), mode="edge")
+    best = np.full((y1 - y0, x1 - x0), -1e9, np.float32)
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            best = np.maximum(best, Lp[r + oy + dy:r + oy + dy + (y1 - y0), r + ox + dx:r + ox + dx + (x1 - x0)])
+    return best
+
+
+def text_trace(spec: dict, boxes: list[dict], canvas, concept_rgb, concept_a, plate, gm: dict, s: dict, images: dict, renderer: str = "composite",
+               render_values=None, render_notext=None, groups: list | None = None) -> dict:
+    """S4 — images = 글자 없는 상태 그림 {"black", "gray", "white"}(게임 시작 상태 — 엔진이면 black 은 엔진 글자 빈 값 렌더), plate = 글자 없는 판 (곧은 색, 알파)
+    또는 None, gm = diagnose.text_glyph_masks(컨셉 글자 획). render_values(엔진 — 값 글자를 _other_value 로) · render_notext 가 둘 다 있으면 값 바뀜 검사도.
+    groups = S4 숨는 묶음(texture_groups — 텍스처째 숨는 위젯) [{"root", "texts", "images": 그 위젯만 켠 글자 없는 상태 {black, gray, white}, "render": 엔진 또는 None}]
+    — 그 글자들은 그 상태 그림에서 같은 판정(결함 · 기록에 "state": root).
+    판정 둘: text_trace(3 × 3 창 평균 > text_trace_de · 덩어리 ≥ text_trace_min_area) · text_contour(가는 선 — 픽셀 차 > text_contour_de 가 골격 길이 ≥
+    text_contour_len 으로 이어짐, 두께 ≤ CONTOUR_THICK).
+    → {"texts": [글자마다 기록], "findings": [결함], "renderer"}."""
+    import cv2
+    from core import color
+    W, H = int(canvas[0]), int(canvas[1])
+    geo = {b["id"]: b for b in boxes}
+    widgets = {w["id"]: w for w in spec.get("widgets", [])}
+    hidden: set[str] = set()
+    for r in dg._hidden_roots(spec):
+        hidden |= dg._subtree(spec, r)
+    group_of = {t: g["root"] for g in groups or [] for t in g["texts"]}
+    T, min_area = float(s.get("text_trace_de", 5.0)), int(s.get("text_trace_min_area", 24))
+    cde, clen = float(s.get("text_contour_de", CONTOUR_DE)), int(s.get("text_contour_len", CONTOUR_LEN))
+    clink = int(s.get("text_contour_link", CONTOUR_LINK))
+    out = {"renderer": renderer, "texts": [], "findings": []}
+    ca = np.asarray(concept_a, np.float32)[..., None]
+    cblack = np.asarray(concept_rgb, np.float32) * ca
+    pblack = None
+    if plate is not None:
+        pc, pa = np.asarray(plate[0], np.float32), np.asarray(plate[1], np.float32)[..., None]
+        pblack = pc * pa
+    bgs = {"black": (0, 0, 0), "gray": backdrop.GRAY, "white": WHITE}
+    excl = np.zeros((H, W), bool)
+    for w in spec.get("widgets", []):
+        g = geo.get(w["id"])
+        if g and g["w"] > 0 and g.get("visible", True) and w.get("type") == "Image" and (w.get("binding") or {}).get("kind") == "image":
+            excl |= dg._box_mask((H, W), _gbox(g), 2)                              # 런타임 그림(정답 없음)
+    zones, cores, glows = {}, {}, {}
+    U = np.zeros((H, W), bool)
+    F = np.zeros((H, W), bool)
+    for wid, v in gm.items():
+        w, g = widgets.get(wid), geo.get(wid)
+        if w is None or g is None or (wid in hidden and wid not in group_of) or g["w"] <= 0 or g["h"] <= 0:
+            continue
+        core, strokes = v["concept"], v["concept"] | v["concept_cand"]
+        st_ = {"state": group_of[wid]} if wid in group_of else {}
+        if not strokes.any():
+            out["texts"].append({"widget": wid, "skipped": "no concept glyph strokes", **st_})
+            continue
+        gmz = dg.glow_measure(cblack, pblack, core, max_d=TEXT_TAIL_MAX) if core.any() else None
+        tail = int(gmz["size"]) if gmz and gmz.get("size") else 0
+        gl = _glow(w)
+        zone = dg._dilate(strokes, tail + TEXT_ZONE_PAD) & dg._box_mask((H, W), _gbox(g), dg.HIDDEN_PAD + max(gl, float(tail))) & ~excl
+        foot = dg._dilate(strokes, TEXT_CORE_PAD)
+        if tail and pblack is not None:
+            reach = dg._dilate(core, tail + TEXT_ZONE_PAD)
+            bb = dg._bbox(reach)
+            if bb:
+                x0, y0, x1, y1 = bb[0], bb[1], bb[0] + bb[2], bb[1] + bb[3]
+                lc = color.srgb_to_lab(cblack[y0:y1, x0:x1])[..., 0]
+                glow_px = np.zeros((H, W), bool)
+                glow_px[y0:y1, x0:x1] = (lc - _shift_max_l(pblack, (x0, y0, x1, y1))) > TEXT_GLOW_DL
+                foot |= reach & glow_px
+        elif tail:
+            foot |= dg._dilate(core, tail + TEXT_ZONE_PAD)
+        zones[wid], cores[wid], glows[wid] = zone, strokes, max(gl, float(tail))
+        U |= zone
+        F |= foot & zone
+        out["texts"].append({"widget": wid, "zone_px": int(zone.sum()), "glow_tail": tail, **st_})
+    if not U.any():
+        return out
+    concepts = {k: cblack + np.asarray(bg, np.float32) * (1 - ca) for k, bg in bgs.items()}
+    plates = {k: pblack + np.asarray(bg, np.float32) * (1 - pa) for k, bg in bgs.items()} if pblack is not None else None
+    lift = float(s.get("text_trace_lift") or 0)
+    if lift > 1:
+        # 밝힌 검정(lift) — 어두운 판(L* ≈ 9)의 흔적은 ΔE00 이 작게 재진다(SL 가중 — 어두운 쪽 둔감). 사람은 텍스처를 밝혀 · 확대해 본다
+        concepts["lift"] = np.clip(concepts["black"] * lift, 0, 255)
+        if plates is not None:
+            plates["lift"] = np.clip(plates["black"] * lift, 0, 255)
+    rec_of = {r["widget"]: r for r in out["texts"]}
+
+    def judge(imgs: dict, region, check: str, rend: str, state: str | None = None, ring_excl=None):
+        n, lab = cv2.connectedComponents(region.astype(np.uint8), connectivity=8)
+        for ci in range(1, n):
+            comp = lab == ci
+            if int(comp.sum()) < min_area:
+                continue
+            x0, y0, x1, y1 = _crop_box(comp, RING + 3, (H, W))
+            z = comp[y0:y1, x0:x1]
+            ring = dg._dilate(z, RING) & ~U[y0:y1, x0:x1] & ~excl[y0:y1, x0:x1]
+            if ring_excl is not None:
+                # 값 바뀜 검사 — 새로 그린 글자 · 빛(다른 값) 자리는 둘레 고리에서 뺀다: 둘레 설명 · 판 색조 맞춤이 그 밝은 글자 쪽으로 끌려 어두운 패널 바탕을 '설명 안 됨'으로
+                # 봤다 [실측 R20261120_001224 L-2 — 텍스처는 원본 아트 그대로인데 '9.7' 옆 ChainTimerText 값 흔적 12.9]
+                ring &= ~ring_excl[y0:y1, x0:x1]
+            if int(ring.sum()) < 20:
+                continue
+            f = F[y0:y1, x0:x1]
+            flag = np.zeros(z.shape, bool)
+            best = np.zeros(z.shape, np.float32)
+            cflag = np.zeros(z.shape, bool)
+            cbest = np.zeros(z.shape, np.float32)
+            which, cwhich = {}, {}
+            tms, dss = {}, {}                     # V2 — 바탕마다 색조 맞춘 판 · (마) 설명 지도(선 모양 덩어리가 판에도 있는 선인지)
+            loc_lift = None
+            for k, img in imgs.items():
+                ex = None
+                if plates is not None:
+                    tms[k] = _tone_matched(plates[k], img, ring, (x0, y0, x1, y1))
+                    dss[k] = dg._shift_min_de(img, tms[k], (x0, y0, x1, y1))
+                    ex = [dss[k]]
+                d = explain_diff(img[y0:y1, x0:x1], concepts[k][y0:y1, x0:x1], z, ring, f, extra=ex)
+                c = cv2.blur(z.astype(np.float32), (TEXT_LOCAL, TEXT_LOCAL))
+                loc = np.where(c >= 0.3, cv2.blur(d * z, (TEXT_LOCAL, TEXT_LOCAL)) / np.maximum(c, 1e-6), 0.0) * z
+                if k == "lift":
+                    loc_lift = loc
+                if k != "lift":
+                    # 밝힌 검정(lift)은 기록만(local_max.lift — refine 글자 지우기 고르기가 씀) — 게이트로 쓰면 보호 run 조작 안내도 5 ~ 9 로 부풀었다
+                    # [실측 11-19 보정 — 배너 '체인 버스트' 4.5 · 깨끗한 L-2 0.5 · controls_alpha 5 ~ 9]
+                    fl = (loc > T) & z
+                    which[k] = fl
+                    flag |= fl
+                    best = np.maximum(best, loc)
+                    cf = (d > cde) & z
+                    cwhich[k] = cf
+                    cflag |= cf
+                    cbest = np.maximum(cbest, np.where(z, d, 0.0))
+                for wid, zm in zones.items():
+                    zz = zm[y0:y1, x0:x1] & z
+                    if zz.any():
+                        key = "local_max" if check == "text_trace" else "value_local_max"
+                        rec_of[wid].setdefault(key, {})[k] = round(max(float(loc[zz].max()), rec_of[wid].get(key, {}).get(k, 0.0)), 2)
+            def in_plate(m, ks):
+                """V2 — 선 모양 덩어리가 판에도 있는 선인가(플래그된 바탕 중 하나라도 판이 설명하면 판에 있음)."""
+                best_r: dict = {"in_plate": None}
+                for k in ks:
+                    if k == "lift" or k not in tms:
+                        continue
+                    r_ = plate_line(m, imgs[k], tms[k], ring, (x0, y0, x1, y1), dss[k], T)
+                    if r_.get("in_plate") or best_r.get("in_plate") is None:
+                        best_r = {**r_, "backdrop": k}
+                    if r_.get("in_plate"):
+                        break
+                return best_r
+            line_err = str(s.get("text_line_plate") or "record") == "error"
+            # 가는 선(text_contour) — 골격 길이 기록은 짧은 것까지(보정용), 결함은 clen 이상만
+            ckey = "contour_len" if check == "text_trace" else "value_contour_len"
+            for b in contour_blobs(cflag, cbest, max(12, clen // 3), CONTOUR_THICK, link=clink):
+                m = b["mask"]
+                ov = sorted(((int((zm[y0:y1, x0:x1] & m).sum()), wid) for wid, zm in zones.items()), reverse=True)
+                ws = [wid for c_, wid in ov if c_ > 0]
+                for wid in ws[:1]:
+                    rec_of[wid][ckey] = max(int(rec_of[wid].get(ckey, 0)), b["length"])
+                if b["length"] < clen:
+                    continue
+                bx = b["box"]
+                bgs_ = [k for k, fl in cwhich.items() if (fl & m).any()]
+                if min(bx[2], bx[3]) <= CONTOUR_LINE_SHORT and max(bx[2], bx[3]) >= CONTOUR_LINE_RATIO * max(1, min(bx[2], bx[3])):
+                    # 곧은 가로 · 세로 선(막대 윗선 — 다시 그린 판과 1 px 어긋남)은 글자 윤곽이 아니라 구조선 — 기록만(text_trace 의 line_like 와 같은 뜻)
+                    # [실측 11-19 보정 — 파티 003127 HP 숫자 아래 40 × 2 · 45 × 5]. V2 — 그 선이 판에도 있을 때만(text_line_plate: error 면 판에 없는 선은 결함)
+                    ip = in_plate(m, bgs_)
+                    out.setdefault("line_like", []).append({"check": "text_contour", "box": [bx[0] + x0, bx[1] + y0, bx[2], bx[3]], "max_de": b["max_de"],
+                                                            "length": b["length"], "widgets": ws[:1], **ip, **({"state": state} if state else {})})
+                    if not (line_err and ip.get("in_plate") is False):
+                        continue
+                cname = "text_contour" if check == "text_trace" else "text_value_contour"
+                out["findings"].append({"stage": "state", "code": "E8", "check": cname, "box": [bx[0] + x0, bx[1] + y0, bx[2], bx[3]], "area": b["area"],
+                                        "length": b["length"], "thick": b["thick"], "max_de": b["max_de"], "mean_de": b["mean_de"], "widgets": ws,
+                                        "backgrounds": bgs_, "renderer": rend, "fixable": False, **({"state": state} if state else {}),
+                                        "cause": f"text contour — a thin line ({b['length']} px long) under '{ws[0] if ws else '?'}' the surroundings do not "
+                                                 f"explain ({', '.join(bgs_)} backdrop{', ' + state + ' shown' if state else ''})"})
+            for b in _blobs(flag, best, min_area):
+                m = b["mask"]
+                ov = sorted(((int((zm[y0:y1, x0:x1] & m).sum()), wid) for wid, zm in zones.items()), reverse=True)
+                ws = [wid for c_, wid in ov if c_ > 0]
+                bx = b["box"]
+                bgs_ = [k for k, fl in which.items() if (fl & m).any()]
+                if min(b["box"][2], b["box"][3]) <= TEXT_LINE_MAX:
+                    # 짧은 변 ≤ TEXT_LINE_MAX px 인 선 모양은 글자 흔적이 아니라 구조선(막대 윗선 — 다시 그린 판과 1 px 어긋남) [실측 R20261119_003127 파티 HP 숫자 아래 23 × 2].
+                    # V2 — 그 선이 판에도 있을 때만 구조선(text_line_plate: error 면 판에 없는 선은 결함 — 위 23 × 2 는 사용자 눈으로 막대 윗선 위 빛 자국이었다)
+                    ip = in_plate(m, bgs_)
+                    out.setdefault("line_like", []).append({"check": check, "box": [b["box"][0] + x0, b["box"][1] + y0, b["box"][2], b["box"][3]], "max_de": b["max_de"],
+                                                            "widgets": ws[:1], **ip, **({"state": state} if state else {})})
+                    if not (line_err and ip.get("in_plate") is False):
+                        continue
+                for wid in ws[:1]:
+                    rec_of[wid]["blobs"] = rec_of[wid].get("blobs", 0) + 1
+                what = "with every text empty" if check == "text_trace" else "with the value texts at another value"
+                if state:
+                    what += f" and '{state}' shown"
+                line_ = min(b["box"][2], b["box"][3]) <= TEXT_LINE_MAX
+                out["findings"].append({"stage": "state", "code": "E8", "check": check, "box": [bx[0] + x0, bx[1] + y0, bx[2], bx[3]], "area": b["area"],
+                                        "max_de": b["max_de"], "mean_de": b["mean_de"], "widgets": ws, "backgrounds": bgs_, "renderer": rend, "fixable": False,
+                                        **({"state": state} if state else {}), **({"line_not_in_plate": True} if line_ else {}),
+                                        "cause": f"text trace — {what}, the textures under '{ws[0] if ws else '?'}' still show the concept glyph / glow "
+                                                 f"({', '.join(bgs_)} backdrop{'; a line the text-free plate does not have' if line_ else ''})"})
+            # V3 — 밝힌 검정(lift): 둘레 고리 검정 합성 L*(어두운 판 자리만 판정 후보) · 밝힘 국소 > LIFT_RECORD_DE 덩어리 기록(보정). text_lift_mode: error 면
+            # 어두운 자리(ring_l < LIFT_DARK_L)의 밝힘 국소 > text_lift_de 덩어리를 결함(check text_lift)
+            if loc_lift is not None and check == "text_trace" and imgs.get("black") is not None:
+                lab_r = color.srgb_to_lab(np.asarray(imgs["black"], np.float32)[y0:y1, x0:x1][ring])
+                ring_l = float(np.median(lab_r[:, 0])) if len(lab_r) else 100.0
+                for wid, zm in zones.items():
+                    if (zm[y0:y1, x0:x1] & z).any():
+                        rec_of[wid]["ring_l"] = round(min(ring_l, float(rec_of[wid].get("ring_l", 1e9))), 1)
+                lift_err = str(s.get("text_lift_mode") or "record") == "error"
+                lde = float(s.get("text_lift_de") or 1e9)
+                for b in _blobs((loc_lift > min(LIFT_RECORD_DE, lde)) & z, loc_lift, min_area):
+                    m = b["mask"]
+                    ov = sorted(((int((zm[y0:y1, x0:x1] & m).sum()), wid) for wid, zm in zones.items()), reverse=True)
+                    ws = [wid for c_, wid in ov if c_ > 0]
+                    bx = b["box"]
+                    out.setdefault("lift_like", []).append({"box": [bx[0] + x0, bx[1] + y0, bx[2], bx[3]], "area": b["area"], "max_de": b["max_de"],
+                                                            "mean_de": b["mean_de"], "ring_l": round(ring_l, 1), "widgets": ws[:1],
+                                                            **({"state": state} if state else {})})
+                    if lift_err and ring_l < LIFT_DARK_L and b["max_de"] > lde:
+                        mm = m & (loc_lift > lde)
+                        if int(mm.sum()) >= min_area:
+                            bb2 = dg._bbox(mm)
+                            out["findings"].append({"stage": "state", "code": "E8", "check": "text_lift", "box": [bb2[0] + x0, bb2[1] + y0, bb2[2], bb2[3]],
+                                                    "area": int(mm.sum()), "max_de": b["max_de"], "mean_de": round(float(loc_lift[mm].mean()), 1), "widgets": ws,
+                                                    "backgrounds": ["lift"], "renderer": rend, "fixable": False, "ring_l": round(ring_l, 1),
+                                                    **({"state": state} if state else {}),
+                                                    "cause": f"text trace (lifted) — on a dark plate (ring L* {ring_l:.0f}) the texture under "
+                                                             f"'{ws[0] if ws else '?'}' still shows a low-contrast glyph trace when brightened × {lift:g}"})
+    imgs = dict(images)
+    if render_notext is not None:
+        imgs["black"] = render_notext
+
+    def lifted(d_: dict) -> dict:
+        return {**d_, "lift": np.clip(np.asarray(d_["black"], np.float32) * lift, 0, 255)} if lift > 1 and d_.get("black") is not None else d_
+    imgs = lifted(imgs)
+    main = np.zeros((H, W), bool)
+    for wid, zm in zones.items():
+        if wid not in group_of:
+            main |= zm
+    if main.any():
+        judge(imgs, main, "text_trace", renderer)
+    # S4 숨는 묶음 — 그 위젯만 켠 글자 없는 상태(엔진이면 black 은 엔진)에서 그 아래 글자 자리
+    for g in groups or []:
+        reg = np.zeros((H, W), bool)
+        for wid in g["texts"]:
+            if wid in zones:
+                reg |= zones[wid]
+        if not reg.any():
+            continue
+        gi = dict(g["images"])
+        if g.get("render") is not None:
+            gi["black"] = g["render"]
+        gi = lifted(gi)
+        judge(gi, reg, "text_trace", "engine" if g.get("render") is not None else "composite", state=g["root"])
+        out.setdefault("groups", []).append({"root": g["root"], "texts": sorted(g["texts"]), "renderer": "engine" if g.get("render") is not None else "composite"})
+    if render_values is not None and render_notext is not None:
+        vals = value_overrides(spec)
+        new = dg._dilate(dg.maxabs(render_values, render_notext) > dg.INK_FLOOR, 1)
+        newz = np.zeros((H, W), bool)
+        for wid in vals:
+            g = geo.get(wid)
+            if g and wid in zones:
+                newz |= dg._dilate(new & dg._box_mask((H, W), _gbox(g), glows[wid] + 4), int(np.ceil(glows[wid])) + 2)
+        region = np.zeros((H, W), bool)
+        for wid in vals:
+            if wid in zones:
+                region |= zones[wid]
+        region &= ~newz
+        if region.any():
+            judge({"black": render_values}, region, "text_value_trace", "engine", ring_excl=newz | dg._dilate(new, 2))   # 값 렌더의 모든 글자(고정 글자 포함)
+        out["values"] = {k: v["text"] for k, v in vals.items()}
+    return out
+
+
+def _track_hole_canvas(ref_png, proc: dict, shape) -> np.ndarray | None:
+    """concept_fill 트랙 hole(끝 장식 안쪽 호까지 — 프레임 선 · 끝 캡 뺌)을 캔버스 마스크로."""
+    from gen import concept_fill
+    try:
+        hole, _ = concept_fill.track_hole(ref_png, proc)
+    except (concept_fill.ConceptFillError, KeyError, ValueError):
+        return None
+    if proc.get("flip"):
+        hole = hole[:, ::-1]
+    fx, fy, fw, fh = (int(v) for v in proc["frame_box"])
+    m = np.zeros(shape, bool)
+    H, W = shape
+    sx1, sy1 = min(W, fx + fw), min(H, fy + fh)
+    m[fy:sy1, fx:sx1] = hole[:sy1 - fy, :sx1 - fx]
+    return m
+
+
+def track_box(spec: dict, w: dict, g: dict) -> tuple[list[float], str]:
+    """게이지 트랙 상자(캔버스) — 채움이 concept_fill 이면 잰 트랙(frame_box + track, 뒤집기 반영), 아니면 막대 상자."""
+    st = w.get("style") or {}
+    fill = st.get("fill") if isinstance(st.get("fill"), dict) else {}
+    proc = next((a.get("procedural") or {} for a in spec.get("assets", []) if a.get("asset_id") == fill.get("asset")), {})
+    if proc.get("shape") == "concept_fill" and proc.get("frame_box") and proc.get("track"):
+        fx, fy, fw, _ = (float(v) for v in proc["frame_box"])
+        l_, t_, r_, b_ = (int(v) for v in proc["track"])
+        x0 = fx + (fw - 1 - r_) if proc.get("flip") else fx + l_
+        return [x0, fy + t_, float(r_ - l_ + 1), float(b_ - t_ + 1)], "concept_fill track"
+    return _gbox(g), "gauge box"
+
+
+def _with_percent(spec: dict, wid: str, p: float | None, no_fill: bool = False) -> dict:
+    s2 = copy.deepcopy(spec)
+    for w in s2.get("widgets", []):
+        if w["id"] == wid:
+            st = w.setdefault("style", {})
+            if p is not None:
+                st["percent"] = float(p)
+            if no_fill:
+                st["fill"] = {"draw_as": "none"}
+    return s2
+
+
+def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s: dict, base, render_pct=None, ref_png=None) -> dict:
+    """S2 — spec_state(컨셉 상태 spec — 컨셉이 안 그린 숨은 위젯 뺌) · base(그 상태 렌더 — 엔진이면 엔진, 아니면 검정 합성).
+    render_pct(widget, percent) → 엔진 렌더 HxWx3 또는 None(합성으로 물러남). ref_png(reference.png RGB — concept_fill 이 잰 그림)가 있으면 S2 보강(끝 모양).
+    → {"gauges", "findings", "images": {위젯: {진행률: 그림}}, "renderer"}."""
+    W, H = int(canvas[0]), int(canvas[1])
+    geo = {b["id"]: b for b in boxes}
+    T, cover, min_area = float(s["local_de"]), float(s["bg_cover"]), int(s["min_area"])
+    textz = np.zeros((H, W), bool)
+    for w in spec_state.get("widgets", []):
+        g = geo.get(w["id"])
+        if w.get("type") in backdrop.TEXT_TYPES and g and g.get("visible", True) and g["w"] > 0:
+            textz |= dg._box_mask((H, W), _gbox(g), dg.HIDDEN_PAD + _glow(w))
+    out = {"gauges": [], "findings": [], "images": {}, "renderer": "composite" if render_pct is None else "engine"}
+    for w in spec_state.get("widgets", []):
+        if w.get("type") != "ProgressBar":
+            continue
+        g = geo.get(w["id"])
+        st = w.get("style") or {}
+        fill = st.get("fill") if isinstance(st.get("fill"), dict) else None
+        if not g or not g.get("visible", True) or g["w"] <= 0 or g["h"] <= 0 or not fill or fill.get("draw_as", "image") == "none":
+            continue
+        kind = st.get("bar_fill_type", "left_to_right")
+        rec = {"widget": w["id"], "percent": st.get("percent"), "fill_type": kind}
+        if kind not in ("left_to_right", "right_to_left"):
+            out["gauges"].append({**rec, "skipped": "only horizontal fills"})
+            continue
+        tb, src = track_box(spec_state, w, g)
+        rec.update(track=[round(v, 1) for v in tb], track_from=src)
+        imgs, used = {}, {}
+        for p in GAUGE_STATES:
+            img = None
+            if render_pct is not None:
+                try:
+                    img = render_pct(w["id"], p)
+                except Exception as exc:  # noqa: BLE001 — 엔진 렌더 실패는 기록하고 합성으로
+                    rec.setdefault("render_errors", []).append(f"{p:g}: {type(exc).__name__}: {exc}"[:160])
+            used[p] = "engine" if img is not None else "composite"
+            if img is None:
+                img = backdrop.compose(_with_percent(spec_state, w["id"], p), boxes, textures, canvas, (0, 0, 0))[0]
+            imgs[p] = img
+        out["images"][w["id"]] = imgs
+        rec["renderer"] = used
+        region = dg._box_mask((H, W), _gbox(g), GAUGE_PAD) & ~dg._box_mask((H, W), tb)
+        rec["states"] = {}
+        for p, img in imgs.items():
+            loc = masked_local(dg.delta_e(img, base), region, cover)
+            fl = (loc > T) & region
+            rec["states"][f"{p:g}"] = {"outside_max": round(float(loc[region].max()), 2) if region.any() else 0.0, "outside_px": int(fl.sum())}
+            for b in _blobs(fl, loc, min_area):
+                out["findings"].append({"stage": "state", "code": "E8", "check": "gauge_outside", "percent": p, "box": b["box"], "area": b["area"],
+                                        "max_de": b["max_de"], "mean_de": b["mean_de"], "widgets": [w["id"]], "renderer": used[p], "fixable": False,
+                                        "cause": f"gauge end — at {p:.0%} the fill paints outside the track (frame · end cap differ from the concept state)"})
+        # 1.0 — 트랙 끝 구간이 0 과 같으면 채움이 끝까지 안 닿음
+        x, y, tw, th = tb
+        k = max(END_COLS, int(round(END_FRAC * tw)))
+        endb = [x + tw - k - 2, y + 0.25 * th, k, 0.5 * th] if kind == "left_to_right" else [x + 2, y + 0.25 * th, k, 0.5 * th]
+        em = dg._box_mask((H, W), endb) & ~textz
+        if em.any():
+            same = float((dg.delta_e(imgs[1.0], imgs[0.0])[em] < END_SAME_DE).mean())
+            rec["end_unchanged_frac"] = round(same, 3)
+            if same > END_SAME_FRAC:
+                out["findings"].append({"stage": "state", "code": "E8", "check": "gauge_end_short", "percent": 1.0, "box": dg._bbox(em), "area": int(em.sum()),
+                                        "max_de": None, "mean_de": None, "widgets": [w["id"]], "renderer": used[1.0], "fixable": False,
+                                        "cause": f"gauge end — at 100% the end of the track still looks empty ({same:.0%} unchanged from 0%)"})
+        # S2 보강(1b 후속 L 다음 L-1 글자 완전 지우기 · 게이지 끝 모양) — concept_fill 트랙 끝 구간: hole 밖(끝 장식 호 · 프레임 선)이 1.0 에서 덮이면 cover,
+        # hole 이 0 과 같으면 gap. 트랙 상자 안이라 위 트랙 밖 검사가 못 봤다
+        fill_asset = next((a for a in spec_state.get("assets", []) if a.get("asset_id") == fill.get("asset")), {})
+        proc = fill_asset.get("procedural") or {}
+        if ref_png is not None and proc.get("shape") == "concept_fill" and src == "concept_fill track":
+            hole = _track_hole_canvas(ref_png, proc, (H, W))
+            if hole is not None:
+                ke = max(END_COLS, int(round(END_SHAPE_FRAC * tw)))
+                ez = dg._box_mask((H, W), [x + tw - ke, y, ke, th] if kind == "left_to_right" else [x, y, ke, th]) & ~textz
+                frame = ez & ~hole
+                d10 = dg.delta_e(imgs[1.0], imgs[0.0])
+                rec["end_shape"] = {"cols": ke, "frame_px": int(frame.sum()), "hole_px": int((ez & hole).sum())}
+                if frame.any():
+                    loc = masked_local(d10, frame, 0.0)
+                    fl = (loc > T) & frame
+                    rec["end_shape"]["cover_max"] = round(float(loc[frame].max()), 2)
+                    for b in _blobs(fl, loc, min(min_area, 12)):
+                        out["findings"].append({"stage": "state", "code": "E8", "check": "gauge_end_cover", "percent": 1.0, "box": b["box"], "area": b["area"],
+                                                "max_de": b["max_de"], "mean_de": b["mean_de"], "widgets": [w["id"]], "renderer": used[1.0], "fixable": False,
+                                                "cause": "gauge end — at 100% the fill covers the end cap arc / frame inside the track end (the concept's empty-track "
+                                                         "end shape is not followed)"})
+                hz = ez & hole
+                if hz.any():
+                    same_h = float((d10[hz] < END_SAME_DE).mean())
+                    rec["end_shape"]["hole_unchanged_frac"] = round(same_h, 3)
+                    if same_h > END_SAME_FRAC:
+                        out["findings"].append({"stage": "state", "code": "E8", "check": "gauge_end_gap", "percent": 1.0, "box": dg._bbox(hz), "area": int(hz.sum()),
+                                                "max_de": None, "mean_de": None, "widgets": [w["id"]], "renderer": used[1.0], "fixable": False,
+                                                "cause": f"gauge end — at 100% the empty track inside the end cap stays unfilled ({same_h:.0%} unchanged from 0%)"})
+        # 0 — 트랙 안이 채움 없는 합성과 다르면 채움이 남음(엔진만 — 합성은 0 이면 채움을 안 그린다)
+        tz = dg._box_mask((H, W), tb) & ~textz
+        if used[0.0] == "engine" and tz.any():
+            nofill = backdrop.compose(_with_percent(spec_state, w["id"], 0.0, no_fill=True), boxes, textures, canvas, (0, 0, 0))[0]
+            loc = masked_local(dg.delta_e(imgs[0.0], nofill), tz, cover)
+            fl = (loc > T) & tz
+            rec["zero_max"] = round(float(loc[tz].max()), 2)
+            for b in _blobs(fl, loc, min_area):
+                out["findings"].append({"stage": "state", "code": "E8", "check": "gauge_zero_fill", "percent": 0.0, "box": b["box"], "area": b["area"],
+                                        "max_de": b["max_de"], "mean_de": b["mean_de"], "widgets": [w["id"]], "renderer": "engine", "fixable": False,
+                                        "cause": "gauge end — at 0% fill pixels stay inside the track"})
+        out["gauges"].append(rec)
+    return out
+
+
+def end_glow_zones(spec: dict, shape) -> list[dict]:
+    """F2 — 번짐을 뺀 concept_fill 채움(spill 0 · spill_measured > 0)의 컨셉 상태 진행 끝 빛 자리(캔버스): 트랙 줄 × 몸통 끝 − 3 ~ + spill_measured + 8.
+    그 자리의 국소 차는 근사(gauge_end_glow) — 한 brush 로는 70 % 의 끝 빛과 100 % 의 트랙 끝 맞춤을 같이 못 한다(S2 가 100 % 를 지킨다)."""
+    out = []
+    for a in spec.get("assets", []):
+        p = a.get("procedural") or {}
+        if p.get("shape") != "concept_fill" or p.get("full") or int(p.get("spill", 0)) or int(p.get("spill_measured", 0)) <= 0:
+            continue
+        fx, fy, fw, _ = (float(v) for v in p["frame_box"])
+        _, t_, _, b_ = (int(v) for v in p["track"])
+        x1 = int(p["body_end"])
+        c0, c1 = x1 - 3, x1 + int(p["spill_measured"]) + 8
+        if p.get("flip"):
+            c0, c1 = int(fw) - 1 - c1, int(fw) - 1 - c0
+        m = dg._box_mask(shape, [fx + c0, fy + t_, c1 - c0 + 1, b_ - t_ + 1])
+        users = [w["id"] for w in spec.get("widgets", []) if ((w.get("style") or {}).get("fill") or {}).get("asset") == a["asset_id"]]
+        out.append({"asset": a["asset_id"], "widgets": users, "mask": m, "box": dg._bbox(m), "spill_measured": int(p["spill_measured"])})
+    return out
+
+
+def end_shape_zones(spec: dict, shape) -> list[dict]:
+    """G3(1b 후속 L 다음) — 끝 모양(end_shape)을 넣은 concept_fill 채움의 컨셉 상태 진행 끝 자리(캔버스): 트랙 줄 × 몸통 끝 − 여백 − 1 ~ + 2.
+    그 자리 국소 차는 근사(gauge_end_shape) — 100 % 에서 끝 장식 호에 맞게 들어가는 대신 중간 진행률의 끝이 곧은 선이 아니라 호 모양(S2 보강이 100 % 를 지킨다)."""
+    out = []
+    for a in spec.get("assets", []):
+        p = a.get("procedural") or {}
+        es = p.get("end_shape")
+        if p.get("shape") != "concept_fill" or p.get("full") or not es:
+            continue
+        fx, fy, fw, _ = (float(v) for v in p["frame_box"])
+        _, t_, _, b_ = (int(v) for v in p["track"])
+        x1 = int(p["body_end"])
+        c0, c1 = x1 - int(es["margin"]) - 1, x1 + 2
+        if p.get("flip"):
+            c0, c1 = int(fw) - 1 - c1, int(fw) - 1 - c0
+        m = dg._box_mask(shape, [fx + c0, fy + t_, c1 - c0 + 1, b_ - t_ + 1])
+        users = [w["id"] for w in spec.get("widgets", []) if ((w.get("style") or {}).get("fill") or {}).get("asset") == a["asset_id"]]
+        out.append({"asset": a["asset_id"], "widgets": users, "mask": m, "box": dg._bbox(m), "depth": int(es.get("depth", 0)), "kind": "gauge_end_shape"})
+    return out

@@ -91,10 +91,41 @@ ZOOM = diagnose.ZOOM        # 확대 모사는 파이프라인 진단(gen/diagno
 zoom_seams = diagnose.zoom_seams
 
 
-def replay(src: pathlib.Path, out: pathlib.Path, final_spec: bool = False, with_layer: bool = False) -> dict:
+def undo_layer(dst: pathlib.Path) -> None:
+    """사본의 spec 에서 정적 판(위젯 · 에셋 · 겹침 허용 쌍)을 걷는다 — layer 단계를 다시 돌리기 전 상태(정적 장식 브러시는 이미 none 이라 기록의 예전 값으로 되살린다)."""
+    spec = json.loads((dst / "spec.json").read_text(encoding="utf-8"))
+    lay = json.loads((dst / "layer.json").read_text(encoding="utf-8")) if (dst / "layer.json").is_file() else {}
+    plates = {p["widget"] for p in lay.get("plates") or []}
+    aids = {p["asset"] for p in lay.get("plates") or []}
+    spec["widgets"] = [w for w in spec["widgets"] if w["id"] not in plates]
+    spec["assets"] = [a for a in spec.get("assets", []) if a["asset_id"] not in aids]
+    spec["allow_overlap"] = [p for p in spec.get("allow_overlap", []) if not set(p) & plates]
+    index = {w["id"]: w for w in spec["widgets"]}
+    have = {a["asset_id"] for a in spec["assets"]}
+    for c in lay.get("static_brushes") or []:                # 판으로 구운 정적 장식 — 예전 브러시(에셋)를 되살려야 layer 가 다시 '정적'으로 본다
+        w = index.get(c["widget"])
+        aid = (c.get("old") or {}).get("asset")
+        if w is None:
+            continue
+        w.setdefault("style", {})[c["key"]] = dict(c["old"])
+        if aid and aid not in have:
+            bb = [float(v) for v in (w.get("bbox_intent") or [0, 0, 8, 8])]
+            spec["assets"].append({"asset_id": aid, "kind": "ornament", "provenance": "codex", "source_mode": "extract",
+                                   "size": [max(4, round(bb[2])), max(4, round(bb[3]))], "ref_bbox": [int(v) for v in bb], "prompt": "static decoration (replay)"})
+            have.add(aid)
+    for g in lay.get("gauge_backgrounds") or []:
+        if g["widget"] in index:
+            index[g["widget"]].setdefault("style", {})["background"] = dict(g["old"])
+    (dst / "spec.json").write_text(json.dumps(spec, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def replay(src: pathlib.Path, out: pathlib.Path, final_spec: bool = False, with_layer: bool = False, relayer: bool = False) -> dict:
     dst = copy_run(src, out, final_spec)
     run = Run(src.name, out, config.load_pipeline(), out / "metrics.jsonl")
     layer_detail = None
+    if relayer and (dst / "layer.json").is_file() and json.loads((dst / "layer.json").read_text(encoding="utf-8")).get("applied"):
+        undo_layer(dst)                                  # L-2 기본 전환 ④ — layer 규칙(접히는 위젯 몫)이 바뀌면 정적 판을 걷고 layer 부터 다시
+        with_layer = True
     if with_layer:                                       # 1b 후속 J-a — 기능 단위 레이어(정적 판)를 먼저
         from stages import layer
         layer_detail = layer.run(run, types.SimpleNamespace())
@@ -167,6 +198,7 @@ def main(argv=None) -> int:
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--final", action="store_true", help="use the final spec.json · refine.json (text boxes after text_fit)")
     ap.add_argument("--layer", action="store_true", help="run the J-a layer stage (static plates) before refine")
+    ap.add_argument("--relayer", action="store_true", help="undo the run's static plates and run the layer stage again before refine")
     ap.add_argument("--zoom-picture", action="store_true", help=f"also save <run>/zoom.png ({ZOOM}x magnified: one concept | split textures)")
     opts = ap.parse_args(argv)
     global ZOOM_PICTURE
@@ -175,7 +207,7 @@ def main(argv=None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     recs = []
     for r in opts.runs:
-        rec = replay(pathlib.Path(r), out, opts.final, opts.layer)
+        rec = replay(pathlib.Path(r), out, opts.final, opts.layer, opts.relayer)
         recs.append(rec)
         print(json.dumps({k: v for k, v in rec.items() if k not in ("textures", "refine")}, ensure_ascii=False), flush=True)
     (out / "summary.json").write_text(json.dumps(recs, ensure_ascii=False, indent=1), encoding="utf-8")

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/CoreMiscDefines.h"
 #include "UI/HUD/AutoGen/AstralCombatHUDViewBase.h"
 #include "AstralCombatHUDWidget.generated.h"
 
@@ -22,7 +23,8 @@ struct FOnAttributeChangeData;
  *
  *   오의 게이지     내 ASC 의 UltGauge · MaxUltGauge 값 변화 통지 → 비율, 가득이면 강조
  *   체인 패널       레이드 GameState 의 체인 컴포넌트 OnChainStateChanged → 열려 있을 때만 보임, 참가 N/최대
- *   남은 시간       열려 있고 돌고 있을 때만 틱마다 GetRemainingSeconds()(서버 시간에서 계산). 멈추면 그 값에서 멈춘다
+ *   남은 시간       열려 있고 돌고 있을 때만 틱마다 GetRemainingSeconds()(서버 시간에서 계산). 멈추면 그 값에서 멈춘다 — 숫자와 고리(ChainRing)가 같은 값
+ *   오의 키 안내    로컬 플레이어의 Enhanced Input 이 오의 액션에 지금 걸어 둔 키(§6 '단위 C 다듬기'). 게이지가 가득할 때만 보인다(UltReadyPanel 의 자식)
  *   버스트 배너     LastBurstChainId 가 바뀌면 인원을 넣어 잠깐 띄운다 — 단계(Burst)는 한 틱이라 클라이언트가 못 볼 수 있다(§6 B 다듬기 6번)
  *   '오의 불가'     내 ASC 의 발동 실패 통지가 오의이고 그때 State.Ult.Blocked 가 있으면 잠깐 띄운다. 게이지 부족은 조용히 무시한다(§4)
  *
@@ -30,6 +32,7 @@ struct FOnAttributeChangeData;
  *   폰    소유 컨트롤러의 OnPossessedPawnChanged (클라이언트는 OnRep_Pawn 에서도 나간다)
  *   ASC   그 폰의 PawnExtension OnAbilitySystemInitialized_RegisterAndCall
  *   체인  UWorld::GameStateSetEvent → GameState 의 체인 컴포넌트(없는 맵 = 허브면 패널은 계속 접힘)
+ *   키    Enhanced Input 의 ControlMappingsRebuiltDelegate(키 배치) · UInputDeviceSubsystem 의 OnInputHardwareDeviceChanged(쓰던 장치)
  * 게임 월드에서 소유 플레이어가 있을 때만 동작한다 — 에디터 렌더(uigen 검증의 render_widget)는 spec 상태 · 덮어쓰기 그대로 그려야 해서 아무것도 안 한다.
  */
 UCLASS()
@@ -71,6 +74,15 @@ private:
 	void BindChainBurst(UAstralChainBurstComponent* Chain);
 	void UnbindChainBurst();
 
+	void BindInput();
+	void UnbindInput();
+
+	UFUNCTION()
+	void HandleControlMappingsRebuilt();
+
+	UFUNCTION()
+	void HandleInputDeviceChanged(const FPlatformUserId UserId, const FInputDeviceId DeviceId);
+
 	// ─── 원천 → 화면 ───
 
 	void HandleUltAttributeChanged(const FOnAttributeChangeData& Data);
@@ -81,6 +93,13 @@ private:
 
 	void HandleChainStateChanged(const FAstralChainState& NewState, const FAstralChainState& OldState);
 	void ApplyChainState(const FAstralChainState& State);
+
+	/** 남은 시간 숫자와 고리를 같은 값으로 */
+	void RefreshChainTime(const UAstralChainBurstComponent& Chain);
+
+	/** 오의 액션에 지금 걸린 키 — 마지막에 쓴 장치가 게임패드면 게임패드 키, 아니면 키보드 · 마우스 키. 없으면 빈 글자 */
+	void RefreshUltKey();
+
 	void ShowBurstBanner(int32 Count);
 	void HideBurstBanner();
 

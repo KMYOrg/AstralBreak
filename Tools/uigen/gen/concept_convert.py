@@ -186,10 +186,11 @@ def wanted(mode: str, kind: str) -> bool:
     return mode != "off" and (kind == "scene" or (kind == "flat" and mode == "force"))
 
 
-def convert(run, src: pathlib.Path, inputs: dict, mode: str, kind: str, *, cli: list[str] | None = None) -> dict:
-    """원본(src — ⓒ · ⓑ) → {"used", "concept"(경로 | None), "notext"(경로 | None), 기록 …}. 실패해도 예외 없이 used False · fallback 사유."""
+def convert(run, src: pathlib.Path, inputs: dict, mode: str, kind: str, *, cli: list[str] | None = None, text_free: bool = True) -> dict:
+    """원본(src — ⓒ · ⓑ) → {"used", "concept"(경로 | None), "notext"(경로 | None), 기록 …}. 실패해도 예외 없이 used False · fallback 사유.
+    text_free False = 글자 없는 판을 만들지 않음(L-2 — 원본에 글자가 없다)."""
     cfg = run.cfg
-    st = settings(cfg)
+    st = {**settings(cfg), **({} if text_free else {"text_free": False})}
     src = pathlib.Path(src)
     src_sha = _sha(src)
     prompt = build_prompt(inputs, kind)

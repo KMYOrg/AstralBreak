@@ -4,7 +4,7 @@
 schema_version: 1
 mode: concept
 screen_type: hud
-screen_id: CombatHUD
+screen_id: ProbeCombatHUD
 concept: concept.png                     # codex 로 만든 대역(make_concept.py) — 사람 그림으로 바꿔 다시 돌릴 수 있다
 resolution: [1920, 1080]
 language: ko

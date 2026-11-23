@@ -1,0 +1,62 @@
+{
+ "schema_version": 1,
+ "kind": "concept",
+ "created": "2026-11-23T15:51:51",
+ "generator": "codex built-in image_gen (cut from an approved sheet)",
+ "thread_id": "01a206c9-69a4-7cc1-ac37-aa8b12eac2a4",
+ "prompt_sha256": null,
+ "flat_background": false,
+ "transparent_background": true,
+ "transparent_ratio": 0.8621,
+ "edited_from": null,
+ "file": "concept.png",
+ "sha256": "797567d3011112e7aaa05205d14a5819d2a1286ef852c5c51ea32067b25c5cb5",
+ "size": [
+  1671,
+  941
+ ],
+ "has_alpha_channel": true,
+ "cut_from": {
+  "file": "Tools/uigen/fixtures/hud_blade_sheet/concept.png",
+  "sha256": "a946e16cfe273f8ce6961f3e95c34a8f6fa2042bf53cc900048a765ab3611c12",
+  "keep_1920": [
+   [
+    500.0,
+    140.0,
+    920.0,
+    172.0
+   ],
+   [
+    650.0,
+    312.0,
+    620.0,
+    548.0
+   ],
+   [
+    600.0,
+    862.0,
+    720.0,
+    120.0
+   ],
+   [
+    560.0,
+    984.0,
+    800.0,
+    76.0
+   ]
+  ]
+ },
+ "text_free_first": {
+  "status": "ok",
+  "attempts": [
+   {
+    "attempt": 0,
+    "file": "Tools/uigen/fixtures/combat_hud_blade/concept.png",
+    "ocr_boxes": [],
+    "sha256": "797567d3011112e7aaa05205d14a5819d2a1286ef852c5c51ea32067b25c5cb5"
+   }
+  ],
+  "text_ref": "concept_text_ref.png"
+ },
+ "note": "L-2 original text-free art — the pixels of the approved sheet, only this screen's elements kept"
+}

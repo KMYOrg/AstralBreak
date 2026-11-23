@@ -390,6 +390,103 @@ bool FWidgetMcpBuildRoundTripTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+/** 전투 HUD 동작(11-23) — Image brush.wipe: 머티리얼 준비 · 왕복 · 비율 렌더(게임과 같은 길 — 동적 머티리얼) · 거절 */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWidgetMcpRadialWipeTest, "WidgetMcp.Tools.RadialWipe", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+bool FWidgetMcpRadialWipeTest::RunTest(const FString& Parameters)
+{
+	FHarness H(TEXT("Wipe"));
+	TArray<FColor> Pixels;
+	Pixels.Init(FColor(232, 181, 74, 255), 100 * 100);
+	const FString Solid = FPaths::Combine(H.DiskDir, TEXT("solid.png"));
+	FImageUtils::SaveImageByExtension(*Solid, FImageView(Pixels.GetData(), 100, 100, EGammaSpace::sRGB));
+	FCall C = H.Call(TEXT("import_ui_textures"), FString::Printf(TEXT(R"({"dest_path":"%s","textures":[{"file":"%s","name":"T_ring"}]})"), *H.RunPath, *Solid));
+	TestTrue(TEXT("texture imported"), C.bOk);
+	const TSharedRef<FJsonObject> Assets = Json(FString::Printf(TEXT(R"({"ring":"%s/T_ring"})"), *H.RunPath));
+	const FString Wbp = H.RunPath + TEXT("/WBP_Wipe");
+	C = H.Call(TEXT("create_widget_blueprint"), FString::Printf(TEXT(R"({"asset_path":"%s","parent_class":"/Script/UMG.UserWidget"})"), *Wbp));
+	if (!TestTrue(FString::Printf(TEXT("create ok (%s %s)"), *C.Code, *C.Message), C.bOk)) { H.Discard(); return true; }
+	FString Revision = C.Result->GetStringField(TEXT("revision"));
+
+	const auto SpecWith = [](const FString& Style)
+	{
+		return Json(FString::Printf(TEXT(R"({"root":"Root","widgets":[{"id":"Root","type":"CanvasPanel"},{"id":"Ring","type":"Image","parent":"Root","slot":{"kind":"canvas","position":[100,40],"size":[100,100]},"style":%s}]})"), *Style));
+	};
+	const FString Good = TEXT(R"({"brush":{"asset":"ring","wipe":{"kind":"radial","mode":"clockwise","center":[50,50],"track_alpha":0.25}},"percent":1})");
+
+	// 거절 — 잘못된 닦기는 아무것도 만들지 않는다
+	struct FBad { const TCHAR* What; const TCHAR* Style; };
+	const FBad Bad[] = {
+		{ TEXT("percent without wipe"), TEXT(R"({"brush":{"asset":"ring"},"percent":0.5})") },
+		{ TEXT("unknown mode"), TEXT(R"({"brush":{"asset":"ring","wipe":{"kind":"radial","mode":"spiral","center":[50,50]}}})") },
+		{ TEXT("no center"), TEXT(R"({"brush":{"asset":"ring","wipe":{"kind":"radial","mode":"mirror"}}})") },
+		{ TEXT("wipe without a texture"), TEXT(R"({"brush":{"draw_as":"image","wipe":{"center":[50,50]}}})") },
+	};
+	for (const FBad& B : Bad)
+	{
+		C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Wbp, SpecWith(B.Style), Revision, Assets));
+		TestFalse(FString::Printf(TEXT("refused: %s"), B.What), C.bOk);
+	}
+
+	C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Wbp, SpecWith(Good), Revision, Assets));
+	if (!TestTrue(FString::Printf(TEXT("apply ok (%s %s)"), *C.Code, *C.Message), C.bOk)) { H.Discard(); return true; }
+	Revision = C.Result->GetStringField(TEXT("revision_after"));
+	const TArray<TSharedPtr<FJsonValue>>* Materials = nullptr;
+	if (TestTrue(TEXT("brush material reported"), C.Result->TryGetArrayField(TEXT("brush_materials"), Materials) && Materials->Num() == 1))
+	{
+		const TSharedPtr<FJsonObject> M = (*Materials)[0]->AsObject();
+		TestTrue(TEXT("material is UI domain"), M->GetBoolField(TEXT("ui_domain")));
+		TestEqual(TEXT("material has no compile errors"), static_cast<int32>(M->GetNumberField(TEXT("compile_errors"))), 0);
+		TestTrue(TEXT("material lives in the run folder"), M->GetStringField(TEXT("path")).StartsWith(H.RunPath + TEXT("/MI_RadialWipe_Ring")));
+	}
+
+	// 왕복 — 역추출이 텍스처 · 닦기 · 비율을 되돌린다, 같은 spec 을 다시 적용하면 바뀔 것이 없다
+	C = H.Call(TEXT("export_widget_spec"), FString::Printf(TEXT(R"({"asset_path":"%s"})"), *Wbp));
+	if (TestTrue(TEXT("export ok"), C.bOk))
+	{
+		const TSharedPtr<FJsonObject> Ring = FindWidget(C.Result->GetObjectField(TEXT("spec")), TEXT("Ring"));
+		const TSharedPtr<FJsonObject> Style = Ring.IsValid() ? Ring->GetObjectField(TEXT("style")) : nullptr;
+		const TSharedPtr<FJsonObject>* Wipe = nullptr;
+		if (TestTrue(TEXT("exported ring has a wipe"), Style.IsValid() && Style->GetObjectField(TEXT("brush"))->TryGetObjectField(TEXT("wipe"), Wipe)))
+		{
+			TestEqual(TEXT("wipe mode"), (*Wipe)->GetStringField(TEXT("mode")), FString(TEXT("clockwise")));
+			TestEqual(TEXT("wipe center x"), (*Wipe)->GetArrayField(TEXT("center"))[0]->AsNumber(), 50.0);
+			TestEqual(TEXT("wipe track alpha"), (*Wipe)->GetNumberField(TEXT("track_alpha")), 0.25);
+			TestEqual(TEXT("percent"), Style->GetNumberField(TEXT("percent")), 1.0);
+			TestEqual(TEXT("brush texture"), WidgetMcp::ToPackagePath(Style->GetObjectField(TEXT("brush"))->GetStringField(TEXT("asset"))), H.RunPath + TEXT("/T_ring"));
+		}
+	}
+	C = H.Call(TEXT("preview_widget_spec"), ApplyBody(H, Wbp, SpecWith(Good), FString(), Assets));
+	TestTrue(TEXT("the same spec previews no ops"), C.bOk && C.Result->GetArrayField(TEXT("ops")).Num() == 0);
+
+	// 렌더 — 100 % 는 이미지 브러시와 같은 색, 0 % 는 흔적(25 %), 50 % 는 오른쪽 반(12시에서 시계 방향으로 반 바퀴)만 흔적
+	struct FState { double Percent; bool bLeftKept; bool bRightKept; };
+	const FState States[] = { { 1.0, true, true }, { 0.5, true, false }, { 0.0, false, false } };
+	for (const FState& St : States)
+	{
+		const FString Out = FPaths::Combine(H.DiskDir, FString::Printf(TEXT("render_%03d"), FMath::RoundToInt(St.Percent * 100.0)));
+		C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","resolutions":[[320,200]],"probes":[{"id":"left","at":[120,90]},{"id":"right","at":[180,90]}],"overrides":{"Ring":{"percent":%g}}})"),
+			*Wbp, *Out, St.Percent));
+		if (!TestTrue(FString::Printf(TEXT("render %.2f ok (%s %s)"), St.Percent, *C.Code, *C.Message), C.bOk)) { continue; }
+		const TArray<TSharedPtr<FJsonValue>>& Probes = C.Result->GetArrayField(TEXT("probes"));
+		if (!TestEqual(TEXT("two probes"), Probes.Num(), 2)) { continue; }
+		for (int32 i = 0; i < 2; ++i)
+		{
+			const bool bKept = i == 0 ? St.bLeftKept : St.bRightKept;
+			const double K = bKept ? 1.0 : 0.25;
+			const FString Hex = Probes[i]->AsObject()->GetStringField(TEXT("color"));
+			const FColor Got = FColor::FromHex(Hex);
+			const bool bClose = FMath::Abs(Got.R - 232.0 * K) <= 3.0 && FMath::Abs(Got.G - 181.0 * K) <= 3.0 && FMath::Abs(Got.B - 74.0 * K) <= 3.0;
+			TestTrue(FString::Printf(TEXT("percent %.2f %s probe %s ~= %.0f %% of #E8B54A"), St.Percent, i == 0 ? TEXT("left") : TEXT("right"), *Hex, K * 100.0), bClose);
+		}
+	}
+	// 렌더 덮어쓰기는 인스턴스의 동적 머티리얼만 움직인다 — 애셋은 그대로
+	C = H.Call(TEXT("export_widget_spec"), FString::Printf(TEXT(R"({"asset_path":"%s"})"), *Wbp));
+	TestTrue(TEXT("revision unchanged after renders"), C.bOk && C.Result->GetStringField(TEXT("revision")) == Revision);
+
+	H.Discard();
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWidgetMcpRenderTest, "WidgetMcp.Tools.Render", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 bool FWidgetMcpRenderTest::RunTest(const FString& Parameters)
 {

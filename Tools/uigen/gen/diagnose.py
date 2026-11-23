@@ -68,6 +68,8 @@ DEFAULTS = {
     # 빛 줄기), 깨끗한 판(L-2 셋 · 새 L-1 235452)은 덩어리 0(국소 최대 3.6) → 거짓 양성 0 문턱 4.0] → error
     "text_lift_mode": "error",
     "text_lift_de": 4.0,
+    # L-2 기본 전환 ④ — 접히는 위젯(시작 때 숨음 · flag)을 껐을 때 정적 판에 남은 빛(state_check.hidden_halo): 3 × 3 국소 ΔE00(검정 · 회색 · 흰 중 최대) 문턱
+    "halo_de": 2.0,
     # 오류 모드에서도 기록만 둘 check(새 검사 — 묶음 거짓 양성 0 확인 전까지)
     "state_record_only": [],
 }
@@ -605,7 +607,17 @@ OWN_SHARE = 0.5            # 덩어리 픽셀의 이만큼 이상이 자기 글�
 STROKE_SHARE = 0.45        # 기준 획 두께(덩어리 거리 변환 최대의 넓이 가중 중앙값)의 이만큼도 안 되는 가는 덩어리는 글자 획이 아니다(판이 다시 그린 배지 테두리 호)
 
 
-def _filter_glyph_parts(m, own) -> np.ndarray:
+SPACING_EM = 1.34          # 자간 1/1000 em × 글자 크기 → px(Slate 글자 크기 pt → px)
+
+
+def spacing_gap(w: dict) -> float:
+    """넓은 자간 글자의 낱말 틈에 더해 줄 px(자간 둘 — 빈칸 글자 양옆). 자간이 없으면 0 — 예전 판정 그대로.
+    [실측 combat_hud_blade R20261123_155229 '체인 버스트' 자간 240 — 낱말 틈 35 px > 0.6 × 상자 높이 31 px 라 '체인' 이 획 묶음에서 빠짐]"""
+    f = w.get("font") if isinstance(w.get("font"), dict) else {}
+    return 2.0 * max(0.0, float(f.get("letter_spacing") or 0)) / 1000.0 * float(f.get("size") or 0) * SPACING_EM
+
+
+def _filter_glyph_parts(m, own, gap_extra: float = 0.0) -> np.ndarray:
     """후보 덩어리 중 글자 획만 — 글자 하나보다 긴 가는 가로 · 세로 선(판 어긋남 · 띠 가장자리), 자기 글자 상자 밖이 대부분인 덩어리(이웃 장식),
     가장 큰 덩어리보다 훨씬 가는 덩어리(배지 테두리 호)는 뺀다.
     [실측 J-b 기준선 R20261117_154442] 컨셉 획 마스크에 띠 위아래 가장자리 1 ~ 3 px 선 · 'R' 옆 날개 조각 · E · T 배지 테두리 호가 끼어 높이 비 0.5 ·
@@ -649,7 +661,7 @@ def _filter_glyph_parts(m, own) -> np.ndarray:
                 break
         drop += [i for i, a_, d in comps if d < STROKE_SHARE * ref and a_ < 0.5 * big]
     m = m & ~np.isin(lab, drop) if drop else m
-    return _main_cluster(m, 0.6 * h) if m.any() else m
+    return _main_cluster(m, 0.6 * h + gap_extra) if m.any() else m
 
 
 def notext_unused(rd: pathlib.Path) -> set[str]:
@@ -768,14 +780,14 @@ def text_glyph_masks(ref_black, render, compose_black, texts: list[dict], geo: d
             keep = np.zeros_like(m)
             keep[m] = near
             cc[w["id"]] = keep
-    fc = {w["id"]: _filter_glyph_parts(cc[w["id"]], owns[w["id"]]) for w in texts}
+    fc = {w["id"]: _filter_glyph_parts(cc[w["id"]], owns[w["id"]], spacing_gap(w)) for w in texts}
     # 렌더 획 주인은 컨셉에서 정한 획을 따른다(겹치면) — 컨셉 · 렌더가 같은 획을 같은 글자 몫으로
     prior = {k: _dilate(core_of(d_c, v, ref_black), PRIOR_GROW) for k, v in fc.items() if v.any()}
     cr = assign_glyphs(d_r, zones, owns, cores, prior=prior)
     out = {}
     for w in texts:
         k = w["id"]
-        a, b = fc[k], _filter_glyph_parts(cr[k], owns[k])
+        a, b = fc[k], _filter_glyph_parts(cr[k], owns[k], spacing_gap(w))
         out[k] = {"own": owns[k], "zone": zones[k], "concept_cand": a, "render_cand": b, "concept": core_of(d_c, a, ref_black),
                   "render": core_of(d_r, b, render, _font_refs(w))}
     return out
@@ -1554,6 +1566,11 @@ def _inputs(rd: pathlib.Path, spec: dict | None = None) -> dict:
     return {"spec": spec, "canvas": canvas, "boxes": boxes, "textures": textures, "norm": norm, "bg": bg}
 
 
+def spec_brush_keys():
+    from core import spec as spec_mod
+    return spec_mod.BRUSH_KEYS
+
+
 def _hidden_roots(spec: dict) -> list[str]:
     index = {w["id"]: w for w in spec.get("widgets", [])}
 
@@ -2145,6 +2162,16 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                     sc["render_off_error"] = f"{type(exc).__name__}: {exc}"[:200]
             glyphs = {k: (v["concept"] | v["concept_cand"]) for k, v in gm.items()}
             ht = state_check.hidden_trace(spec, boxes, textures, canvas, rc0, ra0, states, glyphs, s, render_off=rend_off)
+            # S1 보강 — 접히는 영역(시작 때 숨음 · flag)을 모두 끈 상태의 남은 빛
+            rend_tog = None
+            from gen import territory
+            togs = [r_["id"] for r_ in territory.toggle_regions(spec)]
+            if engine and togs:
+                try:
+                    rend_tog = _state_render(render_state, {r: {"visible": False} for r in sorted(set(roots) | set(togs))}, "state_toggles_off", (H, W))
+                except Exception as exc:  # noqa: BLE001 — 기록하고 합성으로
+                    sc["render_toggles_error"] = f"{type(exc).__name__}: {exc}"[:200]
+            hh = state_check.hidden_halo(spec, boxes, textures, canvas, ra0, states, s, render_off=rend_tog)
             ov_state = {h["widget"]: {"visible": bool(h["drawn_in_concept"])} for h in states}
             rp = None
             if engine:
@@ -2154,6 +2181,9 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
             base_g = shown if engine else comp_state
             ref_png = _load_rgb(rd / "reference.png")
             gs = state_check.gauge_states(spec_state, boxes, textures, canvas, s, base_g, render_pct=rp, ref_png=ref_png)
+            # 원형 진행(고리 — 전투 HUD 동작 11-23): 0 · 중간 넷 · 100 % — 게이지와 같은 모양이라 그림 · 기록을 같이 싣는다
+            rs = state_check.radial_states(spec_state, boxes, textures, canvas, s, base_g, render_pct=rp)
+            gs = {**gs, "gauges": gs["gauges"] + rs["gauges"], "findings": gs["findings"] + rs["findings"], "images": {**gs["images"], **rs["images"]}}
             # S4 글자 밑 흔적(1b 후속 L 다음 L-1 글자 완전 지우기) — 모든 글자 빈 값 상태(텍스처 합성 · 엔진 text "")와 값 글자를 다른 값으로 그린 엔진 렌더
             tt, notext_imgs, values_img, group_imgs = None, None, None, {}
             try:
@@ -2202,7 +2232,7 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                                            "box": [geo[g_["root"]][k_] for k_ in ("x", "y", "w", "h")] if g_["root"] in geo else None} for g_ in groups}
             except Exception as exc:  # noqa: BLE001 — 검사가 깨지면 기록
                 sc["text_trace_error"] = f"{type(exc).__name__}: {exc}"[:300]
-            findings = [{k: v for k, v in f.items() if k != "mask"} for f in ht["findings"] + gs["findings"] + (tt["findings"] if tt else [])]
+            findings = [{k: v for k, v in f.items() if k != "mask"} for f in ht["findings"] + hh["findings"] + gs["findings"] + (tt["findings"] if tt else [])]
             rec_only = set(s.get("state_record_only") or [])
             # 사용자 결정 ③(11-20) — refine 이 '정답 없음'(근거 기록)으로 표시한 글자 자리 안의 S4 결함은 오류 대신 '정답 없음 — 수동 확인 필요'(다른 결함은 그대로 오류)
             mchecks = manual_checks(rd)
@@ -2217,13 +2247,15 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                                                           if (f.get("manual_check") or {}).get("box") == m.get("box") and f.get("widgets", [None])[0] == m.get("widget")]}
                                        for m in mchecks]
                 rec["summary"]["manual_check"] = sum(1 for f in findings if f.get("manual_check"))
-            sc.update(hidden_trace={"renderer": ht["renderer"], "roots": ht["roots"]}, gauge_states={"renderer": gs["renderer"], "gauges": gs["gauges"]},
+            sc.update(hidden_trace={"renderer": ht["renderer"], "roots": ht["roots"]},
+                      hidden_halo={"renderer": hh["renderer"], "roots": hh["roots"], "toggles": hh["toggles"]}, gauge_states={"renderer": gs["renderer"], "gauges": gs["gauges"]},
                       findings=findings)
             if tt is not None:
                 sc["text_trace"] = {"renderer": tt["renderer"], "texts": tt["texts"], **({"values": tt["values"]} if tt.get("values") else {}),
                                     **({"line_like": tt["line_like"]} if tt.get("line_like") else {}), **({"groups": tt["groups"]} if tt.get("groups") else {}),
                                     **({"lift_like": tt["lift_like"]} if tt.get("lift_like") else {})}
-            band = {"off": ht["images"], "off_renderer": ht["renderer"], "gauges": gs["images"], "gauge_base": base_g,
+            band = {"off": ht["images"], "off_renderer": ht["renderer"], "toggles_off": hh["images"] if hh["toggles"] else {}, "toggles_renderer": hh["renderer"],
+                    "gauges": gs["images"], "gauge_base": base_g,
                     "gauge_boxes": {k: [geo[k]["x"], geo[k]["y"], geo[k]["w"], geo[k]["h"]] for k in gs["images"] if k in geo},
                     "gauge_renderer": {g_["widget"]: g_.get("renderer") for g_ in gs["gauges"]},
                     "notext": notext_imgs, "notext_renderer": tt["renderer"] if tt else None, "values": values_img, "notext_groups": group_imgs}
@@ -2327,6 +2359,12 @@ def _band_rows(band: dict, top_w: int) -> list:
     if ts:
         rows.append(hcat(ts))
     # 1b 후속 L 다음 L-1 글자 완전 지우기 — S4: 모든 글자 빈 값(엔진 또는 합성 검정 | 회색 | 흰 바탕 합성) · 값 글자를 다른 값으로(엔진)
+    tg = band.get("toggles_off") or {}
+    ts = [tile(tg[k], lbl, 0.5) for k, lbl in (("black", f"every collapsible widget off - {band.get('toggles_renderer', 'composite')} on black"),
+                                               ("gray", "every collapsible widget off - texture composite on gray"),
+                                               ("white", "every collapsible widget off - texture composite on white")) if tg.get(k) is not None]
+    if ts:
+        rows.append(hcat(ts))
     nt_ = band.get("notext") or {}
     ts = [tile(nt_[k], lbl, 0.5) for k, lbl in (("black", f"every text empty - {band.get('notext_renderer') or 'composite'} on black"),
                                                  ("gray", "every text empty - texture composite on gray"),

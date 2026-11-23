@@ -602,7 +602,34 @@ OWN_BLEED = 2               # 내 픽셀에 이만큼(px) 안으로 붙은 남�
 OWN_BLEED_ALPHA = 0.97      # 같이 그리는 '불투명' — 1:1 에서 두 번 쌓여도 덮임 차가 0.03 이하
 
 
-def cut_ownership(spec: dict, alpha, ring_ok: set | None = None) -> dict | None:
+def own_mask(run, spec: dict | None, aid: str):
+    """L-2 기본 전환 ④ — 이 에셋을 그리는 접히는 위젯의 자기 마스크(layer 가 상자를 넓힌 것 — 캔버스 bool), 없으면 None. 마스크 밖(넓힌 네모 안의 이웃 픽셀)은
+    그리지 않는다(정적 판 · 이웃 위젯의 몫)."""
+    import numpy as np
+    from stages import layer as layer_mod
+    users = asset_users(spec, aid)
+    rings = layer_mod.radial_masks(run)
+    ring = next((rings[u["id"]] for u in users if u["id"] in rings), None)
+    if ring is not None:
+        return ring                                 # 전투 HUD 동작(11-23) — 원형 진행(고리)은 자기 픽셀만
+    wants = [u["id"] for u in users if ((u.get("style") or {}).get("brush") or {}).get("wipe")]
+    if wants:
+        raise StageError("RADIAL_MASK", f"'{aid}' is drawn by the ring {wants} but layer.json has no ring mask — the layer stage must run first", asset=aid)
+    masks = layer_mod.own_masks(run)
+    own = next((masks[u["id"]] for u in users if u["id"] in masks), None)
+    for wid, m in rings.items():                    # 고리와 같은 자리를 품은 다른 에셋(고리 안 띠)은 고리 픽셀을 뺀다 — 픽셀마다 주인 하나
+        H, W = m.shape
+        for u in users:
+            if not u.get("bbox_intent"):
+                continue
+            x0, y0, x1, y1 = layer_mod._int_box(u["bbox_intent"], W, H)
+            if m[y0:y1, x0:x1].any():
+                own = (np.ones((H, W), bool) if own is None else own) & ~m
+                break
+    return own
+
+
+def cut_ownership(spec: dict, alpha, ring_ok: set | None = None, own_masks: dict | None = None) -> dict | None:
     """ⓐ ⓑ — 오리는 위젯 상자가 일부만 겹친 자리(포함 관계 NEST_FRAC 은 빼고 — 띠 위 배지 · 엠블럼 속 다이아몬드는 설계대로 겹쳐 그린다)의 픽셀마다
     주인 하나를 정한다 → {"ids", "cand"(캔버스 — 후보 비트: 상자, 넘칠 수 있는 위젯(ring_ok)은 상자 + OWN_RING), "contested", "owner"(캔버스 —
     -1 = 겹친 자리 아님 · -2 = 안 보임)} 또는 None. 겨루는 자리 = 두 상자가 겹친 곳 + 넘칠 수 있는 쪽 상자 둘레 OWN_RING 중 상대 상자 안.
@@ -637,6 +664,11 @@ def cut_ownership(spec: dict, alpha, ring_ok: set | None = None) -> dict | None:
     cand = np.zeros((H, W), np.int64)
     ring_ok = set(ring_ok or ())
     for i, (x0, y0, x1, y1) in enumerate(boxes):
+        om = (own_masks or {}).get(parts[i]["id"])       # L-2 기본 전환 ④ — 상자를 넓힌 접히는 위젯은 자기 마스크만 후보(넓힌 네모 안의 이웃 픽셀을 겨루지 않게)
+        if om is not None:
+            real[om] |= np.int64(1) << i
+            cand[om] |= np.int64(1) << i
+            continue
         real[y0:y1, x0:x1] |= np.int64(1) << i
         g = OWN_RING if parts[i]["id"] in ring_ok else 0
         cand[max(0, y0 - g):min(H, y1 + g), max(0, x0 - g):min(W, x1 + g)] |= np.int64(1) << i
@@ -774,7 +806,8 @@ def _ownership(run, spec: dict, alpha):
                 ids = [b.get("asset") for k, b in (w.get("style") or {}).items() if k in spec_mod.BRUSH_KEYS and isinstance(b, dict) and b.get("asset")]
                 if ids and all(not overhang_blockers(spec, i, w["bbox_intent"]) for i in ids):
                     ring_ok.add(w["id"])
-        cache[key] = cut_ownership(spec, alpha, ring_ok)
+        from stages import layer as layer_mod
+        cache[key] = cut_ownership(spec, alpha, ring_ok, layer_mod.own_masks(run))
     return cache[key]
 
 
@@ -975,7 +1008,15 @@ def _cut_entry(run, asset: dict, raw, backend: str, gen_rec: dict, spec: dict | 
         a, covered, cov_ids = _drop_covered_below(a, spec or {"widgets": []}, aid, sb, box, alpha)
         if covered:
             rec["covered_below_dropped"] = {"px": covered, "widgets": cov_ids}
-        if dropped or covered:
+        om = own_mask(run, spec, aid)
+        foreign = 0
+        if om is not None:
+            # L-2 기본 전환 ④ — 빛 · 넘침까지 넓힌 상자: 자기 마스크 밖은 이웃 · 정적 판의 픽셀이라 그리지 않는다
+            om_s = om[sy0:sy1, sx0:sx1]
+            foreign = int(((a > 0) & ~om_s).sum())
+            a = np.where(om_s, a, 0.0)
+            rec["own_mask"] = {"px": int(om_s.sum()), "foreign_px": foreign}
+        if dropped or covered or foreign:
             nb_drop = (a_in > 0) & (a == 0)
         # 위에 그려지는 담긴 자식(키 아이콘 · 원판 · 다이아몬드) 자리는 비우지 않는다 — [실측 H3 오프라인 — 투명 컨셉] ⓐ 에선 뒤 장식 · 띠가 불투명해 작은 아이콘의
         # 실루엣이 상자 전체가 되고(텍스처 = 상자째 같은 컨셉 픽셀) 다이아몬드도 상자째라, 담는 쪽을 비우면 네모 구멍이 생기고 어빌리티 띠는 T 배지 네모 둘레
@@ -3598,6 +3639,8 @@ def run(run, opts) -> str:
     cw, ch = (int(v) for v in spec.get("canvas", [0, 0]))
     run.overhang_claims = np.zeros((ch, cw), bool) if cw > 0 and ch > 0 else None
     run.cut_ownership_cache = {}             # 1b 후속 I — 겹친 자리 물체 단위 소유 지도(_ownership — 이 spec 으로 한 번)
+    run.toggle_own_masks = None              # L-2 기본 전환 ④ — 접히는 위젯의 자기 마스크(layer.json toggles — 다시 읽음)
+    run.radial_ring_masks = None             # 전투 HUD 동작 — 고리 픽셀 마스크(layer.json radials — 다시 읽음)
     # 1b 후속 L 다음 — 글자 지우기 마감: 글자마다 지우기 방법(_erase_setup 이 읽음). 없으면 첫 판 = 표시한 글자 모두 lama
     run.erase_plan = {}
     gate = str(((run.cfg.get("extract") or {}).get("text_erase") or "off")) != "off"

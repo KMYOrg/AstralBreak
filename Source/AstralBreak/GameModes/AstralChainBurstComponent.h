@@ -129,6 +129,9 @@ public:
 
 	int32 GetMaxParticipants() const { return MaxParticipants; }
 
+	/** 윈도우 길이(초) — 남은 시간의 비율(고리)의 분모. 복제되지 않는 값이라 클라이언트는 같은 GameState BP 의 자기 것을 읽는다 */
+	float GetWindowSeconds() const { return WindowSeconds; }
+
 	/** PlayerId → PlayerState (복제된 PlayerArray 에서 찾는다 — 어디서든 부를 수 있다) */
 	APlayerState* FindPlayerState(int32 PlayerId) const;
 

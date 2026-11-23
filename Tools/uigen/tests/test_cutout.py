@@ -639,7 +639,7 @@ def test_make_concept_flat_rules_and_edit_mode(tmp_path, monkeypatch):
     out = tmp_path / "fixture"
     out.mkdir()
     (out / "concept_prompt.md").write_text("a HUD concept", encoding="utf-8")
-    assert make_concept.main(["--out-dir", str(out), "--work-root", str(tmp_path / "work"), "--flat"], cli=fake) == make_concept.EXIT_OK
+    assert make_concept.main(["--out-dir", str(out), "--work-root", str(tmp_path / "work"), "--with-text", "--flat"], cli=fake) == make_concept.EXIT_OK
     call = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
     assert "solid pure black background (#000000)" in call["argv"][1] and json.loads((out / "concept.json").read_text(encoding="utf-8"))["flat_background"]
     src = out / "concept.png"

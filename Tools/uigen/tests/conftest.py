@@ -187,6 +187,18 @@ def no_flat_plate_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def concept_route_says_text(monkeypatch):
+    """L-2 기본 전환 — 출처를 적지 않은 시험 컨셉(작은 합성 그림 — 글자 없음)은 예전 길(L-1)로 둔다. OCR 길 고르기를 보는 시험은 normalize.concept_route 를 직접 바꾼다
+    (gen.concept_route 모듈 자체는 그대로 — 그 시험은 모듈을 부른다)."""
+    import types
+
+    from gen import concept_route
+    from stages import normalize
+    monkeypatch.setattr(normalize, "concept_route", types.SimpleNamespace(
+        judge=lambda p: {"decision": "text", "score": 1.0, "boxes": [], "stub": True}, FREE_MAX=concept_route.FREE_MAX, TEXT_MIN=concept_route.TEXT_MIN))
+
+
+@pytest.fixture(autouse=True)
 def no_real_codex(monkeypatch, tmp_path):
     """실제 codex CLI 금지 — 생성 시험은 가짜 codex(tests/fake_codex.py)를 cli= 로 넘긴다. CODEX_HOME 도 임시 폴더로(실제 ~/.codex 를 보지 않게)."""
     from gen import codex

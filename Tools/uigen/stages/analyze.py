@@ -47,6 +47,12 @@ def _contract_lines(brief: dict) -> list[str]:
         extra = f", format {d['format']}" if d.get("format") else ""
         st = f", static text {statics[d['widget']]!r}" if d["widget"] in statics else ""
         desc = f" — {d['desc']}" if d.get("desc") else ""
+        if d.get("inside"):
+            desc += f" — must be inside {d['inside']} (a descendant of it: they show and hide together)"
+        if d["type"] == "progress" and d.get("widget_type") == "Image":
+            desc += (" — a ring that the game empties by angle: an Image with its OWN source_mode extract asset (kind ornament, draw_as image, no nine_slice) whose box is "
+                     "the outer circle of the ring; anything else drawn inside the ring (a band, a plate) belongs to the parent's own asset. The pipeline splits the "
+                     "pixels between the two and adds the wipe itself — do not set brush.wipe or percent")
         lines.append(f"- {d['widget']}: {d.get('widget_type') or '?'} — data '{d['id']}' ({d['type']}{extra}), sample {json.dumps(d.get('sample'), ensure_ascii=False)}{st}{desc}")
     bound = {d["widget"] for d in brief["dynamic_data"]}
     for w, v in statics.items():
@@ -123,6 +129,13 @@ def apply_contract(spec: dict, brief: dict, roles: dict[str, dict] | None = None
     out["canvas"] = list(brief["resolution"])
     out["profile"] = brief["screen_type"]
     index = spec_mod.widget_index(out)
+    for w in out.get("widgets", []):                # 닦기는 파이프라인만 쓴다 — LLM 이 적은 것은 걷는다
+        st = w.get("style") or {}
+        for k in spec_mod.BRUSH_KEYS:
+            if isinstance(st.get(k), dict):
+                st[k].pop("wipe", None)
+        if w.get("type") == "Image":
+            st.pop("percent", None)
     for d in brief["dynamic_data"]:
         w = index.get(d["widget"])
         if not w:
@@ -135,6 +148,14 @@ def apply_contract(spec: dict, brief: dict, roles: dict[str, dict] | None = None
             w["text"] = {"source": "dynamic", "data": d["id"], "sample": _sample_text(d)}
         if d["type"] == "progress" and w.get("type") == "ProgressBar" and isinstance(d.get("sample"), (int, float)):
             w.setdefault("style", {})["percent"] = max(0.0, min(1.0, float(d["sample"])))
+        if d["type"] == "progress" and w.get("type") == "Image" and isinstance((w.get("style") or {}).get("brush"), dict):
+            # 원형 진행(고리, 11-23) — 닦기는 요청이 정한다. 중심은 자리 가운데로 두고 derive_radial_fills 가 컨셉에서 잰 원으로 바꾼다
+            rad = d.get("radial") or {"mode": "clockwise"}
+            bb = w.get("bbox_intent") or [0, 0, 2, 2]
+            s = d.get("sample")
+            w["style"]["brush"]["wipe"] = {"kind": "radial", "mode": rad["mode"], "track_alpha": float(rad.get("track_alpha", 0)),
+                                           "center": [float(bb[2]) / 2, float(bb[3]) / 2]}
+            w["style"]["percent"] = max(0.0, min(1.0, float(s))) if isinstance(s, (int, float)) and not isinstance(s, bool) else 1.0
         if d["type"] == "flag" and d.get("sample") is False:
             w["visibility"] = "collapsed"      # 1b 후속 B ② — 샘플이 꺼짐이면 WBP 도 처음엔 접힘(게이트 렌더는 force_visible 이라 영향 없음)
     for st in brief.get("static_text", []):
@@ -222,6 +243,30 @@ def check(spec: dict, brief: dict) -> list[str]:
             continue
         if index[wid].get("binding"):
             errs.append(f"EXTRA_BINDING: '{wid}' has a binding the request does not list")
+    users: dict[str, list[str]] = {}
+    for wd in spec["widgets"]:
+        for k, b in (wd.get("style") or {}).items():
+            if k in spec_mod.BRUSH_KEYS and isinstance(b, dict) and b.get("asset"):
+                users.setdefault(b["asset"], []).append(wd["id"])
+    assets = {a["asset_id"]: a for a in spec.get("assets", [])}
+    for d in brief["dynamic_data"]:
+        w = index.get(d["widget"])
+        if w and d.get("inside"):
+            p, chain = w.get("parent"), []
+            while p and p in index and p not in chain:
+                chain.append(p)
+                p = index[p].get("parent")
+            if d["inside"] not in chain:
+                errs.append(f"NOT_INSIDE: '{d['widget']}' must be a descendant of '{d['inside']}' (they show and hide together) — its ancestors are {chain}")
+        if w and d["type"] == "progress" and w.get("type") == "Image":
+            brush = (w.get("style") or {}).get("brush") or {}
+            a = assets.get(brush.get("asset"))
+            if not a or a.get("source_mode") != "extract" or brush.get("draw_as", "image") != "image" or a.get("nine_slice"):
+                errs.append(f"RADIAL_ASSET: '{d['widget']}' needs its own source_mode extract asset drawn as image (no nine_slice) — the ring is cut from the concept")
+            elif users.get(brush["asset"], []) != [d["widget"]]:
+                errs.append(f"RADIAL_ASSET: asset '{brush['asset']}' is shared by {users.get(brush['asset'])} — the ring '{d['widget']}' needs its own asset")
+            if (index.get(w.get("parent")) or {}).get("type") != "Overlay":
+                errs.append(f"RADIAL_PARENT: '{d['widget']}' must sit in an Overlay (layers on top of each other), its parent is {w.get('parent')!r}")
     for d in brief["dynamic_data"]:
         w = index.get(d["widget"])
         parent = index.get(w.get("parent")) if w else None
@@ -504,6 +549,83 @@ def derive_gauge_fills(spec: dict, reference, gauge_cfg: dict | None = None) -> 
         rec.update(fill=st["fill"], background=st.get("background"))
         out.append(rec)
     return out
+
+
+def derive_radial_fills(spec: dict, alpha) -> list[dict]:
+    """전투 HUD 동작(11-23) — progress 바인딩 Image(고리): 컨셉 알파에서 원을 재(gen/radial.measure) 위젯 상자 · 슬롯 여백 · 에셋 크기를 원 상자로 맞추고
+    닦는 중심을 넣는다. 못 재면 StageError RADIAL_MEASURE(조용히 물러나지 않는다 — 고리가 안 닦이면 요청과 다르다). 픽셀 나누기는 layer · refine 이 같은 함수로.
+    spec 은 제자리에서 바뀐다. → 기록."""
+    from gen import radial
+    index = spec_mod.widget_index(spec)
+    assets = {a["asset_id"]: a for a in spec.get("assets", [])}
+    out = []
+    for w in spec.get("widgets", []):
+        wipe = ((w.get("style") or {}).get("brush") or {}).get("wipe")
+        if w.get("type") != "Image" or not wipe or not w.get("bbox_intent"):
+            continue
+        if alpha is None:
+            raise StageError("RADIAL_MEASURE", f"'{w['id']}': the concept alpha is unknown (a scene composite) — a ring cannot be split from it")
+        parent = index.get(w.get("parent")) or {}
+        pb = parent.get("bbox_intent")
+        try:
+            m = radial.measure(alpha, w["bbox_intent"])
+        except radial.RadialError as exc:
+            raise StageError("RADIAL_MEASURE", f"'{w['id']}': {exc}", widget=w["id"], box=w["bbox_intent"]) from exc
+        x, y, bw, bh = m["box"]
+        if not pb:
+            raise StageError("RADIAL_MEASURE", f"'{w['id']}': parent '{w.get('parent')}' has no bbox_intent", widget=w["id"])
+        pad = [x - pb[0], y - pb[1], pb[0] + pb[2] - (x + bw), pb[1] + pb[3] - (y + bh)]
+        rec = {"widget": w["id"], "old_bbox": list(w["bbox_intent"]), "old_slot": copy.deepcopy(w.get("slot")), "box": list(m["box"]),
+               "padding": [round(float(v), 2) for v in pad], **m["record"]}
+        w["bbox_intent"] = [x, y, bw, bh]
+        w["slot"] = {"kind": "overlay", "padding": [int(v) if float(v).is_integer() else round(float(v), 2) for v in pad], "h_align": "fill", "v_align": "fill"}
+        brush = w["style"]["brush"]
+        brush.pop("image_size", None)
+        brush["wipe"] = {**wipe, "center": [round(m["center"][0] - x, 2), round(m["center"][1] - y, 2)]}
+        a = assets[brush["asset"]]
+        rec["asset"] = {"id": a["asset_id"], "size_old": list(a["size"])}
+        a["size"] = [bw, bh]
+        a["ref_bbox"] = [x, y, bw, bh]
+        out.append(rec)
+    return out
+
+
+def apply_requested_outlines(spec: dict, brief: dict) -> list[dict]:
+    """전투 HUD 동작(11-23) — 요청이 정한 글자 외곽선(data · static_text 의 outline): 글자 상자를 사방 그만큼 넓혀(_glow_layout — 글자 자리는 그대로) font.outline 에
+    넣는다. 컨셉에서 잰 글자 효과를 정리한 뒤(strip_llm_text_effects) 부른다. 빛은 외곽선 층을 쓰므로 빼고 기록한다. → 기록."""
+    index = spec_mod.widget_index(spec)
+    out = []
+    for wid, o in requested_outlines(brief).items():
+        w = index.get(wid)
+        if not w or w.get("type") != "TextBlock":
+            continue
+        f = w.setdefault("font", {})
+        rec = {"widget": wid, "outline": dict(o)}
+        if f.get("glow"):
+            rec["glow_dropped"] = f.pop("glow")
+        f["outline"] = dict(o)
+        rec["layout"] = _glow_layout(w, int(o["size"]))
+        pairs = _glow_overlap_pairs(spec, w, rec["layout"]["before"]["bbox"])
+        if pairs:
+            rec["allow_overlap_added"] = pairs
+        out.append(rec)
+    return out
+
+
+def requested_outlines(brief: dict) -> dict[str, dict]:
+    """요청이 정한 외곽선 — 위젯 id → {size, color}."""
+    return {**{d["widget"]: d["outline"] for d in brief.get("dynamic_data", []) if d.get("outline")},
+            **{s["widget"]: s["outline"] for s in brief.get("static_text", []) if s.get("outline")}}
+
+
+def _art_alpha(run):
+    """컨셉 알파(글자 없는 아트 — layer · refine 과 같은 것) 또는 None(장면 합성)."""
+    from stages import generate
+    from stages.refine import _reference_layers
+    bg = generate.background_kind(run)
+    if bg not in ("transparent", "flat") or not run.path("reference_alpha.png").is_file():
+        return None
+    return _reference_layers(run, bg)[1]
 
 
 TEXT_GRADIENT_MIN_DE = 8.0   # 글자 위 · 아래 줄 대표색 ΔE00 이 이 이상이면 세로 그라데이션(잠정)
@@ -838,10 +960,13 @@ def run(run, opts) -> str:
         if tg.get("enabled", True) else []
     text_effects = strip_llm_text_effects(spec) if (run.cfg.get("text_style") or {}).get("deterministic_only", True) else []
     text_effects += snap_weights(spec, run.cfg)
-    if derived or text_fills or text_glows or hidden_glows or text_effects:
+    radials = derive_radial_fills(spec, _art_alpha(run)) if any(((w.get("style") or {}).get("brush") or {}).get("wipe") for w in spec["widgets"]) else []
+    outlines = apply_requested_outlines(spec, brief)
+    if derived or text_fills or text_glows or hidden_glows or text_effects or radials or outlines:
         schema.require("spec", spec)
         run.write_json("analyze/derived.json", {"gauge_fills": derived, "text_fills": text_fills, "text_glows": text_glows, "hidden_glows": hidden_glows,
-                                                "text_effects_dropped": text_effects})
+                                                "text_effects_dropped": text_effects, **({"radials": radials} if radials else {}),
+                                                **({"outlines": outlines} if outlines else {})})
     run.write_json("spec.json", spec)
     run.write_json("specs/000.json", spec)
     overlay = draw_overlay(run, spec)
@@ -853,6 +978,7 @@ def run(run, opts) -> str:
     glows = [t["widget"] for t in text_glows if t.get("glow")]
     return (f"{len(spec['widgets'])} widgets, {len(spec.get('assets', []))} assets ({n_codex} codex, {n_extract} extract"
             f"{', gauge fill from the concept: ' + ','.join(gauges) if gauges else ''}"
+            f"{', ring measured: ' + ','.join(r['widget'] + ' r ' + str(r['radius']) for r in radials) if radials else ''}"
             f"{f', text fill from the concept: {grads} gradient · {solids} solid' if grads or solids else ''}"
             f"{', text glow from the concept: ' + ','.join(glows) if glows else ''}"
             f"{', hidden glow → procedural soft_glow: ' + ','.join(h['asset'] for h in hidden_glows) if hidden_glows else ''}) in {len(calls)} call(s) — "

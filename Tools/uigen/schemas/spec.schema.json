@@ -131,11 +131,21 @@
         "image_size": { "$ref": "#/$defs/vec2" },
         "radius": { "type": "number", "minimum": 0 },
         "outline_color": { "$ref": "#/$defs/color" },
-        "outline_width": { "type": "number", "minimum": 0 }
+        "outline_width": { "type": "number", "minimum": 0 },
+        "wipe": {
+          "type": "object", "additionalProperties": false, "required": ["center"],
+          "description": "전투 HUD 동작(11-23) — 원형 닦기: Image 의 텍스처를 각도로 닦아 남은 비율(style.percent)을 보인다. 파이프라인이 컨셉에서 잰다(analyze 가 요청의 radial 로 채움 — LLM 은 쓰지 않는다). center = 닦는 중심(image_size 픽셀), mode clockwise = 12시에서 시계 방향으로 지움 · mirror = 좌우로 같이, track_alpha = 지나간 자리에 남기는 불투명도",
+          "properties": {
+            "kind": { "const": "radial" },
+            "mode": { "enum": ["clockwise", "mirror"] },
+            "center": { "$ref": "#/$defs/vec2" },
+            "track_alpha": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
       }
     },
     "style": {
-      "description": "타입별로 쓰는 키가 다르다(core/spec.py STYLE_KEYS) — Border · Image: brush / ProgressBar: background · fill · fill_color · percent · bar_fill_type · bar_fill_style / SizeBox: width_override · height_override / Spacer: size / UniformGridPanel: slot_padding · min_slot_width · min_slot_height / Button: normal · hovered · pressed",
+      "description": "타입별로 쓰는 키가 다르다(core/spec.py STYLE_KEYS) — Border: brush / Image: brush · percent(brush.wipe 가 있을 때만) / ProgressBar: background · fill · fill_color · percent · bar_fill_type · bar_fill_style / SizeBox: width_override · height_override / Spacer: size / UniformGridPanel: slot_padding · min_slot_width · min_slot_height / Button: normal · hovered · pressed",
       "type": "object",
       "additionalProperties": false,
       "properties": {

@@ -505,6 +505,8 @@ def _style_review(run: Run, opts, ctx: dict, attempt: int) -> None:
 
 
 TEXT_FIT_PASSES = (("size", "text_fit_size"), ("place", "text_fit"))   # (style.text_fit mode, 기록 키 = 시도 style_round · 비교 라벨)
+TEXT_FIT_FINAL_MAX = 3         # 위치 판 뒤 남은 글자 결함만 고치는 크기 판 되풀이 상한(나아질 때만 이어 감)
+TEXT_FIT_FINAL_CAUSES = {"size", "weight", "color", "outline", "glow", "shadow", "glow_strength"}
 
 
 def _text_fit_round(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: int) -> dict:
@@ -523,14 +525,17 @@ def _text_fit_round(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: in
             accepted = accepted or ok
     # 1b 후속 K — 위치 판 뒤 마지막 진단에 고칠 수 있는 글자 결함(크기 · 굵기 · 색 · 외곽선 · 빛)이 남으면 크기 판을 한 번 더(가장 가까운 굵기는 경계 근처에서
     # 렌더마다 갈린다 [실측 K R20261117_234013 '체인 버스트' 밀도 비 위치 판 전 1.07 · 뒤 1.11 — Bold ↔ Black 경계 1.07])
-    try:
-        last = run.read_json("diagnosis.json")
-    except (OSError, ValueError):
-        last = {}
-    if any(d.get("stage") == "text" and d.get("fixable") and set(d.get("causes") or []) & {"size", "weight", "color", "outline", "glow", "shadow", "glow_strength"}
-           for d in last.get("defects") or []):
-        rep, attempt, ok = _text_fit_pass(run, opts, ctx, rec, rep, attempt, "size", "text_fit_size_final")
+    # L-2 기본 전환 — 그 글자만 · 그 원인만(크기 결함이 아닌 글자는 크기를 두고 굵기를 바로 판정), 나아지는 동안 되풀이(크기를 고치면 밀도가 달라져 굵기가 다음 판 몫)
+    # [실측 R20261123_161929 '오의 불가' 크기 27 ↔ 29 를 오가며 굵기 판정이 늘 미뤄짐 · R20261123_170301 마지막 판이 통과하던 배너 라벨 크기까지 바꿔 판 전체가 버려짐]
+    for k in range(TEXT_FIT_FINAL_MAX):
+        causes = _fixable_texts(run)
+        if not causes:
+            break
+        rep, attempt, ok = _text_fit_pass(run, opts, ctx, rec, rep, attempt, "size", "text_fit_size_final" + (f"_{k + 1}" if k else ""),
+                                          only=set(causes), resize={w for w, c in causes.items() if "size" in c})
         accepted = accepted or ok
+        if not ok:
+            break
     if accepted:
         row = rec["text_fit"]
         try:   # 같은 측정으로 남은 차(기록만 — 적용하지 않음)
@@ -540,6 +545,21 @@ def _text_fit_round(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: in
         except Exception as exc:  # noqa: BLE001
             row["residual"] = {"error": f"{type(exc).__name__}: {exc}"[:200]}
     return rep
+
+
+def _fixable_texts(run: Run) -> dict[str, set]:
+    """마지막 진단에서 크기 판이 고칠 수 있는 글자 결함 — 위젯 → 원인 집합."""
+    try:
+        last = run.read_json("diagnosis.json")
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, set] = {}
+    for d in last.get("defects") or []:
+        causes = set(d.get("causes") or [])
+        if d.get("stage") == "text" and d.get("fixable") and causes & TEXT_FIT_FINAL_CAUSES:
+            for wid in d.get("widgets") or []:
+                out.setdefault(wid, set()).update(causes)
+    return out
 
 
 def _text_causes(res: dict | None) -> dict[str, set]:
@@ -554,18 +574,22 @@ def _text_causes(res: dict | None) -> dict[str, set]:
 
 
 def _text_fit_pass(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: int, mode: str, key: str,
-                   only: set | None = None) -> tuple[dict, int, bool]:
+                   only: set | None = None, resize: set | None = None, partial: bool = False) -> tuple[dict, int, bool]:
     """글자 맞춤 한 판 — 마지막 통과 렌더(시도 attempt)에서 재고 고쳐 build → verify. → (비교 보고, 마지막 통과 시도, 받았는지).
     판이 진단을 나쁘게 해 버려지면(1b 후속 J) 그 판에서 글자 결함 원인이 줄어든 글자만 골라 한 번 더(only — `<key>_partial`) — 한 글자 탓에 판 전체가
-    버려졌다 [실측 J R20261117_192631 · 201408 파티 HUD — 방패 숫자 · 이름 측정 탓에 HP 숫자 크기까지 버려짐]."""
-    row: dict = {"round": key, "mode": mode, **({"only": sorted(only)} if only is not None else {})}
+    버려졌다 [실측 J R20261117_192631 · 201408 파티 HUD — 방패 숫자 · 이름 측정 탓에 HP 숫자 크기까지 버려짐].
+    resize = 크기를 바꿔도 되는 글자(없으면 전부) — 마지막 판은 진단이 크기 결함이라고 한 글자만."""
+    row: dict = {"round": key, "mode": mode, **({"only": sorted(only)} if only is not None else {}), **({"resize": sorted(resize)} if resize is not None else {})}
     rec[key] = row
     last_spec = run.read_json("spec.json")
     before_causes = _text_causes(ctx.get("accepted"))
+    # 요청이 정한 글자 외곽선(전투 HUD 동작)은 컨셉에서 재지 않는다
+    locked = set(analyze.requested_outlines(run.read_json("brief.json"))) if run.path("brief.json").is_file() else set()
     run.stage_begin(key)
     try:
         fitted, recs = style.text_fit(last_spec, run.path("reference.png"), run.path("render.png"), run.cfg, style.rendered_boxes(run, attempt), mode=mode,
-                                      **({"only": only} if only is not None else {}))
+                                      **({"only": only} if only is not None else {}), **({"resize": resize} if resize is not None else {}),
+                                      **({"outline_locked": locked} if locked else {}))
     except Exception as exc:  # noqa: BLE001 — 기록 지표에 기대는 보정이라 실패해도 run 은 통과 그대로
         row.update(action="error", reason=f"{type(exc).__name__}: {exc}"[:300])
         run.stage_end(key, "ok", f"text fit ({mode}) skipped — {row['reason']}")
@@ -592,7 +616,7 @@ def _text_fit_pass(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: int
     # 글자별로 다시 고를 몫 — 이 판에서 원인이 줄어든(없어진 포함) 글자, 새 원인이 생긴 글자는 뺀다
     keep = set()
     struct_failed = [g for g in res.get("gates", []) if not g.get("pass") and g["name"] != verify.APPEARANCE]
-    if only is None and len(changed) >= 2 and all(g["name"] == "overlap" for g in struct_failed):
+    if not partial and len(changed) >= 2 and all(g["name"] == "overlap" for g in struct_failed):
         # 겹침만 깨졌으면 겹친 글자는 빼고 고른다 [실측 J R20261117_195827 — '오의 불가' 크기 탓 overlap 에 다른 글자 셋 크기까지 버려짐]
         involved = {v.get(k) for g in struct_failed for v in ((g.get("details") or {}).get("violations") or []) for k in ("a", "b")}
         after_causes = _text_causes(res)
@@ -613,7 +637,7 @@ def _text_fit_pass(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: int
     ctx["accepted"] = res
     rep = style.compare(run, f"{key}_reverted")
     if keep and keep != set(changed):
-        return _text_fit_pass(run, opts, ctx, rec, rep, attempt, mode, f"{key}_partial", only=keep)
+        return _text_fit_pass(run, opts, ctx, rec, rep, attempt, mode, f"{key}_partial", only=keep, resize=resize, partial=True)
     return rep, attempt, False
 
 
@@ -715,7 +739,14 @@ def execute(opts: argparse.Namespace) -> int:
                 report.setdefault("artifacts", {})["backdrop"] = "assets/compare/backdrop.png" if "backdrop.png" in bd.get("images", []) \
                     else "assets/compare/backdrop_gray.png"
         if run.path("normalize.json").is_file():
-            cv = (run.read_json("normalize.json").get("background") or {}).get("convert")
+            nbg = run.read_json("normalize.json").get("background") or {}
+            route = nbg.get("concept_source")
+            if route:                             # L-2 기본 전환 — 어느 길(L-1 · L-2)로 갔고 왜인지(입력 · 출처 기록 · OCR 점수), 글자 스타일 원천
+                report.setdefault("recorded", {})["concept_route"] = {"route": "L-2" if route["value"] in normalize.TEXTFREE else "L-1", **route}
+                oc = route.get("ocr") or {}
+                run.log(f"concept route {'L-2' if route['value'] in normalize.TEXTFREE else 'L-1'} — {route['value']} ({route.get('from')})"
+                        + (f", OCR {oc.get('decision')} {oc.get('score')}" if oc else "") + (f", texts: {route['text_style']}" if route.get("text_style") else ""))
+            cv = nbg.get("convert")
             if cv:                                # 1b 후속 I — 'UI 만 · 진짜 알파' 자동 변환 출처(gen/concept_convert)
                 report.setdefault("recorded", {})["concept_convert"] = cv
                 if cv.get("used"):

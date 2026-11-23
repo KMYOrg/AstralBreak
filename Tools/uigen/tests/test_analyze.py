@@ -28,7 +28,7 @@ def _png(path: pathlib.Path, w: int, h: int) -> pathlib.Path:
 def _inputs(tmp_path: pathlib.Path, w: int = 320, h: int = 180, **override) -> pathlib.Path:
     data = yaml.safe_load((CONCEPT_DIR / "inputs.yaml").read_text(encoding="utf-8"))
     _png(tmp_path / "in" / "concept.png", w, h)
-    data.update(override)
+    data.update({"screen_id": "CombatHUD", **override})     # 이 입력은 이제 검증 화면(ProbeCombatHUD) — 여기선 실제 화면의 계약 줄을 본다
     p = tmp_path / "in" / "inputs.yaml"
     p.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     return p

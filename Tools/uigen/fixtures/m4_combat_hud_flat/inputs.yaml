@@ -4,7 +4,7 @@
 schema_version: 1
 mode: concept
 screen_type: hud
-screen_id: CombatHUD
+screen_id: ProbeCombatHUD
 concept: concept.png                     # make_concept.py --flat 로 만든 대역
 concept_background: auto
 resolution: [1920, 1080]

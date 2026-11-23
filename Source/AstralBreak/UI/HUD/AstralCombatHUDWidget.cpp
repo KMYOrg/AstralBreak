@@ -8,12 +8,40 @@
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
 #include "Character/Components/AstralPawnExtensionComponent.h"
+#include "Character/Hero/AstralPawnData_Hero.h"
+#include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
+#include "EnhancedInputSubsystems.h"
 #include "GameFramework/GameStateBase.h"
+#include "GameFramework/InputDeviceSubsystem.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "GameModes/AstralChainBurstComponent.h"
+#include "Input/AstralInputConfig.h"
+#include "Input/AstralInputGameplayTags.h"
+#include "InputAction.h"
+#include "InputCoreTypes.h"
 #include "TimerManager.h"
+
+namespace AstralCombatHUD
+{
+	/** 키 안내 글자 — 엔진의 짧은 이름(R · Space). 게임패드는 엔진 이름이 길어(Gamepad Left Thumbstick Button) 짧은 표를 먼저 본다 */
+	FText KeyHintText(const FKey& Key)
+	{
+		static const TMap<FKey, FString> GamepadNames = {
+			{ EKeys::Gamepad_LeftThumbstick, TEXT("L3") }, { EKeys::Gamepad_RightThumbstick, TEXT("R3") },
+			{ EKeys::Gamepad_LeftShoulder, TEXT("LB") }, { EKeys::Gamepad_RightShoulder, TEXT("RB") },
+			{ EKeys::Gamepad_LeftTrigger, TEXT("LT") }, { EKeys::Gamepad_RightTrigger, TEXT("RT") },
+			{ EKeys::Gamepad_FaceButton_Bottom, TEXT("A") }, { EKeys::Gamepad_FaceButton_Right, TEXT("B") },
+			{ EKeys::Gamepad_FaceButton_Left, TEXT("X") }, { EKeys::Gamepad_FaceButton_Top, TEXT("Y") },
+		};
+		if (const FString* Short = GamepadNames.Find(Key))
+		{
+			return FText::FromString(*Short);
+		}
+		return Key.GetDisplayName(/*bLongDisplayName*/ false);
+	}
+}
 
 void UAstralCombatHUDWidget::NativeConstruct()
 {
@@ -35,7 +63,9 @@ void UAstralCombatHUDWidget::NativeConstruct()
 	SetUltBlockedVisible(false);
 	SetChainPanelVisible(false);
 	SetBurstBannerVisible(false);
+	SetUltKey(FText::GetEmpty());
 
+	BindInput();
 	PC->OnPossessedPawnChanged.AddUniqueDynamic(this, &ThisClass::HandlePossessedPawnChanged);
 	HandlePossessedPawnChanged(nullptr, PC->GetPawn());
 
@@ -63,6 +93,7 @@ void UAstralCombatHUDWidget::NativeDestruct()
 		World->GetTimerManager().ClearTimer(UltBlockedTimer);
 	}
 	GameStateSetHandle.Reset();
+	UnbindInput();
 	UnbindAbilitySystem();
 	UnbindChainBurst();
 	WatchedPawn.Reset();
@@ -79,7 +110,7 @@ void UAstralCombatHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDel
 	{
 		if (const UAstralChainBurstComponent* Chain = BoundChain.Get())
 		{
-			SetChainRemaining(Chain->GetRemainingSeconds());
+			RefreshChainTime(*Chain);
 		}
 	}
 }
@@ -101,6 +132,7 @@ void UAstralCombatHUDWidget::HandleAbilitySystemInitialized()
 {
 	const UAstralPawnExtensionComponent* PawnExtension = UAstralPawnExtensionComponent::FindPawnExtensionComponent(WatchedPawn.Get());
 	BindAbilitySystem(PawnExtension ? PawnExtension->GetAstralAbilitySystemComponent() : nullptr);
+	RefreshUltKey();   // 이 폰의 입력 설정(PawnData)을 이제 안다 — 키 배치가 먼저 짜였으면 통지는 이미 지나갔다
 }
 
 void UAstralCombatHUDWidget::BindAbilitySystem(UAbilitySystemComponent* ASC)
@@ -162,6 +194,46 @@ void UAstralCombatHUDWidget::UnbindChainBurst()
 	ChainStateChangedHandle.Reset();
 	BoundChain.Reset();
 	bChainTimerRunning = false;
+}
+
+void UAstralCombatHUDWidget::BindInput()
+{
+	const ULocalPlayer* LocalPlayer = GetOwningLocalPlayer();
+	if (UEnhancedInputLocalPlayerSubsystem* Input = LocalPlayer ? LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>() : nullptr)
+	{
+		Input->ControlMappingsRebuiltDelegate.AddUniqueDynamic(this, &ThisClass::HandleControlMappingsRebuilt);
+	}
+	if (UInputDeviceSubsystem* Devices = UInputDeviceSubsystem::Get())
+	{
+		Devices->OnInputHardwareDeviceChanged.AddUniqueDynamic(this, &ThisClass::HandleInputDeviceChanged);
+	}
+}
+
+void UAstralCombatHUDWidget::UnbindInput()
+{
+	const ULocalPlayer* LocalPlayer = GetOwningLocalPlayer();
+	if (UEnhancedInputLocalPlayerSubsystem* Input = LocalPlayer ? LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>() : nullptr)
+	{
+		Input->ControlMappingsRebuiltDelegate.RemoveDynamic(this, &ThisClass::HandleControlMappingsRebuilt);
+	}
+	if (UInputDeviceSubsystem* Devices = UInputDeviceSubsystem::Get())
+	{
+		Devices->OnInputHardwareDeviceChanged.RemoveDynamic(this, &ThisClass::HandleInputDeviceChanged);
+	}
+}
+
+void UAstralCombatHUDWidget::HandleControlMappingsRebuilt()
+{
+	RefreshUltKey();
+}
+
+void UAstralCombatHUDWidget::HandleInputDeviceChanged(const FPlatformUserId UserId, const FInputDeviceId DeviceId)
+{
+	const ULocalPlayer* LocalPlayer = GetOwningLocalPlayer();
+	if (LocalPlayer && LocalPlayer->GetPlatformUserId() == UserId)
+	{
+		RefreshUltKey();
+	}
 }
 
 // ─── 원천 → 화면 ───
@@ -231,8 +303,49 @@ void UAstralCombatHUDWidget::ApplyChainState(const FAstralChainState& State)
 	if (bOpen)
 	{
 		SetChainCount(FText::FromString(FString::Printf(TEXT("%d/%d"), State.ParticipantIds.Num(), Chain->GetMaxParticipants())));
-		SetChainRemaining(Chain->GetRemainingSeconds());
+		RefreshChainTime(*Chain);
 	}
+}
+
+void UAstralCombatHUDWidget::RefreshChainTime(const UAstralChainBurstComponent& Chain)
+{
+	const float Remaining = Chain.GetRemainingSeconds();
+	const float Window = Chain.GetWindowSeconds();
+	SetChainRemaining(Remaining);
+	SetChainRing(Window > 0.f ? Remaining / Window : 0.f);
+}
+
+void UAstralCombatHUDWidget::RefreshUltKey()
+{
+	// 어느 액션인가 — 내 폰의 입력 설정에서 오의 태그로 (키는 애셋이 아니라 지금 로컬 플레이어에 걸린 배치에서 읽는다)
+	const UAstralPawnExtensionComponent* PawnExtension = UAstralPawnExtensionComponent::FindPawnExtensionComponent(WatchedPawn.Get());
+	const UAstralPawnData_Hero* PawnData = PawnExtension ? PawnExtension->GetPawnData<UAstralPawnData_Hero>() : nullptr;
+	const UInputAction* Action = (PawnData && PawnData->InputConfig)
+		? PawnData->InputConfig->FindAbilityInputActionForTag(AstralGameplayTags::InputTag_Ult, /*bLogNotFound*/ false) : nullptr;
+	const ULocalPlayer* LocalPlayer = GetOwningLocalPlayer();
+	const UEnhancedInputLocalPlayerSubsystem* Input = LocalPlayer ? LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>() : nullptr;
+
+	FText Label;
+	if (Action && Input)
+	{
+		bool bGamepad = false;
+		if (const UInputDeviceSubsystem* Devices = UInputDeviceSubsystem::Get())
+		{
+			bGamepad = Devices->GetMostRecentlyUsedHardwareDevice(LocalPlayer->GetPlatformUserId()).PrimaryDeviceType == EHardwareDevicePrimaryType::Gamepad;
+		}
+		// 우선순위 높은 배치가 앞에 온다 — 그 장치의 첫 키
+		const TArray<FKey> Keys = Input->QueryKeysMappedToAction(Action);
+		const FKey* Key = Keys.FindByPredicate([bGamepad](const FKey& K) { return K.IsGamepadKey() == bGamepad; });
+		if (!Key && Keys.Num() > 0)
+		{
+			Key = &Keys[0];   // 그 장치에 걸린 키가 없으면 있는 것이라도
+		}
+		if (Key)
+		{
+			Label = AstralCombatHUD::KeyHintText(*Key);
+		}
+	}
+	SetUltKey(Label);
 }
 
 void UAstralCombatHUDWidget::ShowBurstBanner(int32 Count)

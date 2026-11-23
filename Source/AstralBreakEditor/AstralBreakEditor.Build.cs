@@ -38,6 +38,8 @@ public class AstralBreakEditor : ModuleRules
 			// 전투 HUD 시험 (Private/Tests — 바인딩 위젯의 비율 · 글자 · Visibility 를 읽는다, 설계 m4-ult-chain.md §6 'C 구현 결과')
 			"UMG",
 			"SlateCore",
+			"EnhancedInput",
+			"InputCore",
 		});
 	}
 }

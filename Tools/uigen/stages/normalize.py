@@ -23,7 +23,7 @@ import pathlib
 from core import config
 from core import schema
 from core import spec as spec_mod
-from gen import concept_convert
+from gen import concept_convert, concept_route
 from stages import StageError
 
 ASPECT_STRETCH_MAX = 0.01   # 비율 차이가 이보다 작으면 늘린다(컨셉 1672×941 → 1920×1080 은 0.06 %)
@@ -103,6 +103,15 @@ def _inputs_errors(inputs: dict) -> list[str]:
             errs.append(f"DATA_FORMAT: '{d['id']}' format is only for number data")
         if d["type"] == "number" and not d.get("format"):
             errs.append(f"DATA_FORMAT: number data '{d['id']}' needs format ('0' or '0.0…')")
+        round_ = d["type"] == "progress" and d["widget_type"] == "Image"          # 원형 진행(고리) — 전투 HUD 동작(11-23)
+        if round_ and not d.get("radial"):
+            errs.append(f"DATA_RADIAL: progress data '{d['id']}' on an Image needs radial {{mode, track_alpha}}")
+        if d.get("radial") and not round_:
+            errs.append(f"DATA_RADIAL: '{d['id']}' radial is only for progress data on an Image")
+        if d.get("inside") == d["widget"]:
+            errs.append(f"DATA_INSIDE: '{d['widget']}' cannot be inside itself")
+        if d.get("outline") and d["widget_type"] != "TextBlock":
+            errs.append(f"DATA_OUTLINE: '{d['widget']}' is a {d['widget_type']} — outline is only for a TextBlock")
     for st in inputs.get("static_text", []):
         d = by_widget.get(st["widget"])
         if d and (d["widget_type"] != "TextBlock" or d["type"] in ("text", "number")):
@@ -110,9 +119,13 @@ def _inputs_errors(inputs: dict) -> list[str]:
     return errs
 
 
+TEXTFREE = ("generated_textfree", "external_textfree")      # L-2 — 글자 없이 그린 그림이 픽셀 정답(아트 모드)
+
+
 def concept_source(inputs: dict, concept_path) -> dict:
-    """1b 후속 K-a → L-2 — {value: generated | external | generated_textfree, from}. inputs concept_source 가 먼저, 없으면 컨셉 옆 concept.json(make_concept
-    출처 기록): codex 가 새로 그렸고(edited_from 없음) → generated, 편집(외부 그림 바꾸기) · 기록 없음 → external, `--text-free-first` 원본 아트 → generated_textfree.
+    """1b 후속 K-a → L-2 → L-2 기본 전환 — {value: generated | external | generated_textfree | external_textfree, from, ocr?}.
+    ① inputs concept_source 가 언제나 먼저 ② 없으면 컨셉 옆 concept.json 의 text_free_first(우리가 글자 없이 만든 기록) ③ 그것도 없으면 출처(concept.json — codex 새
+    그림 = generated, 편집 · 기록 없음 = external)를 정하고 OCR(gen/concept_route)로 글자가 없는 그림이면 *_textfree(L-2), 글자가 있거나 모호하면 그대로(L-1).
     L-2 인데 codex 가 두 번 다 글자를 그렸으면(make_concept 기록 text_free_first.status text_drawn) 글자 든 컨셉 — generated(L-1 길)로 물러난다."""
     v = inputs.get("concept_source")
     side = pathlib.Path(concept_path).with_name("concept.json")
@@ -126,13 +139,23 @@ def concept_source(inputs: dict, concept_path) -> dict:
             return {"value": "generated", "from": f"{side.name} (text-free first fell back)",
                     "textfree_fallback": "codex drew text into the text-free art on both tries — the concept is treated as a concept with text (L-1)"}
         return {"value": "generated_textfree", "from": "inputs" if v else f"{side.name} (text-free first)"}
-    if v in ("generated", "external"):
+    if v in ("generated", "external", "external_textfree"):
         return {"value": v, "from": "inputs"}
     if rec is None:
-        return {"value": "external", "from": "no concept.json next to the concept"}
-    if rec.get("kind") == "concept" and "codex" in str(rec.get("generator", "")) and not rec.get("edited_from"):
-        return {"value": "generated", "from": f"{side.name} (codex generated)"}
-    return {"value": "external", "from": f"{side.name} (edited from {rec.get('edited_from')})" if rec.get("edited_from") else side.name}
+        out = {"value": "external", "from": "no concept.json next to the concept"}
+    elif rec.get("kind") == "concept" and "codex" in str(rec.get("generator", "")) and not rec.get("edited_from"):
+        out = {"value": "generated", "from": f"{side.name} (codex generated)"}
+    else:
+        out = {"value": "external", "from": f"{side.name} (edited from {rec.get('edited_from')})" if rec.get("edited_from") else side.name}
+    # L-2 기본 전환 — 받은 그림에 글자가 있는가(OCR). 글자가 없다고 확실할 때만 L-2, 글자 있음 · 모호 · OCR 실패는 L-1 그대로
+    try:
+        out["ocr"] = concept_route.judge(concept_path)
+    except Exception as exc:  # noqa: BLE001 — 판정 실패는 L-1 로(기록)
+        out["ocr"] = {"decision": "failed", "error": f"{type(exc).__name__}: {exc}"[:200]}
+    if out["ocr"]["decision"] == "text_free":
+        out["value"] = f"{out['value']}_textfree"
+        out["from"] += f" + OCR finds no text (score {out['ocr']['score']} <= {concept_route.FREE_MAX})"
+    return out
 
 
 def _fit_reference(src: pathlib.Path, dst: pathlib.Path, size: list[int], background: str | None = "auto", notext: pathlib.Path | None = None,
@@ -331,7 +354,7 @@ def run_concept(run, opts) -> str:
     resolution = list(inputs.get("resolution") or [1920, 1080])
     # 1b 후속 K-a → L-2 — 컨셉 출처(inputs concept_source 가 없으면 컨셉 옆 concept.json — make_concept 출처). generated_textfree = 원본 아트(L-2)
     src_rec = concept_source(inputs, concept)
-    l2 = src_rec["value"] == "generated_textfree"
+    l2 = src_rec["value"] in TEXTFREE
     text_ref, text_ref_skip = None, None
     if l2 and inputs.get("concept_text_ref"):
         if getattr(opts, "concept", None):
@@ -367,7 +390,7 @@ def run_concept(run, opts) -> str:
     except Exception as exc:  # noqa: BLE001 — 판정 실패는 _fit_reference 가 같은 오류로 다시 알린다
         src_kind = {"kind": None, "error": str(exc)[:200]}
     if src_kind.get("kind") and concept_convert.wanted(mode, src_kind["kind"]):
-        conv = concept_convert.convert(run, concept, inputs, mode, src_kind["kind"], cli=getattr(opts, "codex_cli", None))
+        conv = concept_convert.convert(run, concept, inputs, mode, src_kind["kind"], cli=getattr(opts, "codex_cli", None), **({"text_free": False} if l2 else {}))
         if conv.get("used"):
             concept = run.path(conv["concept_file"])
             background = "transparent"
@@ -399,7 +422,7 @@ def run_concept(run, opts) -> str:
     # 글자 획 아래(정답 없는 자리)에만(외부 컨셉 길과 하나). 원본 생성 아트(L-2 generated_textfree — 글자 없이 그린 그림이 승인한 정답)만 아트 모드(role original).
     fit["background"]["concept_source"] = src_rec
     nt0 = fit["background"].get("notext") or {}
-    if src_rec["value"] == "generated_textfree":
+    if src_rec["value"] in TEXTFREE:
         tf = fit["background"].pop("textfree", None)
         if tf and fit["background"]["kind"] in ("transparent", "flat"):
             # L-2 — 아트 = 원본 아트(전 화면 픽셀 정답 — 게이지 채움 · 런타임 그림까지 그린 그림: K 의 '요소 없는 판'이 아님 → element_free False),
@@ -410,6 +433,7 @@ def run_concept(run, opts) -> str:
                                            "text_residue": False, **({"inputs_notext_ignored": notext_skip} if notext_skip else {})}
             fit["background"]["art"] = {"used": True, "role": "original", "color": tf["art"][0], "alpha": tf["art"][1], "element_free": False,
                                         "text_residue": False, "text_ref_used": bool(tr.get("used"))}
+            src_rec["text_style"] = "text_reference" if tr.get("used") else "spec_only"
         else:
             fit["background"]["art"] = {"used": False, "reason": f"background {fit['background']['kind']} — the original art needs the concept alpha"}
     elif src_rec["value"] == "generated":
@@ -419,14 +443,14 @@ def run_concept(run, opts) -> str:
     dynamic = []
     for d in inputs["data"]:
         e = {k: d[k] for k in ("id", "type", "widget", "widget_type") }
-        for k in ("format", "sample", "desc"):
+        for k in ("format", "sample", "desc", "inside", "radial", "outline"):
             if k in d:
                 e[k] = d[k]
         dynamic.append(e)
     brief = {"schema_version": 1, "run_id": run.run_id, "mode": "concept", "screen_type": inputs["screen_type"], "screen_id": inputs["screen_id"],
              "resolution": resolution, "language": inputs.get("language", "ko"), "font": font, "text": inputs.get("text", ""),
              "required_elements": inputs["required_elements"], "dynamic_data": dynamic,
-             "static_text": [{"widget": s["widget"], "value": s["value"]} for s in inputs.get("static_text", [])],   # desc(L-2 참고판 칸 설명)는 brief 밖
+             "static_text": [{k: s[k] for k in ("widget", "value", "outline") if k in s} for s in inputs.get("static_text", [])],   # desc(L-2 참고판 칸 설명)는 brief 밖
              "style_keywords": inputs.get("style_keywords", []),
              "references": [{"path": "reference.png", "role": "layout", "role_source": "user"}], "conflicts": [],
              "binding_contract": {"class": "UUserWidget" if screen.get("probe") else f"U{screen['widget']}",

@@ -239,3 +239,38 @@ def test_make_concept_text_free_first_retries_once_then_falls_back(tmp_path, mon
         assert len(calls) == 3 and calls[2]["edit"] and '"체인 버스트"' in calls[2]["prompt"] and meta["text_free_first"]["status"] == "ok"
         rmeta = json.loads((out / "concept_text_ref.json").read_text(encoding="utf-8"))
         assert rmeta["kind"] == "concept_text_ref" and rmeta["edited_from"] == "concept.png" and rmeta["check"]["used"]
+
+
+def test_make_concept_only_art_then_only_text_ref(tmp_path, monkeypatch):
+    """--only art = 원본 아트까지만(후보 고르기 — inputs 없어도 됨) · --only text_ref = 그 아트에 참고판만. 아트가 기록과 다르면 거절."""
+    import hashlib
+    import make_concept
+    out = tmp_path / "fx"
+    out.mkdir()
+    (out / "concept_prompt.md").write_text("a gauge and a panel", encoding="utf-8")
+    calls = []
+    col, a = _art()
+
+    def fake_generate(prompt, dest, gen_dir, cfg, *, budget, refs=None, ref_purpose="", meta=None, cli=None, edit=False):
+        calls.append({"prompt": prompt, "edit": edit, "refs": refs, "limit": budget.limit})
+        img = _ref(col, a, shift=(0, 0), tone=6.0) if edit else (col, a)
+        pathlib.Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(np.dstack([img[0], img[1] * 255]).astype(np.uint8), "RGBA").save(dest)
+        return {"sha256": hashlib.sha256(pathlib.Path(dest).read_bytes()).hexdigest(), "size": [240, 120], "thread_id": "t", "has_alpha_channel": True}
+    monkeypatch.setattr(codex, "preflight", lambda cfg, cli=None: {"version": "0.166.0"})
+    monkeypatch.setattr(codex, "generate", fake_generate)
+    monkeypatch.setattr(make_concept, "_ocr_boxes", lambda p: [])
+    monkeypatch.setattr(ocr, "detect", _fake_detect())
+    base = ["--out-dir", str(out), "--work-root", str(tmp_path / "w")]
+    assert make_concept.main([*base, "--with-text", "--only", "art"]) == make_concept.EXIT_FAIL                   # 글자를 그리는 길과는 같이 못 씀
+    assert make_concept.main([*base, "--transparent"]) == make_concept.EXIT_FAIL and not calls                    # 새 그림은 이미 투명 — 글자를 그리려면 --with-text
+    assert make_concept.main([*base, "--only", "art"]) == make_concept.EXIT_OK                                    # L-2 가 기본(--text-free-first 는 옛 이름)
+    art = (out / "concept.png").read_bytes()
+    assert len(calls) == 1 and not calls[0]["edit"] and calls[0]["limit"] == 2 and not (out / "concept_text_ref.png").exists()
+    (out / "inputs.yaml").write_text((FIX / "inputs.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    assert make_concept.main([*base, "--text-free-first", "--only", "text_ref"]) == make_concept.EXIT_OK
+    meta = json.loads((out / "concept.json").read_text(encoding="utf-8"))
+    assert len(calls) == 2 and calls[1]["edit"] and calls[1]["limit"] == 1 and (out / "concept.png").read_bytes() == art
+    assert meta["text_free_first"]["text_ref"] == "concept_text_ref.png" and (out / "concept_text_ref.json").is_file()
+    (out / "concept.png").write_bytes(art + b"x")                                                                # 기록과 다른 아트
+    assert make_concept.main([*base, "--text-free-first", "--only", "text_ref", "--force"]) == make_concept.EXIT_FAIL and len(calls) == 2

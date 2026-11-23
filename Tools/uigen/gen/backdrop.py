@@ -152,6 +152,17 @@ def _brush_layer(brush: dict | None, w: int, h: int, textures: dict, missing: li
     return lay
 
 
+def _apply_wipe(lay: np.ndarray, brush: dict, wipe: dict, percent, textures: dict) -> None:
+    """원형 닦기(전투 HUD 동작, 11-23) — 레이어 알파를 제자리에서 닦는다(gen/radial.wipe_factor — 엔진 M_RadialWipe 와 같은 식). 중심은 image_size 픽셀 기준."""
+    from gen import radial
+    h, w = lay.shape[:2]
+    tex = textures.get(brush.get("asset"))
+    isz = brush.get("image_size") or ([tex.shape[1], tex.shape[0]] if tex is not None else [w, h])
+    c = wipe.get("center") or [isz[0] / 2, isz[1] / 2]
+    lay[..., 3] *= radial.wipe_factor((h, w), [float(c[0]) * w / float(isz[0]), float(c[1]) * h / float(isz[1])], float(percent),
+                                      wipe.get("mode", "clockwise"), float(wipe.get("track_alpha", 0)))
+
+
 def _progress_layers(st: dict, w: int, h: int, textures, missing, wid) -> list[tuple[np.ndarray, tuple]]:
     out = []
     bg = _brush_layer(st.get("background"), w, h, textures, missing, wid)
@@ -222,6 +233,9 @@ def compose(spec: dict, boxes: list[dict], textures: dict, canvas, background=GR
             continue
         if t in ("Image", "Border"):
             lays = [(lay, (0, 0))] if (lay := _brush_layer(st.get("brush"), bw, bh, textures, missing, w["id"])) is not None else []
+            wipe = (st.get("brush") or {}).get("wipe")
+            if wipe and lays:
+                _apply_wipe(lays[0][0], st["brush"], wipe, st.get("percent", 1.0), textures)
         elif t == "ProgressBar":
             lays = _progress_layers(st, bw, bh, textures, missing, w["id"])
         elif t == "Button":

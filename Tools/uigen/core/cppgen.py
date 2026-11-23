@@ -47,6 +47,13 @@ SETTERS = {
     "progress": {"param": "float Percent",
                  "doc": "${data} (progress) → ${name} 의 채움 비율(0 ~ 1 로 자른다).",
                  "body": ["${name}->SetPercent(FMath::Clamp(Percent, 0.0f, 1.0f));"]},
+    # 원형 진행(고리 — Image + spec brush.wipe): WidgetMcp 가 만든 M_RadialWipe 인스턴스의 Percent 를 동적 머티리얼로 움직인다(11-23)
+    "progress_image": {"param": "float Percent",
+                       "doc": "${data} (progress, 원형 닦기) → ${name} 에 남는 비율(0 ~ 1 로 자른다 — 1 이면 가득).",
+                       "body": ["if (UMaterialInstanceDynamic* Material = ${name}->GetDynamicMaterial())",
+                                "{",
+                                "\tMaterial->SetScalarParameterValue(FName(TEXT(\"Percent\")), FMath::Clamp(Percent, 0.0f, 1.0f));",
+                                "}"]},
     "text": {"param": "const FText& InText",
              "doc": "${data} (text) → ${name} 의 글자.",
              "body": ["${name}->SetText(InText);"]},
@@ -95,6 +102,8 @@ def fraction_digits(fmt: str | None) -> int:
 def setter_kind(entry: dict) -> str:
     if entry["kind"] == "number":
         return "number_float" if fraction_digits(entry.get("format")) else "number_int"
+    if entry["kind"] == "progress" and entry.get("widget_class") == "Image":
+        return "progress_image"
     return entry["kind"]
 
 
@@ -294,7 +303,9 @@ def render(doc: dict, chash: str) -> dict[str, str]:
         props.append(f"\t/** {e['data']} · {kind}{note}{setter} */\n"
                      f"\tUPROPERTY(meta = ({'BindWidgetOptional' if e['optional'] else 'BindWidget'}))\n"
                      f"\tTObjectPtr<U{e['widget_class']}> {e['name']};\n")
-    includes = [f'#include "{WIDGET_INCLUDE[c]}"' for c in classes] + (['#include "Engine/Texture2D.h"'] if needs_texture else [])
+    needs_mid = any(setter_kind(e) == "progress_image" for e in with_setter)
+    includes = ([f'#include "{WIDGET_INCLUDE[c]}"' for c in classes] + (['#include "Engine/Texture2D.h"'] if needs_texture else [])
+                + (['#include "Materials/MaterialInstanceDynamic.h"'] if needs_mid else []))
 
     contract_line = CONTRACT_PREFIX + json.dumps(doc, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     banner_h = "\n".join([BANNER_FIRST, HASH_PREFIX + chash, contract_line]) + "\n"

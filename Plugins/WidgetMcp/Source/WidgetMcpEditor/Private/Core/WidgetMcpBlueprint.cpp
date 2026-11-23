@@ -887,6 +887,27 @@ namespace WidgetMcpBlueprint
 				MaterialInfo.Add(MakeShared<FJsonValueObject>(WidgetMcpTextMaterials::Describe(P.Value)));
 			}
 			Out->SetArrayField(TEXT("text_materials"), MaterialInfo);
+
+			// 원형 닦기(전투 HUD 동작 — Image brush.wipe)도 같은 방식: 위젯마다 MIC 하나
+			TMap<FString, WidgetMcpBrushMaterials::FRadialWipe> Wipes;
+			for (const FTarget& T : Targets)
+			{
+				if (!T.bKeepUnsupported && T.Norm.IsValid())
+				{
+					WidgetMcpSpec::CollectBrushWipes(*T.Norm, ApplyAssets, Wipes);
+				}
+			}
+			if (!WidgetMcpBrushMaterials::Prepare(RunFolder, Wipes, ApplyAssets.BrushWipes, MaterialError))
+			{
+				OutError = WidgetMcp::MakeMcpError(EditorMcpErrorCodes::ValidationFailed, MaterialError + TEXT(" — nothing was applied"), TEXT("BRUSH_MATERIAL"));
+				return nullptr;
+			}
+			TArray<TSharedPtr<FJsonValue>> BrushInfo;
+			for (const TPair<FString, UMaterialInterface*>& P : ApplyAssets.BrushWipes)
+			{
+				BrushInfo.Add(MakeShared<FJsonValueObject>(WidgetMcpTextMaterials::Describe(P.Value)));
+			}
+			Out->SetArrayField(TEXT("brush_materials"), BrushInfo);
 		}
 		UWidgetTree* Live = WBP->WidgetTree;
 		UWidgetTree* Work = DuplicateObject<UWidgetTree>(Live, GetTransientPackage(), MakeUniqueObjectName(GetTransientPackage(), UWidgetTree::StaticClass(), TEXT("WidgetMcpWorkTree")));

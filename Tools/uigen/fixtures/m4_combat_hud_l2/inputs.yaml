@@ -5,7 +5,7 @@
 schema_version: 1
 mode: concept
 screen_type: hud
-screen_id: CombatHUD
+screen_id: ProbeCombatHUD
 concept: concept.png                     # 글자 없는 원본 아트(codex — 사람이 승인하는 픽셀 정답)
 concept_source: generated_textfree
 concept_text_ref: concept_text_ref.png   # 그 아트에 글자만 얹은 참고판(codex 편집 1 회 — 글자 스타일 측정용)

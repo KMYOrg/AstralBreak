@@ -1,0 +1,37 @@
+{
+ "schema_version": 1,
+ "kind": "hud_sheet",
+ "created": "2026-11-23T13:27:00",
+ "generator": "codex built-in image_gen",
+ "codex_version": "0.166.0",
+ "thread_id": "01a206c9-69a4-7cc1-ac37-aa8b12eac2a4",
+ "file": "concept.png",
+ "sha256": "a946e16cfe273f8ce6961f3e95c34a8f6fa2042bf53cc900048a765ab3611c12",
+ "size": [
+  1671,
+  941
+ ],
+ "has_alpha_channel": true,
+ "transparent_ratio": 0.7657,
+ "lineage": [
+  {
+   "step": "drawn",
+   "thread_id": "01a20695-cf39-7c73-9069-4e917525ad22",
+   "sha256": "6f91a4d4bc6e1e0e2f1d71cc0b785933a31977199e2fc9eee06a64152e85c7f2",
+   "prompt": "concept_prompt.md (first part)"
+  },
+  {
+   "step": "edited",
+   "thread_id": "01a206c9-69a4-7cc1-ac37-aa8b12eac2a4",
+   "prompt": "concept_prompt.md (second part — blade material, clean bands, scythe emblem)"
+  },
+  {
+   "step": "pixels",
+   "from_sha256": "9b3e961fadd1929571c65f104b6c10d37c9dd33a4643d5f5b5731412cc22bdeb",
+   "what": "ultimate gauge — both blade tips painted as solid steel so the fill slot is a plain rectangle (deterministic, no codex; the pointed slot cannot fit the engine's straight fill end)",
+   "approved": "user, 2026-11-23"
+  }
+ ],
+ "approved": "user, 2026-11-23 — direction D '검은 날', full HUD layout; each screen's original art is cut from this sheet pixel for pixel (make_concept.py --cut-from)",
+ "note": "text-free sheet: party / boss / objective / items / skills are placeholders for later screens (no bindings yet)"
+}

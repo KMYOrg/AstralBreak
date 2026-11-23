@@ -15,3 +15,7 @@ screens:
     probe: true
   ProbeControlGuide:
     probe: true
+  # 시험용 옛 전투 HUD 입력(m4_combat_hud_concept · _flat · _l2 — 옛 계약 8 개). 실제 화면(CombatHUD)으로 돌리면 codegen 이 새 바인딩을 선택으로 낮추고
+  # SetUltReadyVisible 을 옛 위젯으로 되돌려 다시 빌드한다(11-23 전투 HUD 동작 — 설계 §11) → C++ 를 쓰지 않는 검증 화면으로
+  ProbeCombatHUD:
+    probe: true

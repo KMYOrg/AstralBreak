@@ -269,7 +269,7 @@ def test_make_concept_transparent_rules_and_text_free_keeps_alpha(tmp_path, monk
     (out / "concept_prompt.md").write_text("a HUD concept", encoding="utf-8")
     assert make_concept.main(["--out-dir", str(out), "--work-root", str(tmp_path / "w0"), "--flat", "--transparent"], cli=fake) == make_concept.EXIT_FAIL
     assert not log.exists()                                                                # 둘 다면 codex 를 부르지 않음
-    code = make_concept.main(["--out-dir", str(out), "--work-root", str(tmp_path / "w1"), "--transparent"], cli=fake)
+    code = make_concept.main(["--out-dir", str(out), "--work-root", str(tmp_path / "w1"), "--with-text", "--transparent"], cli=fake)
     call = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
     assert "genuinely transparent background" in call["argv"][1] and "#000000" not in call["argv"][1]
     meta = json.loads((out / "concept.json").read_text(encoding="utf-8"))

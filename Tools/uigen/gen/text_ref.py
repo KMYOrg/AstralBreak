@@ -29,6 +29,8 @@ ALPHA_NEW = 0.5            # 새 불투명(또는 사라진) 픽셀 = 이동 최
 SOLID_A, EMPTY_A = 0.9, 0.05   # 아트가 단단히 그린 자리 · 아무것도 없는 자리. 그 사이(옅은 바깥 빛 · 반투명 가장자리)는 codex 가 알파를 다시 그린다
 # [실측 L-2 첫 참고판 — 원본 아트의 옅은 바깥 빛을 불투명한 갈색 띠로 다시 그림: 칸 밖 큰 차 18 % · 알파 차 20 %, 글자 · 칸 자리는 그대로]. 합친 그림은
 # 글자 상자 안 픽셀만 참고판에서 가져와 그 차가 결과에 안 섞인다 → 칸 밖 검사는 '단단한 자리의 큰 색 차' · '아트가 비운 먼 자리에 새로 그림'만, 가장자리는 기록만
+OWN_EDGE_D = 16.0          # 획 둘레 2 px 중 참고판 자기 바탕과 이만큼 다른 것만 안티앨리어싱으로(반투명 · 빈 자리)
+OWN_BG_MIN, OWN_BG_MAX = 15, 61    # 반투명 면 위 글자의 자기 바탕(참고판) 중앙값 창(px, 글자 상자 높이 — 획보다 넉넉히)
 FAR_R = 16                 # '먼 자리' = 아트 보이는 픽셀(알파 > 0.02)에서 이 거리 밖
 
 
@@ -187,7 +189,29 @@ def merge(a_col, a_a, t_col, t_a, *, detect=None) -> tuple:
                      "outside_median_d": round(float(np.median(d[out])), 2) if out.any() else None,
                      "outside_p95_d": round(float(np.percentile(d[out], 95)), 2) if out.any() else None, "limit": OUT_MAX}
     # 글자 획 — 상자 안에서 아트와 크게 다른 픽셀(작은 잡티 빼기). 아트의 반투명 가장자리는 빼고 본다(codex 가 알파를 다시 그린 띠가 상자에 걸치면 획으로 잡힘)
-    glyph = inbox & (d > GLYPH_D) & ~fringe
+    # 반투명 면 위에서는 codex 가 띠 끝을 다시 그린 옅은 안개도 아트와 크게 다르다 → 참고판 **자기 바탕**(글자 상자 높이만 한 중앙값 창)과도 달라야 획
+    # [실측 combat_hud_blade — '체인' · '2/4' 둘레 회색 덩어리가 획으로 붙어 글자 빛 · 굵기 측정을 흐림]
+    own_d = np.full((H, W), np.inf, np.float32)
+    for b in boxes:
+        x, y, bw, bh = (int(round(v)) for v in b["box"])
+        k = int(np.clip(bh, OWN_BG_MIN, OWN_BG_MAX)) | 1
+        x0, y0, x1, y1 = max(0, x - BOX_PAD - k), max(0, y - BOX_PAD - k), min(W, x + bw + BOX_PAD + k), min(H, y + bh + BOX_PAD + k)
+        win_ = np.clip(tb[y0:y1, x0:x1], 0, 255).astype(np.uint8)
+        med = np.dstack([cv2.medianBlur(win_[..., i], k) for i in range(3)]).astype(float)
+        own_d[y0:y1, x0:x1] = np.minimum(own_d[y0:y1, x0:x1], np.abs(tb[y0:y1, x0:x1] - med).max(axis=2))
+    cand = inbox & (d > GLYPH_D)
+    glyph = cand & ~fringe
+    cand &= (own_d > GLYPH_D) | ~fringe
+    # L-2 기본 전환(11-23) — 글자가 **반투명 면** 위에 앉으면(끝이 사라지는 먹색 띠 — 알파 0.4 ~ 0.9) 그 획이 통째로 빠졌다 [실측 combat_hud_blade — 여섯 글자 중
+    # 다섯의 획 8,900 px 중 7,400 px]. 다시 그린 띠는 글자 상자 가장자리까지 이어지고 획은 상자 안에 갇혀 있다(상자 + BOX_PAD) → 가장자리에 안 닿는 덩어리는 획
+    if (cand & fringe).any():
+        k3 = np.ones((3, 3), np.uint8)
+        edge = inbox & ~(cv2.erode(inbox.astype(np.uint8), k3, borderValue=0) > 0)
+        n0, lab0 = cv2.connectedComponents(cand.astype(np.uint8), connectivity=8)
+        touching = set(np.unique(lab0[edge & cand]).tolist())
+        inside = np.isin(lab0, [i for i in range(1, n0) if i not in touching])
+        rec["glyph_on_translucent_px"] = int((inside & fringe).sum())
+        glyph |= inside
     n, lab, st, _ = cv2.connectedComponentsWithStats(glyph.astype(np.uint8), connectivity=8)
     small = [i for i in range(1, n) if st[i, cv2.CC_STAT_AREA] < GLYPH_MIN_PX]
     if small:
@@ -195,11 +219,23 @@ def merge(a_col, a_a, t_col, t_a, *, detect=None) -> tuple:
     # 획에 붙은 빛 — 둘레 바탕 색조 차(획에서 GLOW_R + 2 ~ + 8 px 고리의 L* 차 중앙값)를 빼고도 참고판이 더 밝은 픽셀
     from core import color
     lt, la = color.srgb_to_lab(tb)[..., 0], color.srgb_to_lab(ab)[..., 0]
-    near = _dilate(glyph, GLOW_R) & inbox
-    ring = _dilate(glyph, GLOW_R + 8) & ~_dilate(glyph, GLOW_R + 2) & ui
-    tone = float(np.median((lt - la)[ring])) if ring.any() else 0.0
-    glow = near & ((lt - la) > tone + GLOW_L) & ~fringe
-    paste = (_dilate(glyph, EDGE_R) & inbox) | glow
+    # 둘레 색조 차는 글자마다 — 한 글자(투명 바탕 위) 뒤에만 codex 가 옅은 안개를 깔면 그 안개가 '빛'으로 붙었다 [실측 combat_hud_blade '오의 불가']
+    glow = np.zeros((H, W), bool)
+    tones = []
+    for b in boxes:
+        reg = _box_mask((H, W), [b["box"]], BOX_PAD)
+        g_b = glyph & reg
+        if not g_b.any():
+            continue
+        ring = _dilate(g_b, GLOW_R + 8) & ~_dilate(glyph, GLOW_R + 2) & ui
+        tone = float(np.median((lt - la)[ring])) if ring.any() else 0.0
+        tones.append(tone)
+        glow |= _dilate(g_b, GLOW_R) & reg & ((lt - la) > tone + GLOW_L) & ~fringe
+    tone = float(np.median(tones)) if tones else 0.0
+    # 획 둘레(안티앨리어싱) — 단단한 면 위는 그대로, 반투명 · 빈 자리 위는 참고판 자기 바탕과 다른 픽셀만(다시 그린 안개의 2 px 고리가 '글자 빛'으로 재졌다
+    # [실측 combat_hud_blade '2/4' · '오의 불가' — 띠 밝기 5.8 · 5.2 로 글자 맞춤이 없는 빛을 넣어 글자가 흐려짐])
+    edge_ok = glyph | (a_a > SOLID_A) | (own_d > OWN_EDGE_D)
+    paste = (_dilate(glyph, EDGE_R) & inbox & edge_ok) | glow
     rec.update(glyph_px=int(glyph.sum()), glow_px=int(glow.sum()), paste_px=int(paste.sum()), ring_tone_l=round(tone, 2))
     why = None
     if not boxes:

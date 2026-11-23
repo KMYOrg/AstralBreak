@@ -153,7 +153,7 @@ def test_make_concept_writes_fixture_and_refuses_overwrite(tmp_path, fake):
     out = tmp_path / "fixture"
     out.mkdir()
     (out / "concept_prompt.md").write_text("a HUD concept", encoding="utf-8")
-    argv = ["--out-dir", str(out), "--work-root", str(tmp_path / "work")]
+    argv = ["--out-dir", str(out), "--work-root", str(tmp_path / "work"), "--with-text"]
     assert make_concept.main(argv, cli=FAKE) == make_concept.EXIT_OK
     meta = json.loads((out / "concept.json").read_text(encoding="utf-8"))
     assert (out / "concept.png").is_file() and meta["codex_version"] == "0.166.0" and meta["size"] == [8, 4] and meta["thread_id"]
@@ -167,5 +167,5 @@ def test_make_concept_quota_exit_code(tmp_path, fake, monkeypatch):
     out.mkdir()
     (out / "concept_prompt.md").write_text("a HUD concept", encoding="utf-8")
     monkeypatch.setenv("FAKE_CODEX_MODE", "quota")
-    assert make_concept.main(["--out-dir", str(out), "--work-root", str(tmp_path / "work")], cli=FAKE) == make_concept.EXIT_QUOTA
+    assert make_concept.main(["--out-dir", str(out), "--work-root", str(tmp_path / "work"), "--with-text"], cli=FAKE) == make_concept.EXIT_QUOTA
     assert not (out / "concept.png").exists()

@@ -40,6 +40,11 @@ S4 보강(1b 후속 L 다음 — 글자 지우기 다음, 11-20):
      판에 없는 선은 appearance.text_line_plate: error 면 결함(line_not_in_plate) — 막대 윗선 위에 남은 글자 빛 자국이 '구조선'으로 빠졌다.
    V3 밝힌 검정 — 둘레 고리 검정 합성 L*(ring_l) · 밝힘 국소 > LIFT_RECORD_DE 덩어리(lift_like) 기록. appearance.text_lift_mode: error 면 어두운 판 자리
      (ring_l < LIFT_DARK_L)의 밝힘 국소 > text_lift_de 덩어리를 결함(check text_lift).
+S1 보강 hidden_halo(L-2 기본 전환 ④, 11-23) — 접히는 루트 직계 영역(시작 때 숨음 · flag 바인딩 — 컨셉이 그린 것)을 하나씩 끈 상태에서, 그 영역 몫
+   (gen/territory.claim — 컨셉에서 보이는 픽셀 중 가장 가까운 영역이 이 위젯 · 96 px 안 — 과 자기 상자 안)에 **정적 판이 그린 픽셀**이 바탕(검정 · 회색 · 흰)과
+   3 × 3 국소 ΔE00 > halo_de 로 다른 덩어리(≥ min_area) = 위젯이 접혀도 남는 빛 · 넘침. S1 은 위젯 상자 밖 4 px 고리를 기록만 했다(overhang_px) — 실제로는 상자 밖
+   수십 px 까지 남았다 [실측 L-2 R20261120_140653 — 배너 23,021 px · 체인 패널 19,583 px(flag — 시작 때는 보여 S1 대상도 아니었다)]. 엔진 렌더(접히는 영역을 모두
+   끈 state_toggles_off)가 있으면 검정은 그것으로도 본다.
 결과 = 결함 dict(stage state · code E8 · check) — diagnose 가 appearance.state_checks 에 따라 기록만(record) 또는 오류로(error) — appearance.state_record_only
    에 든 check 는 오류 모드에서도 기록만(새 검사를 묶음 거짓 양성 0 확인 전까지).
 """
@@ -51,6 +56,7 @@ import numpy as np
 
 from gen import backdrop
 from gen import diagnose as dg
+from gen import territory
 
 WHITE = (255, 255, 255)
 RING = 6                    # 둘레 고리 폭(px)
@@ -321,6 +327,87 @@ def hidden_trace(spec: dict, boxes: list[dict], textures: dict, canvas, concept_
                                     "cause": f"hidden trace — with '{r}' hidden (game start) its spot shows a blob the surroundings do not explain "
                                              f"({', '.join(bgs)} backdrop)"})
     return out
+
+
+def hidden_halo(spec: dict, boxes: list[dict], textures: dict, canvas, concept_a, states: list[dict], s: dict, render_off=None) -> dict:
+    """S1 보강 — 접히는 영역을 껐을 때 정적 판에 남은 그 영역의 빛 · 넘침. → {"roots": [기록], "findings": [결함], "images": {"black", "gray", "white"}(접히는
+    영역을 모두 끈 상태 — compare.png 띠), "toggles": [끈 영역 id], "renderer"}."""
+    import cv2
+    from core import color
+    W, H = int(canvas[0]), int(canvas[1])
+    geo = {b["id"]: b for b in boxes}
+    widgets = {w["id"]: w for w in spec.get("widgets", [])}
+    tex_ids = {w["id"] for w in spec.get("widgets", []) if w.get("type") not in backdrop.TEXT_TYPES
+               and any(isinstance(b, dict) and b.get("asset") in textures and b.get("draw_as", "image") != "none"
+                       for k, b in (w.get("style") or {}).items() if k in dg.spec_brush_keys())}
+    ca = np.asarray(concept_a, np.float32)
+    T, min_area = float(s.get("halo_de", HALO_DE)), int(s["min_area"])
+    drawn = {h["widget"]: h for h in states}
+    out: dict = {"renderer": "engine" if render_off is not None else "composite", "roots": [], "findings": [], "images": {}, "toggles": []}
+    omap = territory.owner_map(spec, (H, W), boxes)
+    off_all: set[str] = set()
+    targets = []
+    for reg in territory.toggle_regions(spec):
+        sub = dg._subtree(spec, reg["id"])
+        off_all |= sub
+        out["toggles"].append(reg["id"])
+        tex = sorted(i for i in sub if i in tex_ids and geo.get(i, {}).get("w", 0) > 0)
+        if not tex:
+            continue                                        # 글자만 접히는 영역 — S1 · refine 글자 길 몫
+        if reg.get("visibility") in ("collapsed", "hidden") and not (drawn.get(reg["id"]) or {}).get("drawn_in_concept"):
+            out["roots"].append({"widget": reg["id"], "skipped": "the concept does not draw it"})
+            continue
+        targets.append((reg, sub, tex))
+    sp_off = dg._without(spec, off_all)
+    out["images"] = {k: backdrop.compose(sp_off, boxes, textures, canvas, bg)[0] for k, bg in (("black", (0, 0, 0)), ("gray", backdrop.GRAY), ("white", WHITE))}
+    if render_off is not None:
+        out["images"]["black"] = render_off
+    texts = np.zeros((H, W), bool)
+    for w in spec.get("widgets", []):
+        g = geo.get(w["id"])
+        if w.get("type") in backdrop.TEXT_TYPES and w["id"] not in off_all and g and g["w"] > 0 and g["h"] > 0:
+            texts |= dg._box_mask((H, W), _gbox(g), dg.HIDDEN_PAD + _glow(w))
+    for reg, sub, tex in targets:
+        box_m = np.zeros((H, W), bool)
+        for i in tex:
+            box_m |= dg._box_mask((H, W), _gbox(geo[i]))
+        zone = (territory.claim(spec, ca, reg["id"], boxes, omap=omap) | box_m) & (ca > territory.VISIBLE)
+        # 정적 판이 그린 것 = 판을 뺀 합성과의 차(옅은 빛까지 — 맨 위 위젯 지도는 알파 0.1 아래를 못 본다)
+        sp = dg._without(spec, sub)
+        sp_np = dg._without(sp, {w["id"] for w in sp["widgets"] if w["id"].startswith(territory.PLATE_PREFIX)})
+        rec = {"widget": reg["id"], "why": territory.collapsible(reg), "zone_px": int(zone.sum()), "plate_px": 0, "local_max": {}}
+        worst = np.zeros((H, W), np.float32)
+        m = zone.astype(np.float32)
+        cnt = np.maximum(cv2.blur(m, (3, 3)), 1e-6)
+        any_d = np.zeros((H, W), bool)
+        for nm, bg in (("black", (0, 0, 0)), ("gray", backdrop.GRAY), ("white", WHITE)):
+            img = backdrop.compose(sp, boxes, textures, canvas, bg)[0]
+            base = backdrop.compose(sp_np, boxes, textures, canvas, bg)[0]
+            plate = np.abs(img - base).max(axis=2) > 0.5
+            if nm == "black" and render_off is not None:     # 엔진(접히는 영역 모두 끔) — 판이 그린 자리만, 보이는 엔진 글자 자리는 합성 그대로
+                img = np.where((plate & ~texts)[..., None], np.asarray(render_off, float), img)
+            de = np.where(plate & zone, color.delta_e00(color.srgb_to_lab(img), color.srgb_to_lab(base)), 0.0).astype(np.float32)
+            any_d |= plate & zone
+            loc = np.where(zone, cv2.blur(de * m, (3, 3)) / cnt, 0.0)
+            rec["local_max"][nm] = round(float(loc.max()), 2)
+            worst = np.maximum(worst, loc)
+        rec["plate_px"] = int(any_d.sum())
+        if not any_d.any():
+            out["roots"].append(rec)
+            continue
+        flag = worst > T
+        rec["over_px"] = int(flag.sum())
+        bl = _blobs(flag, worst, min_area)
+        rec["blobs"] = len(bl)
+        out["roots"].append(rec)
+        for b in bl:
+            out["findings"].append({"stage": "state", "code": "E8", "check": "hidden_halo", "box": b["box"], "area": b["area"], "max_de": b["max_de"],
+                                    "mean_de": b["mean_de"], "widgets": [reg["id"]], "renderer": out["renderer"], "fixable": False,
+                                    "cause": f"hidden halo — with '{reg['id']}' collapsed ({rec['why']}) its glow / overhang stays in the static plate"})
+    return out
+
+
+HALO_DE = 2.0              # 접힌 위젯 둘레에 남은 빛 — 3 × 3 국소 ΔE00(검정 · 회색 · 흰 중 최대)
 
 
 def _other_digit(ch: str) -> str:
@@ -780,6 +867,95 @@ def _with_percent(spec: dict, wid: str, p: float | None, no_fill: bool = False) 
             if no_fill:
                 st["fill"] = {"draw_as": "none"}
     return s2
+
+
+RADIAL_STATES = (0.0, 0.15, 0.4, 0.65, 0.9, 1.0)   # 원형 진행(고리) — 0 · 중간 넷(닦는 끝이 네 사분면의 빗각 306 · 216 · 126 · 36°) · 가득. 25 · 50 · 75 % 는
+# 끝이 90° 배수에 놓여 중심이 8 px 어긋나도 안 보였다(시험)
+RADIAL_EDGE_PX = 2.5                            # 닦는 끝에서 이만큼(호 길이 px) 안은 안티앨리어싱 — arc 판정에서 뺀다
+RADIAL_ZONE_ALPHA = 0.1                         # 고리 자리 = 텍스처 알파가 이보다 큰 픽셀
+
+
+def radial_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s: dict, base, render_pct=None) -> dict:
+    """원형 진행(고리 — Image + brush.wipe, 전투 HUD 동작 11-23) — 비율 RADIAL_STATES 의 엔진 렌더(render_pct — 없으면 합성)를 본다:
+      radial_full     100 % 가 컨셉 상태(base)와 같다 — 고리 자리
+      radial_zero     0 % 가 '고리를 흔적 값으로만 그린' 텍스처 합성과 같다 — 고리 자리
+      radial_arc      중간 비율에서 남아야 할 쪽 = 100 % 렌더, 닦여야 할 쪽 = 0 % 렌더(끝 ± RADIAL_EDGE_PX 뺌) — 각도 · 방향 · 중심 · 흔적
+      radial_outside  어느 비율에서도 고리 자리 밖(고리 안 띠 · 글자 · 나머지 화면)이 100 % 렌더 그대로다 — 닦이며 다른 그림을 자르지 않는다
+    → gauge_states 와 같은 모양 {"gauges", "findings", "images", "renderer"}."""
+    from gen import radial
+    W, H = int(canvas[0]), int(canvas[1])
+    geo = {b["id"]: b for b in boxes}
+    T, min_area = float(s["local_de"]), min(int(s["min_area"]), 12)
+    textz = np.zeros((H, W), bool)
+    for w in spec_state.get("widgets", []):
+        g = geo.get(w["id"])
+        if w.get("type") in backdrop.TEXT_TYPES and g and g.get("visible", True) and g["w"] > 0:
+            textz |= dg._box_mask((H, W), _gbox(g), dg.HIDDEN_PAD + _glow(w))
+    out = {"gauges": [], "findings": [], "images": {}, "renderer": "composite" if render_pct is None else "engine"}
+    for w in spec_state.get("widgets", []):
+        st = w.get("style") or {}
+        brush = st.get("brush") if isinstance(st.get("brush"), dict) else {}
+        wipe, g = brush.get("wipe"), geo.get(w["id"])
+        if w.get("type") != "Image" or not wipe or not g or not g.get("visible", True) or g["w"] <= 0 or g["h"] <= 0:
+            continue
+        tex = textures.get(brush.get("asset"))
+        rec = {"widget": w["id"], "percent": st.get("percent", 1.0), "fill_type": f"radial {wipe.get('mode', 'clockwise')}", "track_alpha": wipe.get("track_alpha", 0)}
+        if tex is None:
+            out["gauges"].append({**rec, "skipped": f"texture {brush.get('asset')} is missing"})
+            continue
+        x, y, bw, bh = (int(round(float(g[k]))) for k in ("x", "y", "w", "h"))
+        lay = backdrop._resize(tex, bw, bh)
+        zone = np.zeros((H, W), bool)
+        cx0, cy0, cx1, cy1 = max(0, x), max(0, y), min(W, x + bw), min(H, y + bh)
+        zone[cy0:cy1, cx0:cx1] = (lay[..., 3] > 255 * RADIAL_ZONE_ALPHA)[cy0 - y:cy1 - y, cx0 - x:cx1 - x]
+        soft = np.zeros((H, W), bool)                       # 고리 텍스처가 조금이라도 그리는 자리(+ 1 px) — 밖 판정에서 뺀다
+        soft[cy0:cy1, cx0:cx1] = (lay[..., 3] > 0)[cy0 - y:cy1 - y, cx0 - x:cx1 - x]
+        soft = dg._dilate(soft, 1)
+        zone &= ~textz
+        imgs, used = {}, {}
+        for p in RADIAL_STATES:
+            img = None
+            if render_pct is not None:
+                try:
+                    img = render_pct(w["id"], p)
+                except Exception as exc:  # noqa: BLE001 — 엔진 렌더 실패는 기록하고 합성으로
+                    rec.setdefault("render_errors", []).append(f"{p:g}: {type(exc).__name__}: {exc}"[:160])
+            used[p] = "engine" if img is not None else "composite"
+            if img is None:
+                img = backdrop.compose(_with_percent(spec_state, w["id"], p), boxes, textures, canvas, (0, 0, 0))[0]
+            imgs[p] = img
+        out["images"][w["id"]] = imgs
+        rec["renderer"] = used
+        rec["zone_px"] = int(zone.sum())
+        isz = brush.get("image_size") or [tex.shape[1], tex.shape[0]]
+        c = wipe.get("center") or [isz[0] / 2, isz[1] / 2]
+        ctr = [x + float(c[0]) * bw / float(isz[0]), y + float(c[1]) * bh / float(isz[1])]
+        mode = wipe.get("mode", "clockwise")
+
+        def find(check, p, m, a, b, cause):
+            loc = masked_local(dg.delta_e(a, b), m, 0.0)
+            fl = (loc > T) & m
+            rec.setdefault("checks", {})[f"{check}_{p:g}"] = {"max": round(float(loc[m].max()), 2) if m.any() else 0.0, "px": int(fl.sum())}
+            for bl in _blobs(fl, loc, min_area):
+                out["findings"].append({"stage": "state", "code": "E8", "check": check, "percent": p, "box": bl["box"], "area": bl["area"], "max_de": bl["max_de"],
+                                        "mean_de": bl["mean_de"], "widgets": [w["id"]], "renderer": used.get(p, "composite"), "fixable": False, "cause": cause})
+        if not zone.any():
+            out["findings"].append({"stage": "state", "code": "E8", "check": "radial_full", "percent": 1.0, "box": [x, y, bw, bh], "area": 0, "max_de": None,
+                                    "mean_de": None, "widgets": [w["id"]], "renderer": used[1.0], "fixable": False, "cause": "ring - the ring texture is empty"})
+            out["gauges"].append(rec)
+            continue
+        find("radial_full", 1.0, zone, imgs[1.0], base, "ring - at 100% the ring does not match the concept state")
+        zero = backdrop.compose(_with_percent(spec_state, w["id"], 0.0), boxes, textures, canvas, (0, 0, 0))[0]
+        find("radial_zero", 0.0, zone, imgs[0.0], zero, "ring - at 0% something other than the faint track stays where the ring was")
+        for p in RADIAL_STATES[1:-1]:
+            keep = radial.kept_side((H, W), ctr, p, mode)
+            want = np.where(keep[..., None], imgs[1.0], imgs[0.0])
+            m = zone & ~radial.edge_band((H, W), ctr, p, mode, RADIAL_EDGE_PX)
+            find("radial_arc", p, m, imgs[p], want, f"ring - at {p:.0%} the kept / emptied parts are not where the angle says (center, direction or track)")
+        for p in RADIAL_STATES[:-1]:
+            find("radial_outside", p, ~soft, imgs[p], imgs[1.0], f"ring - at {p:.0%} something outside the ring pixels changed (the wipe cuts another drawing)")
+        out["gauges"].append(rec)
+    return out
 
 
 def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s: dict, base, render_pct=None, ref_png=None) -> dict:

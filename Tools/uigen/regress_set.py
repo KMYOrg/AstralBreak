@@ -113,6 +113,9 @@ def _state_record(sc: dict) -> dict:
                        for r in (sc.get("hidden_trace") or {}).get("roots") or []},
             "gauges": {g["widget"]: {k: g.get(k) for k in ("states", "end_unchanged_frac", "zero_max", "skipped", "end_shape")}
                        for g in (sc.get("gauge_states") or {}).get("gauges") or []},
+            # L-2 기본 전환 ④ — 접히는 위젯을 껐을 때 남은 빛
+            "halo": {r["widget"]: {k: r.get(k) for k in ("plate_px", "over_px", "blobs", "local_max", "skipped") if r.get(k) is not None}
+                     for r in (sc.get("hidden_halo") or {}).get("roots") or []},
             # 1b 후속 L 다음 L-1 글자 완전 지우기 — S4 글자마다 국소 최대(바탕별) · 덩어리
             "texts": {t["widget"]: {k: t.get(k) for k in ("local_max", "value_local_max", "blobs", "skipped", "contour_len", "value_contour_len", "state")
                                     if t.get(k) is not None}
@@ -185,12 +188,13 @@ def _texture_metrics(dst: pathlib.Path, s: dict) -> tuple[dict, np.ndarray, dict
     from gen import state_check
     glyphs = {k: (v["concept"] | v["concept_cand"]) for k, v in gm.items()}
     ht = state_check.hidden_trace(spec, boxes, textures, canvas, dg._load_rgb(dst / "reference_color.png"), dg._load_l(dst / "reference_alpha.png"), states, glyphs, s)
+    hh = state_check.hidden_halo(spec, boxes, textures, canvas, dg._load_l(dst / "reference_alpha.png"), states, s)
     gs = state_check.gauge_states(sp, boxes, textures, canvas, s, comp_s, ref_png=dg._load_rgb(dst / "reference.png"))
     # 1b 후속 L 다음 L-1 글자 완전 지우기 — S4 글자 밑 흔적을 replay 텍스처로(G1 · G2 판 메우기 규칙이 글자 흔적을 지웠는지). 글자 지우기 마감 — refine 고르기와
     # 같은 함수(diagnose.composite_text_trace — 가는 선 · 숨는 묶음 포함)
     tt, _ = dg.composite_text_trace(dst, spec, boxes, textures, s, gm=gm)
-    state = {"mode": "replay", "findings": [{k: v for k, v in f.items() if k != "mask"} for f in ht["findings"] + gs["findings"] + tt["findings"]],
-             "hidden_trace": {"roots": ht["roots"]}, "gauge_states": {"gauges": gs["gauges"]}, "text_trace": {"texts": tt["texts"]}}
+    state = {"mode": "replay", "findings": [{k: v for k, v in f.items() if k != "mask"} for f in ht["findings"] + hh["findings"] + gs["findings"] + tt["findings"]],
+             "hidden_trace": {"roots": ht["roots"]}, "hidden_halo": {"roots": hh["roots"]}, "gauge_states": {"gauges": gs["gauges"]}, "text_trace": {"texts": tt["texts"]}}
     return out, gray, crops, state
 
 
@@ -248,7 +252,7 @@ def _apply_sets(cfg: dict, sets: list[str]) -> dict:
     return cfg
 
 
-def run_set(label: str, out: pathlib.Path, only: set | None, replay: bool, pictures: bool, sets: list[str] | None = None) -> dict:
+def run_set(label: str, out: pathlib.Path, only: set | None, replay: bool, pictures: bool, sets: list[str] | None = None, relayer: bool = False) -> dict:
     import replay_refine
     cfg = config.load_pipeline()
     if sets:
@@ -260,7 +264,7 @@ def run_set(label: str, out: pathlib.Path, only: set | None, replay: bool, pictu
     if base.exists() and any(base.iterdir()):
         raise SystemExit(f"regress_set: {base} already has files — use a new label")
     base.mkdir(parents=True, exist_ok=True)
-    meta = {"label": label, "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "code": _code_state(), "sets": sets or [], "entries": []}
+    meta = {"label": label, "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "code": _code_state(), "sets": sets or [], "relayer": relayer, "entries": []}
     for e in SET:
         if only and e["name"] not in only:
             continue
@@ -275,7 +279,8 @@ def run_set(label: str, out: pathlib.Path, only: set | None, replay: bool, pictu
         row = {**e, "diag": _diag_record(rec)}
         if replay:
             try:
-                rr = replay_refine.replay(src, ed / "replay", False, False)
+                rr = replay_refine.replay(src, ed / "replay", False, False, relayer=relayer)
+                row["layer"] = rr.get("layer")
                 tm, gray, crops, rstate = _texture_metrics(ed / "replay" / src.name, s)
                 row["replay_state"] = _state_record(rstate)
                 from PIL import Image
@@ -376,7 +381,7 @@ def compare(old_label: str, new_label: str, out: pathlib.Path, all_texts: bool =
             ent[f"{key}_findings"] = [len(fo), len(fn)]
             if fo != fn or so.get("error") != sn.get("error"):
                 lines.append(f"   ~ {tag} findings {len(fo)} → {len(fn)}: old {sorted(set(fo))} new {sorted(set(fn))}" + (f"  error {sn.get('error')}" if sn.get("error") else ""))
-            for kind in ("hidden", "gauges", "texts"):
+            for kind in ("hidden", "halo", "gauges", "texts"):
                 for wid in sorted(set(so.get(kind) or {}) | set(sn.get(kind) or {})):
                     a, b = (so.get(kind) or {}).get(wid), (sn.get(kind) or {}).get(wid)
                     if a != b:
@@ -470,6 +475,7 @@ def main(argv=None) -> int:
     r.add_argument("--only", default="")
     r.add_argument("--no-replay", action="store_true")
     r.add_argument("--no-pictures", action="store_true")
+    r.add_argument("--relayer", action="store_true", help="L-2 기본 전환 ④ — layer(정적 판 · 접히는 위젯 몫)부터 다시 돌린 replay(기본은 refine 만)")
     r.add_argument("--set", action="append", default=[], help="pipeline.yaml 값 덮기 a.b=값(여러 번) — 이 실행만")
     c = sub.add_parser("compare")
     c.add_argument("old")
@@ -481,7 +487,7 @@ def main(argv=None) -> int:
         for e in SET:
             print(f"{e['name']:<15} {e['run']:<36} {'protected ' if e.get('protect') else ''}{e['input']}")
     elif o.cmd == "run":
-        run_set(o.label, pathlib.Path(o.out), set(filter(None, o.only.split(","))) or None, not o.no_replay, not o.no_pictures, o.set)
+        run_set(o.label, pathlib.Path(o.out), set(filter(None, o.only.split(","))) or None, not o.no_replay, not o.no_pictures, o.set, o.relayer)
     else:
         compare(o.old, o.new, pathlib.Path(o.out), o.all_texts)
     return 0

@@ -2,9 +2,11 @@
 
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
+#include "Components/Image.h"
 #include "Components/PanelWidget.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
+#include "Core/WidgetMcpBrushMaterials.h"
 #include "Core/WidgetMcpSpec.h"
 #include "Editor.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -17,6 +19,7 @@
 #include "HAL/PlatformTime.h"
 #include "ImageCore.h"
 #include "ImageUtils.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "RenderingThread.h"
 #include "ShaderCompiler.h"
 #include "Slate/WidgetRenderer.h"
@@ -130,7 +133,18 @@ namespace WidgetMcpRender
 				continue;
 			}
 			if (P.Value.bVisible.IsSet()) { W->SetVisibility(P.Value.bVisible.GetValue() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed); }
-			if (P.Value.Percent.IsSet()) { if (UProgressBar* Bar = Cast<UProgressBar>(W)) { Bar->SetPercent(P.Value.Percent.GetValue()); } }
+			if (P.Value.Percent.IsSet())
+			{
+				if (UProgressBar* Bar = Cast<UProgressBar>(W)) { Bar->SetPercent(P.Value.Percent.GetValue()); }
+				else if (UImage* Image = Cast<UImage>(W))
+				{
+					// 원형 닦기(전투 HUD 동작) — 게임과 같은 길(동적 머티리얼의 Percent). 인스턴스의 것이라 애셋은 그대로다
+					WidgetMcpBrushMaterials::FRadialWipe Wipe;
+					UMaterialInstanceDynamic* Dynamic = WidgetMcpBrushMaterials::ReadRadialWipe(Image->GetBrush().GetResourceObject(), Wipe) ? Image->GetDynamicMaterial() : nullptr;
+					if (Dynamic) { Dynamic->SetScalarParameterValue(WidgetMcpBrushMaterials::PercentParameter(), FMath::Clamp(P.Value.Percent.GetValue(), 0.f, 1.f)); }
+					else { Context.AddDiagnostic(TEXT("warning"), TEXT("OVERRIDE_NOT_APPLIED"), FString::Printf(TEXT("override '%s'.percent — the image has no radial wipe"), *P.Key)); }
+				}
+			}
 			if (P.Value.Text.IsSet()) { if (UTextBlock* Text = Cast<UTextBlock>(W)) { Text->SetText(FText::FromString(P.Value.Text.GetValue())); } }
 		}
 		TSharedRef<SWidget> Slate = Instance->TakeWidget();

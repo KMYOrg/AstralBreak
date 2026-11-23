@@ -389,5 +389,12 @@ def test_text_fit_size_pass_resizes_from_the_height_ratio_and_stops_before_a_sib
     _, recs5 = style.text_fit(spec, tmp_path / "reference.png", tmp_path / "half.png", CFG, rendered, mode="size")
     big5 = next(r for r in recs5 if r.get("widget") == "Big")
     assert big5["h_ratio"] == 0.4 and "not trusted" in big5["skipped"] and "size" not in big5
+    # L-2 기본 전환 — resize 를 주면 그 글자만 크기를 바꾸고, 빠진 글자는 굵기 판정도 미루지 않는다(마지막 판)
+    spec6 = _stack_spec("Overlay")
+    after6, recs6 = style.text_fit(spec6, tmp_path / "reference.png", tmp_path / "render.png", CFG, rendered, mode="size", resize=set())
+    big6 = next(r for r in recs6 if r.get("widget") == "Big")
+    assert big6["h_ratio"] == 0.8 and not {"size", "weight_deferred"} & set(big6) and next(w for w in after6["widgets"] if w["id"] == "Big")["font"]["size"] == 24
+    _, recs7 = style.text_fit(spec6, tmp_path / "reference.png", tmp_path / "render.png", CFG, rendered, mode="size", only={"Big"}, resize={"Big"})
+    assert [r.get("widget") for r in recs7 if r.get("widget")] == ["Big"] and next(r for r in recs7 if r.get("widget") == "Big")["size"] == [24, 30, 0.8]
     with pytest.raises(ValueError):
         style.text_fit(spec, tmp_path / "reference.png", tmp_path / "render.png", CFG, mode="both")

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Core/WidgetMcpBrushMaterials.h"
 #include "Core/WidgetMcpCommon.h"
 #include "Core/WidgetMcpTextMaterials.h"
 
@@ -37,6 +38,8 @@ namespace WidgetMcpSpec
 		TMap<FString, UMaterialInterface*> TextGradients;
 		/** WidgetMcpTextMaterials::GlowKey → MIC (1b 후속 F — font.glow, 외곽선 층 머티리얼). 비어 있으면 빛 글자는 적용 오류 */
 		TMap<FString, UMaterialInterface*> TextGlows;
+		/** 위젯 id → 원형 닦기 MIC (전투 HUD 동작 — Image brush.wipe). 비어 있으면 닦는 이미지는 적용 오류 */
+		TMap<FString, UMaterialInterface*> BrushWipes;
 	};
 	bool LoadAssets(const TSharedPtr<FJsonObject>& AssetsMap, FAssets& Out, FEditorMcpError& OutError);
 
@@ -46,6 +49,8 @@ namespace WidgetMcpSpec
 	void CollectTextGradients(const FJsonObject& NormalizedWidget, TMap<FString, TPair<FLinearColor, FLinearColor>>& Out);
 	/** 정규화한 위젯의 font.glow → Out[키] = (색, 외곽선 em) — 조정기가 적용 전에 빛 머티리얼을 준비할 목록 */
 	void CollectTextGlows(const FJsonObject& NormalizedWidget, TMap<FString, WidgetMcpTextMaterials::FGlowSpec>& Out);
+	/** 정규화한 위젯의 Image brush.wipe → Out[위젯 id] = 닦기 값(텍스처는 Assets 에서) — 조정기가 적용 전에 머티리얼을 준비할 목록 */
+	void CollectBrushWipes(const FJsonObject& NormalizedWidget, const FAssets& Assets, TMap<FString, WidgetMcpBrushMaterials::FRadialWipe>& Out);
 	/** WBP 가 담는 것만 — bbox_intent · binding · note 를 빼고 글자는 {value} 만 */
 	TSharedRef<FJsonObject> WbpView(const TSharedRef<FJsonObject>& NormalizedWidget);
 

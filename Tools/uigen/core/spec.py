@@ -29,7 +29,7 @@ LEAF = frozenset({"Image", "TextBlock", "ProgressBar", "Spacer"})
 
 STYLE_KEYS = {
     "Border": {"brush"},
-    "Image": {"brush"},
+    "Image": {"brush", "percent"},               # percent = 원형 닦기(brush.wipe)의 남은 비율 미리보기 — wipe 가 있을 때만
     "ProgressBar": {"background", "fill", "fill_color", "percent", "bar_fill_type", "bar_fill_style"},
     "SizeBox": {"width_override", "height_override"},
     "Spacer": {"size"},
@@ -39,7 +39,7 @@ STYLE_KEYS = {
 BRUSH_KEYS = frozenset({"brush", "background", "fill", "normal", "hovered", "pressed"})
 
 # 바인딩 kind → 받을 수 있는 위젯 타입 (None = 아무 위젯 — flag 는 보이기만 바꾼다)
-BINDING_WIDGET_TYPES = {"progress": {"ProgressBar"}, "text": {"TextBlock"}, "number": {"TextBlock"}, "image": {"Image"}, "flag": None}
+BINDING_WIDGET_TYPES = {"progress": {"ProgressBar", "Image"}, "text": {"TextBlock"}, "number": {"TextBlock"}, "image": {"Image"}, "flag": None}
 
 SLOT_DEFAULTS = {
     "canvas": {"anchors": [0, 0, 0, 0], "alignment": [0, 0], "position": [0, 0], "size": [100, 30], "z": 0, "auto_size": False},
@@ -255,6 +255,15 @@ def validate_semantics(spec: dict) -> list[str]:
                 errs.append(f"ASSET_NOT_FOUND: '{w.get('id')}'.style.{key} → '{brush['asset']}'")
             if key in BRUSH_KEYS and isinstance(brush, dict) and brush.get("draw_as") == "rounded_box" and brush.get("margin"):
                 errs.append(f"BRUSH_MARGIN: '{w.get('id')}'.style.{key} rounded_box has no 9-slice margin")
+            if key in BRUSH_KEYS and isinstance(brush, dict) and brush.get("wipe") is not None:
+                if w.get("type") != "Image" or key != "brush" or not brush.get("asset") or brush.get("draw_as", "image") != "image":
+                    errs.append(f"BRUSH_WIPE: '{w.get('id')}'.style.{key} — wipe is only for an Image brush drawn as image with an asset")
+        wipe = ((w.get("style") or {}).get("brush") or {}).get("wipe") if w.get("type") == "Image" else None
+        if w.get("type") == "Image" and wipe is None:
+            if "percent" in (w.get("style") or {}):
+                errs.append(f"STYLE_PERCENT: Image '{w.get('id')}' has style.percent without brush.wipe")
+            if (w.get("binding") or {}).get("kind") == "progress":
+                errs.append(f"PROGRESS_IMAGE: Image '{w.get('id')}' has a progress binding but no brush.wipe to move")
     for pair in spec.get("allow_overlap", []):
         for wid in pair:
             if wid not in index:
@@ -290,6 +299,8 @@ def normalize_brush(brush: dict, asset_sizes: dict[str, list]) -> dict:
         b.setdefault("outline_width", 0)
     if draw_as != "none":
         b.setdefault("image_size", list(asset_sizes.get(b.get("asset"), BRUSH_DEFAULT_IMAGE_SIZE)))
+    if isinstance(b.get("wipe"), dict):            # 전투 HUD 동작(11-23) — WidgetMcpSpec.cpp NormalizeBrush 와 같은 기본값
+        b["wipe"] = {"kind": "radial", "mode": "clockwise", "track_alpha": 0, **b["wipe"]}
     return _canon(b)
 
 
@@ -366,6 +377,8 @@ def normalize_widget(w: dict, parent_type: str | None, asset_sizes: dict[str, li
     for key in list(style):
         if key in BRUSH_KEYS and isinstance(style[key], dict):
             style[key] = normalize_brush(style[key], asset_sizes)
+    if wtype == "Image" and (style.get("brush") or {}).get("wipe"):
+        style.setdefault("percent", 1)
     if style:
         out["style"] = _canon(style)
     else:

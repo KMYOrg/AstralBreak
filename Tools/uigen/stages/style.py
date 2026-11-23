@@ -692,7 +692,7 @@ def _fit_sizes(before: dict, after: dict, cfg: dict, rendered: dict[str, list] |
 
 
 def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[str, list] | None = None,
-             mode: str = "place", only: set | None = None) -> tuple[dict, list[dict]]:
+             mode: str = "place", only: set | None = None, resize: set | None = None, outline_locked: set | None = None) -> tuple[dict, list[dict]]:
     """1b 후속 G — 글자 크기 · 굵기 · 위치 결정적 맞춤(외형 라운드 뒤, LLM 없음). 마지막 통과 렌더에서 글자마다 컨셉 ↔ 렌더 획 상자를 같은 측정 상자
     (컨셉 획 상자 + 여유 — 넓은 위젯 상자에 패널 선 · 이웃 글자가 끼지 않게, 그 글자의 영역 안)에서 재고, 두 판으로 나눠 고친다
     (run_pipeline._text_fit_round 가 판마다 build → verify — 크기를 바꾼 글자는 그 판에서 위치 · 자간을 안 건드린다):
@@ -700,6 +700,7 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
         · 크기 — |1 − 높이 비| ≥ TEXT_FIT_SIZE_TOL 이면 새 크기 = round(크기 ÷ 높이 비), 상자는 follow_text_boxes(가운데 중심 성장 · 형제 자리 유지),
           build 전 형제 겹침 예측으로 상한(_fit_sizes).
         · 굵기 — 획 밀도(획 픽셀 / 획 상자 넓이) 비가 regular ↔ bold 경계(TEXT_FIT_WEIGHT_STEP)를 넘으면 바꾼다.
+        · resize 를 주면 그 글자만 크기를 바꾼다(마지막 판 — run_pipeline._text_fit_round).
       mode "place"(위치 판) — 높이 비가 TEXT_FIT_H 안일 때만:
         ① 글자 2 개 이상 · 폭 비가 TEXT_FIT_W_TOL 넘게 다르면 자간(글자 사이 px = (컨셉 틈 열 − 렌더 틈 열) / (글자 수 − 1) —
            틈 열 = 획 상자 안 세로 투영이 빈 열, 글자 모양이 넓어서 생긴 폭 차이는 자간으로 메우지 않는다)
@@ -860,7 +861,8 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
             col = _fit_color(f, ref, ren, mc, mr)       # 1b 후속 J-c — 글자색 · 그라데이션도 진단과 같은 핵심 획에서(결정적)
             if col:
                 rec["color"] = col
-            ol = _fit_outline(f, ref, ren, g)           # 외곽선도 컨셉에서 잰 것만(J-c — LLM 외곽선은 analyze 에서 걷었다)
+            # 외곽선도 컨셉에서 잰 것만(J-c — LLM 외곽선은 analyze 에서 걷었다). 요청이 정한 외곽선(outline_locked, 11-23)은 안 건드린다
+            ol = None if w["id"] in (outline_locked or ()) else _fit_outline(f, ref, ren, g)
             if ol:
                 rec["outline" if "new" in ol else "outline_skipped"] = ol
             gl = _fit_glow(f, ref, ren, g, font_roles)  # 1b 후속 J — 빛 크기도 같은 측정(핵심 획 밖 밝은 비율)으로
@@ -880,7 +882,9 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
             from gen import diagnose as _dg
             wtab = _dg.weight_table(cfg, f.get("family")) if f is not None else None
             cur0 = (f.get("weight") or spec_mod.FONT_DEFAULT["weight"]) if f is not None else None
-            resizing = abs(1.0 - rec["h_ratio"]) >= TEXT_FIT_SIZE_TOL
+            # 마지막 판(resize 가 있을 때)은 진단이 크기 결함이라고 한 글자만 크기를 바꾼다 — 그 밖의 글자는 지금 크기에서 굵기를 바로 판정
+            can_resize = resize is None or w["id"] in resize
+            resizing = can_resize and abs(1.0 - rec["h_ratio"]) >= TEXT_FIT_SIZE_TOL
             if resizing and wtab and cur0 in (wtab or {}):
                 rec["weight_deferred"] = "the size changes in this pass — stroke density depends on the size (small text renders denser), weight is judged next pass"
             elif f is not None and cd and rd and not masked and wtab and cur0 in wtab:
@@ -899,7 +903,7 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
                     rec["weight"] = [cur, new, ratio]
             # 크기 — 글자 높이는 크기에 비례한다(같은 폰트): 새 크기 = round(크기 ÷ 높이 비), 빛 · 외곽선은 그대로
             # [실측 G 굵기 끝 run] 외형 라운드가 버려지자 analyze 크기가 남음 — 배너 0.90 · '3' 0.92 · '4.2' 0.80 · '오의 불가' 0.84
-            if f is not None and abs(1.0 - rec["h_ratio"]) >= TEXT_FIT_SIZE_TOL:
+            if f is not None and can_resize and abs(1.0 - rec["h_ratio"]) >= TEXT_FIT_SIZE_TOL:
                 s0 = float(f.get("size") or spec_mod.FONT_DEFAULT.get("size", 24))
                 s1 = int(round(s0 / rec["h_ratio"]))
                 if s1 != s0 and s1 > 0:

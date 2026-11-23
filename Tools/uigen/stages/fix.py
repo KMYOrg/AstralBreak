@@ -314,6 +314,8 @@ def guard_ops(ops: list[dict], spec: dict, brief: dict) -> list[str]:
     errs: list[str] = []
     contract = _contract_widgets(brief)
     required = {e["id"] for e in brief.get("required_elements", [])}
+    outlined = {x["widget"] for x in (*brief.get("dynamic_data", []), *brief.get("static_text", [])) if x.get("outline")}
+    rings = {d["widget"] for d in brief.get("dynamic_data", []) if d.get("radial")}
     for i, op in enumerate(ops):
         kind = op.get("op")
         if kind == "set":
@@ -322,6 +324,11 @@ def guard_ops(ops: list[dict], spec: dict, brief: dict) -> list[str]:
                 errs.append(f"op {i}: set {op.get('widget')}.{op.get('path')} — {GUARDED_SET_ROOTS[root]}")
             if root == "text" and op.get("widget") in contract:
                 errs.append(f"op {i}: set {op.get('widget')}.{op.get('path')} — the text of contract widgets comes from the request")
+            # 전투 HUD 동작(11-23) — 요청이 정한 글자 외곽선 · 원형 닦기(고리 자리 · 중심은 컨셉에서 잰 것)는 고치지 않는다
+            if op.get("widget") in outlined and str(op.get("path", "")).startswith(("font.outline", "font.glow")):
+                errs.append(f"op {i}: set {op.get('widget')}.{op.get('path')} — the outline of this text comes from the request")
+            if op.get("widget") in rings and (root == "slot" or "wipe" in str(op.get("path", "")) or str(op.get("path", "")) in ("style", "style.brush", "style.percent")):
+                errs.append(f"op {i}: set {op.get('widget')}.{op.get('path')} — the ring's place and wipe are measured from the concept")
         elif kind == "remove_widget" and op.get("widget") in required:
             errs.append(f"op {i}: remove_widget {op.get('widget')} — it is a required element")
         elif kind == "add_widget" and isinstance(op.get("widget"), dict) and op["widget"].get("binding"):

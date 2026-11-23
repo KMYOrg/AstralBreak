@@ -5,10 +5,11 @@
 //
 //   H0  자리마다 HUD 가 있고(승격본 WBP 클래스) 원천에 붙었다(자기 자리 ASC · 체인 컴포넌트). 게이지 = 자기 자리 값, 패널 · 배너 · '오의 불가' 접힘
 //   H1  게이지가 모자란 채 누름 → '오의 불가' 안 뜸 (실패 통지는 오지만 차단 태그가 없다 — 게이지 부족은 조용히)
-//   H2  FillUlt → 비율 1 · 강조 보임
+//   H2  FillUlt → 비율 1 · 오의 가능 표시와 키 안내 글자 보임(가득이 아닐 때는 안 보임) · 글자 = 그 자리 Enhanced Input 이 오의 액션에 걸어 둔 키,
+//       키 배치를 바꾸면 통지를 받아 글자가 따라 바뀐다
 //   H3  A 가 쓰는 동안 B 가 누름(차단 중) → B 자리에 '오의 불가', UltBlockedSeconds 뒤 접힘. A 자리는 게이지 0 · 강조 접힘, 체인 패널은 아직 없음
-//   H4  A 가 맞히고 끝남 → 두 자리에 체인 패널 · "1/최대" · 남은 시간 ≤ 윈도우이고 0.5초 뒤 더 작다
-//   H5  B 가 쓰는 동안 → 두 자리의 남은 시간 글자가 0.5초 동안 그대로(멈춤)
+//   H4  A 가 맞히고 끝남 → 두 자리에 체인 패널 · "1/최대" · 남은 시간 ≤ 윈도우이고 0.5초 뒤 더 작다. 고리 비율 = 남은 시간 / 윈도우, 같이 줄어든다
+//   H5  B 가 쓰는 동안 → 두 자리의 남은 시간 글자와 고리 비율이 0.5초 동안 그대로(멈춤)
 //   H6  B 가 맞히고 끝남 → 살아 있는 2명 전원이라 바로 버스트: 두 자리에 배너 · "2" · 패널 접힘, BurstBannerSeconds 뒤 배너 접힘
 //
 // 적은 체인 시험(AstralChainBurstPieTests)처럼 서버에서 직접 세운다 — AI 컨트롤러를 떼고 HP 를 크게 올린다. 두 히어로가 250 cm 거리에서 적을 본다.
@@ -28,15 +29,23 @@
 #include "Character/Components/AstralHealthComponent.h"
 #include "Character/Enemy/AstralCombatCharacter.h"
 #include "Character/Enemy/AstralEnemySpawnSubsystem.h"
+#include "Components/Image.h"
+#include "Components/PanelWidget.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
 #include "Components/Widget.h"
 #include "Engine/GameInstance.h"
+#include "Engine/LocalPlayer.h"
+#include "EnhancedInputSubsystems.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 #include "GameModes/AstralChainBurstComponent.h"
 #include "GameplayTagContainer.h"
+#include "InputAction.h"
+#include "InputCoreTypes.h"
+#include "InputMappingContext.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Player/AstralPlayerController.h"
 #include "UI/HUD/AstralCombatHUDWidget.h"
 
@@ -54,11 +63,18 @@ namespace AstralCombatHUDPie
 	const TCHAR* const UltActiveTagName = TEXT("State.Ult.Active");
 	const TCHAR* const UltBlockedTagName = TEXT("State.Ult.Blocked");
 
-	// 바인딩 위젯 이름 — 생성 베이스 UAstralCombatHUDViewBase 의 BindWidget 과 같다(계약 sha1:5ae0d80a…)
+	const TCHAR* const UltActionPath = TEXT("/Game/Input/Actions/IA_Ult.IA_Ult");
+	/** 고리 비율을 재는 순간과 HUD 가 그린 순간의 차(한두 프레임) — 윈도우 6초에서 0.12초 */
+	constexpr float RingTolerance = 0.02f;
+
+	// 바인딩 위젯 이름 — 생성 베이스 UAstralCombatHUDViewBase 의 BindWidget 과 같다(계약 sha1:2ee29ce6…). 그림 UltReadyGlow 는 이제 UltReadyPanel 의 자식(선택 바인딩)
 	const TCHAR* const UltGaugeName = TEXT("UltGauge");
+	const TCHAR* const UltReadyPanelName = TEXT("UltReadyPanel");
 	const TCHAR* const UltReadyGlowName = TEXT("UltReadyGlow");
+	const TCHAR* const UltKeyName = TEXT("UltKeyText");
 	const TCHAR* const UltBlockedName = TEXT("UltBlockedText");
 	const TCHAR* const ChainPanelName = TEXT("ChainPanel");
+	const TCHAR* const ChainRingName = TEXT("ChainRing");
 	const TCHAR* const ChainTimerName = TEXT("ChainTimerText");
 	const TCHAR* const ChainCountName = TEXT("ChainCountText");
 	const TCHAR* const BurstBannerName = TEXT("BurstBanner");
@@ -87,8 +103,13 @@ namespace AstralCombatHUDPie
 		float UltBlockedSeconds = 0.f;
 		float BurstBannerSeconds = 0.f;
 
-		/** 자리마다 읽어 둔 남은 시간 글자 */
+		/** 자리마다 읽어 둔 남은 시간 글자 · 고리 비율 */
 		TMap<int32, FString> TimerTexts;
+		TMap<int32, float> RingPercents;
+
+		/** H2 — 시험이 잠깐 얹는 키 배치(오의 = T) */
+		TStrongObjectPtr<UInputMappingContext> ExtraMapping;
+		FString KeyBefore;
 	};
 
 	// ─── 조회 ───
@@ -221,6 +242,65 @@ namespace AstralCombatHUDPie
 		return Widget && Widget->GetVisibility() != ESlateVisibility::Collapsed && Widget->GetVisibility() != ESlateVisibility::Hidden;
 	}
 
+	/** 화면에 보이는가 — 조상까지 접히지 않았다(키 안내는 UltReadyPanel 과 같이 접힌다) */
+	bool ShownOnScreen(int32 PlayerId, const TCHAR* Name)
+	{
+		const UWidget* Widget = PartOf(PlayerId, Name);
+		if (!Widget)
+		{
+			return false;
+		}
+		for (const UWidget* It = Widget; It; It = It->GetParent())
+		{
+			if (It->GetVisibility() == ESlateVisibility::Collapsed || It->GetVisibility() == ESlateVisibility::Hidden)
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** 고리에 남은 비율 — HUD 가 움직인 동적 머티리얼의 Percent. 아직 안 움직였으면 -1 */
+	float RingOf(int32 PlayerId)
+	{
+		const UImage* Ring = Cast<UImage>(PartOf(PlayerId, ChainRingName));
+		const UMaterialInstanceDynamic* Material = Ring ? Cast<UMaterialInstanceDynamic>(Ring->GetBrush().GetResourceObject()) : nullptr;
+		float Percent = -1.f;
+		return (Material && Material->GetScalarParameterValue(FHashedMaterialParameterInfo(TEXT("Percent")), Percent)) ? Percent : -1.f;
+	}
+
+	/** 그 자리 체인 컴포넌트의 남은 시간 / 윈도우 */
+	float ExpectedRing(int32 PlayerId)
+	{
+		const UAstralChainBurstComponent* Chain = ChainIn(FindSeatWorld(PlayerId));
+		return (Chain && Chain->GetWindowSeconds() > 0.f) ? FMath::Clamp(Chain->GetRemainingSeconds() / Chain->GetWindowSeconds(), 0.f, 1.f) : -2.f;
+	}
+
+	UEnhancedInputLocalPlayerSubsystem* InputOf(int32 PlayerId)
+	{
+		const APlayerController* PC = GetLocalPC(FindSeatWorld(PlayerId));
+		const ULocalPlayer* LocalPlayer = PC ? PC->GetLocalPlayer() : nullptr;
+		return LocalPlayer ? LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>() : nullptr;
+	}
+
+	/** 그 자리에서 오의 액션에 걸린 첫 키보드 · 마우스 키의 짧은 이름(무인 실행이라 게임패드 입력이 없다) */
+	FString ExpectedKey(int32 PlayerId)
+	{
+		const UEnhancedInputLocalPlayerSubsystem* Input = InputOf(PlayerId);
+		const UInputAction* Action = LoadObject<UInputAction>(nullptr, UltActionPath);
+		if (Input && Action)
+		{
+			for (const FKey& Key : Input->QueryKeysMappedToAction(Action))
+			{
+				if (!Key.IsGamepadKey())
+				{
+					return Key.GetDisplayName(false).ToString();
+				}
+			}
+		}
+		return FString();
+	}
+
 	float PercentOf(int32 PlayerId)
 	{
 		const UProgressBar* Bar = Cast<UProgressBar>(PartOf(PlayerId, UltGaugeName));
@@ -254,9 +334,9 @@ namespace AstralCombatHUDPie
 		{
 			return FString::Printf(TEXT("%d: no HUD"), PlayerId);
 		}
-		return FString::Printf(TEXT("%d: gauge %.3f glow %d blocked %d panel %d [%s | %s] banner %d [%s]"), PlayerId, PercentOf(PlayerId),
-			Shown(PlayerId, UltReadyGlowName) ? 1 : 0, Shown(PlayerId, UltBlockedName) ? 1 : 0, Shown(PlayerId, ChainPanelName) ? 1 : 0,
-			*TextOf(PlayerId, ChainCountName), *TextOf(PlayerId, ChainTimerName), Shown(PlayerId, BurstBannerName) ? 1 : 0, *TextOf(PlayerId, BurstCountName));
+		return FString::Printf(TEXT("%d: gauge %.3f ready %d key %d [%s] blocked %d panel %d ring %.3f (want %.3f) [%s | %s] banner %d [%s]"), PlayerId, PercentOf(PlayerId),
+			Shown(PlayerId, UltReadyPanelName) ? 1 : 0, ShownOnScreen(PlayerId, UltKeyName) ? 1 : 0, *TextOf(PlayerId, UltKeyName), Shown(PlayerId, UltBlockedName) ? 1 : 0,
+			Shown(PlayerId, ChainPanelName) ? 1 : 0, RingOf(PlayerId), ExpectedRing(PlayerId), *TextOf(PlayerId, ChainCountName), *TextOf(PlayerId, ChainTimerName), Shown(PlayerId, BurstBannerName) ? 1 : 0, *TextOf(PlayerId, BurstCountName));
 	}
 
 	FString Describe(const FContext& Ctx)
@@ -364,13 +444,15 @@ namespace AstralCombatHUDPie
 		});
 	}
 
-	/** 두 자리의 남은 시간 글자를 읽어 둔다 */
+	/** 두 자리의 남은 시간 글자 · 고리 비율을 읽어 둔다 */
 	void SnapshotTimers(FContext& Ctx)
 	{
 		Ctx.TimerTexts.Reset();
+		Ctx.RingPercents.Reset();
 		for (const int32 PlayerId : Ctx.Ids)
 		{
 			Ctx.TimerTexts.Add(PlayerId, TextOf(PlayerId, ChainTimerName));
+			Ctx.RingPercents.Add(PlayerId, RingOf(PlayerId));
 		}
 	}
 
@@ -513,12 +595,14 @@ namespace AstralCombatHUDPie
 				const UAstralCombatHUDWidget* Hud = HudOf(PlayerId);
 				Test.TestEqual(TEXT("H0: the HUD is the promoted WBP"), GetPathNameSafe(Hud ? Hud->GetClass() : nullptr), FString(PromotedHudClassPath));
 				Test.TestTrue(TEXT("H0: the HUD is in the viewport"), Hud && Hud->IsInViewport());
-				for (const TCHAR* Name : { UltGaugeName, UltReadyGlowName, UltBlockedName, ChainPanelName, ChainTimerName, ChainCountName, BurstBannerName, BurstCountName })
+				for (const TCHAR* Name : { UltGaugeName, UltReadyPanelName, UltReadyGlowName, UltKeyName, UltBlockedName, ChainPanelName, ChainRingName, ChainTimerName, ChainCountName, BurstBannerName, BurstCountName })
 				{
 					Test.TestNotNull(*FString::Printf(TEXT("H0: bound widget %s exists"), Name), PartOf(PlayerId, Name));
 				}
 				const bool bFull = GaugeOf(SeatASC(PlayerId)) >= Ctx->MaxGauge - 0.01f;
-				Test.TestTrue(TEXT("H0: the glow follows the gauge"), Shown(PlayerId, UltReadyGlowName) == bFull);
+				Test.TestTrue(TEXT("H0: the ready sign follows the gauge"), Shown(PlayerId, UltReadyPanelName) == bFull);
+				Test.TestTrue(TEXT("H0: the key hint is visible only with a full gauge"), ShownOnScreen(PlayerId, UltKeyName) == bFull);
+				Test.TestFalse(TEXT("H0: the gauge does not start full (the key hint starts hidden)"), bFull);
 				Test.TestFalse(TEXT("H0: no chain panel without a chain"), Shown(PlayerId, ChainPanelName));
 				Test.TestFalse(TEXT("H0: no burst banner at start"), Shown(PlayerId, BurstBannerName));
 				Test.TestFalse(TEXT("H0: no 'ult blocked' at start"), Shown(PlayerId, UltBlockedName));
@@ -545,21 +629,63 @@ namespace AstralCombatHUDPie
 		});
 	}
 
+	/** A 자리의 키 배치를 바꿔도 B 자리 글자는 자기 배치 그대로다 */
+	void TestKeyUnchangedElsewhere(FContext& Ctx)
+	{
+		Ctx.Test->TestEqual(TEXT("H2: B's key hint keeps B's own mapping"), TextOf(Ctx.Ids[1], UltKeyName), ExpectedKey(Ctx.Ids[1]));
+		Ctx.Test->TestNotEqual(TEXT("H2: B's key hint did not change with A's mapping"), TextOf(Ctx.Ids[1], UltKeyName), FString(TEXT("T")));
+	}
+
 	void EnqueueFill(const TSharedRef<FContext>& Ctx)
 	{
 		Fill(Ctx, 0);
 		Fill(Ctx, 1);
-		Wait(Ctx, TEXT("H2: both HUDs show a full gauge with the glow"), 5.0, [Ctx]()
+		Wait(Ctx, TEXT("H2: both HUDs show a full gauge with the ready sign and the key hint"), 5.0, [Ctx]()
 		{
 			for (const int32 PlayerId : Ctx->Ids)
 			{
-				if (!FMath::IsNearlyEqual(PercentOf(PlayerId), 1.f, 0.001f) || !Shown(PlayerId, UltReadyGlowName))
+				if (!FMath::IsNearlyEqual(PercentOf(PlayerId), 1.f, 0.001f) || !ShownOnScreen(PlayerId, UltReadyGlowName) || !ShownOnScreen(PlayerId, UltKeyName))
 				{
 					return false;
 				}
 			}
 			return true;
 		});
+		Do(Ctx, [Ctx]()
+		{
+			FAutomationTestBase& Test = *Ctx->Test;
+			for (const int32 PlayerId : Ctx->Ids)
+			{
+				const FString Expected = ExpectedKey(PlayerId);
+				Test.TestFalse(TEXT("H2: the ult action has a key on this seat"), Expected.IsEmpty());
+				Test.TestEqual(*FString::Printf(TEXT("H2: seat %d shows the mapped key"), PlayerId), TextOf(PlayerId, UltKeyName), Expected);
+			}
+			Note(Test, FString::Printf(TEXT("H2: full — %s"), *Describe(*Ctx)));
+
+			// 키 배치를 바꾼다(A 자리에 오의 = T 를 더 높은 우선순위로) — 글자가 통지로 따라 바뀌는가
+			UEnhancedInputLocalPlayerSubsystem* Input = InputOf(Ctx->Ids[0]);
+			const UInputAction* Action = LoadObject<UInputAction>(nullptr, UltActionPath);
+			if (!Test.TestNotNull(TEXT("enhanced input on A's seat"), Input) || !Test.TestNotNull(TEXT("IA_Ult"), Action))
+			{
+				Ctx->bAborted = true;
+				return;
+			}
+			Ctx->KeyBefore = TextOf(Ctx->Ids[0], UltKeyName);
+			Ctx->ExtraMapping.Reset(NewObject<UInputMappingContext>(GetTransientPackage()));
+			Ctx->ExtraMapping->MapKey(Action, EKeys::T);
+			Input->AddMappingContext(Ctx->ExtraMapping.Get(), 1000);
+		});
+		Wait(Ctx, TEXT("H2: the key hint follows a remapped key"), 5.0, [Ctx]() { return TextOf(Ctx->Ids[0], UltKeyName) == TEXT("T"); });
+		Do(Ctx, [Ctx]()
+		{
+			TestKeyUnchangedElsewhere(*Ctx);
+			if (UEnhancedInputLocalPlayerSubsystem* Input = InputOf(Ctx->Ids[0]))
+			{
+				Input->RemoveMappingContext(Ctx->ExtraMapping.Get());
+			}
+		});
+		Wait(Ctx, TEXT("H2: the key hint returns with the mapping"), 5.0, [Ctx]() { return TextOf(Ctx->Ids[0], UltKeyName) == Ctx->KeyBefore; });
+		Do(Ctx, [Ctx]() { Ctx->ExtraMapping.Reset(); });
 	}
 
 	void EnqueueFirstCast(const TSharedRef<FContext>& Ctx)
@@ -588,9 +714,10 @@ namespace AstralCombatHUDPie
 			}
 			Note(Test, FString::Printf(TEXT("H3: blocked shown — %s"), *Describe(*Ctx)));
 		});
-		Wait(Ctx, TEXT("H3: A's HUD shows the spent gauge (0) without the glow"), 5.0, [Ctx]()
+		Wait(Ctx, TEXT("H3: A's HUD shows the spent gauge (0) without the ready sign and the key hint"), 5.0, [Ctx]()
 		{
-			return FMath::IsNearlyZero(PercentOf(Ctx->Ids[0]), 0.001f) && !Shown(Ctx->Ids[0], UltReadyGlowName) && GaugeMatchesSeat(*Ctx, Ctx->Ids[0]);
+			return FMath::IsNearlyZero(PercentOf(Ctx->Ids[0]), 0.001f) && !Shown(Ctx->Ids[0], UltReadyPanelName) && !ShownOnScreen(Ctx->Ids[0], UltKeyName)
+				&& GaugeMatchesSeat(*Ctx, Ctx->Ids[0]);
 		});
 		Hold(Ctx, 0.3);
 		Do(Ctx, [Ctx]()
@@ -625,6 +752,10 @@ namespace AstralCombatHUDPie
 			{
 				const float Remaining = NumberOf(PlayerId, ChainTimerName);
 				Test.TestTrue(*FString::Printf(TEXT("H4: seat %d shows a remaining time within the window (%.1f)"), PlayerId, Remaining), Remaining > 0.f && Remaining <= Ctx->WindowSeconds + 0.05f);
+				Test.TestTrue(*FString::Printf(TEXT("H4: seat %d's ring shows remaining / window (ring %.3f, want %.3f)"), PlayerId, RingOf(PlayerId), ExpectedRing(PlayerId)),
+					FMath::IsNearlyEqual(RingOf(PlayerId), ExpectedRing(PlayerId), RingTolerance));
+				Test.TestTrue(*FString::Printf(TEXT("H4: seat %d's ring agrees with the number (ring %.3f x window = %.2f, text %.1f)"), PlayerId, RingOf(PlayerId),
+					RingOf(PlayerId) * Ctx->WindowSeconds, Remaining), FMath::IsNearlyEqual(RingOf(PlayerId) * Ctx->WindowSeconds, Remaining, 0.06f));
 			}
 			SnapshotTimers(*Ctx);
 		});
@@ -637,6 +768,9 @@ namespace AstralCombatHUDPie
 				const float Before = FCString::Atof(*Ctx->TimerTexts.FindRef(PlayerId));
 				const float After = NumberOf(PlayerId, ChainTimerName);
 				Test.TestTrue(*FString::Printf(TEXT("H4: seat %d's remaining time counts down (%.1f -> %.1f)"), PlayerId, Before, After), After < Before - 0.2f);
+				const float RingBefore = Ctx->RingPercents.FindRef(PlayerId);
+				Test.TestTrue(*FString::Printf(TEXT("H4: seat %d's ring empties with it (%.3f -> %.3f)"), PlayerId, RingBefore, RingOf(PlayerId)),
+					RingOf(PlayerId) < RingBefore - 0.2f / Ctx->WindowSeconds && FMath::IsNearlyEqual(RingOf(PlayerId), ExpectedRing(PlayerId), RingTolerance));
 			}
 			Note(Test, FString::Printf(TEXT("H4: chain open — %s"), *Describe(*Ctx)));
 		});
@@ -675,6 +809,9 @@ namespace AstralCombatHUDPie
 				const FString Before = Ctx->TimerTexts.FindRef(PlayerId);
 				const FString After = TextOf(PlayerId, ChainTimerName);
 				Test.TestEqual(*FString::Printf(TEXT("H5: seat %d's remaining time stands still while B casts"), PlayerId), After, Before);
+				const float RingBefore = Ctx->RingPercents.FindRef(PlayerId);
+				Test.TestTrue(*FString::Printf(TEXT("H5: seat %d's ring stands still with it (%.4f -> %.4f, want %.4f)"), PlayerId, RingBefore, RingOf(PlayerId), ExpectedRing(PlayerId)),
+					RingBefore > 0.f && FMath::IsNearlyEqual(RingOf(PlayerId), RingBefore, 1.e-4f) && FMath::IsNearlyEqual(RingOf(PlayerId), ExpectedRing(PlayerId), 0.002f));
 				Test.TestTrue(TEXT("H5: the chain panel stays up while paused"), Shown(PlayerId, ChainPanelName));
 				Test.TestEqual(TEXT("H5: still 1/max while B casts"), TextOf(PlayerId, ChainCountName), ExpectedCount);
 			}

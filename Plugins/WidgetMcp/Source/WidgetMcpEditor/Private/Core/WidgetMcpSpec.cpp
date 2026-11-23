@@ -61,7 +61,7 @@ namespace WidgetMcpSpec
 		{
 			static const TMap<FString, TSet<FString>> Keys = {
 				{ TEXT("Border"), { TEXT("brush") } },
-				{ TEXT("Image"), { TEXT("brush") } },
+				{ TEXT("Image"), { TEXT("brush"), TEXT("percent") } },     // percent = 원형 닦기(brush.wipe)의 미리보기 비율
 				{ TEXT("ProgressBar"), { TEXT("background"), TEXT("fill"), TEXT("fill_color"), TEXT("percent"), TEXT("bar_fill_type"), TEXT("bar_fill_style") } },
 				{ TEXT("SizeBox"), { TEXT("width_override"), TEXT("height_override") } },
 				{ TEXT("Spacer"), { TEXT("size") } },
@@ -408,6 +408,24 @@ namespace WidgetMcpSpec
 				OutError = FString::Printf(TEXT("%s.asset '%s' is neither in assets{} nor a loadable Texture2D"), *Where, *Asset);
 				return false;
 			}
+			if (Brush.HasField(TEXT("wipe")) && !IsNullField(Brush, TEXT("wipe")))
+			{
+				const TSharedPtr<FJsonObject> Wipe = ObjField(Brush, TEXT("wipe"));
+				const FString Kind = Wipe.IsValid() ? StrField(*Wipe, TEXT("kind"), TEXT("radial")) : FString();
+				const FString Mode = Wipe.IsValid() ? StrField(*Wipe, TEXT("mode"), TEXT("clockwise")) : FString();
+				const double Track = Wipe.IsValid() ? NumField(*Wipe, TEXT("track_alpha"), 0.0) : -1.0;
+				FVector2D Center;
+				if (Kind != TEXT("radial") || (Mode != TEXT("clockwise") && Mode != TEXT("mirror")) || !WidgetMcp::ReadVec2(*Wipe, TEXT("center"), Center) || Track < 0.0 || Track > 1.0)
+				{
+					OutError = FString::Printf(TEXT("%s.wipe must be {kind radial, mode clockwise|mirror, center [x, y], track_alpha 0..1}"), *Where);
+					return false;
+				}
+				if (DrawName != TEXT("image") || !Brush.HasField(TEXT("asset")))
+				{
+					OutError = FString::Printf(TEXT("%s.wipe needs draw_as image and an asset"), *Where);
+					return false;
+				}
+			}
 			return true;
 		}
 
@@ -478,6 +496,19 @@ namespace WidgetMcpSpec
 					const FString* Id = Assets ? Assets->IdByPackage.Find(Package) : nullptr;
 					J->SetStringField(TEXT("asset"), Id ? *Id : Package);
 				}
+				else if (WidgetMcpBrushMaterials::FRadialWipe Wipe; WidgetMcpBrushMaterials::ReadRadialWipe(Resource, Wipe))
+				{
+					// 전투 HUD 동작 — 닦기 MIC 는 spec 의 asset(텍스처) + wipe 로 되돌린다(비율은 style.percent — ExportWidgetProps)
+					const FString Package = WidgetMcp::ToPackagePath(Wipe.Texture->GetPathName());
+					const FString* Id = Assets ? Assets->IdByPackage.Find(Package) : nullptr;
+					J->SetStringField(TEXT("asset"), Id ? *Id : Package);
+					TSharedRef<FJsonObject> W = MakeShared<FJsonObject>();
+					W->SetStringField(TEXT("kind"), TEXT("radial"));
+					W->SetStringField(TEXT("mode"), Wipe.bMirror ? TEXT("mirror") : TEXT("clockwise"));
+					W->SetField(TEXT("center"), WidgetMcp::Vec2(Wipe.Center));
+					W->SetField(TEXT("track_alpha"), WidgetMcp::Num(Wipe.TrackAlpha));
+					J->SetObjectField(TEXT("wipe"), W);
+				}
 				else
 				{
 					Note(FString::Printf(TEXT("brush resource is a %s (only Texture2D is in the spec vocabulary)"), *Resource->GetClass()->GetName()));
@@ -545,6 +576,12 @@ namespace WidgetMcpSpec
 					}
 				}
 				SetDefault(Brush, TEXT("image_size"), Arr({ Size.X, Size.Y }));
+			}
+			if (const TSharedPtr<FJsonObject> Wipe = ObjField(*Brush, TEXT("wipe")))
+			{
+				SetDefault(Wipe.ToSharedRef(), TEXT("kind"), S(TEXT("radial")));
+				SetDefault(Wipe.ToSharedRef(), TEXT("mode"), S(TEXT("clockwise")));
+				SetDefault(Wipe.ToSharedRef(), TEXT("track_alpha"), N(0));
 			}
 			return Brush;
 		}
@@ -758,6 +795,14 @@ namespace WidgetMcpSpec
 				P.Value = MakeShared<FJsonValueObject>(NormalizeBrush(P.Value->AsObject().ToSharedRef(), Assets));
 			}
 		}
+		if (Type == TEXT("Image"))
+		{
+			const TSharedPtr<FJsonObject> Brush = ObjField(*Style, TEXT("brush"));
+			if (Brush.IsValid() && ObjField(*Brush, TEXT("wipe")).IsValid())
+			{
+				SetDefault(Style.ToSharedRef(), TEXT("percent"), N(1));
+			}
+		}
 		if (Style->Values.Num() > 0)
 		{
 			W->SetObjectField(TEXT("style"), Style);
@@ -828,6 +873,29 @@ namespace WidgetMcpSpec
 		}
 	}
 
+	void CollectBrushWipes(const FJsonObject& NormalizedWidget, const FAssets& Assets, TMap<FString, WidgetMcpBrushMaterials::FRadialWipe>& Out)
+	{
+		if (StrField(NormalizedWidget, TEXT("type")) != TEXT("Image"))
+		{
+			return;
+		}
+		const TSharedPtr<FJsonObject> Style = ObjField(NormalizedWidget, TEXT("style"));
+		const TSharedPtr<FJsonObject> Brush = Style.IsValid() ? ObjField(*Style, TEXT("brush")) : nullptr;
+		const TSharedPtr<FJsonObject> Wipe = Brush.IsValid() ? ObjField(*Brush, TEXT("wipe")) : nullptr;
+		if (!Wipe.IsValid())
+		{
+			return;
+		}
+		WidgetMcpBrushMaterials::FRadialWipe Spec;
+		Spec.Texture = ResolveTexture(StrField(*Brush, TEXT("asset")), Assets);
+		Spec.Percent = static_cast<float>(FMath::Clamp(NumField(*Style, TEXT("percent"), 1.0), 0.0, 1.0));
+		WidgetMcp::ReadVec2(*Wipe, TEXT("center"), Spec.Center);
+		WidgetMcp::ReadVec2(*Brush, TEXT("image_size"), Spec.Size);
+		Spec.bMirror = StrField(*Wipe, TEXT("mode"), TEXT("clockwise")) == TEXT("mirror");
+		Spec.TrackAlpha = static_cast<float>(NumField(*Wipe, TEXT("track_alpha"), 0.0));
+		Out.Add(StrField(NormalizedWidget, TEXT("id")), Spec);
+	}
+
 	TSharedRef<FJsonObject> WbpView(const TSharedRef<FJsonObject>& NormalizedWidget)
 	{
 		TSharedRef<FJsonObject> V = DeepCopy(MakeShared<FJsonValueObject>(NormalizedWidget))->AsObject().ToSharedRef();
@@ -886,6 +954,20 @@ namespace WidgetMcpSpec
 						if (OutError.IsEmpty()) { OutError = FString::Printf(TEXT("'%s'.style.%s must be an object"), *Id, *P.Key); }
 						return false;
 					}
+					if (P.Value->AsObject()->HasField(TEXT("wipe")) && (Type != TEXT("Image") || P.Key != TEXT("brush")))
+					{
+						OutError = FString::Printf(TEXT("'%s'.style.%s.wipe — a wipe is only for an Image brush"), *Id, *P.Key);
+						return false;
+					}
+				}
+			}
+			if (Type == TEXT("Image") && Style->HasField(TEXT("percent")))
+			{
+				const TSharedPtr<FJsonObject> Brush = ObjField(*Style, TEXT("brush"));
+				if (!Brush.IsValid() || !ObjField(*Brush, TEXT("wipe")).IsValid())
+				{
+					OutError = FString::Printf(TEXT("'%s'.style.percent on an Image needs brush.wipe"), *Id);
+					return false;
 				}
 			}
 			FLinearColor C;
@@ -1079,6 +1161,18 @@ namespace WidgetMcpSpec
 		{
 			FSlateBrush Brush;
 			if (!BrushOr(TEXT("brush"), GetDefault<UImage>()->GetBrush(), Brush)) { return false; }
+			const TSharedPtr<FJsonObject> BrushJson = Style.IsValid() ? ObjField(*Style, TEXT("brush")) : nullptr;
+			if (BrushJson.IsValid() && ObjField(*BrushJson, TEXT("wipe")).IsValid())
+			{
+				// 전투 HUD 동작 — 텍스처 대신 그 텍스처를 닦는 MIC 를 건다(조정기가 적용 직전에 run 폴더에 만든다)
+				UMaterialInterface* const* M = Assets.BrushWipes.Find(StrField(J, TEXT("id")));
+				if (!M || !*M)
+				{
+					OutError = FString::Printf(TEXT("'%s'.style.brush.wipe has no prepared material (the reconciler makes it in the run folder on apply)"), *StrField(J, TEXT("id")));
+					return false;
+				}
+				Brush.SetResourceObject(*M);
+			}
 			Image->SetBrush(Brush);
 		}
 		else if (UProgressBar* Bar = Cast<UProgressBar>(Widget))
@@ -1242,6 +1336,11 @@ namespace WidgetMcpSpec
 		else if (const UImage* Image = Cast<UImage>(Widget))
 		{
 			BrushIfChanged(TEXT("brush"), Image->GetBrush(), GetDefault<UImage>()->GetBrush());
+			WidgetMcpBrushMaterials::FRadialWipe Wipe;
+			if (WidgetMcpBrushMaterials::ReadRadialWipe(Image->GetBrush().GetResourceObject(), Wipe))
+			{
+				Style->SetField(TEXT("percent"), WidgetMcp::Num(Wipe.Percent));
+			}
 			if (!Image->GetColorAndOpacity().Equals(FLinearColor::White)) { NoteUnsupported(Unsupported, Id, TEXT("ColorAndOpacity"), TEXT("use style.brush.color")); }
 		}
 		else if (const UProgressBar* Bar = Cast<UProgressBar>(Widget))
@@ -1366,7 +1465,12 @@ PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
 	void CollectTextures(const UWidget* Widget, TArray<UTexture2D*>& Out)
 	{
-		auto Add = [&Out](const FSlateBrush& Brush) { if (UTexture2D* T = Cast<UTexture2D>(Brush.GetResourceObject())) { Out.AddUnique(T); } };
+		auto Add = [&Out](const FSlateBrush& Brush)
+		{
+			WidgetMcpBrushMaterials::FRadialWipe Wipe;
+			if (UTexture2D* T = Cast<UTexture2D>(Brush.GetResourceObject())) { Out.AddUnique(T); }
+			else if (WidgetMcpBrushMaterials::ReadRadialWipe(Brush.GetResourceObject(), Wipe)) { Out.AddUnique(Wipe.Texture); }     // 닦기 MIC 가 쓰는 텍스처
+		};
 		if (const UBorder* Border = Cast<UBorder>(Widget)) { Add(Border->Background); }
 		else if (const UImage* Image = Cast<UImage>(Widget)) { Add(Image->GetBrush()); }
 		else if (const UProgressBar* Bar = Cast<UProgressBar>(Widget)) { Add(Bar->GetWidgetStyle().BackgroundImage); Add(Bar->GetWidgetStyle().FillImage); }

@@ -584,12 +584,14 @@ def _text_fit_pass(run: Run, opts, ctx: dict, rec: dict, rep: dict, attempt: int
     last_spec = run.read_json("spec.json")
     before_causes = _text_causes(ctx.get("accepted"))
     # 요청이 정한 글자 외곽선(전투 HUD 동작)은 컨셉에서 재지 않는다
-    locked = set(analyze.requested_outlines(run.read_json("brief.json"))) if run.path("brief.json").is_file() else set()
+    brief = run.read_json("brief.json") if run.path("brief.json").is_file() else {}
+    locked = set(analyze.requested_outlines(brief))
+    declared = set(analyze.declared_fonts(brief))       # 메인 HUD(11-24) — 글꼴로 그린 참고판이 글꼴 값을 정한 글자는 위치만 맞춘다
     run.stage_begin(key)
     try:
         fitted, recs = style.text_fit(last_spec, run.path("reference.png"), run.path("render.png"), run.cfg, style.rendered_boxes(run, attempt), mode=mode,
                                       **({"only": only} if only is not None else {}), **({"resize": resize} if resize is not None else {}),
-                                      **({"outline_locked": locked} if locked else {}))
+                                      **({"outline_locked": locked} if locked else {}), **({"font_locked": declared} if declared else {}))
     except Exception as exc:  # noqa: BLE001 — 기록 지표에 기대는 보정이라 실패해도 run 은 통과 그대로
         row.update(action="error", reason=f"{type(exc).__name__}: {exc}"[:300])
         run.stage_end(key, "ok", f"text fit ({mode}) skipped — {row['reason']}")

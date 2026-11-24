@@ -1298,9 +1298,20 @@ def baked_glyphs(masks: dict, ref_black, compose_black, concept_bg) -> dict | No
     return {"glyph_px": n, "kept_frac": round(frac, 3), "box": _bbox(kept)} if frac >= BAKED_KEEP else None
 
 
+def _declared_fonts(rd: pathlib.Path) -> dict[str, dict]:
+    """run 의 brief 가 가진 '글꼴로 그린 참고판의 글꼴 값'(위젯 id → {size, weight, color}) — 없으면 {}."""
+    p = pathlib.Path(rd) / "brief.json"
+    if not p.is_file():
+        return {}
+    from stages import analyze
+    return analyze.declared_fonts(json.loads(p.read_text(encoding="utf-8")))
+
+
 def compare_text(w: dict, masks: dict, ref_black, render, compose_black, s: dict, render_bg=None, no_sdf: set | None = None,
-                 concept_bg=None, weights: dict | None = None) -> dict:
-    """글자 하나 — 오류(causes → 번호 TEXT_CODES)와 근사(approx: 가장 가까운 선택을 골랐는데 남은 차 — 표현 한계)."""
+                 concept_bg=None, weights: dict | None = None, declared: dict | None = None) -> dict:
+    """글자 하나 — 오류(causes → 번호 TEXT_CODES)와 근사(approx: 가장 가까운 선택을 골랐는데 남은 차 — 표현 한계).
+    declared = 글꼴로 그린 참고판이 정한 글꼴 값(brief font — 메인 HUD 11-24): 굵기는 그림을 재지 않고 '그 값과 같은가'로 본다(작은 글자의 획 밀도는 같은 글꼴에서도
+    ± 15 % 흔들린다). 크기(높이 비) · 색 차는 그대로 재서 실제로 다르면 오류 — 글자 맞춤이 고칠 수 없으므로 fixable 아님."""
     c, r = _stats(masks["concept"], ref_black), _stats(masks["render"], render)
     rec: dict = {"widget": w["id"], "concept": c, "render": r, "approx": []}
     causes = []
@@ -1368,7 +1379,16 @@ def compare_text(w: dict, masks: dict, ref_black, render, compose_black, s: dict
     # 굵기(E9 · A) — 가진 굵기 중 컨셉 밀도에 가장 가까운 것을 골랐나(로그 거리). 표가 없으면 예전 허용(text_weight 배)
     table = weights or None
     cur = str(f.get("weight") or "bold")
-    if not hr_ok:
+    if declared:
+        rec["declared_font"] = dict(declared)
+        for k, cause in (("size", "size"), ("weight", "weight"), ("color", "color")):
+            have = f.get(k) if k != "weight" else cur
+            if str(have).upper() != str(declared[k]).upper() and cause not in causes:
+                causes.append(cause)
+        if hr_ok and abs(np.log(dens)) > 0.05:
+            rec["approx"].append({"kind": "weight", "weight": cur, "density_ratio": round(dens, 3), "declared": True,
+                                  "note": "the font is the one the text reference was drawn with — the rest is the measurement of small strokes"})
+    elif not hr_ok:
         pass
     elif table and cur in table:
         best, after = nearest_weight(dens, cur, table)
@@ -1380,7 +1400,7 @@ def compare_text(w: dict, masks: dict, ref_black, render, compose_black, s: dict
                                   "note": "nearest available weight — the rest is the font's own stroke"})
     elif not (1.0 / float(s["text_weight"]) <= dens <= float(s["text_weight"])):
         causes.append("weight")
-    if cde > float(s["text_color_de"]):
+    if cde > float(s["text_color_de"]) and "color" not in causes:
         causes.append("color")
     # 외곽선(E7 유무) — 획 안 어두운 픽셀 비율 / 빛(E7 유무 · 근사 세기) — 단일 측정 glow_measure(획 둘레 고리 ↔ 글자 없는 바탕)
     rbg = compose_black if render_bg is None else render_bg
@@ -1439,6 +1459,8 @@ def compare_text(w: dict, masks: dict, ref_black, render, compose_black, s: dict
     rec["fixable"] = bool(causes) and all(k in ("size", "position", "weight", "color", "outline", "shadow", "glow_strength")
                                           or (k == "glow" and (has_glow or glow_on(gc, float(s["glow_min"]))))
                                           for k in causes)   # 글자 맞춤(크기 판 — 색 · 외곽선 J-c · 빛 J · K)
+    if declared and set(causes) & {"size", "weight", "color", "outline", "shadow", "glow", "glow_strength"}:
+        rec["fixable"] = False                                # 글꼴 값은 참고판 배치 파일이 정한다 — 맞춤 판이 안 건드린다
     return rec
 
 
@@ -1821,6 +1843,7 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
     skip_nt = notext_unused(rd)
     gm = text_glyph_masks(ref_text, render, comp_state, texts, geo, notext_black, render_bg=comp_black, notext_skip=skip_nt, color_gate=(truth == "text_free_art"))
     no_sdf = fonts_without_sdf(cfg)
+    declared = _declared_fonts(rd)
     own_boxes = {k: v["own"] for k, v in gm.items()}
     trecs = []
     for w in texts:
@@ -1829,7 +1852,7 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
         masks = gm[w["id"]]
         cbg = notext_black if notext_black is not None and w["id"] not in skip_nt else None
         tr = compare_text(w, masks, ref_text, render, comp_state, s, render_bg=comp_black, no_sdf=no_sdf, concept_bg=cbg,
-                          weights=weight_table(cfg, f.get("family")))
+                          weights=weight_table(cfg, f.get("family")), declared=declared.get(w["id"]))
         trecs.append(tr)
         tz = masks["own"] | masks["concept_cand"] | masks["render_cand"]
         text_zone |= _dilate(tz, int(round(TEXT_ZONE_PAD + glow + max(0.0, float((f.get("outline") or {}).get("size") or 0)))))

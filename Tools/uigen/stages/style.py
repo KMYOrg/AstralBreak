@@ -692,7 +692,8 @@ def _fit_sizes(before: dict, after: dict, cfg: dict, rendered: dict[str, list] |
 
 
 def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[str, list] | None = None,
-             mode: str = "place", only: set | None = None, resize: set | None = None, outline_locked: set | None = None) -> tuple[dict, list[dict]]:
+             mode: str = "place", only: set | None = None, resize: set | None = None, outline_locked: set | None = None,
+             font_locked: set | None = None) -> tuple[dict, list[dict]]:
     """1b 후속 G — 글자 크기 · 굵기 · 위치 결정적 맞춤(외형 라운드 뒤, LLM 없음). 마지막 통과 렌더에서 글자마다 컨셉 ↔ 렌더 획 상자를 같은 측정 상자
     (컨셉 획 상자 + 여유 — 넓은 위젯 상자에 패널 선 · 이웃 글자가 끼지 않게, 그 글자의 영역 안)에서 재고, 두 판으로 나눠 고친다
     (run_pipeline._text_fit_round 가 판마다 build → verify — 크기를 바꾼 글자는 그 판에서 위치 · 자간을 안 건드린다):
@@ -706,6 +707,7 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
            틈 열 = 획 상자 안 세로 투영이 빈 열, 글자 모양이 넓어서 생긴 폭 차이는 자간으로 메우지 않는다)
            — 글자가 길이를 정하는 축은 follow_text_boxes 가 가운데 중심으로 키운다(자리 유지),
         ② 중심 차(자간 뒤 예상)가 TEXT_FIT_MIN_PX 이상이면 _shift_text 로 옮긴다.
+    font_locked 글자(글꼴로 그린 참고판이 글꼴 값을 정함 — analyze.declared_fonts)는 크기 판에서 건너뛰고, 위치 판에서는 자간 없이 중심만 옮긴다.
     측정이 이상하면(획이 측정 상자 끝에 닿음 · 높이 비 범위 밖 · 차가 상한 넘음) 그 글자는 건너뛴다(F 교훈 — 틀린 지표로 고치지 않기).
     [실측 F run 4] 배너 라벨: 왼쪽 끝은 같고(789) 폭만 좁다(254 vs 275 — 높이 비 1.02) → 중심 dx −10.5 의 몫은 자간, dy −4.5 는 세로 자리.
     → (새 spec — 입력은 그대로, 기록)."""
@@ -766,6 +768,9 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
         if only is not None and w["id"] not in only:
             continue                # 1b 후속 J — 판을 글자별로 다시 짤 때(run_pipeline._text_fit_pass) 고를 글자만
         rec: dict = {"widget": w["id"]}
+        if mode == "size" and w["id"] in (font_locked or ()):
+            recs.append({**rec, "skipped": "the font is declared by the drawn text reference — not measured"})
+            continue
         g = (gm or {}).get(w["id"])
         mc = g["concept"] if g is not None and g["concept"].sum() >= 20 else None
         mr = g["render"] if g is not None and g["render"].sum() >= 20 and mc is not None else None
@@ -931,7 +936,7 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
         rec["dw"] = 0
         t = w.get("text") or {}
         n = len(t.get("value") or t.get("sample") or "") - 1
-        if f is None or n < 1 or abs(rec["w_ratio"] - 1) < TEXT_FIT_W_TOL:
+        if f is None or n < 1 or abs(rec["w_ratio"] - 1) < TEXT_FIT_W_TOL or wid in (font_locked or ()):
             continue
         size, ls0 = float(f.get("size") or 24), float(f.get("letter_spacing") or 0)
         px0 = int(size * ls0 / 1000.0)

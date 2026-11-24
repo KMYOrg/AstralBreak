@@ -30,6 +30,21 @@ public:
 	 */
 	APlayerState* GetPartyLeader() const;
 
+	/**
+	 * 명단이 바뀌었다 — 누가 들어오고 나갔나, 번호 · 이름, 어느 것이 내 PlayerState 인가. 서버 · 클라이언트 모두에서 난다.
+	 * 화면(동료 줄)은 이 통지를 받아 PlayerArray 에서 다시 뽑는다(폴링 없음). 클라이언트에서는 PlayerArray 에 들어오는 순간(번호 · 이름이 아직 없다)과
+	 * 값이 복제된 순간에 각각 나므로, 받는 쪽은 아직 번호가 없는 항목을 건너뛰면 된다
+	 */
+	FSimpleMulticastDelegate OnPlayerRosterChanged;
+
+	/** AAstralPlayerState 가 번호 · 이름 · 소유가 정해질 때 부른다 */
+	void NotifyPlayerRosterChanged() { OnPlayerRosterChanged.Broadcast(); }
+
+	//~AGameStateBase interface
+	virtual void AddPlayerState(APlayerState* PlayerState) override;
+	virtual void RemovePlayerState(APlayerState* PlayerState) override;
+	//~End of AGameStateBase interface
+
 protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Context")

@@ -26,3 +26,15 @@ APlayerState* AAstralGameState::GetPartyLeader() const
 	const int32 LeaderIndex = AstralParty::SelectLeaderIndex(Members);
 	return States.IsValidIndex(LeaderIndex) ? States[LeaderIndex] : nullptr;
 }
+
+void AAstralGameState::AddPlayerState(APlayerState* PlayerState)
+{
+	Super::AddPlayerState(PlayerState);
+	NotifyPlayerRosterChanged();
+}
+
+void AAstralGameState::RemovePlayerState(APlayerState* PlayerState)
+{
+	Super::RemovePlayerState(PlayerState);
+	NotifyPlayerRosterChanged();
+}

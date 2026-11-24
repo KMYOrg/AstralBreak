@@ -3,12 +3,15 @@
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
+#include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/AstralEventGameplayTags.h"
 #include "AbilitySystem/Abilities/AstralAbilityGameplayTags.h"
+#include "AbilitySystem/Abilities/AstralAttackMontageValidation.h"
 #include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
 #include "AbilitySystem/Effects/AstralGE_Cost_Ult.h"
 #include "Animation/AnimMontage.h"
+#include "Equipment/AstralEquipmentManagerComponent.h"
 #include "GameModes/AstralChainBurstComponent.h"
 
 UAstralGA_Hero_Ult::UAstralGA_Hero_Ult(const FObjectInitializer& ObjectInitializer)
@@ -21,6 +24,7 @@ UAstralGA_Hero_Ult::UAstralGA_Hero_Ult(const FObjectInitializer& ObjectInitializ
 	CostGameplayEffectClass = UAstralGE_Cost_Ult::StaticClass();
 
 	HitEventTag = AstralGameplayTags::GameplayEvent_Ult_Hit;
+	FacingWarpTargetName = TEXT("Ult.Facing");
 
 	FGameplayTagContainer AssetTags;
 	AssetTags.AddTag(AstralGameplayTags::Ability_Ult);
@@ -51,6 +55,7 @@ void UAstralGA_Hero_Ult::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	// 액터당 인스턴스 — 앞 활성화의 값이 남아 있다
 	bCastCommitted = false;
 	bHitAny = false;
+	RestoreCombatStyle = FGameplayTag();
 
 	// 비용 게이트 + 소비 — 게이지가 가득이 아니면 CheckCost 가 거부한다
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
@@ -75,6 +80,20 @@ void UAstralGA_Hero_Ult::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
 	}
+
+#if !UE_BUILD_SHIPPING
+	if (!bMontageValidated)
+	{
+		bMontageValidated = true;
+		AstralAttackMontage::ValidateFacingWarpBand(UltMontage, FacingWarpTargetName, AstralAttackMontage::ValidateFireNotify(UltMontage, HitEventTag, GetName()), GetName());
+		AstralAttackMontage::ValidatePawnCollisionBands(UltMontage, GetName());
+	}
+#endif
+
+	BeginUltCombatStyle(ActorInfo);
+
+	// 방향 확정 — 몽타주 재생 요청보다 먼저
+	BeginFacing(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 
 	if (UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, UltMontage, 1.f, NAME_None, /*bStopWhenAbilityEnds=*/true, 1.f))
 	{
@@ -120,6 +139,8 @@ void UAstralGA_Hero_Ult::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 		{
 			UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
 
+			EndUltCombatStyle(ActorInfo);
+
 			// 못 맞힌 오의 — 최대치의 일부를 돌려준다. 수급 경로(UltGain 메타 · UltGainMultiplier)를 타지 않고 게이지에 직접 더한다.
 			// 이것은 오의 자체의 규칙이라 체인 컴포넌트가 없는 맵에서도 같다
 			if (!bHitAny && ASC && MissRefundRatio > 0.f && ASC->HasAttributeSetForAttribute(UAstralHeroResourceSet::GetUltGaugeAttribute()))
@@ -137,6 +158,49 @@ void UAstralGA_Hero_Ult::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	}
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+void UAstralGA_Hero_Ult::BeginUltCombatStyle(const FGameplayAbilityActorInfo* ActorInfo)
+{
+	if (!UltCombatStyle.IsValid() || !ActorInfo || !ActorInfo->IsNetAuthority())
+	{
+		return;
+	}
+
+	AActor* Avatar = ActorInfo->AvatarActor.Get();
+	const UAstralAbilitySystemComponent* ASC = Cast<UAstralAbilitySystemComponent>(ActorInfo->AbilitySystemComponent.Get());
+	const UAstralEquipmentManagerComponent* EquipmentManager = Avatar ? Avatar->FindComponentByClass<UAstralEquipmentManagerComponent>() : nullptr;
+	if (!ASC || !EquipmentManager || !EquipmentManager->HasEquipmentForStyle(UltCombatStyle))
+	{
+		return;
+	}
+
+	const FGameplayTag CurrentStyle = ASC->GetCombatStyle();
+	if (!CurrentStyle.IsValid() || CurrentStyle == UltCombatStyle)
+	{
+		return;
+	}
+
+	// 손의 무기 · 애님 레이어 · 왼손 파지는 스타일 태그 하나를 따라간다(장비 매니저) — 여기서 따로 옮기지 않는다
+	RestoreCombatStyle = CurrentStyle;
+	UAstralCombatStatics::ApplyCombatStyle(Avatar, UltCombatStyle);
+}
+
+void UAstralGA_Hero_Ult::EndUltCombatStyle(const FGameplayAbilityActorInfo* ActorInfo)
+{
+	if (!RestoreCombatStyle.IsValid())
+	{
+		return;
+	}
+
+	const FGameplayTag StyleToRestore = RestoreCombatStyle;
+	RestoreCombatStyle = FGameplayTag();
+
+	const UAstralAbilitySystemComponent* ASC = ActorInfo ? Cast<UAstralAbilitySystemComponent>(ActorInfo->AbilitySystemComponent.Get()) : nullptr;
+	if (ASC && ASC->GetCombatStyle() == UltCombatStyle)
+	{
+		UAstralCombatStatics::ApplyCombatStyle(ActorInfo->AvatarActor.Get(), StyleToRestore);
+	}
 }
 
 void UAstralGA_Hero_Ult::OnMontageCompleted()

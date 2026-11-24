@@ -60,6 +60,8 @@ public:
 	virtual void Reset() override;
 	virtual void ClientInitialize(AController* C) override;
 	virtual void CopyProperties(APlayerState* PlayerState) override;
+	virtual void OnRep_PlayerId() override;
+	virtual void OnRep_PlayerName() override;
 	//~End of APlayerState interface
 
 	//~IGenericTeamAgentInterface (플레이어는 전원 팀 0 — 4인 협동)
@@ -73,6 +75,9 @@ protected:
 	void OnRep_Loadout();
 
 private:
+
+	/** 번호 · 이름 · 소유(내 것인가)가 정해졌다 — GameState 의 명단 통지를 낸다 */
+	void NotifyRosterChanged() const;
 	
 	// TODO: M1 마일스톤
 	//void OnExperienceLoaded(const UAstralExperienceDefinition* CurrentExperience);

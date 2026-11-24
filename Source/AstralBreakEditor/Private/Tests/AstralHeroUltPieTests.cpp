@@ -10,6 +10,8 @@
 //   U5  오의가 앞의 적에게 피해를 준다 (U4 끝의 발동으로 본다)
 //   U6  남이 오의를 쓰는 동안 차단된다 — 상대의 서버 ASC 와 자기 자리 ASC 에 차단 태그, 가득 찬 채 눌러도 나가지 않고 게이지 유지, 끝나면 풀린다 (B 다듬기 ②)
 //   U7  못 맞힌 오의(U3 — 적 없음)는 끝날 때 최대치 × MissRefundRatio 를 돌려받고 체인에 들지 않는다. 맞힌 오의(U5)는 0 으로 끝나고 체인을 연다 (B 다듬기 ① · ③)
+//   U8  원거리 스타일에서 쓰면 쓰는 동안 근접 스타일(손에 총이 없다)이고 끝나면 원거리로 돌아온다 — 서버 · 자기 자리 (단위 D)
+//   U9  락온한 적이 정면에서 90° 옆에 있어도 발동 때 그쪽으로 돌아 맞힌다 (단위 D)
 //
 // 값(피해 · 스윕 범위 · 몽타주)은 GA_Hero_Ult BP 의 것이고 전부 잠정이다 — 이 시험은 값이 아니라 규칙을 본다.
 
@@ -21,13 +23,20 @@
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
+#include "AbilitySystem/AstralCombatStatics.h"
 #include "AbilitySystem/Abilities/Hero/Combat/AstralGA_Hero_Ult.h"
+#include "AbilitySystem/Attributes/AstralHealthSet.h"
 #include "AbilitySystem/Attributes/Hero/AstralHeroResourceSet.h"
 #include "Character/AstralCharacter.h"
 #include "Character/Components/AstralHealthComponent.h"
 #include "Character/Enemy/AstralCombatCharacter.h"
+#include "Character/Enemy/AstralEnemySpawnSubsystem.h"
+#include "Character/Hero/Components/AstralTargetingComponent.h"
 #include "Engine/GameInstance.h"
 #include "EngineUtils.h"
+#include "Equipment/AstralEquipmentManagerComponent.h"
+#include "Equipment/AstralRangedWeaponActor.h"
+#include "GameFramework/Controller.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 #include "GameModes/AstralChainBurstComponent.h"
@@ -47,11 +56,20 @@ namespace AstralHeroUltPie
 	const TCHAR* const UltActiveTagName = TEXT("State.Ult.Active");
 	const TCHAR* const UltBlockedTagName = TEXT("State.Ult.Blocked");
 	const TCHAR* const InvulnerableTagName = TEXT("State.Invulnerable");
+	const TCHAR* const MeleeStyleTagName = TEXT("State.CombatStyle.Melee");
+	const TCHAR* const RangedStyleTagName = TEXT("State.CombatStyle.Ranged");
+
+	const TCHAR* const EnemyClassPath = TEXT("/Game/Characters/Enemy/BP_Enemy_Melee.BP_Enemy_Melee_C");
+	constexpr float SturdyHealth = 100000.f;
 
 	// CombatTestMap 좌표 — 맵의 더미(x < 0)와 떨어진 NavMesh 위 (AstralEnemyCombatPieTests 와 같은 자리)
 	const FVector UserLocation(1100.0, -400.0, 92.0);
 	const FVector OtherLocation(1100.0, 900.0, 92.0);
 	constexpr float EnemySpawnDistance = 250.f;
+
+	// U9 — 사용자가 +X 를 볼 때 적은 +Y 쪽(90° 옆) 300 cm. 돌지 않으면 스윕(앞 50 ~ 450, 반경 150)에 걸리지 않는 자리다
+	const FVector LockOnUserLocation(1100.0, -400.0, 92.0);
+	const FVector LockOnEnemyLocation(1100.0, -100.0, 92.0);
 
 	struct FContext : FContextBase
 	{
@@ -560,6 +578,154 @@ namespace AstralHeroUltPie
 		});
 	}
 
+	/** 그 월드가 보는 사용자의 손에 총이 있는가 */
+	bool HoldsRangedWeapon(const FContext& Ctx, const UWorld* World)
+	{
+		const AAstralCharacter* Pawn = PawnIn(World, Ctx.UserId);
+		const UAstralEquipmentManagerComponent* Equipment = Pawn ? Pawn->FindComponentByClass<UAstralEquipmentManagerComponent>() : nullptr;
+		return Equipment && Equipment->GetHeldRangedWeapon() != nullptr;
+	}
+
+	/** 서버와 자기 자리가 함께 그 스타일이고, 손의 총 유무가 맞는가 */
+	bool IsStyledBothSides(const FContext& Ctx, const TCHAR* StyleTagName, bool bHoldsGun)
+	{
+		return HasTag(ServerASC(Ctx), StyleTagName) && HasTag(SeatASC(Ctx), StyleTagName)
+			&& HoldsRangedWeapon(Ctx, FindServerWorld()) == bHoldsGun && HoldsRangedWeapon(Ctx, FindSeatWorld(Ctx.UserId)) == bHoldsGun;
+	}
+
+	void EnqueueRangedStyle(const TSharedRef<FContext>& Ctx)
+	{
+		// U8 — 원거리로 바꿔 놓고 쓴다. 적은 앞 시험에서 죽었고 여기서는 맞히지 않아도 된다
+		Do(Ctx, [Ctx]()
+		{
+			AAstralCharacter* ServerPawn = PawnIn(FindServerWorld(), Ctx->UserId);
+			const UAstralEquipmentManagerComponent* Equipment = ServerPawn ? ServerPawn->FindComponentByClass<UAstralEquipmentManagerComponent>() : nullptr;
+			const FGameplayTag RangedStyle = FGameplayTag::RequestGameplayTag(RangedStyleTagName);
+			if (!Ctx->Test->TestNotNull(TEXT("U8: equipment manager"), Equipment)
+				|| !Ctx->Test->TestTrue(TEXT("U8: the hero has a ranged and a melee weapon"), Equipment->HasEquipmentForStyle(RangedStyle) && Equipment->HasEquipmentForStyle(FGameplayTag::RequestGameplayTag(MeleeStyleTagName))))
+			{
+				Ctx->bAborted = true;
+				return;
+			}
+			UAstralCombatStatics::ApplyCombatStyle(ServerPawn, RangedStyle);
+		});
+		Wait(Ctx, TEXT("U8: the ranged style and the gun in hand on the server and on the user's seat"), 10.0, [Ctx]() { return IsStyledBothSides(*Ctx, RangedStyleTagName, /*bHoldsGun=*/true); });
+		EnqueueFill(Ctx, TEXT("U8: the gauge is full"));
+		PressUlt(Ctx);
+		Wait(Ctx, TEXT("U8: the ult is active on the server and on the user's seat"), 5.0, [Ctx]() { return HasTag(ServerASC(*Ctx), UltActiveTagName) && HasTag(SeatASC(*Ctx), UltActiveTagName); });
+		Wait(Ctx, TEXT("U8: while casting the style is melee and the gun is not in hand, on the server and on the user's seat"), 1.5, [Ctx]()
+		{
+			return HasTag(ServerASC(*Ctx), UltActiveTagName) && IsStyledBothSides(*Ctx, MeleeStyleTagName, /*bHoldsGun=*/false) && !HasTag(ServerASC(*Ctx), RangedStyleTagName);
+		});
+		Wait(Ctx, TEXT("U8: the ult ends"), 15.0, [Ctx]() { return !HasTag(ServerASC(*Ctx), UltActiveTagName) && !HasTag(SeatASC(*Ctx), UltActiveTagName); });
+		Wait(Ctx, TEXT("U8: the ranged style and the gun are back on the server and on the user's seat"), 5.0, [Ctx]()
+		{
+			return IsStyledBothSides(*Ctx, RangedStyleTagName, /*bHoldsGun=*/true) && !HasTag(ServerASC(*Ctx), MeleeStyleTagName);
+		});
+		Do(Ctx, [Ctx]()
+		{
+			Note(*Ctx->Test, FString::Printf(TEXT("U8: ranged -> melee while casting -> ranged (gauge %.1f)"), GaugeOf(ServerASC(*Ctx))));
+			UAstralCombatStatics::ApplyCombatStyle(PawnIn(FindServerWorld(), Ctx->UserId), FGameplayTag::RequestGameplayTag(MeleeStyleTagName));
+		});
+		Wait(Ctx, TEXT("U8: back to the melee style for the next step"), 5.0, [Ctx]() { return IsStyledBothSides(*Ctx, MeleeStyleTagName, /*bHoldsGun=*/false); });
+	}
+
+	void EnqueueLockOn(const TSharedRef<FContext>& Ctx)
+	{
+		// U9 — 사용자는 +X 를 보고, 튼튼한 적(AI 를 뗀다)은 +Y 쪽에 선다. 시점만 적을 보고 락온한다
+		Do(Ctx, [Ctx]()
+		{
+			UWorld* ServerWorld = FindServerWorld();
+			UClass* EnemyClass = StaticLoadClass(APawn::StaticClass(), nullptr, EnemyClassPath, nullptr, LOAD_NoWarn);
+			UAstralEnemySpawnSubsystem* SpawnSubsystem = ServerWorld->GetSubsystem<UAstralEnemySpawnSubsystem>();
+			if (!Ctx->Test->TestNotNull(TEXT("U9: enemy class"), EnemyClass) || !Ctx->Test->TestNotNull(TEXT("U9: enemy spawn subsystem"), SpawnSubsystem))
+			{
+				Ctx->bAborted = true;
+				return;
+			}
+			AAstralCombatCharacter* Enemy = Cast<AAstralCombatCharacter>(SpawnSubsystem->SpawnEnemy(EnemyClass, FTransform(FRotator::ZeroRotator, LockOnEnemyLocation)));
+			if (!Ctx->Test->TestNotNull(TEXT("U9: enemy spawned on the server"), Enemy))
+			{
+				Ctx->bAborted = true;
+				return;
+			}
+			if (AController* Controller = Enemy->GetController())
+			{
+				Controller->UnPossess();
+			}
+			Ctx->Enemy = Enemy;
+		});
+		Wait(Ctx, TEXT("U9: the enemy's health set is ready"), 30.0, [Ctx]() { return Ctx->Enemy.IsValid() && HealthOf(Ctx->Enemy.Get()) > 0.f; });
+		Do(Ctx, [Ctx]()
+		{
+			if (UAbilitySystemComponent* EnemyASC = Ctx->Enemy->GetAbilitySystemComponent())
+			{
+				EnemyASC->SetNumericAttributeBase(UAstralHealthSet::GetMaxHealthAttribute(), SturdyHealth);
+				EnemyASC->SetNumericAttributeBase(UAstralHealthSet::GetHealthAttribute(), SturdyHealth);
+			}
+			if (AAstralCharacter* ServerPawn = PawnIn(FindServerWorld(), Ctx->UserId))
+			{
+				ServerPawn->TeleportTo(LockOnUserLocation, FRotator::ZeroRotator);
+			}
+		});
+		Hold(Ctx, 0.5);
+		EnqueueFill(Ctx, TEXT("U9: the gauge is full"));
+		Do(Ctx, [Ctx]()
+		{
+			// 몸은 +X(서버와 자기 자리 함께), 시점만 적 쪽
+			UWorld* SeatWorld = FindSeatWorld(Ctx->UserId);
+			AAstralCharacter* SeatPawn = PawnIn(SeatWorld, Ctx->UserId);
+			if (AAstralCharacter* ServerPawn = PawnIn(FindServerWorld(), Ctx->UserId))
+			{
+				ServerPawn->SetActorRotation(FRotator::ZeroRotator);
+			}
+			if (SeatPawn)
+			{
+				SeatPawn->SetActorRotation(FRotator::ZeroRotator);
+			}
+			if (APlayerController* PC = GetLocalPC(SeatWorld))
+			{
+				PC->SetControlRotation((LockOnEnemyLocation - LockOnUserLocation).GetSafeNormal2D().Rotation());
+			}
+		});
+		Hold(Ctx, 0.5);
+		Do(Ctx, [Ctx]()
+		{
+			UWorld* SeatWorld = FindSeatWorld(Ctx->UserId);
+			AAstralCharacter* SeatPawn = PawnIn(SeatWorld, Ctx->UserId);
+			const AAstralCharacter* ServerPawn = PawnIn(FindServerWorld(), Ctx->UserId);
+			UAstralTargetingComponent* Targeting = UAstralTargetingComponent::FindTargetingComponent(SeatPawn);
+			if (!Ctx->Test->TestNotNull(TEXT("U9: targeting component on the user's seat"), Targeting)
+				|| !Ctx->Test->TestTrue(TEXT("U9: the user locks on to the enemy"), Targeting->TryLockOn()))
+			{
+				Ctx->bAborted = true;
+				return;
+			}
+			Ctx->Test->TestTrue(TEXT("U9: before the ult the server body still faces +X"), ServerPawn && FMath::Abs(FRotator::NormalizeAxis(ServerPawn->GetActorRotation().Yaw)) < 20.f);
+			Ctx->EnemyHealthBefore = HealthOf(Ctx->Enemy.Get());
+		});
+		PressUlt(Ctx);
+		Wait(Ctx, TEXT("U9: the ult is active on the server"), 5.0, [Ctx]() { return HasTag(ServerASC(*Ctx), UltActiveTagName); });
+		Wait(Ctx, TEXT("U9: the ult ends"), 15.0, [Ctx]() { return !HasTag(ServerASC(*Ctx), UltActiveTagName) && !HasTag(SeatASC(*Ctx), UltActiveTagName); });
+		Do(Ctx, [Ctx]()
+		{
+			FAutomationTestBase& Test = *Ctx->Test;
+			const AAstralCharacter* ServerPawn = PawnIn(FindServerWorld(), Ctx->UserId);
+			const float EnemyHealth = HealthOf(Ctx->Enemy.Get());
+			const FVector ToEnemy = ServerPawn ? (Ctx->Enemy->GetActorLocation() - ServerPawn->GetActorLocation()).GetSafeNormal2D() : FVector::ZeroVector;
+			const float FacingDot = ServerPawn ? FVector::DotProduct(ServerPawn->GetActorForwardVector(), ToEnemy) : -1.f;
+			Test.TestTrue(TEXT("U9: the ult hit the locked-on enemy at its side"), EnemyHealth < Ctx->EnemyHealthBefore);
+			Test.TestTrue(TEXT("U9: the hit ult keeps the gauge at 0"), FMath::IsNearlyZero(GaugeOf(ServerASC(*Ctx)), 0.01f));
+			Test.TestTrue(TEXT("U9: the body ended up facing the enemy"), FacingDot > 0.7f);
+			Note(Test, FString::Printf(TEXT("U9: enemy hp %.0f -> %.0f, body yaw %.1f, dot to enemy %.2f, distance %.0f"), Ctx->EnemyHealthBefore, EnemyHealth,
+				ServerPawn ? ServerPawn->GetActorRotation().Yaw : 0.f, FacingDot, ServerPawn ? FVector::Dist2D(ServerPawn->GetActorLocation(), Ctx->Enemy->GetActorLocation()) : -1.f));
+			if (UAstralTargetingComponent* Targeting = UAstralTargetingComponent::FindTargetingComponent(PawnIn(FindSeatWorld(Ctx->UserId), Ctx->UserId)))
+			{
+				Targeting->ClearLock();
+			}
+		});
+	}
+
 	void EnqueueAll(FAutomationTestBase& Test, bool bDedicated)
 	{
 		TSharedRef<FContext> Ctx = MakeShared<FContext>();
@@ -570,6 +736,8 @@ namespace AstralHeroUltPie
 		EnqueueNotFull(Ctx);
 		EnqueueUlt(Ctx);
 		EnqueueBlockedThenHit(Ctx);
+		EnqueueRangedStyle(Ctx);
+		EnqueueLockOn(Ctx);
 		EndPie(Ctx);
 	}
 }

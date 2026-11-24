@@ -44,7 +44,9 @@
           "desc": { "type": "string" },
           "inside": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
           "radial": { "$ref": "#/$defs/radial" },
-          "outline": { "$ref": "#/$defs/text_outline" }
+          "bar": { "$ref": "#/$defs/bar" },
+          "outline": { "$ref": "#/$defs/text_outline" },
+          "font": { "$ref": "#/$defs/text_font" }
         }
       }
     },
@@ -54,7 +56,7 @@
         "type": "object",
         "required": ["widget", "value"],
         "additionalProperties": false,
-        "properties": { "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "value": { "type": "string" }, "outline": { "$ref": "#/$defs/text_outline" } }
+        "properties": { "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "value": { "type": "string" }, "outline": { "$ref": "#/$defs/text_outline" }, "font": { "$ref": "#/$defs/text_font" } }
       }
     },
     "style_keywords": { "type": "array", "items": { "type": "string" } },
@@ -91,10 +93,20 @@
       "type": "object", "required": ["mode"], "additionalProperties": false,
       "properties": { "mode": { "enum": ["clockwise", "mirror"] }, "track_alpha": { "type": "number", "minimum": 0, "maximum": 1 } }
     },
+    "bar": {
+      "description": "progress 데이터가 ProgressBar 일 때 — 모양 막대(메인 HUD, 11-24): 막대 하나 = 컨셉에서 오린 텍스처 한 장, 빈 자리 = 같은 텍스처를 track 색으로 물들인 배경. 자리 · 모양은 컨셉에서 잰다(gen/silhouette). 컨셉은 막대를 가득 찬 상태로 그린다(sample 1)",
+      "type": "object", "additionalProperties": false,
+      "properties": { "track": { "$ref": "urn:uigen:spec#/$defs/color" } }
+    },
     "text_outline": {
       "description": "요청이 정한 글자 외곽선(컨셉에서 재지 않는다 — 글자 맞춤 · 스타일 · fix 가 못 건드림)",
       "type": "object", "required": ["size", "color"], "additionalProperties": false,
       "properties": { "size": { "type": "integer", "minimum": 1, "maximum": 8 }, "color": { "$ref": "urn:uigen:spec#/$defs/color" } }
+    },
+    "text_font": {
+      "description": "글꼴로 그린 글자 참고판(make_concept --draw)이 정한 글꼴 값 — normalize 가 채운다. 그림을 다시 재지 않는다(글자 맞춤 · 스타일 · fix 가 못 건드림)",
+      "type": "object", "required": ["size", "weight", "color"], "additionalProperties": false,
+      "properties": { "size": { "type": "integer", "minimum": 1 }, "weight": { "enum": ["regular", "medium", "semibold", "bold", "extrabold"] }, "color": { "$ref": "urn:uigen:spec#/$defs/color" } }
     },
     "widget_type": {
       "description": "바인딩 위젯의 클래스 — codegen 계약(BindWidget 타입)이 정해지므로 concept 모드는 요청이 고정한다(1b-4)",

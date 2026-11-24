@@ -12,6 +12,7 @@
 #include "System/AstralPartySubsystem.h"
 #include "UI/Debug/AstralDebugWidget.h"
 #include "UI/HUD/AstralCombatHUDWidget.h"
+#include "UI/HUD/AstralStatusHUDWidget.h"
 
 namespace
 {
@@ -44,13 +45,53 @@ namespace
 			? FString::Printf(TEXT("%s (PlayerId %d)"), *Leader->GetName(), Leader->GetPlayerId())
 			: FString(TEXT("없음"));
 	}
+
+	/**
+	 * 로컬 컨트롤러의 HUD 위젯 하나 — 디버그 위젯 아래(z 0). 연결 시점(폰 · ASC · GameState)은 위젯이 이벤트로 받는다.
+	 * 컨트롤러가 유지된 채 월드가 바뀌었으면(seamless travel) 옛 월드의 위젯을 버리고 새로 만든다
+	 */
+	template <class WidgetT>
+	void EnsureHUDWidget(APlayerController* PC, TObjectPtr<WidgetT>& Widget, const TSoftClassPtr<WidgetT>& WidgetClass, const TCHAR* Label)
+	{
+		if (Widget && Widget->GetWorld() != PC->GetWorld())
+		{
+			Widget->RemoveFromParent();
+			Widget = nullptr;
+		}
+		if (Widget || WidgetClass.IsNull())
+		{
+			return;
+		}
+		UClass* HUDClass = WidgetClass.LoadSynchronous();
+		if (!HUDClass)
+		{
+			UE_LOG(LogAstral, Warning, TEXT("BeginPlayingState: %s 클래스 '%s' 를 불러오지 못함 — 이 HUD 없이 진행"), Label, *WidgetClass.ToString());
+			return;
+		}
+		Widget = CreateWidget<WidgetT>(PC, HUDClass);
+		if (Widget)
+		{
+			Widget->AddToViewport(0);
+		}
+	}
+
+	template <class WidgetT>
+	void RemoveHUDWidget(TObjectPtr<WidgetT>& Widget)
+	{
+		if (Widget)
+		{
+			Widget->RemoveFromParent();
+			Widget = nullptr;
+		}
+	}
 }
 
 AAstralPlayerController::AAstralPlayerController(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	// 승격본(M4 단위 C, L-1 run R20261119_091634) — 소프트 참조라 애셋이 없어도 클래스 로드는 깨지지 않는다(BeginPlayingState 가 경고만)
+	// 승격본(uigen promote_widget) — 소프트 참조라 애셋이 없어도 클래스 로드는 깨지지 않는다(BeginPlayingState 가 경고만)
 	CombatHUDWidgetClass = TSoftClassPtr<UAstralCombatHUDWidget>(FSoftObjectPath(TEXT("/Game/UI/HUD/CombatHUD/WBP_CombatHUD.WBP_CombatHUD_C")));
+	StatusHUDWidgetClass = TSoftClassPtr<UAstralStatusHUDWidget>(FSoftObjectPath(TEXT("/Game/UI/HUD/StatusHUD/WBP_StatusHUD.WBP_StatusHUD_C")));
 }
 
 void AAstralPlayerController::PreInitializeComponents()
@@ -65,11 +106,8 @@ void AAstralPlayerController::BeginPlay()
 
 void AAstralPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if (CombatHUDWidget)
-	{
-		CombatHUDWidget->RemoveFromParent();
-		CombatHUDWidget = nullptr;
-	}
+	RemoveHUDWidget(CombatHUDWidget);
+	RemoveHUDWidget(StatusHUDWidget);
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -92,6 +130,11 @@ UAstralAbilitySystemComponent* AAstralPlayerController::GetAstralAbilitySystemCo
 UAstralCombatHUDWidget* AAstralPlayerController::GetCombatHUDWidget() const
 {
 	return CombatHUDWidget;
+}
+
+UAstralStatusHUDWidget* AAstralPlayerController::GetStatusHUDWidget() const
+{
+	return StatusHUDWidget;
 }
 
 void AAstralPlayerController::PostProcessInput(const float DeltaTime, const bool bGamePaused)
@@ -117,30 +160,11 @@ void AAstralPlayerController::BeginPlayingState()
 		}
 	}
 
-	// 전투 HUD — 로컬 컨트롤러만, 디버그 위젯 아래(z 0). 연결 시점(폰 · ASC · GameState)은 위젯이 이벤트로 받는다.
-	// 컨트롤러가 유지된 채 월드가 바뀌었으면(seamless travel) 옛 월드의 위젯을 버리고 새로 만든다
+	// HUD — 로컬 컨트롤러만. 화면마다 위젯 하나
 	if (IsLocalController())
 	{
-		if (CombatHUDWidget && CombatHUDWidget->GetWorld() != GetWorld())
-		{
-			CombatHUDWidget->RemoveFromParent();
-			CombatHUDWidget = nullptr;
-		}
-		if (!CombatHUDWidget && !CombatHUDWidgetClass.IsNull())
-		{
-			if (UClass* HUDClass = CombatHUDWidgetClass.LoadSynchronous())
-			{
-				CombatHUDWidget = CreateWidget<UAstralCombatHUDWidget>(this, HUDClass);
-				if (CombatHUDWidget)
-				{
-					CombatHUDWidget->AddToViewport(0);
-				}
-			}
-			else
-			{
-				UE_LOG(LogAstral, Warning, TEXT("BeginPlayingState: 전투 HUD 클래스 '%s' 를 불러오지 못함 — HUD 없이 진행"), *CombatHUDWidgetClass.ToString());
-			}
-		}
+		EnsureHUDWidget(this, StatusHUDWidget, StatusHUDWidgetClass, TEXT("내 상태 · 동료 HUD"));
+		EnsureHUDWidget(this, CombatHUDWidget, CombatHUDWidgetClass, TEXT("전투 HUD"));
 	}
 
 	// 로드아웃 재발신 (1단 PS.Loadout을 채운다) — 어느 서버에 도착했든 클라 캐시가 있으면 발신. 서버 측 적용은 멱등이라 중복 무해
@@ -343,6 +367,17 @@ void AAstralPlayerController::ReturnToHub()
 {
 #if !UE_BUILD_SHIPPING
 	ServerReturnToHub();
+#endif
+}
+
+void AAstralPlayerController::ToggleDebugWidget()
+{
+#if !UE_BUILD_SHIPPING
+	if (DebugWidget)
+	{
+		const bool bShown = DebugWidget->GetVisibility() != ESlateVisibility::Collapsed;
+		DebugWidget->SetVisibility(bShown ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+	}
 #endif
 }
 

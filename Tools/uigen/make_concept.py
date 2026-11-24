@@ -6,6 +6,7 @@
     Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/make_concept.py --out-dir Tools/uigen/fixtures/<화면>
     (+ --prompt-file <md> · --force(있는 concept.png 를 덮음) · --max-calls N(기본 — 원본 아트 + 참고판 3, 그 밖 1)
      · --only art = 원본 아트까지만(후보를 여러 장 보고 고를 때 — inputs 없어도 됨, 상한 2) · --only text_ref = 고른 concept.png 에 참고판만(상한 1)
+     · --only text_ref --draw <layout.yaml> = codex 없이 참고판을 엔진과 같은 글꼴 파일(Pretendard TTF)로 그림(글자 값은 inputs, 자리 · 크기 · 굵기 · 색은 yaml)
      · --inputs <yaml>(참고판 글자 — 기본 <out-dir>/inputs.yaml)
      · --style-ref <png>(여러 번 — 느낌 · 색 · 재질만 참고로 첨부, 배치 · 요소는 프롬프트대로. 우리가 만든 그림(옆 concept.json 의 generator 가 codex)이거나
        --style-ref-from-user 로 사용자가 준 그림이라고 밝힌 것만 · work/_probe 의 상용 게임 화면은 거절)
@@ -137,6 +138,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--style-ref-from-user", action="store_true", help="the --style-ref pictures were given by the user")
     ap.add_argument("--cut-from", help="no codex — cut the --keep boxes out of this approved text-free sheet, pixel for pixel, as the original art")
     ap.add_argument("--keep", action="append", default=[], help="with --cut-from: x,y,w,h box to keep (px at 1920 wide, repeatable)")
+    ap.add_argument("--draw", help="with --only text_ref: no codex — draw the inputs texts with the engine's own font files at the places this layout yaml gives")
     ap.add_argument("--inputs", help="1b 후속 L-2 — inputs.yaml for the text reference texts (default <out-dir>/inputs.yaml)")
     ap.add_argument("--force", action="store_true", help="replace an existing concept.png")
     ap.add_argument("--max-calls", type=int, default=None, help="codex calls allowed in this invocation (default: 3 for the art + text reference, 2 with --only art, else 1)")
@@ -163,6 +165,8 @@ def _mode_error(opts) -> str | None:
         return None if opts.keep else "--cut-from needs at least one --keep x,y,w,h"
     if opts.keep:
         return "--keep needs --cut-from"
+    if opts.draw and opts.only != "text_ref":
+        return "--draw needs --only text_ref"
     if l2_only and (opts.with_text or opts.flat or editing):
         return f"{' / '.join(l2_only)} draws a new text-free transparent art — not with --with-text / --flat / --edit / --text-free"
     if (opts.flat or opts.transparent) and not editing and not opts.with_text and not opts.text_free_first:
@@ -271,6 +275,48 @@ def _cut_from(opts) -> int:
     return EXIT_OK if status == "ok" else EXIT_FAIL
 
 
+FONT_DIR = config.UIGEN_DIR / "work" / "_fonts" / "pretendard"      # 엔진 폰트(F_Pretendard_W)를 임포트한 원본 TTF
+
+
+def _draw_text_ref(opts) -> int:
+    """메인 HUD(11-24) 결정 8 — 원본 아트에 글자만 그린 참고판(codex 0): 자리 · 크기 · 굵기 · 색 = --draw yaml(texts: [...]), 글자 값 = inputs, 글꼴 = 엔진과 같은 TTF."""
+    from PIL import Image
+
+    from gen import text_ref
+    out_dir = pathlib.Path(opts.out_dir)
+    inputs_path = pathlib.Path(opts.inputs) if opts.inputs else out_dir / "inputs.yaml"
+    dest, ref_dest, meta_path = out_dir / "concept.png", out_dir / "concept_text_ref.png", out_dir / "concept.json"
+    if ref_dest.exists() and not opts.force:
+        print(f"make_concept: {ref_dest} already exists — pass --force to replace it", file=sys.stderr)
+        return EXIT_FAIL
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if (meta.get("text_free_first") or {}).get("status") != "ok" or hashlib.sha256(dest.read_bytes()).hexdigest() != meta.get("sha256"):
+            raise ValueError(f"--only text_ref needs the text-free art that {meta_path} records (text_free_first.status ok, same sha256)")
+        layout = config.load_yaml(pathlib.Path(opts.draw))["texts"]
+        with Image.open(dest) as im:
+            art = im.convert("RGBA")
+        items = text_ref.text_items(config.load_yaml(inputs_path))
+        pic, drawn = text_ref.draw_items(art, layout, items, FONT_DIR)
+    except (OSError, ValueError, KeyError, TypeError, config.ConfigError) as exc:
+        print(f"make_concept: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return EXIT_FAIL
+    pic.save(ref_dest, format="PNG")
+    rmeta = {"schema_version": 1, "kind": "concept_text_ref", "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "generator": "drawn with the engine font files (no codex)",
+             "edited_from": dest.name, "thread_id": None, "texts": items, "layout_file": _rel(pathlib.Path(opts.draw)), "drawn": drawn, "file": ref_dest.name,
+             "sha256": hashlib.sha256(ref_dest.read_bytes()).hexdigest(), "size": list(pic.size), "has_alpha_channel": True,
+             "note": "the same art with only the texts drawn on it (Pretendard TTF) — glyph style reference"}
+    (out_dir / "concept_text_ref.json").write_text(json.dumps(rmeta, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    rmeta["check"] = text_ref.check_files(dest, ref_dest)
+    (out_dir / "concept_text_ref.json").write_text(json.dumps(rmeta, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    meta["text_free_first"]["text_ref"] = ref_dest.name
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    ok = bool(rmeta["check"].get("used"))
+    print(json.dumps({"status": "ok" if ok else "no_text_ref", "art": dest.as_posix(), "text_ref": ref_dest.as_posix(), "drawn": len(drawn), "codex_calls": 0,
+                      "check": {k: rmeta["check"].get(k) for k in ("used", "reason", "shift_px", "glyph_px", "paste_px")}}, ensure_ascii=False))
+    return EXIT_OK if ok else EXIT_FAIL
+
+
 CUT_VISIBLE = 8                  # 시안의 거의 투명한 잡티(알파 ≤ 8/255)는 상자 경계를 가로질러도 요소가 아니다
 
 
@@ -285,6 +331,8 @@ def main(argv=None, *, cli: list[str] | None = None) -> int:
         return EXIT_FAIL
     if opts.cut_from:
         return _cut_from(opts)
+    if opts.draw:
+        return _draw_text_ref(opts)
     cfg = config.load_pipeline(opts.config)
     if not (opts.with_text or opts.edit or opts.text_free):          # L-2 기본 전환 — 새 그림은 글자 없이가 기본
         return _text_free_first(opts, cfg, cli)

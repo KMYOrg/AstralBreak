@@ -315,7 +315,11 @@ def guard_ops(ops: list[dict], spec: dict, brief: dict) -> list[str]:
     contract = _contract_widgets(brief)
     required = {e["id"] for e in brief.get("required_elements", [])}
     outlined = {x["widget"] for x in (*brief.get("dynamic_data", []), *brief.get("static_text", [])) if x.get("outline")}
+    declared = {x["widget"] for x in (*brief.get("dynamic_data", []), *brief.get("static_text", [])) if x.get("font")}
     rings = {d["widget"] for d in brief.get("dynamic_data", []) if d.get("radial")}
+    bars = {d["widget"] for d in brief.get("dynamic_data", []) if d.get("bar") is not None}
+    from gen import silhouette
+    bar_assets = set(silhouette.bars(spec).values())
     for i, op in enumerate(ops):
         kind = op.get("op")
         if kind == "set":
@@ -327,8 +331,14 @@ def guard_ops(ops: list[dict], spec: dict, brief: dict) -> list[str]:
             # 전투 HUD 동작(11-23) — 요청이 정한 글자 외곽선 · 원형 닦기(고리 자리 · 중심은 컨셉에서 잰 것)는 고치지 않는다
             if op.get("widget") in outlined and str(op.get("path", "")).startswith(("font.outline", "font.glow")):
                 errs.append(f"op {i}: set {op.get('widget')}.{op.get('path')} — the outline of this text comes from the request")
+            if op.get("widget") in declared and root == "font":                    # 메인 HUD(11-24) — 글꼴로 그린 참고판의 글꼴 값
+                errs.append(f"op {i}: set {op.get('widget')}.{op.get('path')} — the font of this text is declared by the drawn text reference")
             if op.get("widget") in rings and (root == "slot" or "wipe" in str(op.get("path", "")) or str(op.get("path", "")) in ("style", "style.brush", "style.percent")):
                 errs.append(f"op {i}: set {op.get('widget')}.{op.get('path')} — the ring's place and wipe are measured from the concept")
+            if op.get("widget") in bars and root in ("slot", "style"):           # 메인 HUD(11-24) — 모양 막대의 자리 · 텍스처 · 빈 자리 색은 컨셉 · 요청이 정한다
+                errs.append(f"op {i}: set {op.get('widget')}.{op.get('path')} — the shaped bar's place and brushes are measured from the concept")
+        elif kind == "replace_asset" and op.get("asset") in bar_assets:
+            errs.append(f"op {i}: replace_asset {op.get('asset')} — a shaped bar is cut from the concept pixels")
         elif kind == "remove_widget" and op.get("widget") in required:
             errs.append(f"op {i}: remove_widget {op.get('widget')} — it is a required element")
         elif kind == "add_widget" and isinstance(op.get("widget"), dict) and op["widget"].get("binding"):

@@ -26,7 +26,7 @@ import numpy as np
 
 from core import schema
 from core import spec as spec_mod
-from gen import territory
+from gen import silhouette, territory
 from stages import StageError
 
 PLATE_PREFIX = "StaticPlate"
@@ -215,7 +215,9 @@ def fill_toggles(spec: dict) -> list[dict]:
         if not why or path[-1].get("type") != "Overlay":
             continue
         host = path[-1]
-        inside = [index[i] for i in _descendants(kids, host["id"]) if any(b["asset"] in ext and b.get("draw_as", "image") != "none" for _, b in _brush_assets(index[i]))]
+        bars = silhouette.bars(spec)                       # 모양 막대는 자기 픽셀만 그린다 — 영역의 빛을 가질 그림이 아니다
+        inside = [index[i] for i in _descendants(kids, host["id"]) if i not in bars
+                  and any(b["asset"] in ext and b.get("draw_as", "image") != "none" for _, b in _brush_assets(index[i]))]
         if len(inside) != 1 or inside[0].get("parent") != host["id"] or not inside[0].get("bbox_intent") or inside[0].get("type") != "Image":
             continue
         w = inside[0]
@@ -260,24 +262,53 @@ def split_radials(spec: dict, alpha) -> list[dict]:
     return out
 
 
-def radial_masks(run) -> dict[str, np.ndarray]:
-    """layer.json radials — 고리 위젯 id → 자기 픽셀(캔버스 bool). run 마다 한 번 읽는다(refine 이 씀)."""
-    cache = getattr(run, "radial_ring_masks", None)
+def split_bars(spec: dict, alpha) -> list[dict]:
+    """메인 HUD(11-24) — 모양 막대마다 자기 픽셀 마스크(gen/silhouette — analyze 가 잰 것과 같은 함수). → [{widget, asset, box, mask, …기록}]."""
+    bars = silhouette.bars(spec)
+    if not bars:
+        return []
+    index = _index(spec)
+    try:
+        ms = silhouette.measure(alpha, {wid: index[wid]["bbox_intent"] for wid in bars})
+    except silhouette.BarError as exc:
+        raise StageError("BAR_MEASURE", str(exc), widget=exc.widget) from exc
+    out = []
+    for wid, aid in bars.items():
+        x0, y0, x1, y1 = _int_box(index[wid]["bbox_intent"], alpha.shape[1], alpha.shape[0])
+        inbox = np.zeros(alpha.shape, bool)
+        inbox[y0:y1, x0:x1] = True
+        out.append({"widget": wid, "asset": aid, **ms[wid]["record"], "box": [x0, y0, x1 - x0, y1 - y0], "mask": ms[wid]["mask"] & inbox})
+    return out
+
+
+def _read_masks(run, key: str, attr: str) -> dict[str, np.ndarray]:
+    """layer.json 의 key(radials · bars) — 위젯 id → 자기 픽셀(캔버스 bool). run 마다 한 번 읽는다."""
+    cache = getattr(run, attr, None)
     if cache is not None:
         return cache
     from PIL import Image
     out: dict[str, np.ndarray] = {}
     if run.path("layer.json").is_file():
-        for r in run.read_json("layer.json").get("radials") or []:
+        for r in run.read_json("layer.json").get(key) or []:
             f = run.path(str(r.get("mask") or ""))
             if r.get("widget") and r.get("mask") and f.is_file():
                 with Image.open(f) as im:
                     out[r["widget"]] = np.asarray(im.convert("L")) > 127
     try:
-        run.radial_ring_masks = out
+        setattr(run, attr, out)
     except AttributeError:
         pass
     return out
+
+
+def bar_masks(run) -> dict[str, np.ndarray]:
+    """layer.json bars — 모양 막대 위젯 id → 자기 픽셀(캔버스 bool)."""
+    return _read_masks(run, "bars", "shaped_bar_masks")
+
+
+def radial_masks(run) -> dict[str, np.ndarray]:
+    """layer.json radials — 고리 위젯 id → 자기 픽셀(캔버스 bool). refine 이 쓴다."""
+    return _read_masks(run, "radials", "radial_ring_masks")
 
 
 def grow_toggles(spec: dict, alpha) -> list[dict]:
@@ -579,6 +610,14 @@ def run(run, opts) -> str:
         r["mask"] = f"layer/ring_{r['widget']}.png"
         Image.fromarray((m * 255).astype(np.uint8), "L").save(run.path(r["mask"]))
     run.radial_ring_masks = None
+    bars = split_bars(spec, alpha)
+    bar_px: dict[str, np.ndarray] = {}
+    for b in bars:
+        m = b.pop("mask")
+        b["mask"] = f"layer/bar_{b['widget']}.png"
+        bar_px[b["widget"]] = m
+        Image.fromarray((m * 255).astype(np.uint8), "L").save(run.path(b["mask"]))
+    run.shaped_bar_masks = None
     own: dict[str, np.ndarray] = {}
     for t in grown:
         m = t.pop("mask", None)
@@ -587,14 +626,14 @@ def run(run, opts) -> str:
             own[t["carrier"]] = m
             Image.fromarray((m * 255).astype(np.uint8), "L").save(run.path(t["mask"]))
     run.toggle_own_masks = None
-    tog = {**({"toggles": grown} if grown else {}), **({"radials": rings} if rings else {}), **({"filled": filled} if filled else {})}
+    tog = {**({"toggles": grown} if grown else {}), **({"radials": rings} if rings else {}), **({"bars": bars} if bars else {}), **({"filled": filled} if filled else {})}
     if not static and not own:
         if filled:                      # 그림 상자를 넓힌 spec — 굽을 판이 없어도 남긴다
             schema.require("spec", spec)
             run.write_json("spec.json", spec)
         run.write_json("layer.json", {"applied": False, "reason": "no static decoration to bake", "functional": functional, **tog})
         return "no static decoration — every drawn element is functional"
-    pl = plan(spec, alpha, functional, static, int(cfg["plate_max"]), own=own, omap=omap) if static else {"plates": [], "func_zone_px": 0}
+    pl = plan(spec, alpha, functional, static, int(cfg["plate_max"]), own={**own, **bar_px}, omap=omap) if static else {"plates": [], "func_zone_px": 0}
     if not pl["plates"] and not own:
         if filled:
             schema.require("spec", spec)

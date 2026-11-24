@@ -108,6 +108,11 @@ def _inputs_errors(inputs: dict) -> list[str]:
             errs.append(f"DATA_RADIAL: progress data '{d['id']}' on an Image needs radial {{mode, track_alpha}}")
         if d.get("radial") and not round_:
             errs.append(f"DATA_RADIAL: '{d['id']}' radial is only for progress data on an Image")
+        if d.get("bar") is not None:                                              # 모양 막대 — 메인 HUD(11-24)
+            if d["type"] != "progress" or d["widget_type"] != "ProgressBar":
+                errs.append(f"DATA_BAR: '{d['id']}' bar is only for progress data on a ProgressBar")
+            elif d.get("sample") != 1:
+                errs.append(f"DATA_BAR: '{d['id']}' a shaped bar is drawn full in the concept — sample must be 1 (is {d.get('sample')!r})")
         if d.get("inside") == d["widget"]:
             errs.append(f"DATA_INSIDE: '{d['widget']}' cannot be inside itself")
         if d.get("outline") and d["widget_type"] != "TextBlock":
@@ -223,7 +228,7 @@ def _fit_reference(src: pathlib.Path, dst: pathlib.Path, size: list[int], backgr
     if notext is not None:
         rec["notext"] = _fit_notext(notext, dst, src_arr, bg, place, (tw, th))
     if textfree_art and bg["kind"] != "scene":
-        rec["textfree"] = _fit_text_ref(text_ref, dst, src_arr, bg, place, (tw, th), skip=text_ref_skip)
+        rec["textfree"] = _fit_text_ref(text_ref, dst, src_arr, bg, place, (tw, th), skip=text_ref_skip, scale=scale, offset=offset)
     return {"src_size": [sw, sh], "dst_size": [tw, th], "mode": mode, "aspect_diff": round(diff, 5),
             "scale": [round(v, 6) for v in scale], "offset": offset, "background": rec}
 
@@ -282,7 +287,7 @@ NOTEXT_FILES = ("reference_notext_color.png", "reference_notext_alpha.png")
 TEXTREF_FILES = ("reference_textref_color.png", "reference_textref_alpha.png", "reference_textref_paste.png")
 
 
-def _fit_text_ref(src: pathlib.Path | None, dst: pathlib.Path, concept_arr, bg: dict, place, size, skip: str | None = None) -> dict:
+def _fit_text_ref(src: pathlib.Path | None, dst: pathlib.Path, concept_arr, bg: dict, place, size, skip: str | None = None, scale=(1.0, 1.0), offset=(0, 0)) -> dict:
     """1b 후속 L-2 ④ — 원본 아트(지금 dst 옆 reference_color · reference_alpha)를 아트 · 글자 없는 판 파일로 남기고, 글자 참고판(make_concept
     --text-free-first 의 codex 편집)이 있으면 컨셉과 같은 배치 · 배경 처리로 맞춘 뒤 원본 아트에 정합해(gen/text_ref.merge — 참고판을 옮김) 참고판
     글자 획만 원본 아트 위에 옮겨 붙인 그림으로 reference* 를 바꾼다. 검사(이동 · 글자 상자 · 칸 밖 차이)에 떨어지면 reference* = 원본 아트 그대로
@@ -314,7 +319,11 @@ def _fit_text_ref(src: pathlib.Path | None, dst: pathlib.Path, concept_arr, bg: 
     t_col = np.clip(np.where(t_a[..., None] > 1e-4, pm / np.maximum(t_a, 1e-4)[..., None], 0.0), 0, 255)
     with Image.open(rc) as c, Image.open(ra) as a:
         a_col, a_a = np.asarray(c.convert("RGB"), float), np.asarray(a.convert("L"), float) / 255.0
-    c_col, c_a, (tw_col, tw_a), rec = text_ref.merge(a_col, a_a, t_col, t_a)
+    boxes = text_ref.drawn_boxes(src)               # 메인 HUD(11-24) — 글꼴 파일로 그린 참고판은 글자 상자를 안다(OCR 대신 — 작은 글자를 놓치지 않게)
+    if boxes is not None:
+        kx, ky = scale[0] * sw / src_size[0], scale[1] * sh / src_size[1]
+        boxes = [[b[0] * kx + offset[0], b[1] * ky + offset[1], b[2] * kx, b[3] * ky] for b in boxes]
+    c_col, c_a, (tw_col, tw_a), rec = text_ref.merge(a_col, a_a, t_col, t_a, boxes=boxes)
     rec = {"src": src.name, "src_size": src_size, **rec}
     paste = rec.pop("paste", None)
     Image.fromarray(np.clip(tw_col, 0, 255).round().astype(np.uint8), "RGB").save(dst.with_name(TEXTREF_FILES[0]), format="PNG")
@@ -440,17 +449,25 @@ def run_concept(run, opts) -> str:
         fit["background"]["art"] = {"used": False, "reason": "L-1 — the approved picture is the concept with text: art = concept pixels, the redrawn "
                                     "text-free plate only under glyphs" + ("" if nt0.get("used") else " (no text-free plate aligned)")}
     font = inputs.get("font") or (run.cfg.get("fonts") or {}).get("default_family")
+    # 메인 HUD(11-24) — 글꼴로 그린 참고판이면 그린 값(크기 · 굵기 · 색)이 글꼴의 단일 원천(Pretendard 로 그리므로 본문 폰트가 기본일 때만)
+    fonts = {}
+    if text_ref is not None and (fit["background"].get("text_ref") or {}).get("used") and font == (run.cfg.get("fonts") or {}).get("default_family"):
+        from gen import text_ref as text_ref_mod
+        fonts = text_ref_mod.drawn_fonts(text_ref)
     dynamic = []
     for d in inputs["data"]:
         e = {k: d[k] for k in ("id", "type", "widget", "widget_type") }
-        for k in ("format", "sample", "desc", "inside", "radial", "outline"):
+        for k in ("format", "sample", "desc", "inside", "radial", "bar", "outline"):
             if k in d:
                 e[k] = d[k]
+        if d["widget"] in fonts:
+            e["font"] = fonts[d["widget"]]
         dynamic.append(e)
     brief = {"schema_version": 1, "run_id": run.run_id, "mode": "concept", "screen_type": inputs["screen_type"], "screen_id": inputs["screen_id"],
              "resolution": resolution, "language": inputs.get("language", "ko"), "font": font, "text": inputs.get("text", ""),
              "required_elements": inputs["required_elements"], "dynamic_data": dynamic,
-             "static_text": [{k: s[k] for k in ("widget", "value", "outline") if k in s} for s in inputs.get("static_text", [])],   # desc(L-2 참고판 칸 설명)는 brief 밖
+             "static_text": [{**{k: s[k] for k in ("widget", "value", "outline") if k in s}, **({"font": fonts[s["widget"]]} if s["widget"] in fonts else {})}
+                             for s in inputs.get("static_text", [])],   # desc(L-2 참고판 칸 설명)는 brief 밖
              "style_keywords": inputs.get("style_keywords", []),
              "references": [{"path": "reference.png", "role": "layout", "role_source": "user"}], "conflicts": [],
              "binding_contract": {"class": "UUserWidget" if screen.get("probe") else f"U{screen['widget']}",

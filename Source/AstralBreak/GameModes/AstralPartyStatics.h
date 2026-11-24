@@ -30,4 +30,10 @@ namespace AstralParty
 	 * PlayerId 동률이면 배열 앞쪽. 후보 없음 = INDEX_NONE.
 	 */
 	ASTRALBREAK_API int32 SelectLeaderIndex(TConstArrayView<FAstralPartyMember> Members);
+
+	/**
+	 * 동료 인덱스 — 나(SelfPlayerId) · 봇 · 관전자를 뺀 멤버를 PlayerId 순으로 최대 MaxAllies.
+	 * 번호를 아직 못 받은 멤버(0 — 클라이언트에서 막 생긴 PlayerState)는 뺀다. 같은 번호가 둘이면 배열 앞쪽 하나(시임리스 교체 중 잠깐 겹침)
+	 */
+	ASTRALBREAK_API TArray<int32> SelectAllyIndices(TConstArrayView<FAstralPartyMember> Members, int32 SelfPlayerId, int32 MaxAllies);
 }

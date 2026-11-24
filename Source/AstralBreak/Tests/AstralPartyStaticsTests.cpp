@@ -85,4 +85,58 @@ bool FAstralPartySelectLeaderTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAstralPartyAlliesTest, "AstralBreak.Party.Allies", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FAstralPartyAlliesTest::RunTest(const FString& Parameters)
+{
+	using namespace AstralParty;
+	const auto Ids = [](const TArray<FAstralPartyMember>& Members, const TArray<int32>& Indices)
+	{
+		TArray<int32> Out;
+		for (const int32 Index : Indices)
+		{
+			Out.Add(Members[Index].PlayerId);
+		}
+		return Out;
+	};
+
+	// 나를 빼고 번호 순 — 배열 순서에 기대지 않는다
+	{
+		const TArray<FAstralPartyMember> Members = { MakeMember(259), MakeMember(256), MakeMember(258), MakeMember(257) };
+		TestEqual(TEXT("seen by 257"), Ids(Members, SelectAllyIndices(Members, 257, 3)), TArray<int32>({ 256, 258, 259 }));
+		TestEqual(TEXT("seen by 256"), Ids(Members, SelectAllyIndices(Members, 256, 3)), TArray<int32>({ 257, 258, 259 }));
+		TestEqual(TEXT("at most MaxAllies"), Ids(Members, SelectAllyIndices(Members, 256, 2)), TArray<int32>({ 257, 258 }));
+		TestEqual(TEXT("no room"), SelectAllyIndices(Members, 256, 0).Num(), 0);
+	}
+
+	// 혼자 · 비어 있음
+	{
+		const TArray<FAstralPartyMember> Alone = { MakeMember(256) };
+		TestEqual(TEXT("alone"), SelectAllyIndices(Alone, 256, 3).Num(), 0);
+		TestEqual(TEXT("empty"), SelectAllyIndices({}, 256, 3).Num(), 0);
+	}
+
+	// 봇 · 관전자 · 번호를 못 받은 항목은 동료가 아니다
+	{
+		const TArray<FAstralPartyMember> Members = { MakeMember(0), MakeMember(260, true), MakeMember(261, false, true), MakeMember(256), MakeMember(257) };
+		TestEqual(TEXT("bot, spectator and unnumbered skipped"), Ids(Members, SelectAllyIndices(Members, 256, 3)), TArray<int32>({ 257 }));
+	}
+
+	// 내 번호를 아직 모르면(0) 모두 남으로 보인다 — 부르는 쪽(화면)이 그때는 동료를 그리지 않는다
+	{
+		const TArray<FAstralPartyMember> Members = { MakeMember(256), MakeMember(257) };
+		TestEqual(TEXT("unknown self"), SelectAllyIndices(Members, 0, 3).Num(), 2);
+	}
+
+	// 같은 번호가 잠깐 겹침(시임리스 교체) — 하나만, 앞쪽
+	{
+		const TArray<FAstralPartyMember> Members = { MakeMember(256), MakeMember(258), MakeMember(257), MakeMember(258) };
+		const TArray<int32> Allies = SelectAllyIndices(Members, 256, 3);
+		TestEqual(TEXT("duplicate id once"), Ids(Members, Allies), TArray<int32>({ 257, 258 }));
+		TestEqual(TEXT("duplicate keeps the earlier entry"), Allies.Last(), 1);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

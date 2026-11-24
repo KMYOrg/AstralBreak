@@ -37,6 +37,7 @@
           "desc": { "type": "string" },
           "inside": { "$ref": "urn:uigen:spec#/$defs/widget_id", "description": "전투 HUD 동작(11-23) — 이 위젯 아래에 있어야 한다(같이 접힌다)" },
           "radial": { "$ref": "urn:uigen:brief#/$defs/radial" },
+          "bar": { "$ref": "urn:uigen:brief#/$defs/bar" },
           "outline": { "$ref": "urn:uigen:brief#/$defs/text_outline" }
         }
       }

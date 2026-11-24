@@ -1,0 +1,101 @@
+{
+ "schema_version": 1,
+ "kind": "concept",
+ "created": "2026-11-24T11:40:29",
+ "generator": "codex built-in image_gen (cut from an approved sheet)",
+ "thread_id": "01a206c9-69a4-7cc1-ac37-aa8b12eac2a4",
+ "prompt_sha256": null,
+ "flat_background": false,
+ "transparent_background": true,
+ "transparent_ratio": 0.9618,
+ "edited_from": null,
+ "file": "concept.png",
+ "sha256": "528b477f5ea21dff2ea40ac9769cddc64c981bc23de544da73356d693d18c8a2",
+ "size": [
+  1671,
+  941
+ ],
+ "has_alpha_channel": true,
+ "cut_from": {
+  "file": "Tools/uigen/fixtures/hud_blade_sheet/concept.png",
+  "sha256": "a946e16cfe273f8ce6961f3e95c34a8f6fa2042bf53cc900048a765ab3611c12",
+  "keep_1920": [
+   [
+    40.0,
+    40.0,
+    512.0,
+    130.0
+   ],
+   [
+    40.0,
+    175.0,
+    360.0,
+    215.0
+   ]
+  ]
+ },
+ "text_free_first": {
+  "status": "ok",
+  "attempts": [
+   {
+    "attempt": 0,
+    "file": "Tools/uigen/fixtures/status_hud_blade/concept.png",
+    "ocr_boxes": [],
+    "sha256": "528b477f5ea21dff2ea40ac9769cddc64c981bc23de544da73356d693d18c8a2"
+   }
+  ],
+  "text_ref": "concept_text_ref.png"
+ },
+ "note": "L-2 original text-free art — the pixels of the approved sheet, only this screen's elements kept",
+ "lineage": [
+  {
+   "step": "cut",
+   "sha256": "3e46d2280908d7732f0a1040568f8665b25886dfa121d369a35544c22f87b99c"
+  },
+  {
+   "step": "pixels",
+   "from_sha256": "3e46d2280908d7732f0a1040568f8665b25886dfa121d369a35544c22f87b99c",
+   "sha256": "528b477f5ea21dff2ea40ac9769cddc64c981bc23de544da73356d693d18c8a2",
+   "boxes": [
+    {
+     "widget": "SelfStaminaBar",
+     "box": [
+      135,
+      104,
+      264,
+      17
+     ]
+    },
+    {
+     "widget": "Ally1UltBar",
+     "box": [
+      98,
+      191,
+      182,
+      14
+     ]
+    },
+    {
+     "widget": "Ally2UltBar",
+     "box": [
+      99,
+      253,
+      181,
+      12
+     ]
+    },
+    {
+     "widget": "Ally3UltBar",
+     "box": [
+      98,
+      314,
+      181,
+      11
+     ]
+    }
+   ],
+   "what": "the four thin bars (stamina, teammate ultimate gauges) made full: the filled left half mirrored onto the right half (deterministic, no codex) - a shaped bar's picture is its full state, the empty part is the same texture tinted at runtime",
+   "approved": "user, 2026-11-24 (메인 HUD 설계 결정 6)"
+  }
+ ]
+}

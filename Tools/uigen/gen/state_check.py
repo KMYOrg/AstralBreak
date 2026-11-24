@@ -67,6 +67,9 @@ BAND_MIN_PX = 2             # 양끝 둘레 각각 이만큼 이상 픽셀이 �
 FOOT_PAD = 3                # (라) 컨셉 글자 · 빛 자리 = 컨셉 글자 획 + 빛 + 이만큼
 GAUGE_PAD = 8               # S2 트랙 밖 = 막대 상자 + 이만큼(px) 안
 GAUGE_STATES = (0.0, 0.05, 1.0)
+BAR_STATES = (0.0, 0.05, 0.15, 0.4, 0.65, 0.9, 1.0)     # 모양 막대(gen/silhouette — 메인 HUD 11-24) — 중간 넷은 자르는 자리 · 방향
+BAR_EDGE_PX = 2             # 자르는 자리에서 이만큼(px) 안은 판정에서 뺀다(화면 픽셀 반올림)
+BAR_ZONE_ALPHA = 0.1        # 막대 자리 = 텍스처 알파가 이보다 큰 픽셀
 END_COLS = 8                # S2 1.0 트랙 끝 구간 = 끝에서 max(이만큼, 트랙 폭 × END_FRAC) px(맨 끝 2 px 뺌) × 트랙 가운데 절반 줄
 END_FRAC = 0.03
 END_SAME_DE = 5.0           # 그 구간이 0 렌더와 ΔE00 이만큼 안이면 '안 바뀜'(채움이 안 닿음)
@@ -971,6 +974,8 @@ def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s:
         if w.get("type") in backdrop.TEXT_TYPES and g and g.get("visible", True) and g["w"] > 0:
             textz |= dg._box_mask((H, W), _gbox(g), dg.HIDDEN_PAD + _glow(w))
     out = {"gauges": [], "findings": [], "images": {}, "renderer": "composite" if render_pct is None else "engine"}
+    from gen import silhouette
+    shaped = silhouette.bars(spec_state)
     for w in spec_state.get("widgets", []):
         if w.get("type") != "ProgressBar":
             continue
@@ -987,7 +992,7 @@ def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s:
         tb, src = track_box(spec_state, w, g)
         rec.update(track=[round(v, 1) for v in tb], track_from=src)
         imgs, used = {}, {}
-        for p in GAUGE_STATES:
+        for p in (BAR_STATES if w["id"] in shaped else GAUGE_STATES):
             img = None
             if render_pct is not None:
                 try:
@@ -1001,8 +1006,20 @@ def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s:
         out["images"][w["id"]] = imgs
         rec["renderer"] = used
         region = dg._box_mask((H, W), _gbox(g), GAUGE_PAD) & ~dg._box_mask((H, W), tb)
+        barz = None
+        if w["id"] in shaped:
+            barz = _bar_zone(textures.get(shaped[w["id"]]), g, (H, W))
+            if barz is None:
+                out["gauges"].append({**rec, "skipped": f"texture {shaped[w['id']]} is missing"})
+                continue
+            out["findings"] += _bar_findings(w["id"], g, barz, imgs, used, base, textz, T, min(min_area, 12), rec)
         rec["states"] = {}
         for p, img in imgs.items():
+            if barz is not None:                         # 모양 막대 — 다른 곳이 없으면(보통) 전 화면을 안 잰다, 있으면 아래 그대로
+                loc_, _ = _diff_local(img, base, region, cover)
+                if loc_.max() <= T:
+                    rec["states"][f"{p:g}"] = {"outside_max": round(float(loc_.max()), 2), "outside_px": 0}
+                    continue
             loc = masked_local(dg.delta_e(img, base), region, cover)
             fl = (loc > T) & region
             rec["states"][f"{p:g}"] = {"outside_max": round(float(loc[region].max()), 2) if region.any() else 0.0, "outside_px": int(fl.sum())}
@@ -1010,6 +1027,23 @@ def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s:
                 out["findings"].append({"stage": "state", "code": "E8", "check": "gauge_outside", "percent": p, "box": b["box"], "area": b["area"],
                                         "max_de": b["max_de"], "mean_de": b["mean_de"], "widgets": [w["id"]], "renderer": used[p], "fixable": False,
                                         "cause": f"gauge end — at {p:.0%} the fill paints outside the track (frame · end cap differ from the concept state)"})
+        if barz is not None:                        # 모양 막대 — 끝(칼끝 · 어두운 테두리)은 bar_full · bar_cut 이 봤다. 0 % 에 남은 채움만(막대 상자 둘레 — 아래와 같은 검사)
+            bx = dg._bbox(dg._box_mask((H, W), _gbox(g), GAUGE_PAD))
+            bs = (slice(bx[1], bx[1] + bx[3]), slice(bx[0], bx[0] + bx[2]))
+            tz = dg._box_mask((H, W), tb) & ~textz
+            if used[0.0] == "engine" and tz.any():
+                nofill = backdrop.compose(_with_percent(spec_state, w["id"], 0.0, no_fill=True), boxes, textures, canvas, (0, 0, 0))[0]
+                loc = masked_local(dg.delta_e(imgs[0.0][bs], nofill[bs]), tz[bs], cover)
+                fl = (loc > T) & tz[bs]
+                rec["zero_max"] = round(float(loc[tz[bs]].max()), 2)
+                for b in _blobs(fl, loc, min_area) if fl.any() else ():
+                    out["findings"].append({"stage": "state", "code": "E8", "check": "gauge_zero_fill", "percent": 0.0, "box": [b["box"][0] + bx[0], b["box"][1] + bx[1], b["box"][2], b["box"][3]],
+                                            "area": b["area"], "max_de": b["max_de"], "mean_de": b["mean_de"], "widgets": [w["id"]], "renderer": "engine", "fixable": False,
+                                            "cause": "gauge end — at 0% fill pixels stay inside the track"})
+            out["gauges"].append(rec)
+            # 그림은 compare.png 상태 띠용 — 막대 여덟 × 비율 일곱이라 8 비트로(전 화면 실수 그림 56 장 = 2.8 GB)
+            out["images"][w["id"]] = {p: np.clip(np.round(im), 0, 255).astype(np.uint8) for p, im in imgs.items()}
+            continue
         # 1.0 — 트랙 끝 구간이 0 과 같으면 채움이 끝까지 안 닿음
         x, y, tw, th = tb
         k = max(END_COLS, int(round(END_FRAC * tw)))
@@ -1064,6 +1098,75 @@ def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s:
                                         "cause": "gauge end — at 0% fill pixels stay inside the track"})
         out["gauges"].append(rec)
     return out
+
+
+def _diff_local(a, b, m, cover: float):
+    """masked_local(ΔE00(a, b), m, cover) 를 두 그림이 실제로 다른(채널 차 > 0) 자리 둘레 창에서만 — 다른 픽셀이 없는 곳의 값은 0 이라 전 화면으로 잰 것과 같다.
+    → (잘라 낸 국소 지도, 왼쪽 위 (x, y)). 다른 곳이 없으면 1 × 1 의 0."""
+    d = (np.abs(np.asarray(a, np.float32) - np.asarray(b, np.float32)).max(axis=2) > 0) & m
+    if not d.any():
+        return np.zeros((1, 1)), (0, 0)
+    H, W = m.shape
+    ys, xs = np.nonzero(d)
+    P = 2 * dg.WIN
+    x0, y0, x1, y1 = max(0, int(xs.min()) - P), max(0, int(ys.min()) - P), min(W, int(xs.max()) + 1 + P), min(H, int(ys.max()) + 1 + P)
+    s = (slice(y0, y1), slice(x0, x1))
+    return masked_local(dg.delta_e(np.asarray(a)[s], np.asarray(b)[s]), m[s], cover), (x0, y0)
+
+
+def _bar_zone(tex, g: dict, shape):
+    """모양 막대 텍스처 → (막대 자리 = 알파 > BAR_ZONE_ALPHA, 조금이라도 그리는 자리 + 1 px) 캔버스 bool, 텍스처가 없으면 None."""
+    if tex is None:
+        return None
+    H, W = shape
+    x, y, bw, bh = (int(round(float(g[k]))) for k in ("x", "y", "w", "h"))
+    lay = backdrop._resize(tex, bw, bh)
+    cx0, cy0, cx1, cy1 = max(0, x), max(0, y), min(W, x + bw), min(H, y + bh)
+    zone, soft = np.zeros((H, W), bool), np.zeros((H, W), bool)
+    zone[cy0:cy1, cx0:cx1] = (lay[..., 3] > 255 * BAR_ZONE_ALPHA)[cy0 - y:cy1 - y, cx0 - x:cx1 - x]
+    soft[cy0:cy1, cx0:cx1] = (lay[..., 3] > 0)[cy0 - y:cy1 - y, cx0 - x:cx1 - x]
+    return zone, dg._dilate(soft, 1)
+
+
+def _bar_findings(wid: str, g: dict, barz, imgs: dict, used: dict, base, textz, T: float, min_area: int, rec: dict) -> list[dict]:
+    """모양 막대 — bar_full(100 % = 컨셉 상태) · bar_track(0 % 가 빈 자리 색으로 보인다 — 100 % 와 뚜렷이 다르고 아무것도 없는 것과도 다르다) · bar_cut(중간
+    비율에서 남아야 할 쪽 = 100 % 렌더, 빈 쪽 = 0 % 렌더) · bar_outside(어느 비율에서도 막대 밖이 100 % 렌더 그대로 — 이웃 막대 · 글자)."""
+    zone, soft = barz[0] & ~textz, barz[1]
+    H, W = zone.shape
+    found: list[dict] = []
+
+    def find(check, p, m, a, b, cause):
+        loc, (x0, y0) = _diff_local(a, b, m, 0.0)
+        sub_m = m[y0:y0 + loc.shape[0], x0:x0 + loc.shape[1]]
+        fl = (loc > T) & sub_m
+        rec.setdefault("checks", {})[f"{check}_{p:g}"] = {"max": round(float(loc[sub_m].max()), 2) if sub_m.any() else 0.0, "px": int(fl.sum())}
+        for bl in _blobs(fl, loc, min_area) if fl.any() else ():
+            bx = bl["box"]
+            found.append({"stage": "state", "code": "E8", "check": check, "percent": p, "box": [bx[0] + x0, bx[1] + y0, bx[2], bx[3]], "area": bl["area"], "max_de": bl["max_de"],
+                          "mean_de": bl["mean_de"], "widgets": [wid], "renderer": used.get(p, "composite"), "fixable": False, "cause": cause})
+    if not zone.any():
+        return [{"stage": "state", "code": "E8", "check": "bar_full", "percent": 1.0, "box": [int(g["x"]), int(g["y"]), int(g["w"]), int(g["h"])], "area": 0,
+                 "max_de": None, "mean_de": None, "widgets": [wid], "renderer": used.get(1.0, "composite"), "fixable": False, "cause": "bar - the bar texture is empty"}]
+    find("bar_full", 1.0, zone, imgs[1.0], base, "bar - at 100% the bar does not match the concept state")
+    body = zone & ~dg._dilate(~barz[0], 2)                           # 막대 속(가장자리 2 px 뺌) — 어두운 테두리는 빈 자리와 비슷해도 된다
+    body = body if body.any() else zone
+    bx = dg._bbox(body)
+    bs = (slice(bx[1], bx[1] + bx[3]), slice(bx[0], bx[0] + bx[2]))
+    med = float(np.median(dg.delta_e(imgs[1.0][bs], imgs[0.0][bs])[body[bs]]))
+    rec["track_contrast"] = round(med, 1)
+    if med < T:
+        found.append({"stage": "state", "code": "E8", "check": "bar_track", "percent": 0.0, "box": dg._bbox(body), "area": int(body.sum()), "max_de": round(med, 1),
+                      "mean_de": round(med, 1), "widgets": [wid], "renderer": used.get(0.0, "composite"), "fixable": False,
+                      "cause": f"bar - the empty bar looks like the full bar (median difference {med:.1f}) - the empty part is not tinted"})
+    xx = np.arange(W)[None, :] + 0.5
+    for p in BAR_STATES[1:-1]:
+        cut = float(g["x"]) + p * float(g["w"])
+        want = np.where((xx < cut)[..., None], imgs[1.0], imgs[0.0])
+        m = zone & (np.abs(xx - cut) > BAR_EDGE_PX)
+        find("bar_cut", p, m, imgs[p], want, f"bar - at {p:.0%} the filled / empty parts are not where the percent says (direction, width or tint)")
+    for p in BAR_STATES[:-1]:
+        find("bar_outside", p, ~soft, imgs[p], imgs[1.0], f"bar - at {p:.0%} something outside the bar pixels changed (the bar cuts another drawing)")
+    return found
 
 
 def end_glow_zones(spec: dict, shape) -> list[dict]:

@@ -98,6 +98,30 @@ void AAstralPlayerState::ClientInitialize(AController* C)
 	{
 		PawnExtComp->CheckDefaultInitialization();
 	}
+
+	// 이 PlayerState 가 로컬 컨트롤러의 것이 됐다 — 화면이 나 / 동료를 다시 가른다
+	NotifyRosterChanged();
+}
+
+void AAstralPlayerState::OnRep_PlayerId()
+{
+	Super::OnRep_PlayerId();
+	NotifyRosterChanged();
+}
+
+void AAstralPlayerState::OnRep_PlayerName()
+{
+	Super::OnRep_PlayerName();
+	NotifyRosterChanged();
+}
+
+void AAstralPlayerState::NotifyRosterChanged() const
+{
+	// PlayerArray 에 들어오고 나가는 것은 GameState 가 스스로 통지한다 — 여기는 그 뒤에 값이 정해지는 경우
+	if (AAstralGameState* AstralGS = GetWorld() ? GetWorld()->GetGameState<AAstralGameState>() : nullptr)
+	{
+		AstralGS->NotifyPlayerRosterChanged();
+	}
 }
 
 void AAstralPlayerState::CopyProperties(APlayerState* PlayerState)
@@ -109,6 +133,7 @@ void AAstralPlayerState::CopyProperties(APlayerState* PlayerState)
 	if (AAstralPlayerState* NewPS = Cast<AAstralPlayerState>(PlayerState))
 	{
 		NewPS->Loadout = Loadout;
+		NewPS->NotifyRosterChanged();   // 엔진이 옮긴 번호 · 이름 — 서버에는 RepNotify 가 없다(리슨 호스트 화면)
 	}
 }
 

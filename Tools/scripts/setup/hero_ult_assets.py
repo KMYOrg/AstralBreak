@@ -1,4 +1,4 @@
-"""M4 단위 A 오의 애셋 (설계 Docs/Design/m4-ult-chain.md §6 단위 A) — 에디터 안에서 돈다.
+"""M4 단위 A 오의 애셋 + 단위 D 전용 몽타주 (설계 Docs/Design/m4-ult-chain.md §6 단위 A · 단위 D) — 에디터 안에서 돈다.
 
     UnrealEditor-Win64-DebugGame.exe <uproject> -ExecutePythonScript=<이 파일> -unattended -stdout -FullStdOutLogOutput
 
@@ -8,11 +8,11 @@
     /Game/Input/Actions/IA_Ult                  IA_Jump 를 복제한 bool 액션
     /Game/Input/Mappings/IMC_Default            IA_Ult 에 키 하나씩 — 아래 후보 가운데 아직 안 쓰는 첫 키(키보드 · 게임패드)
     /Game/Input/DA_Input_Hero_Default           AbilityInputActions 에 (IA_Ult, InputTag.Ult)
-    /Game/AbilitySystem/Abilities/GA_Hero_Ult   UAstralGA_Hero_Ult 의 BP 자식 — 임시 몽타주 = 강화 공격(GA_Hero_MarkFinisher)의 것,
-                                                타격 이벤트 = 그 몽타주의 무기 트레이스 시작(GameplayEvent.WeaponTrace.Begin)
+    AM_Vesper_Sickle_Ult1 (ULT_MONTAGE)          노티파이 — 타격 이벤트 · 락온 방향 워프 · 폰 충돌 · 타격 이펙트. 이 스크립트의 트랙만 비우고 다시 단다
+    /Game/AbilitySystem/Abilities/GA_Hero_Ult   UAstralGA_Hero_Ult 의 BP 자식 — 전용 몽타주 · 타격 이벤트 GameplayEvent.Ult.Hit · 쓰는 동안의 스타일(근접)
     /Game/AbilitySystem/AbilitySets/Hero/DA_AbilitySet_Vesper   (GA_Hero_Ult, InputTag.Ult) 항목을 덧붙인다 — 기존 항목은 그대로
 
-전용 몽타주(단위 D)가 생기면 ULT_MONTAGE · HIT_EVENT_TAG 만 바꿔 다시 돌린다.
+시퀀스 · 몽타주 자체는 애니 생성 파이프라인(단위 D)이 만들어 승격한 것이다 — 여기서 만들지 않는다.
 결과는 Tools/mcp/results/hero_ult_assets.json 에 쓴다(Saved 는 읽을 수 없다).
 """
 import json
@@ -45,8 +45,16 @@ MARK_FINISHER_CLASS = f"{ABILITY_DIR}/GA_Hero_MarkFinisher.GA_Hero_MarkFinisher_
 SET_PATH = "/Game/AbilitySystem/AbilitySets/Hero/DA_AbilitySet_Vesper"  # 영웅의 세트 — 오의는 무기가 아니라 영웅의 것이다(강화 공격은 무기 세트가 준다)
 
 # ─── 잠정값 ───
-ULT_MONTAGE = None                                 # None = 강화 공격의 몽타주를 빌린다(임시). 전용 몽타주가 생기면 애셋 경로를 적는다
-HIT_EVENT_TAG = "GameplayEvent.WeaponTrace.Begin"  # 임시 몽타주가 보내는 것. 전용 몽타주는 GameplayEvent.Ult.Hit
+ULT_MONTAGE = "/Game/Animation/Hero/Vesper/Sickle/Actions/AM_Vesper_Sickle_Ult1"  # 단위 D 전용 몽타주 (None = 강화 공격의 몽타주를 빌린다 — 단위 A 의 임시)
+HIT_EVENT_TAG = "GameplayEvent.Ult.Hit"
+ULT_COMBAT_STYLE = "State.CombatStyle.Melee"       # 쓰는 동안 드는 무기(낫) — 원거리에서 써도 낫으로 바꿔 들고 끝나면 되돌린다
+# 몽타주 노티파이(초) — 날 끝이 땅에 닿는 시각 1.27, 앞으로 나가는 루트 모션은 0.25 ~ 1.5
+HIT_TIME = 1.27
+FACING_WARP = ("Ult.Facing", 0.0, 0.4)             # 이름(GA 의 FacingWarpTargetName) · 시작 · 길이 — 달려 나가기 전에 돈다
+PAWN_COLLISION = (0.0, 1.7)                        # 적에게 닿으면 멈춘다
+HIT_FX = "/Game/Assets/SciFi_VFX/Niagara/Explosion/NS_Explosion_EMP"   # 잠정 — 타격 순간 땅에 하나
+HIT_FX_OFFSET = (0.0, 240.0, 5.0)                  # 메시 컴포넌트 공간(앞 = +Y) — 날이 찍히는 자리
+HIT_FX_SCALE = 1.0
 BASE_DAMAGE = 200.0
 TRACE_START_OFFSET = 50.0
 TRACE_DISTANCE = 400.0
@@ -143,6 +151,41 @@ def step_input_config():
     return info
 
 
+def step_montage():
+    """전용 몽타주의 노티파이 — 이 스크립트가 소유한 트랙 넷만 비우고 다시 단다."""
+    if not ULT_MONTAGE:
+        return {"skipped": "전용 몽타주 없음"}
+    montage = unreal.load_asset(ULT_MONTAGE)
+    if not montage:
+        raise RuntimeError(f"오의 몽타주 없음: {ULT_MONTAGE}")
+    length = montage.get_play_length()
+    info = {"path": montage.get_path_name(), "length": round(length, 4), "cleared": {t: M.clear_track(montage, t) for t in ("Combat", "Facing", "PawnCollision", "FX")}}
+
+    sequence = unreal.load_asset(ULT_MONTAGE.replace("/AM_", "/AS_"))
+    info["root_motion"] = {"before": bool(sequence.get_editor_property("enable_root_motion"))}
+    if not info["root_motion"]["before"]:
+        sequence.set_editor_property("enable_root_motion", True)
+        info["root_motion"]["saved"] = eal.save_loaded_asset(sequence, False)
+    info["root_motion"]["after"] = bool(sequence.get_editor_property("enable_root_motion"))
+
+    M.add_notify(montage, "Combat", HIT_TIME, M.NOTIFY_CLASSES["GameplayEvent"], event_tag=M.tag(HIT_EVENT_TAG))
+    name, start, duration = FACING_WARP
+    M.add_motion_warping_window(montage, "Facing", start, duration, name)
+    M.add_pawn_collision_window(montage, "PawnCollision", PAWN_COLLISION[0], PAWN_COLLISION[1], "StopOnHit")
+    if HIT_FX:
+        system = unreal.load_asset(HIT_FX)
+        if not system:
+            raise RuntimeError(f"이펙트 없음: {HIT_FX}")
+        M.add_notify(montage, "FX", HIT_TIME, "/Script/NiagaraAnimNotifies.AnimNotify_PlayNiagaraEffect", template=system, attached=False,
+                     location_offset=unreal.Vector(*HIT_FX_OFFSET), scale=unreal.Vector(HIT_FX_SCALE, HIT_FX_SCALE, HIT_FX_SCALE))
+    info["saved"] = M.save(montage)
+    info["notifies"] = M.describe_notifies(montage)
+    info["describe"] = M.describe(montage)
+    for key in ("blend_in", "blend_out"):
+        info[key] = round(float(montage.get_editor_property(key).get_editor_property("blend_time")), 3)
+    return info
+
+
 def step_ability():
     if ULT_MONTAGE:
         montage = unreal.load_asset(ULT_MONTAGE)
@@ -181,6 +224,8 @@ def step_ability():
         "trace_start_offset": TRACE_START_OFFSET,
         "trace_distance": TRACE_DISTANCE,
         "trace_radius": TRACE_RADIUS,
+        "ult_combat_style": M.tag(ULT_COMBAT_STYLE),
+        "facing_warp_target_name": FACING_WARP[0],
     }
     info = {"path": path, "created": created, "montage_source": source, "montage": montage.get_path_name(),
             "defaults_failed": B.set_defaults(bp, values), "saved": B.compile_and_save(bp)}
@@ -237,9 +282,13 @@ def step_probe_other_abilities():
 
 
 def main():
-    steps = (("input_action", step_input_action), ("mapping", step_mapping), ("input_config", step_input_config),
+    steps = (("input_action", step_input_action), ("mapping", step_mapping), ("input_config", step_input_config), ("montage", step_montage),
              ("ability", step_ability), ("ability_set", step_ability_set), ("other_abilities", step_probe_other_abilities))
+    # 인자로 단계 이름을 주면 그것만 — -ExecutePythonScript="<이 파일> montage ability"
+    wanted = [arg for arg in sys.argv[1:] if arg in dict(steps)]
     for name, fn in steps:
+        if wanted and name not in wanted:
+            continue
         try:
             result["steps"][name] = fn()
         except Exception as error:  # noqa: BLE001

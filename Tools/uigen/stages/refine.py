@@ -298,12 +298,16 @@ def concept_pixel_inputs(spec: dict | None, asset: dict, box, gauge_holes: bool 
     users = {w["id"] for w in (spec or {}).get("widgets", []) for k, b in (w.get("style") or {}).items()
              if k in spec_mod.BRUSH_KEYS and isinstance(b, dict) and b.get("asset") == asset["asset_id"]}
     assets = {a["asset_id"]: a for a in (spec or {}).get("assets", [])}
+    from gen import silhouette
+    shaped = silhouette.bars(spec) if spec else {}
     texts, excludes, gauges = [], [], []
     for w in (spec or {}).get("widgets", []):
         bb = w.get("bbox_intent")
         if not bb or w["id"] in users or _overlap(box, bb) <= 0:
             continue
         local = [float(bb[0]) - bx, float(bb[1]) - by, float(bb[2]), float(bb[3])]
+        if w["id"] in shaped:
+            continue                    # 메인 HUD(11-24) — 모양 막대는 자기 픽셀을 자기가 그리고, 이 조각에서는 그 픽셀이 빠진다(own_mask) — 메울 구멍이 아니다
         if w.get("type") == "ProgressBar" and _overlap(box, bb) >= 0.2:
             fill = (w.get("style") or {}).get("fill")
             proc = (assets.get(fill.get("asset")) or {}).get("procedural") or {} if isinstance(fill, dict) else {}
@@ -612,12 +616,20 @@ def own_mask(run, spec: dict | None, aid: str):
     ring = next((rings[u["id"]] for u in users if u["id"] in rings), None)
     if ring is not None:
         return ring                                 # 전투 HUD 동작(11-23) — 원형 진행(고리)은 자기 픽셀만
+    from gen import silhouette
+    bar_px = layer_mod.bar_masks(run)               # 메인 HUD(11-24) — 모양 막대도 자기 픽셀만
+    bar_ids = silhouette.bars(spec) if spec else {}
+    for u in users:
+        if u["id"] in bar_ids:
+            if u["id"] not in bar_px:
+                raise StageError("BAR_MASK", f"'{aid}' is drawn by the shaped bar '{u['id']}' but layer.json has no bar mask — the layer stage must run first", asset=aid)
+            return bar_px[u["id"]]
     wants = [u["id"] for u in users if ((u.get("style") or {}).get("brush") or {}).get("wipe")]
     if wants:
         raise StageError("RADIAL_MASK", f"'{aid}' is drawn by the ring {wants} but layer.json has no ring mask — the layer stage must run first", asset=aid)
     masks = layer_mod.own_masks(run)
     own = next((masks[u["id"]] for u in users if u["id"] in masks), None)
-    for wid, m in rings.items():                    # 고리와 같은 자리를 품은 다른 에셋(고리 안 띠)은 고리 픽셀을 뺀다 — 픽셀마다 주인 하나
+    for wid, m in {**rings, **bar_px}.items():      # 고리 · 모양 막대와 같은 자리를 품은 다른 에셋(고리 안 띠 · 줄 장식)은 그 픽셀을 뺀다 — 픽셀마다 주인 하나
         H, W = m.shape
         for u in users:
             if not u.get("bbox_intent"):
@@ -807,7 +819,7 @@ def _ownership(run, spec: dict, alpha):
                 if ids and all(not overhang_blockers(spec, i, w["bbox_intent"]) for i in ids):
                     ring_ok.add(w["id"])
         from stages import layer as layer_mod
-        cache[key] = cut_ownership(spec, alpha, ring_ok, layer_mod.own_masks(run))
+        cache[key] = cut_ownership(spec, alpha, ring_ok, {**layer_mod.own_masks(run), **layer_mod.bar_masks(run)})
     return cache[key]
 
 
@@ -3640,6 +3652,7 @@ def run(run, opts) -> str:
     run.overhang_claims = np.zeros((ch, cw), bool) if cw > 0 and ch > 0 else None
     run.cut_ownership_cache = {}             # 1b 후속 I — 겹친 자리 물체 단위 소유 지도(_ownership — 이 spec 으로 한 번)
     run.toggle_own_masks = None              # L-2 기본 전환 ④ — 접히는 위젯의 자기 마스크(layer.json toggles — 다시 읽음)
+    run.shaped_bar_masks = None              # 메인 HUD — 모양 막대 픽셀 마스크(layer.json bars — 다시 읽음)
     run.radial_ring_masks = None             # 전투 HUD 동작 — 고리 픽셀 마스크(layer.json radials — 다시 읽음)
     # 1b 후속 L 다음 — 글자 지우기 마감: 글자마다 지우기 방법(_erase_setup 이 읽음). 없으면 첫 판 = 표시한 글자 모두 lama
     run.erase_plan = {}

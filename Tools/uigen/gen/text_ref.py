@@ -12,6 +12,8 @@
 """
 from __future__ import annotations
 
+import re
+
 import numpy as np
 
 MAX_SHIFT = 12             # 참고판 정합 — 위상 상관 이동이 이보다 크면 같은 그림으로 보지 않는다(px, normalize.NOTEXT_MAX_SHIFT 와 같음)
@@ -144,9 +146,85 @@ def detect_boxes(col, a, detect=None, min_score: float = OCR_MIN_SCORE) -> list[
     return list(detect(_rgba(col, a), min_score=min_score).get("boxes") or [])
 
 
-def merge(a_col, a_a, t_col, t_a, *, detect=None) -> tuple:
+PX_PER_PT = 4.0 / 3.0             # 엔진 글꼴 크기(pt) → 화면 px(96 DPI)
+_HEX = re.compile(r"#[0-9A-F]{6}")
+FONT_FILES = {w: f"Pretendard-{n}.ttf" for w, n in (("regular", "Regular"), ("medium", "Medium"), ("semibold", "SemiBold"), ("bold", "Bold"), ("extrabold", "ExtraBold"))}
+
+
+def draw_items(art, layout: list[dict], items: list[dict], font_dir) -> tuple:
+    """메인 HUD(11-24) 결정 8 — 원본 아트(RGBA PIL) 위에 글자만 **엔진과 같은 글꼴 파일**로 그린 참고판(codex 없음). layout = [{widget, pos [x, y](1920 폭 기준 px), anchor(PIL —
+    ls 왼쪽 기준선 · ms 가운데 기준선 …), pt(글꼴 크기 — spec font.size 와 같은 정수 pt), weight, color}], 글자 값은 items(text_items — inputs 가 정한 값).
+    → (RGBA PIL, [{widget, value, box(그림 px), font{size, weight, color}}]). 어긋나면 ValueError. font 는 글꼴의 단일 원천이다(drawn_fonts — 그린 그림을 다시 재지 않는다)."""
+    import pathlib
+
+    from PIL import Image, ImageDraw, ImageFont
+    values = {it["widget"]: it["value"] for it in items}
+    by = {}
+    for it in layout:
+        if it["widget"] in by:
+            raise ValueError(f"text layout lists {it['widget']} twice")
+        by[it["widget"]] = it
+    if set(by) != set(values):
+        raise ValueError(f"text layout {sorted(by)} != the texts of the inputs {sorted(values)}")
+    k = art.width / 1920.0
+    out = art.copy()
+    drawn = []
+    for wid, it in by.items():
+        weight = it.get("weight", "regular")
+        if weight not in FONT_FILES:
+            raise ValueError(f"{wid}: weight {weight!r} — one of {sorted(FONT_FILES)}")
+        f = pathlib.Path(font_dir) / FONT_FILES[weight]
+        if not f.is_file():
+            raise ValueError(f"{f} does not exist")
+        pt, hue = it.get("pt"), str(it.get("color", "#ECE5D6")).upper()
+        if not isinstance(pt, int) or isinstance(pt, bool) or pt < 1:
+            raise ValueError(f"{wid}: pt {pt!r} — the font size is a whole number of points (the same value as spec font.size)")
+        if not _HEX.fullmatch(hue):
+            raise ValueError(f"{wid}: color {hue!r} — #RRGGBB")
+        font = ImageFont.truetype(str(f), pt * PX_PER_PT * k)
+        xy = (float(it["pos"][0]) * k, float(it["pos"][1]) * k)
+        anchor = it.get("anchor", "ls")
+        layer = Image.new("RGBA", art.size, (0, 0, 0, 0))
+        ImageDraw.Draw(layer).text(xy, values[wid], font=font, fill=hue, anchor=anchor)
+        bb = layer.getchannel("A").getbbox()
+        if bb is None:
+            raise ValueError(f"{wid}: {values[wid]!r} draws nothing at {it['pos']}")
+        # 투명 픽셀 색은 글자색으로(곧은 색 — 옅은 가장자리가 검게 섞이지 않게)
+        out.alpha_composite(layer)
+        drawn.append({"widget": wid, "value": values[wid], "box": [bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]], "font": {"size": pt, "weight": weight, "color": hue + "FF"}})
+    return out, drawn
+
+
+def drawn_boxes(ref_path) -> list[list[float]] | None:
+    """참고판 옆 concept_text_ref.json 이 그린 글자 상자(drawn — 그림 px)를 가지면 그것(OCR 대신), 아니면 None."""
+    import json
+    import pathlib
+    p = pathlib.Path(ref_path).with_suffix(".json")
+    try:
+        rec = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    d = rec.get("drawn")
+    return [list(map(float, x["box"])) for x in d] if isinstance(d, list) and d else None
+
+
+def drawn_fonts(ref_path) -> dict[str, dict]:
+    """글꼴로 그린 참고판의 글꼴 값 — 위젯 id → {size(pt), weight, color}. 우리가 그 값으로 그렸으므로 그림을 다시 재지 않고 이 값을 그대로 쓴다.
+    [실측 R20261124_123020 — 같은 14 pt medium 세 줄의 획 밀도 비가 1.145 · 1.096 · 1.093 으로 재져 한 줄만 regular 로 바뀌었다(획 높이 13 px)]
+    codex 참고판 · 글꼴 기록이 없는 옛 기록은 {}."""
+    import json
+    import pathlib
+    try:
+        rec = json.loads(pathlib.Path(ref_path).with_suffix(".json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    d = rec.get("drawn")
+    return {x["widget"]: dict(x["font"]) for x in d if x.get("font")} if isinstance(d, list) else {}
+
+
+def merge(a_col, a_a, t_col, t_a, *, detect=None, boxes=None) -> tuple:
     """원본 아트(a_col · a_a — 곧은 색 · 알파 0 ~ 1)와 글자 참고판(같은 크기)을 → (합친 색, 합친 알파, 정합된 참고판 (색, 알파), 기록).
-    기록 `used` 가 False 면 합친 그림은 아트 그대로(참고판을 쓰지 않음 — 이유 `reason`)."""
+    기록 `used` 가 False 면 합친 그림은 아트 그대로(참고판을 쓰지 않음 — 이유 `reason`). boxes 를 주면(그린 참고판 — drawn_boxes, 이 배열 px) OCR 대신 그 글자 상자."""
     import cv2
     H, W = a_a.shape
     a_col, a_a = np.asarray(a_col, float), np.clip(np.asarray(a_a, float), 0, 1)
@@ -169,11 +247,12 @@ def merge(a_col, a_a, t_col, t_a, *, detect=None) -> tuple:
     t_a = np.clip(warp(t_a), 0, 1).astype(float)
     ab, tb = a_col * a_a[..., None], t_col * t_a[..., None]
     # 글자 상자 — 참고판 OCR 중 아트에도 있는 자국(장식 오검출 — IoU ≥ 0.3)은 뺀다
-    tboxes = detect_boxes(t_col, t_a, detect)
-    aboxes = detect_boxes(a_col, a_a, detect)
+    given = boxes
+    tboxes = detect_boxes(t_col, t_a, detect) if given is None else [{"box": [float(b[0]) - ix, float(b[1]) - iy, float(b[2]), float(b[3])], "score": 1.0} for b in given]
+    aboxes = detect_boxes(a_col, a_a, detect) if given is None else []
     boxes = [b for b in tboxes if not any(_iou(b["box"], c["box"]) >= 0.3 for c in aboxes)]
     rec["ocr"] = {"text_ref_boxes": [b["box"] for b in tboxes], "art_boxes": [b["box"] for b in aboxes], "boxes": [b["box"] for b in boxes],
-                  "scores": [b["score"] for b in boxes], "min_score": OCR_MIN_SCORE}
+                  "scores": [b["score"] for b in boxes], "min_score": OCR_MIN_SCORE, **({"from": "drawn"} if given is not None else {})}
     ui = (a_a > 0.1) | (t_a > 0.1)
     inbox = _box_mask((H, W), [b["box"] for b in boxes], BOX_PAD)
     d = _shift_min(tb, ab)
@@ -263,8 +342,13 @@ def check_files(art_path, ref_path, *, detect=None) -> dict:
         size = im.size
     with Image.open(ref_path) as im:
         has_a = "A" in im.getbands()
+        ref_size = im.size
         ref = np.asarray(im.convert("RGBA").resize(size, Image.Resampling.LANCZOS), float)
     t_a = ref[..., 3] / 255.0 if has_a else art[..., 3] / 255.0
-    _, _, _, rec = merge(art[..., :3], art[..., 3] / 255.0, ref[..., :3], t_a, detect=detect)
+    db = drawn_boxes(ref_path)
+    if db is not None and ref_size != size:
+        sx, sy = size[0] / ref_size[0], size[1] / ref_size[1]
+        db = [[b[0] * sx, b[1] * sy, b[2] * sx, b[3] * sy] for b in db]
+    _, _, _, rec = merge(art[..., :3], art[..., 3] / 255.0, ref[..., :3], t_a, detect=detect, boxes=db)
     rec.pop("paste", None)
     return rec

@@ -7,6 +7,7 @@
 
 class UAstralAbilitySystemComponent;
 class UAstralCombatHUDWidget;
+class UAstralStatusHUDWidget;
 class AAstralPlayerState;
 /**
  *
@@ -27,6 +28,9 @@ public:
 
 	/** 전투 HUD — 로컬 컨트롤러만 갖는다(없으면 null). 자동 시험이 읽는다 */
 	UAstralCombatHUDWidget* GetCombatHUDWidget() const;
+
+	/** 내 상태 · 동료 HUD — 로컬 컨트롤러만 갖는다(없으면 null) */
+	UAstralStatusHUDWidget* GetStatusHUDWidget() const;
 
 	/**
 	 * 클라→서버 로드아웃 발신 — 3단 소스의 1단(PS.Loadout)을 채운다 (캐시 미스/타 서버 도착 시 복원 경로).
@@ -69,6 +73,10 @@ public:
 
 	UFUNCTION(Exec)
 	void ReturnToHub();
+
+	/** 디버그 위젯 켜기 / 끄기 — 왼쪽 위 글자가 HUD(내 상태 · 동료)를 덮는다 */
+	UFUNCTION(Exec)
+	void ToggleDebugWidget();
 	
 	//~AActor interface
 	virtual void PreInitializeComponents() override;
@@ -105,6 +113,13 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UAstralCombatHUDWidget> CombatHUDWidget;
+
+	/** 내 상태 · 동료 HUD 의 WBP — 전투 HUD 와 같은 규칙. 화면을 나눈 까닭은 설계 Docs/Design/ui-autogen-pipeline.md §11 '메인 HUD 설계' 결정 2 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|HUD")
+	TSoftClassPtr<UAstralStatusHUDWidget> StatusHUDWidgetClass;
+
+	UPROPERTY()
+	TObjectPtr<UAstralStatusHUDWidget> StatusHUDWidget;
 
 	/*
 	 * Debug Members

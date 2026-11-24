@@ -130,26 +130,6 @@ namespace AstralPartyFlowController
 	}
 }
 
-/** 한 틱에 본 것 — 월드는 이동 때마다 바뀌므로 저장하지 않고 매 틱 다시 만든다 */
-struct FAstralPartyFlowSnapshot
-{
-	UWorld* World = nullptr;
-	ENetMode NetMode = NM_Standalone;
-	FString Map;
-
-	/** PlayerArray 의 PlayerId — 오름차순. 번호를 못 받은 항목이 있으면 비운다 */
-	TArray<int32> Ids;
-	int32 LeaderId = INDEX_NONE;
-
-	AAstralPlayerController* LocalPC = nullptr;
-	int32 MyId = 0;
-
-	FString SelectedRaid;
-	int32 NumOthers = 0;
-	int32 NumOthersReady = 0;
-	bool bAllReady = false;
-};
-
 const TCHAR* UAstralPartyFlowTestController::RoleName(ERole InRole)
 {
 	switch (InRole)
@@ -174,9 +154,8 @@ void UAstralPartyFlowTestController::OnInit()
 
 	StartTime = StageStartTime = FPlatformTime::Seconds();
 
-	const TCHAR* ScenarioName = bRaidClearScenario ? TEXT("RaidClear")
-		: (bEnemyCombatScenario ? TEXT("EnemyCombat") : (bLeaderLeavesScenario ? TEXT("LeaderLeaves") : TEXT("Flow")));
-	UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST INIT scenario=%s players=%d timeout=%.0f"), ScenarioName, NumPlayers, TimeoutSeconds);
+	UE_LOG(LogAstralNetTest, Display, TEXT("ASTRAL_NETTEST INIT scenario=%s players=%d timeout=%.0f"),
+		Scenario.IsEmpty() ? TEXT("Flow") : *Scenario, NumPlayers, TimeoutSeconds);
 
 	if (NumPlayers < 2 || (bLeaderLeavesScenario && NumPlayers < 3))
 	{
@@ -368,6 +347,11 @@ void UAstralPartyFlowTestController::OnTick(float TimeDelta)
 		return; // 이동 직후 — 내 컨트롤러를 아직 못 받았다
 	}
 
+	TickScenario(Snap);
+}
+
+void UAstralPartyFlowTestController::TickScenario(const FAstralPartyFlowSnapshot& Snap)
+{
 	if (bEnemyCombatScenario)
 	{
 		TickEnemyCombat(Snap);
@@ -532,6 +516,42 @@ void UAstralPartyFlowTestController::TickEnemyCombat(const FAstralPartyFlowSnaps
 	}
 }
 
+void UAstralPartyFlowTestController::TickHubStart(const FAstralPartyFlowSnapshot& Snap, int32 TravelStage)
+{
+	using namespace AstralPartyFlowController;
+
+	if (Role != ERole::Leader)
+	{
+		if (Role == ERole::NonLeader)
+		{
+			Snap.LocalPC->ServerSetReady(true);
+		}
+		JumpToStage(TravelStage);
+		return;
+	}
+	switch (Stage)
+	{
+	case 1:
+		Snap.LocalPC->ServerSelectRaid(RaidMap);
+		Advance();
+		break;
+	case 2: // 선택이 복제돼 돌아오면
+		if (Snap.SelectedRaid == RaidMap)
+		{
+			Snap.LocalPC->ServerSetReady(true);
+			Advance();
+		}
+		break;
+	default:
+		if (Snap.bAllReady && Snap.Map == HubMap)
+		{
+			Snap.LocalPC->ServerStartRaid();
+			JumpToStage(TravelStage);
+		}
+		break;
+	}
+}
+
 void UAstralPartyFlowTestController::TickRaidClear(const FAstralPartyFlowSnapshot& Snap)
 {
 	using namespace AstralPartyFlowController;
@@ -544,36 +564,7 @@ void UAstralPartyFlowTestController::TickRaidClear(const FAstralPartyFlowSnapsho
 	// ─── 허브: 선택 · 준비 · 시작 (거부 확인은 Flow 시나리오가 한다) ───
 	if (Stage < RaidClearStage_Travel)
 	{
-		if (Role != ERole::Leader)
-		{
-			if (Role == ERole::NonLeader)
-			{
-				Snap.LocalPC->ServerSetReady(true);
-			}
-			JumpToStage(RaidClearStage_Travel);
-			return;
-		}
-		switch (Stage)
-		{
-		case 1:
-			Snap.LocalPC->ServerSelectRaid(RaidMap);
-			Advance();
-			break;
-		case 2: // 선택이 복제돼 돌아오면
-			if (Snap.SelectedRaid == RaidMap)
-			{
-				Snap.LocalPC->ServerSetReady(true);
-				Advance();
-			}
-			break;
-		default:
-			if (Snap.bAllReady && Snap.Map == HubMap)
-			{
-				Snap.LocalPC->ServerStartRaid();
-				JumpToStage(RaidClearStage_Travel);
-			}
-			break;
-		}
+		TickHubStart(Snap, RaidClearStage_Travel);
 		return;
 	}
 

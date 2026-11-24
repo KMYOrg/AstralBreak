@@ -164,12 +164,24 @@ def _with_reference(monkeypatch):
     monkeypatch.setattr(normalize, "run", run_and_reference)
 
 
+def _rounds(monkeypatch, n: int = 1):
+    """LLM 외형 라운드는 Phase 2 부터 기본 끔(pipeline.yaml rounds 0) — 라운드 자체를 보는 시험은 켜고 돈다."""
+    real = config.load_pipeline
+
+    def load(path=None):
+        cfg = real(path)
+        cfg["style_review"]["rounds"] = n
+        return cfg
+    monkeypatch.setattr(config, "load_pipeline", load)
+
+
 def _report(tmp_path):
     return json.loads((tmp_path / "work" / RUN_ID / "report.json").read_text(encoding="utf-8"))
 
 
 def test_pipeline_style_round_accepted(tmp_path, fake_ue, fake_llm, monkeypatch):  # noqa: F811
     _with_reference(monkeypatch)
+    _rounds(monkeypatch)
     monkeypatch.setenv("FAKE_CLAUDE_OUTPUTS", json.dumps([FINDING, {"ops": [GOLD]}]))
     assert run_pipeline.main(_args(tmp_path, "--fix-mode", "hybrid")) == run_pipeline.EXIT_PASS
     rep = _report(tmp_path)
@@ -182,6 +194,7 @@ def test_pipeline_style_round_accepted(tmp_path, fake_ue, fake_llm, monkeypatch)
 
 def test_pipeline_style_round_that_breaks_a_gate_is_reverted(tmp_path, fake_ue, fake_llm, monkeypatch):  # noqa: F811
     _with_reference(monkeypatch)
+    _rounds(monkeypatch)
     monkeypatch.setenv("FAKE_CLAUDE_OUTPUTS", json.dumps([FINDING, {"ops": [PUSH]}]))
     assert run_pipeline.main(_args(tmp_path, "--fix-mode", "hybrid")) == run_pipeline.EXIT_PASS
     rep = _report(tmp_path)
@@ -199,6 +212,7 @@ def test_pipeline_style_round_that_breaks_a_gate_is_reverted(tmp_path, fake_ue, 
 def test_pipeline_style_round_text_ops_are_rejected(tmp_path, fake_ue, fake_llm, monkeypatch):  # noqa: F811
     """1b 후속 J-c — LLM 이 글자 크기를 바꾸려 해도(두 번) 가드가 거절해 라운드는 op 없이 끝나고 spec 글자는 그대로."""
     _with_reference(monkeypatch)
+    _rounds(monkeypatch)
     monkeypatch.setenv("FAKE_CLAUDE_OUTPUTS", json.dumps([FINDING, {"ops": [SHRINK]}, {"ops": [SHRINK]}]))
     assert run_pipeline.main(_args(tmp_path, "--fix-mode", "hybrid")) == run_pipeline.EXIT_PASS
     row = _report(tmp_path)["recorded"]["style_review"]["rounds"][0]
@@ -215,6 +229,20 @@ def test_style_round_off_in_deterministic_mode(tmp_path, fake_ue, monkeypatch): 
     # 1b 후속 G — 글자 맞춤은 deterministic 에서도 돈다(가짜 렌더 2×2 라 재지 못하고 건너뜀 — 시도가 늘지 않는다)
     assert sr["text_fit"]["action"] == "nothing_to_fit" and all("skipped" in t for t in sr["text_fit"]["texts"])
     assert _report(tmp_path)["attempt"] == 1
+
+
+def test_llm_rounds_are_off_by_default_and_the_text_fit_still_runs(tmp_path, fake_ue, fake_llm, monkeypatch):  # noqa: F811
+    """Phase 2(11-24 사용자 결정) — hybrid 모드에서도 기본은 라운드 0: LLM 외형 호출이 없고, 비교 기록(before)과 글자 결정적 맞춤은 그대로 돈다."""
+    assert CFG["style_review"]["rounds"] == 0 and CFG["style_review"]["text_fit"] is True
+    _with_reference(monkeypatch)
+    _fake_text_fit(monkeypatch, "font.letter_spacing", 90)
+    assert run_pipeline.main(_args(tmp_path, "--fix-mode", "hybrid")) == run_pipeline.EXIT_PASS
+    rep = _report(tmp_path)
+    sr = rep["recorded"]["style_review"]
+    assert sr["rounds_allowed"] == 0 and sr["rounds"] == [] and "before" in sr
+    assert sr["text_fit"]["action"] == "accepted" and [a.get("style_round") for a in rep["attempts"][1:]] == ["text_fit"]
+    argv = [json.loads(x)["argv"] for x in fake_llm.read_text(encoding="utf-8").splitlines()] if fake_llm.is_file() else []
+    assert not [a for a in argv if any("style_" in str(x) for x in a)]
 
 
 def _fake_text_fit(monkeypatch, path, value, size_path=None, size_value=None):

@@ -204,6 +204,41 @@ def sample_overrides(brief: dict) -> dict:
     return {k: v for k, v in out.items() if v}
 
 
+class StateRenders:
+    """진단의 상태 렌더 — render_state(overrides, name) → PNG(1b 후속 K · L 다음 — 컨셉 상태 · 게임 기본 상태 · 게이지 비율 …, 이름마다 다른 폴더: render_widget 은
+    빈 폴더에만 쓴다). prefetch(목록)면 render_widget states 한 호출로 모두 그려 둔다(Phase 2 — 호출마다 SDF 글꼴 준비 2 초를 고정으로 기다리던 것을 한 번으로,
+    상태 하나를 그리는 길은 같다). 묶음에 없거나 값이 다르거나 묶음이 실패하면 예전처럼 한 장씩. record = {batch, batch_s, engine_s, single, error}."""
+
+    def __init__(self, tc, wbp: str, adir, canvas):
+        self.tc, self.wbp, self.adir, self.canvas = tc, wbp, adir, list(canvas)
+        self.done: dict[str, tuple[dict, str]] = {}
+        self.record: dict = {"batch": 0, "single": 0}
+
+    def prefetch(self, requests: dict[str, dict]) -> None:
+        t0 = time.monotonic()
+        try:
+            r = self.tc.call("render_widget", {"asset_path": self.wbp, "output_dir": self.adir.resolve().as_posix(), "resolutions": [self.canvas],
+                                               "force_visible": False, "states": [{"name": n, "overrides": ov} for n, ov in requests.items()]},
+                             timeout=180.0 + 2.0 * len(requests))
+            self.done = {st["name"]: (requests[st["name"]], st["renders"][0]["png"]) for st in r["states"]}
+            self.record.update(batch=len(self.done), batch_s=round(time.monotonic() - t0, 2), engine_s=r.get("seconds"))
+        except (ToolchainError, KeyError, IndexError, TypeError) as exc:   # 옛 플러그인(states 를 모름) · 렌더 실패 — 한 장씩
+            self.done = {}
+            self.record.update(batch=0, error=f"{type(exc).__name__}: {exc}"[:300])
+
+    def __call__(self, overrides, name="state"):
+        hit = self.done.get(name)
+        if hit is not None and hit[0] == overrides:
+            return hit[1]
+        self.record["single"] += 1
+        out = self.adir / name
+        if out.is_dir() and any(out.iterdir()):                            # 묶음이 도중에 실패해 남긴 폴더
+            out = self.adir / f"{name}_single"
+        r = self.tc.call("render_widget", {"asset_path": self.wbp, "output_dir": out.resolve().as_posix(), "resolutions": [self.canvas],
+                                           "force_visible": False, "overrides": overrides, "prefix": name})
+        return r["renders"][0]["png"]
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 
 def run(run, opts, toolchain=None) -> dict:
@@ -287,12 +322,11 @@ def run(run, opts, toolchain=None) -> dict:
         artifacts["render_sample"] = "render_sample.png"
     except (ToolchainError, OSError, KeyError, IndexError) as exc:
         notes["sample_render_error"] = str(exc)
-    def render_state(overrides, name="state"):   # 1b 후속 K — 컨셉 상태(숨은 위젯 켜고 끔 — 진행률 · 글자는 spec 미리보기 그대로) 엔진 렌더
-        # 1b 후속 L 다음 — 상태 검사(게임 기본 상태 · 게이지 0 / 5 / 100 %)는 이름마다 다른 폴더(render_widget 은 빈 폴더에만 쓴다)
-        r = tc.call("render_widget", {"asset_path": wbp, "output_dir": (adir / name).resolve().as_posix(), "resolutions": [canvas],
-                                      "force_visible": False, "overrides": overrides, "prefix": name})
-        return r["renders"][0]["png"]
+    render_state = StateRenders(tc, wbp, adir, canvas)
     gates[APPEARANCE], diag = appearance_gate(run, attempt, "render" in artifacts, render_state)
+    notes["state_renders"] = render_state.record
+    if render_state.record.get("error"):
+        run.log(f"verify: state renders one by one — {render_state.record['error']}")
     if diag and diag.get("pictures"):
         artifacts["diagnosis"] = f"attempts/{attempt:03d}/diagnosis/{diag['pictures'][0]}"
     if run.path("compare.png").is_file():

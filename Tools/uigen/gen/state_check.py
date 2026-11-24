@@ -190,10 +190,12 @@ def explain_diff(img, concept, zone, ring, foot, extra=None) -> np.ndarray:
     extra = 더 넣을 설명 ΔE00 지도들(S4 (마) 글자 없는 판 ±2 px 이동 최소)."""
     from core import color
     img = np.asarray(img, np.float32)
-    lab = color.srgb_to_lab(img)
+    lab = color.srgb_to_lab(img[zone])          # 자리 안 픽셀만 잰다(끝에 자리 밖은 0)
 
     def de_to(est):
-        return color.delta_e00(lab, color.srgb_to_lab(np.asarray(est, np.float32))).astype(np.float32)
+        out = np.zeros(zone.shape, np.float32)
+        out[zone] = color.delta_e00(lab, color.srgb_to_lab(np.asarray(est, np.float32)[zone]))
+        return out
     big = np.float32(1e9)
     d = np.full(zone.shape, big, np.float32)
     est, ok = _near_estimate(img, ring)
@@ -336,7 +338,6 @@ def hidden_halo(spec: dict, boxes: list[dict], textures: dict, canvas, concept_a
     """S1 보강 — 접히는 영역을 껐을 때 정적 판에 남은 그 영역의 빛 · 넘침. → {"roots": [기록], "findings": [결함], "images": {"black", "gray", "white"}(접히는
     영역을 모두 끈 상태 — compare.png 띠), "toggles": [끈 영역 id], "renderer"}."""
     import cv2
-    from core import color
     W, H = int(canvas[0]), int(canvas[1])
     geo = {b["id"]: b for b in boxes}
     widgets = {w["id"]: w for w in spec.get("widgets", [])}
@@ -389,7 +390,7 @@ def hidden_halo(spec: dict, boxes: list[dict], textures: dict, canvas, concept_a
             plate = np.abs(img - base).max(axis=2) > 0.5
             if nm == "black" and render_off is not None:     # 엔진(접히는 영역 모두 끔) — 판이 그린 자리만, 보이는 엔진 글자 자리는 합성 그대로
                 img = np.where((plate & ~texts)[..., None], np.asarray(render_off, float), img)
-            de = np.where(plate & zone, color.delta_e00(color.srgb_to_lab(img), color.srgb_to_lab(base)), 0.0).astype(np.float32)
+            de = dg.delta_e(img, base, where=plate & zone)
             any_d |= plate & zone
             loc = np.where(zone, cv2.blur(de * m, (3, 3)) / cnt, 0.0)
             rec["local_max"][nm] = round(float(loc.max()), 2)
@@ -669,7 +670,7 @@ def text_trace(spec: dict, boxes: list[dict], canvas, concept_rgb, concept_a, pl
                 ex = None
                 if plates is not None:
                     tms[k] = _tone_matched(plates[k], img, ring, (x0, y0, x1, y1))
-                    dss[k] = dg._shift_min_de(img, tms[k], (x0, y0, x1, y1))
+                    dss[k] = dg._shift_min_de(img, tms[k], (x0, y0, x1, y1), where=z)      # 설명 · 선 판정 모두 자리 z 안만 본다
                     ex = [dss[k]]
                 d = explain_diff(img[y0:y1, x0:x1], concepts[k][y0:y1, x0:x1], z, ring, f, extra=ex)
                 c = cv2.blur(z.astype(np.float32), (TEXT_LOCAL, TEXT_LOCAL))
@@ -878,6 +879,78 @@ RADIAL_EDGE_PX = 2.5                            # 닦는 끝에서 이만큼(호
 RADIAL_ZONE_ALPHA = 0.1                         # 고리 자리 = 텍스처 알파가 이보다 큰 픽셀
 
 
+def radial_targets(spec_state: dict, boxes: list[dict]) -> list[tuple[dict, dict, dict, dict]]:
+    """원형 진행(고리) 대상 — 보이는 Image + brush.wipe → [(위젯, geometry, style, brush)]."""
+    geo = {b["id"]: b for b in boxes}
+    out = []
+    for w in spec_state.get("widgets", []):
+        st, g = w.get("style") or {}, geo.get(w["id"])
+        brush = st.get("brush") if isinstance(st.get("brush"), dict) else {}
+        if w.get("type") == "Image" and brush.get("wipe") and g and g.get("visible", True) and g["w"] > 0 and g["h"] > 0:
+            out.append((w, g, st, brush))
+    return out
+
+
+def gauge_targets(spec_state: dict, boxes: list[dict]) -> list[tuple[dict, dict, dict, dict, str, tuple]]:
+    """S2 대상 — 보이는 ProgressBar(채움 있음) → [(위젯, geometry, style, 채움 브러시, 채움 방향, 그려 볼 비율 — 가로가 아니면 빔)]."""
+    from gen import silhouette
+    geo = {b["id"]: b for b in boxes}
+    shaped = silhouette.bars(spec_state)
+    out = []
+    for w in spec_state.get("widgets", []):
+        if w.get("type") != "ProgressBar":
+            continue
+        g, st = geo.get(w["id"]), w.get("style") or {}
+        fill = st.get("fill") if isinstance(st.get("fill"), dict) else None
+        if not g or not g.get("visible", True) or g["w"] <= 0 or g["h"] <= 0 or not fill or fill.get("draw_as", "image") == "none":
+            continue
+        kind = st.get("bar_fill_type", "left_to_right")
+        percents = (BAR_STATES if w["id"] in shaped else GAUGE_STATES) if kind in ("left_to_right", "right_to_left") else ()
+        out.append((w, g, st, fill, kind, percents))
+    return out
+
+
+def percent_name(wid: str, p: float) -> str:
+    """비율 하나의 상태 렌더 이름(= 출력 폴더)."""
+    return f"state_{wid}_{int(round(float(p) * 100)):03d}"
+
+
+def state_requests(spec: dict, spec_state: dict, states: list[dict], boxes: list[dict], textures: dict, checks: bool = True) -> dict[str, dict]:
+    """진단이 쓸 상태 렌더 전부 — {이름: overrides}. 진단은 이 목록만 보고 렌더를 쓰고(단일 원천), verify 는 이 목록을 한 묶음으로 미리 그린다(Phase 2 — 호출마다
+    글꼴 준비 2 초를 기다리던 것을 한 번으로). 상태 하나의 렌더는 다른 렌더 결과에 기대지 않는다. checks False = 컨셉 상태만(state_checks off)."""
+    ov_state = {h["widget"]: {"visible": bool(h["drawn_in_concept"])} for h in states}
+    out: dict[str, dict] = {"state": ov_state}                                     # 컨셉 상태(숨은 위젯을 컨셉처럼 켜고 끔)
+    if not checks:
+        return out
+    roots = dg._hidden_roots(spec)
+    ov0 = {r: {"visible": False} for r in roots}
+    if roots:
+        out["state_off"] = ov0                                                      # S1 — 게임 기본 상태
+    toggles = [r["id"] for r in territory.toggle_regions(spec)]
+    if toggles:
+        out["state_toggles_off"] = {r: {"visible": False} for r in sorted(set(roots) | set(toggles))}   # S1 보강 — 접히는 영역 모두 끔
+    pct = [(w["id"], p) for w, _g, _st, _fill, _kind, percents in gauge_targets(spec_state, boxes) for p in percents]          # S2
+    pct += [(w["id"], p) for w, _g, _st, brush in radial_targets(spec_state, boxes) if brush.get("asset") in textures for p in RADIAL_STATES]
+    for wid, p in pct:
+        out[percent_name(wid, p)] = {**ov_state, wid: {**ov_state.get(wid, {}), "percent": float(p)}}
+    off_ids: set[str] = set()
+    for r in roots:
+        off_ids |= dg._subtree(spec, r)
+    texts = [w["id"] for w in spec.get("widgets", []) if w.get("type") in backdrop.TEXT_TYPES]
+    out["state_notext"] = {**ov0, **{t: {"text": ""} for t in texts if t not in off_ids}}                                       # S4 — 모든 글자 빈 값
+    vals = value_overrides(spec)
+    if vals:
+        out["state_values"] = {**ov0, **vals}                                       # S4 — 값 글자를 다른 값으로
+    for g in texture_groups(spec, textures):                                        # S4 숨는 묶음 — 그 위젯만 켠 글자 없는 상태
+        off_g: set[str] = set()
+        for r in roots:
+            if r != g["root"]:
+                off_g |= dg._subtree(spec, r)
+        out[f"state_notext_{g['root']}"] = {**{r: {"visible": False} for r in roots if r != g["root"]}, g["root"]: {"visible": True},
+                                            **{t: {"text": ""} for t in texts if t not in off_g}}
+    return out
+
+
 def radial_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s: dict, base, render_pct=None) -> dict:
     """원형 진행(고리 — Image + brush.wipe, 전투 HUD 동작 11-23) — 비율 RADIAL_STATES 의 엔진 렌더(render_pct — 없으면 합성)를 본다:
       radial_full     100 % 가 컨셉 상태(base)와 같다 — 고리 자리
@@ -895,12 +968,8 @@ def radial_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s
         if w.get("type") in backdrop.TEXT_TYPES and g and g.get("visible", True) and g["w"] > 0:
             textz |= dg._box_mask((H, W), _gbox(g), dg.HIDDEN_PAD + _glow(w))
     out = {"gauges": [], "findings": [], "images": {}, "renderer": "composite" if render_pct is None else "engine"}
-    for w in spec_state.get("widgets", []):
-        st = w.get("style") or {}
-        brush = st.get("brush") if isinstance(st.get("brush"), dict) else {}
-        wipe, g = brush.get("wipe"), geo.get(w["id"])
-        if w.get("type") != "Image" or not wipe or not g or not g.get("visible", True) or g["w"] <= 0 or g["h"] <= 0:
-            continue
+    for w, g, st, brush in radial_targets(spec_state, boxes):
+        wipe = brush["wipe"]
         tex = textures.get(brush.get("asset"))
         rec = {"widget": w["id"], "percent": st.get("percent", 1.0), "fill_type": f"radial {wipe.get('mode', 'clockwise')}", "track_alpha": wipe.get("track_alpha", 0)}
         if tex is None:
@@ -936,7 +1005,7 @@ def radial_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s
         mode = wipe.get("mode", "clockwise")
 
         def find(check, p, m, a, b, cause):
-            loc = masked_local(dg.delta_e(a, b), m, 0.0)
+            loc = masked_local(dg.delta_e(a, b, where=m), m, 0.0)
             fl = (loc > T) & m
             rec.setdefault("checks", {})[f"{check}_{p:g}"] = {"max": round(float(loc[m].max()), 2) if m.any() else 0.0, "px": int(fl.sum())}
             for bl in _blobs(fl, loc, min_area):
@@ -976,23 +1045,15 @@ def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s:
     out = {"gauges": [], "findings": [], "images": {}, "renderer": "composite" if render_pct is None else "engine"}
     from gen import silhouette
     shaped = silhouette.bars(spec_state)
-    for w in spec_state.get("widgets", []):
-        if w.get("type") != "ProgressBar":
-            continue
-        g = geo.get(w["id"])
-        st = w.get("style") or {}
-        fill = st.get("fill") if isinstance(st.get("fill"), dict) else None
-        if not g or not g.get("visible", True) or g["w"] <= 0 or g["h"] <= 0 or not fill or fill.get("draw_as", "image") == "none":
-            continue
-        kind = st.get("bar_fill_type", "left_to_right")
+    for w, g, st, fill, kind, percents in gauge_targets(spec_state, boxes):
         rec = {"widget": w["id"], "percent": st.get("percent"), "fill_type": kind}
-        if kind not in ("left_to_right", "right_to_left"):
+        if not percents:
             out["gauges"].append({**rec, "skipped": "only horizontal fills"})
             continue
         tb, src = track_box(spec_state, w, g)
         rec.update(track=[round(v, 1) for v in tb], track_from=src)
         imgs, used = {}, {}
-        for p in (BAR_STATES if w["id"] in shaped else GAUGE_STATES):
+        for p in percents:
             img = None
             if render_pct is not None:
                 try:
@@ -1020,7 +1081,7 @@ def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s:
                 if loc_.max() <= T:
                     rec["states"][f"{p:g}"] = {"outside_max": round(float(loc_.max()), 2), "outside_px": 0}
                     continue
-            loc = masked_local(dg.delta_e(img, base), region, cover)
+            loc = masked_local(dg.delta_e(img, base, where=region), region, cover)
             fl = (loc > T) & region
             rec["states"][f"{p:g}"] = {"outside_max": round(float(loc[region].max()), 2) if region.any() else 0.0, "outside_px": int(fl.sum())}
             for b in _blobs(fl, loc, min_area):
@@ -1050,7 +1111,7 @@ def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s:
         endb = [x + tw - k - 2, y + 0.25 * th, k, 0.5 * th] if kind == "left_to_right" else [x + 2, y + 0.25 * th, k, 0.5 * th]
         em = dg._box_mask((H, W), endb) & ~textz
         if em.any():
-            same = float((dg.delta_e(imgs[1.0], imgs[0.0])[em] < END_SAME_DE).mean())
+            same = float((dg.delta_e(imgs[1.0], imgs[0.0], where=em)[em] < END_SAME_DE).mean())
             rec["end_unchanged_frac"] = round(same, 3)
             if same > END_SAME_FRAC:
                 out["findings"].append({"stage": "state", "code": "E8", "check": "gauge_end_short", "percent": 1.0, "box": dg._bbox(em), "area": int(em.sum()),
@@ -1066,7 +1127,7 @@ def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s:
                 ke = max(END_COLS, int(round(END_SHAPE_FRAC * tw)))
                 ez = dg._box_mask((H, W), [x + tw - ke, y, ke, th] if kind == "left_to_right" else [x, y, ke, th]) & ~textz
                 frame = ez & ~hole
-                d10 = dg.delta_e(imgs[1.0], imgs[0.0])
+                d10 = dg.delta_e(imgs[1.0], imgs[0.0], where=ez)
                 rec["end_shape"] = {"cols": ke, "frame_px": int(frame.sum()), "hole_px": int((ez & hole).sum())}
                 if frame.any():
                     loc = masked_local(d10, frame, 0.0)
@@ -1089,7 +1150,7 @@ def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s:
         tz = dg._box_mask((H, W), tb) & ~textz
         if used[0.0] == "engine" and tz.any():
             nofill = backdrop.compose(_with_percent(spec_state, w["id"], 0.0, no_fill=True), boxes, textures, canvas, (0, 0, 0))[0]
-            loc = masked_local(dg.delta_e(imgs[0.0], nofill), tz, cover)
+            loc = masked_local(dg.delta_e(imgs[0.0], nofill, where=tz), tz, cover)
             fl = (loc > T) & tz
             rec["zero_max"] = round(float(loc[tz].max()), 2)
             for b in _blobs(fl, loc, min_area):
@@ -1103,7 +1164,7 @@ def gauge_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s:
 def _diff_local(a, b, m, cover: float):
     """masked_local(ΔE00(a, b), m, cover) 를 두 그림이 실제로 다른(채널 차 > 0) 자리 둘레 창에서만 — 다른 픽셀이 없는 곳의 값은 0 이라 전 화면으로 잰 것과 같다.
     → (잘라 낸 국소 지도, 왼쪽 위 (x, y)). 다른 곳이 없으면 1 × 1 의 0."""
-    d = (np.abs(np.asarray(a, np.float32) - np.asarray(b, np.float32)).max(axis=2) > 0) & m
+    d = (np.asarray(a) != np.asarray(b)).any(axis=2) & m
     if not d.any():
         return np.zeros((1, 1)), (0, 0)
     H, W = m.shape

@@ -27,7 +27,7 @@ UI 자동 생성 파이프라인(설계 [ui-autogen-pipeline.md](../../Docs/Desi
 | `export_widget_spec` | WBP → spec + revision(정규 JSON SHA1) + `unsupported[]` + 텍스처 설정 + 바인딩 + GUID 맵 점검 | 어휘 밖 위젯은 locked 로 |
 | `compile_widget_blueprint` | 컴파일 + `missing_bindings[]` | |
 | `list_bind_widgets` | C++ 클래스(또는 WBP 부모)의 BindWidget 계약 | |
-| `render_widget` | 오프스크린 렌더(감마 보정 PNG) + 같은 그리기의 geometry · 탐침 색 | 출력은 렌더 루트 아래 새 · 빈 폴더 |
+| `render_widget` | 오프스크린 렌더(감마 보정 PNG) + 같은 그리기의 geometry · 탐침 색. `states[{name, overrides}]` = 여러 상태를 한 호출로(상태마다 새 인스턴스 · 글꼴 준비 대기 한 번 · geometry 없음) | 출력은 렌더 루트 아래 새 · 빈 폴더(묶음은 `<output_dir>/<이름>/` 마다) |
 | `save_widget_run` · `discard_run_packages` | run 폴더 저장(finalize) · 저장 안 한 run 패키지 폐기 | run 폴더(접두 아래 하위 폴더)만 · 폐기는 디스크에 저장된 적 없는 것만 |
 | `import_font_family` | 폰트 파일(TTF/OTF) → `UFontFace` 여러 개 + 컴포지트 `UFont` `F_<family>`(Runtime 캐시, 타입페이스 = spec 굵기 이름 Regular · Bold · Light · Italic · Bold Italic) → 저장(기본) | `WidgetFontOutputPaths` 아래 하위 폴더만 · 원본은 `WidgetImportSourceRoots` 안 · 덮어쓰기 거부(하나라도 있으면 아무것도 안 만듦) · 전역 더티 비교(밖이 더티면 만든 것을 내림) · 엔진 `UFontFileImportFactory` 순서(대화창 없이) |
 

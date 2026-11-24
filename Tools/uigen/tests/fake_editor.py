@@ -267,6 +267,14 @@ class FakeEditor:
         if not w["compiled"] or self._compile(w)["errors"]:
             raise FakeBridgeError("NOT_COMPILED", "not compiled cleanly")
         out_dir = pathlib.Path(p["output_dir"])
+        if p.get("states"):                                   # Phase 2 상태 묶음 — 상태마다 한 장씩 부른 것과 같다(<output_dir>/<이름>/)
+            if p.get("overrides") or p.get("probes"):
+                raise FakeBridgeError("STATES_WITH_OVERRIDES", "states cannot be combined with overrides or probes")
+            base = {k: v for k, v in p.items() if k != "states"}
+            rows = [{"name": st["name"], "renders": self.t_render_widget({**base, "output_dir": str(out_dir / st["name"]), "prefix": st["name"],
+                                                                          "overrides": st.get("overrides") or {}})["renders"]} for st in p["states"]]
+            return {"asset_path": w["path"], "output_dir": out_dir.as_posix(), "renders": [], "states": rows, "probes": [], "scale": 1,
+                    "force_visible": bool(p.get("force_visible")), "seconds": 0.01}
         if out_dir.exists() and any(out_dir.iterdir()):
             raise FakeBridgeError("OUTPUT_DIR_NOT_EMPTY", str(out_dir))
         out_dir.mkdir(parents=True, exist_ok=True)

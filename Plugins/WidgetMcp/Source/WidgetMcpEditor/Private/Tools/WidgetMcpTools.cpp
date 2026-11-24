@@ -317,7 +317,7 @@ namespace WidgetMcpTools
 			});
 
 		Dispatcher.RegisterTool(TEXT("render_widget"),
-			TEXT("Offscreen-render a compiled Widget Blueprint to PNG (gamma-corrected per design 12-1 A6) plus the paint-space geometry of every widget from the same draw. Params: asset_path, output_dir (new/empty folder under [WidgetMcp] WidgetRenderOutputRoots), resolutions? ([[w,h],...], default [[1920,1080]]), force_visible? (collapsed/hidden widgets drawn — layout checks), overrides? ({widget: {visible?, percent?, text?}}), scale? (1), draws? (2), prefix? (render), probes? ([{id, at:[x,y]}] — color after correction, first resolution)."),
+			TEXT("Offscreen-render a compiled Widget Blueprint to PNG (gamma-corrected per design 12-1 A6) plus the paint-space geometry of every widget from the same draw. Params: asset_path, output_dir (new/empty folder under [WidgetMcp] WidgetRenderOutputRoots), resolutions? ([[w,h],...], default [[1920,1080]]), force_visible? (collapsed/hidden widgets drawn — layout checks), overrides? ({widget: {visible?, percent?, text?}}), states? ([{name, overrides?}] — several states in one call: each gets a fresh instance drawn exactly like a single call, written to <output_dir>/<name>/<name>_WxH.png (each state folder new/empty), one font warm-up for all; returns states[{name, renders}] without geometry; not with overrides/probes), scale? (1), draws? (2), prefix? (render), probes? ([{id, at:[x,y]}] — color after correction, first resolution)."),
 			[](FEditorMcpContext& Context, FEditorMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				UWidgetBlueprint* WBP = LoadWbpParam(Context, OutError);
@@ -352,9 +352,9 @@ namespace WidgetMcpTools
 				R.Scale = static_cast<float>(Context.Request.GetOptionalNumber(TEXT("scale"), 1.0));
 				R.Draws = static_cast<int32>(Context.Request.GetOptionalNumber(TEXT("draws"), 2));
 				R.Prefix = Context.Request.GetOptionalString(TEXT("prefix"), TEXT("render"));
-				if (const TSharedPtr<FJsonObject> Overrides = ObjectParam(Context, TEXT("overrides")))
+				const auto ReadOverrides = [](const FJsonObject& Overrides, TMap<FString, WidgetMcpRender::FOverride>& Out)
 				{
-					for (const TPair<FString, TSharedPtr<FJsonValue>>& P : Overrides->Values)
+					for (const TPair<FString, TSharedPtr<FJsonValue>>& P : Overrides.Values)
 					{
 						const TSharedPtr<FJsonObject> O = P.Value.IsValid() ? P.Value->AsObject() : nullptr;
 						if (!O.IsValid()) { continue; }
@@ -365,7 +365,28 @@ namespace WidgetMcpTools
 						if (O->TryGetBoolField(TEXT("visible"), bVisible)) { Ov.bVisible = bVisible; }
 						if (O->TryGetNumberField(TEXT("percent"), Percent)) { Ov.Percent = static_cast<float>(Percent); }
 						if (O->TryGetStringField(TEXT("text"), Text)) { Ov.Text = Text; }
-						R.Overrides.Add(P.Key, Ov);
+						Out.Add(P.Key, Ov);
+					}
+				};
+				if (const TSharedPtr<FJsonObject> Overrides = ObjectParam(Context, TEXT("overrides")))
+				{
+					ReadOverrides(*Overrides, R.Overrides);
+				}
+				const TArray<TSharedPtr<FJsonValue>>* States = nullptr;
+				if (Context.Request.Params->TryGetArrayField(TEXT("states"), States))
+				{
+					for (const TSharedPtr<FJsonValue>& V : *States)
+					{
+						const TSharedPtr<FJsonObject>* O = nullptr;
+						WidgetMcpRender::FState St;
+						if (!V.IsValid() || !V->TryGetObject(O) || !(*O)->TryGetStringField(TEXT("name"), St.Name))
+						{
+							OutError = WidgetMcp::MakeMcpError(EditorMcpErrorCodes::BadRequest, TEXT("states[] items must be {name, overrides?}"));
+							return nullptr;
+						}
+						const TSharedPtr<FJsonObject>* StateOverrides = nullptr;
+						if ((*O)->TryGetObjectField(TEXT("overrides"), StateOverrides)) { ReadOverrides(**StateOverrides, St.Overrides); }
+						R.States.Add(MoveTemp(St));
 					}
 				}
 				const TArray<TSharedPtr<FJsonValue>>* Probes = nullptr;

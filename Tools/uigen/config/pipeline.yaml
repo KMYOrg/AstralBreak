@@ -38,7 +38,7 @@ limits:
   codex_calls_per_run: 20
 
 backends:
-  allowed: [procedural, codex]           # 1b-5 — codex 연결(gen/codex.py). comfy 는 Phase 5
+  allowed: [procedural, codex]           # 1b-5 — codex 연결(gen/codex.py). comfy 는 11-24 조정으로 삭제(설계 §11 'Phase 조정' — 다시 여는 조건)
 
 codex:                                   # §7 — 공식 codex CLI · built-in image_gen 만 (gen/codex.py, 1b-2)
   cli: auto                              # auto = PATH 의 codex — npm .cmd 래퍼면 node + codex.js 로 직접(cmd.exe 가 프롬프트를 해석하지 않게) · 또는 [exe, …]
@@ -80,7 +80,8 @@ extract:                                 # 1b 후속 A — 컨셉에서 따오�
   text_erase_ocr: true                   # 1b 후속 L 다음 — 글자 지우기 다음 V7: 컨셉 OCR 검출(refine_concept_ocr.json — run 에 한 번) 중 글자 상자와 겹친 상자 + 6 px 를 지울 수 있는
                                          # 범위에 합침(획 찾기 · rect_e — 상자째 지우지 않음). V6 반복 보강 = 결함 · OCR 잔여물 남은 글자만 여백 단계 @1 · @2(refine.ERASE_RETRIES)
   text_fill_complex: none                # V8 — 복잡 배경 글자의 생성형 메우기 백엔드 자리: none | comfy_flux_fill | comfy_qwen_edit (11-20 사용자 결정 — 인터페이스만,
-                                         # 워크플로 · 모델은 Phase 5 ComfyUI 와 함께. 있으면 같은 마스크 · 합성 · V1 · S4 고르기를 거친다). 지금은 판정 · 기록 · 수동 확인 줄만
+                                         # 워크플로 · 모델은 ComfyUI 와 함께 — 11-24 조정으로 삭제, 다시 열 때만. 있으면 같은 마스크 · 합성 · V1 · S4 고르기를 거친다).
+                                         # 지금은 판정 · 기록 · 수동 확인 줄만
   complex_background:                    # V8 — 지울 자리 둘레 6 px 띠의 엣지 밀도(미리 곱한 루마 소벨 > 40 비율) · 색 분산(L* 표준편차)이 둘 다 넘으면 복잡 배경
     edge_frac: 0.35
     l_std: 12.0
@@ -161,7 +162,9 @@ gauge_fill:                              # 1b 후속 F — 따온 프레임 위 
                                          # (<게이지>EndCap · procedural concept_end_cap)가 100 % 에서 호를 넘는 부분을 덮는다. false = 덮개 없음(100 % 에 호를 덮음 — S2 오류)
 
 style_review:                            # 1b 후속 C — 게이트 통과 뒤 외형 검토 라운드(stages/style.py). 합격 판정은 게이트만, 라운드 뒤 게이트가 깨지면 그 라운드를 버린다
-  rounds: 1                              # 0 = 끔. concept 모드(reference.png 있음) · fix.mode ≠ deterministic 일 때만 돈다
+  rounds: 0                              # 0 = LLM 라운드 끔(Phase 2 — 11-24 사용자 결정: 11-18 이후 41 run 에서 지적 없음 29 · 되돌림 10 · 받아들임 2, 그 2 도 실패한
+                                         # 시험 run 의 자리표시 투명도 한 줄). 비교 기록(style/before) · 아래 text_fit 은 그대로 돈다. 1 이상이면 concept 모드 ·
+                                         # fix.mode ≠ deterministic 일 때 라운드를 돈다(코드 · 프롬프트는 남김)
   max_ops: 16                            # 라운드 patch 의 op 상한
   max_replace_per_round: 1               # replace_asset(codex 다시 편집 · 생성) — run 의 codex 상한(limits.codex_calls_per_run) 안, 한 번에 하나
   replace_guard_tol: 0.02                # 1b 후속 G — 다시 따온 에셋의 충실도(실루엣 IoU · 장식선 F1 · 모서리 F1 최소)가 라운드 전보다 이만큼 넘게 낮으면 그 에셋만 옛 것으로

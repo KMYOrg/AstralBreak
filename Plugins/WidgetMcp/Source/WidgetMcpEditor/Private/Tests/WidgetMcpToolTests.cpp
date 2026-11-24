@@ -19,7 +19,9 @@
 #include "ImageUtils.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/DateTime.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/SecureHash.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Tests/WidgetMcpTestWidgets.h"
 #include "Tools/WidgetMcpTools.h"
@@ -555,6 +557,47 @@ bool FWidgetMcpRenderTest::RunTest(const FString& Parameters)
 	}
 	C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s"})"), *Wbp, *OutA));
 	TestEqual(TEXT("non-empty output_dir refused"), C.Reason, FString(TEXT("OUTPUT_DIR_NOT_EMPTY")));
+
+	// 상태 묶음(uigen Phase 2) — 상태마다 한 장씩 부른 것과 PNG 가 바이트까지 같고, 이름 · 섞어 쓰기 · 빈 폴더를 지킨다
+	{
+		const TPair<FString, FString> Cases[] = {
+			{ TEXT("plain"), TEXT("{}") },
+			{ TEXT("label"), TEXT(R"({"Label":{"text":"9.9"}})") },
+			{ TEXT("gauge"), TEXT(R"({"Gauge":{"percent":0.15}})") },
+			{ TEXT("glow"), TEXT(R"({"Glow":{"visible":true},"Panel":{"visible":false}})") },
+		};
+		const FString OutS = FPaths::Combine(H.DiskDir, TEXT("render_states"));
+		FString List;
+		for (const TPair<FString, FString>& St : Cases) { List += FString::Printf(TEXT("%s{\"name\":\"%s\",\"overrides\":%s}"), List.IsEmpty() ? TEXT("") : TEXT(","), *St.Key, *St.Value); }
+		const FCall Batch = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","resolutions":[[640,360]],"states":[%s]})"), *Wbp, *OutS, *List));
+		if (TestTrue(FString::Printf(TEXT("states render ok (%s %s)"), *Batch.Code, *Batch.Message), Batch.bOk))
+		{
+			const TArray<TSharedPtr<FJsonValue>>& States = Batch.Result->GetArrayField(TEXT("states"));
+			TestEqual(TEXT("one result per state"), States.Num(), static_cast<int32>(UE_ARRAY_COUNT(Cases)));
+			TSet<FString> Hashes;
+			for (int32 i = 0; i < States.Num() && i < static_cast<int32>(UE_ARRAY_COUNT(Cases)); ++i)
+			{
+				TestEqual(TEXT("state order kept"), States[i]->AsObject()->GetStringField(TEXT("name")), Cases[i].Key);
+				const FString BatchPng = States[i]->AsObject()->GetArrayField(TEXT("renders"))[0]->AsObject()->GetStringField(TEXT("png"));
+				const FString OutOne = FPaths::Combine(H.DiskDir, TEXT("render_one_") + Cases[i].Key);
+				C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","resolutions":[[640,360]],"overrides":%s})"), *Wbp, *OutOne, *Cases[i].Value));
+				if (!TestTrue(FString::Printf(TEXT("single render of '%s' ok"), *Cases[i].Key), C.bOk)) { continue; }
+				TArray<uint8> A, B;
+				const bool bRead = FFileHelper::LoadFileToArray(A, *BatchPng) && FFileHelper::LoadFileToArray(B, *C.Result->GetArrayField(TEXT("renders"))[0]->AsObject()->GetStringField(TEXT("png")));
+				TestTrue(FString::Printf(TEXT("state '%s' PNG is byte-identical to the single render"), *Cases[i].Key), bRead && A.Num() > 0 && A == B);
+				Hashes.Add(FMD5::HashBytes(A.GetData(), A.Num()));
+			}
+			TestEqual(TEXT("the four states are different pictures"), Hashes.Num(), static_cast<int32>(UE_ARRAY_COUNT(Cases)));
+		}
+		C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","states":[{"name":"plain"}]})"), *Wbp, *OutS));
+		TestEqual(TEXT("non-empty state folder refused"), C.Reason, FString(TEXT("OUTPUT_DIR_NOT_EMPTY")));
+		C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","states":[{"name":"twice"},{"name":"Twice"}]})"), *Wbp, *OutS));
+		TestEqual(TEXT("duplicate state name refused"), C.Reason, FString(TEXT("STATE_NAME")));
+		C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","states":[{"name":"../up"}]})"), *Wbp, *OutS));
+		TestEqual(TEXT("state name that leaves the folder refused"), C.Reason, FString(TEXT("STATE_NAME")));
+		C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","states":[{"name":"mixed"}],"overrides":{"Label":{"text":"1"}}})"), *Wbp, *OutS));
+		TestEqual(TEXT("states with overrides refused"), C.Reason, FString(TEXT("STATES_WITH_OVERRIDES")));
+	}
 	C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"Saved/WidgetMcpRender"})"), *Wbp));
 	TestEqual(TEXT("output outside WidgetRenderOutputRoots"), C.Reason, FString(TEXT("DISK_ROOT")));
 	H.Discard();

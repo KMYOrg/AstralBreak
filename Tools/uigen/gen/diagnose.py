@@ -116,8 +116,17 @@ def _load_l(path) -> np.ndarray:
         return np.asarray(im.convert("L"), float) / 255.0
 
 
-def delta_e(a, b) -> np.ndarray:
-    return color.delta_e00(color.srgb_to_lab(a), color.srgb_to_lab(b)).astype(np.float32)
+def delta_e(a, b, where=None) -> np.ndarray:
+    """픽셀마다 ΔE00 — 색이 같은 픽셀은 정확히 0 이라 다른 픽셀만 잰다(Phase 2 — 화면의 몇 % 만 다른데 전 화면 Lab · ΔE00 을 잴 때마다 약 0.9 초였다).
+    where(bool)를 주면 그 자리만 재고 밖은 0 — 부르는 쪽이 그 밖의 값을 쓰지 않을 때만."""
+    a, b = np.asarray(a)[..., :3], np.asarray(b)[..., :3]
+    m = (a != b).any(axis=-1)
+    if where is not None:
+        m &= where
+    out = np.zeros(m.shape, np.float32)
+    if m.any():
+        out[m] = color.delta_e00(color.srgb_to_lab(a[m]), color.srgb_to_lab(b[m]))
+    return out
 
 
 def local_mean(de) -> np.ndarray:
@@ -1490,19 +1499,29 @@ def _smooth_bg(img, src) -> tuple[np.ndarray, np.ndarray]:
     return out, done
 
 
-def _shift_min_de(a, b, box, r: int = SHIFT_TOL) -> np.ndarray:
-    """ΔE00(a, b 를 ±r px 옮긴 것)의 최소 — 상자 [x0, y0, x1, y1) 안만(판이 구조선을 1 ~ 2 px 어긋나게 다시 그림)."""
+def _shift_min_de(a, b, box, r: int = SHIFT_TOL, where=None) -> np.ndarray:
+    """ΔE00(a, b 를 ±r px 옮긴 것)의 최소 — 상자 [x0, y0, x1, y1) 안만(판이 구조선을 1 ~ 2 px 어긋나게 다시 그림).
+    where(bool, 상자 좌표)를 주면 그 자리만 재고 밖은 0. 제자리에서 색이 같은 픽셀은 최소가 0 이라 안 잰다(Phase 2 — 옮길 때마다 판 전체를 실수로 바꾸고
+    Lab 을 다시 구했다)."""
     x0, y0, x1, y1 = box
     H, W = np.shape(a)[:2]
-    la = color.srgb_to_lab(np.asarray(a, float)[y0:y1, x0:x1])
-    best = None
-    for dy in range(-r, r + 1):
-        for dx in range(-r, r + 1):
-            ys = np.clip(np.arange(y0, y1) + dy, 0, H - 1)
-            xs = np.clip(np.arange(x0, x1) + dx, 0, W - 1)
-            d = color.delta_e00(la, color.srgb_to_lab(np.asarray(b, float)[np.ix_(ys, xs)]))
-            best = d if best is None else np.minimum(best, d)
-    return np.asarray(best, np.float32)
+    A = np.asarray(np.asarray(a)[y0:y1, x0:x1, :3], float)
+    yi, xi = np.clip(np.arange(y0 - r, y1 + r), 0, H - 1), np.clip(np.arange(x0 - r, x1 + r), 0, W - 1)
+    B = np.asarray(np.asarray(b)[np.ix_(yi, xi)][..., :3], float)               # 화면 끝은 끝 픽셀 되풀이(예전 clip 과 같음)
+    h, w = A.shape[:2]
+    todo = (A != B[r:r + h, r:r + w]).any(axis=-1)
+    if where is not None:
+        todo &= where
+    best = np.zeros((h, w), np.float32)
+    ty, tx = np.nonzero(todo)
+    if len(ty):
+        la, lb = color.srgb_to_lab(A[ty, tx]), color.srgb_to_lab(B)
+        low = np.full(len(ty), np.inf)
+        for dy in range(2 * r + 1):
+            for dx in range(2 * r + 1):
+                low = np.minimum(low, color.delta_e00(la, lb[ty + dy, tx + dx]))
+        best[ty, tx] = low
+    return best
 
 
 def glyph_residue(ref_text, comp, gm: dict, texts: list[dict], notext_black=None, render=None, de_min: float = DEFAULTS["residue_de"],
@@ -2139,10 +2158,14 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
     heat = np.maximum(np.where(text_zone, 0.0, np.maximum(loc_b, loc_g)), loc_t)
     # 사람 눈 그림의 가운데 = 컨셉 상태 렌더(verify 가 hidden_state_split 으로 숨은 위젯을 컨셉처럼 켜고 끈 실제 엔진 렌더) — 없으면 기계 상태 맞춤(base)
     shown = base
+    sc_mode = str(s.get("state_checks") or "record")
+    reqs: dict[str, dict] = {}
     if render_state is not None:
-        ov = {h["widget"]: {"visible": bool(h["drawn_in_concept"])} for h in states}
+        reqs = state_check.state_requests(spec, spec_state, states, boxes, textures, checks=sc_mode != "off")
+        if hasattr(render_state, "prefetch"):                # verify — 상태 렌더를 한 묶음으로 미리(Phase 2). 못 하면 아래에서 한 장씩
+            render_state.prefetch(reqs)
         try:
-            sp = render_state(ov)
+            sp = render_state(reqs["state"])
             sr = _load_rgb(sp) if sp else None
             if sr is not None and sr.shape[:2] == (H, W):
                 shown = sr
@@ -2171,36 +2194,33 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
     # 상태 검사(1b 후속 L 다음 — gen/state_check): S1 숨김 흔적(시작 때 숨는 위젯을 끈 게임 기본 상태 — 검정 엔진 렌더 · 회색 · 흰 바탕 합성, 숨는 글자 상자도
     # 빼지 않음 = S3) · S2 게이지 끝(진행률 0 · 0.05 · 1.0). 엔진 렌더(verify render_state)가 없으면 합성(정답 묶음 · 회귀 묶음 오프라인) — 기록만(record) · 오류(error, E8)
     band = None
-    sc_mode = str(s.get("state_checks") or "record")
     if sc_mode != "off":
         sc: dict = {"mode": sc_mode}
         try:
             engine = render_state is not None and bool(rec["state"].get("render"))
             roots = _hidden_roots(spec)
             rend_off = None
-            if engine and roots:
+            if engine and "state_off" in reqs:
                 try:
-                    rend_off = _state_render(render_state, {r: {"visible": False} for r in roots}, "state_off", (H, W))
+                    rend_off = _state_render(render_state, reqs["state_off"], "state_off", (H, W))
                 except Exception as exc:  # noqa: BLE001 — 기록하고 합성으로
                     sc["render_off_error"] = f"{type(exc).__name__}: {exc}"[:200]
             glyphs = {k: (v["concept"] | v["concept_cand"]) for k, v in gm.items()}
             ht = state_check.hidden_trace(spec, boxes, textures, canvas, rc0, ra0, states, glyphs, s, render_off=rend_off)
             # S1 보강 — 접히는 영역(시작 때 숨음 · flag)을 모두 끈 상태의 남은 빛
             rend_tog = None
-            from gen import territory
-            togs = [r_["id"] for r_ in territory.toggle_regions(spec)]
-            if engine and togs:
+            if engine and "state_toggles_off" in reqs:
                 try:
-                    rend_tog = _state_render(render_state, {r: {"visible": False} for r in sorted(set(roots) | set(togs))}, "state_toggles_off", (H, W))
+                    rend_tog = _state_render(render_state, reqs["state_toggles_off"], "state_toggles_off", (H, W))
                 except Exception as exc:  # noqa: BLE001 — 기록하고 합성으로
                     sc["render_toggles_error"] = f"{type(exc).__name__}: {exc}"[:200]
             hh = state_check.hidden_halo(spec, boxes, textures, canvas, ra0, states, s, render_off=rend_tog)
-            ov_state = {h["widget"]: {"visible": bool(h["drawn_in_concept"])} for h in states}
             rp = None
             if engine:
                 def rp(wid, p):
-                    ov = {**ov_state, wid: {**ov_state.get(wid, {}), "percent": float(p)}}
-                    return _state_render(render_state, ov, f"state_{wid}_{int(round(float(p) * 100)):03d}", (H, W))
+                    name = state_check.percent_name(wid, p)
+                    img = _state_render(render_state, reqs[name], name, (H, W))
+                    return None if img is None else img.astype(np.uint8)          # PNG 값 그대로(정수) — 비율마다 전 화면 실수 그림을 들고 있지 않게
             base_g = shown if engine else comp_state
             ref_png = _load_rgb(rd / "reference.png")
             gs = state_check.gauge_states(spec_state, boxes, textures, canvas, s, base_g, render_pct=rp, ref_png=ref_png)
@@ -2218,13 +2238,10 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                 plate = notext_layers(rd, nt, spec) if nt.get("used") and (rd / str(nt.get("color"))).is_file() and (rd / str(nt.get("alpha"))).is_file() else None
                 r_nt = r_val = None
                 if engine:
-                    ov0 = {r_: {"visible": False} for r_ in roots}
-                    ov_nt = {**ov0, **{w_["id"]: {"text": ""} for w_ in spec.get("widgets", []) if w_.get("type") in backdrop.TEXT_TYPES and w_["id"] not in off_ids}}
                     try:
-                        r_nt = _state_render(render_state, ov_nt, "state_notext", (H, W))
-                        vals = state_check.value_overrides(spec)
-                        if vals and r_nt is not None:
-                            r_val = _state_render(render_state, {**ov0, **vals}, "state_values", (H, W))
+                        r_nt = _state_render(render_state, reqs["state_notext"], "state_notext", (H, W))
+                        if "state_values" in reqs and r_nt is not None:
+                            r_val = _state_render(render_state, reqs["state_values"], "state_values", (H, W))
                     except Exception as exc:  # noqa: BLE001 — 기록하고 합성으로
                         sc["render_text_error"] = f"{type(exc).__name__}: {exc}"[:200]
                 # S4 숨는 묶음(글자 지우기 마감) — 텍스처째 숨는 위젯(배너)은 그것만 켠 글자 없는 상태로(합성 · 엔진 visible + text "")
@@ -2239,10 +2256,8 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                                     for k_, bg_ in (("black", (0, 0, 0)), ("gray", backdrop.GRAY), ("white", (255, 255, 255)))}
                     g_["render"] = None
                     if engine:
-                        ov_g = {**{r_: {"visible": False} for r_ in roots if r_ != g_["root"]}, g_["root"]: {"visible": True},
-                                **{w_["id"]: {"text": ""} for w_ in spec.get("widgets", []) if w_.get("type") in backdrop.TEXT_TYPES and w_["id"] not in off_g}}
                         try:
-                            g_["render"] = _state_render(render_state, ov_g, f"state_notext_{g_['root']}", (H, W))
+                            g_["render"] = _state_render(render_state, reqs[f"state_notext_{g_['root']}"], f"state_notext_{g_['root']}", (H, W))
                         except Exception as exc:  # noqa: BLE001 — 기록하고 합성으로
                             sc.setdefault("render_group_errors", []).append(f"{g_['root']}: {type(exc).__name__}: {exc}"[:200])
                 tt = state_check.text_trace(spec, boxes, canvas, rc0, ra0, plate, gm, s, notext_imgs, renderer="engine" if r_nt is not None else "composite",

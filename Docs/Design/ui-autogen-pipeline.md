@@ -1,7 +1,7 @@
 # UI 자동 생성 파이프라인 설계 (컨셉아트 · 텍스트 · 참조 이미지 → WBP)
 
 작성일: 2026-11-14 · 대상: UE 5.7.4 · 기준 커밋: `88a4813` · 원 요구사항: [ui-autogen-requirements.md](ui-autogen-requirements.md) · 관련: [m4-ult-chain.md](m4-ult-chain.md) §5(HUD)
-상태: **메인 HUD(내 상태 · 동료 — `StatusHUD`) 구현 · 승격 · 자동 검증 완료 · 커밋 `2c850de`(11-24 — §11 '메인 HUD 결과': 승격본 `R20261124_130129_StatusHUD` · `AstralBreak.` 60/60 · pytest 485 · 정답 묶음 35/35 · 1/1 · 8/8 · 기준선 `status_1124` · run 그림 눈 확인 통과, 게임 안 눈 확인 통과)** · **전투 HUD 동작(고리 줄어듦 · 오의 키 안내 · '오의 불가' 외곽선) 완료 · 승격 · 눈 확인 통과 · 커밋 `a15fad4`(11-24 — §11 '전투 HUD 동작 결과': 승격본 `R20261123_194019_CombatHUD` · `AstralBreak.` 57/57 · `WidgetMcp.` 8/8 · pytest 463 · 정답 묶음 35/35 · 1/1 · 8/8 · 기준선 `ring_1123`)** · **Phase 1 마감 회귀 통과(11-19 — §11 'L 다음 고침' 끝: 빌드 2 구성 · `AstralBreak.` 55/55 · `EditorMcpCore.` 2/2 · `WidgetMcp.` 6/6)** · **1b 후속 L 다음 고침 — 외부 · 단색 입력 결함 고침 미커밋(11-19 — §11 'L 다음 고침'): 판 글자 메우기를 원래 컨셉으로 판정(순서 무관 — 단색 '4' 밑 잔상 · 금선 혹 해결) · 다른 글자 몫 빼기 · 다른 글자 상자는 메움 원천에서 빼기 · 판만 투명한 빛 글자는 판 중앙값 메움 · 글자색 추정 띠 오판 막기, 글자 맞춤 컨셉 대비 안전망 · 빛 크기 ↔ 세기 반대면 세기 먼저, 진단 E1 baked(텍스처에 남은 글자 — 이중 글자). 새 run 단색 전투 HUD 오류 0 · 근사 3 · 파티 HUD 0 · 10 · 조작 안내 원본 0 · 3, 보호 L-1 0 · 1 · L-2 0 · 2, controls_alpha 는 LLM 정정 적용 실패(VALIDATION_FAILED) 사슬을 실패 경로에서만 고친 뒤(재시도 루프 build 거절 받기 · 편집기 어휘 가드 · 결정적 투명 image 브러시 — 사용자 승인 추천안) 새 run 둘 오류 0 · 근사 5 · 0 · 4, L-1 다시 0 · 1, 정답 묶음 25/25 caught · 1/1 clean · 7/7 protected, pytest 382, 기준선 `base_1119`)** · **1b 후속 L 다음 — 외부 · 단색 입력 검증 틀 + 보호 항목(커밋 `db18ab9`, 11-18 — §11 'L 다음', K ~ L 은 사용자 커밋 `93b91c5`): 진단 E1 획에 붙은 잔상(`diagnose.glyph_residue` — 단색 '4' 밑 잔상 11 px 잡음 · 보호 run 오탐 0) · 컨셉 획 측정 실패 안전망(`concept_contrast` → E6 unmeasured — 파티 '100' 을 글자 맞춤이 검정 · 52 로 바꾼 것), 정답 묶음 새 항목 다섯 + 보호(`clean_run`) 넷 → 24/24 caught · 1/1 clean · 4/4 protected, 오프라인 비교 묶음 `regress_set.py`(입력 8 — 기준선 `base_1118`) — 판 메우기 · 글자 맞춤 고침은 다음 단위(사용자 요청 때), 커밋 · 사람 눈은 사용자)** · **1b 후속 L-2 구현(11-18 — §11 'L-2 구현': `make_concept --text-free-first` 글자 없는 원본 아트 + codex 편집 글자 참고판 · normalize 가 레퍼런스 = 원본 아트 + 참고판 글자 획(`gen/text_ref`) · 아트 · 글자 없는 판 = 원본 아트, 원래 전투 HUD 를 L-2 로 새로 만든 run `R20261118_142524` 오류 0 · 근사 2, 회귀 controls_alpha 오류 0 · 원래 전투 HUD L-1 오류 1(E6 — L-3 남은 결함, L-2 탓 아님), pytest 365 · 정답 묶음 19/19 · 디자이너 미리보기 = 컨셉 상태(spec `designer_hidden` + WidgetMcp C++ · 빌드 2), `WidgetMcp.` 6/6(K 부터 낡았던 ImportFont 기대값 고침), 빛 세기 = 가장 가까운 선택(E9 `glow_strength` + 알파 맞춤 — 마지막 L-2 run `R20261118_164931` 오류 0 · 근사 4), '체인 버스트' 정렬 끝 판정 갈림 고침(자간 뒤 폭 판정 · 빈 열 뺀 획 밀도 + 굵기 표 다시 잼) — 마지막 코드 run: L-2 `R20261118_175732` 오류 0 · controls_alpha `180405` 오류 0 · L-1 원래 전투 HUD `175104` 오류 1(E1 진단 거짓 양성 — '4.2' 빛 상자가 '체인' 받침 획을 가져가 바탕으로 셈, '체인 버스트' 자체는 해결), pytest 366 · 정답 묶음 19/19 — 사람 눈 · 커밋은 사용자)** · **진단 거짓 양성 E1 고침 미커밋(11-18 — §11 L-2 절 끝: `assign_glyphs` 겹친 core 안에만 있는 센 획은 통째로 이어진 본체 쪽 · 정답 묶음 '오류 아님' 항목 19/19 caught · 1/1 clean · pytest 367 · L-1 원래 전투 HUD `R20261118_184602` 오류 0 · 근사 0, L-2 `R20261118_191532` 오류 0 · 근사 2 — 새 측정대로 '체인' black · '2/4' medium)** · **1b 후속 L-1 · L-3 구현 미커밋(11-18 — §11 'L-1 · L-3 구현': 아트 모드 = 원본 생성 아트일 때만 · 정답 묶음 18/18 · Spacer 겹침 제외 · 판 글자 메우기 정리 · 그림자 측정, 최종 코드 끝 run 오류 0 = controls_alpha · 조작 안내 원본, 원래 전투 HUD 1 · 단색 2 · 파티 9(앞 run 은 원래 · 단색 0))** · **Phase 0 완료 · 커밋 `6700484`(2026-11-14)** — 플러그인 분리(EditorMcpCore · AnimGraphMcp · StateTreeMcp · WidgetMcp 뼈대) · 빌드 2구성 · 회귀 통과, 가정 A1 ~ A7 결과는 §12-1(A4 · A5 는 사용자 CLI 로그인 뒤 `claude` 2.1.325 로 실측). **Phase 1a 완료(11-15)** — 하위 단계 1a-1 ~ 1a-5 끝, 끝 조건 4개 충족(§11 'Phase 1a 결과 요약' · '1b 로 넘길 것'), 빌드 2구성 · 에디터 1회 · pytest 142 통과, 렌더 색 사람 눈 확인 통과(§12-1 A6-색) — 커밋 `c890a47`. **Phase 1b 완료(11-15, 미커밋)** — 하위 단계 1b-1 ~ 1b-7(§11), 끝 조건 충족: 컨셉아트 → analyze → codex 에셋 → build → verify(hybrid LLM fix 1회) → 저장이 **무인 1회 통과**(`R20261115_024358`, 3분 56초, 10/10) + 리포트. 빌드 2구성 · 에디터 시험(`AstralBreak.` 55/55 — 1차 53/55 일시 실패 · `EditorMcpCore.` 2/2 · `WidgetMcp.` 6/6) · pytest 198 통과. 렌더 사람 눈 확인 결과(11-15): **레이아웃은 맞고 외형(게이지 · 프레임 모양 · 글꼴)은 다름** — 다음은 1b 후속 '외형 재현 A · B · C · D'(사용자 결정 — §11 방향 메모). **1b 후속 A 완료(11-15, 미커밋)** — 컨셉에 보이는 프레임 · 패널을 codex **편집**으로 따오기(spec asset `source_mode: extract`) · 공용 ΔE00(`core/color.py`) · 충실도 기록(`gen/fidelity.py`) · 9-slice 추정 v3(축별) · 안쪽 칠하기 · **크기 고정 위젯은 image 로 그리기**(사용자 눈 확인 지적 — box 9-slice 가 2배 텍스처의 모서리를 키우고 가운데를 누름) · WBP 렌더 ↔ 컨셉 이식 지표, 채록 2장 + 실제 run 3회(전부 10/10 — run 3 은 LLM fix 1회 뒤) · pytest 227(§11 'A 에서 확인 · 정한 것' · 'A 보강'). **1b 후속 B 완료(11-15, 미커밋)** — 게이지 채움 · 배경을 컨셉에서 결정적으로 뽑기(procedural `gradient_bar`) · 꺼진 flag 초기 접힘 · flag 위젯 상자 패널 금지 · 따온 텍스처를 위젯 상자 그대로 되자르기(A 결함 수정), C++ 변경 없음, 실제 run 2회(둘 다 LLM fix 1회 뒤 10/10) · 렌더 장식선 F1 0.98 · 0.90 · 0.96 · 게이지 채움 줄 단위 ΔE00 12.1 → 1.8 · pytest 235(§11 'B 에서 확인 · 정한 것'). B ③ 은 D 로. **1b 후속 D 완료(11-15, 미커밋)** — 제목 · 숫자용 Noto Serif KR(OTF) 임포트 · 역할별 폰트(`font.role` → family) · 글자 효과 어휘 outline · shadow · letter_spacing · gradient(WidgetMcp C++ — 그라데이션은 run 폴더 UI 머티리얼 + MIC) · 글자색 · 그라데이션을 컨셉에서 결정적으로 뽑기, 실제 run 1회(LLM fix 1회 뒤 10/10) · 금색 글자 획 대표색 ΔE00 15.9 · 18.4 → 0.9 · 1.2 · pytest 245 · `WidgetMcp.` 6/6(§11 'D 에서 확인 · 정한 것'). **1b 후속 C 완료(11-15, 미커밋)** — 게이트 통과 뒤 외형 검토 라운드(LLM style_verifier → style_fix, 허용 op 는 외형만 · 게이트가 깨지면 run 패키지를 전부 버리고 마지막 통과 spec 으로 다시 build) · 영역 · 글자 · 게이지 전부의 컨셉 ↔ 렌더 비교 기록, 끝 run `R20261115_160430` 무인 통과(라운드 1회 받음 — 글자 높이 비 오차 0.094 → 0.046 · 체인 패널 장식선 F1 0.899 → 0.978) · pytest 253(§11 'C 에서 확인 · 정한 것'). **1b 후속 F 완료(11-15, 미커밋 · 사람 눈: run 4 가 낫고 게이지 · 빛 지적 없음, 남은 차이 = 배너 위아래 빛 · 체인 패널 모서리 · 글자 위치 약간 — A 따오기 · analyze 몫, 다음 후속 G)** — 사람 눈 판정의 외형 차이 셋: 게이지 채움을 컨셉 모양 그대로 따오기(procedural `concept_fill` — 왼쪽 '<' 끝 · 밝은 테두리 · 트랙 띠 빛) + 진행 끝 테두리 · 번짐(WidgetMcp ProgressBar `bar_fill_style: scale` + 채움 9-slice) · 글자 빛(엔진 SDF 글꼴 + 외곽선 층 빛 머티리얼 `font.glow` — Config 2줄 · 새 폰트 `F_NotoSerifKR_SDF`, 컨셉에서 결정적으로 — '4.2' 만) · 배너 크기(analyze 글자 높이 비 정정 + 외형 라운드에서 크기 바뀐 글자만 가운데 중심으로 커지게), 끝 run 5번 모두 무인 통과(외형 라운드 받음 1 · 버림 4 — 원인마다 고침, 마지막은 analyze 배치 한계로 남김) · 게이지 채움 줄 단위 ΔE00 6.52 → 0.51 · 실루엣 IoU 0.891 → 0.937 · 회귀 빌드 2구성 · `AstralBreak.` 55/55 · `EditorMcpCore.` 2/2 · `WidgetMcp.` 6/6 · pytest 264(§11 'F 에서 확인 · 정한 것'). **1b 후속 G 완료(11-15, 미커밋 · 사람 눈: '오의 불가' 글꼴(굵기)만 약간 다르고 나머지 통과)** — F 사람 눈의 남은 차이 셋: 따온 frame · panel_bg 에 **컨셉 픽셀 옮겨 심기**(`gen/concept_pixels` — codex 는 실루엣만, 상자를 꽉 채우는 사각 패널은 실루엣도 상자 · 금테 색 · 모서리 장식 · 안쪽 위아래 빛은 컨셉 그대로, 글자 자리는 메움) · 외형 라운드 다시 따오기의 **충실도 기준**(나빠지면 그 에셋만 옛 것) + 모서리 장식선 지표 · **글자 위치 결정적 맞춤**(`style.text_fit` — 글자 사이 틈 차이로 자간 · 중심 차를 자리 유지 padding 으로, LLM 없음), run 간 흔들림은 이 결정적 단계로 흡수(추가 비용 없음), C++ · Config 변경 없음 · 끝 run 4번 모두 무인 통과(1 ~ 3 에서 결함 셋을 찾아 고침) · 체인 패널 모서리 장식선 F1 최소 0.643 → 1.0 · 배너 장식선 ΔE00 20.6 → 6.0 · 글자 중심 차 ≤ 1.5 px · pytest 273(§11 'G 에서 확인 · 정한 것'). **G 후속 완료(11-16, 미커밋 · 사람 눈: 글자 통과 — '오의 불가' 글꼴은 비슷한 폰트 없음, 게이지 테두리 · 빛의 run 간 흔들림은 뒤로)** — 글자 굵기 · 크기도 결정적으로: `style.text_fit` 을 크기 판(높이 비로 새 크기 · 굵기, build 전 형제 겹침 예측으로 성장 상한) → 위치 판(자간 · 중심 · 걸쳐 잘린 획 다시 재기 · 겹침 없으면 자기 padding 이동)으로 나눠 판마다 build → verify · 그 판만 버림, 외형 라운드를 받든 버리든 글자가 같게 — 끝 run `R20261116_093639` 무인 통과 · 남은 중심 차 ≤ 1 px · 높이 비 0.95 ~ 1.02 · pytest 278(§11 'G 후속'). **1b 후속 G2 완료(11-16, 미커밋 · 사람 눈: 게이지 개선됨, 새 컨셉 2장은 매핑 미흡)** — 게이지 테두리 · 빛을 run 마다 같게(게이지 프레임 옮겨 심기 — 트랙 전체를 빈 트랙 색으로 · 숨은 빛 procedural 고정) + 다른 컨셉 2장(파티 HUD · 조작 안내 — 상용 게임 화면, git 무시 `work/_probe`)으로 보편화 검증(C++ 없는 검증 화면 모드 `screens.yaml probe`), 새 컨셉이 드러낸 일반 결함 9 개 고침, 최종 코드 세 컨셉 모두 무인 통과 · pytest 283 — 남은 차이(선 끊김 · 잘림 · 띠 장식 · 반투명)는 '합성 스크린샷을 codex 로 다시 그리는' 에셋 확보 방식의 한계로 정리(§11 'G2'). **1b 후속 H 설계(11-16, 사용자 승인 — 구현은 새 세션)** — 에셋 확보를 '컨셉 픽셀 직접 오리기'로(창작 = codex, 매핑 = 결정적), 구현 · 검증은 새 세션(§11 'H 설계'). **1b 후속 H 진행 중(11-16, 미커밋)** — 오리기 · 배경 판정 · 넘침 장식 Image 구현, 시험 입력 4개 무인 통과 · pytest 299, 단색 배경 컨셉은 깨끗 · 합성 스크린샷은 잔상 · 흐림(사람 눈) → 사용자 결정으로 codex 'UI 만 컨셉' 변환 뒤 오리기(조작 안내 시험 통과), 남은 글자 자리 패치는 codex '글자 없는 판'으로 메우는 중(이어서 새 세션 — §11 'H 에서 확인 · 정한 것'). **1b 후속 H2 완료(11-16, 미커밋 · 사람 눈: '이 정도면 나쁘지 않다')** — 글자 없는 판(`make_concept --text-free` · inputs `concept_notext`)으로 글자 구멍만 메우기 · 오리는 위젯 상자가 겹친 자리는 한쪽만 그리기 · 모서리 장식 글자 획 오인 · 글자 맞춤 컨셉 측정을 판 차이로 + 크기 판 신뢰 범위 0.7 ~ 1.4, 글자 획 측정(가로선 오인 · 글자색 쪽 · 큰 띠 테두리) 고침으로 라벨 굵기 · 크기 · 위치까지 컨셉과 같게, 최종 run `R20261116_212649` 무인 통과(장식선 F1 0.9997 · 끊김 0 · 글자 높이 비 0.97 ~ 1.0) · 단색 전투 HUD `R20261116_185558` 통과 · pytest 307 · 'T 미표시' 원인(위 z 장식 텍스처가 글자를 가림) 확인 · 고침(§11 'H2'). **1b 후속 H3 완료(11-17, 미커밋)** — 검정 배경(ⓑ)은 어둡고 반투명한 장식을 불투명으로 읽어(회색 바탕에서만 보임) 진짜 알파 컨셉(`make_concept --transparent` · ⓐ)으로 바꿈 · 회색 바탕 확인(`gen/backdrop` — `report.recorded.backdrop`) · 판 알파 맞춤 · 획 둘레 정합 · 넘침 장부 · 아래 영역 글자 · 이미지 자리 비우기, 최종 run `R20261117_095249` 무인 통과(회색 ΔE00 0.22 · 컨셉에 없는 알파 절벽 0) · 단색 전투 HUD `R20261117_094643` 통과 · pytest 316, 스킬 아이콘 런타임 이미지는 동작하나 마름모 아이콘 회전이 남음(§11 'H3'). **1b 후속 H 계열 종료(11-17, 미커밋)** — 남은 작은 문제 마무리: 다른 영역 글자 보호(측정) · 렌더 글자 마스크(글자 없는 합성 차 — 못 믿을 때만) · 겹친 자리 양쪽 같은 답 · 아이콘 실루엣 0.85 · 오리는 이미지 여유 막기 없앰 · 글자 주인 둘레, 최종 run `R20261117_120813` · `R20261117_121432` 무인 통과 · pytest 319 — 마름모 아이콘 · 다른 컨셉 적용 검증은 뒤로(§11 'H 계열 마무리'). **1b 후속 I 완료(11-17, 미커밋)** — 오리는 위젯이 겹친 자리를 물체 단위로(`refine.cut_ownership` — 알파 경계 위 가장 넓은 길 · 동점 = 작은 상자 · 넘칠 수 있는 위젯 둘레 8 px, 배너 텍스처가 끝 · 끝 장식을 혼자 갖고 엠블럼 텍스처엔 엠블럼만 — 오프라인 4 배치 회색 ΔE00 0.168 · 0.157 → 0.157 · 0.127 · 구멍 0) + 합성 스크린샷을 codex 편집 2 회로 'UI 만 · 진짜 알파' 컨셉 + 글자 없는 판으로 자동 변환해 ⓐ 로 잇는 단계(`gen/concept_convert` · inputs `concept_convert: auto | force | off` · 캐시 `work/_convert` · run 당 2 회 · 실패면 예전 경로), 끝 run 원래 전투 HUD `R20261117_134535` · 조작 안내 원본 `R20261117_135206`(회색 ΔE00 0.24 · 절벽 0) · 회귀 `R20261117_135820`(0.14) 무인 통과 · pytest 326, I 후속(사람 눈 — 디자이너 확대 때 텍스처 경계 검은 절취선 · 엠블럼 직선 잘림): 투명 픽셀 색 채우기 · 불투명 2 px 겹침 · 반투명 소용돌이는 겨루지 않는 자기 반투명 쪽 — 3 배 확대 절취선 7 천여 → 800 ~ 1,300 px(오프라인), 확인 run `R20261117_154442` 무인 통과 · pytest 328(§11 'I'). **1b 후속 J 설계 작성 · 결정(11-17, 구현 전)** — 텍스처를 런타임 기능 단위로 나누기(정적 장식은 한 장 · 기능 요소만 따로 · 요소 없는 판) + 레퍼런스 ↔ 렌더 국소 차이 자동 진단(원인 단계 짚기 · 게이트) + LLM 외형 라운드 글자 스타일 금지(§11 'J 설계'). 설계 승인(11-14) · §12-2 질문 1 · 2 · 4 · 5 · 6 · 8 결정. 값은 전부 잠정이다. **1b 후속 J 진행 · 미커밋(11-17, I 는 커밋 49a45be)** — J-b 자동 차이 진단 게이트 appearance(gen/diagnose) · J-a 기능 단위 레이어(stages/layer — 정적 판) · J-c 글자 스타일 결정적만(외형 라운드 글자 op 금지 · 글자색 · 외곽선 맞춤), 끝 run 4/5 무인 통과(controls_alpha 173753 · 조작 안내 원본 175512 · 전투 HUD 183524 · 단색 191446 — 진단 결함 0), 파티 HUD 192631 진단 결함 11 로 실패(게이지 · 글자 — §11 'J 에서 확인 · 정한 것' 다음), 최종 코드 5 입력 재확인 남음 · pytest 343. **1b 후속 J 남은 일(11-17 밤, 미커밋)** — 본문 Pretendard SDF 사본(`F_Pretendard_SDF` · `fonts.roles.body.sdf_family` — '오의 불가' 빛 그려짐 · limits 0) · 파티 HUD 고침(0 % 게이지 판 유지 · 가득 찬 게이지 컨셉 조각 · 투명 위 · 정합 실패 글자 상자 안 메우기 · 빛으로 이어진 글자 획 나누기 · 빛 크기 맞춤 · 글자 맞춤 판 글자별 다시 고르기), 최종 코드 다섯 입력 중 **넷 무인 통과(진단 결함 0)** — 파티 HUD 는 결함 11 → 1(HP 현재치 위치 — 컨셉 숫자 글꼴이 좁음, 사용자 결정 남음) · pytest 347(§11 'J 남은 일'). **사람 눈(11-17 밤): 진단 0 인 run 에도 굵기 · 컨셉에 없는 빛 · 글자 둘레 얼룩이 보임 → 1b 후속 K 설계 작성(구현 전 — 오류 0 · 가장 가까운 스타일, 우리가 만든 컨셉은 글자 없는 아트 + 엔진 글자, 외부 컨셉은 오류 0 + 근사 표, 검증 = 컨셉 상태 비교 그림 · 글자 구역 바탕 · 빛 단일 측정 · 사용자 발견 결함 정답 묶음, §11 'K 설계' — 질문 4 개 전부 추천안으로 결정, 구현 전)**. **1b 후속 K 구현(11-18, 미커밋 — §11 'K 구현'): 오류(E1 ~ E9) · 근사 판정 · compare.png(컨셉 상태 엔진 렌더) · 정답 묶음 16/16 · 빛 단일 측정 · 굵기 변형 family(+ WidgetMcp 굵기 어휘 C++ · 빌드 2) · (가) 글자 없는 아트 정답 · (나) 좁은 색조 맞춤 메우기. 끝 run: 원래 전투 HUD · controls_alpha · 조작 안내 원본 오류 0(근사 2 · 4 · 4), 단색 전투 HUD · 파티 HUD 는 남음(§11 표), pytest 349 — 사람 눈 확인 · 커밋은 사용자.** **사람 눈(11-18): (가) 아트 정답 탓 게이지 테두리 빛 · 배너 색 차이(진단이 아트와 비교해 못 봄) → 1b 후속 L 설계 작성(구현 전 — L-1 컨셉 픽셀 + 글자 자리만 판 · L-2 글자 없는 컨셉부터 + 글자 참고판 · L-3 남은 결함 단색 배너 위치 · 파티 HUD · 글자 그림자, §11 'L 설계' — 질문 5 개)**.
+상태: **Phase 1 종료 · 남은 Phase 조정(11-24 사용자 승인 — §11 'Phase 조정'): 순서 2(정리 · 집계) → 4(이어서 고치기) → 3(조작 화면), 근사 다듬기 · 5 · 6 삭제** · **Phase 2(정리 · 집계) 완료 · 미커밋(11-24 — §11 'Phase 2 결과': verify 1번 StatusHUD 217 → 26초 · CombatHUD 221 → 28초, LLM 외형 라운드 끔, 집계 리포트 · 스킬 문서 둘, 두 화면 run 오류 0 · 회귀 새 결함 0 · pytest 496 · 정답 묶음 35/35 · 1/1 · 8/8 · `WidgetMcp.` 8/8) — 다음 = Phase 4** · **메인 HUD(내 상태 · 동료 — `StatusHUD`) 구현 · 승격 · 자동 검증 완료 · 커밋 `2c850de`(11-24 — §11 '메인 HUD 결과': 승격본 `R20261124_130129_StatusHUD` · `AstralBreak.` 60/60 · pytest 485 · 정답 묶음 35/35 · 1/1 · 8/8 · 기준선 `status_1124` · run 그림 눈 확인 통과, 게임 안 눈 확인 통과)** · **전투 HUD 동작(고리 줄어듦 · 오의 키 안내 · '오의 불가' 외곽선) 완료 · 승격 · 눈 확인 통과 · 커밋 `a15fad4`(11-24 — §11 '전투 HUD 동작 결과': 승격본 `R20261123_194019_CombatHUD` · `AstralBreak.` 57/57 · `WidgetMcp.` 8/8 · pytest 463 · 정답 묶음 35/35 · 1/1 · 8/8 · 기준선 `ring_1123`)** · **Phase 1 마감 회귀 통과(11-19 — §11 'L 다음 고침' 끝: 빌드 2 구성 · `AstralBreak.` 55/55 · `EditorMcpCore.` 2/2 · `WidgetMcp.` 6/6)** · **1b 후속 L 다음 고침 — 외부 · 단색 입력 결함 고침 미커밋(11-19 — §11 'L 다음 고침'): 판 글자 메우기를 원래 컨셉으로 판정(순서 무관 — 단색 '4' 밑 잔상 · 금선 혹 해결) · 다른 글자 몫 빼기 · 다른 글자 상자는 메움 원천에서 빼기 · 판만 투명한 빛 글자는 판 중앙값 메움 · 글자색 추정 띠 오판 막기, 글자 맞춤 컨셉 대비 안전망 · 빛 크기 ↔ 세기 반대면 세기 먼저, 진단 E1 baked(텍스처에 남은 글자 — 이중 글자). 새 run 단색 전투 HUD 오류 0 · 근사 3 · 파티 HUD 0 · 10 · 조작 안내 원본 0 · 3, 보호 L-1 0 · 1 · L-2 0 · 2, controls_alpha 는 LLM 정정 적용 실패(VALIDATION_FAILED) 사슬을 실패 경로에서만 고친 뒤(재시도 루프 build 거절 받기 · 편집기 어휘 가드 · 결정적 투명 image 브러시 — 사용자 승인 추천안) 새 run 둘 오류 0 · 근사 5 · 0 · 4, L-1 다시 0 · 1, 정답 묶음 25/25 caught · 1/1 clean · 7/7 protected, pytest 382, 기준선 `base_1119`)** · **1b 후속 L 다음 — 외부 · 단색 입력 검증 틀 + 보호 항목(커밋 `db18ab9`, 11-18 — §11 'L 다음', K ~ L 은 사용자 커밋 `93b91c5`): 진단 E1 획에 붙은 잔상(`diagnose.glyph_residue` — 단색 '4' 밑 잔상 11 px 잡음 · 보호 run 오탐 0) · 컨셉 획 측정 실패 안전망(`concept_contrast` → E6 unmeasured — 파티 '100' 을 글자 맞춤이 검정 · 52 로 바꾼 것), 정답 묶음 새 항목 다섯 + 보호(`clean_run`) 넷 → 24/24 caught · 1/1 clean · 4/4 protected, 오프라인 비교 묶음 `regress_set.py`(입력 8 — 기준선 `base_1118`) — 판 메우기 · 글자 맞춤 고침은 다음 단위(사용자 요청 때), 커밋 · 사람 눈은 사용자)** · **1b 후속 L-2 구현(11-18 — §11 'L-2 구현': `make_concept --text-free-first` 글자 없는 원본 아트 + codex 편집 글자 참고판 · normalize 가 레퍼런스 = 원본 아트 + 참고판 글자 획(`gen/text_ref`) · 아트 · 글자 없는 판 = 원본 아트, 원래 전투 HUD 를 L-2 로 새로 만든 run `R20261118_142524` 오류 0 · 근사 2, 회귀 controls_alpha 오류 0 · 원래 전투 HUD L-1 오류 1(E6 — L-3 남은 결함, L-2 탓 아님), pytest 365 · 정답 묶음 19/19 · 디자이너 미리보기 = 컨셉 상태(spec `designer_hidden` + WidgetMcp C++ · 빌드 2), `WidgetMcp.` 6/6(K 부터 낡았던 ImportFont 기대값 고침), 빛 세기 = 가장 가까운 선택(E9 `glow_strength` + 알파 맞춤 — 마지막 L-2 run `R20261118_164931` 오류 0 · 근사 4), '체인 버스트' 정렬 끝 판정 갈림 고침(자간 뒤 폭 판정 · 빈 열 뺀 획 밀도 + 굵기 표 다시 잼) — 마지막 코드 run: L-2 `R20261118_175732` 오류 0 · controls_alpha `180405` 오류 0 · L-1 원래 전투 HUD `175104` 오류 1(E1 진단 거짓 양성 — '4.2' 빛 상자가 '체인' 받침 획을 가져가 바탕으로 셈, '체인 버스트' 자체는 해결), pytest 366 · 정답 묶음 19/19 — 사람 눈 · 커밋은 사용자)** · **진단 거짓 양성 E1 고침 미커밋(11-18 — §11 L-2 절 끝: `assign_glyphs` 겹친 core 안에만 있는 센 획은 통째로 이어진 본체 쪽 · 정답 묶음 '오류 아님' 항목 19/19 caught · 1/1 clean · pytest 367 · L-1 원래 전투 HUD `R20261118_184602` 오류 0 · 근사 0, L-2 `R20261118_191532` 오류 0 · 근사 2 — 새 측정대로 '체인' black · '2/4' medium)** · **1b 후속 L-1 · L-3 구현 미커밋(11-18 — §11 'L-1 · L-3 구현': 아트 모드 = 원본 생성 아트일 때만 · 정답 묶음 18/18 · Spacer 겹침 제외 · 판 글자 메우기 정리 · 그림자 측정, 최종 코드 끝 run 오류 0 = controls_alpha · 조작 안내 원본, 원래 전투 HUD 1 · 단색 2 · 파티 9(앞 run 은 원래 · 단색 0))** · **Phase 0 완료 · 커밋 `6700484`(2026-11-14)** — 플러그인 분리(EditorMcpCore · AnimGraphMcp · StateTreeMcp · WidgetMcp 뼈대) · 빌드 2구성 · 회귀 통과, 가정 A1 ~ A7 결과는 §12-1(A4 · A5 는 사용자 CLI 로그인 뒤 `claude` 2.1.325 로 실측). **Phase 1a 완료(11-15)** — 하위 단계 1a-1 ~ 1a-5 끝, 끝 조건 4개 충족(§11 'Phase 1a 결과 요약' · '1b 로 넘길 것'), 빌드 2구성 · 에디터 1회 · pytest 142 통과, 렌더 색 사람 눈 확인 통과(§12-1 A6-색) — 커밋 `c890a47`. **Phase 1b 완료(11-15, 미커밋)** — 하위 단계 1b-1 ~ 1b-7(§11), 끝 조건 충족: 컨셉아트 → analyze → codex 에셋 → build → verify(hybrid LLM fix 1회) → 저장이 **무인 1회 통과**(`R20261115_024358`, 3분 56초, 10/10) + 리포트. 빌드 2구성 · 에디터 시험(`AstralBreak.` 55/55 — 1차 53/55 일시 실패 · `EditorMcpCore.` 2/2 · `WidgetMcp.` 6/6) · pytest 198 통과. 렌더 사람 눈 확인 결과(11-15): **레이아웃은 맞고 외형(게이지 · 프레임 모양 · 글꼴)은 다름** — 다음은 1b 후속 '외형 재현 A · B · C · D'(사용자 결정 — §11 방향 메모). **1b 후속 A 완료(11-15, 미커밋)** — 컨셉에 보이는 프레임 · 패널을 codex **편집**으로 따오기(spec asset `source_mode: extract`) · 공용 ΔE00(`core/color.py`) · 충실도 기록(`gen/fidelity.py`) · 9-slice 추정 v3(축별) · 안쪽 칠하기 · **크기 고정 위젯은 image 로 그리기**(사용자 눈 확인 지적 — box 9-slice 가 2배 텍스처의 모서리를 키우고 가운데를 누름) · WBP 렌더 ↔ 컨셉 이식 지표, 채록 2장 + 실제 run 3회(전부 10/10 — run 3 은 LLM fix 1회 뒤) · pytest 227(§11 'A 에서 확인 · 정한 것' · 'A 보강'). **1b 후속 B 완료(11-15, 미커밋)** — 게이지 채움 · 배경을 컨셉에서 결정적으로 뽑기(procedural `gradient_bar`) · 꺼진 flag 초기 접힘 · flag 위젯 상자 패널 금지 · 따온 텍스처를 위젯 상자 그대로 되자르기(A 결함 수정), C++ 변경 없음, 실제 run 2회(둘 다 LLM fix 1회 뒤 10/10) · 렌더 장식선 F1 0.98 · 0.90 · 0.96 · 게이지 채움 줄 단위 ΔE00 12.1 → 1.8 · pytest 235(§11 'B 에서 확인 · 정한 것'). B ③ 은 D 로. **1b 후속 D 완료(11-15, 미커밋)** — 제목 · 숫자용 Noto Serif KR(OTF) 임포트 · 역할별 폰트(`font.role` → family) · 글자 효과 어휘 outline · shadow · letter_spacing · gradient(WidgetMcp C++ — 그라데이션은 run 폴더 UI 머티리얼 + MIC) · 글자색 · 그라데이션을 컨셉에서 결정적으로 뽑기, 실제 run 1회(LLM fix 1회 뒤 10/10) · 금색 글자 획 대표색 ΔE00 15.9 · 18.4 → 0.9 · 1.2 · pytest 245 · `WidgetMcp.` 6/6(§11 'D 에서 확인 · 정한 것'). **1b 후속 C 완료(11-15, 미커밋)** — 게이트 통과 뒤 외형 검토 라운드(LLM style_verifier → style_fix, 허용 op 는 외형만 · 게이트가 깨지면 run 패키지를 전부 버리고 마지막 통과 spec 으로 다시 build) · 영역 · 글자 · 게이지 전부의 컨셉 ↔ 렌더 비교 기록, 끝 run `R20261115_160430` 무인 통과(라운드 1회 받음 — 글자 높이 비 오차 0.094 → 0.046 · 체인 패널 장식선 F1 0.899 → 0.978) · pytest 253(§11 'C 에서 확인 · 정한 것'). **1b 후속 F 완료(11-15, 미커밋 · 사람 눈: run 4 가 낫고 게이지 · 빛 지적 없음, 남은 차이 = 배너 위아래 빛 · 체인 패널 모서리 · 글자 위치 약간 — A 따오기 · analyze 몫, 다음 후속 G)** — 사람 눈 판정의 외형 차이 셋: 게이지 채움을 컨셉 모양 그대로 따오기(procedural `concept_fill` — 왼쪽 '<' 끝 · 밝은 테두리 · 트랙 띠 빛) + 진행 끝 테두리 · 번짐(WidgetMcp ProgressBar `bar_fill_style: scale` + 채움 9-slice) · 글자 빛(엔진 SDF 글꼴 + 외곽선 층 빛 머티리얼 `font.glow` — Config 2줄 · 새 폰트 `F_NotoSerifKR_SDF`, 컨셉에서 결정적으로 — '4.2' 만) · 배너 크기(analyze 글자 높이 비 정정 + 외형 라운드에서 크기 바뀐 글자만 가운데 중심으로 커지게), 끝 run 5번 모두 무인 통과(외형 라운드 받음 1 · 버림 4 — 원인마다 고침, 마지막은 analyze 배치 한계로 남김) · 게이지 채움 줄 단위 ΔE00 6.52 → 0.51 · 실루엣 IoU 0.891 → 0.937 · 회귀 빌드 2구성 · `AstralBreak.` 55/55 · `EditorMcpCore.` 2/2 · `WidgetMcp.` 6/6 · pytest 264(§11 'F 에서 확인 · 정한 것'). **1b 후속 G 완료(11-15, 미커밋 · 사람 눈: '오의 불가' 글꼴(굵기)만 약간 다르고 나머지 통과)** — F 사람 눈의 남은 차이 셋: 따온 frame · panel_bg 에 **컨셉 픽셀 옮겨 심기**(`gen/concept_pixels` — codex 는 실루엣만, 상자를 꽉 채우는 사각 패널은 실루엣도 상자 · 금테 색 · 모서리 장식 · 안쪽 위아래 빛은 컨셉 그대로, 글자 자리는 메움) · 외형 라운드 다시 따오기의 **충실도 기준**(나빠지면 그 에셋만 옛 것) + 모서리 장식선 지표 · **글자 위치 결정적 맞춤**(`style.text_fit` — 글자 사이 틈 차이로 자간 · 중심 차를 자리 유지 padding 으로, LLM 없음), run 간 흔들림은 이 결정적 단계로 흡수(추가 비용 없음), C++ · Config 변경 없음 · 끝 run 4번 모두 무인 통과(1 ~ 3 에서 결함 셋을 찾아 고침) · 체인 패널 모서리 장식선 F1 최소 0.643 → 1.0 · 배너 장식선 ΔE00 20.6 → 6.0 · 글자 중심 차 ≤ 1.5 px · pytest 273(§11 'G 에서 확인 · 정한 것'). **G 후속 완료(11-16, 미커밋 · 사람 눈: 글자 통과 — '오의 불가' 글꼴은 비슷한 폰트 없음, 게이지 테두리 · 빛의 run 간 흔들림은 뒤로)** — 글자 굵기 · 크기도 결정적으로: `style.text_fit` 을 크기 판(높이 비로 새 크기 · 굵기, build 전 형제 겹침 예측으로 성장 상한) → 위치 판(자간 · 중심 · 걸쳐 잘린 획 다시 재기 · 겹침 없으면 자기 padding 이동)으로 나눠 판마다 build → verify · 그 판만 버림, 외형 라운드를 받든 버리든 글자가 같게 — 끝 run `R20261116_093639` 무인 통과 · 남은 중심 차 ≤ 1 px · 높이 비 0.95 ~ 1.02 · pytest 278(§11 'G 후속'). **1b 후속 G2 완료(11-16, 미커밋 · 사람 눈: 게이지 개선됨, 새 컨셉 2장은 매핑 미흡)** — 게이지 테두리 · 빛을 run 마다 같게(게이지 프레임 옮겨 심기 — 트랙 전체를 빈 트랙 색으로 · 숨은 빛 procedural 고정) + 다른 컨셉 2장(파티 HUD · 조작 안내 — 상용 게임 화면, git 무시 `work/_probe`)으로 보편화 검증(C++ 없는 검증 화면 모드 `screens.yaml probe`), 새 컨셉이 드러낸 일반 결함 9 개 고침, 최종 코드 세 컨셉 모두 무인 통과 · pytest 283 — 남은 차이(선 끊김 · 잘림 · 띠 장식 · 반투명)는 '합성 스크린샷을 codex 로 다시 그리는' 에셋 확보 방식의 한계로 정리(§11 'G2'). **1b 후속 H 설계(11-16, 사용자 승인 — 구현은 새 세션)** — 에셋 확보를 '컨셉 픽셀 직접 오리기'로(창작 = codex, 매핑 = 결정적), 구현 · 검증은 새 세션(§11 'H 설계'). **1b 후속 H 진행 중(11-16, 미커밋)** — 오리기 · 배경 판정 · 넘침 장식 Image 구현, 시험 입력 4개 무인 통과 · pytest 299, 단색 배경 컨셉은 깨끗 · 합성 스크린샷은 잔상 · 흐림(사람 눈) → 사용자 결정으로 codex 'UI 만 컨셉' 변환 뒤 오리기(조작 안내 시험 통과), 남은 글자 자리 패치는 codex '글자 없는 판'으로 메우는 중(이어서 새 세션 — §11 'H 에서 확인 · 정한 것'). **1b 후속 H2 완료(11-16, 미커밋 · 사람 눈: '이 정도면 나쁘지 않다')** — 글자 없는 판(`make_concept --text-free` · inputs `concept_notext`)으로 글자 구멍만 메우기 · 오리는 위젯 상자가 겹친 자리는 한쪽만 그리기 · 모서리 장식 글자 획 오인 · 글자 맞춤 컨셉 측정을 판 차이로 + 크기 판 신뢰 범위 0.7 ~ 1.4, 글자 획 측정(가로선 오인 · 글자색 쪽 · 큰 띠 테두리) 고침으로 라벨 굵기 · 크기 · 위치까지 컨셉과 같게, 최종 run `R20261116_212649` 무인 통과(장식선 F1 0.9997 · 끊김 0 · 글자 높이 비 0.97 ~ 1.0) · 단색 전투 HUD `R20261116_185558` 통과 · pytest 307 · 'T 미표시' 원인(위 z 장식 텍스처가 글자를 가림) 확인 · 고침(§11 'H2'). **1b 후속 H3 완료(11-17, 미커밋)** — 검정 배경(ⓑ)은 어둡고 반투명한 장식을 불투명으로 읽어(회색 바탕에서만 보임) 진짜 알파 컨셉(`make_concept --transparent` · ⓐ)으로 바꿈 · 회색 바탕 확인(`gen/backdrop` — `report.recorded.backdrop`) · 판 알파 맞춤 · 획 둘레 정합 · 넘침 장부 · 아래 영역 글자 · 이미지 자리 비우기, 최종 run `R20261117_095249` 무인 통과(회색 ΔE00 0.22 · 컨셉에 없는 알파 절벽 0) · 단색 전투 HUD `R20261117_094643` 통과 · pytest 316, 스킬 아이콘 런타임 이미지는 동작하나 마름모 아이콘 회전이 남음(§11 'H3'). **1b 후속 H 계열 종료(11-17, 미커밋)** — 남은 작은 문제 마무리: 다른 영역 글자 보호(측정) · 렌더 글자 마스크(글자 없는 합성 차 — 못 믿을 때만) · 겹친 자리 양쪽 같은 답 · 아이콘 실루엣 0.85 · 오리는 이미지 여유 막기 없앰 · 글자 주인 둘레, 최종 run `R20261117_120813` · `R20261117_121432` 무인 통과 · pytest 319 — 마름모 아이콘 · 다른 컨셉 적용 검증은 뒤로(§11 'H 계열 마무리'). **1b 후속 I 완료(11-17, 미커밋)** — 오리는 위젯이 겹친 자리를 물체 단위로(`refine.cut_ownership` — 알파 경계 위 가장 넓은 길 · 동점 = 작은 상자 · 넘칠 수 있는 위젯 둘레 8 px, 배너 텍스처가 끝 · 끝 장식을 혼자 갖고 엠블럼 텍스처엔 엠블럼만 — 오프라인 4 배치 회색 ΔE00 0.168 · 0.157 → 0.157 · 0.127 · 구멍 0) + 합성 스크린샷을 codex 편집 2 회로 'UI 만 · 진짜 알파' 컨셉 + 글자 없는 판으로 자동 변환해 ⓐ 로 잇는 단계(`gen/concept_convert` · inputs `concept_convert: auto | force | off` · 캐시 `work/_convert` · run 당 2 회 · 실패면 예전 경로), 끝 run 원래 전투 HUD `R20261117_134535` · 조작 안내 원본 `R20261117_135206`(회색 ΔE00 0.24 · 절벽 0) · 회귀 `R20261117_135820`(0.14) 무인 통과 · pytest 326, I 후속(사람 눈 — 디자이너 확대 때 텍스처 경계 검은 절취선 · 엠블럼 직선 잘림): 투명 픽셀 색 채우기 · 불투명 2 px 겹침 · 반투명 소용돌이는 겨루지 않는 자기 반투명 쪽 — 3 배 확대 절취선 7 천여 → 800 ~ 1,300 px(오프라인), 확인 run `R20261117_154442` 무인 통과 · pytest 328(§11 'I'). **1b 후속 J 설계 작성 · 결정(11-17, 구현 전)** — 텍스처를 런타임 기능 단위로 나누기(정적 장식은 한 장 · 기능 요소만 따로 · 요소 없는 판) + 레퍼런스 ↔ 렌더 국소 차이 자동 진단(원인 단계 짚기 · 게이트) + LLM 외형 라운드 글자 스타일 금지(§11 'J 설계'). 설계 승인(11-14) · §12-2 질문 1 · 2 · 4 · 5 · 6 · 8 결정. 값은 전부 잠정이다. **1b 후속 J 진행 · 미커밋(11-17, I 는 커밋 49a45be)** — J-b 자동 차이 진단 게이트 appearance(gen/diagnose) · J-a 기능 단위 레이어(stages/layer — 정적 판) · J-c 글자 스타일 결정적만(외형 라운드 글자 op 금지 · 글자색 · 외곽선 맞춤), 끝 run 4/5 무인 통과(controls_alpha 173753 · 조작 안내 원본 175512 · 전투 HUD 183524 · 단색 191446 — 진단 결함 0), 파티 HUD 192631 진단 결함 11 로 실패(게이지 · 글자 — §11 'J 에서 확인 · 정한 것' 다음), 최종 코드 5 입력 재확인 남음 · pytest 343. **1b 후속 J 남은 일(11-17 밤, 미커밋)** — 본문 Pretendard SDF 사본(`F_Pretendard_SDF` · `fonts.roles.body.sdf_family` — '오의 불가' 빛 그려짐 · limits 0) · 파티 HUD 고침(0 % 게이지 판 유지 · 가득 찬 게이지 컨셉 조각 · 투명 위 · 정합 실패 글자 상자 안 메우기 · 빛으로 이어진 글자 획 나누기 · 빛 크기 맞춤 · 글자 맞춤 판 글자별 다시 고르기), 최종 코드 다섯 입력 중 **넷 무인 통과(진단 결함 0)** — 파티 HUD 는 결함 11 → 1(HP 현재치 위치 — 컨셉 숫자 글꼴이 좁음, 사용자 결정 남음) · pytest 347(§11 'J 남은 일'). **사람 눈(11-17 밤): 진단 0 인 run 에도 굵기 · 컨셉에 없는 빛 · 글자 둘레 얼룩이 보임 → 1b 후속 K 설계 작성(구현 전 — 오류 0 · 가장 가까운 스타일, 우리가 만든 컨셉은 글자 없는 아트 + 엔진 글자, 외부 컨셉은 오류 0 + 근사 표, 검증 = 컨셉 상태 비교 그림 · 글자 구역 바탕 · 빛 단일 측정 · 사용자 발견 결함 정답 묶음, §11 'K 설계' — 질문 4 개 전부 추천안으로 결정, 구현 전)**. **1b 후속 K 구현(11-18, 미커밋 — §11 'K 구현'): 오류(E1 ~ E9) · 근사 판정 · compare.png(컨셉 상태 엔진 렌더) · 정답 묶음 16/16 · 빛 단일 측정 · 굵기 변형 family(+ WidgetMcp 굵기 어휘 C++ · 빌드 2) · (가) 글자 없는 아트 정답 · (나) 좁은 색조 맞춤 메우기. 끝 run: 원래 전투 HUD · controls_alpha · 조작 안내 원본 오류 0(근사 2 · 4 · 4), 단색 전투 HUD · 파티 HUD 는 남음(§11 표), pytest 349 — 사람 눈 확인 · 커밋은 사용자.** **사람 눈(11-18): (가) 아트 정답 탓 게이지 테두리 빛 · 배너 색 차이(진단이 아트와 비교해 못 봄) → 1b 후속 L 설계 작성(구현 전 — L-1 컨셉 픽셀 + 글자 자리만 판 · L-2 글자 없는 컨셉부터 + 글자 참고판 · L-3 남은 결함 단색 배너 위치 · 파티 HUD · 글자 그림자, §11 'L 설계' — 질문 5 개)**.
 
 표기: **[소스]** = 5.7.4 엔진 · 프로젝트 소스에서 확인한 것(파일:줄) · **[실측]** = 이 PC 에서 명령으로 확인한 것 · **[P0]** = Phase 0 스파이크에서 확인할 것 · **[P0 결과]** = Phase 0 에서 확인한 결과(11-14) · **[바이너리]** = 설치된 실행 파일 안의 문자열로 확인(동작은 미실측).
 
@@ -20,7 +20,7 @@
 3. build 는 **spec ↔ WBP 조정기**다 — 첫 빌드도 '빈 WBP 에서의 차이 적용'. 그래서 WBP → spec 역추출이 Phase 1 부터 있다(왕복 검증 도구).
 4. C++ 위젯 클래스는 **템플릿 코드 생성**(LLM 아님)으로 만든다 — 생성 베이스(매번 덮어씀) + 스텁(한 번만, 사람 소유) 두 겹, **기능 폴더 + `AutoGen/` 하위**.
 5. 결과는 `/Game/_AutoGen/<run_id>/`(git 무시)에만 만들고, **verify 를 통과할 때까지 저장하지 않는다** — 롤백 = 저장 안 한 패키지 폐기. 사람이 고른 것만 `/Game/UI/...` 로 승격해 커밋한다.
-6. 합격은 규칙 · 수치로만. 스타일 유사도 · ΔE 는 **Phase 2 보정 전까지 기록만** 한다.
+6. 합격은 규칙 · 수치로만. 외형은 국소 ΔE 게이트(`appearance`, 1b 후속 J)가 본다 — 스타일 유사도는 재지 않는다(11-24, §11 'Phase 조정').
 7. Codex 한도에 걸리면 **멈추고 나중에 재개**한다(procedural 이 원래 잘하는 종류만 대체).
 
 **빈칸 채움 (원문 `<…>`)**
@@ -50,9 +50,16 @@
 | 9 | verifier 서브에이전트 | 별도 `claude -p` 호출 | 오케스트레이터가 따로 부르면 그 자체로 독립 컨텍스트다 |
 | 10 | 단계 출력 검증은 Stop 훅 | `--json-schema` + `--output-format json` 우선, Stop 훅은 여러 파일을 쓰는 단계만 | [실측] `claude` 2.1.177 에 `--json-schema` 있음 |
 | 11 | 단계마다 `--max-turns` | `--max-budget-usd` + 프로세스 벽시계 타임아웃 (+ 숨은 `--max-turns` 는 보조로만) | [실측] 2.1.177 help 에 `--max-turns` 없음. [P0 결과 · 실측 2.1.325] 숨은 옵션이고 동작한다 — `--max-turns 1` 에 2턴이 필요한 일을 주면 `subtype:"error_max_turns"` · `is_error:true` · `errors:["Reached maximum number of turns (1)"]` · 종료 코드 1. 상한 수단으로 같이 쓴다 |
-| 12 | 수치 지표 전부로 합격 판정 | 스타일 유사도 · ΔE 는 Phase 2 보정 전까지 기록만 | 보정 안 된 임베딩 임계값은 결과를 흔든다 |
+| 12 | 수치 지표 전부로 합격 판정 | 영역 대표색 ΔE 는 기록만, 국소 ΔE 는 외형 게이트(1b 후속 J) — 스타일 유사도는 21 | 보정 안 된 임베딩 임계값은 결과를 흔든다 |
 | 13 | Phase 1 ~ 6 | Phase 0(플러그인 분리 + 스파이크) 추가, Phase 1 = 1a(손 spec) · 1b(컨셉아트) | §11 |
 | 14 | 출처 3종 | `provided` 추가(component 이미지를 그대로 쓰기) | 요청 때 `use: auto/asset/reference` 로 선언 — 실행 중 묻지 않는다 |
+| 15 | 진행 순서 Phase 2 → 3 → 4 | **2 → 4(이어서 고치기) → 3(조작 화면)** (11-24) | 작은 수정도 LLM 분석부터 다시 돌아 승인한 부분이 흔들린다 — §11 'Phase 조정' |
+| 16 | text 모드 — 목업 K장 생성 · 규칙 + LLM 자동 선택 | 글 → 그림은 `make_concept`(L-2), 후보는 **사람이 고른다**. 한 명령으로 묶기만 한다 (11-24) | 원본 아트가 사람이 승인하는 픽셀 정답이라 자동 선택이 맞지 않는다 |
+| 17 | multi_ref — layout · style · component · mood 역할 | `--style-ref`(느낌 · 색 · 재질)만. 나머지 역할 · 충돌 우선순위 · component 개별 비교는 만들지 않는다 (11-24) | 쓸 화면이 없다. 필요해지면 그때 설계 |
+| 18 | 수정 모드 — 주석 스크린샷 · 새 목업 해석 | 이어서 고치기 · 재승격 · 되돌리기 먼저, 지시 해석 · 주석 스크린샷은 뒤(선택) (11-24) | 지금 막히는 곳은 해석이 아니라 다시 도는 비용과 재승격이다 |
+| 19 | ComfyUI 백엔드 · 아이콘 A/B (Phase 5) · codex 한도 폴백 | 삭제 (11-24) — 다시 여는 조건은 §11 'Phase 조정'. 한도에 걸리면 지금처럼 멈추고 재개 | 11-17 부터 run 안 codex 에셋 0 개 |
+| 20 | 지표 기반 라우팅 (Phase 6) | 삭제 (11-24) | 고를 백엔드가 없다 |
+| 21 | 스타일 임베딩 유사도 | 삭제 (11-24) — 외형 게이트(국소 ΔE) · 정답 묶음 · 사람 눈으로 대신 | 한 번도 재지 않았고(1,424 줄 중 0), 컨셉 픽셀이 정답이라 국소 비교가 더 엄격하다 |
 
 ---
 
@@ -64,7 +71,7 @@
 run_pipeline (Python 오케스트레이터 — 순서 · 재시도 · 분기 · 상한 · 잠금)
  ├─ LLM 단계 ─────▶ claude -p   (UE 도구 없음 · work/<run_id> 파일만 읽고 씀 · JSON 스키마 출력)
  ├─ 코드 단계 ────▶ editor_bridge (HTTP 127.0.0.1:18765) ─▶ UE 에디터: EditorMcpCore + WidgetMcp
- │               ├─▶ generate_ui_asset 라우터 ─▶ procedural / codex exec / ComfyUI(Phase 5) / provided
+ │               ├─▶ generate_ui_asset 라우터 ─▶ procedural / codex exec / provided
  │               └─▶ UBT 빌드 (codegen 단계에서만, 에디터 내린 상태)
  └─ 파일 ────────▶ Tools/uigen/work/<run_id>/   (단계 사이 데이터 · git 무시 · Saved 밖)
 ```
@@ -96,7 +103,7 @@ run_pipeline (Python 오케스트레이터 — 순서 · 재시도 · 분기 · 
 | 바인딩 추가 · 타입 변경 | codegen → (에디터 재기동) → build |
 
 - 상한: 재시도 N = 3(잠정). **두 번 연속 실패 게이트 집합이 줄지 않으면 조기 종료**(같은 자리를 맴도는 것 방지). 가장 나은 시도의 기록은 디스크에 남는다.
-- **통과 뒤 외형 라운드(1b 후속 C — `stages/style.py` · `run_pipeline._style_review`):** 게이트가 모두 통과하면 finalize 전에, concept 모드(reference 있음)에서 영역 · 글자 비교를 기록하고(`style/before`), `style_review.rounds`(기본 1)만큼 style_verifier → style_fix → (에셋 교체면 generate → refine) → build → verify 를 돈다. 허용 op 는 외형만(`style.*` · 글자 색 · 굵기 · 크기 · 폰트 · 효과 · `slot.padding` · `justification` · `replace_asset`) — 배치는 못 고친다. **합격 판정은 그대로 게이트만**: 라운드 뒤 게이트가 모두 통과하면 그 라운드를 받고, 하나라도 깨지면 버린다 — 마지막 통과 spec · manifest(· 교체한 에셋 파일)로 되돌리고 저장 안 한 run 패키지를 전부 버린 뒤 처음부터 다시 build → verify(통과해야 함, 아니면 `STYLE_REVERT_FAILED`)하고 finalize — 에디터의 WBP · 라운드가 만든 텍스처 · 머티리얼이 라운드 상태로 저장되지 않게. fix.mode deterministic 이면 라운드는 돌지 않고 비교만 기록한다. 라운드 시도도 `specs/NNN.json` · `attempts[]`(`style_round`, 되돌림은 `revert`)에 남고 재시도 상한 N 에는 세지 않는다.
+- **통과 뒤 외형 라운드(1b 후속 C — `stages/style.py` · `run_pipeline._style_review`, Phase 2 부터 기본 끔 — `rounds: 0`):** 게이트가 모두 통과하면 finalize 전에, concept 모드(reference 있음)에서 영역 · 글자 비교를 기록하고(`style/before`), `style_review.rounds`(기본 1)만큼 style_verifier → style_fix → (에셋 교체면 generate → refine) → build → verify 를 돈다. 허용 op 는 외형만(`style.*` · 글자 색 · 굵기 · 크기 · 폰트 · 효과 · `slot.padding` · `justification` · `replace_asset`) — 배치는 못 고친다. **합격 판정은 그대로 게이트만**: 라운드 뒤 게이트가 모두 통과하면 그 라운드를 받고, 하나라도 깨지면 버린다 — 마지막 통과 spec · manifest(· 교체한 에셋 파일)로 되돌리고 저장 안 한 run 패키지를 전부 버린 뒤 처음부터 다시 build → verify(통과해야 함, 아니면 `STYLE_REVERT_FAILED`)하고 finalize — 에디터의 WBP · 라운드가 만든 텍스처 · 머티리얼이 라운드 상태로 저장되지 않게. fix.mode deterministic 이면 라운드는 돌지 않고 비교만 기록한다. 라운드 시도도 `specs/NNN.json` · `attempts[]`(`style_round`, 되돌림은 `revert`)에 남고 재시도 상한 N 에는 세지 않는다.
 - codegen 은 **바인딩 계약 해시가 바뀔 때만** 돈다 — 대부분의 재시도는 빌드 · 재기동이 없다.
 - codegen 이 analyze 직후(아직 에디터에 이번 run 의 것이 없을 때)라서 재기동해도 잃는 것이 없다. 재시도 중 재기동이 필요하면 저장 안 한 run 패키지를 버리고 spec + manifest 에서 다시 빌드한다(결정적이라 같은 결과).
 
@@ -105,7 +112,7 @@ run_pipeline (Python 오케스트레이터 — 순서 · 재시도 · 분기 · 
 - 시작 · 대기 · 종료는 CLAUDE.md 의 에디터 주기를 그대로 쓴다(DebugGame 에디터 · `wait_for_bridge.py` · `quit_editor` · `wait_for_exit.py`).
 - `quit_editor` 는 더티면 거절한다 — **`/Game/_AutoGen/` 만 더티일 때 discard 를 허용**하도록 그 목록에 더한다.
 - codegen 빌드는 실행 중인 에디터 구성(DebugGame)만 한다. 두 구성 빌드는 Phase 검증 때(프로젝트 회귀 방침).
-- Phase 5 ComfyUI: 12 GB VRAM 을 에디터와 나누면 부족할 수 있다 — generate 동안 에디터를 내리는 운용을 기본으로 둔다(§7).
+- ~~Phase 5 ComfyUI~~ 삭제(11-24, §11 'Phase 조정') — 다시 열면 12 GB VRAM 을 에디터와 나누지 않게 generate 동안 에디터를 내린다(§7).
 
 ---
 
@@ -203,7 +210,7 @@ Source/AstralBreak/UI/
 | `progress` | ProgressBar | `SetX(float Percent)` |
 | `flag` | 아무 위젯 | `SetXVisible(bool)` |
 | `image` | Image | `SetX(UTexture2D*)` |
-| `list` | ListView / 반복 하위 WBP | Phase 3 (하위 WBP 생성과 같이) |
+| `list` | 반복 하위 WBP(ListView 는 대형 인벤토리 때) | Phase 3 (하위 WBP 생성과 같이 — 버튼 이벤트 계약도 여기, 11-24) |
 
 이름은 brief 의 데이터 id 에서 나온다. M4 HUD 예(§4-2 의 `dynamic_data`): `SetUltGauge(float)` · `SetUltReadyVisible(bool)` · `SetChainPanelVisible(bool)` · `SetChainRemaining(float)` · `SetChainCount(const FText&)` · `SetBurstBannerVisible(bool)` · `SetBurstCount(int32)` · `SetUltBlockedVisible(bool)`. 스텁(`UAstralCombatHUDWidget`, M4 설계 §5 의 이름)에는 개발 세션이 '속성 변화 통지 → setter 호출' 몇 줄을 쓴다.
 
@@ -317,7 +324,7 @@ images:
 
 - `id` = WBP 의 위젯 이름(= 바인딩 이름). `bbox_intent` 는 reference 픽셀 좌표 `[x, y, w, h]` — verify 의 IoU 기준. canvas 슬롯의 `anchors` 는 `[min.x, min.y, max.x, max.y]`, `margin` 은 `[left, top, right, bottom]` 비율.
 - 슬롯 종류: `canvas`(앵커 · 위치 · 크기) · `overlay` · `vertical_box` · `horizontal_box` · `uniform_grid` · `scroll` · `size_box`. 최상위 영역은 Canvas + 앵커, 영역 안은 박스 계열(프로필이 권장을 정한다).
-- 위젯 타입 어휘(Phase 1): CanvasPanel · Overlay · VerticalBox · HorizontalBox · UniformGridPanel · SizeBox · Border · Image · TextBlock · ProgressBar · Button · Spacer. Phase 3 에서 ScrollBox · ListView · Slider · CheckBox · ComboBoxString · 하위 WBP(`repeat`).
+- 위젯 타입 어휘(Phase 1): CanvasPanel · Overlay · VerticalBox · HorizontalBox · UniformGridPanel · SizeBox · Border · Image · TextBlock · ProgressBar · Button · Spacer. Phase 3 에서 하위 WBP(`repeat`) · 버튼 상태 · 이벤트(11-24 조정 — ScrollBox · ListView 는 대형 인벤토리 때, Slider · CheckBox · ComboBoxString 은 쓸 화면이 없어 뺌).
 - `locked` — 역추출이 지원하지 않는 위젯 · 속성(§6 `export_widget_spec` 의 `unsupported[]`). patch 가 건드리면 **브리지가 거부**한다(LLM 이 지키는 규칙이 아니다).
 
 ### 4-4. spec patch
@@ -356,7 +363,7 @@ images:
   "fixes": [], "unsupported": [], "durations_s": { "generate": 212.4, "build": 6.1 } }
 ```
 
-`metrics/uigen.jsonl` 한 줄 = 에셋 하나 또는 run 하나: `run_id · asset_id · kind · backend · ok · duration_s · retries · verify · style_sim_anchor` (+ comfy: `workflow_sha256 · model_sha256 · lora_sha256[] · seed`, codex: `codex_version`). Phase 1 부터 쓰고, 집계는 Phase 2.
+`metrics/uigen.jsonl` 한 줄 = 에셋 하나 또는 run 하나: `run_id · asset_id · kind · backend · ok · duration_s · retries · verify · style_sim_anchor` (+ comfy: `workflow_sha256 · model_sha256 · lora_sha256[] · seed`, codex: `codex_version`). Phase 1 부터 쓰고, 집계는 Phase 2. `style_sim_anchor` 는 늘 null 이고 comfy 필드는 쓰지 않는다(11-24 — 둘 다 삭제).
 
 ---
 
@@ -369,7 +376,7 @@ images:
 | analyze 주의 | **reference 뒤의 게임 장면과 UI 분리** — 장면을 에셋으로 만들지 않는다 | 반복 슬롯 = 그리드 + 템플릿 | 표준 컨트롤(Slider · CheckBox · ComboBox) | 버튼 행 |
 | verify 영역 | UI bbox 합집합만 비교(장면 제외) | 전체 | 전체 | 패널 |
 | 작은 요소 | 많음 → 중심점 거리 기준 | 슬롯 아이콘 | 적음 | 적음 |
-| Phase | 1 | 2 보정 세트 · 3 | 2 보정 세트 · 3 | 3 |
+| Phase (11-24 조정) | 1 | 3 | 쓸 화면 없음 — 뺌 | 3 |
 
 ---
 
@@ -389,7 +396,7 @@ images:
 | `render_widget` | 오프스크린 렌더 → PNG + **같은 그리기에서** 이름 있는 위젯 전부의 geometry | `FWidgetRenderer::DrawWidget(RenderTarget, SWidget, Scale, DrawSize, DeltaTime)` [소스] `Slate/WidgetRenderer.h:75` · `UWidget::GetPaintSpaceGeometry()` [소스] `Widget.h:786`. Scale 을 직접 주므로 DPI 곡선이 끼지 않는다. 폰트 · 텍스처 로딩 때문에 두 번 그린다 [P0 결과 — 에디터 안에서는 첫 그림부터 같았다, 두 번 그리기는 안전장치로 유지] · geometry 오차 0 px · **감마 조합 주의(§12-1 A6-색)**. 출력은 PNG 출력 경로 제한 안 새 폴더만 |
 | `list_bind_widgets` | 클래스의 BindWidget 목록(선택 여부 포함) | `IsBindWidgetProperty` [소스] `WidgetBlueprintEditorUtils.h:104` |
 | `discard_run_packages` | 저장 안 한 `/Game/_AutoGen/<run_id>/` 패키지 폐기 | 그 경로 밖 거부 |
-| `promote_widget` | run 결과를 `/Game/UI/<기능>/` 로 복사(원본 run 은 그대로) | `promote_animation` 과 같은 방식 · **최소판은 M4 단위 C 가 앞당김(11-19, 미커밋)** — `WidgetMcpPromote.cpp` · `IAssetTools::AdvancedCopyPackages` · `[WidgetMcp] WidgetPromotionPaths=/Game/UI/HUD/` 아래 화면별 새 폴더 · `dry_run` → `confirm` · 대상이 있으면 거절 · 다른 run 에 기대면 거절 · 무인 파이프라인 밖. lineage · 되돌리기는 Phase 4 |
+| `promote_widget` | run 결과를 `/Game/UI/<기능>/` 로 복사(원본 run 은 그대로) | `promote_animation` 과 같은 방식 · **최소판은 M4 단위 C 가 앞당김(11-19, 미커밋)** — `WidgetMcpPromote.cpp` · `IAssetTools::AdvancedCopyPackages` · `[WidgetMcp] WidgetPromotionPaths=/Game/UI/HUD/` 아래 화면별 새 폴더 · `dry_run` → `confirm` · 대상이 있으면 거절 · 다른 run 에 기대면 거절 · 무인 파이프라인 밖. 재승격(대상이 있을 때) · lineage 잇기 · 되돌리기는 Phase 4 |
 | `import_font_family` | **[1b-3]** 폰트 파일 → `UFontFace` 여러 개 + 컴포지트 `UFont`(타입페이스 = spec 굵기 이름) — 프로젝트 폰트라 저장까지 | 이 Tool 만 별도 접두 `WidgetFontOutputPaths=/Game/UI/Fonts/`(§11 '1b 착수 때 정한 것' — 위 '쓰기는 `/Game/_AutoGen/` 만'의 예외) · 덮어쓰기 거부 · 전역 더티 비교 · `UFontFileImportFactory` 순서 [소스] `EditorFactories.cpp:5077` |
 
 `get_editor_status` 에 `widget` 섹션(허용 경로 · 폰트 · 렌더 출력 루트)을 더한다.
@@ -399,7 +406,7 @@ images:
 ## 7. 이미지 생성 백엔드 — `generate_ui_asset`
 
 ```yaml
-# Tools/uigen/config/routing.yaml (잠정)
+# Tools/uigen/config/routing.yaml (잠정 — 아래 comfy A/B · mockup 줄은 11-24 조정으로 쓰지 않는다)
 kinds:
   icon:       { primary: codex, fallback: [], anchor: codex, retry_backend: codex }     # Phase 5 에서 comfy A/B
   frame:      { primary: codex, fallback: [procedural], retry_backend: codex }
@@ -425,7 +432,7 @@ limits: { codex_calls_per_run: 20, on_quota: pause }      # pause | fallback_if_
     - 함정: 출력 맨 앞에 `Reading additional input from stdin...` — stdin 이 열려 있으면 기다릴 수 있으니 오케스트레이터는 stdin 을 닫고(`DEVNULL`) 부른다.
     - **[1b-2 결과]** 생성기 `Tools/uigen/gen/codex.py` — 호출 규칙 · 실측은 §11 '1b-2 에서 확인 · 정한 것'(npm `.cmd` 래퍼를 피해 `node codex.js` 직접 · 프롬프트는 `exec` 바로 뒤 · '스킬 문서 읽지 말 것'으로 입력 91,703 → 38,362 토큰).
     - **한도(A3) — 재현 안 함.** [바이너리] codex.exe 안에 `usage_limit_reached` · `quota_exceeded` · `usage_not_included` · `rate_limit_exceeded` 식별자와 `Try again at …` 문구가 있다. `quota` 판정은 `--json` 오류 이벤트에서 이 식별자를 찾고, 없으면 연속 실패 횟수로 추정(§12-1 '틀리면' 그대로). 실제 이벤트 모양 · 종료 코드는 한도에 걸렸을 때 채록.
-- **comfy (Phase 5):** SDXL급 + 스타일 참조(앵커 이미지). 실행마다 워크플로 JSON · 모델/LoRA 해시 · 시드를 기록. generate 동안 에디터를 내린다(12 GB 공유).
+- **comfy (Phase 5 — 삭제 11-24, §11 'Phase 조정'. 다시 열 때의 메모):** SDXL급 + 스타일 참조(앵커 이미지). 실행마다 워크플로 JSON · 모델/LoRA 해시 · 시드를 기록. generate 동안 에디터를 내린다(12 GB 공유).
 - **provided:** `use: auto/asset` 인 component 이미지 — 같은 refine · 검사를 거치고 출처 · 해시를 기록.
 - **구조 재사용:** `Tools/mcp/anim_gen` 의 `router.py` · `fallback.py` · `policy.py` · `store.py` · `selection.py` 와 같은 모양으로 `Tools/uigen/gen/` 을 짓는다(import 로 묶지 않고 구조만 따른다).
 
@@ -451,13 +458,13 @@ limits: { codex_calls_per_run: 20, on_quota: pause }      # pause | fallback_if_
 | 수정 회귀(수정 모드) | patch 밖 위젯의 geometry 차이 ≤ 1 px · 스타일 spec 동일 |
 | 왕복(Phase 1a) | spec → WBP → spec 이 정규화 후 같음 |
 
-### 8-2. 기록만 (Phase 2 에서 보정 후 게이트로 올림)
+### 8-2. 기록만 (게이트로 올리지 않는다 — 11-24 조정, 외형 판정은 `appearance` 게이트)
 
 | 지표 | 잠정 목표 | 비고 |
 | :--- | :--- | :--- |
 | 영역 대표색 ΔE00 | 평균 ≤ 10 | reference vs render, 영역 마스크 — **[1b 후속 C] 구현 · 기록:** `gen/fidelity.region_report`(영역 · 글자 · 게이지 전부, force_visible 렌더) → `style/<라벨>/report.json` · `report.recorded.style_review`. 글자는 획 상자(크기 · 중심) · 획 대표색 ΔE00 |
-| 스타일 유사도 | 앵커 / style 이미지 대비 — 보정 뒤 결정 | 모델(CLIP · DINOv2 · 스타일 전용) 선택도 Phase 2 |
-| component 유사도 | target 위젯 잘라낸 것 vs component 이미지 | |
+| ~~스타일 유사도~~ | 삭제(11-24) | 한 번도 재지 않음 — §1 21 |
+| ~~component 유사도~~ | 삭제(11-24) | component 역할을 만들지 않음 — §1 17 |
 | 전체 지각 유사도 | 기록만 | 글자 · 자리표시가 달라 게이트로 부적합 |
 
 ### 8-3. LLM verifier
@@ -519,8 +526,8 @@ claude -p "<단계 지시>"
 
 | 위치 | 구성 | 용도 |
 | :--- | :--- | :--- |
-| 저장소 `.claude/skills/` | `ue-umg-authoring` — GUID 맵 · FWidgetRenderer · 텍스처 설정 · BindWidget · UHT 헤더 이름 등 부딪힌 엔진 제약 | 개발 세션(플러그인 구현) |
-| 저장소 `.claude/skills/` | `uigen-run` — 파이프라인 돌리는 법 · 리포트 읽는 법 · 에디터 주기 | 개발 · 운용 세션 |
+| 저장소 `.claude/skills/` | `ue-umg-authoring`(Phase 2 에서 씀) — GUID 맵 · FWidgetRenderer · 텍스처 설정 · BindWidget · UHT 헤더 이름 등 부딪힌 엔진 제약 | 개발 세션(플러그인 구현) |
+| 저장소 `.claude/skills/` | `uigen-run`(Phase 2 에서 씀) — 파이프라인 돌리는 법 · 리포트 읽는 법 · 에디터 주기 | 개발 · 운용 세션 |
 | 저장소 `settings.local.json` | `run_pipeline` · pytest 실행 허용 규칙(CLAUDE.md 의 모양 규칙대로) | 프롬프트 없이 돌게 |
 | `Tools/uigen/claude_ctx/.claude/settings.json` | 권한(Bash 거부 · 쓰기 경로 제한) · auto-memory 끔 · Stop 훅 등록 | LLM 단계 |
 | `Tools/uigen/claude_ctx/.claude/skills/` | `uigen-spec` — spec 어휘 · 프로필 규칙 · 좌표 규약 | analyze · fix |
@@ -539,12 +546,32 @@ claude -p "<단계 지시>"
 | **1a** | 손으로 쓴 M4 HUD spec → codegen → build → verify → 재시도, procedural 에셋만. 역추출 왕복 · JSONL 기록 시작 | 게이트 통과 · 왕복 일치 · codegen 해시 건너뛰기 확인 | pytest + 에디터 1회 실행 |
 | **1b** | M4 HUD 컨셉아트 → analyze → codex 에셋 → 끝까지 1회 성공 | 무인 1회 통과 + 리포트 | 실제 run · 사람 눈 확인(화면) |
 | → M4 C | 스텁 `UAstralCombatHUDWidget` 에 게이지 · 체인 연결(개발 세션) — **완료 — 커밋 `929085f`(11-19 첫 승격본 L-1 `R20261119_091634`, 결과는 M4 설계 §6 '단위 C 구현 결과') · `a15fad4`(11-23 승격본을 L-2 '검은 날' `R20261123_172628` → 고리 · 키 안내를 더한 `R20261123_194019` 로 바꿈 — §11 'L-2 기본 전환 결과' · '전투 HUD 동작 결과'), 사용자 눈 확인 통과(11-23)** | M4 설계 §5 화면 동작 | M4 방침 |
-| → 근사 다듬기(선택 · 11-19 추가) | Phase 1 마감 뒤 남은 근사(오류 아님) 줄이기 — 파티 HP 숫자 폭(좁은 숫자 글꼴 — 내려받기 승인) · 근사 표의 굵기 · 빛 크기(§11 'L 다음 고침' 남은 것 ② ③). M4 C 와 순서는 사용자 결정 | 사용자가 고른 근사 해소 · 오류 0 유지 | 정답 묶음 · `regress_set` 보호 입력 · 실제 run |
-| **2** | 집계 스크립트 + 임계값 보정(HUD · 장비창 · 옵션 5 ~ 10장) | 기록 지표 중 게이트로 올릴 것 결정 | 보정 리포트 |
-| **3** | text · multi_ref(목업 K장 · 선택) + 리스트 · 표준 컨트롤 · 하위 WBP | 각 모드 1회 통과 | 실제 run |
-| **4** | 수정 모드 — 지시 해석 · 주석 스크린샷 → 위젯 매핑(렌더 geometry 로) · lineage · 되돌리기 · 승격 | 수정 회귀 게이트 통과 | 실제 run |
-| **5** | ComfyUI 연결 · 아이콘만 codex 와 A/B | A/B 리포트 | 실제 run |
-| **6** | 지표 기반 라우팅 규칙(종류별 최소 표본 수 넘을 때만) | 규칙 반영 | 리포트 |
+| ~~→ 근사 다듬기~~ | **삭제(11-24 조정)** | — | — |
+| **2** | **완료(11-24 — 'Phase 2 결과')** · 정리 · 집계(작게) — run 기록 집계 리포트 · LLM 외형 검토 라운드 끄기 · verify 시간 줄이기 · 스킬 문서 둘(§10-2) | 집계 리포트 1개 · 라운드를 끈 run 이 오류 0 · verify 시간 앞뒤 수치 · 스킬 둘(잠정) | pytest · 정답 묶음 · `regress_set` · 실제 run |
+| **4**(2 다음 — 3 보다 먼저) | 이어서 고치기 — 지난 run 의 최종 spec 에서 이어 시작(analyze 생략) · 안 바꾼 위젯은 그대로(수정 회귀 게이트) · 재승격 · 되돌리기 · 사람이 고친 WBP 안 덮기. 선택(뒤): 지시 해석 · 주석 스크린샷 → 위젯 매핑 | 승격한 화면 하나를 이어서 고쳐 수정 회귀 게이트 통과 · 재승격 · 되돌리기 1회(잠정) | 실제 run |
+| **3**(4 다음) | 조작 화면 — 버튼 이벤트 계약 · 버튼 상태 그림(올림 · 누름 · 선택 · 비활성) · 반복 칸(하위 WBP) · 메뉴 프로필 · 긴 글자 처리 · 승격 경로 추가. 첫 대상 = 허브 준비 화면(추천 — 착수 때 확인) + 글 → 컨셉 → run 을 한 명령으로 | 첫 화면 무인 1회 통과 · 게임에서 조작 동작(잠정) | 실제 run · 사람 눈 · 조작감 |
+| ~~5~~ | ComfyUI 연결 — **삭제(11-24 조정)** | — | — |
+| ~~6~~ | 지표 기반 라우팅 — **삭제(11-24 조정)** | — | — |
+
+**Phase 조정 (2026-11-24 사용자 승인 — 번호는 그대로 두고 순서만 2 → 4 → 3)**
+
+Phase 1 은 끝났다(1a · 1b · 마감 회귀 · M4 C 연결). 남은 표는 11-14 에 L-2 전환 전의 방식을 전제로 세운 것이라 코드 · 실행 기록 · 게임 계획과 다시 대조했다. 읽고 센 것이고 새로 돌린 시험은 없다. 각 Phase 의 자세한 설계 · 질문은 착수할 때 쓴다.
+
+| Phase | 판단 | 근거 |
+| :--- | :--- | :--- |
+| 근사 다듬기 | 삭제 | 대상이던 파티 HP 숫자 폭은 시험용 외부 컨셉(L-1 — 동결)이다. 승격본에 남은 근사(CombatHUD `194019` 3 · StatusHUD `130129` 4)는 오류가 아니고 눈 확인을 통과했다. 새 화면은 참고판을 글꼴로 그려 크기 · 굵기 · 색이 단일 원천이다('메인 HUD 결과') |
+| 2 | 축소 | ① 보정하려던 스타일 유사도는 한 번도 재지 않았다 — `metrics/uigen.jsonl` 에셋 1,424 줄 중 `style_sim_anchor` 값 0 개 ② 영역 ΔE 를 게이트로 올리는 일은 1b 후속 J 의 외형 게이트(국소 ΔE) + 정답 묶음 + `regress_set` 이 맡고 있다 ③ 보정 세트의 옵션 화면은 게임 계획에 없고, 시스템이 없는 화면을 가짜 값으로 만들지 않는다('메인 HUD 설계' 원칙). 문턱은 새 종류의 화면이 실제로 올 때 그 화면으로 다시 본다 |
+| 2 — 외형 검토 라운드 | 끄기 | 11-18 이후 남은 report 41 개의 라운드 = 지적 없음 29 · 되돌림 10 · **받아들임 2**(LLM 약 8.8 USD). 글자는 결정적 맞춤이, 픽셀은 오리기가 맡은 뒤로 라운드가 더하는 것이 거의 없다 |
+| 2 — verify 시간 | 줄이기 | 최근 최종 run 셋에서 verify 가 72 %(`172628` · 658 초) · 87 %(`194019` · 1,818 초) · 78 %(`130129` · 842 초). 후보 = 안 겹치는 막대의 같은 비율을 한 렌더로('메인 HUD 결과' 남긴 것 ②) |
+| 4 | 3 보다 먼저 · 나눔 | 승인된 화면을 조금만 고쳐도 analyze(LLM)부터 다시 돌아 눈 확인이 끝난 칸까지 흔들린다(StatusHUD 를 따로 나눈 까닭 — '메인 HUD 설계' 결정 2). `promote_widget` 은 대상이 있으면 거절하므로 재승격마다 옛 애셋을 손으로 휴지통에 보낸다. lineage 는 쓰지만 `parent_run_id` 는 늘 null. 조작 화면은 요소가 많아 고치는 횟수가 더 많다. 승격 최소판(`promote_widget`)은 이미 있다 |
+| 3 | 범위 변경 | ① 글 → 그림은 `make_concept`(L-2 기본 · `--style-ref` · 후보는 사람이 고름)가 한다 → text 모드는 한 명령으로 묶기만, 목업 K 장 자동 선택 · multi_ref 의 나머지 역할(layout · component · mood)은 뺀다 ② 빠진 것은 조작 화면이다 — inputs 데이터 종류에 동작이 없고(text · number · progress · flag · image), 프로필은 `hud.yaml` 하나, `WidgetPromotionPaths` 는 `/Game/UI/HUD/` 하나, spec Button 에 올림 · 누름 브러시는 있으나 그 그림을 받는 길이 없다 ③ Slider · CheckBox · ComboBox 는 쓸 화면이 없어 뺀다. ListView · ScrollBox 는 대형 인벤토리(후순위)가 들어올 때 |
+| 5 | 삭제 | 11-17 부터 run 안에서 codex 로 만든 에셋이 **0 개**다(concept_cut · concept_plate · procedural 뿐 — codex 는 컨셉 만들기 · 컨셉 변환에만) — A/B 할 대상이 없다. V8 `extract.text_fill_complex` 는 자리만 있고 none 그대로. **다시 여는 조건:** M7 에서 스킬 · 룬 아이콘이 수십 개 필요하고 codex 로 감당이 안 될 때 |
+| 6 | 삭제 | 고를 백엔드가 없다(5 와 같은 이유) |
+
+- **Phase 3 의 첫 대상 — 허브 준비 화면(추천):** 값의 원천이 이미 있다 — `AAstralPlayerState::bIsReady` · `AAstralHubGameState::SelectedRaid` 복제(둘 다 RepNotify 없음 — 통지를 더해야 한다), 요청은 `ServerSetReady` · `ServerSelectRaid`. 지금은 콘솔 명령으로만 조작한다. 그 뒤 M6 결과 화면 · M7 로드아웃 · 룬 · 성장 트리.
+- **Phase 3 의 가장 큰 위험:** 지금 방식은 컨셉 한 장의 픽셀이 정답이라 버튼 상태별 그림이 없다. 상태 그림을 받는 법을 작게 먼저 시험한다. 게임패드 초점 · 입력 모드 · CommonUI 를 쓸지도 정해지지 않았다(지금 모듈은 UMG · Slate 만).
+- **지난 기록 읽는 법:** 아래 기록의 'Phase 2 보정 세트에서 다시 본다'(OCR 기준 0.7 · 장식선 판정 · A8 등)는 '새 종류의 화면이 실제로 올 때 다시 본다'로, 'Phase 5'(ComfyUI)는 '삭제 · 다시 여는 조건'으로, 'Phase 2 전 남은 단계'는 '없음'으로 읽는다. 기록은 그때 글이라 고치지 않았다.
+- **M5 보스 HUD 는 Phase 에 넣지 않는다:** 막대 · 켜고 끄기 · 글자라 지금 기능으로 될 것으로 본다(안 돌려 봄). 시안 `hud_blade_sheet` 의 보스 칸을 M5 에서 값이 생길 때 오린다.
 
 **Phase 1a 하위 단계 (11-14 사용자 승인 — 단계마다 보고 → 승인 뒤 다음)**
 
@@ -1924,6 +1951,123 @@ claude -p "<단계 지시>"
 - **남긴 것 · 주의:** ① 동료 이름은 접속 이름 그대로다(이름을 정하는 곳이 게임에 없다) ② verify 한 번이 약 220 초 — 막대 8 × 비율 7 을 하나씩 렌더한다. 막대끼리 안 겹치므로 같은 비율을 한 렌더로 묶으면 준다(안 함 — 선택) ③ 글꼴 값을 바꿀 때는 배치 파일을 고치고 `make_concept.py --only text_ref --draw … --force` 로 다시 그린 뒤 run 을 돌린다(기록과 그림이 같이 만들어진다).
 - **정리(11-24 사용자 승인 — 휴지통, 약 146 MB):** run `114205` · `114339` · `114802` · `120141` · `123020`(`work` + `123020` 의 `_AutoGen`) · `work/_regress/compare_ring_1123_vs_status_1124` · 스크래치 `mainhud` · `mainhud2`. 남김: 승격본 run `130129`(`work` · `_AutoGen`) · 회귀 `status_1124`.
 
+**Phase 2 설계 — 정리 · 집계 (2026-11-24, 사용자 승인 '전부 추천안' — 하위 세션, 결과는 아래 'Phase 2 결과')**
+
+읽고 잰 것만 적는다(승인 전 글 — 저장소 코드를 고치기 전, 시제품은 스크래치 사본에서만). 잰 환경 = 이 PC, DebugGame 에디터 1회.
+
+*① verify 시간 — 어디서 드나 [실측]*
+
+재는 법: 지난 run 의 **엔진 렌더 PNG 를 그대로 돌려주는 가짜 `render_state`** 로 진단만 다시 돌린다(`diagnose.diagnose`). 다섯 run 모두 다시 만든 `diagnosis.json` 이 기록과 **차이 0** — 진단은 같은 입력에 같은 답을 내므로, 이 재생이 '고친 뒤에도 판정이 같은가'를 보는 도구가 된다. 렌더 호출의 구성은 저장된 run WBP 둘에서 호출 16번으로 쟀다.
+
+| 렌더 호출 1번 | 초 | 내용 |
+| :--- | ---: | :--- |
+| SDF 글꼴 준비 대기 | 2.02 | 호출마다 **고정** — `WidgetMcpRender.cpp:169` `Sleep(0.05) × 40`. SDF 글꼴이 없는 화면(StatusHUD)도 같다 |
+| HTTP 왕복 | 0.33 | 호출마다 새 연결(httpx 클라이언트 만들기 0.29) |
+| 실제 그리기 · PNG 저장 | 0.07 | 2번 그려 비교 + 저장 |
+| **합** | **2.41** | 일하는 시간은 3 % |
+
+| verify 1번(초) | StatusHUD `130129` | CombatHUD `194019` | CombatHUD `172628` |
+| :--- | ---: | ---: | ---: |
+| 기록된 값(run.log) | 216 ~ 223 | 198 ~ 283 | 74 ~ 82 |
+| 렌더 호출 수(상태 렌더) | 62(60) | 18(16) | 11(9) |
+| 렌더 호출 시간(× 2.41) | 149 | 43 | 27 |
+| └ 그중 고정 대기 | 125 | 36 | 22 |
+| Python 진단(재생으로 잰 값) | 84.5 | 77.6 | 45.6 |
+| 컴파일 · 역추출 등(단계 기록 차) | 약 2 | 약 2 | 약 2 |
+| run 의 verify 횟수 | 3 | 7 | 6 |
+
+`194019` 의 기록(198 ~ 283초)은 지금 잰 구성(약 123초)보다 길다 — 그때 PC 에 다른 일이 겹쳤을 것으로 본다 [추론 — 확인할 기록 없음]. Python 시간의 대부분은 **전 화면 ΔE00**(1920 × 1080 한 번에 약 0.9초)이다: 바뀐 픽셀이 화면의 몇 %뿐인데 200만 픽셀을 다 잰다(접힌 위젯 빛 · 고리 · 막대 밖 검사), 글자 밑 흔적의 ±2 px 이동 최소(`_shift_min_de`)는 25번마다 판 전체를 실수로 바꾸고 Lab 을 다시 구한다.
+
+*② verify 시간 — 선택지*
+
+| 안 | 내용 | verify 1번(예상) StatusHUD · CombatHUD | 판정 |
+| :--- | :--- | ---: | :--- |
+| (가) Python 만 | ΔE00 을 **다른 픽셀 · 판정에 쓰는 자리에서만** 잰다(`delta_e(a, b, where)` — 같은 픽셀의 ΔE00 은 정확히 0), `_shift_min_de` 는 Lab 을 한 번만 구하고 이미 같은 픽셀은 건너뜀, `explain_diff` · `hidden_halo` · 게이지 · 고리 · 막대 검사는 자리 안만 | 217 → 약 166 · 약 123 → 약 61 | 시제품으로 다섯 run 에서 `diagnosis.json` · `compare.png` **바이트까지 같음**(진단 시간 84.5 → 15.1 · 77.6 → 16.2 · 45.6 → 12.3 · 40.5 → 11.3 · 41.1 → 11.4) |
+| **(나) (가) + 상태 렌더 묶음 — 추천** | `render_widget` 에 선택 인자 `states: [{name, overrides}]` — 한 호출에서 상태마다 **새 인스턴스로 똑같이** 그린다(준비 대기는 모든 상태를 한 번씩 미리 그린 뒤 한 번). Python 은 필요한 상태를 먼저 모아 한 번에 부르고, 이름 · 값이 다르거나 묶음이 실패하면 지금처럼 한 장씩 | → 약 28 · 약 26 | 그리는 길이 같다. 저장된 두 WBP 에서 '한 장씩' ↔ '묶음' PNG 를 전부 바이트로 견줘 같을 때만 쓴다. **WidgetMcp C++ 를 고친다**(`WidgetMcpRender` · 도구 인자 · 시험 1개) → 빌드 2 구성 + `WidgetMcp.` 시험. 게임 모듈은 안 바뀌어 `AstralBreak.` 은 뺀다 |
+| (다) 막대 묶기(설계 때 후보) | (가) + 안 겹치는 막대의 같은 비율을 한 렌더로 | → 약 45 · 약 61 | **버림** — `bar_outside`(막대 하나를 바꿀 때 다른 그림이 바뀌나)의 뜻이 바뀐다: 막대들이 같이 바뀌면 한 막대가 이웃 막대 픽셀을 침범해도 못 가른다 |
+| 되돌린 뒤 재검증 건너뛰기 | 되돌린 spec · revision · 렌더가 앞 시도와 같으면 진단을 재사용 | run 에 되돌림이 있을 때만 1번분 | **버림** — (나) 뒤엔 한 번이 약 30초라 얻는 것이 작고, 되돌린 에디터 상태를 다시 보는 뜻이 약해진다 |
+| 구조 게이트가 깨진 시도의 진단 생략 | 첫 시도는 재시도가 구조만 보므로 진단을 안 씀 | run 마다 1번분 | **버림** — 검사를 빼서 빨라지는 것은 제외(요청). 실패한 run 의 `compare.png` 도 없어진다 |
+| 준비 대기 줄이기 · 끄기 | 0.05 × 40 을 줄이거나 SDF 글꼴이 없으면 생략 | — | **버림** — 글리프가 다 됐는지 알 공개 API 를 찾지 못했다. 줄이면 자리표시 글리프가 그려질 수 있다(F 에서 겪음) |
+
+- 같은 ΔE00 함수를 refine 의 글자 지우기 고르기 · 글자 맞춤도 쓴다 — 그쪽도 빨라지지만 결과가 바뀌면 안 되므로 `regress_set`(refine replay 포함)으로 같이 본다.
+- **측정 중 찾은 것(기록만 — 이번 범위 밖):** 저장된 CombatHUD WBP 를 **새 에디터에서 처음** 그린 한 장만 24,688 px 이 기록과 달랐다(고리 자리). 두 번째부터는 16 상태 모두 기록과 바이트까지 같다. 머티리얼 셰이더가 첫 그리기에서야 컴파일을 시작하는 것으로 보인다 [추론]. 그 자리에서 머티리얼을 만드는 run 은 첫 시도부터 정상이었다(`render` = `state`, 세 run 확인). 저장된 화면을 다시 여는 **Phase 4 에서 부딪힌다** — (나) 를 고르면 미리 그린 뒤 셰이더를 한 번 더 기다리게 해 같이 막는다.
+
+*③ LLM 외형 검토 라운드*
+
+- 남은 report 중 11-18 이후 41 개(직접 다시 셈): 지적 없음 29 · 되돌림 10 · 받아들임 2 — 총괄 값과 같다. LLM 환산 8.82 USD(구독 — 과금 아님 · verifier 6.83 + fix 1.98) · 라운드 단계 817초 + 라운드가 더 돌린 verify 1,799초.
+- **받아들인 2건** = `R20261120_142400` · `R20261122_142544`, 둘 다 파티 HUD(`ProbePartyHUD` — 외부 시험 컨셉 · L-1)이고 **둘 다 실패한 run**(오류 21 · 18)이다. 고친 것도 같은 op 하나 — 초상화 자리표시 `PortraitImage.style.brush.color` 알파 `FF → 00`(불투명 네모가 마름모 프레임을 가림). 진단 점수는 그 앞뒤가 같다(결함 23 → 23 · 나쁨 208.629 → 208.629, 20 → 20 · 252.069 → 251.458) — 런타임 그림 자리는 진단이 빼고 보기 때문이다. **지금 게임 화면 둘에는 런타임 그림(binding `image`)이 없어 필요 없다.** 다만 '그림을 넣기 전 자리표시가 프레임을 가린다'는 M7 아이콘 때 다시 나올 수 있다 → 그때 결정적 규칙(자리표시 알파 0)으로 — 남긴 것에 적는다.
+- **흐름 확인:** `_style_review` 는 `rounds` 와 무관하게 비교 기록(`style_compare` → `style/before` · `report.recorded.style_review.before`)을 먼저 남기고, 글자 맞춤은 따로 `style_review.text_fit` 만 본다(`run_pipeline.py:426 · 434 · 501`). 라운드가 0 인 길은 이미 deterministic 모드에서 시험한다(`test_style_round_off_in_deterministic_mode` — `rounds_allowed 0` · `before` 있음 · 글자 맞춤 돎). 즉 **`style_review.rounds: 0` 만으로 라운드만 꺼진다.**
+
+| 안 | 내용 |
+| :--- | :--- |
+| **설정으로 끄기 — 추천** | `rounds: 1 → 0` + 이유 주석. 코드 · 프롬프트 둘은 남긴다 — Phase 4 '지시 해석'(선택)이 같은 가드(`guard_style_ops`)와 patch 길을 쓸 수 있다. 라운드 시험 셋은 `rounds: 1` 을 명시해 계속 돈다. hybrid 모드에서 라운드 0 인 run 시험을 하나 더한다 |
+| 걷어내기 | `_style_review` 의 라운드 반복 · `style.propose` · 가드 · 사본/되돌림 · 프롬프트 2 · 시험 약 10개를 지운다. 되살릴 때 다시 쓴다 — **지금은 버림**, Phase 4 가 쓰지 않기로 정해지면 그때 |
+
+*④ 집계 리포트*
+
+- 스크립트 `Tools/uigen/summarize.py`(읽기만 — `metrics/uigen.jsonl` · `work/R*/report.json` · `run.json` · `llm.jsonl`) → 글 리포트 하나(마크다운). 숫자는 모두 스크립트가 세고, 같은 입력이면 같은 글이 나온다. 경로 · 토큰 · 계정 · LLM 글은 넣지 않는다(run id · 화면 이름 · 수만). 시험 = 합성 입력으로 세는 값 · 경로 문자열 없음.
+- 담을 것: 자료 범위와 한계(아래) · 날짜 × 화면별 run 수와 결과 · 실패 게이트 · 걸린 시간 · 에셋 출처 추이 · LLM 호출과 환산 비용(단계별) · 외형 라운드 결과 · verify 비중(앞 · 뒤) · 게임 화면 승격 run 표.
+- **한계를 리포트 첫머리에 적는다:** ① jsonl 은 208 run 전부지만 `work` 폴더는 57 run 만 남았다(정리 때 실패 · 중간 run 을 지움) — report 에서 센 값은 '남은 57'의 값이고 **전체 통과율이 아니다** ② `CombatHUD` 122 run 은 대부분 파이프라인을 만들던 시험이다 — 화면 이름만으로 게임 run 과 가를 수 없어 통과율을 내지 않고 날짜 × 화면 수만 싣는다. 게임 화면은 승격한 run 만 따로(이름은 이 문서에서) ③ 초기 줄 셋은 `status` 가 없다 ④ 'USD' 는 API 정가 환산이고 구독이라 과금이 아니다.
+- 이미 센 값(확인용): 1,632 줄 = run 208 + 에셋 1,424 · `style_sim_anchor` 값 0 · 실패 게이트 appearance 65 · iou_leaf 10 · baked_text 6 · overlap 5 · iou_region 2 · 11-17 부터 codex 에셋 0(11-16 115 → 0) — 앞 절의 값과 다른 것 없음.
+- **저장소에 둘지(§12-2 의 7):** (a) **스크립트 + 글 리포트 `Docs/Design/ui-autogen-report.md` 를 커밋 대상으로 — 추천**(원본 jsonl · work 는 git 무시라 리포트가 남는 유일한 증거, 넣는 것은 수와 이름뿐) (b) 스크립트만 저장소, 리포트는 `Tools/uigen/metrics/`(git 무시) (c) 둘 다 저장소에 안 둠.
+
+*⑤ 스킬 문서 둘(§10-2 — `.claude/` 라 쓰기 전 확인)*
+
+| 파일 | 담을 것(확인된 것만, 근거 파일:줄) |
+| :--- | :--- |
+| `.claude/skills/ue-umg-authoring/SKILL.md` | 새 WBP 루트 없음(`DefaultRootWidget`) · GUID 맵과 `OnVariableAdded` · FWidgetRenderer 감마(LUT) · 2번 그리기 · SDF 글리프 준비 · 첫 그리기 셰이더 · 화면 밖 컬링 geometry 0 · 텍스처 설정(압축 이름 · NeverStream · Interchange NPOT) · box 9-slice 모서리 크기 · 디자이너 미리보기(`bHiddenInDesigner`) · ProgressBar Mask/Scale · BindWidget 계약 해시 · 생성 헤더 이름 겹침 · 지난 `_AutoGen` WBP 컴파일 오류 주의 |
+| `.claude/skills/uigen-run/SKILL.md` | 화면 만들기 순서(make_concept → run → compare.png → 승격) · 명령 · 에디터 주기 · report 읽는 법(오류 E · 근사 A · 게이트 11 · manual_check) · 규칙을 고친 뒤 회귀(golden · regress_set) · 함정(옛 손 spec 을 돌리지 말 것 등) |
+
+`CLAUDE.md` · 기존 스킬 셋 · 훅은 안 건드린다. `.claude/settings.local.json` 도 안 건드린다(git 무시 — 개인 설정).
+
+*⑥ 곁가지*
+
+- 고칠 것(주석 · 안 읽는 키만): `pipeline.yaml` 의 'comfy 는 Phase 5' · 'Phase 5 ComfyUI 와 함께' 주석 → '삭제(11-24)', `routing.yaml` 의 `mockup` 줄 · icon `anchor` · `retry_backend`(읽는 코드 없음) · 낡은 '1a 는 …' 주석.
+- **목록만 남김(스키마 · 시험이 걸림):** `metrics.py` 의 `style_sim_anchor`(늘 null — `test_run.py:72` 가 확인) · spec 스키마 `provenance` 의 `comfy` · manifest/spec 의 `anchor` · `extract.text_fill_complex`(V8 인터페이스 — 사용자 결정으로 둔 자리) · `routing.yaml limits.on_quota`(읽는 코드 없음 — 동작은 늘 '멈춤').
+
+*⑦ 검증(승인 뒤)*
+
+1. pytest 전체 1회(새 시험: `delta_e(where)` · `_shift_min_de` · `explain_diff` ↔ 옛 식, 묶음 렌더 = 한 장씩 · 실패하면 한 장씩, 라운드 0 hybrid, 집계).
+2. 오프라인 새 ↔ 옛: 남은 run 중 재생할 수 있는 것 전부에서 `diagnosis.json` · `compare.png` 바이트 비교.
+3. 정답 묶음 `golden.py check` · `regress_set run p2_1124 --relayer` ↔ `status_1124`(새 결함 0).
+4. ((나)를 고르면) 빌드 DebugGame · Development + 에디터 1회에 `WidgetMcp.` + 두 WBP '한 장씩 ↔ 묶음' PNG 바이트 비교.
+5. 실제 run — `fixtures/combat_hud_blade` · `fixtures/status_hud_blade` 각 1회(라운드 끔), 시간 앞뒤 · 오류 · 근사 · 게이트 비교, `compare.png` 직접 봄. 승격하지 않는다. analyze(LLM)가 run 마다 배치를 조금 다르게 내므로 run 끼리의 근사 수가 같을 거라고는 약속하지 않는다 — '판정이 같다'는 2 · 3 · 4 가 증명한다.
+
+**쓰기 범위:** `Tools/uigen/**`(새 `summarize.py` · 시험) · ((나)면) `Plugins/WidgetMcp/**` · `Docs/Design/ui-autogen-pipeline.md` · (승인되면) 리포트 · `.claude/skills/` 둘. 측정이 남긴 일회성 = `work/_measure_p2/` + 세션 스크래치(끝에 목록 → 승인 → 휴지통).
+
+**사용자에게 묻는 것:** 1 집계 리포트를 저장소에((a) 추천) · 2 외형 라운드(설정으로 끄기 추천) · 3 verify((나) 추천 — WidgetMcp C++ 승인 포함) · 4 `.claude/skills/` 에 문서 둘 쓰기(추천: 승인). → **결정(11-24): 전부 추천안.**
+
+**Phase 2 결과 (11-24, 미커밋 — 하위 세션. 위 설계 그대로, 다른 곳은 '설계와 달라진 것')**
+
+*verify 시간 — 앞 · 뒤*
+
+| | StatusHUD 앞 `130129` | 뒤 `R20261124_201408` | CombatHUD 앞 `194019` | 앞 `172628` | 뒤 `R20261124_200822` |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| verify 1번(초, 중앙값) | 217.2 | **25.9** | 220.9 | 78.7 | **27.8** |
+| verify 합(횟수) | 657(3) | **78(3)** | 1,585(7) | 470(6) | **140(5)** |
+| run 단계 합(초) | 842 | **183** | 1,818 | 658 | **260** |
+| verify 비중 | 78 % | 43 % | 87 % | 72 % | 54 % |
+| 상태 렌더(묶음 · 한 장씩) | 0 · 60 | 60 · 0(5.8초) | 0 · 16 | 0 · 9 | 16 · 0(3.3초) |
+| 결과 · 게이트 · 오류 · 근사 | pass · 11/11 · 0 · 4 | pass · 11/11 · 0 · 4(같은 위젯 · 같은 종류) | pass · 11/11 · 0 · 3 | pass · 11/11 · 0 · 3 | pass · 11/11 · 0 · 2 |
+
+횟수가 다른 것은 analyze(LLM) 배치가 run 마다 조금 달라 글자 맞춤 판 수가 다르기 때문이다(앞 `194019` 는 되돌린 판이 하나 있었다). `194019` 의 긴 시간에는 다른 작업이 겹쳤을 수 있다 [추론]. StatusHUD 의 refine 도 77.9 → 9.9초로 나왔는데 원인은 재지 않았다(앞 run 때의 PC 부하일 수 있다).
+
+- **고친 것 — Python:** `diagnose.delta_e(a, b, where)`(다른 픽셀 · 자리 안만 — 같은 픽셀의 ΔE00 은 정확히 0) · `_shift_min_de(where)`(Lab 한 번 · 같은 픽셀 건너뜀) · `state_check` 의 `explain_diff` · `hidden_halo` · 게이지 · 고리 · 막대 검사. 상태 렌더 목록은 `state_check.state_requests` 하나로(대상 고르기 `gauge_targets` · `radial_targets` 를 검사와 같이 씀), verify 의 `StateRenders` 가 묶음으로 그리고 못 하면 한 장씩(기록 `attempts/NNN/gates.json notes.state_renders`).
+- **고친 것 — WidgetMcp C++:** `render_widget states[{name, overrides}]` — 한 장씩 그리던 길을 함수(`MakeInstance` · `WarmUp` · `DrawInstance`)로 나눠 둘이 같이 쓴다. 상태마다 새 인스턴스, 준비 대기 한 번, 이름 = 폴더(영숫자 · _ · - , 대소문자 무시 중복 거절), overrides · probes 와 함께 못 씀, 최대 256. 미리 그린 뒤 셰이더를 한 번 더 기다린다 — 측정 중 찾은 '새 에디터 첫 렌더에서 고리가 빠짐'이 없어졌다(첫 장 = 기록과 바이트 같음).
+- **판정이 같다는 증명:**
+  - 엔진: 저장된 두 WBP 의 76 상태(16 + 60)에서 **묶음 = 한 장씩 = 앞 run 기록, PNG 바이트까지 76/76**(한 장씩 36.8 · 137.2초 → 묶음 3.3 · 6.1초).
+  - 오프라인: 남은 run 의 마지막 시도를 옛 코드(HEAD 사본)와 지금 코드로 다시 진단 — 비교할 수 있는 **44 run 전부 `diagnosis.json` · `compare.png` 바이트까지 같음**(차이 0). 13 run 은 컨셉에 알파가 없어 예전부터 진단 대상이 아니다. 진단 시간 합 4,954 → 1,349초(다른 시험과 같이 돌림).
+  - 회귀 묶음 `p2_1124`(14 입력, layer 부터) ↔ `status_1124`: `+ new` **0**, 파일 529개 중 **528개 바이트 같음**(남은 하나는 코드 파일 목록을 적는 `set.json`) — refine 이 고른 텍스처까지 같다. 새 기준선 = `p2_1124`.
+  - 정답 묶음 **35/35 caught · 1/1 clean · 8/8 protected** · pytest 485 → **496 통과**(실패 0, 다른 시험과 같이 17분 47초) · 빌드 DebugGame · Development(`-DisableAdaptiveUnity`) `Result: Succeeded` · `WidgetMcp.` **8/8**(Render 시험에 묶음 = 한 장씩 바이트 비교 · 거절 4 종을 더함). 게임 모듈을 안 고쳐 `AstralBreak.` 은 돌리지 않았다.
+- **LLM 외형 라운드:** `style_review.rounds: 0`. 두 run 모두 `rounds_allowed 0` · 라운드 0 · `style_compare`(before) 기록 있음 · 글자 맞춤은 그대로(CombatHUD 크기 판 · 위치 판 · 마지막 크기 판 받음, StatusHUD 위치 판 받음). LLM 호출 4 → 3. hybrid 모드에서 라운드 0 을 보는 시험을 더했다(라운드 시험 셋은 켜고 돈다).
+- **집계:** `Tools/uigen/summarize.py` → [ui-autogen-report.md](ui-autogen-report.md)(110 줄). 총괄이 센 값(run 208 · 에셋 1,424 · 라운드 41 = 29 · 10 · 2 · 8.8 USD)과 같고, 이번 run 둘이 더해져 run 210 이다. 설계에 적은 '초기 2줄에 status 없음'은 세어 보니 **3줄**이라 고쳤다.
+- **스킬:** `.claude/skills/ue-umg-authoring/SKILL.md` · `.claude/skills/uigen-run/SKILL.md`(사용자 승인). 엔진 줄 번호는 5.7.4 소스에서 다시 확인했다. `CLAUDE.md` · 기존 스킬 · 훅 · `settings.local.json` 은 안 건드렸다.
+- **곁가지:** `pipeline.yaml` 의 comfy · Phase 5 주석, `routing.yaml` 의 `mockup` · `anchor` · `retry_backend` · 낡은 1a 주석을 정리했다. 스키마 · 시험이 걸린 것은 ⑥ 의 목록대로 남겼다.
+- **눈으로 본 것:** 두 run 의 `compare.png` 를 이 세션이 직접 봤다 — CombatHUD 글자 높이 비 0.964 ~ 1.069(앞 0.96 ~ 1.077) · 게이지 · 고리 여섯 비율, StatusHUD 동료 이름 세 줄 굵기 · 크기 · 색 같음(14 pt medium) · 막대 검사 전부 0.0. **사람 눈 확인은 받지 않았다** — 승격하지 않았으므로 게임 화면은 앞 승격본 그대로다.
+- **설계와 달라진 것:** ① 게이지 · 고리 비율 렌더를 8 비트로 든다(값 같음 — PNG 가 정수라, 전 화면 실수 그림을 들고 있지 않게) ② 시험 `golden` · `regress` 에 더해 남은 run 전체 바이트 비교를 했다 ③ `Tools/mcp/widget_mcp`(MCP 창구)에는 `states` 를 더하지 않았다 — 쓰기 범위 밖이고 파이프라인은 브리지를 직접 부른다.
+- **돌리지 않은 것 · 남긴 것:** 게임 안 확인(승격 안 함) · L-1 컨셉과 검증 화면의 실제 run(오프라인 재진단 · 회귀 묶음으로만) · `AstralBreak.` · 새 계약의 codegen 길(두 run 모두 `skipped`). 런타임 그림 자리표시가 프레임을 가리는 것은 M7 아이콘 때 결정적 규칙으로(③). verify 1번에서 남은 시간은 Python 진단 12 ~ 16초 · 묶음 렌더 3 ~ 6초 · 묶음 밖 렌더 두 호출(해상도 셋 · sample) 약 5초.
+- **정리(11-24 사용자 승인 — 휴지통, 약 225 MB):** `Tools/uigen/work/_measure_p2`(35 MB) · `work/_widgetmcp_tests`(467 KB, `WidgetMcp.` 시험 출력) · `Tools/mcp/results/widget_spike/20261124_200751` · `work/_regress/compare_status_1124_vs_p2_1124` · 세션 스크래치(약 190 MB). 남김: run `200822` · `201408`(`work` + `_AutoGen`, 앞뒤 증거) · 기준선 `p2_1124`.
+
 - M4 단위 E(4인 별도 프로세스 시험)는 UI 와 무관해 에디터가 비는 때 아무 때나. 단위 D(오의 애니)는 별개.
 - 감안할 점: M4 C 의 화면은 Phase 0 ~ 1b 가 끝나야 완성된다. 그동안 HUD 는 디버그 위젯이다.
 
@@ -1966,7 +2110,7 @@ claude -p "<단계 지시>"
 4. ~~폰트~~ — **결정(11-14): 1a 는 엔진 기본 폰트(Roboto + 한글 대체)**, 프로젝트 폰트(Pretendard / Noto Sans KR)는 1b 에서 결정 · 내려받기는 그때 따로 승인. spec `font.family` = null.
 5. ~~텍스처 압축 기본값~~ — **결정(11-14): `TC_EditorIcon` 기본 + 큰 배경(`panel_bg`)만 `TC_BC7`** — `pipeline.yaml textures.compression_by_kind`.
 6. ~~상한 값~~ — **결정(11-14): 재시도 N = 3** 으로 시작(codex 20 회는 1b 에서 실제로 쓸 때 다시 본다).
-7. **집계 리포트 커밋** — `metrics/` 집계 결과(텍스트)를 포트폴리오 증거로 커밋할지. (Phase 2 몫)
+7. ~~집계 리포트 커밋~~ — **결정(11-24): 스크립트 `Tools/uigen/summarize.py` + 글 리포트 `Docs/Design/ui-autogen-report.md` 를 커밋 대상으로**(원본 `metrics/` · `work/` 는 git 무시 그대로).
 8. ~~HUD 요소 목록~~ — **결정(11-14): M4 설계 §5 그대로** — 오의 게이지(+가득 시 강조) · 체인 패널(남은 시간 · 참가 N/4) · 버스트 배너(인원) · '오의 불가'.
 **1b 착수 때 물을 것(1a-5 정리, 11-15):** 3(컨셉아트 경로) · 4 후속(프로젝트 폰트 선택 · 내려받기 승인) · OCR 엔진 선택 — 근거는 §11 '1b 로 넘길 것'. 7(집계 리포트 커밋)은 Phase 2.
 → **결정(11-15, 1b 착수):** 3 = codex 로 컨셉아트 1장 생성 · 4 = Pretendard(Regular · Bold — 내려받기는 1b-3 에서 따로 승인) · OCR = RapidOCR(설치는 1b-3 에서 따로 승인) · 6 후속 = codex run 당 20 그대로 + analyze 상한 1.0 USD · 턴 6 · 600초(잠정). 나머지 1b 결정은 §11 '1b 착수 때 정한 것'.

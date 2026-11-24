@@ -12,6 +12,9 @@ class UWidgetBlueprint;
  * 걸린다(A6-색 실측) → 읽은 8비트 값에 채널마다 sRGB→선형 변환을 1회(LUT) 해서 지정색으로 되돌린 PNG 를 쓴다. 알파는 255(검은 바탕).
  * Scale 을 직접 주므로 DPI 곡선이 끼지 않고, GetPaintSpaceGeometry 가 픽셀 좌표 그대로다(오차 0 px 실측).
  * 출력은 [WidgetMcp] WidgetRenderOutputRoots 아래의 새 · 빈 폴더만.
+ *
+ * States 가 있으면 한 요청에서 상태마다 새 인스턴스를 만들어 같은 길로 그린다(uigen Phase 2) — SDF 글꼴 준비 대기(2 초)는 모든 상태를 한 번씩 미리 그린 뒤
+ * 한 번만. 출력은 <output_dir>/<이름>/<이름>_WxH.png(상태 폴더마다 새 · 빈 폴더), geometry · probes 는 내지 않는다.
  */
 namespace WidgetMcpRender
 {
@@ -20,6 +23,12 @@ namespace WidgetMcpRender
 		TOptional<bool> bVisible;
 		TOptional<float> Percent;
 		TOptional<FString> Text;
+	};
+
+	struct FState
+	{
+		FString Name;
+		TMap<FString, FOverride> Overrides;
 	};
 
 	struct FRequest
@@ -33,6 +42,8 @@ namespace WidgetMcpRender
 		FString Prefix = TEXT("render");
 		/** 탐침 — {id, at:[x,y]} 의 LUT 적용 뒤 색(첫 해상도) */
 		TArray<TPair<FString, FIntPoint>> Probes;
+		/** 상태 묶음 — Overrides · Probes 와 같이 쓰지 않는다. Prefix 는 상태 이름 */
+		TArray<FState> States;
 	};
 
 	TSharedPtr<FJsonObject> Render(const WidgetMcp::FSettings& Settings, UWidgetBlueprint* WBP, const FRequest& Request, FEditorMcpContext& Context, FEditorMcpError& OutError);

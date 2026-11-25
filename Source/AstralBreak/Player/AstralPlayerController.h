@@ -26,10 +26,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Astral|PlayerController")
 	UAstralAbilitySystemComponent* GetAstralAbilitySystemComponent() const;
 
-	/** 전투 HUD — 로컬 컨트롤러만 갖는다(없으면 null). 자동 시험이 읽는다 */
+	/** 전투 HUD — 화면의 주인(UAstralUISubsystem)에게 묻는다. 로컬이 아니거나 이 맵의 HUD 목록에 없으면 null. 자동 시험이 읽는다 */
 	UAstralCombatHUDWidget* GetCombatHUDWidget() const;
 
-	/** 내 상태 · 동료 HUD — 로컬 컨트롤러만 갖는다(없으면 null) */
+	/** 내 상태 · 동료 HUD — 위와 같다 */
 	UAstralStatusHUDWidget* GetStatusHUDWidget() const;
 
 	/**
@@ -99,27 +99,6 @@ protected:
 	bool IsPartyLeader() const;
 
 private:
-
-	/*
-	 * HUD — 처음 생기는 플레이어용 화면 (설계 Docs/Design/m4-ult-chain.md §5 · §6 'C 구현 결과')
-	 */
-
-	/**
-	 * 전투 HUD 의 WBP. 기본값은 promote_widget 으로 승격한 /Game/UI/HUD/CombatHUD/WBP_CombatHUD — BP_PlayerController 는 값을 저장하지 않아 이것을 물려받는다.
-	 * 다른 그림으로 바꾸려면 BP 에서 덮어쓴다. 비우면 HUD 를 만들지 않는다
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|HUD")
-	TSoftClassPtr<UAstralCombatHUDWidget> CombatHUDWidgetClass;
-
-	UPROPERTY()
-	TObjectPtr<UAstralCombatHUDWidget> CombatHUDWidget;
-
-	/** 내 상태 · 동료 HUD 의 WBP — 전투 HUD 와 같은 규칙. 화면을 나눈 까닭은 설계 Docs/Design/ui-autogen-pipeline.md §11 '메인 HUD 설계' 결정 2 */
-	UPROPERTY(EditDefaultsOnly, Category = "Astral|HUD")
-	TSoftClassPtr<UAstralStatusHUDWidget> StatusHUDWidgetClass;
-
-	UPROPERTY()
-	TObjectPtr<UAstralStatusHUDWidget> StatusHUDWidget;
 
 	/*
 	 * Debug Members

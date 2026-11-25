@@ -549,7 +549,7 @@ claude -p "<단계 지시>"
 | ~~→ 근사 다듬기~~ | **삭제(11-24 조정)** | — | — |
 | **2** | **완료(11-24 — 'Phase 2 결과')** · 정리 · 집계(작게) — run 기록 집계 리포트 · LLM 외형 검토 라운드 끄기 · verify 시간 줄이기 · 스킬 문서 둘(§10-2) | 집계 리포트 1개 · 라운드를 끈 run 이 오류 0 · verify 시간 앞뒤 수치 · 스킬 둘(잠정) | pytest · 정답 묶음 · `regress_set` · 실제 run |
 | **4**(2 다음 — 3 보다 먼저) | **완료(11-25 — 'Phase 4 결과')** · 이어서 고치기 — 지난 run 의 최종 spec 에서 이어 시작(analyze 생략) · 안 바꾼 위젯은 그대로(수정 회귀 게이트) · 재승격 · 되돌리기 · 사람이 고친 WBP 안 덮기. 선택(뒤): 지시 해석 · 주석 스크린샷 → 위젯 매핑 | 승격한 화면 하나를 이어서 고쳐 수정 회귀 게이트 통과 · 재승격 · 되돌리기 1회(잠정) | 실제 run |
-| **3**(4 다음) | 조작 화면 — 버튼 이벤트 계약 · 버튼 상태 그림(올림 · 누름 · 선택 · 비활성) · 반복 칸(하위 WBP) · 메뉴 프로필 · 긴 글자 처리 · 승격 경로 추가. 첫 대상 = 허브 준비 화면(추천 — 착수 때 확인) + 글 → 컨셉 → run 을 한 명령으로 | 첫 화면 무인 1회 통과 · 게임에서 조작 동작(잠정) | 실제 run · 사람 눈 · 조작감 |
+| **3**(4 다음) | **설계 승인(11-25 — 'Phase 3 설계') · 3-1 화면 체계(구현 · 검증 완료 11-25, 사람 눈 확인 대기 — 'Phase 3-1 결과') → 3-2 칸과 버튼 → 3-3 화면 → 3-4 게임 연결** · 조작 화면 — 버튼 이벤트 계약 · 버튼 상태 그림(올림 · 누름 · 선택 · 비활성) · 반복 칸(하위 WBP) · 메뉴 프로필 · 긴 글자 처리 · 승격 경로 추가. 첫 대상 = 허브 준비 화면(추천 — 착수 때 확인) + 글 → 컨셉 → run 을 한 명령으로 | 첫 화면 무인 1회 통과 · 게임에서 조작 동작(잠정) | 실제 run · 사람 눈 · 조작감 |
 | ~~5~~ | ComfyUI 연결 — **삭제(11-24 조정)** | — | — |
 | ~~6~~ | 지표 기반 라우팅 — **삭제(11-24 조정)** | — | — |
 
@@ -2171,7 +2171,7 @@ run_pipeline.py --from <ScreenId | run_id> --edit <patch.json>
 
 **사용자에게 묻는 것:** 1 원천 보관(⑤ (가) 추천) · 2 재승격 방식과 안전 규칙 예외(⑥ (가) 추천) · 3 사람 수정 판정(⑦ 파일 SHA256 — 강제 옵션 없음 추천) · 4 첫 실증(⑩ — StatusHUD HP 숫자, 되돌려 끝내기 추천) · 5 `.claude/skills/` 둘의 '재승격은 사람이 손으로' 줄 고치기(추천: 승인). → **결정(11-24): 전부 추천안.** 구현은 컨텍스트 때문에 새 세션에서(인계 `uigen-phase4-impl-handoff.md`, 공유 노트 폴더 local_b686cc15…).
 
-**Phase 4 결과 — 이어서 고치기 (2026-11-24 ~ 25 구현 · 검증 — 하위 세션, 미커밋)**
+**Phase 4 결과 — 이어서 고치기 (2026-11-24 ~ 25 구현 · 검증 — 하위 세션, 커밋 `83f94e6`)**
 
 승인된 설계대로 만들었고 끝 조건(수정 회귀 게이트 통과 · 재승격 · 되돌리기 1회)을 채웠다. **승격본 23개 파일은 처음과 바이트까지 같다**(커밋한 LFS 값 23/23 · `git status -- Content` 빈 줄). 게임 C++ · WidgetMcp · Config 변경 0 · 빌드 0 · LLM 0 · codex 0.
 
@@ -2227,6 +2227,208 @@ run_pipeline.py --from <ScreenId | run_id> --edit <patch.json>
 - 게임 안 눈 확인(되돌리고 끝내는 실증이라 화면은 그대로) · CombatHUD 수정 run · 실제 파일에서의 `recover` · `--unrelated`(둘 다 pytest 로만) · Development 구성(고친 C++ 가 없다) · `WidgetMcp.`(같은 까닭).
 - 바꾼 자리 안의 모양은 여전히 사람 눈이다(④ 의 한계 그대로). 지시 해석 · `style_review` 라운드 걷기 · Phase 3 은 시작하지 않았다.
 - **정리(11-25 사용자 승인 — 휴지통, 약 382 MB):** `work/_measure_p4`(99 MB) · `work/_promoted`(재승격 · 되돌리기 일지, 둘 다 `done`, 25 MB) · 시험 run 다섯 `R20261124_224422` · `224621` · `224752` · `225105` · `225244`(`work` 173 MB + `224422` · `225244` 의 `_AutoGen`) · `work/_regress/compare_p2_1124_vs_p4_1124` · 스크래치 `uigen_p4` · `uigen_p4b`(84 MB) — 위 숫자는 이 글로만 남는다. 남김: 승격본 run `R20261123_194019_CombatHUD` · `R20261124_130129_StatusHUD`(`work` · `_AutoGen`) · 기준선 `p4_1124`. 정리 뒤 `promote_screen.py status` 두 화면 다 기록과 같음.
+
+**Phase 3 설계 — 조작 화면 (2026-11-25 작성 · 같은 날 사용자 승인 'HUD까지 확정' — 하위 세션. 조사 · 작은 시험 · 설계까지, 구현은 단계마다 새 세션)**
+
+읽은 근거 = 아래 [소스](줄 번호는 HEAD `83f94e6` · 엔진 5.7.4)와 작은 시험 [실측](`work/_measure_p3/`, 저장소 무변경, codex 3회). 에디터는 띄우지 않았다.
+
+*작은 시험 — 버튼 상태 그림의 정답을 어디서 받나 (상한 codex 4회로 미리 정함, 쓴 것 3회)*
+
+본 그림 1장('검은 날' 느낌을 `--style-ref` 로 — 파티 줄 4 · 목적지 버튼 · 작은 버튼 2, 글자 없음 · 진짜 알파)을 만들고 세 길을 견줬다.
+
+| 길 | codex | 버튼 윤곽 어긋남(기본 그림 대비, px) | 안 바꿔야 할 자리 | 상태 구별(버튼 안 평균 ΔE00 — 올림 · 누름 · 선택) |
+| :--- | :---: | :--- | :--- | :--- |
+| (가) 상태별 컨셉 판 — 본 그림을 편집해 버튼만 '올림'으로 | 상태마다 1 | 최대 2.6 | **버튼 밖이 통째로 바뀜** — 회색 바탕 ΔE00 중앙 4.66 · 95 % 25.6 · 5 를 넘는 픽셀 44 %(밝은 바탕 중앙 9.5 · 96 %). 파티 줄의 옅어지는 끝이 둥근 불투명 끝으로 다시 그려짐 | — |
+| (나) 상태 시트 — 기본 버튼 2종을 5줄 복제한 판을 편집 | 1 | 최대 3.9(오른쪽 끝) · '그대로 두라'고 한 첫 줄도 8 ~ 16 % 픽셀이 ΔE00 5 초과 | (버튼만 있음) | 6.9 ~ 8.0 · 2.6 ~ 2.9 · 8.0 ~ 8.5 |
+| **(다) 결정적 처리 — 기본 버튼 픽셀의 함수** | **0** | **0(정의)** — 알파를 안 바꾼다(비활성만 × 0.5) | 해당 없음 | 8.9 · 3.3 · 9.4(선택 + 올림 16.6 · 비활성 12.2) |
+
+→ **(다)를 쓴다(추천).** 정답이 '기본 그림 + 식'이라 엔진 렌더를 픽셀로 견줄 수 있고, 사람이 승인한 본 그림의 윤곽이 상태마다 흔들리지 않는다. 구별되는 정도는 codex 시트와 같다.
+(가)는 본 그림의 정답을 깨므로 버리고, (나)의 그림은 식의 색 · 세기를 고를 때 눈 참고로만 썼다. 식(`preview.py`): 올림 = 판을 따뜻하게 9 ~ 16 % 밝힘 + 선 · 칼날을 상아색으로 ·
+누름 = 판 × 0.5 + 선 어둡게 + 글자 1 px 아래 · 비활성 = 무채색 + 알파 × 0.5(글자는 Slate 가 알파 × 0.45) · **선택 = 어느 상태 위에나 얹는 투명 덮개**(왼쪽에서 옅어지는 상아색 30 % + 상아색 선) — 구워서 선택 · 선택 + 올림 · 선택 + 누름 그림이 된다.
+초점(게임패드 · 키보드) = 올림 그림을 같이 쓴다. 식의 값은 프로젝트 공용 테마 하나(사람이 승인하는 미리보기 1장과 함께) — 눈으로 고르는 값이지 문턱이 아니다.
+
+*① 첫 화면 — 허브 준비 화면 `HubReady` (추천)*
+
+| 자리 | 값 · 동작 | 원천 [소스] | 지금 있나 |
+| :--- | :--- | :--- | :--- |
+| 파티 4줄(고정) | 이름 | `APlayerState::GetPlayerName` + `AAstralGameState::OnPlayerRosterChanged` | 있음(StatusHUD 가 씀) |
+| | 방장 표시(초승달) | `AAstralGameState::GetPartyLeader()` — PlayerId 최소, 클라이언트도 같은 값 | 있음 |
+| | 준비됨 | `AAstralPlayerState::bIsReady` | 값 있음 · **통지 없음** → RepNotify + 델리게이트 |
+| 목적지 버튼(방장만 누름) | 고를 수 있는 레이드 | 허용 목록 — 지금은 `AAstralGameMode::RaidMapNames`(서버 전용) → **`AAstralHubGameState` 로 옮김**(아래) | 1개(`RaidMap`) |
+| | 골라짐(선택 모양) | `AAstralHubGameState::SelectedRaid` | 값 있음 · **통지 없음** |
+| 준비 버튼 | 내 준비 켜고 끔(선택 모양 = 내가 준비됨) | `ServerSetReady` | 있음 |
+| 출정 버튼(방장만) | 전원 준비 + 목적지 → 이동 | `ServerStartRaid` | 있음 |
+| 이유 한 줄 | 왜 못 누르나 · 서버가 거절한 까닭 | 새 순수 함수(③) | 규칙은 있음(흩어져 있음) |
+| 고정 글자 | '출정 준비' · '목적지' · '준비 완료' · '닫기' 안내 | — | — |
+
+- **안 넣는 것:** 캐릭터 · 무기 · 룬 고르기(M7 로드아웃 — 표시 이름 FText 도 없다), 레이드 브리핑 · 보상(M6), 초상화. 시스템 없는 값은 만들지 않는다.
+- **M6 과의 관계:** 이 화면은 '준비 · 목적지 · 출정' **요청의 정식 화면**이고, 여는 방법(NPC 와 대화 · 브리핑)과 퀘스트 데이터는 M6 이 가져간다. M6 은 여는 함수 호출 자리와 목적지 목록의 원천만 바꾸면 된다. 콘솔 명령(`SetReady` · `SelectRaid` · `StartRaid`)은 시험이 쓰므로 그대로 둔다.
+- **목적지 목록:** 화면이 클라이언트에서 읽어야 하므로 게임모드(서버 전용)가 아니라 **문맥(월드) 정책의 소유자인 GameState** 가 갖는 것이 이 프로젝트 규칙이다(`AstralGameState.h:11` — 장비 정책 · 공통 어빌리티와 같은 자리). `AAstralHubGameState::RaidDestinations {MapName, DisplayName}`(편집 기본값 — 복제할 것 없음) 하나가 허용 목록이자 보이는 이름의 단일 원천이고, 서버 검사도 이것을 본다.
+  `IsRaidMapAllowed` · `RaidMapNames` 를 쓰는 곳은 컨트롤러의 RPC 하나뿐이고 BP 에 저장된 값이 없다 [실측]. 글 '봉인된 유적'은 game-plan 7-5 의 콘셉트 이름(기획 요소 — 잠정). 프로젝트의 정의 애셋 꼴(`UPrimaryDataAsset`)로 올리는 것은 M6 퀘스트 구조의 몫 — 시작하지 않는다.
+
+*② 파이프라인 — 칸 · 버튼 · 동작의 계약*
+
+- **칸도 하나의 화면:** 파이프라인은 run 하나 = spec 하나 = 화면 하나 = 승격 폴더 하나로 짜여 있다(`run_pipeline` · `core/promotion` · 수정 run 전부). 한 run 에 spec 둘을 넣으면 이 전제가 깨지므로 칸을 자기 run · 자기 승격본으로 먼저 만들고, 큰 화면은 새 위젯 타입 `UserWidget {class, props}` 로 **승격된 칸만** 넣는다.
+  칸의 컨셉 = 승인한 그림에서 그 자리만 `--cut-from`(codex 0), 캔버스 = 칸 크기(`profiles/cell.yaml`). 진단은 칸을 '그 칸의 spec + 텍스처로 합성한 그림 한 장'으로 본다.
+- **칸은 두 종류다:**
+
+  | 종류 | 예 | C++ | 두는 곳 |
+  | :--- | :--- | :--- | :--- |
+  | 공용 부품 | 버튼 모양 둘(`ButtonLarge` · `ButtonSmall`) | **손으로 쓴 `UAstralButtonBase` 하나** — 모양마다 클래스를 만들지 않는다(`screens.yaml parent`, codegen 없음 · 바인딩은 리플렉션으로 대조) | `/Game/UI/Common/` |
+  | 화면 전용 | 파티 줄 `HubMemberRow` | 생성 베이스 + 스텁(지금 규칙 그대로) | `/Game/UI/Screens/HubReady…/` |
+
+- **버튼 = CommonButton:** `UAstralButtonBase : UCommonButtonBase`(Lyra `ULyraButtonBase` 꼴 — 글자 값 `ButtonText` 하나). 상태 그림 일곱(기본 · 올림 · 누름 · 선택 · 선택 + 올림 · 선택 + 누름 · 비활성)은 `UCommonButtonStyle` 파생 클래스 애셋이 담는다(`BuildStyles` 가 클래스 기본 객체만 읽고 가상 함수가 아니다 [소스] `CommonButtonBase.cpp:1900`) → WidgetMcp 새 도구 `create_button_style`.
+  **버튼이 스스로 선택을 바꾸지 않게:** 누르면 `SetIsSelected(!bSelected)` 를 부르지만(`:1466-1493`) `bSelectable` 이 꺼져 있으면 아무 일도 없다(`:1031`). 선택 모양은 원천이 바뀐 통지에서 우리 클래스가 `SetSelectedInternal`(protected `CommonButtonBase.h:741`) 로만 바꾼다. `bInteractableWhenSelected` 는 켠다(준비를 다시 눌러 풀어야 하므로).
+- **상태 그림의 식은 프로젝트 공용 테마 하나:** `Tools/uigen/config/theme_blade.yaml`(식 값 + 공용 글자색 · 외곽선). 화면마다 두면 버튼이 화면마다 달라진다. 텍스처는 refine 이 기본 그림에서 만든다(provenance `derived`, 원본 sha256 · 테마 해시 기록). LLM 은 기본 그림만 정한다.
+- **동작의 계약:** 데이터 종류 **`action`**(위젯 = 버튼 칸). 생성 베이스: `UPROPERTY(BindWidget) UAstralButtonBase* ReadyButton` · `NativeOnInitialized` 에서 `OnClicked()` 에 묶음 · **`virtual void HandleReadyClicked() {}`**(스텁이 재정의) · `SetReadyEnabled(bool)` · `selectable` 이면 `SetReadySelected(bool)`. 생성 코드는 누름에 자기 모양을 바꾸지 않는다 — 요청만.
+- **기존 두 화면의 계약 해시를 안 바꾼다.** 지금 `generator_id()` 는 `SETTERS` 표와 템플릿 4개 **전체**를 해시해(`cppgen.py:180-187`, 지금 값 `1:49a7a94ed467`) 한 줄만 더해도 두 화면의 해시가 바뀌고 수정 run 이 `EDIT_CONTRACT_CHANGED` 로 막힌다.
+  → 새 조각 · 새 템플릿은 **그 계약이 쓸 때만** 해시에 넣는다(`screens.yaml base` 도 기본값이 아닐 때만). 시험 = 커밋된 두 헤더의 해시를 그대로 재현.
+- **가리는 위젯 없음(새 구조 규칙):** UMG Image · TextBlock 의 기본 보이기는 `visible`(입력을 먹음)이라, 버튼 위에 놓인 장식이 클릭을 가로챈다. `menu` 프로필은 버튼이 아닌 잎을 `hit_test_invisible`, 패널을 `self_hit_test_invisible` 로 **코드가** 정하고, 버튼보다 뒤에 그려지며 겹치는 `visible` 위젯이 있으면 게이트에서 실패.
+- **긴 글자:** spec 글자에 `overflow: ellipsis`(기본은 지금처럼 없음), inputs 에 `long_sample`. 상태 렌더 하나(`state_long`)를 더해 긴 값이 글자 칸 밖으로 안 나가고 이웃 글자와 안 겹치는지 본다.
+- **메뉴 프로필** `profiles/menu.yaml`: 배경 투명(가운데가 열린 화면) · 게이트 값은 hud 와 같게 시작 · 입력 규칙 켬 · analyze 에 줄 짧은 주의(HUD 문구 대신).
+- **WidgetMcp C++:** 위젯 타입 `UserWidget`(승격 경로 아래 클래스만 · 허용한 인스턴스 속성만) · `create_button_style` · 글자 `overflow` · `render_widget` 덮어쓰기 `enabled` · `button: hovered | pressed | selected`(칸 안까지). 역추출 · 왕복 · 시험 포함.
+
+*③ 게임 쪽 — 화면의 주인 · 값 · 요청*
+
+```text
+[여는 쪽]  키(UI 액션 태그) 또는 M6 NPC → UAstralUISubsystem(LocalPlayer) → 루트 레이아웃의 Menu 층에 화면을 밀어 넣음
+[동작]     버튼 → UAstralHubReadyWidget(스텁)::Handle…Clicked → AAstralPlayerController::Server…(있는 RPC) → 서버 검사 → 복제 값 → RepNotify · 델리게이트 → setter
+                                                                            └─ 거절 → ClientLobbyRequestDenied(이유) → 이유 한 줄 3초
+```
+
+- **화면의 주인 = LocalPlayer:** 지금 HUD 둘은 컨트롤러가 클래스 값과 인스턴스를 하나씩 들고 있다(`AstralPlayerController.h:108-122`). 화면이 늘 때마다(M5 보스 · M6 목표 · 결과 · M7 로드아웃 · 룬 · 트리) 컨트롤러가 커지는 꼴이라 새 화면을 거기에 더하지 않는다.
+  새 `UAstralUISubsystem : ULocalPlayerSubsystem` 이 루트 레이아웃을 갖는다(`PlayerControllerChanged` 에서 만들고 월드가 바뀌면 다시 만듦 — 프로젝트의 `UAstralLocalPlayer::OnPlayerControllerChanged` 와 같은 시점).
+  `UAstralRootLayout : UCommonActivatableWidget` = 늘 켜진 Game 입력 설정 + 층 셋(HUD · Menu 스택 · Modal 스택 — Lyra 의 층을 줄인 것). 늘 켜진 Game 설정이 필요한 까닭 — 마지막 화면이 닫히면 라우터가 입력 설정을 되돌리지 않는다 [소스] `CommonUIActionRouterBase.cpp:948-966`.
+- **어느 맵에 무엇이 뜨나 = GameState 의 편집 기본값:** 문맥 정책의 소유자 규칙대로 `AAstralGameState` 에 `ContextHUDWidgets`(층 HUD) · `ContextScreens {UI 액션 태그 → 화면 클래스}` 를 둔다. 위젯이 GameState 종류를 캐스트해 스스로 숨는 일(StatusHUD)이 없어진다. Lyra 의 Experience · AddWidgets 를 프로젝트 크기로 줄인 것.
+- **틀과 입력 = CommonUI:** 화면 베이스 `UAstralActivatableWidget : UCommonActivatableWidget`(입력 설정 열거형 — Lyra 꼴, 생성 베이스의 부모). 메뉴 모드에서 게임 입력이 막히고(`:647 · 1463` `BlockGameInput`) 이동 · 시점 막기 · 눌린 키 비우기 · 커서 · 첫 초점과 되돌리기는 라우터가 한다(`:1809-1830`). 패드 초점은 가상 커서가 올림으로 만든다(`CommonAnalogCursor.cpp:150-236`).
+- **여는 키 · 닫는 키 = UI 액션 태그:** `UI.Action.HubReady`(Tab · 게임패드 Special_Left) · `UI.Action.Back`(Esc · 게임패드 B)을 `DefaultInput.ini [/Script/CommonUI.CommonUIInputSettings]` 에 두고 `RegisterUIActionBinding` 한다(Lyra `UI.Action.Escape` 와 같은 길). 라우터가 가장 안쪽 켜진 화면부터 준다(`UIActionRouterTypes.cpp:1005-1019`) → 화면이 겹쳐도 맨 위 것만 닫힌다. 입력 애셋 · 폰의 InputConfig · `BindKey`(게임에 0곳)를 안 쓴다.
+- **규칙의 단일 원천:** 지금 거절 규칙은 RPC 안에 흩어져 로그만 남긴다(`AstralPlayerController.cpp:233-289`). 순수 함수 `AstralLobby::CheckReady / CheckSelect / CheckStart(스냅숏) → EAstralLobbyDenial{None, NotInHub, NotLeader, RaidNotAllowed, NoRaidSelected, NotAllReady}`(월드 없이 시험 — `AstralParty` 와 같은 자리)로 모으고,
+  **서버 RPC 와 화면(버튼 켜고 끔 · 이유 글)이 같은 함수**를 쓴다. 화면 쪽은 표시일 뿐 — 최종 판정은 서버. 지금 로그 문구는 시험이 세므로 그대로. `ServerSetReady` 는 지금 아무 맵에서나 받으므로 `CheckReady` 로 허브에서만.
+  **명단 거르기도 하나로:** 방장 · 동료 규칙은 봇 · 관전자를 빼는데 `AreAllPlayersReady` 는 전원을 센다(관전자가 하나 있으면 출정할 수 없다 — 지금 있는 문제). 스냅숏을 만들 때 같은 거르기를 쓴다.
+- **거절이 보이는 때:** 정상이면 못 누르는 버튼이 꺼져 있고 이유 줄이 그 까닭을 말한다. 서버 거절은 경합(출정을 누른 순간 누가 준비를 풂)에서만 나고, 같은 줄에 3초 — 그 뒤 지금 상태의 이유로 돌아간다.
+- **통지:** `bIsReady` · `SelectedRaid` 를 `ReplicatedUsing` + C++ 델리게이트(`OnReadyChanged` · `OnSelectedRaidChanged`). 리슨 호스트에는 RepNotify 가 없으므로 서버 쪽 set 에서도 방송(로드아웃과 같은 모양). 폴링 없음.
+- **방장 · 아닌 사람:** 목적지 · 출정은 방장만 켜짐, 아닌 사람은 꺼진 모양 + '방장이 고른다' 이유. 방장이 나가면 명단 통지로 다음 사람의 버튼이 켜진다(인계 코드 없음).
+- **Dedicated · 리슨 · 늦은 입장:** 넷 모드 분기 없음. 늦게 온 사람은 첫 복제 값을 만들 때 읽고(기본값과 다르면 RepNotify 도 남), GameState 가 늦으면 `GameStateSetEvent`(StatusHUD 와 같은 틀).
+- **기존 HUD 둘도 같은 층으로(11-25 확정):** WBP · 계약 · 승격본은 그대로 두고 **만드는 자리만** 컨트롤러 → 루트 레이아웃의 HUD 층으로 옮긴다. 안 옮기면 화면을 띄우는 길이 둘이 남는다. 시험 넷이 쓰는 `GetCombatHUDWidget()` · `GetStatusHUDWidget()` 은 서브시스템에 묻는 함수로 남긴다.
+- **바뀌는 설정:** uproject 에 CommonUI 켜기 · `Build.cs` CommonUI · CommonInput(+ Slate · SlateCore) · `DefaultEngine.ini` `GameViewportClientClassName=/Script/CommonUI.CommonGameViewportClient`(지금은 엔진 기본값) · `DefaultInput.ini` UI 액션.
+
+*④ 검증*
+
+- **버튼 상태 렌더:** `state_requests` 에 버튼마다 올림 · 누름 · 선택 · 선택 + 올림 · 선택 + 누름 · 비활성을 더한다 — 묶음 렌더 그대로. 엔진은 **진짜 버튼 상태**를 쓴다(CommonButton 안쪽도 `UButton` → 오프스크린 위젯에 `OnMouseEnter` · `OnMouseButtonDown` · `SetIsEnabled` [소스] `SButton.cpp:176 · 208 · 221`).
+  검사 `button_state`(E8): 버튼 밖 = 컨셉 상태와 같음 · 안 = 만든 그림을 얹은 값과 국소 ΔE · 상태끼리 구별됨. **먼저 일부러 틀린 값**(올림 ↔ 누름 바꿈 · 비활성 빠짐 · 여백 밀림 · 덮어쓰기가 안 먹음)이 잡히는지 시험에서 본다. `compare.png` 상태 띠에 버튼 칸.
+- **눌렀을 때의 동작(PIE — 사람 손 없이):** `AstralBreak.Net.HubReady.ListenPIE` · `.DedicatedPIE`(2인 + 늦은 입장 1). 실제 Slate 경로로 — 버튼 가운데 좌표의 히트 테스트 길이 그 버튼까지 닿는지 보고, 마우스 눌림 · 뗌을 흘린다.
+  ① 열면 커서 · 입력 모드 · 첫 초점, 게임 이동이 막힘 ② 준비 클릭 → 서버 값 → 두 자리의 줄 ③ 방장 아닌 사람의 목적지 · 출정은 꺼져 있고 눌러도 요청이 안 나감 ④ 방장 목적지 클릭 → 두 자리 선택 모양 ⑤ 준비 안 된 채 서버에 직접 출정 → 거절 → 이유 줄 → 3초 뒤 복귀 ⑥ 늦은 입장이 지금 상태를 봄 ⑦ 방장이 나가면 다음 사람 버튼이 켜짐 ⑧ 게임패드 방향 + A 로 준비 ⑨ 전원 준비 → 출정 클릭 → RaidMap, 화면이 닫히고 입력 모드가 돌아옴 ⑩ 닫기 액션은 맨 위 화면만 닫음.
+- 순수 함수 시험 `AstralBreak.Lobby.Rules`. **사람 몫 = 눈 확인과 조작감뿐.**
+- 끝 검증(필수만): pytest · `golden.py check` · `regress_set`(기준선 `p4_1124`, `+ new` 0) · 빌드 2 구성 · `WidgetMcp.` · `AstralBreak.` 1회. 상태 묶음 렌더는 새 화면에서 묶음 ↔ 한 장씩 바이트를 한 번 전부 견줘 기록.
+
+*⑤ 승격 · 한 명령 · 작은 것 둘*
+
+- 승격 경로 둘 — `+WidgetPromotionPaths=/Game/UI/Common/`(공용 부품) · `/Game/UI/Screens/`(화면). 코드 `UI/Foundation/`(손으로 쓴 공용 클래스) · `UI/Screens/`(생성 · 스텁). 첫 승격은 `promote_widget` + `promote_screen.py record`(Phase 4 규칙 그대로). **공용 칸을 다시 승격하면 그 칸을 쓰는 화면도 다시 검증**한다 — 기록에 '쓰는 화면' 목록을 두고 `plan` 이 보여 준다.
+- **한 명령:** `Tools/uigen/make_screen.py <fixture> [--text "…"] [--candidates 2]` — 후보까지 만들고 **멈춰 사람이 고른다** → `--pick N` 이 참고판 → run → 요약까지. 후보 고르기는 자동으로 하지 않는다.
+- **절대 경로:** 쓰는 쪽(normalize · diagnose)을 저장소 상대 경로로, 읽는 쪽(`edit.source_notes`)은 상대 경로 + 옛 절대 경로(없는 드라이브면 `Tools/uigen/` 뒤로 다시 찾기)를 받게. **이미 기록한 두 화면의 묶음 4 파일(`normalize.json` 2 · `diagnosis.json` 2, 경로 6 곳)은 안 고친다(추천)** — 승격 때의 기록이고 해시가 걸려 있다. 다음 재승격 때 새 판으로 자연히 바뀐다.
+
+*판단을 바꾼 기록 (2026-11-25 — 사용자 질문 'commonUI 를 왜 안 써' · '지금 구조에 부합하면 다 하자' · '잘못 판단한 것 없나'를 받아 다시 따짐)*
+
+첫 안은 '첫 화면 하나를 가장 적은 일로'를 잣대로 골랐다. 이 프로젝트는 Lyra 구조를 따르고 M5 ~ M7 에 화면이 이어지므로 잣대가 틀렸다.
+
+| # | 첫 안 | 무엇이 잘못됐나 | 고친 안 |
+| :-- | :--- | :--- | :--- |
+| 1 | 화면 틀을 손으로 짬 · CommonUI 안 씀 | Lyra 와 다르고, 라우터에 있는 것을 다시 만듦 | CommonUI 틀 |
+| 2 | 하위 WBP 는 M7 로 | 나중에 하면 계약 · 스텁 · 승격을 다시 함. '한 run 에 spec 둘'로만 생각해 크기를 크게 봄 | 칸도 하나의 화면 — 지금 |
+| 3 | 버튼은 `UButton` | 근거가 '하위 WBP 가 필요해서'였는데 2 를 바꾸고도 다시 안 봄 | CommonButton |
+| 4 | 화면의 주인 = 컨트롤러(의 컴포넌트) | 화면마다 컨트롤러가 커짐. 맵별 화면을 위젯이 캐스트로 가림 | LocalPlayer 서브시스템 + 층, 맵별 목록은 GameState |
+| 5 | 여는 키 `BindKey`, 닫는 키는 위젯이 직접 | 태그 입력 규칙 밖 · 화면이 겹치면 맨 위만 닫는 것을 보장 못 함 | UI 액션 태그 |
+| 6 | 목적지 목록 = 게임모드(클라이언트가 게임모드 기본 객체를 읽음) | 문맥 정책의 소유자는 GameState 라는 프로젝트 규칙과 다름 | `AAstralHubGameState` |
+| 7 | 상태 그림의 식을 화면마다 | 버튼 모양이 화면마다 갈라짐 | 공용 테마 하나 |
+| 8 | 버튼 칸마다 생성 클래스 | 글자 하나짜리 클래스가 모양 수만큼 생김 | 손으로 쓴 버튼 베이스 하나 + 애셋 |
+| 9 | 승격 경로 하나(`/Game/UI/Screens/`) | 공용 부품이 화면 폴더에 섞임 | Common · Screens 둘 |
+
+- **다시 따져도 그대로인 것:** 상태 그림 = 기본 그림 + 식(작은 시험) · RepNotify + 델리게이트(폴링 없음) · 규칙은 순수 함수, 판정은 서버 · 예측 없음 · 기존 두 화면의 계약 해시 유지 · 가리는 위젯 규칙 · 옛 묶음 안 고침 · 후보는 사람이 고름.
+- **알고 미루는 것:** 버튼은 고정 크기 그림이다 — 크기가 다른 버튼이 여럿 필요해지면 9-slice 로(지금 두 모양이면 충분). 글자는 WBP 에 문자열로 들어가 번역 표를 안 탄다(`WidgetMcpSpec.cpp:1236` — 기존 화면도 같음). MVVM(ViewModel)은 생성 setter 방식과 겹쳐 안 쓴다.
+- **안 돌려 본 것(3-1 첫 작업에서 잰다):** CommonUI 뷰포트 클라이언트가 기존 시험 60개에 주는 영향 · 한 프로세스 다인 PIE 에서 로컬 플레이어마다 생기는 입력 처리기의 간섭 · 로컬 플레이어 없는 오프스크린 렌더에서의 CommonButton(소스로는 입력 서브시스템이 없으면 건너뜀) · 키보드 방향키 초점의 올림 모양. 나쁘면 `UButton` + 손으로 짠 틀로 물러난다.
+
+*규모와 단계 — 넷(11-25 사용자 확정 '네 단계로', 단계마다 새 세션 하나 · 더 잘게 나누지 않음)*
+
+| 단계 | 몫 | 추정 | 끝 |
+| :--- | :--- | ---: | :--- |
+| **3-1 화면 체계(게임)** | **CommonUI 켜고 위 '안 돌려 본 것'부터** · `UAstralUISubsystem` · `UAstralRootLayout` · `UAstralActivatableWidget` · GameState 의 맵별 목록 · UI 액션 태그(뒤로) · 기존 HUD 둘 옮기기 · 시험용 화면(C++)으로 여닫기 PIE 시험 | 약 1,300 줄 | 기존 시험 새 실패 0(HUD 시험 포함) · 여닫기 시험 통과 · 기존 HUD 눈 확인. 파이프라인 · WidgetMcp 는 안 고침 |
+| **3-2 칸과 버튼(파이프라인)** | `UserWidget` 타입 · `cell` 프로필 · `UAstralButtonBase` · 버튼 스타일 애셋 · 공용 테마 · 상태 그림 · 버튼 상태 렌더 검사 · 승격 경로 · 컨셉 후보(codex ≤ 4) 승인 · 버튼 칸 둘 | 약 2,600 줄(가장 큼) | 버튼 칸 2 개 무인 통과 → 사람 승인 → 승격, 회귀 `+ new` 0. 모자라면 칸(파티 줄 칸으로 검증)과 버튼 사이에서 끊는다 |
+| **3-3 화면** | action 계약 · 가리는 위젯 · 긴 글자 · 메뉴 프로필 · 한 명령 · 상대 경로 · 파티 줄 칸 · `HubReady` run | 약 1,700 줄 | 칸 · 화면 무인 1회씩 통과, 사람이 `compare.png` 를 봄, 회귀 `+ new` 0 |
+| **3-4 게임 연결** | 규칙 함수 · 통지 · 거절 · 목적지 목록 · 스텁 · 여는 액션 · PIE 시험 · 승격 · 끝 검증 · 결과 절 | 약 1,900 줄 | 게임에서 조작 동작, 눈 확인 · 조작감 → Phase 3 끝 조건 |
+
+- **나눈 근거:** 지난 커밋에서 센 줄 수 — Phase 4 구현(파이썬 1,837 + 시험 1,107)이 한 세션을 꽉 채웠고, StatusHUD 는 도중에 새 세션으로 넘어갔다. 처음의 세 단계는 3-1 이 3,000 줄을 넘고 3-3 이 2,400 줄로 컸다(줄 수는 추정).
+- **3-1 을 앞에 떼어 낸 까닭:** 가장 큰 위험(CommonUI)을 버리는 시험 코드가 아니라 실제로 쓸 구조로 먼저 본다. 나쁘면 파이프라인을 고치기 전에 방향을 바꾼다. 게임 C++ 과 파이프라인을 나눠 깨진 쪽을 가리기 쉽다.
+
+**쓰기 범위:** `Tools/uigen/**` · `Plugins/WidgetMcp/**` · `Source/AstralBreak/UI/**` · `GameModes/{AstralGameState, AstralHubGameState, AstralRaidGameState(목록 기본값만), AstralGameMode, AstralPartyStatics 곁 새 파일}` · `Player/{AstralPlayerController, AstralPlayerState, AstralLocalPlayer}` · 시험 · `Config/{DefaultEngine, DefaultInput}.ini` · `AstralBreak.uproject` · `AstralBreak.Build.cs` · 승격 때 `Content/UI/{Common, Screens}/` · 이 문서. 허브 맵 · BP · 입력 애셋은 안 고친다.
+
+**사용자에게 묻는 것:** 1 첫 화면과 담을 것(①) · 2 버튼 상태 그림 = 기본 그림 + 식 · 3 칸도 하나의 화면 + CommonButton(②) · 4 화면의 주인 = LocalPlayer 서브시스템, 맵별 목록 = GameState, 틀 = CommonUI(③) · 5 기존 HUD 둘도 같은 층으로 옮길지(③ — 추천: 옮김) · 6 거절과 규칙의 단일 원천 · 목적지 이름(잠정 글) · 7 승격 경로 둘과 옛 묶음의 절대 경로(⑤) · 8 단계 나누기. → **결정(11-25): 전부 추천안 — 기존 HUD 둘도 같은 층으로 옮긴다. 단계는 넷(3-1 화면 체계 → 3-2 칸과 버튼 → 3-3 화면 → 3-4 게임 연결).** 3-1 인계 `uigen-phase3-1-handoff.md`(공유 노트 폴더 local_b686cc15…).
+
+**Phase 3-1 결과 — 화면 체계(게임) (2026-11-25, 하위 세션 · 구현 · 검증 완료 · 사람 눈 확인 대기 · 미커밋)**
+
+`Tools/uigen` · `Plugins/WidgetMcp` · 승격본 · 생성 코드 · 맵 · BP · 입력 애셋은 안 고쳤다.
+
+*1번 — CommonUI 만 켜고 먼저 잰 것 (설계 '안 돌려 본 것' 넷 — 나쁜 것 없음, 물러나지 않음)*
+
+| 물음 | 측정 |
+| :--- | :--- |
+| 켜기만 한 상태(uproject · Build.cs · `GameViewportClientClassName`)에서 기존 시험 | **60/60**(421초), 라우터 · CommonInput · CommonUI 경고 · 오류 0, ensure 0 |
+| 로컬 플레이어 없는 오프스크린의 CommonButton(3-2 의 전제) | **그려진다** — 편집기 월드 · 소유 플레이어 없음 · `FWidgetRenderer` 로 C++ 버튼을 자식으로 둔 화면의 가운데 픽셀: 기본 `FF0000` · 올림 `00FF00` · 누름 `0000FF` · 선택 `FFFF00` · 선택 + 올림 `00FFFF` · 비활성 `FFFFFF`(준 색 그대로), 버튼 밖 0. 선택 + 누름은 안 쟀다 |
+| ↑ 의 함정 | 안쪽 위젯(`UCommonButtonInternalBase`)의 Slate 는 **SBox** 이고 진짜 버튼 `SCommonButton` 은 그 자식이다. SBox 에 마우스 이벤트를 보내면 오류 없이 아무 일도 없다(첫 측정이 그렇게 틀렸다) → 3-2 `render_widget` 의 덮어쓰기가 받을 자리 |
+| 한 프로세스 다인 PIE 에서 자리끼리의 간섭 | 없음(A 의 메뉴가 떠 있는 동안 B 의 입력 · 폰 그대로). 단 **편집기에서만** 라우터는 초점이 있는 창의 입력 설정만 바꾼다(`UIActionRouterTypes.cpp` `IsViewportWindowInFocusPath`) — 초점이 없던 자리는 설정이 안 걸린 채(= 게임 · 메뉴 다 받음) 시작하고, 그 창에서 화면을 여닫으면 걸린다 |
+| 키보드 방향키 초점의 모양 | **올림이 아니다** — 초점은 안쪽 `SCommonButton` 에 가지만(cause = Navigation) `IsHovered` 거짓. 엔진 초점 테두리는 소스로는 그려지는 조건(`RenderFocusRule = NavigationOnly`)이고 픽셀로는 안 봤다. 설계 '초점 = 올림 그림'은 3-2 의 `UAstralButtonBase` 가 스스로 입혀야 한다 |
+
+*만든 것*
+
+| 파일 | 내용 |
+| :--- | :--- |
+| `UI/Foundation/AstralActivatableWidget.*` | `UAstralActivatableWidget : UCommonActivatableWidget` — 입력 설정 열거형(Lyra 꼴), 뒤로 액션(`UI.Action.Back`) 묶음 → 닫기. 조작 화면 생성 베이스의 부모(3-3) |
+| `UI/Foundation/AstralRootLayout.*` | 늘 켜진 Game 설정 + 층: HUD(클릭 안 받음) · Debug · Menu 스택 · Modal 스택. 층은 코드로 짓는다(WBP 없음) |
+| `UI/Foundation/AstralUISubsystem.*` | `ULocalPlayerSubsystem` — 레이아웃을 만들고 걷음, `OpenScreen(클래스, 층)` · `FindHUDWidget` · `ShowDebugWidget` |
+| `UI/Foundation/AstralUITypes.h` · `AstralUIGameplayTags.*` | 층 열거형 · `FAstralContextScreen {액션 태그, 화면}` · `UI.Action.Back` |
+| `GameModes/AstralGameState.h` · `AstralRaidGameState.cpp` | `ContextHUDWidgets` · `ContextScreens`(편집 기본값 · 복제 없음), 레이드 기본값에 HUD 둘(전과 같은 순서) |
+| `Player/AstralPlayerController.*` | HUD 클래스 값 · 인스턴스 · `EnsureHUDWidget` 을 걷음. `GetCombatHUDWidget` · `GetStatusHUDWidget` 은 서브시스템에 묻는 함수로 |
+| `UI/HUD/AstralStatusHUDWidget.cpp`(사람 스텁) | GameState 를 캐스트해 스스로 숨던 줄을 걷음 — 어느 맵에 뜨는가는 목록이 정한다 |
+| `Config/DefaultInput.ini` | `UI.Action.Back` = Esc · 게임패드 B. 네이티브 태그라도 ini 가 읽힌다(시험 U0) |
+| 시험 | `AstralBreak.UI.ScreenStack.{ListenPIE, DedicatedPIE}`(U0 ~ U9) + 시험 화면(C++), `AstralUITestHelpers.h` `IsOnScreen` — HUD 가 이제 레이아웃의 자식이라 `IsInViewport` 로 묻던 세 곳(CombatHUD · StatusHUD PIE · `AstralChainBurstTestController`)을 바꿈 |
+
+*구현하며 정한 것 (설계에 없던 것 · 다르게 한 것)*
+
+1. **층에 Debug 를 더함** — 디버그 글자는 전과 같이 HUD 위, 그리고 메뉴 아래여야 하는데 화면에 오른 위젯이 하나(레이아웃)라 그 사이에 층이 필요하다.
+2. **Modal 층의 화면은 `bIsModal`** — 설계는 '라우터가 가장 안쪽부터 준다'고 봤지만 Menu 화면과 Modal 화면은 **형제**이고 형제는 먼저 열린 쪽이 키를 먼저 받는다(`FActivatableTreeNode::ProcessNormalInput` 의 자식 순서). 그대로면 뒤로가 아래 메뉴를 닫는다. Modal 로 열 때 켜서 따로 선 뿌리로 만든다.
+3. **화면을 겹쳐 열고 닫는 사이 Game 으로 안 떨어지게** — 스택은 위 화면을 먼저 끄고 다음 것을 켠다. 그 사이 뿌리의 Game 설정이 걸려 커서가 숨었다가 **화면 가운데로 튀었다**(첫 실행에서 봄). 루트 레이아웃이 전환 중에는 다음에 설 화면의 설정을 말한다. 시험이 모드 변화 0 회를 본다.
+4. **화면의 주인 컨트롤러 = `PlayerControllerChanged` 로 받은 것만** — 클라이언트가 맵을 여는 동안 `ULocalPlayer::PlayerController` 에는 입력이 없는 임시 컨트롤러가 있어, 첫 실행에서 거기에 레이아웃이 서고 EnhancedInput 오류 두 줄이 났다.
+   프로젝트의 `UAstralLocalPlayer::OnPlayerControllerChanged` 는 그 임시 컨트롤러에도 불리고 `SetPlayer` 도중(입력 준비 전)에도 불려 같은 시점이 아니다 — 엔진 서브시스템 통지가 맞다.
+5. **시임리스 이동은 컨트롤러를 항상 새로 만든다**(5.7 `AGameModeBase::HandleSeamlessTravelPlayer` — 실측으로도 교체) → 맵 로드 통지 없이 `PlayerControllerChanged` 하나로 충분. 컨트롤러가 이어지는 경우는 `BeginPlayingState` 의 `EnsureLayout` 이 받친다(이 경로는 시험에 없다).
+6. 디버그 카메라(`ToggleDebugCamera`)로 컨트롤러가 잠깐 바뀌는 것은 무시한다(화면 유지 — 시험에 없다).
+7. 뒤로는 엔진의 `bIsBackHandler` 를 안 쓴다 — 그것은 데이터 테이블 애셋이나 IA 애셋을 요구한다(입력 애셋 안 고침). 여는 액션은 Game 입력에서만 묶인다.
+8. 메뉴 중 이동 · 시점 막기는 라우터의 `BlockGameInput` + 눌린 키 비우기만으로 한다(`bIgnoreMoveInput` 은 안 켬 — 컨트롤러의 세는 값이라 편집기에서 설정이 안 걸린 채 끝나면 남는다).
+
+*검증*
+
+| 무엇 | 결과 |
+| :--- | :--- |
+| 빌드 | DebugGame · Development 둘 다 `Result: Succeeded`(최종 코드) |
+| `AstralBreak.` 전체(DebugGame, 최종 코드) | **62/62**(433초) — 기존 60 새 실패 0(HUD 시험 포함) + ScreenStack 2. 라우터 · EnhancedInput 오류 0, ensure 0 |
+| ScreenStack(리슨 · Dedicated 각 2인) | U0 ~ U9 전부: 커서 · 메뉴 입력 · 마우스 안 잡음 · 첫 초점 · **눌러 둔 W 가 풀리고 폰이 섬** · 메뉴 중 W 가 게임에 안 감 · B 자리 간섭 없음 · 겹쳐 열고 뒤로 = 맨 위만 · Modal · 액션으로 여닫기 · 열어 둔 채 이동 → 레이아웃 새로 · HUD 둘 · 입력 복구 |
+| **HUD 가 전과 같은가(기계)** | 같은 WBP 를 예전 방식(뷰포트에 직접)으로 나란히 띄워 모든 위젯의 그려진 자리 · 크기를 견줌 — StatusHUD 24 개(그려진 것 14) · CombatHUD 20 개(6), **다른 것 0**(허용 0.01 px, 리슨 · Dedicated) |
+| 별도 프로세스 `run_party_flow.py listen --scenario chain_burst` 1회 | PASS(40초) — `-game -nullrhi` 에서도 HUD 가 서고 동료 줄 · 배너 값이 전과 같은 판정. 고친 판정 한 줄을 보려고 돌림 |
+
+*알아 둘 것(쓰는 사람 쪽에서 달라진 것)*
+
+- **허브에서 전투 HUD 가 안 뜬다**(전에는 모든 맵에서 빈 게이지가 떴다 — 허브 맵에서 기대하는 시험은 없었다).
+- **PIE 에서 Esc 는 여전히 PIE 정지다** — 라우터가 정지 명령의 키를 일부러 통과시킨다(`CommonUIActionRouterBase.cpp:513-531`). PIE 에서는 게임패드 B, Esc 는 `-game` · 쿠킹에서.
+- PIE · 게임이 시작되면 초점이 있는 창의 **마우스가 바로 잡힌다**(Game 설정이 걸리며 라우터가 초점 · 잡기를 요청한다 — 로그 · 소스로 본 것, 손으로는 안 봄). 전에는 창을 누른 뒤였다.
+
+*안 돌린 것 · 못 본 것*
+
+- **사람 눈 — 기존 HUD 가 전과 같은지(PIE 2인 한 번)**: 아직. 기계로 본 것은 자리 · 크기뿐이고 색 · 글자 · 겹침은 안 봤다.
+- 실제 키보드 Esc(ini 에 있는 것과 게임패드 B 의 동작만 봄) · 실물 게임패드(가상 커서의 올림 · 초점) · 실제 마우스 클릭(3-4 의 시험 몫) · 화면 배율(DPI) 바뀜.
+- Development 구성 실행 · 쿠킹 · `WidgetMcp.`(고치지 않음) · pytest(파이프라인 안 고침) · 별도 프로세스의 다른 시나리오 · 4인.
+- 컨트롤러가 유지된 채의 월드 이동 · 디버그 카메라 · HUD 애셋이 없을 때의 경고 경로.
+
+*정리 (11-25 사용자 승인 — 휴지통)* — `AstralCommonUIProbe.{h,cpp}`(1번 측정) · `Tools/mcp/results/net_test/1125_134227_listen_chain_burst` · 스크래치 `uigen_p31`. 뺀 뒤 두 구성 빌드 `Result: Succeeded`(시험은 다시 안 돌림 — 빠진 것은 빈 파일 둘뿐). 1번 측정의 수치는 위 표로만 남는다.
+
+3-2 인계 = 공유 노트 폴더 `local_86515f5f…/uigen-phase3-2-handoff.md`.
 
 - M4 단위 E(4인 별도 프로세스 시험)는 UI 와 무관해 에디터가 비는 때 아무 때나. 단위 D(오의 애니)는 별개.
 - 감안할 점: M4 C 의 화면은 Phase 0 ~ 1b 가 끝나야 완성된다. 그동안 HUD 는 디버그 위젯이다.

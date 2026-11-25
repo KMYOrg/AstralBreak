@@ -20,6 +20,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "AstralPieTestHelpers.h"
+#include "AstralUITestHelpers.h"
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
@@ -594,7 +595,7 @@ namespace AstralCombatHUDPie
 			{
 				const UAstralCombatHUDWidget* Hud = HudOf(PlayerId);
 				Test.TestEqual(TEXT("H0: the HUD is the promoted WBP"), GetPathNameSafe(Hud ? Hud->GetClass() : nullptr), FString(PromotedHudClassPath));
-				Test.TestTrue(TEXT("H0: the HUD is in the viewport"), Hud && Hud->IsInViewport());
+				Test.TestTrue(TEXT("H0: the HUD is on the screen (HUD layer of the root layout)"), AstralUITest::IsOnScreen(Hud));
 				for (const TCHAR* Name : { UltGaugeName, UltReadyPanelName, UltReadyGlowName, UltKeyName, UltBlockedName, ChainPanelName, ChainRingName, ChainTimerName, ChainCountName, BurstBannerName, BurstCountName })
 				{
 					Test.TestNotNull(*FString::Printf(TEXT("H0: bound widget %s exists"), Name), PartOf(PlayerId, Name));

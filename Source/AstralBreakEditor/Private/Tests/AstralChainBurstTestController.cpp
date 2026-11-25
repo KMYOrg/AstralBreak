@@ -1,5 +1,7 @@
 #include "AstralChainBurstTestController.h"
 
+#include "AstralUITestHelpers.h"
+
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
 #include "AbilitySystem/Abilities/Hero/Combat/AstralGA_Hero_Ult.h"
 #include "AbilitySystem/Attributes/AstralCombatSet.h"
@@ -1229,7 +1231,7 @@ bool UAstralChainBurstTestController::CheckAllyRows(const FAstralPartyFlowSnapsh
 		return false;
 	}
 
-	bool bOk = Hud->IsInViewport() && Hud->GetVisibility() == ESlateVisibility::SelfHitTestInvisible;
+	bool bOk = AstralUITest::IsOnScreen(Hud) && Hud->GetVisibility() == ESlateVisibility::SelfHitTestInvisible;
 
 	// 나 — 칸 0
 	const UAbilitySystemComponent* MyASC = AscIn(Snap.World, Snap.MyId);

@@ -47,10 +47,14 @@ public class AstralBreak : ModuleRules
 			// Networking
 			"NetCore",
 			
-			// UMG / UI (디버그 위젯용)
+			// UMG / UI
 			"UMG",
 			"Slate",
 			"SlateCore",
+
+			// 화면 체계 — 층 · 메뉴 화면 · 입력 라우터 (설계 Docs/Design/ui-autogen-pipeline.md §11 'Phase 3 설계')
+			"CommonUI",
+			"CommonInput",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

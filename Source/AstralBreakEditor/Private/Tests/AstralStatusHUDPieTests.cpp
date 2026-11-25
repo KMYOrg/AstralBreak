@@ -15,6 +15,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "AstralPieTestHelpers.h"
+#include "AstralUITestHelpers.h"
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystem/AstralAbilitySystemComponent.h"
@@ -320,7 +321,7 @@ namespace AstralStatusHUDPie
 			{
 				const UAstralStatusHUDWidget* Hud = HudOf(PlayerId);
 				Test.TestEqual(TEXT("S0: the HUD is the promoted WBP"), GetPathNameSafe(Hud ? Hud->GetClass() : nullptr), FString(PromotedHudClassPath));
-				Test.TestTrue(TEXT("S0: the HUD is in the viewport"), Hud && Hud->IsInViewport());
+				Test.TestTrue(TEXT("S0: the HUD is on the screen (HUD layer of the root layout)"), AstralUITest::IsOnScreen(Hud));
 				Test.TestEqual(TEXT("S0: the HUD is visible on a raid map"), static_cast<int32>(Hud ? Hud->GetVisibility() : ESlateVisibility::Collapsed), static_cast<int32>(ESlateVisibility::SelfHitTestInvisible));
 				for (const TCHAR* Name : { TEXT("SelfHpBar"), TEXT("SelfHpText"), TEXT("SelfStaminaBar"), TEXT("SelfMarkText"), TEXT("Ally1Panel"), TEXT("Ally1NameText"), TEXT("Ally1HpBar"), TEXT("Ally1UltBar"),
 					TEXT("Ally2Panel"), TEXT("Ally2NameText"), TEXT("Ally2HpBar"), TEXT("Ally2UltBar"), TEXT("Ally3Panel"), TEXT("Ally3NameText"), TEXT("Ally3HpBar"), TEXT("Ally3UltBar") })

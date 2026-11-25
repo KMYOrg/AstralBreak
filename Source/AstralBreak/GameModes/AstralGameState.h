@@ -3,12 +3,14 @@
 #include "CoreMinimal.h"
 #include "Equipment/AstralEquipmentTypes.h"
 #include "GameFramework/GameStateBase.h"
+#include "UI/Foundation/AstralUITypes.h"
 #include "AstralGameState.generated.h"
 
 class UAstralAbilitySet;
+class UUserWidget;
 
 /**
- * 문맥(월드) 정책의 소유자 — 
+ * 문맥(월드) 정책의 소유자 — 장비 정책 · 공통 어빌리티 · 이 맵에서 뜨는 화면.
  * 로비 상태(SelectedRaid·준비 집계)는 AstralHubGameState, 레이드 상태(체인 버스트 · 이후 목표·진행도)는 AstralRaidGameState.
  */
 UCLASS()
@@ -21,6 +23,12 @@ public:
 	EAstralEquipmentPolicy GetEquipmentPolicy() const { return EquipmentPolicy; }
 
 	const TArray<TObjectPtr<const UAstralAbilitySet>>& GetContextAbilitySets() const { return ContextAbilitySets; }
+
+	/** 이 맵에서 늘 떠 있는 HUD 위젯 — 배열 순서대로 아래에서 위로. UAstralRootLayout 이 읽는다 */
+	const TArray<TSoftClassPtr<UUserWidget>>& GetContextHUDWidgets() const { return ContextHUDWidgets; }
+
+	/** 이 맵에서 UI 액션으로 여는 화면. UAstralRootLayout 이 읽는다 */
+	const TArray<FAstralContextScreen>& GetContextScreens() const { return ContextScreens; }
 
 	/**
 	 * 방장 — 봇 · 관전자를 뺀 PlayerArray 에서 PlayerId 최소(가장 먼저 들어온 사람, 리슨에선 호스트).
@@ -56,4 +64,12 @@ protected:
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Context")
 	TArray<TObjectPtr<const UAstralAbilitySet>> ContextAbilitySets;
+
+	/** 이 맵의 HUD — 어느 맵에 무엇이 뜨는가는 위젯이 스스로 가리지 않고 여기서 정한다. 편집 기본값이라 복제하지 않는다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Context")
+	TArray<TSoftClassPtr<UUserWidget>> ContextHUDWidgets;
+
+	/** 이 맵에서 여는 화면 — UI 액션 태그 → 화면 클래스 */
+	UPROPERTY(EditDefaultsOnly, Category = "Astral|Context", meta = (TitleProperty = "ActionTag"))
+	TArray<FAstralContextScreen> ContextScreens;
 };

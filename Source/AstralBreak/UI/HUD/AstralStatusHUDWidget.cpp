@@ -11,8 +11,8 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "GameModes/AstralGameState.h"
 #include "GameModes/AstralPartyStatics.h"
-#include "GameModes/AstralRaidGameState.h"
 #include "Player/AstralPlayerState.h"
 
 namespace AstralStatusHUD
@@ -46,7 +46,7 @@ void UAstralStatusHUDWidget::NativeConstruct()
 		return;
 	}
 
-	// 처음 모양 — 원천이 붙기 전에는 아무것도 띄우지 않는다. 레이드 GameState 가 오면 HandleGameStateSet 이 켠다
+	// 처음 모양 — 원천이 붙기 전에는 아무것도 띄우지 않는다. GameState 가 오면 HandleGameStateSet 이 켠다
 	SetVisibility(ESlateVisibility::Collapsed);
 	for (int32 SlotIndex = 0; SlotIndex < NumSlots; ++SlotIndex)
 	{
@@ -103,8 +103,8 @@ void UAstralStatusHUDWidget::HandleGameStateSet(AGameStateBase* GameState)
 		}
 	}
 
-	// 전투 맵(레이드)에서만 — 허브 폰에는 스태미나 · 오의 같은 전투 자원이 없다
-	SetVisibility(Cast<AAstralRaidGameState>(AstralGameState) ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	// 어느 맵에 뜨는가는 그 맵의 목록(AAstralGameState::ContextHUDWidgets)이 정한다 — 여기서는 원천이 붙었는가만 본다
+	SetVisibility(AstralGameState ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	HandleRosterChanged();
 }
 

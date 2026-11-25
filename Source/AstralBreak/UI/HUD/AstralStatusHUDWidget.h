@@ -25,7 +25,7 @@ struct FOnAttributeChangeData;
  *   명단   AAstralGameState::OnPlayerRosterChanged → 나 = 소유 컨트롤러의 PlayerState, 동료 = 나머지를 PlayerId 순(AstralParty::SelectAllyIndices)
  *   값     칸의 ASC 속성 변화 통지 — HP · 오의(동료의 얇은 막대), 나는 + 스태미나 · 표식. 비율은 매번 지금 값 둘로(최대치가 기본값 그대로면 통지가 없다)
  *   늦게   속성 세트(AbilitySet 이 줌)는 클라이언트에 늦게 올 수 있다 — 칸의 OnPawnSet → 그 폰의 PawnExtension 이 ASC 준비를 알리면 다시 읽는다
- *   보이기 레이드 GameState 가 있는 맵에서만(허브 폰에는 전투 자원이 없다)
+ *   보이기 어느 맵에 뜨는가는 그 맵의 목록(AAstralGameState::ContextHUDWidgets — 레이드만)이 정한다. 허브 폰에는 전투 자원이 없다
  *
  * 게임 월드에서 소유 플레이어가 있을 때만 동작한다 — 에디터 렌더(uigen 검증의 render_widget)는 spec 상태 · 덮어쓰기 그대로 그린다.
  */

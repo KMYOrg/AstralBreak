@@ -9,7 +9,8 @@
   "properties": {
     "schema_version": { "const": 1 },
     "canvas": { "$ref": "#/$defs/size2" },
-    "profile": { "enum": ["hud", "menu", "options", "dialog"] },
+    "profile": { "enum": ["hud", "menu", "options", "dialog", "cell"] },
+    "button": { "$ref": "#/$defs/button" },
     "root": { "$ref": "#/$defs/widget_id" },
     "widgets": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/widget" } },
     "assets": { "type": "array", "items": { "$ref": "#/$defs/asset" } },
@@ -28,6 +29,17 @@
     "size2": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 2, "maxItems": 2 },
     "margin4": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
     "unit4": { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 }, "minItems": 4, "maxItems": 4 },
+    "button": {
+      "description": "버튼 칸(Phase 3-2, core/button) — art = 기본 상태 그림 위젯(에디터 트리에는 없다 — 클래스 기본값의 스타일 애셋이 그린다), states = 나머지 여섯 상태의 파생 에셋, theme = 식의 출처. 파이프라인만 쓴다",
+      "type": "object", "required": ["art", "states", "theme"], "additionalProperties": false,
+      "properties": {
+        "art": { "$ref": "#/$defs/widget_id" },
+        "states": { "type": "object", "additionalProperties": { "$ref": "#/$defs/asset_id" } },
+        "theme": { "type": "object", "required": ["id", "sha256"], "additionalProperties": false,
+                   "properties": { "id": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } },
+        "pressed_offset": { "$ref": "#/$defs/vec2" }
+      }
+    },
     "h_align": { "enum": ["left", "center", "right", "fill"] },
     "v_align": { "enum": ["top", "center", "bottom", "fill"] },
     "widget": {
@@ -38,8 +50,10 @@
         "id": { "$ref": "#/$defs/widget_id" },
         "type": {
           "enum": ["CanvasPanel", "Overlay", "VerticalBox", "HorizontalBox", "UniformGridPanel", "SizeBox",
-                   "Border", "Image", "TextBlock", "ProgressBar", "Button", "Spacer"]
+                   "Border", "Image", "TextBlock", "ProgressBar", "Button", "Spacer", "UserWidget"]
         },
+        "class": { "type": "string", "pattern": "^/Game/", "description": "UserWidget 만 — 놓을 칸(승격된 WBP)의 패키지 경로" },
+        "props": { "type": "object", "additionalProperties": { "type": "string" }, "description": "UserWidget 만 — 놓인 칸마다 바꾸는 속성([WidgetMcp] WidgetInstanceProperties 에 있는 것)" },
         "parent": { "$ref": "#/$defs/widget_id" },
         "slot": { "$ref": "#/$defs/slot" },
         "bbox_intent": {
@@ -232,7 +246,12 @@
       "properties": {
         "asset_id": { "$ref": "#/$defs/asset_id" },
         "kind": { "enum": ["icon", "frame", "panel_bg", "fill", "ornament"] },
-        "provenance": { "enum": ["procedural", "codex", "comfy", "provided"] },
+        "provenance": { "enum": ["procedural", "codex", "comfy", "provided", "derived"] },
+        "derived": {
+          "type": "object", "required": ["from", "brush"], "additionalProperties": false,
+          "description": "provenance derived 만(Phase 3-2) — 버튼 기본 그림(from)에 공용 테마의 식을 적용한 상태 그림(brush). refine 이 만든다",
+          "properties": { "from": { "$ref": "#/$defs/asset_id" }, "brush": { "type": "string" } }
+        },
         "size": { "type": "array", "items": { "type": "integer", "minimum": 4, "maximum": 4096 }, "minItems": 2, "maxItems": 2 },
         "nine_slice": { "type": "boolean" },
         "margin": { "$ref": "#/$defs/unit4" },

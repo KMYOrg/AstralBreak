@@ -21,6 +21,7 @@ import json
 import pathlib
 
 from core import config
+from core import cppgen
 from core import schema
 from core import spec as spec_mod
 from gen import concept_convert, concept_route
@@ -122,6 +123,46 @@ def _inputs_errors(inputs: dict) -> list[str]:
         if d and (d["widget_type"] != "TextBlock" or d["type"] in ("text", "number")):
             errs.append(f"STATIC_TEXT_CONFLICT: '{st['widget']}' is static text but data '{d['id']}' makes it a {d['widget_type']}/{d['type']}")
     return errs
+
+
+def _button_errors(inputs: dict) -> list[str]:
+    """버튼 칸(Phase 3-2) — 요청이 구조를 다 정한다: 필수 요소 = 기본 그림 · 글자 둘, 데이터 = 그 글자 하나, 글자 없는 원본 아트 + 글꼴로 그린 참고판."""
+    b = inputs.get("button")
+    cell = inputs["screen_type"] == "cell"
+    if not b:
+        return []
+    errs = [] if cell else ["BUTTON: 'button' is only for screen_type cell"]
+    if sorted(e["id"] for e in inputs["required_elements"]) != sorted([b["art"], b["label"]]) or b["art"] == b["label"]:
+        errs.append(f"BUTTON: required_elements must be exactly the art and the label ({b['art']}, {b['label']})")
+    data = inputs["data"]
+    if len(data) != 1 or data[0]["widget"] != b["label"] or data[0]["type"] != "text" or data[0]["widget_type"] != "TextBlock" or not str(data[0].get("sample") or "").strip():
+        errs.append(f"BUTTON: data must be exactly one text with a sample on the label TextBlock '{b['label']}'")
+    if inputs.get("static_text"):
+        errs.append("BUTTON: a button cell has no static_text")
+    if data and data[0].get("outline"):
+        errs.append("BUTTON: the label outline comes from the theme (text.outline), not from the inputs")
+    if inputs.get("concept_source") not in TEXTFREE or not inputs.get("concept_text_ref"):
+        errs.append("BUTTON: concept_source must be text-free art with a drawn concept_text_ref (the label font comes from its layout)")
+    return errs
+
+
+def _apply_theme(brief: dict, b: dict, fonts: dict) -> dict:
+    """공용 테마의 글자 값을 요청에 — 외곽선은 테마 것, 글자색은 글꼴 단일 원천(text_ref_layout.yaml)과 테마가 같아야 한다. → brief.button."""
+    from gen import theme as theme_mod
+    try:
+        t = theme_mod.load(b["theme"])
+    except theme_mod.ThemeError as exc:
+        raise StageError("THEME", str(exc)) from exc
+    d = next(x for x in brief["dynamic_data"] if x["widget"] == b["label"])
+    want = spec_mod.canon_color(t["text"]["color"])
+    got = spec_mod.canon_color((fonts.get(b["label"]) or {}).get("color") or "")
+    if not fonts.get(b["label"]):
+        raise StageError("THEME_TEXT", f"the label '{b['label']}' has no drawn font — make_concept.py --only text_ref --draw <layout.yaml>")
+    if got != want:
+        raise StageError("THEME_TEXT", f"the label color in the text layout is {got}, the theme '{b['theme']}' says {want} — one source for the shared text color")
+    if t["text"].get("outline"):
+        d["outline"] = dict(t["text"]["outline"])
+    return dict(b)
 
 
 TEXTFREE = ("generated_textfree", "external_textfree")      # L-2 — 글자 없이 그린 그림이 픽셀 정답(아트 모드)
@@ -348,7 +389,7 @@ def run_concept(run, opts) -> str:
     errs = schema.errors("inputs", inputs)
     if errs:
         raise StageError("SCHEMA", "inputs.yaml: " + "; ".join(errs[:8]), kind="inputs", errors=errs)
-    errs = _inputs_errors(inputs)
+    errs = _inputs_errors(inputs) + _button_errors(inputs)
     if errs:
         raise StageError("INPUTS_INVALID", "; ".join(errs[:8]), errors=errs)
     concept = pathlib.Path(opts.concept) if getattr(opts, "concept", None) else pathlib.Path(inputs["concept"])
@@ -470,8 +511,10 @@ def run_concept(run, opts) -> str:
                              for s in inputs.get("static_text", [])],   # desc(L-2 참고판 칸 설명)는 brief 밖
              "style_keywords": inputs.get("style_keywords", []),
              "references": [{"path": "reference.png", "role": "layout", "role_source": "user"}], "conflicts": [],
-             "binding_contract": {"class": "UUserWidget" if screen.get("probe") else f"U{screen['widget']}",
-                                  "source": "existing" if screen.get("probe") else "new", "bindings": [d["widget"] for d in inputs["data"]]}}
+             "binding_contract": {"class": "UUserWidget" if screen.get("probe") else f"U{cppgen.parent_class(screen)}",
+                                  "source": "existing" if screen.get("probe") or cppgen.hand_written(screen) else "new", "bindings": [d["widget"] for d in inputs["data"]]}}
+    if inputs.get("button"):
+        brief["button"] = _apply_theme(brief, inputs["button"], fonts)
     schema.require("brief", brief)
     run.write_json("brief.json", brief)
     run.write_json("inputs.json", inputs)

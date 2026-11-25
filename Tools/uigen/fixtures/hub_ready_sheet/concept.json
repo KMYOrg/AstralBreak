@@ -1,0 +1,53 @@
+{
+ "schema_version": 1,
+ "kind": "concept",
+ "created": "2026-11-25T15:08:40",
+ "generator": "codex built-in image_gen",
+ "codex_version": "0.166.0",
+ "thread_id": "01a21150-71ec-7730-943b-bdf16c65a0c4",
+ "found_by": "thread_id",
+ "prompt_file": "concept_prompt.md",
+ "prompt_sha256": "35772786bace7bb6161ec2dfecfc825fc9b2545db312da819a640c2797185594",
+ "flat_background": false,
+ "transparent_background": true,
+ "transparent_ratio": 0.5839,
+ "edited_from": null,
+ "file": "concept.png",
+ "sha256": "362175f37372320d0f6bc6640c8867ddd154c86e12eb204d1ade6be6fcd16fd8",
+ "size": [
+  1672,
+  941
+ ],
+ "has_alpha_channel": true,
+ "duration_s": 67.09,
+ "usage": {
+  "input_tokens": 131736,
+  "cached_input_tokens": 113536,
+  "cache_write_input_tokens": 0,
+  "output_tokens": 794,
+  "reasoning_output_tokens": 7
+ },
+ "record": "Tools/uigen/work/_concept/20261125_150653",
+ "style_refs": [
+  {
+   "file": "Tools/uigen/fixtures/hud_blade_sheet/concept.png",
+   "sha256": "a946e16cfe273f8ce6961f3e95c34a8f6fa2042bf53cc900048a765ab3611c12",
+   "source": "ours"
+  }
+ ],
+ "text_free_first": {
+  "status": "ok",
+  "attempts": [
+   {
+    "attempt": 1,
+    "file": "Tools/uigen/work/_concept/20261125_150653/art_1.png",
+    "ocr_boxes": [],
+    "sha256": "362175f37372320d0f6bc6640c8867ddd154c86e12eb204d1ade6be6fcd16fd8",
+    "transparent_ratio": 0.5839,
+    "thread_id": "01a21150-71ec-7730-943b-bdf16c65a0c4"
+   }
+  ],
+  "text_ref": null
+ },
+ "note": "L-2 original text-free art (the approved pixel truth) — the text reference concept_text_ref.png only gives the text style"
+}

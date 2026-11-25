@@ -18,14 +18,15 @@ from __future__ import annotations
 import copy
 import json
 
+CELL_TYPE = "UserWidget"          # Phase 3-2 — 승격된 칸(WBP) 하나를 놓는다: {class: /Game/… 패키지 경로, props: {속성: 글자}}
 WIDGET_TYPES = ("CanvasPanel", "Overlay", "VerticalBox", "HorizontalBox", "UniformGridPanel", "SizeBox",
-                "Border", "Image", "TextBlock", "ProgressBar", "Button", "Spacer")
+                "Border", "Image", "TextBlock", "ProgressBar", "Button", "Spacer", CELL_TYPE)
 
 # 부모 타입 → 자식 슬롯 kind
 CHILD_SLOT_KIND = {"CanvasPanel": "canvas", "Overlay": "overlay", "VerticalBox": "vertical_box", "HorizontalBox": "horizontal_box",
                    "UniformGridPanel": "uniform_grid", "Border": "border", "SizeBox": "size_box", "Button": "button"}
 SINGLE_CHILD = frozenset({"Border", "SizeBox", "Button"})
-LEAF = frozenset({"Image", "TextBlock", "ProgressBar", "Spacer"})
+LEAF = frozenset({"Image", "TextBlock", "ProgressBar", "Spacer", CELL_TYPE})
 
 STYLE_KEYS = {
     "Border": {"brush"},
@@ -51,7 +52,7 @@ SLOT_DEFAULTS = {
     "size_box": {"padding": [0, 0, 0, 0], "h_align": "fill", "v_align": "fill"},
     "button": {"padding": [4, 2, 4, 2], "h_align": "center", "v_align": "center"},
 }
-PANEL_TYPES = frozenset({"CanvasPanel", "Overlay", "VerticalBox", "HorizontalBox", "UniformGridPanel", "SizeBox", "Spacer"})
+PANEL_TYPES = frozenset({"CanvasPanel", "Overlay", "VerticalBox", "HorizontalBox", "UniformGridPanel", "SizeBox", "Spacer", CELL_TYPE})   # 칸 = UUserWidget 생성자 기본값
 FONT_DEFAULT = {"size": 24, "weight": "bold", "color": "#FFFFFFFF", "family": None}
 STYLE_SCALAR_DEFAULTS = {
     "ProgressBar": {"fill_color": "#FFFFFFFF", "percent": 0, "bar_fill_type": "left_to_right"},
@@ -210,7 +211,12 @@ def validate_semantics(spec: dict) -> list[str]:
             for key in ("text", "font", "justification"):
                 if key in w:
                     errs.append(f"TEXT_FIELD: '{wid}' ({wtype}) cannot have '{key}'")
-        elif (w.get("font") or {}).get("role") is not None:
+        if wtype == CELL_TYPE:
+            if not str(w.get("class") or "").startswith("/Game/"):
+                errs.append(f"CELL_CLASS: '{wid}' needs class — the package path of a promoted widget blueprint")
+        elif "class" in w or "props" in w:
+            errs.append(f"CELL_CLASS: '{wid}' ({wtype}) cannot have class / props (only a {CELL_TYPE})")
+        if wtype == "TextBlock" and (w.get("font") or {}).get("role") is not None:
             errs.append(f"FONT_ROLE: '{wid}' font.role must be resolved to font.family before build (analyze apply_contract)")
         if wtype == "TextBlock":
             f = w.get("font") or {}
@@ -271,7 +277,8 @@ def validate_semantics(spec: dict) -> list[str]:
     for wid in spec.get("locked", []):
         if wid not in index:
             errs.append(f"LOCKED_NOT_FOUND: '{wid}'")
-    return errs
+    from core import button
+    return errs + button.errors(spec)
 
 
 def require_valid(spec: dict) -> None:
@@ -367,6 +374,10 @@ def normalize_widget(w: dict, parent_type: str | None, asset_sizes: dict[str, li
                 slot.setdefault(k, copy.deepcopy(v))
         out["slot"] = _canon(slot)
     out.setdefault("visibility", "self_hit_test_invisible" if wtype in PANEL_TYPES else "visible")
+    if wtype == CELL_TYPE:                        # WidgetMcpSpec.cpp NormalizeWidget 과 같은 규칙
+        out["class"] = str(out.get("class") or "").split(".", 1)[0]
+        if not out.get("props"):
+            out.pop("props", None)
     if out.get("designer_hidden") is False:       # 1b 후속 L-2 — 기본값(false)은 키를 지운다(WidgetMcp 정규형 · 역추출과 같음)
         out.pop("designer_hidden")
     style = dict(out.get("style") or {})
@@ -431,6 +442,9 @@ def roundtrip_view(spec: dict, ue_path_to_asset: dict[str, str] | None = None, a
     asset_sizes — 역추출 spec 에는 assets[] 가 없으므로 입력 spec 의 에셋 크기를 준다(image_size 기본값).
     """
     src = copy.deepcopy(spec)
+    if isinstance(src.get("button"), dict):       # Phase 3-2 — 버튼 칸의 기본 그림은 트리에 없다(스타일 애셋이 그린다 — core/button.style_diff 가 견준다)
+        src["widgets"] = [w for w in src["widgets"] if w["id"] != src["button"]["art"]]
+        src.pop("button")
     if ue_path_to_asset:
         for w in src.get("widgets", []):
             for key, brush in (w.get("style") or {}).items():

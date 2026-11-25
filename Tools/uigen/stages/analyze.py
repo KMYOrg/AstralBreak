@@ -36,8 +36,21 @@ GAUGE_FILL_WIDTH = 64      # 채움 텍스처 폭(가로는 같은 색이라 작
 
 
 def output_schema() -> dict:
-    """spec 스키마 그대로(`--json-schema` 로 — llm.cli_schema 가 $schema · $id 를 뺀다, [실측 1b-1] spec 스키마 통째로 통과)."""
-    return copy.deepcopy(schema.schema("spec"))
+    """spec 스키마(`--json-schema` 로 — llm.cli_schema 가 $schema · $id 를 뺀다, [실측 1b-1] spec 스키마 통째로 통과)에서 파이프라인만 쓰는 것(버튼 칸 · 놓인 칸 ·
+    파생 에셋 — Phase 3-2)을 뺀 것 — LLM 이 보는 어휘는 예전 그대로다."""
+    s = copy.deepcopy(schema.schema("spec"))
+    defs = s["$defs"]
+    s["properties"].pop("button")
+    s["properties"]["profile"]["enum"].remove("cell")
+    defs.pop("button")
+    wp = defs["widget"]["properties"]
+    wp["type"]["enum"].remove(spec_mod.CELL_TYPE)
+    wp.pop("class")
+    wp.pop("props")
+    ap = defs["asset"]["properties"]
+    ap["provenance"]["enum"].remove("derived")
+    ap.pop("derived")
+    return s
 
 
 def _contract_lines(brief: dict) -> list[str]:
@@ -202,6 +215,8 @@ def check(spec: dict, brief: dict) -> list[str]:
             errs.append(f"BBOX_MISSING: '{wd['id']}' has no bbox_intent")
             continue
         x, y, bw, bh = bb
+        if wd.get("type") == spec_mod.CELL_TYPE:
+            errs.append(f"CELL: '{wd['id']}' — placed cells come from the request, not from the analysis")
         if bw <= 0 or bh <= 0 or x < -BBOX_TOLERANCE_PX or y < -BBOX_TOLERANCE_PX or x + bw > w + BBOX_TOLERANCE_PX or y + bh > h + BBOX_TOLERANCE_PX:
             errs.append(f"BBOX_OUTSIDE: '{wd['id']}' bbox_intent {bb} is empty or outside the {w}x{h} canvas")
         if wd.get("parent") == spec["root"] and wd.get("slot", {}).get("kind") == "canvas":
@@ -1037,10 +1052,87 @@ def draw_overlay(run, spec: dict) -> str | None:
     return "analyze/overlay.png"
 
 
+BUTTON_LABEL_FONT_DIR = config.UIGEN_DIR / "work" / "_fonts" / "pretendard"      # make_concept.FONT_DIR 와 같은 곳(엔진 폰트를 임포트한 원본 TTF)
+
+
+def _label_size(cfg: dict, font: dict, value: str) -> list[int]:
+    """버튼 글자의 예상 상자(px) — 폭 = 같은 TTF 로 잰 글자 폭(없으면 크기로 어림), 높이 = 줄 높이 표. 자동 크기 글자라 배치 게이트의 기준 상자로만 쓴다(외곽선 몫은
+    apply_requested_outlines 가 넓힌다)."""
+    from stages import style
+    px = float(font["size"]) * 4.0 / 3.0
+    w = None
+    try:
+        from PIL import ImageFont
+
+        from gen import text_ref
+        f = BUTTON_LABEL_FONT_DIR / text_ref.FONT_FILES[font["weight"]]
+        if f.is_file():
+            w = float(ImageFont.truetype(str(f), px).getlength(value))
+    except (ImportError, OSError, KeyError):
+        pass
+    w = w if w is not None else len(value) * px * 0.9
+    h = style._line_height(cfg, (cfg.get("fonts") or {}).get("default_family"), float(font["size"])) or px * 1.2
+    return [int(round(w)), int(round(h))]
+
+
+def button_spec(brief: dict, cfg: dict) -> dict:
+    """버튼 칸의 spec(Phase 3-2) — 구조가 요청으로 다 정해져 있어 LLM 이 판단할 것이 없다: 기본 그림 하나(칸 전체 — 컨셉에서 오림) + 가운데 글자 하나 + 파생 상태 그림 여섯.
+    글자 값은 글꼴 단일 원천(참고판)과 공용 테마가 정하고, 자리는 칸 가운데에 자동 크기로 둔다(글자 길이가 달라져도 가운데) — 미세한 자리는 글자 맞춤이 컨셉 획에서 잰다."""
+    from core import button as button_mod
+    from gen import theme as theme_mod
+    b = brief["button"]
+    t = theme_mod.load(b["theme"])
+    w, h = (int(v) for v in brief["resolution"])
+    d = next(x for x in brief["dynamic_data"] if x["widget"] == b["label"])
+    base = _snake(b["art"])
+    lw, lh = _label_size(cfg, d["font"], _sample_text(d))
+    spec = {"schema_version": 1, "canvas": [w, h], "profile": brief["screen_type"], "root": "Root",
+            "widgets": [
+                {"id": "Root", "type": "CanvasPanel"},
+                {"id": b["art"], "type": "Image", "parent": "Root", "bbox_intent": [0, 0, w, h],
+                 "slot": {"kind": "canvas", "anchors": [0, 0, 1, 1], "position": [0, 0], "size": [0, 0]}, "style": {"brush": {"draw_as": "image", "asset": base}}},
+                {"id": b["label"], "type": "TextBlock", "parent": "Root", "bbox_intent": [(w - lw) // 2, (h - lh) // 2, lw, lh],
+                 "slot": {"kind": "canvas", "anchors": [0.5, 0.5, 0.5, 0.5], "alignment": [0.5, 0.5], "position": [0, 0], "size": [lw, lh], "z": 1, "auto_size": True},
+                 "justification": "center", "font": {"size": d["font"]["size"], "weight": d["font"]["weight"], "color": d["font"]["color"]}}],
+            "assets": [{"asset_id": base, "kind": "panel_bg", "provenance": "codex", "source_mode": "extract", "size": [w, h], "prompt": "the whole button exactly as drawn",
+                        "ref_bbox": [0, 0, w, h], "compression": "TC_EditorIcon"}],
+            # 글자는 기본 그림 위에 놓인다(둘 다 루트 직계 — 그림은 에디터 트리에 없다)
+            "allow_overlap": [sorted([b["art"], b["label"]])],
+            "button": {"art": b["art"], "states": {}, "theme": {"id": t["id"], "sha256": t["sha256"]}, "pressed_offset": list(t["text"]["pressed_offset"])}}
+    for k in button_mod.DERIVED:
+        aid = button_mod.derived_asset_id(base, k)
+        spec["button"]["states"][k] = aid
+        spec["assets"].append({"asset_id": aid, "kind": "panel_bg", "provenance": "derived", "derived": {"from": base, "brush": k}, "size": [w, h],
+                               "compression": "TC_EditorIcon", "source": f"theme '{t['id']}' state {k} of {base}"})
+    return apply_contract(spec, brief, config.font_roles(cfg, brief.get("font")))
+
+
+def _run_button(run, brief: dict) -> str:
+    """버튼 칸 — LLM 0(요약 기록은 호출 0 번으로 남긴다)."""
+    spec = button_spec(brief, run.cfg)
+    errors = schema.errors("spec", spec) or (spec_mod.validate_semantics(spec) + check_brief_vs_spec(brief, spec))
+    run.write_json("analyze.json", {**_record(run, [], errors, []), "ok": not errors, "skipped": "button cell — the request fixes the structure, no LLM call"})
+    if errors:
+        raise StageError("ANALYZE_INVALID", f"the button spec failed {len(errors)} check(s): " + "; ".join(errors[:6]), errors=errors)
+    fonts = apply_declared_fonts(spec, brief, run.cfg)
+    outlines = apply_requested_outlines(spec, brief)
+    schema.require("spec", spec)
+    run.write_json("analyze/derived.json", {"gauge_fills": [], "text_fills": [], "text_glows": [], "hidden_glows": [], "text_effects_dropped": [], "fonts": fonts,
+                                            "outlines": outlines})
+    run.write_json("spec.json", spec)
+    run.write_json("specs/000.json", spec)
+    overlay = draw_overlay(run, spec)
+    b = spec["button"]
+    return (f"button cell — {len(spec['widgets'])} widgets, {len(spec['assets'])} assets ({len(b['states'])} states from theme '{b['theme']['id']}' {b['theme']['sha256'][:8]}), "
+            f"no LLM call (the request fixes the structure){', overlay ' + overlay if overlay else ''}")
+
+
 def run(run, opts) -> str:
     brief = run.read_json("brief.json")
     if not run.path("reference.png").is_file():
         raise StageError("NO_REFERENCE", "analyze needs reference.png (normalize concept)")
+    if brief.get("button"):
+        return _run_button(run, brief)
     out_schema = output_schema()
     cli = getattr(opts, "llm_cli", None)
     roles = config.font_roles(run.cfg, brief.get("font"))

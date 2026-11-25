@@ -2,6 +2,7 @@
 
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
+#include "CommonButtonBase.h"
 #include "Components/Image.h"
 #include "Components/PanelWidget.h"
 #include "Components/ProgressBar.h"
@@ -19,6 +20,9 @@
 #include "HAL/PlatformTime.h"
 #include "ImageCore.h"
 #include "ImageUtils.h"
+#include "Input/Events.h"
+#include "InputCoreTypes.h"
+#include "Layout/Children.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "RenderingThread.h"
 #include "ShaderCompiler.h"
@@ -26,11 +30,142 @@
 #include "TextureResource.h"
 #include "UObject/StrongObjectPtr.h"
 #include "WidgetBlueprint.h"
+#include "Widgets/Input/SButton.h"
 
 namespace WidgetMcpRender
 {
 	namespace RenderPrivate
 	{
+		/** 덮어쓰기 키가 가리키는 위젯 — "." = 그리는 위젯 자신, "칸/안쪽" = 칸 안의 위젯 */
+		UWidget* FindByKey(UUserWidget* Root, const FString& Key)
+		{
+			if (Key == TEXT("."))
+			{
+				return Root;
+			}
+			TArray<FString> Parts;
+			Key.ParseIntoArray(Parts, TEXT("/"));
+			UUserWidget* Owner = Root;
+			UWidget* Found = nullptr;
+			for (int32 i = 0; i < Parts.Num(); ++i)
+			{
+				Found = Owner ? Owner->GetWidgetFromName(FName(*Parts[i])) : nullptr;
+				if (!Found)
+				{
+					return nullptr;
+				}
+				Owner = Cast<UUserWidget>(Found);
+			}
+			return Found;
+		}
+
+		/** CommonButton 의 진짜 Slate 버튼 — 안쪽 UMG 버튼의 Slate 는 크기 상자(SBox)이고 버튼은 그 자식이다(CommonButtonBase.cpp RebuildWidget, uigen 3-1 실측) */
+		TSharedPtr<SButton> InnerButton(const UCommonButtonBase* Button)
+		{
+			const UWidget* Inner = Button->WidgetTree ? Button->WidgetTree->RootWidget.Get() : nullptr;
+			const TSharedPtr<SWidget> Box = Cast<UCommonButtonInternalBase>(Inner) ? Inner->GetCachedWidget() : nullptr;
+			FChildren* Children = Box ? Box->GetChildren() : nullptr;
+			if (!Children || Children->Num() == 0 || Children->GetChildAt(0)->GetType() != FName(TEXT("SCommonButton")))
+			{
+				return nullptr;
+			}
+			return StaticCastSharedRef<SButton>(Children->GetChildAt(0));
+		}
+
+		bool SplitButtonState(const FString& State, bool& bOutSelected, bool& bOutHovered, bool& bOutPressed)
+		{
+			bOutSelected = State.StartsWith(TEXT("selected"));
+			const FString Rest = bOutSelected ? (State == TEXT("selected") ? FString() : State.RightChop(9)) : State;      // "selected_"
+			bOutHovered = Rest == TEXT("hovered");
+			bOutPressed = Rest == TEXT("pressed");
+			return bOutHovered || bOutPressed || (bOutSelected && Rest.IsEmpty());
+		}
+
+		FString NotApplied(const FString& Key, const FString& What)
+		{
+			return FString::Printf(TEXT("override '%s'.%s"), *Key, *What);
+		}
+
+		/** enabled · button 덮어쓰기가 지금 먹어 있는가 — 안 먹었으면 이유 */
+		FString CheckInteraction(UUserWidget* Root, const FString& Key, const FOverride& Ov)
+		{
+			UWidget* W = FindByKey(Root, Key);
+			if (!W)
+			{
+				return NotApplied(Key, TEXT("enabled / button — no such widget"));
+			}
+			if (Ov.bEnabled.IsSet())
+			{
+				const TSharedPtr<SWidget> Slate = W->GetCachedWidget();
+				if (W->GetIsEnabled() != Ov.bEnabled.GetValue() || !Slate || Slate->IsEnabled() != Ov.bEnabled.GetValue())
+				{
+					return NotApplied(Key, FString::Printf(TEXT("enabled %s did not take"), Ov.bEnabled.GetValue() ? TEXT("true") : TEXT("false")));
+				}
+			}
+			if (!Ov.Button.IsEmpty())
+			{
+				const UCommonButtonBase* Button = Cast<UCommonButtonBase>(W);
+				bool bSelected = false, bHovered = false, bPressed = false;
+				if (!Button)
+				{
+					return NotApplied(Key, FString::Printf(TEXT("button — %s is a %s, not a CommonButton"), *W->GetName(), *W->GetClass()->GetName()));
+				}
+				if (!SplitButtonState(Ov.Button, bSelected, bHovered, bPressed))
+				{
+					return NotApplied(Key, FString::Printf(TEXT("button '%s' is not hovered|pressed|selected|selected_hovered|selected_pressed"), *Ov.Button));
+				}
+				const TSharedPtr<SButton> Slate = InnerButton(Button);
+				if (!Slate)
+				{
+					return NotApplied(Key, TEXT("button — the inner Slate button is not there"));
+				}
+				if (Slate->IsHovered() != bHovered || Slate->IsPressed() != bPressed || Button->GetSelected() != bSelected)
+				{
+					return NotApplied(Key, FString::Printf(TEXT("button '%s' did not take (hovered %d, pressed %d, selected %d)"), *Ov.Button, Slate->IsHovered(), Slate->IsPressed(), Button->GetSelected()));
+				}
+			}
+			return FString();
+		}
+
+		/** enabled · button 을 건다 — Slate 가 만들어진 뒤(TakeWidget). 이벤트는 크기 상자가 아니라 안쪽 버튼에 보낸다 */
+		bool ApplyInteraction(UUserWidget* Root, const FString& Key, const FOverride& Ov, FEditorMcpError& OutError)
+		{
+			UWidget* W = FindByKey(Root, Key);
+			UCommonButtonBase* Button = Cast<UCommonButtonBase>(W);
+			if (W && Ov.bEnabled.IsSet()) { W->SetIsEnabled(Ov.bEnabled.GetValue()); }
+			bool bSelected = false, bHovered = false, bPressed = false;
+			if (Button && !Ov.Button.IsEmpty() && SplitButtonState(Ov.Button, bSelected, bHovered, bPressed))
+			{
+				if (bSelected)
+				{
+					// 게임에서는 자기 클래스의 SetSelectedInternal(protected)로 바꾼다 — 여기서는 같은 함수에 닿는 공개 길(오프스크린 인스턴스라 bSelectable 을 켜도 된다)
+					Button->SetIsSelectable(true);
+					Button->SetIsSelected(true, /*bGiveClickFeedback*/ false);
+				}
+				if (const TSharedPtr<SButton> Slate = InnerButton(Button))
+				{
+					const FGeometry Geometry = Slate->GetPaintSpaceGeometry();
+					if (bHovered)
+					{
+						Slate->OnMouseEnter(Geometry, FPointerEvent(0, FVector2D::ZeroVector, FVector2D::ZeroVector, TSet<FKey>(), EKeys::Invalid, 0.f, FModifierKeysState()));
+					}
+					if (bPressed)
+					{
+						Slate->OnMouseButtonDown(Geometry, FPointerEvent(0, FVector2D::ZeroVector, FVector2D::ZeroVector, TSet<FKey>({ EKeys::LeftMouseButton }), EKeys::LeftMouseButton, 0.f, FModifierKeysState()));
+					}
+				}
+			}
+			const FString Problem = CheckInteraction(Root, Key, Ov);
+			if (!Problem.IsEmpty())
+			{
+				OutError = WidgetMcp::MakeMcpError(EditorMcpErrorCodes::ValidationFailed, Problem, TEXT("OVERRIDE_NOT_APPLIED"));
+				return false;
+			}
+			return true;
+		}
+
+		bool HasInteraction(const FOverride& Ov) { return Ov.bEnabled.IsSet() || !Ov.Button.IsEmpty(); }
+
 		/** sRGB 8비트 → 선형 8비트 — A6-색 보정(읽은 값에 채널마다 1회) */
 		const TArray<uint8>& SrgbToLinearLut()
 		{
@@ -112,10 +247,14 @@ namespace WidgetMcpRender
 			}
 			for (const TPair<FString, FOverride>& P : Overrides)
 			{
-				UWidget* W = Out.Widget->GetWidgetFromName(FName(*P.Key));
-				if (!W)
+				UWidget* W = FindByKey(Out.Widget.Get(), P.Key);
+				if (!W && !HasInteraction(P.Value))      // enabled · button 은 아래에서 오류로
 				{
 					Context.AddDiagnostic(TEXT("warning"), TEXT("OVERRIDE_NOT_FOUND"), FString::Printf(TEXT("override '%s' names no widget"), *P.Key));
+					continue;
+				}
+				if (!W)
+				{
 					continue;
 				}
 				if (P.Value.bVisible.IsSet()) { W->SetVisibility(P.Value.bVisible.GetValue() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed); }
@@ -134,6 +273,28 @@ namespace WidgetMcpRender
 				if (P.Value.Text.IsSet()) { if (UTextBlock* Text = Cast<UTextBlock>(W)) { Text->SetText(FText::FromString(P.Value.Text.GetValue())); } }
 			}
 			Out.Slate = Out.Widget->TakeWidget();
+			for (const TPair<FString, FOverride>& P : Overrides)
+			{
+				if (HasInteraction(P.Value) && !ApplyInteraction(Out.Widget.Get(), P.Key, P.Value, OutError))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+
+		/** 다 그린 뒤에도 상태가 그대로인가 — 그리는 사이 풀렸으면 그 그림은 다른 상태다 */
+		bool StillApplied(const FInstance& I, const TMap<FString, FOverride>& Overrides, FEditorMcpError& OutError)
+		{
+			for (const TPair<FString, FOverride>& P : Overrides)
+			{
+				const FString Problem = HasInteraction(P.Value) ? CheckInteraction(I.Widget.Get(), P.Key, P.Value) : FString();
+				if (!Problem.IsEmpty())
+				{
+					OutError = WidgetMcp::MakeMcpError(EditorMcpErrorCodes::ValidationFailed, Problem + TEXT(" — after drawing"), TEXT("OVERRIDE_NOT_APPLIED"));
+					return false;
+				}
+			}
 			return true;
 		}
 
@@ -236,23 +397,37 @@ namespace WidgetMcpRender
 				Item->SetArrayField(TEXT("diff_pixels_vs_prev"), Diffs);
 				if (bGeometry)
 				{
+					Item->SetField(TEXT("desired_size"), WidgetMcp::Vec2(FVector2D(Slate->GetDesiredSize())));      // 이 위젯을 자동 크기로 놓았을 때의 크기(칸)
 					// geometry — 마지막 그림 직후의 페인트 공간(= 픽셀, Scale 반영)
 					TArray<TSharedPtr<FJsonValue>> Geometry;
-					I.Tree->ForEachWidget([&Geometry](UWidget* W)
+					const auto AddRow = [&Geometry](UWidget* W, const FString& Id, const FString& Parent)
 					{
 						const FGeometry& G = W->GetPaintSpaceGeometry();
 						const FVector2D Pos(G.GetAbsolutePosition());
 						const FVector2D Size(G.GetAbsoluteSize());
 						TSharedRef<FJsonObject> J = MakeShared<FJsonObject>();
-						J->SetStringField(TEXT("id"), W->GetName());
+						J->SetStringField(TEXT("id"), Id);
 						J->SetStringField(TEXT("type"), WidgetMcpSpec::TypeForWidget(W).IsEmpty() ? W->GetClass()->GetName() : WidgetMcpSpec::TypeForWidget(W));
-						J->SetStringField(TEXT("parent"), W->GetParent() ? W->GetParent()->GetName() : FString());
+						J->SetStringField(TEXT("parent"), Parent);
 						J->SetField(TEXT("x"), WidgetMcp::Num(Pos.X));
 						J->SetField(TEXT("y"), WidgetMcp::Num(Pos.Y));
 						J->SetField(TEXT("w"), WidgetMcp::Num(Size.X));
 						J->SetField(TEXT("h"), WidgetMcp::Num(Size.Y));
 						J->SetBoolField(TEXT("visible"), IsEffectivelyVisible(W));
 						Geometry.Add(MakeShared<FJsonValueObject>(J));
+					};
+					I.Tree->ForEachWidget([&AddRow](UWidget* W)
+					{
+						AddRow(W, W->GetName(), W->GetParent() ? W->GetParent()->GetName() : FString());
+						// 놓인 칸 안의 글자 — 글자는 놓은 화면이 정해서(props) 칸 혼자 그린 자리와 다르다. 이름은 덮어쓰기 열쇠와 같은 '칸/위젯'
+						const UUserWidget* Cell = Cast<UUserWidget>(W);
+						if (Cell && Cell->WidgetTree)
+						{
+							Cell->WidgetTree->ForEachWidget([&AddRow, W](UWidget* Inner)
+							{
+								if (Inner->IsA<UTextBlock>()) { AddRow(Inner, W->GetName() + TEXT("/") + Inner->GetName(), W->GetName()); }
+							});
+						}
 					});
 					Item->SetArrayField(TEXT("geometry"), Geometry);
 				}
@@ -368,7 +543,8 @@ namespace WidgetMcpRender
 				const FString StateDir = FPaths::Combine(Dir, Request.States[k].Name);
 				IFileManager::Get().MakeDirectory(*StateDir, /*Tree*/ true);
 				TArray<TSharedPtr<FJsonValue>> StateRenders;
-				if (!DrawInstance(Instances[k], Request, StateDir, Request.States[k].Name, /*bGeometry*/ false, StateRenders, nullptr, OutError))
+				if (!DrawInstance(Instances[k], Request, StateDir, Request.States[k].Name, /*bGeometry*/ false, StateRenders, nullptr, OutError)
+					|| !StillApplied(Instances[k], Request.States[k].Overrides, OutError))
 				{
 					return nullptr;
 				}
@@ -378,7 +554,8 @@ namespace WidgetMcpRender
 				StateResults.Add(MakeShared<FJsonValueObject>(Item));
 			}
 		}
-		else if (!DrawInstance(Instances[0], Request, Dir, Request.Prefix, /*bGeometry*/ true, Renders, &ProbeResults, OutError))
+		else if (!DrawInstance(Instances[0], Request, Dir, Request.Prefix, /*bGeometry*/ true, Renders, &ProbeResults, OutError)
+			|| !StillApplied(Instances[0], Request.Overrides, OutError))
 		{
 			return nullptr;
 		}

@@ -151,9 +151,10 @@ _HEX = re.compile(r"#[0-9A-F]{6}")
 FONT_FILES = {w: f"Pretendard-{n}.ttf" for w, n in (("regular", "Regular"), ("medium", "Medium"), ("semibold", "SemiBold"), ("bold", "Bold"), ("extrabold", "ExtraBold"))}
 
 
-def draw_items(art, layout: list[dict], items: list[dict], font_dir) -> tuple:
+def draw_items(art, layout: list[dict], items: list[dict], font_dir, base_width: float = 1920.0) -> tuple:
     """메인 HUD(11-24) 결정 8 — 원본 아트(RGBA PIL) 위에 글자만 **엔진과 같은 글꼴 파일**로 그린 참고판(codex 없음). layout = [{widget, pos [x, y](1920 폭 기준 px), anchor(PIL —
     ls 왼쪽 기준선 · ms 가운데 기준선 …), pt(글꼴 크기 — spec font.size 와 같은 정수 pt), weight, color}], 글자 값은 items(text_items — inputs 가 정한 값).
+    base_width = 배치 좌표의 기준 폭(화면 = 1920, 칸 = 그 칸의 resolution 폭 — 배치 yaml 의 base_width).
     → (RGBA PIL, [{widget, value, box(그림 px), font{size, weight, color}}]). 어긋나면 ValueError. font 는 글꼴의 단일 원천이다(drawn_fonts — 그린 그림을 다시 재지 않는다)."""
     import pathlib
 
@@ -166,7 +167,7 @@ def draw_items(art, layout: list[dict], items: list[dict], font_dir) -> tuple:
         by[it["widget"]] = it
     if set(by) != set(values):
         raise ValueError(f"text layout {sorted(by)} != the texts of the inputs {sorted(values)}")
-    k = art.width / 1920.0
+    k = art.width / float(base_width)
     out = art.copy()
     drawn = []
     for wid, it in by.items():
@@ -229,8 +230,11 @@ def merge(a_col, a_a, t_col, t_a, *, detect=None, boxes=None) -> tuple:
     H, W = a_a.shape
     a_col, a_a = np.asarray(a_col, float), np.clip(np.asarray(a_a, float), 0, 1)
     t_col, t_a = np.asarray(t_col, float), np.clip(np.asarray(t_a, float), 0, 1)
-    win = cv2.createHanningWindow((W, H), cv2.CV_32F)
-    (dx, dy), resp = cv2.phaseCorrelate(_gray(a_col * a_a[..., None]), _gray(t_col * t_a[..., None]), win)
+    if boxes is None:
+        win = cv2.createHanningWindow((W, H), cv2.CV_32F)
+        (dx, dy), resp = cv2.phaseCorrelate(_gray(a_col * a_a[..., None]), _gray(t_col * t_a[..., None]), win)
+    else:      # 우리가 같은 아트 위에 그린 참고판 — 어긋날 수 없다. 작은 그림(칸)은 글자가 상관을 끌어 없는 어긋남이 재진다 [실측 Phase 3-2 — 477 × 113 에서 (0.2, 3.1) px]
+        (dx, dy), resp = (0.0, 0.0), 1.0
     rec: dict = {"shift_px": [round(float(dx), 2), round(float(dy), 2)], "response": round(float(resp), 4), "used": False}
     if max(abs(dx), abs(dy)) > MAX_SHIFT:
         rec["reason"] = f"phase correlation shift {rec['shift_px']} > {MAX_SHIFT} px — the text reference is not the same picture"

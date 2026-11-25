@@ -45,6 +45,10 @@ S1 보강 hidden_halo(L-2 기본 전환 ④, 11-23) — 접히는 루트 직계 
    3 × 3 국소 ΔE00 > halo_de 로 다른 덩어리(≥ min_area) = 위젯이 접혀도 남는 빛 · 넘침. S1 은 위젯 상자 밖 4 px 고리를 기록만 했다(overhang_px) — 실제로는 상자 밖
    수십 px 까지 남았다 [실측 L-2 R20261120_140653 — 배너 23,021 px · 체인 패널 19,583 px(flag — 시작 때는 보여 S1 대상도 아니었다)]. 엔진 렌더(접히는 영역을 모두
    끈 state_toggles_off)가 있으면 검정은 그것으로도 본다.
+버튼 상태(button_states — Phase 3-2): 버튼마다(버튼 칸 자신 · 화면에 놓인 버튼 칸) 상태 일곱(core/button)의 엔진 렌더를 '그 상태의 그림을 얹은 텍스처 합성'과 견준다
+   — 정답이 식(gen/theme)이라 픽셀로 견줄 수 있다. button_state(안쪽 — 글자 획 둘레 뺀 7 × 7 국소 > button_de) · button_outside(버튼 밖이 컨셉 상태와 다름) ·
+   button_same(두 상태가 구별되지 않음) · button_text(글자가 안 읽힘) · button_text_moved(글자가 테마의 거리와 다르게 움직임) · button_render(그 상태를 못 그림 — 덮어쓰기가
+   안 먹으면 render_widget 이 오류를 낸다. 합성으로 물러나지 않는다: 물러나면 정답을 정답과 견주게 된다).
 결과 = 결함 dict(stage state · code E8 · check) — diagnose 가 appearance.state_checks 에 따라 기록만(record) 또는 오류로(error) — appearance.state_record_only
    에 든 check 는 오류 모드에서도 기록만(새 검사를 묶음 거짓 양성 0 확인 전까지).
 """
@@ -54,7 +58,8 @@ import copy
 
 import numpy as np
 
-from gen import backdrop
+from core import button
+from gen import backdrop, cells
 from gen import diagnose as dg
 from gen import territory
 
@@ -933,6 +938,9 @@ def state_requests(spec: dict, spec_state: dict, states: list[dict], boxes: list
     pct += [(w["id"], p) for w, _g, _st, brush in radial_targets(spec_state, boxes) if brush.get("asset") in textures for p in RADIAL_STATES]
     for wid, p in pct:
         out[percent_name(wid, p)] = {**ov_state, wid: {**ov_state.get(wid, {}), "percent": float(p)}}
+    for t in button_targets(spec_state, boxes, textures):                          # 버튼 상태(Phase 3-2) — 기본은 컨셉 상태 렌더("state")와 같다
+        for b in button.DERIVED:
+            out[button_name(t["id"], b)] = {**ov_state, t["key"]: {**ov_state.get(t["key"], {}), **button.OVERRIDES[b]}}
     off_ids: set[str] = set()
     for r in roots:
         off_ids |= dg._subtree(spec, r)
@@ -949,6 +957,142 @@ def state_requests(spec: dict, spec_state: dict, states: list[dict], boxes: list
         out[f"state_notext_{g['root']}"] = {**{r: {"visible": False} for r in roots if r != g["root"]}, g["root"]: {"visible": True},
                                             **{t: {"text": ""} for t in texts if t not in off_g}}
     return out
+
+
+BUTTON_GLYPH_PAD = 3        # 글자 획 둘레 — 이만큼(px)은 안쪽 판정에서 뺀다(안티앨리어싱 · 외곽선 · 눌린 글자 이동)
+BUTTON_TEXT_SHIFT = 4       # 글자가 움직인 거리를 찾는 범위(px)
+BUTTON_COVER = 0.2          # 7 × 7 창 안 판정 픽셀 비율 하한
+
+
+def button_name(wid: str, brush: str) -> str:
+    """버튼 상태 하나의 렌더 이름(= 출력 폴더)."""
+    return f"state_{wid}_{brush}"
+
+
+def button_targets(spec_state: dict, boxes: list[dict], textures: dict) -> list[dict]:
+    """버튼 상태 대상 — 버튼 칸 자신(덮어쓰기 열쇠 '.')과 화면에 놓인 버튼 칸. [{id, key, box, swap(상태 → 합성용 spec · textures), texts}]."""
+    geo = {b["id"]: b for b in boxes}
+    out = []
+    art = button.art_id(spec_state)
+    used = button.brush_assets(spec_state) if art else {}
+    g = geo.get(art) if art else None
+    if g and g.get("visible", True) and g["w"] > 0 and all(a in textures for a in used.values()):
+        texts = [_gbox(geo[w["id"]]) for w in spec_state["widgets"] if w.get("type") in backdrop.TEXT_TYPES and geo.get(w["id"], {}).get("visible", True) and w["id"] in geo]
+        out.append({"id": art, "key": button.SELF_KEY, "box": _gbox(g), "texts": texts, "offset": (button.of(spec_state) or {}).get("pressed_offset") or [0, 0],
+                    "state": lambda b: (cells.with_state(spec_state, b), textures)})
+    for w in cells.placed(spec_state):
+        g, p = geo.get(w["id"]), cells.picture(str(w.get("class") or ""))
+        if p is None or not p["button"] or not g or not g.get("visible", True) or g["w"] <= 0:
+            continue
+        cls = w["class"]
+        out.append({"id": w["id"], "key": w["id"], "box": _gbox(g), "texts": [t for i, t in cells.text_boxes(spec_state, boxes) if i == w["id"]], "offset": None,
+                    "state": lambda b, cls=cls: (spec_state, {**textures, cells.key(cls): textures[cells.key(cls, b)]})})
+    return out
+
+
+def _text_shift(a, b, r: int = BUTTON_TEXT_SHIFT) -> tuple[list[int], float]:
+    """글자 마스크 a 를 어디로 옮기면 b 와 가장 겹치나 — ([dx, dy], IoU)."""
+    best = ([0, 0], -1.0)
+    n = int(a.sum()) + int(b.sum())
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            inter = int((np.roll(a, (dy, dx), (0, 1)) & b).sum())
+            iou = inter / max(1, n - inter)
+            if iou > best[1] + 1e-9 or (abs(iou - best[1]) <= 1e-9 and abs(dx) + abs(dy) < abs(best[0][0]) + abs(best[0][1])):
+                best = ([dx, dy], iou)
+    return best
+
+
+def button_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s: dict, base, render_state=None) -> dict:
+    """버튼 상태 검사 — base = 컨셉 상태 렌더(엔진이면 엔진, 아니면 합성), render_state(이름) → 그 상태의 엔진 렌더(못 그리면 예외). 없으면(오프라인) 합성끼리라
+    안쪽 판정은 뜻이 없고 '상태끼리 구별'만 본다. → {"buttons", "findings", "images": {버튼: {상태: 그림}}, "gray", "renderer"}."""
+    W, H = int(canvas[0]), int(canvas[1])
+    T, distinct, readable = float(s["button_de"]), float(s["button_distinct_de"]), float(s["button_text_de"])
+    out: dict = {"buttons": [], "findings": [], "images": {}, "gray": {}, "renderer": "composite" if render_state is None else "engine"}
+    for t in button_targets(spec_state, boxes, textures):
+        rec: dict = {"widget": t["id"], "states": {}}
+        box = dg._box_mask((H, W), t["box"])
+
+        def add(check, brush, mask_box, area, cause, max_de=None, mean_de=None):
+            out["findings"].append({"stage": "state", "code": "E8", "check": check, "brush": brush, "box": mask_box, "area": int(area), "max_de": max_de, "mean_de": mean_de,
+                                    "widgets": [t["id"]], "renderer": out["renderer"], "fixable": False, "cause": cause})
+        ibox = [int(round(v)) for v in t["box"]]
+        want, imgs = {}, {}
+        for b in button.BRUSHES:
+            sp, tex = t["state"](b)
+            want[b] = backdrop.compose(sp, boxes, tex, canvas, (0, 0, 0))[0]
+            if b == button.BASE:
+                imgs[b] = np.asarray(base, float)
+            elif render_state is None:
+                imgs[b] = want[b]
+            else:
+                try:
+                    imgs[b] = render_state(button_name(t["id"], b))
+                    if imgs[b] is None:
+                        raise ValueError("no picture")
+                except Exception as exc:  # noqa: BLE001 — 그 상태를 못 그렸다 = 오류(합성으로 물러나지 않는다)
+                    imgs.pop(b, None)
+                    rec["states"][b] = {"error": f"{type(exc).__name__}: {exc}"[:200]}
+                    add("button_render", b, ibox, box.sum(), f"button - the state '{b}' could not be rendered ({type(exc).__name__}: {str(exc)[:120]})")
+        out["images"][t["id"]] = imgs
+        out["gray"][t["id"]] = {b: backdrop.compose(*_gray_args(t, b, boxes), canvas, backdrop.GRAY)[0] for b in button.BRUSHES}
+        cov = backdrop.compose(*_gray_args(t, button.BASE, boxes), canvas, (0, 0, 0))[1]
+        # 글자 획 — 상태마다 '글자 없는 합성과 다른 픽셀'(글자 상자 안). 안쪽 판정은 그 둘레를 빼고, 글자 자체는 읽히는가 · 움직인 거리로 본다
+        textz = np.zeros((H, W), bool)
+        for tb in t["texts"]:
+            textz |= dg._box_mask((H, W), tb, dg.HIDDEN_PAD + BUTTON_TEXT_SHIFT)
+        glyph = {b: (dg.maxabs(im, want[b]) > dg.INK_FLOOR) & textz for b, im in imgs.items()} if render_state is not None else {}
+        base_g = glyph.get(button.BASE)
+        strokes = dg._dilate(base_g, BUTTON_GLYPH_PAD + BUTTON_TEXT_SHIFT) if base_g is not None and base_g.any() else np.zeros((H, W), bool)
+        # 획의 속(가장 또렷한 픽셀) — 읽히는가를 재는 자리
+        core = (dg.maxabs(imgs[button.BASE], want[button.BASE]) > dg.INK_MIN * 2) & textz if base_g is not None else np.zeros((H, W), bool)
+        inside = box & ~(strokes & textz)
+        for b, im in imgs.items():
+            r = rec["states"].setdefault(b, {})
+            de = dg.delta_e(im, want[b], where=inside)
+            loc = masked_local(de, inside, BUTTON_COVER)
+            fl = (loc > T) & inside
+            r.update(inside_max=round(float(loc[inside].max()), 2) if inside.any() else 0.0, inside_px=int(fl.sum()))
+            for bl in _blobs(fl, loc, min(int(s["min_area"]), 12)):
+                add("button_state", b, bl["box"], bl["area"], f"button - '{b}' does not look like its own picture (wrong brush, shifted or not applied)", bl["max_de"], bl["mean_de"])
+            if b != button.BASE:
+                loc_o, (ox, oy) = _diff_local(im, imgs[button.BASE], ~dg._dilate(box, 1), 0.0)
+                r["outside_max"] = round(float(loc_o.max()), 2)
+                fo = loc_o > T
+                for bl in _blobs(fo, loc_o, min(int(s["min_area"]), 12)) if fo.any() else ():
+                    add("button_outside", b, [bl["box"][0] + ox, bl["box"][1] + oy, bl["box"][2], bl["box"][3]], bl["area"],
+                        f"button - '{b}' changes something outside the button", bl["max_de"], bl["mean_de"])
+            if core.any():
+                sh, iou = _text_shift(core, dg.maxabs(im, want[b]) > dg.INK_FLOOR) if b != "disabled" else ([0, 0], None)
+                moved = np.roll(core, (sh[1], sh[0]), (0, 1))
+                tde = float(np.median(dg.delta_e(im, want[b], where=moved)[moved]))
+                r.update(text_de=round(tde, 1), text_shift=sh, text_iou=None if iou is None else round(iou, 3))
+                if tde < readable:
+                    add("button_text", b, dg._bbox(moved), moved.sum(), f"button - the label is not readable in '{b}' (ΔE00 {tde:.1f} < {readable:g})")
+                expect = [int(round(v)) for v in t["offset"]] if t["offset"] is not None and b.endswith("pressed") else [0, 0]
+                if t["offset"] is not None and b != "disabled" and sh != expect:
+                    add("button_text_moved", b, dg._bbox(moved), moved.sum(), f"button - the label moved {sh} px in '{b}', the theme says {expect}")
+        # 상태끼리 구별 — 버튼 안(글자 둘레 뺌 · 알파 > 0.5)의 평균 차. 두 그림이 같으면 사람은 상태를 못 가른다. 검정 바탕(렌더)과 회색 바탕(합성) 중 큰 쪽 —
+        # 검정 위에서는 투명도 차이가 숨는다 [실측 Phase 3-2 — 누름 ↔ 비활성(알파 × 0.5)이 검정 0.98 · 회색 18.55]. 렌더가 그 상태의 그림이 맞는지는 button_state 몫
+        solid = inside & (cov > 0.5)
+        names = [b for b in button.BRUSHES if b in imgs]
+        gray = out["gray"][t["id"]]
+        rec["distinct"], rec["distinct_black"] = {}, {}
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                mb, mg = (float(dg.delta_e(x[a], x[b], where=solid)[solid].mean()) if solid.any() else 0.0 for x in (imgs, gray))
+                m = max(mb, mg)
+                rec["distinct"][f"{a} / {b}"] = round(m, 2)
+                rec["distinct_black"][f"{a} / {b}"] = round(mb, 2)
+                if m < distinct:
+                    add("button_same", b, ibox, solid.sum(), f"button - '{a}' and '{b}' look the same (mean ΔE00 {m:.2f} < {distinct:g})")
+        out["buttons"].append(rec)
+    return out
+
+
+def _gray_args(t: dict, brush: str, boxes: list[dict]) -> tuple:
+    sp, tex = t["state"](brush)
+    return sp, boxes, tex
 
 
 def radial_states(spec_state: dict, boxes: list[dict], textures: dict, canvas, s: dict, base, render_pct=None) -> dict:

@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_160008_ButtonLarge",
+  "mode": "concept",
+  "screen_type": "cell",
+  "screen_id": "ButtonLarge",
+  "resolution": [
+    596,
+    132
+  ],
+  "language": "ko",
+  "font": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+  "text": "큰 버튼 칸 — 테두리 없는 먹색 판에 위 왼쪽 · 아래 칼날 선. 가운데 글자 하나(놓는 화면이 정한다).",
+  "required_elements": [
+    {
+      "id": "ButtonArt",
+      "kind": "image",
+      "desc": "버튼 판 전체(칼날 선 둘 포함) — 상태마다 그림이 바뀐다"
+    },
+    {
+      "id": "ButtonLabel",
+      "kind": "text",
+      "desc": "가운데 글자"
+    }
+  ],
+  "dynamic_data": [
+    {
+      "id": "button_text",
+      "type": "text",
+      "widget": "ButtonLabel",
+      "widget_type": "TextBlock",
+      "sample": "목적지",
+      "desc": "button label, horizontally and vertically centered",
+      "font": {
+        "size": 26,
+        "weight": "semibold",
+        "color": "#ECE5D6FF"
+      },
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      }
+    }
+  ],
+  "static_text": [],
+  "style_keywords": [
+    "modern flat HUD",
+    "matte ink-black",
+    "bone-white steel blades",
+    "pale ivory accent",
+    "realistic 3D action"
+  ],
+  "references": [
+    {
+      "path": "reference.png",
+      "role": "layout",
+      "role_source": "user"
+    }
+  ],
+  "conflicts": [],
+  "binding_contract": {
+    "class": "UAstralButtonBase",
+    "source": "existing",
+    "bindings": [
+      "ButtonLabel"
+    ]
+  },
+  "button": {
+    "art": "ButtonArt",
+    "label": "ButtonLabel",
+    "theme": "blade"
+  }
+}

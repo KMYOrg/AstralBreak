@@ -1,0 +1,90 @@
+{
+ "schema_version": 1,
+ "kind": "concept_text_ref",
+ "created": "2026-11-25T15:57:29",
+ "generator": "drawn with the engine font files (no codex)",
+ "edited_from": "concept.png",
+ "thread_id": null,
+ "texts": [
+  {
+   "widget": "ButtonLabel",
+   "value": "목적지",
+   "slot": "button label, horizontally and vertically centered"
+  }
+ ],
+ "layout_file": "Tools/uigen/fixtures/button_large/text_ref_layout.yaml",
+ "drawn": [
+  {
+   "widget": "ButtonLabel",
+   "value": "목적지",
+   "box": [
+    221,
+    44,
+    76,
+    27
+   ],
+   "font": {
+    "size": 26,
+    "weight": "semibold",
+    "color": "#ECE5D6FF"
+   }
+  }
+ ],
+ "file": "concept_text_ref.png",
+ "sha256": "76c970bd9a527b5107a0f2144478e63b8a4af9678a1ce7b6c58ed850b1bacf47",
+ "size": [
+  519,
+  115
+ ],
+ "has_alpha_channel": true,
+ "note": "the same art with only the texts drawn on it (Pretendard TTF) — glyph style reference",
+ "check": {
+  "shift_px": [
+   0.0,
+   0.0
+  ],
+  "response": 1.0,
+  "used": true,
+  "shift_applied": [
+   0,
+   0
+  ],
+  "ocr": {
+   "text_ref_boxes": [
+    [
+     221.0,
+     44.0,
+     76.0,
+     27.0
+    ]
+   ],
+   "art_boxes": [],
+   "boxes": [
+    [
+     221.0,
+     44.0,
+     76.0,
+     27.0
+    ]
+   ],
+   "scores": [
+    1.0
+   ],
+   "min_score": 0.6,
+   "from": "drawn"
+  },
+  "checks": {
+   "ui_px": 56698,
+   "outside_solid_big_frac": 0.0,
+   "outside_far_new_frac": 0.0,
+   "fringe_alpha_frac": 0.0,
+   "outside_median_d": 0.0,
+   "outside_p95_d": 0.0,
+   "limit": 0.03
+  },
+  "glyph_px": 828,
+  "glow_px": 933,
+  "paste_px": 1757,
+  "ring_tone_l": 0.0
+ }
+}

@@ -36,7 +36,7 @@ BANNER_FIRST = (MARKER + " — 손대지 말 것: 계약이 바뀌면 다음 cod
 IDENT = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 # spec 위젯 타입 = UMG 클래스 이름(U 접두 없이) — list_bind_widgets 의 widget_class 와 같은 표기
-WIDGET_INCLUDE = {t: f"Components/{t}.h" for t in spec_mod.WIDGET_TYPES}
+WIDGET_INCLUDE = {**{t: f"Components/{t}.h" for t in spec_mod.WIDGET_TYPES}, spec_mod.CELL_TYPE: "Blueprint/UserWidget.h"}
 
 # flag 로 보일 때의 가시성 — HUD 요소는 입력을 받지 않는다(버튼만 Visible)
 FLAG_SHOWN = {"Button": "Visible"}
@@ -213,11 +213,40 @@ def contract_diff(bindings: list[dict], live: list[dict]) -> list[str]:
     return out
 
 
+def hand_written_diff(bindings: list[dict], live: list[dict]) -> list[str]:
+    """손으로 쓴 부모(screens.yaml parent — Phase 3-2)의 계약 ↔ 리플렉션. 클래스가 원천이다: 필수 바인딩은 spec 이 다 채우고, spec 의 바인딩은 같은 이름 · 같은 클래스로
+    그 클래스에 있어야 한다. 클래스의 선택 바인딩(엔진이 가진 InputActionWidget 등)은 없어도 된다."""
+    want = {b["name"]: b["widget_class"] for b in bindings}
+    have = {b["name"]: (b.get("widget_class"), bool(b.get("optional"))) for b in live}
+    out = [f"{n}: the class has no such binding" for n in sorted(set(want) - set(have))]
+    out += [f"{n}: the class binds it as {have[n][0]}, the spec has {want[n]}" for n in sorted(set(want) & set(have)) if have[n][0] != want[n]]
+    return out + [f"{n}: required by the class ({c}), missing in the spec" for n, (c, opt) in sorted(have.items()) if not opt and n not in want]
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # 경로 · 화면 설정
 
+def hand_written(screen: dict | None) -> bool:
+    """손으로 쓴 부모를 쓰는 화면인가 — C++ 를 생성하지 않는다."""
+    return isinstance(screen, dict) and bool(screen.get("parent"))
+
+
+def parent_class(screen: dict) -> str:
+    """WBP 부모 클래스 이름(U 접두 없이) — 손으로 쓴 부모 또는 스텁."""
+    return screen["parent"] if hand_written(screen) else screen["widget"]
+
+
 def validate_screen(screen_id: str, screen: dict) -> list[str]:
     errs = []
+    if hand_written(screen):
+        for key in ("parent", "style_parent"):
+            v = screen.get(key)
+            if v is not None and (not isinstance(v, str) or not IDENT.match(v)):
+                errs.append(f"screens.yaml {screen_id}.{key} '{v}' is not an identifier")
+        extra = [k for k in ("feature", "view_base", "widget") if screen.get(k)]
+        if extra:
+            errs.append(f"screens.yaml {screen_id}: a hand-written parent has no generated classes ({extra})")
+        return errs
     for key in ("feature", "view_base", "widget"):
         v = screen.get(key)
         if not isinstance(v, str) or not IDENT.match(v):

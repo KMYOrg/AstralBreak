@@ -21,8 +21,13 @@ namespace WidgetMcpSpec
 {
 	/** spec 타입 → UMG 클래스 (어휘 밖이면 nullptr) */
 	UClass* ClassForType(const FString& Type);
-	/** UMG 위젯 → spec 타입 ("" = 어휘 밖 — export 의 unsupported) */
+	/** UMG 위젯 → spec 타입 ("" = 어휘 밖 — export 의 unsupported). 승격 경로 아래 WBP 의 인스턴스는 "UserWidget"(칸) */
 	FString TypeForWidget(const UWidget* Widget);
+
+	/** 칸(uigen Phase 3-2) — 다른 화면에 놓이는, 승격된 WBP 하나. spec 은 {type: UserWidget, class: 패키지 경로, props} */
+	inline const TCHAR* const UserWidgetType = TEXT("UserWidget");
+	/** 목표 위젯의 UMG 클래스 — UserWidget 이면 class 를 풀고(승격 경로 아래 · 컴파일된 WBP 만), 아니면 타입 표. 어휘 밖이면 nullptr + 빈 OutError, 거절이면 OutError */
+	UClass* ResolveClass(const FJsonObject& Widget, const FString& Type, FString& OutError);
 	/** 부모 타입 → 자식 슬롯 kind ("" = 자식을 못 가짐) */
 	FString ChildSlotKind(const FString& ParentType);
 	bool IsSingleChild(const FString& Type);
@@ -56,6 +61,12 @@ namespace WidgetMcpSpec
 
 	/** 적용 전 검사(색 · 열거값 · 에셋 · 타입별 키) — 실패면 false + OutError(사람이 읽을 문장) */
 	bool ValidateWidget(const FJsonObject& Widget, const FString& Type, const FAssets& Assets, FString& OutError);
+
+	// ---- 브러시 하나 — 위젯 밖(버튼 스타일 애셋)에서도 같은 어휘로 쓴다
+	bool ValidateBrushJson(const FJsonObject& Brush, const FAssets& Assets, const FString& Where, FString& OutError);
+	TSharedRef<FJsonObject> NormalizeBrushJson(const TSharedRef<FJsonObject>& Brush, const FAssets& Assets);
+	bool BrushFrom(const FJsonObject& Brush, const FAssets& Assets, FSlateBrush& Out, FString& OutError);
+	TSharedRef<FJsonObject> BrushTo(const FSlateBrush& Brush, const FAssets* Assets, const FString& Where, TArray<TSharedPtr<FJsonValue>>& OutUnsupported);
 
 	bool ApplySlot(UPanelSlot* Slot, const FJsonObject& SlotJson, FString& OutError);
 	bool ApplyWidget(UWidget* Widget, const FJsonObject& WidgetJson, const FAssets& Assets, FString& OutError);

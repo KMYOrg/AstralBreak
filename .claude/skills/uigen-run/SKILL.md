@@ -27,6 +27,12 @@ description: AstralBreak UI 자동 생성 파이프라인(Tools/uigen)을 돌리
    이미 승격한 화면을 조금 고칠 때는 처음부터 다시 돌리지 않는다 — `run_pipeline.py --from <ScreenId> --edit <patch.json>`(약 1분) → `edit.png` · `compare.png` 를
    사람이 본다 → 재승격 `promote_screen.py plan` → 승인 뒤 `apply`(에디터를 끈 채, 되돌리기 = `revert`). 승격본 · `promoted/` 를 손으로 치우거나 고치지 않는다(해시가 다르면 거절).
 
+**칸 · 버튼(Phase 3-2)** — 여러 화면에 놓는 부품도 자기 run · 자기 승격본(`/Game/UI/Common/`)이다. 지금 있는 칸: `button_large`(ButtonLarge) · `button_small`(ButtonSmall), 시안 = `hub_ready_sheet`.
+- 칸의 원본 아트 = 승인한 시안에서 그 상자만 `make_concept.py --cut-from … --keep x,y,w,h --crop`(codex 0). inputs `resolution` = `concept.json` 의 `cut_from.size_1920`, 글자 배치 yaml 에 `base_width`(= 그 폭).
+- 버튼 상태 그림 여섯은 공용 테마 `config/theme_blade.yaml` 의 식이 만든다 — 값을 바꾸면 `theme_preview.py` 그림을 **사람이** 다시 승인하고 버튼 칸을 다시 돌린다. 버튼 칸 run 은 LLM 0 · codex 0(약 20초).
+- `compare.png` 맨 아래 상태 일곱(왼쪽 엔진 · 오른쪽 회색 바탕 합성)을 사람이 본다. `E8 button_*` 는 상태 렌더 ↔ 식의 그림이 다르거나 덮어쓰기가 안 먹은 것이다.
+- 첫 승격 = `promote_widget` → (새 에디터에서) `promote_screen.py record <ScreenId> --run <run_id>`.
+
 - 종료 코드 0 통과 · 1 실패 · 2 미완(`--until`). 한 번에 run 하나(`work/.lock`).
 - `--until analyze` 는 에디터 없이 spec 까지, `--inject-fault …` 는 재시도 경로 시험, `--fix-mode deterministic` 은 LLM fix 없이.
 

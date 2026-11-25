@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_160008_ButtonLarge",
+  "parent_run_id": null,
+  "status": "pass",
+  "created": "2026-11-25T16:00:31+09:00",
+  "screen_id": "ButtonLarge",
+  "wbp": "/Game/_AutoGen/R20261125_160008_ButtonLarge/WBP_ButtonLarge",
+  "parent_class": "/Script/AstralBreak.AstralButtonBase",
+  "revision": "sha1:b2aec22f5e78206e07292ab7430b0d9be1576851",
+  "contract_hash": "sha1:d1c8906a497c1884d1407dcdbd19a6ee2f710516",
+  "spec": {
+    "file": "specs/001.json",
+    "sha256": "1128eb4f7f36a9f6f5e31ee5a978a9ed7cad6f691c90e7dcbe1e2a2f9b0222bf"
+  },
+  "attempts": 1,
+  "fault": null,
+  "patches": [],
+  "textures": {
+    "button_art": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art",
+    "button_art_normal_hovered": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_normal_hovered",
+    "button_art_normal_pressed": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_normal_pressed",
+    "button_art_selected_base": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_selected_base",
+    "button_art_selected_hovered": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_selected_hovered",
+    "button_art_selected_pressed": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_selected_pressed",
+    "button_art_disabled": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_disabled"
+  },
+  "saved": [
+    "/Game/_AutoGen/R20261125_160008_ButtonLarge/BS_ButtonLarge",
+    "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art",
+    "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_disabled",
+    "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_normal_hovered",
+    "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_normal_pressed",
+    "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_selected_base",
+    "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_selected_hovered",
+    "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_selected_pressed",
+    "/Game/_AutoGen/R20261125_160008_ButtonLarge/WBP_ButtonLarge"
+  ]
+}

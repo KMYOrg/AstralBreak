@@ -1,0 +1,164 @@
+{
+  "passes": [
+    {
+      "attempt": 1,
+      "assets": [
+        {
+          "asset_id": "button_art",
+          "backend": "concept_cut",
+          "raw_size": [
+            596,
+            132
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              0.0,
+              0.0,
+              596.0,
+              132.0
+            ],
+            "search_box": [
+              0,
+              0,
+              596,
+              132
+            ],
+            "alpha_from": "reference_alpha",
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "ButtonArt changes size with the screen (9-slice box draw stays inside the box)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "rows (inpaint where no source within reach)",
+            "shape_from": "contour",
+            "edge_px": 5.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              0.0,
+              0.0,
+              596.0,
+              132.0
+            ],
+            "texture_box": [
+              0,
+              0,
+              596,
+              132
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.0098,
+            "has_alpha": true
+          },
+          "size": [
+            596,
+            132
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/button_art.png",
+            "concept_box": [
+              0,
+              0,
+              596,
+              132
+            ]
+          }
+        },
+        {
+          "asset_id": "button_art_normal_hovered",
+          "backend": "derived",
+          "derived": {
+            "from": "button_art",
+            "brush": "normal_hovered",
+            "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+            "theme": "blade",
+            "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+          }
+        },
+        {
+          "asset_id": "button_art_normal_pressed",
+          "backend": "derived",
+          "derived": {
+            "from": "button_art",
+            "brush": "normal_pressed",
+            "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+            "theme": "blade",
+            "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+          }
+        },
+        {
+          "asset_id": "button_art_selected_base",
+          "backend": "derived",
+          "derived": {
+            "from": "button_art",
+            "brush": "selected_base",
+            "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+            "theme": "blade",
+            "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+          }
+        },
+        {
+          "asset_id": "button_art_selected_hovered",
+          "backend": "derived",
+          "derived": {
+            "from": "button_art",
+            "brush": "selected_hovered",
+            "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+            "theme": "blade",
+            "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+          }
+        },
+        {
+          "asset_id": "button_art_selected_pressed",
+          "backend": "derived",
+          "derived": {
+            "from": "button_art",
+            "brush": "selected_pressed",
+            "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+            "theme": "blade",
+            "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+          }
+        },
+        {
+          "asset_id": "button_art_disabled",
+          "backend": "derived",
+          "derived": {
+            "from": "button_art",
+            "brush": "disabled",
+            "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+            "theme": "blade",
+            "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+          }
+        }
+      ],
+      "margin_updates": [],
+      "brush_updates": [],
+      "overhang_updates": [],
+      "overhang_dropped": []
+    }
+  ]
+}

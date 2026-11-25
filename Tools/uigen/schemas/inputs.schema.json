@@ -9,7 +9,8 @@
   "properties": {
     "schema_version": { "const": 1 },
     "mode": { "const": "concept" },
-    "screen_type": { "enum": ["hud", "menu", "options", "dialog"] },
+    "screen_type": { "enum": ["hud", "menu", "options", "dialog", "cell"] },
+    "button": { "$ref": "urn:uigen:brief#/$defs/button" },
     "screen_id": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]{0,47}$" },
     "concept": { "type": "string", "description": "컨셉아트 PNG — inputs.yaml 기준 상대 경로(또는 절대). --concept 로 덮을 수 있다" },
     "resolution": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 },

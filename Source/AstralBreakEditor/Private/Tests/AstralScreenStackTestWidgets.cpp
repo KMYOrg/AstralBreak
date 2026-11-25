@@ -6,31 +6,58 @@
 #include "Components/SizeBox.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
-#include "Layout/Children.h"
-#include "Widgets/SWidget.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AstralScreenStackTestWidgets)
 
-bool UAstralScreenTestButton::Initialize()
+namespace AstralScreenTest
 {
-	// WBP 가 하는 일(루트 위젯)을 대신한다 — 부모의 Initialize 가 이 루트를 안쪽 버튼으로 감싼다
-	if (!WidgetTree && !HasAnyFlags(RF_ClassDefaultObject))
+	/** WBP 가 하는 일(루트 위젯)을 대신한다 — 부모의 Initialize 가 이 루트를 안쪽 버튼으로 감싼다 */
+	void BuildRoot(UUserWidget& Button)
 	{
-		WidgetTree = NewObject<UWidgetTree>(this, TEXT("WidgetTree"), RF_Transient);
-		USizeBox* Box = WidgetTree->ConstructWidget<USizeBox>();
-		Box->SetWidthOverride(240.f);
-		Box->SetHeightOverride(60.f);
-		WidgetTree->RootWidget = Box;
+		if (!Button.WidgetTree && !Button.HasAnyFlags(RF_ClassDefaultObject))
+		{
+			Button.WidgetTree = NewObject<UWidgetTree>(&Button, TEXT("WidgetTree"), RF_Transient);
+			USizeBox* Box = Button.WidgetTree->ConstructWidget<USizeBox>();
+			Box->SetWidthOverride(240.f);
+			Box->SetHeightOverride(60.f);
+			Button.WidgetTree->RootWidget = Box;
+		}
 	}
-	return Super::Initialize();
 }
 
-TSharedPtr<SWidget> UAstralScreenTestButton::GetInnerSlateButton() const
+UAstralScreenTestButtonStyle::UAstralScreenTestButtonStyle()
 {
-	const UWidget* Root = WidgetTree ? WidgetTree->RootWidget.Get() : nullptr;
-	const TSharedPtr<SWidget> Box = Root ? Root->GetCachedWidget() : nullptr;
-	FChildren* Children = Box ? Box->GetChildren() : nullptr;
-	return (Children && Children->Num() > 0) ? Children->GetChildAt(0).ToSharedPtr() : nullptr;
+	const auto Colored = [](const FLinearColor& Color)
+	{
+		FSlateBrush Brush;
+		Brush.DrawAs = ESlateBrushDrawType::Image;
+		Brush.TintColor = Color;
+		return Brush;
+	};
+	NormalBase = Colored(FLinearColor(0.1f, 0.1f, 0.1f));
+	NormalHovered = Colored(FLinearColor(0.2f, 0.2f, 0.1f));
+	NormalPressed = Colored(FLinearColor(0.05f, 0.05f, 0.05f));
+	SelectedBase = Colored(FLinearColor(0.4f, 0.4f, 0.3f));
+	SelectedHovered = Colored(FLinearColor(0.5f, 0.5f, 0.4f));
+	SelectedPressed = Colored(FLinearColor(0.3f, 0.3f, 0.2f));
+	Disabled = Colored(FLinearColor(0.02f, 0.02f, 0.02f));
+}
+
+bool UAstralScreenTestButton::Initialize()
+{
+	AstralScreenTest::BuildRoot(*this);
+	const bool bInitializedNow = Super::Initialize();
+	if (bInitializedNow && !HasAnyFlags(RF_ClassDefaultObject))
+	{
+		SetStyle(UAstralScreenTestButtonStyle::StaticClass());
+	}
+	return bInitializedNow;
+}
+
+bool UAstralScreenTestPlainButton::Initialize()
+{
+	AstralScreenTest::BuildRoot(*this);
+	return Super::Initialize();
 }
 
 UAstralScreenTestMenu::UAstralScreenTestMenu(const FObjectInitializer& ObjectInitializer)
@@ -51,7 +78,8 @@ void UAstralScreenTestMenu::NativeOnInitialized()
 
 	FirstButton = WidgetTree->ConstructWidget<UAstralScreenTestButton>(UAstralScreenTestButton::StaticClass(), TEXT("FirstButton"));
 	SecondButton = WidgetTree->ConstructWidget<UAstralScreenTestButton>(UAstralScreenTestButton::StaticClass(), TEXT("SecondButton"));
-	for (UAstralScreenTestButton* Button : { FirstButton.Get(), SecondButton.Get() })
+	PlainButton = WidgetTree->ConstructWidget<UAstralScreenTestPlainButton>(UAstralScreenTestPlainButton::StaticClass(), TEXT("PlainButton"));
+	for (UCommonButtonBase* Button : TArray<UCommonButtonBase*>{ FirstButton, SecondButton, PlainButton })
 	{
 		Box->AddChildToVerticalBox(Button)->SetPadding(FMargin(0.f, 8.f));
 	}

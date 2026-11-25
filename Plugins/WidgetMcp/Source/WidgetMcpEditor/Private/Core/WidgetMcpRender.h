@@ -18,11 +18,18 @@ class UWidgetBlueprint;
  */
 namespace WidgetMcpRender
 {
+	/**
+	 * 위젯 하나의 덮어쓰기. 키 = 위젯 이름 · "." (그리는 위젯 자신 — 버튼 칸) · "칸/안쪽 위젯"(칸 안까지).
+	 * enabled · button 은 안 먹으면 경고가 아니라 오류다(OVERRIDE_NOT_APPLIED) — 크기 상자(SBox)에 보낸 마우스 이벤트처럼 조용히 아무 일도 없는 길이 있다(uigen 3-1 실측)
+	 */
 	struct FOverride
 	{
 		TOptional<bool> bVisible;
 		TOptional<float> Percent;
 		TOptional<FString> Text;
+		TOptional<bool> bEnabled;
+		/** 버튼 상태 — hovered · pressed · selected · selected_hovered · selected_pressed(UCommonButtonBase 만) */
+		FString Button;
 	};
 
 	struct FState

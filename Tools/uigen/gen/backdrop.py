@@ -240,6 +240,12 @@ def compose(spec: dict, boxes: list[dict], textures: dict, canvas, background=GR
             lays = _progress_layers(st, bw, bh, textures, missing, w["id"])
         elif t == "Button":
             lays = [(lay, (0, 0))] if (lay := _brush_layer(st.get("normal"), bw, bh, textures, missing, w["id"])) is not None else []
+        elif t == "UserWidget":                        # Phase 3-2 — 놓인 칸: 그 칸을 합성한 그림 한 장(gen/cells.attach 가 textures 에 넣는다)
+            from gen import cells
+            cell = textures.get(cells.key(str(w.get("class") or "")))
+            if cell is None:
+                missing.append({"widget": w["id"], "asset": w.get("class")})
+            lays = [(_resize(cell, bw, bh), (0, 0))] if cell is not None and bw > 0 and bh > 0 else []
         else:
             lays = []
         for lay, (ox, oy) in lays:
@@ -313,7 +319,8 @@ def check(run_dir, background=GRAY, out_dir=None) -> dict:
     canvas = geo.get("canvas") or spec.get("canvas")
     boxes = geo["geometry"].get(f"{canvas[0]}x{canvas[1]}") or next(iter(geo["geometry"].values()))
     manifest = json.loads((rd / "manifest.json").read_text(encoding="utf-8"))
-    textures = {a["asset_id"]: _load(rd / a["file"]) for a in manifest.get("assets", []) if a.get("file") and (rd / a["file"]).is_file()}
+    from gen import cells
+    textures = cells.attach(spec, {a["asset_id"]: _load(rd / a["file"]) for a in manifest.get("assets", []) if a.get("file") and (rd / a["file"]).is_file()})
     norm = json.loads((rd / "normalize.json").read_text(encoding="utf-8")) if (rd / "normalize.json").is_file() else {}
     bg_kind = ((norm.get("fit") or norm).get("background") or {}).get("kind") if isinstance(norm, dict) else None
     tmask = text_mask(spec, boxes, canvas)

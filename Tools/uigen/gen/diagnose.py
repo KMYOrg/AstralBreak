@@ -24,7 +24,7 @@ import pathlib
 import numpy as np
 
 from core import color
-from gen import backdrop
+from gen import backdrop, cells
 
 WIN = 7
 DEFAULTS = {
@@ -70,6 +70,11 @@ DEFAULTS = {
     "text_lift_de": 4.0,
     # L-2 기본 전환 ④ — 접히는 위젯(시작 때 숨음 · flag)을 껐을 때 정적 판에 남은 빛(state_check.hidden_halo): 3 × 3 국소 ΔE00(검정 · 회색 · 흰 중 최대) 문턱
     "halo_de": 2.0,
+    # Phase 3-2 — 버튼 상태(state_check.button_states): 상태 렌더 ↔ '상태 그림을 얹은 합성'의 7 × 7 국소 ΔE00(글자 획 둘레 뺌) · 상태끼리 구별(버튼 안 평균 ΔE00 하한) ·
+    # 글자가 읽히는가(획 핵심 ↔ 글자 없는 합성의 ΔE00 중앙값 하한). 정답이 식이라 좁다 — 일부러 틀린 값(올림 ↔ 누름 · 비활성 빠짐 · 3 px 밀림 · 안 먹음)이 걸리는 것을 시험이 본다
+    "button_de": 3.0,
+    "button_distinct_de": 2.0,
+    "button_text_de": 8.0,
     # 오류 모드에서도 기록만 둘 check(새 검사 — 묶음 거짓 양성 0 확인 전까지)
     "state_record_only": [],
 }
@@ -805,7 +810,10 @@ def text_glyph_masks(ref_black, render, compose_black, texts: list[dict], geo: d
 TRIM = 1.0                 # 획 상자 = 픽셀 좌표의 TRIM ~ 100 − TRIM 백분위 — 장식 끝 조각 · 잡티 몇 픽셀이 상자를 키우지 않게
 
 
-def _stats(core, img) -> dict | None:
+def _stats(core, img, same_font: bool = False) -> dict | None:
+    """글자 획의 상자 · 밀도 · 색. same_font = 컨셉 글자를 우리가 **같은 글꼴로 그렸다**(declared) — 아래 '가는 꼬리' 자르기(글꼴이 달라 사선 길이가 다른 경우의 규칙)를
+    쓰지 않는다: 같은 글꼴이면 꼬리도 같고, 자르기가 문턱에 걸린 낱말은 한쪽만 잘린다 [실측 Phase 3-2 R20261125_155731 '목적지' 26 pt — 받침 아래 세로획만 있는 줄이
+    컨셉에서만 잘려(몸통 줄의 1/4) 같은 글자의 높이 비가 1.304]"""
     if int(core.sum()) < TEXT_MIN_CORE:
         return None
     ys, xs = np.nonzero(core)
@@ -817,7 +825,7 @@ def _stats(core, img) -> dict | None:
     nz = rows[rows > 0]
     body = np.nonzero(rows >= 0.25 * float(np.percentile(nz, 75)))[0] if len(nz) else np.array([], int)
     tail = False
-    if len(body):
+    if len(body) and not same_font:
         # 늘 몸통 줄로(컨셉 · 렌더 같은 규칙) — '꼬리가 높이의 15 % 넘을 때만'으로 하자 크기마다 켜졌다 꺼져 '2/4' 맞춤이 30 → 22 → 26 으로 진동했다
         # [실측 K R20261118_002153]
         by0, by1 = int(body.min()), int(body.max())
@@ -1321,7 +1329,7 @@ def compare_text(w: dict, masks: dict, ref_black, render, compose_black, s: dict
     """글자 하나 — 오류(causes → 번호 TEXT_CODES)와 근사(approx: 가장 가까운 선택을 골랐는데 남은 차 — 표현 한계).
     declared = 글꼴로 그린 참고판이 정한 글꼴 값(brief font — 메인 HUD 11-24): 굵기는 그림을 재지 않고 '그 값과 같은가'로 본다(작은 글자의 획 밀도는 같은 글꼴에서도
     ± 15 % 흔들린다). 크기(높이 비) · 색 차는 그대로 재서 실제로 다르면 오류 — 글자 맞춤이 고칠 수 없으므로 fixable 아님."""
-    c, r = _stats(masks["concept"], ref_black), _stats(masks["render"], render)
+    c, r = _stats(masks["concept"], ref_black, bool(declared)), _stats(masks["render"], render, bool(declared))
     rec: dict = {"widget": w["id"], "concept": c, "render": r, "approx": []}
     causes = []
     if c is None:
@@ -1602,6 +1610,7 @@ def _inputs(rd: pathlib.Path, spec: dict | None = None) -> dict:
     boxes = geo["geometry"].get(f"{canvas[0]}x{canvas[1]}") or next(iter(geo["geometry"].values()))
     manifest = json.loads((rd / "manifest.json").read_text(encoding="utf-8"))
     textures = {a["asset_id"]: backdrop._load(rd / a["file"]) for a in manifest.get("assets", []) if a.get("file") and (rd / a["file"]).is_file()}
+    cells.attach(spec, textures)                 # Phase 3-2 — 놓인 칸은 합성한 그림 한 장
     norm = json.loads((rd / "normalize.json").read_text(encoding="utf-8")) if (rd / "normalize.json").is_file() else {}
     bg = (norm.get("background") or {})
     return {"spec": spec, "canvas": canvas, "boxes": boxes, "textures": textures, "norm": norm, "bg": bg}
@@ -1895,6 +1904,8 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
         if w.get("type") == "Image" and (w.get("binding") or {}).get("kind") == "image" and g and g.get("visible", True):
             runtime_zone |= _box_mask((H, W), [g["x"], g["y"], g["w"], g["h"]], 2)
     text_zone |= runtime_zone
+    for _cid, tb_ in cells.text_boxes(spec, boxes):      # Phase 3-2 — 놓인 칸 안 글자: 칸 자기 run 이 본 글자라 이 화면의 픽셀 정답이 없다
+        text_zone |= _box_mask((H, W), tb_, TEXT_ZONE_PAD)
 
     # 국소 지도 — ① 검정 위 렌더(상태 맞춤) ↔ 레퍼런스 ② 회색 위 텍스처 합성 ↔ 레퍼런스
     de_b = delta_e(base, ref_black)
@@ -2227,6 +2238,13 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
             # 원형 진행(고리 — 전투 HUD 동작 11-23): 0 · 중간 넷 · 100 % — 게이지와 같은 모양이라 그림 · 기록을 같이 싣는다
             rs = state_check.radial_states(spec_state, boxes, textures, canvas, s, base_g, render_pct=rp)
             gs = {**gs, "gauges": gs["gauges"] + rs["gauges"], "findings": gs["findings"] + rs["findings"], "images": {**gs["images"], **rs["images"]}}
+            # 버튼 상태(Phase 3-2) — 엔진 렌더(못 그리면 오류) ↔ 상태 그림을 얹은 합성
+            bs = state_check.button_states(spec_state, boxes, textures, canvas, s, base_g,
+                                           render_state=(lambda name: _state_render(render_state, reqs[name], name, (H, W))) if engine else None)
+            if bs["buttons"] and render_state is not None and not engine:          # 컨셉 상태 렌더부터 못 그렸다 — 합성끼리 견준 것을 통과로 읽지 않게
+                bs["findings"].append({"stage": "state", "code": "E8", "check": "button_render", "box": [0, 0, W, H], "area": W * H, "max_de": None, "mean_de": None,
+                                       "widgets": [b_["widget"] for b_ in bs["buttons"]], "renderer": "composite", "fixable": False,
+                                       "cause": "button - the concept-state render failed, so no button state was seen in the engine: " + str(rec["state"].get("render_error"))[:120]})
             # S4 글자 밑 흔적(1b 후속 L 다음 L-1 글자 완전 지우기) — 모든 글자 빈 값 상태(텍스처 합성 · 엔진 text "")와 값 글자를 다른 값으로 그린 엔진 렌더
             tt, notext_imgs, values_img, group_imgs = None, None, None, {}
             try:
@@ -2270,7 +2288,7 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                                            "box": [geo[g_["root"]][k_] for k_ in ("x", "y", "w", "h")] if g_["root"] in geo else None} for g_ in groups}
             except Exception as exc:  # noqa: BLE001 — 검사가 깨지면 기록
                 sc["text_trace_error"] = f"{type(exc).__name__}: {exc}"[:300]
-            findings = [{k: v for k, v in f.items() if k != "mask"} for f in ht["findings"] + hh["findings"] + gs["findings"] + (tt["findings"] if tt else [])]
+            findings = [{k: v for k, v in f.items() if k != "mask"} for f in ht["findings"] + hh["findings"] + gs["findings"] + bs["findings"] + (tt["findings"] if tt else [])]
             rec_only = set(s.get("state_record_only") or [])
             # 사용자 결정 ③(11-20) — refine 이 '정답 없음'(근거 기록)으로 표시한 글자 자리 안의 S4 결함은 오류 대신 '정답 없음 — 수동 확인 필요'(다른 결함은 그대로 오류)
             mchecks = manual_checks(rd)
@@ -2288,6 +2306,8 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
             sc.update(hidden_trace={"renderer": ht["renderer"], "roots": ht["roots"]},
                       hidden_halo={"renderer": hh["renderer"], "roots": hh["roots"], "toggles": hh["toggles"]}, gauge_states={"renderer": gs["renderer"], "gauges": gs["gauges"]},
                       findings=findings)
+            if bs["buttons"]:
+                sc["button_states"] = {"renderer": bs["renderer"], "buttons": bs["buttons"]}
             if tt is not None:
                 sc["text_trace"] = {"renderer": tt["renderer"], "texts": tt["texts"], **({"values": tt["values"]} if tt.get("values") else {}),
                                     **({"line_like": tt["line_like"]} if tt.get("line_like") else {}), **({"groups": tt["groups"]} if tt.get("groups") else {}),
@@ -2296,6 +2316,8 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                     "gauges": gs["images"], "gauge_base": base_g,
                     "gauge_boxes": {k: [geo[k]["x"], geo[k]["y"], geo[k]["w"], geo[k]["h"]] for k in gs["images"] if k in geo},
                     "gauge_renderer": {g_["widget"]: g_.get("renderer") for g_ in gs["gauges"]},
+                    **({"buttons": bs["images"], "buttons_gray": bs["gray"], "buttons_renderer": bs["renderer"],
+                        "button_boxes": {t_["id"]: t_["box"] for t_ in state_check.button_targets(spec_state, boxes, textures)}} if bs["buttons"] else {}),
                     "notext": notext_imgs, "notext_renderer": tt["renderer"] if tt else None, "values": values_img, "notext_groups": group_imgs}
             if sc_mode == "error" and findings:
                 for f in [f_ for f_ in findings if not f_.get("record_only") and not f_.get("manual_check")]:
@@ -2438,6 +2460,18 @@ def _band_rows(band: dict, top_w: int) -> list:
         ts = [tile(im[y0:y1, x0:x1], f"{wid} {lbl}", scale) for lbl, im in items if im is not None]
         for k in range(0, len(ts), 2):
             rows.append(hcat(ts[k:k + 2]))
+    # 버튼 상태(Phase 3-2) — 버튼마다 상태 일곱: 엔진 렌더(글자 포함 · 검정 바탕) | 그 상태 그림의 회색 바탕 합성(글자 없음), 1:1
+    for wid, imgs in (band.get("buttons") or {}).items():
+        bb, gray = (band.get("button_boxes") or {}).get(wid), (band.get("buttons_gray") or {}).get(wid) or {}
+        if not bb:
+            continue
+        H, W = next(iter(gray.values())).shape[:2]
+        x0, y0 = max(0, int(bb[0]) - BAND_PAD), max(0, int(bb[1]) - BAND_PAD)
+        x1, y1 = min(W, int(np.ceil(bb[0] + bb[2])) + BAND_PAD), min(H, int(np.ceil(bb[1] + bb[3])) + BAND_PAD)
+        for b, g_ in gray.items():
+            im = imgs.get(b)
+            ts = [tile(im[y0:y1, x0:x1], f"{b} - {band.get('buttons_renderer')}", 1.0)] if im is not None else [tile(np.zeros((y1 - y0, x1 - x0, 3)), f"{b} - NOT RENDERED", 1.0)]
+            rows.append(hcat(ts + [tile(g_[y0:y1, x0:x1], f"{b} - on gray", 1.0)]))
     return rows
 
 

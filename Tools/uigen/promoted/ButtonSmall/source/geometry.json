@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_160033_ButtonSmall",
+  "attempt": 1,
+  "canvas": [
+    288,
+    93
+  ],
+  "force_visible": true,
+  "geometry": {
+    "288x93": [
+      {
+        "id": "ButtonArt",
+        "type": "Image",
+        "parent": "Root",
+        "x": 0,
+        "y": 0,
+        "w": 288,
+        "h": 93,
+        "visible": true
+      },
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 288,
+        "h": 93,
+        "visible": true
+      },
+      {
+        "id": "ButtonLabel",
+        "type": "TextBlock",
+        "parent": "Root",
+        "x": 103,
+        "y": 31.5,
+        "w": 82,
+        "h": 30,
+        "visible": true
+      }
+    ]
+  }
+}

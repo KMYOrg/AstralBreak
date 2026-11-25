@@ -11,6 +11,7 @@
      · --style-ref <png>(여러 번 — 느낌 · 색 · 재질만 참고로 첨부, 배치 · 요소는 프롬프트대로. 우리가 만든 그림(옆 concept.json 의 generator 가 codex)이거나
        --style-ref-from-user 로 사용자가 준 그림이라고 밝힌 것만 · work/_probe 의 상용 게임 화면은 거절)
      · --cut-from <sheet.png> --keep x,y,w,h(여러 번, 1920 폭 기준 px) = codex 없이 승인한 시안에서 그 상자들만 픽셀 그대로 오려 원본 아트로
+       + --crop(Phase 3-2 — 칸 · 상자 하나) = 그 상자 크기의 그림으로 잘라 냄(화면이 아니라 칸의 원본 아트. 시안에서 보이는 크기 그대로의 px 를 size_1920 에 남긴다)
      · --with-text = 글자까지 그린 컨셉 1장(L-1 길 — 외부 컨셉 흉내 · 시험용). 아래 --flat · --transparent 의 새 그림은 이것과 함께만
      · --flat(1b 후속 H — UI 만 · 단색 검정 배경 · 장면 없음 · 가장 큰 크기: 컨셉 픽셀을 오려 쓰기 좋은 컨셉)
      · --edit <concept.png>(1b 후속 H — 그 컨셉을 프롬프트대로 codex 편집해 새 컨셉으로 — '컨셉을 ~식으로 바꿔 줘')
@@ -138,6 +139,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--style-ref-from-user", action="store_true", help="the --style-ref pictures were given by the user")
     ap.add_argument("--cut-from", help="no codex — cut the --keep boxes out of this approved text-free sheet, pixel for pixel, as the original art")
     ap.add_argument("--keep", action="append", default=[], help="with --cut-from: x,y,w,h box to keep (px at 1920 wide, repeatable)")
+    ap.add_argument("--crop", action="store_true", help="with --cut-from and one --keep: the picture is just that box (the art of one cell, not of a screen)")
     ap.add_argument("--draw", help="with --only text_ref: no codex — draw the inputs texts with the engine's own font files at the places this layout yaml gives")
     ap.add_argument("--inputs", help="1b 후속 L-2 — inputs.yaml for the text reference texts (default <out-dir>/inputs.yaml)")
     ap.add_argument("--force", action="store_true", help="replace an existing concept.png")
@@ -159,6 +161,8 @@ def _mode_error(opts) -> str | None:
     """옵션이 서로 모순이면 이유(아니면 None) — 새 그림은 L-2 가 기본이고, 글자를 그리는 길(--with-text)은 따로 고른다."""
     editing = bool(opts.edit or opts.text_free)
     l2_only = [n for n, v in (("--text-free-first", opts.text_free_first), ("--only", opts.only)) if v]
+    if opts.crop and (not opts.cut_from or len(opts.keep) != 1):
+        return "--crop needs --cut-from with exactly one --keep box (one cell)"
     if opts.cut_from:
         if editing or opts.with_text or opts.flat or opts.transparent or opts.style_ref or opts.only:
             return "--cut-from only cuts an approved sheet (no codex) — not with the drawing / editing options"
@@ -254,6 +258,13 @@ def _cut_from(opts) -> int:
         print(f"make_concept: the --keep boxes cut through {cut} visible pixel pair(s) (alpha > {CUT_VISIBLE}) — widen the boxes", file=sys.stderr)
         return EXIT_FAIL
     arr[~keep] = 0
+    cell = {}
+    if opts.crop:                                         # 칸 — 상자만 잘라 낸다. 크기 = 시안에서 보이는 크기(1920 폭 기준 — inputs resolution 이 이 값)
+        ys, xs = np.nonzero(keep)
+        px = [int(xs.min()), int(ys.min()), int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1)]
+        arr, vis, keep = (m[px[1]:px[1] + px[3], px[0]:px[0] + px[2]] for m in (arr, vis, keep))
+        H, W = arr.shape[:2]
+        cell = {"crop_px": px, "size_1920": [int(round(W / k)), int(round(H / k))]}
     out_dir.mkdir(parents=True, exist_ok=True)
     Image.fromarray(arr, "RGBA").save(dest, format="PNG")
     boxes_txt = _ocr_boxes(dest)
@@ -266,12 +277,12 @@ def _cut_from(opts) -> int:
     meta = {"schema_version": 1, "kind": "concept", "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "generator": "codex built-in image_gen (cut from an approved sheet)",
             "thread_id": side.get("thread_id"), "prompt_sha256": None, "flat_background": False, "transparent_background": True,
             "transparent_ratio": round(float((arr[..., 3] == 0).mean()), 4), "edited_from": None, "file": dest.name, "sha256": sha, "size": [W, H],
-            "has_alpha_channel": True, "cut_from": {"file": _rel(src), "sha256": hashlib.sha256(src.read_bytes()).hexdigest(), "keep_1920": boxes},
+            "has_alpha_channel": True, "cut_from": {"file": _rel(src), "sha256": hashlib.sha256(src.read_bytes()).hexdigest(), "keep_1920": boxes, **cell},
             "text_free_first": {"status": status, "attempts": [{"attempt": 0, "file": _rel(dest), "ocr_boxes": boxes_txt, "sha256": sha}], "text_ref": None},
             "note": "L-2 original text-free art — the pixels of the approved sheet, only this screen's elements kept"}
     (out_dir / "concept.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(json.dumps({"status": "cut" if status == "ok" else status, "art": dest.as_posix(), "kept_px": int((vis & keep).sum()),
-                      "dropped_px": int((vis & ~keep).sum()), "art_text_boxes": boxes_txt, "codex_calls": 0}, ensure_ascii=False))
+                      "dropped_px": int((vis & ~keep).sum()), "art_text_boxes": boxes_txt, "codex_calls": 0, **cell}, ensure_ascii=False))
     return EXIT_OK if status == "ok" else EXIT_FAIL
 
 
@@ -293,11 +304,12 @@ def _draw_text_ref(opts) -> int:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         if (meta.get("text_free_first") or {}).get("status") != "ok" or hashlib.sha256(dest.read_bytes()).hexdigest() != meta.get("sha256"):
             raise ValueError(f"--only text_ref needs the text-free art that {meta_path} records (text_free_first.status ok, same sha256)")
-        layout = config.load_yaml(pathlib.Path(opts.draw))["texts"]
+        doc = config.load_yaml(pathlib.Path(opts.draw))
+        layout = doc["texts"]
         with Image.open(dest) as im:
             art = im.convert("RGBA")
         items = text_ref.text_items(config.load_yaml(inputs_path))
-        pic, drawn = text_ref.draw_items(art, layout, items, FONT_DIR)
+        pic, drawn = text_ref.draw_items(art, layout, items, FONT_DIR, base_width=float(doc.get("base_width", 1920)))
     except (OSError, ValueError, KeyError, TypeError, config.ConfigError) as exc:
         print(f"make_concept: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_FAIL

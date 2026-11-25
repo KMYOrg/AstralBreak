@@ -66,8 +66,18 @@ description: AstralBreak UE5.7 에서 UMG 위젯(WBP)을 코드로 만들거나 
 - `IsValidLongPackageName("/Game")` 은 참이다 — 마운트 루트를 허용 목록으로 받지 않게 따로 막는다.
 - `quit_editor` 는 더티면 거절한다. 파이프라인은 `discard_only_under: [/Game/_AutoGen/]` 만 준다.
 
+# CommonButton · 칸(Phase 3-2)
+
+- **진짜 버튼은 안쪽 `SCommonButton`** — `UCommonButtonBase` 의 `WidgetTree->RootWidget`(`InternalRootButtonBase`)의 Slate 는 크기 상자(SBox)이고 그 첫 자식이다. SBox 에 이벤트를 보내면 오류 없이 아무 일도 없다 [실측].
+- 상태 그림은 `UCommonButtonStyle` **클래스 기본값**만 읽는다(`BuildStyles`). 일곱을 다 채운다 — `Disabled` 가 비면 Slate 가 기본 그림을 흐리게 그린다.
+- **클래스 기본값을 컴파일 뒤에 고치면** `UBlueprintGeneratedClass::UpdateCustomPropertyListForPostConstruction()` 을 부른다 — 인스턴스는 컴파일 · 로드 때 만든 목록의 속성만 물려받아, 안 부르면 다음 컴파일까지 엔진 기본값으로 그려진다 [실측].
+- `WidgetTree->ConstructWidget` 을 UUserWidget 클래스에 쓸 때는 `ConstructWidget<UUserWidget>` 갈래로(`CreateWidget` 을 타야 한다).
+- 선택 모양은 `SetSelectedInternal`(protected) 로만, `bSelectable=false`(누름이 스스로 선택을 바꾸지 않게). 오프스크린 렌더에서만 `SetIsSelectable(true)` + `SetIsSelected`.
+- 키보드 초점은 올림이 아니다 → `UAstralButtonBase` 가 방향키 초점에서 '기본' 브러시를 '올림' 브러시로 갈아 끼운다. 엔진 초점 테두리는 초점 위젯에서 바깥으로 올라가며 처음 답한 `OnQueryShowFocus` 를 따르므로, 버튼 하나만 막으려면 껍데기 위젯이 거짓을 답한다(전역 ini 불필요).
+- 렌더 geometry 에는 칸 안 글자가 `칸/글자` 줄로 있다 — 놓은 화면이 글자를 정하므로(props) 칸 혼자 그린 자리를 쓰지 않는다.
+
 # 시험
 
-- C++ 를 고치면 빌드 둘(DebugGame · Development `-DisableAdaptiveUnity`) + 에디터에서 `WidgetMcp.`(8 개). 게임 모듈도 고쳤으면 `AstralBreak.` 을 **먼저** 돌린다 —
+- C++ 를 고치면 빌드 둘(DebugGame · Development `-DisableAdaptiveUnity`) + 에디터에서 `WidgetMcp.`(9 개). 게임 모듈도 고쳤으면 `AstralBreak.` 을 **먼저** 돌린다 —
   PIE 가 로드된 StateTree 를 전부 컴파일해 `StateTreeMcp.*` 가 남긴 깨진 트리가 뒤 PIE 시험을 실패시킨다.
 - 어휘를 넓히면 그 어휘의 '밖' 예를 쓰는 시험도 같이 본다(굵기 `Medium` 을 더하자 ImportFont 시험이 낡았다).

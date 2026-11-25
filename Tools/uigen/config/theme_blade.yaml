@@ -1,0 +1,31 @@
+# 공용 테마 '검은 날' — 버튼 상태 그림의 식 값과 공용 글자 값(설계 §11 'Phase 3 설계' ②). 화면마다 두지 않는다(버튼 모양이 화면마다 갈라진다).
+# 상태 그림은 refine 이 '사람이 승인한 기본 그림'에 이 식을 적용해 만든다(gen/theme — codex 0, 알파는 비활성만 × disabled.alpha → 윤곽이 상태마다 안 흔들린다).
+# 값은 눈으로 고르는 값이지 문턱이 아니다 — 바꾸면 미리보기(theme_preview.py)를 사람이 다시 승인하고, 이 테마를 쓰는 칸을 다시 돌린다(manifest derived.theme_sha256).
+schema_version: 1
+id: blade
+
+text:
+  color: "#ECE5D6"                         # 글자색(뼈 흰색) — 글자 참고판 배치(text_ref_layout.yaml)의 색과 같아야 한다(다르면 run 을 시작하지 않는다)
+  outline: { size: 2, color: "#0C0C0EDC" } # 글자 외곽선 — HUD 둘과 같은 값
+  pressed_offset: [0, 1]                   # 누른 동안 글자를 옮기는 거리(px)
+
+button:
+  accent: "#F3E9CC"                        # 하나뿐인 강조색(옅은 상아색)
+  line: { lo: 0.14, span: 0.30 }           # 선 · 칼날 정도 = smooth((밝기 − lo) / span) — 판(먹색)과 선을 가른다
+  hovered:                                 # 올림 · 초점 — 판을 따뜻하게 밝히고(왼쪽이 조금 더) 선은 상아색으로
+    warm: "#FFF7E6"
+    lift: 0.09
+    lift_left: 0.07
+    lift_reach: 0.8                        # 왼쪽 몫이 사라지는 자리(폭 비)
+    line_floor: 0.45
+    line_full: 0.7
+  pressed:                                 # 누름 — 판 어둡게 · 선 죽임
+    plate: 0.5
+    line: 0.55
+    line_tint: "#FFF7E6"
+  disabled:                                # 비활성 — 무채색 · 선 죽임 · 알파
+    line: 0.5
+    alpha: 0.5
+  selected:                                # 선택 — 왼쪽에서 옅어지는 상아색 + 선은 상아색. 어느 상태 위에나 얹는다(선택 · 선택 + 올림 · 선택 + 누름)
+    fill: 0.30
+    reach: 0.85

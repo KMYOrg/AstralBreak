@@ -27,6 +27,7 @@
           "provenance": { "type": "string" },
           "backend": { "type": "string" },
           "procedural": { "type": "object" },
+          "derived": { "type": "object", "description": "provenance derived — {from, brush, source_sha256, theme, theme_sha256}" },
           "prompt": { "type": ["string", "null"] },
           "anchor": { "type": "boolean" },
           "ue_path": { "type": ["string", "null"] },

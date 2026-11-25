@@ -16,6 +16,18 @@ screens:
     widget: AstralStatusHUDWidget
     wbp: WBP_StatusHUD
     promote_path: /Game/UI/HUD
+  # Phase 3-2 — 칸(cell). parent 가 있으면 손으로 쓴 부모 클래스(Source/…/UI/Foundation)라 codegen 이 아무것도 쓰지 않고 바인딩만 리플렉션으로 대조한다.
+  # 버튼 칸 = 부모 하나(AstralButtonBase) + 모양마다 애셋(WBP_… · 상태 그림을 담는 스타일 BS_… — 부모 style_parent)
+  ButtonLarge:
+    parent: AstralButtonBase
+    style_parent: AstralButtonStyle
+    wbp: WBP_ButtonLarge
+    promote_path: /Game/UI/Common
+  ButtonSmall:
+    parent: AstralButtonBase
+    style_parent: AstralButtonStyle
+    wbp: WBP_ButtonSmall
+    promote_path: /Game/UI/Common
   # 1b 후속 G2 — 검증 화면(probe: true): C++ 를 만들지 않는다(codegen 건너뜀 · 부모 = /Script/UMG.UserWidget · bindings 게이트는 WBP 트리의
   # 위젯 이름 · 타입). 다른 컨셉으로 파이프라인의 보편성을 재는 시험 입력용 — 입력 · 산출물은 git 무시 폴더(work/_probe · Content/_AutoGen)에만.
   ProbePartyHUD:

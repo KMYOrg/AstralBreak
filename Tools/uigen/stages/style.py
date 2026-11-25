@@ -436,7 +436,8 @@ def _render_text_mask(render_path, ren, spec: dict, texts) -> "np.ndarray | None
     boxes = (geo.get("geometry") or {}).get(f"{W}x{H}")
     if not boxes:
         return None
-    textures = {a["asset_id"]: backdrop._load(rd / a["file"]) for a in man.get("assets", []) if a.get("file") and (rd / a["file"]).is_file()}
+    from gen import cells
+    textures = cells.attach(spec, {a["asset_id"]: backdrop._load(rd / a["file"]) for a in man.get("assets", []) if a.get("file") and (rd / a["file"]).is_file()})
     black, _, _ = backdrop.compose(spec, boxes, textures, [W, H], (0, 0, 0))
     diff = np.abs(ren - black).max(axis=2)
     outside = ~backdrop.text_mask(spec, boxes, [W, H])
@@ -812,7 +813,8 @@ def text_fit(spec: dict, reference_path, render_path, cfg: dict, rendered: dict[
         if mc is not None and mr is not None:
             # 1b 후속 J-c — 진단(gen/diagnose._stats)과 같은 정의: 마스크 전체 · 1 ~ 99 백분위 획 상자 · 상자 안 밀도 · 빈 열 — 맞춤과 진단이 같은 숫자를 본다
             # [실측 J R20261117_181500 '2/4' — 측정 상자로 자른 맞춤 1.03 ↔ 진단 1.08 ~ 1.12 로 엇갈려 크기 결함이 남았다]
-            sc_, sr_ = diagnose._stats(mc, ref), diagnose._stats(mr, ren)
+            same = w["id"] in (font_locked or ())
+            sc_, sr_ = diagnose._stats(mc, ref, same), diagnose._stats(mr, ren, same)
             (c2, cg, cd) = (sc_["box"], sc_["gap_cols"], sc_["density"]) if sc_ else (None, None, None)
             (r2, rg, rd) = (sr_["box"], sr_["gap_cols"], sr_["density"]) if sr_ else (None, None, None)
         else:

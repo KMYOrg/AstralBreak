@@ -23,9 +23,10 @@ from core import config  # noqa: E402
 from core import metrics  # noqa: E402
 
 OUT = "Docs/Design/ui-autogen-report.md"
-# 게임에 승격한 run — 지표에는 승격 여부가 없어 설계 문서(§11 표 '→ M4 C' · 'L-2 기본 전환 결과' · '전투 HUD 동작 결과' · '메인 HUD 결과')에서 옮겼다
+# 게임에 승격한 run — 지표에는 승격 여부가 없어 설계 문서(§11 표 '→ M4 C' · 'L-2 기본 전환 결과' · '전투 HUD 동작 결과' · '메인 HUD 결과' · 'Phase 3-2 결과')에서 옮겼다
 PROMOTED = {"R20261119_091634_CombatHUD": "첫 승격(L-1) — 뒤에 바뀜", "R20261123_172628_CombatHUD": "L-2 '검은 날' — 뒤에 바뀜",
-            "R20261123_194019_CombatHUD": "고리 · 키 안내 — 지금 승격본", "R20261124_130129_StatusHUD": "내 상태 · 동료 — 지금 승격본"}
+            "R20261123_194019_CombatHUD": "고리 · 키 안내 — 지금 승격본", "R20261124_130129_StatusHUD": "내 상태 · 동료 — 지금 승격본",
+            "R20261125_160008_ButtonLarge": "공용 큰 버튼 칸 — 지금 승격본", "R20261125_160033_ButtonSmall": "공용 작은 버튼 칸 — 지금 승격본"}
 ROUND_SPLIT = "20261118"       # 글자 · 픽셀을 결정적으로 맞추게 된 뒤(K · L) — 외형 라운드 표를 앞뒤로 나눈다
 GAME_FROM = "20261123"         # 게임에 쓰는 컨셉('검은 날')이 생긴 날 — 이때부터의 CombatHUD · StatusHUD run 만 '게임 화면 run' 표에
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 import shutil
 import time
 
+from core import button
 from core import config
 from core import cppgen
 from core import geometry as geo
@@ -94,9 +95,9 @@ def gate_compile(comp: dict) -> dict:
                 details={"status": comp.get("status"), "warnings": comp.get("warnings"), "messages": msgs})
 
 
-def gate_bindings(comp: dict, contract: list[dict], live: list[dict]) -> dict:
+def gate_bindings(comp: dict, contract: list[dict], live: list[dict], hand_written: bool = False) -> dict:
     missing = comp.get("missing_bindings", [])
-    diff = cppgen.contract_diff(contract, live)
+    diff = cppgen.hand_written_diff(contract, live) if hand_written else cppgen.contract_diff(contract, live)      # 손으로 쓴 부모(Phase 3-2)는 클래스가 원천
     return gate("bindings", not missing and not diff, value=len(missing) + len(diff), threshold=0,
                 details={"missing_bindings": missing, "contract_diff": diff, "contract": len(contract), "class": len(live)})
 
@@ -136,8 +137,11 @@ def gate_bindings_probe(comp: dict, contract: list[dict], exported_spec: dict) -
                          "contract": len(contract), "missing_bindings": comp.get("missing_bindings", [])})
 
 
-def gate_required(brief: dict, exported_spec: dict) -> dict:
+def gate_required(brief: dict, exported_spec: dict, drawn_by_style: str | None = None) -> dict:
+    """drawn_by_style = 버튼 칸의 기본 그림 위젯 — 트리 대신 클래스 기본값의 스타일이 그린다(있으면 있는 것으로)."""
     have = {w["id"] for w in exported_spec.get("widgets", [])}
+    if drawn_by_style and (exported_spec.get("defaults") or {}).get("Style"):
+        have.add(drawn_by_style)
     missing = [el["id"] for el in brief.get("required_elements", []) if el["id"] not in have]
     return gate("required_elements", not missing, value=len(missing), threshold=0,
                 details={"missing": missing, "required": len(brief.get("required_elements", []))})
@@ -146,6 +150,8 @@ def gate_required(brief: dict, exported_spec: dict) -> dict:
 def gate_roundtrip(spec: dict, export: dict, manifest: dict) -> tuple[dict, dict]:
     ue_to_asset = {a["ue_path"]: a["asset_id"] for a in manifest["assets"] if a.get("ue_path")}
     same, diffs = spec_mod.roundtrip_equal(spec, export.get("spec") or {}, ue_to_asset)
+    styled = button.style_diff(spec, export, ue_to_asset)      # 버튼 칸 — 트리에 없는 상태 그림 일곱 · 크기 · 값
+    same, diffs = same and not styled, diffs + styled
     guid_missing = export.get("guid_missing") or []
     rt = {"equal": same, "diffs": diffs[:20], "guid_missing": guid_missing, "unsupported": export.get("unsupported") or [],
           "revision": export.get("revision")}
@@ -185,6 +191,27 @@ def render_gates(spec: dict, renders: list[dict], canvas, gates_cfg: dict, stack
                                    "center_px": float(gates_cfg["small_center_max_px"])},
                         details={"resolution": list(base["resolution"]), "failed": failed, "widgets": rows}))
     return out, {"inner": pl["inner"]}
+
+
+def render_resolutions(cfg: dict, profile: dict, canvas) -> list[list[int]]:
+    """게이트 렌더의 해상도 — 프로필이 `resolutions: canvas` 면(칸) 캔버스 크기 하나, 아니면 pipeline.yaml 것 + 캔버스."""
+    canvas = [int(v) for v in canvas]
+    if profile.get("resolutions") == "canvas":
+        return [canvas]
+    out = [list(map(int, r)) for r in cfg["render"]["resolutions"]]
+    if canvas not in out:
+        out.insert(0, canvas)
+    return out
+
+
+def desired_size_note(spec: dict, renders: list[dict], gates_cfg: dict) -> dict | None:
+    """버튼 칸 — 자동 크기로 놓았을 때의 크기(render desired_size) ↔ 캔버스. 다르면 화면에 놓을 때 그림이 늘어난다. → {desired, canvas, ok} 또는 None."""
+    tol = gates_cfg.get("desired_size_max_px")
+    if not button.of(spec) or tol is None:
+        return None
+    got = next((r.get("desired_size") for r in renders if r.get("desired_size")), None)
+    canvas = [float(v) for v in spec["canvas"]]
+    return {"desired": got, "canvas": canvas, "ok": got is not None and all(abs(float(a) - b) <= float(tol) for a, b in zip(got, canvas))}
 
 
 def sample_overrides(brief: dict) -> dict:
@@ -261,12 +288,11 @@ def run(run, opts, toolchain=None) -> dict:
     profile = config.load_profile(spec["profile"])
     gates_cfg = profile["gates"]
     canvas = [int(v) for v in spec["canvas"]]
-    resolutions = [list(map(int, r)) for r in cfg["render"]["resolutions"]]
-    if canvas not in resolutions:
-        resolutions.insert(0, canvas)
+    resolutions = render_resolutions(cfg, profile, canvas)
     cg_rec = run.read_json("codegen.json")
     contract = cg_rec["contract"]["bindings"]
     probe = cg_rec.get("reason") == "probe"     # 1b 후속 G2 — 검증 화면: C++ 클래스가 없어 bindings 는 WBP 트리에서 이름 · 타입으로
+    hand_written = cg_rec.get("reason") == "hand_written"
     adir = attempt_dir(run, attempt)
     adir.mkdir(parents=True, exist_ok=True)
     tc = toolchain or ue_toolchain(run)
@@ -287,14 +313,14 @@ def run(run, opts, toolchain=None) -> dict:
     try:
         if not probe:
             live = tc.call("list_bind_widgets", {"asset_path": wbp})["bindings"]
-            gates["bindings"] = gate_bindings(comp, contract, live)
+            gates["bindings"] = gate_bindings(comp, contract, live, hand_written)
     except ToolchainError as exc:
         bridge_failed(["bindings"], exc)
     assets = {a["asset_id"]: a["ue_path"] for a in manifest["assets"] if a.get("ue_path")}
     try:
         export = tc.call("export_widget_spec", {"asset_path": wbp, "assets": assets})
         gates["texture_settings"] = gate_textures(export.get("textures", []), manifest, cfg["textures"])
-        gates["required_elements"] = gate_required(brief, export.get("spec") or {})
+        gates["required_elements"] = gate_required(brief, export.get("spec") or {}, button.art_id(spec))
         if probe:
             gates["bindings"] = gate_bindings_probe(comp, contract, export.get("spec") or {})
         gates["roundtrip"], roundtrip = gate_roundtrip(spec, export, manifest)
@@ -305,11 +331,18 @@ def run(run, opts, toolchain=None) -> dict:
     try:
         rend = tc.call("render_widget", {"asset_path": wbp, "output_dir": (adir / "render").resolve().as_posix(), "resolutions": resolutions,
                                          "force_visible": True, "prefix": "render"})
-        renders = rend["renders"]
+        renders = [{**r, "geometry": button.geometry_rows(spec, r["geometry"])} for r in rend["renders"]]
         rgates, extra = render_gates(spec, renders, canvas, gates_cfg, profile.get("stacking_parents"))
         for g in rgates:
             gates[g["name"]] = g
         notes["placement_inner"] = extra["inner"]   # 박스 등 중간 위젯 — 기록만
+        ds = desired_size_note(spec, renders, gates_cfg)
+        if ds is not None:                          # 칸의 자기 크기는 배치의 일부다 — iou_region 게이트에 싣는다
+            notes["desired_size"] = ds
+            if not ds["ok"]:
+                g = gates["iou_region"]
+                g["pass"] = False
+                g["details"]["desired_size"] = ds
         geometry = {f"{r['resolution'][0]}x{r['resolution'][1]}": r["geometry"] for r in renders}
         doc = {"schema_version": 1, "run_id": run.run_id, "attempt": attempt, "canvas": canvas, "force_visible": True, "geometry": geometry}
         run.write_json(f"attempts/{attempt:03d}/geometry.json", doc)

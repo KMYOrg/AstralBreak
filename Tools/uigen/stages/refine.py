@@ -59,6 +59,28 @@ def _procedural_entry(run, asset: dict, raw, backend: str) -> tuple[dict, dict]:
             {"asset_id": aid, "backend": backend, "steps": "copied (procedural)"})
 
 
+def _derived_entry(run, asset: dict, spec: dict) -> tuple[dict, dict]:
+    """Phase 3-2 — 버튼 상태 그림: 다듬은 기본 그림(assets/final/<from>.png)에 공용 테마의 식(gen/theme). 테마가 analyze 때와 다르면 멈춘다(한 run 안에서 두 테마가 섞이지 않게)."""
+    from gen import theme as theme_mod
+    aid, d = asset["asset_id"], asset["derived"]
+    b = spec["button"]
+    try:
+        t = theme_mod.load(b["theme"]["id"])
+    except theme_mod.ThemeError as exc:
+        raise StageError("THEME", str(exc), asset=aid) from exc
+    if t["sha256"] != b["theme"]["sha256"]:
+        raise StageError("THEME_CHANGED", f"theme '{t['id']}' changed during the run ({b['theme']['sha256'][:8]} → {t['sha256'][:8]})", asset=aid)
+    src = run.path("assets", "final", f"{d['from']}.png")
+    if not src.is_file():
+        raise StageError("DERIVED_SOURCE", f"'{aid}' needs {src.name} first", asset=aid)
+    size, alpha = theme_mod.derive(src, run.path("assets", "final", f"{aid}.png"), d["brush"], t)
+    if size != [int(v) for v in asset["size"]]:
+        raise StageError("SIZE_MISMATCH", f"'{aid}' is {size[0]}x{size[1]}, spec says {asset['size']}", asset=aid)
+    rec = {"from": d["from"], "brush": d["brush"], "source_sha256": hashlib.sha256(src.read_bytes()).hexdigest(), "theme": t["id"], "theme_sha256": t["sha256"]}
+    return ({"alpha": alpha, "nine_slice_margin": None, "ocr_text": "", "ocr": f"n/a — derived from '{d['from']}' (its own OCR applies)", "size": size, "derived": rec},
+            {"asset_id": aid, "backend": "derived", "derived": rec})
+
+
 OVERHANG_SUFFIX = "Overhang"   # 1b 후속 H — 넘침 장식 Image 의 id = <주인 id>Overhang
 
 
@@ -3661,6 +3683,8 @@ def run(run, opts) -> str:
 
     def build(asset, raw, backend):
         aid = asset["asset_id"]
+        if asset.get("provenance") == "derived":
+            return _derived_entry(run, asset, spec)
         if asset.get("source_mode") == "plate":         # 1b 후속 J-a — 정적 판
             return _plate_entry(run, asset, spec)
         if backend == "procedural":
@@ -3669,13 +3693,14 @@ def run(run, opts) -> str:
 
     for asset in spec.get("assets", []):
         aid = asset["asset_id"]
-        if only and aid not in only and aid in previous:
+        derived = asset.get("provenance") == "derived"
+        if only and aid not in only and aid in previous and not (derived and asset["derived"]["from"] in only):      # 파생 그림은 원본이 바뀌면 같이 다시
             built[aid] = None
             _claim_previous_overhang(run, aid, prev_over.get(aid))
             continue
         dropped += drop_overhang(spec, aid, prev_over.get(aid))        # 1b 후속 H — 다시 다듬을 때는 지난 넘침 장식을 걷고 새로
         raw = run.path("assets", "raw", f"{aid}.png")
-        if not raw.is_file() and asset.get("source_mode") != "plate":      # 판은 raw 를 쓰지 않는다(컨셉 · layer 마스크에서 굽는다)
+        if not raw.is_file() and asset.get("source_mode") != "plate" and not derived:      # 판은 raw 를 쓰지 않는다(컨셉 · layer 마스크에서 굽는다)
             raise StageError("RAW_MISSING", f"{raw} was not generated", asset=aid)
         backend = backends.get(aid, asset["provenance"])
         if asset.get("source_mode") == "plate":
@@ -3743,7 +3768,7 @@ def run(run, opts) -> str:
             entries.append(previous[aid])
             continue
         info, log, backend = built[aid]
-        if backend not in ("procedural", "concept_plate"):
+        if backend not in ("procedural", "concept_plate", "derived"):
             if (log.get("margin") or {}).get("source") in ("estimated", "mixed"):
                 margin_updates[aid] = log["margin"]["used"]
             if log.get("overhang"):
@@ -3767,6 +3792,7 @@ def run(run, opts) -> str:
             "anchor": bool(asset.get("anchor", False)),
             "ue_path": None,
             "compression": config.compression_for(asset, run.cfg),
+            **({"derived": info["derived"]} if info.get("derived") else {}),
         })
     changes = _apply_margins(run, spec, margin_updates) if margin_updates else []
     extract_ids = {a["asset_id"] for a in spec.get("assets", []) if a.get("provenance") == "codex" and a.get("source_mode") == "extract"}
@@ -3816,7 +3842,7 @@ def _spec_changes(spec: dict, built: dict, run) -> None:
     """refine 끝의 spec 바꿈(추정 margin · 크기 고정 브러시 image · 넘침 장식)을 제자리에서 — 글자 지우기 고르기의 합성용 사본에 먼저 적용."""
     margin_updates, over_recs = {}, {}
     for aid, (info, log, backend) in built.items():
-        if backend in ("procedural", "concept_plate"):
+        if backend in ("procedural", "concept_plate", "derived"):
             continue
         if (log.get("margin") or {}).get("source") in ("estimated", "mixed"):
             margin_updates[aid] = log["margin"]["used"]

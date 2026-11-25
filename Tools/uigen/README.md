@@ -9,11 +9,14 @@
 ```text
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/combat_hud_blade/inputs.yaml   # 실제 전투 HUD(CombatHUD — 지금 계약)
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/status_hud_blade/inputs.yaml   # 실제 내 상태 · 동료 HUD(StatusHUD)
+Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/button_large/inputs.yaml       # 공용 부품(버튼 칸 ButtonLarge · button_small = ButtonSmall) — LLM 0 · codex 0
+Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/theme_preview.py --theme blade --out Tools/uigen/work/_theme/<이름>.png --art <그림> --label 준비   # 공용 테마 — 상태 일곱 미리보기(사람이 승인)
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/m4_combat_hud_concept/inputs.yaml --inject-fault offscreen   # 재시도 경로 — 검증 화면(ProbeCombatHUD)이라 C++ 를 쓰지 않는다
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B -m pytest Tools/uigen/tests -q -p no:cacheprovider
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/make_concept.py --out-dir Tools/uigen/fixtures/<화면>   # 기본 = L-2: 글자 없는 원본 아트 + 글자 참고판(codex 2 ~ 3회)
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/make_concept.py --out-dir Tools/uigen/fixtures/<화면> --only art   # 후보만(고른 뒤 --only text_ref)
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/make_concept.py --out-dir Tools/uigen/fixtures/<화면> --cut-from Tools/uigen/fixtures/hud_blade_sheet/concept.png --keep x,y,w,h   # 승인한 시안에서 오리기(codex 0)
+Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/make_concept.py --out-dir Tools/uigen/fixtures/<칸> --cut-from Tools/uigen/fixtures/hub_ready_sheet/concept.png --keep x,y,w,h --crop   # 칸 하나만 잘라 내기
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/make_concept.py --out-dir Tools/uigen/fixtures/<화면> --only text_ref --draw Tools/uigen/fixtures/<화면>/text_ref_layout.yaml   # 글자 참고판을 엔진 글꼴로 그리기(codex 0)
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/make_concept.py --out-dir Tools/uigen/fixtures/<화면> --with-text   # 글자까지 그린 컨셉(L-1 시험용 — codex 1회)
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/m4_combat_hud_concept/inputs.yaml --until analyze   # 1b — 에디터 없이 spec 까지
@@ -81,6 +84,12 @@ Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/promote_screen.py stat
   **승격 기록** `promoted/<ScreenId>/promotion.json`(run · 부모 · 승격본 파일마다 SHA256 · 묶음 해시 · 쌓인 수정 `edits[]`) + 원천 묶음 `source/`(run 폴더가 없어져도 이어서 고친다). **재승격** `apply <ScreenId> --run <run_id> --yes`: 에디터를 끈 채 — 파일 해시 = 기록(사람이 고쳤으면 거절, 강제 옵션 없음) · 쌓인 수정의 자식인가(전체 run 으로 갈아탈 때만 `--unrelated`) · 사본(`work/_promoted/<화면>/<시각>/`, 해시 확인) → 비움 → 에디터를 띄워 `promote_widget` → 역추출 · 그림이 run 과 같은지 → 새 기록. 어디서 실패하든 옛 파일을 되돌린다(끊기면 `recover`). **되돌리기** `revert` = 사본 그대로(바이트 같음, 에디터 불필요). 설계 §11 'Phase 4 설계 · 결과'.
 - **통과 뒤 외형 라운드(1b 후속 C — `stages/style.py`, Phase 2 부터 기본 끔 — `style_review.rounds: 0`):** 켜면, 게이트를 모두 통과했을 때 finalize 전에 concept 모드에서 영역 · 글자 · 게이지 비교를 기록하고(`style/before/` — `gen/fidelity.region_report`, force_visible 렌더), `pipeline.yaml style_review.rounds`(기본 1)만큼 style_verifier(`prompts/style_verifier.md` — 영역마다 '컨셉 | 렌더' 그림 + 지표) → style_fix(`prompts/style_fix.md`) → build → verify. 허용 op 는 외형만(`style.*` · 글자 색 · 굵기 · 크기 · 폰트 · 효과 · `slot.padding` · `justification` · `replace_asset` 라운드당 1). 합격은 게이트만 — 라운드 뒤 게이트가 하나라도 깨지면 마지막 통과 spec · manifest(· 교체 에셋 파일)로 되돌리고 run 패키지를 전부 버린 뒤(`build.reset_run`) 처음부터 다시 build → verify. 기록 `report.recorded.style_review`(라운드 · op · 전후 요약) · `patches/style_00k.json` · `attempts[]` 의 `style_round` · `revert`. fix.mode deterministic 이면 비교만. (1b 후속 G) 라운드가 다시 따온 에셋은 충실도(실루엣 IoU · 장식선 F1 · 모서리 F1 최소 — `style.fidelity_score`)가 라운드 전보다 `style_review.replace_guard_tol`(0.02) 넘게 낮으면 그 에셋만 옛 것으로 되돌린다(`rounds[].replace_guard`).
 - **글자 크기 · 굵기 · 위치 맞춤(1b 후속 G — `style.text_fit`, 두 판):** 외형 라운드 뒤(받든 버리든 · deterministic 모드에서도, `style_review.text_fit`) 마지막 통과 렌더에서 글자마다 컨셉 ↔ 렌더 획 상자를 같은 측정 상자(컨셉 획 상자 + 여유 · 그 영역 안 — 테두리에 이어진 장식선 덩어리는 획에서 뺌)에서 잰다. **크기 판**(`mode="size"`, 높이 비 0.6 ~ 1.6 이고 폭 비 ÷ 높이 비가 1 ± 0.3 일 때만 — 아니면 잘리거나 섞인 측정으로 봄, G2): |1 − 높이 비| ≥ 0.04 면 새 크기 = round(크기 ÷ 높이 비)(빛 · 외곽선 그대로), 상자는 `follow_text_boxes` 가 가운데 중심으로 키운다(형제 자리 유지). build 전에 직전 통과 렌더 geometry 에 커질 상자를 넣어 overlap 게이트와 같은 규칙(같은 부모 · Overlay 제외 · allow_overlap 제외 · 비 0.04)으로 형제 겹침을 예측하고, 겹치면 그 글자 크기를 원래 쪽으로 1 씩 줄인다(`size_capped`). 굵기도 이 판. **위치 판**(`mode="place"` — 최신 통과 렌더에서 다시 잼): 글자 2개 이상 · 높이 비 0.88 ~ 1.12 · 폭 비 4 % 넘게 다르면 글자 사이 틈(획 상자 안 세로 투영의 빈 열) 차이만큼 자간을(글자 모양이 넓어서 생긴 폭 차이는 메우지 않음), 중심 차 2 px 이상(상한 획 높이 × 0.8 · 40 px)이면 슬롯 padding 양쪽 ±(자리 유지 — 가운데 정렬 축은 ±d/2, Slate 가운데 정렬 오프셋 = … + 앞 − 뒤 여백) · 캔버스 점 앵커 위치를 고친다(bbox_intent 같이). 모든 이동은 직전 렌더 geometry 로 형제 겹침을 예측해(크기 판과 같은 규칙) 새 겹침이 없는 것만 — 전체 → 한 축(`axis_dropped`) → 다 겹치면 상자 주축만 이웃 규칙, 그 밖은 안 옮김(`shift_skipped` — G2, 판 전체가 버려지지 않게). 가로 · 세로 상자의 주축은 겹치지 않으면 자기 양쪽 padding 으로(여백 합이 그대로라 칸 자리 그대로 — `own_padding`), 겹치면 이동 방향 이웃(Spacer 크기 · 맞닿은 padding)에서 그만큼 가져와 반대쪽 여백에 더한다(`_take_from_neighbour` — 여유가 없으면 그 축은 안 옮김). analyze 상자가 글자보다 짧으면 컨셉 획을 가로로 넓혀 다시 재고(원래 획 상자를 품을 때만 · 이웃 글자 상자 앞까지), 렌더 획이 측정 상자 끝에 닿거나 걸쳐 잘리면(`text_ink` 는 끝에 닿은 덩어리를 지우므로 지우기 전 획으로 본다 — `_cut_sides`) 그쪽만 넓혀 다시 잰다(2번 · 다른 글자 상자 앞까지). 그래도 이상하면(획이 끝에 닿음 · 높이 비 밖) 그 글자는 건너뛴다. 굵기(크기 판)는 획 밀도(획 픽셀 / 획 상자 넓이) 비로 — 컨셉/렌더 < 1/1.22 이면 bold → regular, > 1.22 이면 regular → bold(경계 = 두 굵기 밀도 비의 기하 중간). LLM 없이 판마다 build → verify 1회(약 6초) — 깨지면 외형 라운드와 같이 **그 판만** 버린다(크기 판이 버려져도 위치 판은 돈다 · 크기를 바꾼 글자는 그 판에서 위치 · 자간을 안 건드림). `prompts/style_verifier.md` 는 크기 · 위치 · 자간 · 굵기를 결정적 몫으로 적어 LLM 라운드가 손대지 않게 한다. 기록 `style_review.text_fit_size` · `text_fit`(글자마다 측정 · 크기 · 굵기 · 자간 · 이동 · 건너뛴 이유, 받은 뒤 남은 차 `text_fit.residual`) · `attempts[]` 의 `style_round: "text_fit_size" | "text_fit"`.
+- **칸과 버튼(Phase 3-2, 11-25 — 설계 §11 'Phase 3-2 결과'):** 여러 화면에 놓이는 부품(칸)도 자기 run · 자기 승격본이다 — `screen_type: cell`, 캔버스 = 칸 크기(`profiles/cell.yaml` — 그 크기 하나만 그린다), `screens.yaml parent` = 손으로 쓴 부모 클래스(C++ 생성 · 빌드 없음, 바인딩은 리플렉션과 대조).
+  **버튼 칸**(`inputs.button {art, label, theme}`): 요청이 구조를 다 정해 LLM 0 — 기본 그림은 승인한 시안에서 오린 것, 상태 여섯(올림 · 누름 · 선택 · 선택 + 올림 · 선택 + 누름 · 비활성)은 공용 테마 `config/theme_<id>.yaml` 의 식(`gen/theme` — 알파는 비활성만 바뀜)으로 refine 이 만든다(manifest `derived {from, brush, source_sha256, theme, theme_sha256}`).
+  spec 최상위 `button` 이 말하고(`core/button` — 단일 원천), 에디터에서는 위젯이 아니라 클래스 기본값의 스타일 애셋 `BS_<ScreenId>`(`create_button_style`)이 그린다. 글꼴 · 글자색은 글자 참고판 배치(`text_ref_layout.yaml` — `base_width` = 칸 폭), 외곽선 · 눌릴 때 글자 이동은 테마.
+  **검사 E8 `button_*`**(`gen/state_check.button_states`): 상태 일곱의 엔진 렌더 ↔ '그 상태 그림을 얹은 합성'(안쪽 국소 ΔE00 · 버튼 밖이 안 바뀜 · 글자가 읽히고 테마만큼만 움직임 · 상태끼리 구별). 덮어쓰기가 안 먹거나 못 그리면 오류다(합성으로 물러나지 않는다). `compare.png` 맨 아래에 상태 칸.
+  **화면에 놓기:** spec 위젯 `UserWidget {class: 승격된 칸, props: {ButtonText}}` — 진단은 칸을 '그 칸의 원천 묶음(`promoted/<칸>/source`)에서 합성한 그림 한 장'으로 본다(`gen/cells`).
+
 - finalize: 통과 = `save_widget_run` → `Content/_AutoGen/<run_id>/`(git 무시) + `lineage.json`, 실패 = `discard_run_packages`. (1b 후속 L-2) 저장 직전 마지막 진단의 '컨셉이 안 그린 숨은 위젯'(`diagnosis.state.force_visible_extra`)에 spec `designer_hidden: true` 를 켜 한 번 더 적용한다 — UMG 디자이너는 Visibility 를 무시하고 'Hide in Designer'(`bHiddenInDesigner`)만 봐서, 런타임에 접힌 위젯(게이지 가득 참 빛)이 미리보기에 겹쳤다. 디자이너 미리보기 = 컨셉 상태(`compare.png`), 런타임 · 렌더 무관(WidgetMcp `ApplyWidget` · 역추출).
 
 ## 폴더
@@ -113,12 +122,15 @@ Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/promote_screen.py stat
 | `schemas/` | inputs(1b) · brief · spec · patch · manifest · report · fixes · codegen · build · lineage · edit · promotion(Phase 4) (Draft 2020-12, `urn:uigen:<kind>`) |
 | `config/` | `pipeline.yaml`(상한 · 경로 · 텍스처 기본값 · codegen 모듈 · 에디터 · 빌드 · 렌더 해상도 · fix 모드 · llm 단계) · `routing.yaml` · `screens.yaml`(화면 ID → 클래스 · WBP 이름 · 폴더, G2 — `probe: true` 검증 화면은 C++ 없이 부모 UserWidget · codegen 건너뜀 · bindings 게이트는 WBP 트리의 이름 · 타입) · `empty_mcp.json` |
 | `prompts/` · `claude_ctx/` | LLM 단계 시스템 프롬프트(`analyze.md` — 1b-4 · `verifier.md` · `fix.md` · `style_verifier.md` · `style_fix.md` — 1b 후속 C) · cwd(설정: Bash · 쓰기 거부, auto-memory 끔) |
-| `profiles/` | 화면 종류 프로필(게이트 기준) — 1a 는 `hud.yaml` |
+| `profiles/` | 화면 종류 프로필(게이트 기준) — `hud.yaml` · `cell.yaml`(칸 — 캔버스 크기 하나 · 자기 크기 검사) |
 | `fixtures/m4_combat_hud/` | 1a 손 brief · spec — M4 전투 HUD(설계 §5 요소, 값은 잠정). **옛 계약 — pytest 입력 전용, 실제로 돌리지 말 것('돌리기' 주의)** |
 | `fixtures/m4_combat_hud_concept/` | 1b 컨셉 입력 — `concept_prompt.md`(codex 프롬프트) · `concept.png` · `concept.json` |
 | `fixtures/m4_combat_hud_flat/` | 1b 후속 H 시험 입력 — 같은 전투 HUD 계약, 컨셉만 `make_concept.py --flat`(단색 검정 · UI 만 — normalize 가 ⓑ flat 판정 · codex 호출 없이 오림) |
 | `fixtures/m4_combat_hud_l2/` | 1b 후속 L-2 시험 입력 — 같은 전투 HUD 계약, 컨셉 = `make_concept.py --text-free-first` 의 글자 없는 원본 아트 `concept.png` + 글자 참고판 `concept_text_ref.png`(글자 칸 설명 = inputs desc) |
 | `fixtures/hud_blade_sheet/` · `combat_hud_blade/` · `status_hud_blade/` | '검은 날' 전체 HUD 시안(승인) · 거기서 오린 전투 HUD · 내 상태 · 동료 HUD 입력(게임에 쓰는 화면) |
+| `fixtures/hub_ready_sheet/` · `button_large/` · `button_small/` | 허브 준비 화면 시안(승인 — 후보 C) · 거기서 오린 버튼 칸 둘(공용 부품) |
+| `core/button.py` · `gen/theme.py` · `gen/cells.py` (Phase 3-2) | 버튼 칸의 spec 규칙 · 상태 ↔ 덮어쓰기 · 역추출 대조 / 공용 테마의 식 / 놓인 칸의 합성 그림 |
+| `config/theme_blade.yaml` · `theme_preview.py` (Phase 3-2) | 공용 테마 '검은 날'(버튼 상태 식 · 글자) · 상태 일곱 미리보기(codex 0 · 에디터 0 — 사람이 승인) |
 | `gen/silhouette.py` | 메인 HUD — 모양 막대 재기 · 나누기(`measure`) · 어느 위젯이 모양 막대인가(`bars`) |
 | `gen/text_ref.py` | 1b 후속 L-2 — 참고판 편집 프롬프트(`text_items` · `text_ref_prompt`) · 정합 + 글자 획만 원본 아트에 붙이기 + 칸 밖 검사(`merge` · `check_files`) |
 | `work/` · `metrics/` | run 산출물 · `uigen.jsonl` — git 무시, Saved 밖(이미지를 Read · 전송할 수 있게). `work/_probe/<이름>/`(inputs.yaml + concept.png) = 보편화 검증 입력(G2 — 외부 화면이라 git 무시 자리에만) |
@@ -136,6 +148,7 @@ Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/promote_screen.py stat
 
 ## spec 규칙 요약
 
+- `UserWidget`(놓인 칸) = `class`(승격된 WBP 패키지) + `props`(`[WidgetMcp] WidgetInstanceProperties` 에 있는 글자 속성만), 자식 없음. 최상위 `button` 은 파이프라인만 쓴다(LLM 이 보는 스키마에서는 뺀다).
 - 위젯 `id` = WBP 위젯 이름 = 바인딩 이름. 형제 순서 = 슬롯 순서.
 - 슬롯 `kind` 는 부모 타입이 정한다(Canvas → `canvas`, Overlay → `overlay`, Border → `border` …).
 - 생략한 스칼라는 `core/spec.py` 기본값 표(5.7.4 UMG 생성자 기본값), 생략한 브러시는 엔진 기본 스타일. 파이프라인은 정규화한 spec 을 브리지에 보낸다.

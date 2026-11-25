@@ -1,8 +1,10 @@
 #include "Tools/WidgetMcpTools.h"
 
 #include "Blueprint/WidgetTree.h"
+#include "CommonButtonBase.h"
 #include "Components/Widget.h"
 #include "Core/WidgetMcpBlueprint.h"
+#include "Core/WidgetMcpButtonStyle.h"
 #include "Core/WidgetMcpCommon.h"
 #include "Core/WidgetMcpFonts.h"
 #include "Core/WidgetMcpPromote.h"
@@ -60,8 +62,12 @@ namespace WidgetMcpTools
 			Spec->SetStringField(TEXT("root"), Tree->GetStringField(TEXT("root")));
 			Spec->SetArrayField(TEXT("widgets"), Tree->GetArrayField(TEXT("widgets")));
 			Spec->SetArrayField(TEXT("locked"), WidgetMcp::StringArray(Locked));
+			const TSharedRef<FJsonObject> Defaults = WidgetMcpButtonStyle::ExportDefaults(WBP);
+			if (Defaults->Values.Num() > 0) { Spec->SetObjectField(TEXT("defaults"), Defaults); }
 			TArray<UTexture2D*> Textures;
 			WBP->WidgetTree->ForEachWidget([&Textures](UWidget* W) { WidgetMcpSpec::CollectTextures(W, Textures); });
+			const UCommonButtonStyle* ButtonStyle = WidgetMcpButtonStyle::StyleOf(WBP);
+			if (ButtonStyle) { WidgetMcpButtonStyle::CollectTextures(ButtonStyle, Textures); }
 			Textures.Sort([](const UTexture2D& A, const UTexture2D& B) { return A.GetPathName() < B.GetPathName(); });
 			TArray<TSharedPtr<FJsonValue>> TextureJson;
 			for (const UTexture2D* T : Textures) { TextureJson.Add(MakeShared<FJsonValueObject>(WidgetMcpTextures::Describe(T))); }
@@ -70,6 +76,7 @@ namespace WidgetMcpTools
 			Out->SetStringField(TEXT("parent_class"), GetPathNameSafe(WBP->ParentClass));
 			Out->SetObjectField(TEXT("spec"), Spec);
 			Out->SetStringField(TEXT("revision"), WidgetMcpBlueprint::Revision(WBP));
+			if (ButtonStyle) { Out->SetObjectField(TEXT("button_style"), WidgetMcpButtonStyle::Describe(ButtonStyle, bUseAssetIds ? &Assets : nullptr, Unsupported)); }
 			Out->SetArrayField(TEXT("unsupported"), Unsupported);
 			Out->SetArrayField(TEXT("textures"), TextureJson);
 			Out->SetArrayField(TEXT("bindings"), WidgetMcpBlueprint::BindWidgetsJson(WidgetMcpBlueprint::BindWidgets(WBP->ParentClass)));
@@ -89,7 +96,7 @@ namespace WidgetMcpTools
 	{
 		static const TArray<FString> Names = { TEXT("import_ui_textures"), TEXT("create_widget_blueprint"), TEXT("preview_widget_spec"), TEXT("apply_widget_spec"),
 			TEXT("apply_widget_patch"), TEXT("export_widget_spec"), TEXT("compile_widget_blueprint"), TEXT("list_bind_widgets"), TEXT("render_widget"),
-			TEXT("save_widget_run"), TEXT("discard_run_packages"), TEXT("import_font_family"), TEXT("promote_widget") };
+			TEXT("save_widget_run"), TEXT("discard_run_packages"), TEXT("import_font_family"), TEXT("promote_widget"), TEXT("create_button_style") };
 		return Names;
 	}
 
@@ -317,7 +324,7 @@ namespace WidgetMcpTools
 			});
 
 		Dispatcher.RegisterTool(TEXT("render_widget"),
-			TEXT("Offscreen-render a compiled Widget Blueprint to PNG (gamma-corrected per design 12-1 A6) plus the paint-space geometry of every widget from the same draw. Params: asset_path, output_dir (new/empty folder under [WidgetMcp] WidgetRenderOutputRoots), resolutions? ([[w,h],...], default [[1920,1080]]), force_visible? (collapsed/hidden widgets drawn — layout checks), overrides? ({widget: {visible?, percent?, text?}}), states? ([{name, overrides?}] — several states in one call: each gets a fresh instance drawn exactly like a single call, written to <output_dir>/<name>/<name>_WxH.png (each state folder new/empty), one font warm-up for all; returns states[{name, renders}] without geometry; not with overrides/probes), scale? (1), draws? (2), prefix? (render), probes? ([{id, at:[x,y]}] — color after correction, first resolution)."),
+			TEXT("Offscreen-render a compiled Widget Blueprint to PNG (gamma-corrected per design 12-1 A6) plus the paint-space geometry of every widget from the same draw. Params: asset_path, output_dir (new/empty folder under [WidgetMcp] WidgetRenderOutputRoots), resolutions? ([[w,h],...], default [[1920,1080]]), force_visible? (collapsed/hidden widgets drawn — layout checks), overrides? ({widget: {visible?, percent?, text?, enabled?, button? (hovered|pressed|selected|selected_hovered|selected_pressed — a CommonButton)}}; widget = a name, '.' for the rendered widget itself, 'Cell/Inner' inside a placed cell; an enabled / button override that does not take is the error OVERRIDE_NOT_APPLIED), states? ([{name, overrides?}] — several states in one call: each gets a fresh instance drawn exactly like a single call, written to <output_dir>/<name>/<name>_WxH.png (each state folder new/empty), one font warm-up for all; returns states[{name, renders}] without geometry; not with overrides/probes), scale? (1), draws? (2), prefix? (render), probes? ([{id, at:[x,y]}] — color after correction, first resolution)."),
 			[](FEditorMcpContext& Context, FEditorMcpError& OutError) -> TSharedPtr<FJsonObject>
 			{
 				UWidgetBlueprint* WBP = LoadWbpParam(Context, OutError);
@@ -365,6 +372,9 @@ namespace WidgetMcpTools
 						if (O->TryGetBoolField(TEXT("visible"), bVisible)) { Ov.bVisible = bVisible; }
 						if (O->TryGetNumberField(TEXT("percent"), Percent)) { Ov.Percent = static_cast<float>(Percent); }
 						if (O->TryGetStringField(TEXT("text"), Text)) { Ov.Text = Text; }
+						bool bEnabled;
+						if (O->TryGetBoolField(TEXT("enabled"), bEnabled)) { Ov.bEnabled = bEnabled; }
+						O->TryGetStringField(TEXT("button"), Ov.Button);
 						Out.Add(P.Key, Ov);
 					}
 				};
@@ -455,6 +465,28 @@ namespace WidgetMcpTools
 				Request.bDryRun = Context.Request.GetOptionalBool(TEXT("dry_run"), false);
 				Request.bConfirm = Context.Request.GetOptionalBool(TEXT("confirm"), false);
 				return WidgetMcpPromote::Run(WidgetMcp::LoadSettings(), Request, Context, OutError);
+			});
+
+		Dispatcher.RegisterTool(TEXT("create_button_style"),
+			TEXT("Create a CommonButton style asset (a Blueprint class derived from UCommonButtonStyle — CommonButton reads the state brushes from the class defaults) in a run folder, never saved here. Params: asset_path (/Game/_AutoGen/<run_id>/BS_x), parent_class? (UCommonButtonStyle or a subclass; default /Script/CommonUI.CommonButtonStyle), brushes{normal_base, normal_hovered, normal_pressed, selected_base, selected_hovered, selected_pressed, disabled} (all seven, spec brush shape, none of them empty), min_size [w, h] (the button's own size), props? ({name: number|bool|[x, y]} — properties the parent class adds), assets? ({asset_id: texture path}), replace? (rewrite a style this run already made — same parent class). Returns class_path (spec defaults.Style of the button's Widget Blueprint) and what was read back."),
+			[](FEditorMcpContext& Context, FEditorMcpError& OutError) -> TSharedPtr<FJsonObject>
+			{
+				WidgetMcpButtonStyle::FRequest Request;
+				WidgetMcpSpec::FAssets Assets;
+				if (!Context.Request.GetRequiredString(TEXT("asset_path"), Request.AssetPath, OutError) || !LoadAssetsParam(Context, Assets, OutError))
+				{
+					return nullptr;
+				}
+				Request.ParentClass = Context.Request.GetOptionalString(TEXT("parent_class"));
+				Request.Brushes = ObjectParam(Context, TEXT("brushes"));
+				Request.Props = ObjectParam(Context, TEXT("props"));
+				Request.bReplace = Context.Request.GetOptionalBool(TEXT("replace"), false);
+				if (!ReadIntPair(Context.Request.Params->Values.FindRef(TEXT("min_size")), Request.MinSize))
+				{
+					OutError = WidgetMcp::MakeMcpError(EditorMcpErrorCodes::BadRequest, TEXT("min_size must be [w, h]"), TEXT("MIN_SIZE"));
+					return nullptr;
+				}
+				return WidgetMcpButtonStyle::Create(WidgetMcp::LoadSettings(), Request, Assets, Context, OutError);
 			});
 	}
 }

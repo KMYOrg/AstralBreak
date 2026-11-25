@@ -36,7 +36,6 @@ def _designer_hidden(run, tc, state: dict) -> dict | None:
     가득 참 빛 등)이 미리보기에 겹쳤다 [사용자 눈 R20261118_142524 WBP_CombatHUD — 반투명 빈 트랙 뒤로 금빛]. 저장 직전 마지막 진단의 '컨셉이 안 그린
     숨은 위젯'(state.force_visible_extra)에 spec designer_hidden 을 켜 한 번 더 적용한다 — 디자이너 미리보기 = 컨셉 상태(compare.png). 런타임 · 렌더 무관.
     → 기록 또는 None(할 일 없음). 실패해도 저장은 한다(기록만)."""
-    from core import spec as spec_mod
     from stages import build
     if run.path("edit.json").is_file():          # Phase 4 — 게이트가 본 WBP 그대로 저장한다(부모의 designer_hidden 을 이어받음, 대상 밖 위젯을 안 건드림)
         return {"applied": False, "reason": "edit run — the parent's values are kept"}
@@ -60,10 +59,8 @@ def _designer_hidden(run, tc, state: dict) -> dict | None:
         return {"applied": False, "widgets": sorted(hide), "reason": "already as the concept state"} if hide else None
     schema.require("spec", spec)
     manifest = run.read_json("manifest.json")
-    norm = spec_mod.normalize(spec)
     try:
-        res = tc.call("apply_widget_spec", {"asset_path": state["wbp"]["asset_path"], "spec": {"root": norm["root"], "widgets": norm["widgets"],
-                                                                                            "locked": norm["locked"]},
+        res = tc.call("apply_widget_spec", {"asset_path": state["wbp"]["asset_path"], "spec": build.editor_target(spec, state),
                                             "assets": {a["asset_id"]: a["ue_path"] for a in manifest["assets"]}, "expected_revision": state["revision"]})
     except ToolchainError as exc:
         return {"applied": False, "widgets": sorted(hide), "error": {"code": exc.code, "message": str(exc)[:300]}}

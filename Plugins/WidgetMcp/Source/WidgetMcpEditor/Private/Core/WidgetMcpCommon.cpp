@@ -30,6 +30,13 @@ namespace WidgetMcp
 					K.Value->AddUnique(P);
 				}
 			}
+			Raw.Reset();
+			GetArray(TEXT("WidgetInstanceProperties"), Raw);
+			for (const FString& R : Raw)
+			{
+				const FString Name = R.TrimStartAndEnd();
+				if (!Name.IsEmpty()) { Out.InstanceProperties.AddUnique(Name); }
+			}
 			const TPair<const TCHAR*, TArray<FString>*> Dirs[] = { { TEXT("WidgetImportSourceRoots"), &Out.ImportRoots }, { TEXT("WidgetRenderOutputRoots"), &Out.RenderRoots } };
 			for (const TPair<const TCHAR*, TArray<FString>*>& D : Dirs)
 			{
@@ -99,6 +106,7 @@ namespace WidgetMcp
 		Obj->SetArrayField(TEXT("render_output_roots"), StringArray(Settings.RenderRoots));
 		Obj->SetArrayField(TEXT("font_output_paths"), StringArray(Settings.FontOutputPaths));
 		Obj->SetArrayField(TEXT("promotion_paths"), StringArray(Settings.PromotionPaths));
+		Obj->SetArrayField(TEXT("instance_properties"), StringArray(Settings.InstanceProperties));
 		Obj->SetArrayField(TEXT("warnings"), StringArray(Settings.Warnings));
 		return Obj;
 	}

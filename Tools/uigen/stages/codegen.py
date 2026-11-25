@@ -182,6 +182,39 @@ def _probe(run, spec: dict, screen_id: str, cg: dict, t_start: float) -> str:
     return f"skipped — probe screen {screen_id}: no C++ (parent {PROBE_CLASS}, {len(bindings)} binding(s) checked by name · type in the widget tree)"
 
 
+def _hand_written(run, spec: dict, screen_id: str, screen: dict, cg: dict, t_start: float, toolchain=None) -> str:
+    """Phase 3-2 — 손으로 쓴 부모(screens.yaml parent): C++ 를 쓰지 · 빌드하지 않는다. 에디터가 떠 있으면 그 클래스의 리플렉션과 바인딩을 대조하고
+    (다르면 멈춤 — 고칠 것은 사람의 클래스나 요청이다), 떠 있지 않으면 verify 의 bindings 게이트가 본다."""
+    class_path = f"/Script/{cg['module']}.{screen['parent']}"
+    bindings = [{**e, "setter": None} for e in cppgen.binding_entries(spec)]
+    doc = {"schema_version": 1, "generator": "hand-written", "module": cg["module"], "api": "-", "ui_dir": "-", "screen": screen_id,
+           "feature": "-", "view_base": "-", "widget": screen["parent"], "bindings": bindings}
+    rec = {"schema_version": 1, "run_id": run.run_id, "screen": screen_id, "class": class_path, "contract_hash": cppgen.contract_hash(doc),
+           "previous_hash": None, "contract": doc, "changes": {"added": [], "demoted": [], "changed": [], "restored": []}, "skipped": True,
+           "reason": "hand_written", "files": [], "editor": {"was_running": None}, "build": {"ran": False}, "verify": None, "restored": [], "started": metrics.now_iso()}
+    tc = toolchain or default_toolchain(run)
+    diff: list[str] = []
+    try:
+        running = tc.editor_status() is not None
+        rec["editor"]["was_running"] = running
+        if running:
+            live = tc.list_bind_widgets(class_path)
+            diff = cppgen.hand_written_diff(bindings, live)
+            rec["verify"] = {"class": class_path, "bindings": live, "match": not diff, "diff": diff}
+        else:
+            rec["verify"] = {"class": class_path, "match": None, "note": "editor not running — checked by the bindings gate"}
+    except ToolchainError as exc:
+        rec["error"] = {"code": exc.code, "message": str(exc)}
+    rec["durations_s"] = {"codegen": round(time.monotonic() - t_start, 3)}
+    _write_record(run, rec)
+    if rec.get("error"):
+        raise StageError(rec["error"]["code"], rec["error"]["message"])
+    if diff:
+        raise StageError("CONTRACT_MISMATCH", f"{class_path} (hand-written) does not match the request: " + "; ".join(diff[:6]), diff=diff)
+    return (f"skipped — {screen_id} has a hand-written parent {class_path}: no C++ "
+            + (f"({len(bindings)} binding(s) match its reflection)" if rec["verify"]["match"] else "(editor not running — the bindings gate checks it)"))
+
+
 def _write_record(run, rec: dict) -> None:
     rec["finished"] = metrics.now_iso()
     schema.require("codegen", rec)
@@ -207,8 +240,10 @@ def run(run, opts, toolchain=None) -> str:
     if errs:
         raise StageError("SCREEN_CONFIG", "; ".join(errs), errors=errs)
     contract_class = (brief.get("binding_contract") or {}).get("class")
-    if contract_class and contract_class != f"U{screen['widget']}":
-        raise StageError("CONTRACT_CLASS", f"brief.binding_contract.class '{contract_class}' != screens.yaml '{screen_id}.widget' U{screen['widget']}")
+    if contract_class and contract_class != f"U{cppgen.parent_class(screen)}":
+        raise StageError("CONTRACT_CLASS", f"brief.binding_contract.class '{contract_class}' != screens.yaml '{screen_id}' U{cppgen.parent_class(screen)}")
+    if cppgen.hand_written(screen):
+        return _hand_written(run, spec, screen_id, screen, cg, t_start, toolchain)
 
     module_root = _module_root(run, opts)
     paths = cppgen.target_paths(module_root, cg["ui_dir"], screen)

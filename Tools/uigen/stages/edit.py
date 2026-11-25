@@ -15,6 +15,7 @@ import json
 import pathlib
 import shutil
 
+from core import button
 from core import config
 from core import cppgen
 from core import geometry as geo
@@ -244,7 +245,7 @@ def contract_guard(run, opts, toolchain=None) -> None:
     screen = config.load_screens().get(screen_id)
     if not isinstance(screen, dict):
         raise StageError("SCREEN_UNKNOWN", f"screens.yaml has no screen '{screen_id}'")
-    if screen.get("probe"):
+    if screen.get("probe") or cppgen.hand_written(screen):       # C++ 를 만들지 않는 화면 — 손으로 쓴 부모는 codegen 이 리플렉션과 대조한다
         return
     paths = cppgen.target_paths(codegen._module_root(run, opts), cg["ui_dir"], screen)      # noqa: SLF001
     have = {k: cppgen.read_generated(p) for k, p in paths.items()}
@@ -315,13 +316,11 @@ def recorded_requests(run_dir, attempt: int, cfg: dict) -> dict[str, dict]:
     return rp.requests or {}
 
 
-def render_all(tc, cfg: dict, wbp: str, out: pathlib.Path, canvas, requests: dict, brief: dict) -> dict[str, str]:
+def render_all(tc, cfg: dict, wbp: str, out: pathlib.Path, canvas, requests: dict, brief: dict, profile: str = "hud") -> dict[str, str]:
     """WBP 하나의 그림 전부 — attempt_images 와 같은 이름(세 해상도 force_visible · 상태 · sample)."""
     from stages import verify
     out = pathlib.Path(out)
-    resolutions = [list(map(int, r)) for r in cfg["render"]["resolutions"]]
-    if list(canvas) not in resolutions:
-        resolutions.insert(0, list(canvas))
+    resolutions = verify.render_resolutions(cfg, config.load_profile(profile), canvas)
     r = tc.call("render_widget", {"asset_path": wbp, "output_dir": (out / "render").resolve().as_posix(), "resolutions": resolutions,
                                   "force_visible": True, "prefix": "render"})
     images = {pathlib.Path(x["png"]).stem: x["png"] for x in r["renders"]}
@@ -335,8 +334,11 @@ def render_all(tc, cfg: dict, wbp: str, out: pathlib.Path, canvas, requests: dic
 def compare_wbp(tc, cfg: dict, spec: dict, brief: dict, wbp: str, textures: dict[str, str], requests: dict, want: dict[str, str], out) -> dict:
     """저장된 WBP(승격본)가 이 spec · 이 그림들(want)과 같은가 — 역추출 + 렌더 전부. {revision, roundtrip_equal, diffs, unsupported, renders}."""
     ex = tc.call("export_widget_spec", {"asset_path": wbp, "assets": textures})
-    same, diffs = spec_mod.roundtrip_equal(spec, ex.get("spec") or {}, {v: k for k, v in textures.items()})
-    got = render_all(tc, cfg, wbp, out, [int(v) for v in spec["canvas"]], requests, brief)
+    ue_to_asset = {v: k for k, v in textures.items()}
+    same, diffs = spec_mod.roundtrip_equal(spec, ex.get("spec") or {}, ue_to_asset)
+    diffs = diffs + button.style_diff(spec, ex, ue_to_asset)
+    same = same and not diffs
+    got = render_all(tc, cfg, wbp, out, [int(v) for v in spec["canvas"]], requests, brief, spec["profile"])
     return {"revision": ex.get("revision"), "roundtrip_equal": same, "diffs": diffs[:10], "unsupported": ex.get("unsupported") or [],
             "renders": edit_gate.compare_sets(want, got)}
 
@@ -585,8 +587,8 @@ def _with_spec(run, tc, wbp: str, spec: dict, back: dict, fn):
     assets = {a["asset_id"]: a["ue_path"] for a in manifest["assets"]}
 
     def apply(sp, rev):
-        n = spec_mod.normalize(sp)
-        return tc.call("apply_widget_spec", {"asset_path": wbp, "spec": {"root": n["root"], "widgets": n["widgets"], "locked": n["locked"]}, "assets": assets,
+        from stages import build
+        return tc.call("apply_widget_spec", {"asset_path": wbp, "spec": build.editor_target(sp, state), "assets": assets,
                                              "expected_revision": rev})["revision_after"]
 
     rev = apply(spec, state["revision"])

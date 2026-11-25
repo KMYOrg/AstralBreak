@@ -655,6 +655,205 @@ bool FWidgetMcpGuardTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 버튼 칸(uigen Phase 3-2) — 스타일 애셋 · 클래스 기본값 · 상태 일곱 렌더 · 안 먹은 덮어쓰기 = 오류 · 칸을 다른 화면에 놓기(UserWidget)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWidgetMcpButtonCellTest, "WidgetMcp.Tools.ButtonCell", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+bool FWidgetMcpButtonCellTest::RunTest(const FString& Parameters)
+{
+	FHarness H(TEXT("Button"));
+	struct FBrush { const TCHAR* Name; FColor Color; const TCHAR* Override; };
+	const FBrush Brushes[] = {
+		{ TEXT("normal_base"), FColor(200, 0, 0), TEXT("{}") }, { TEXT("normal_hovered"), FColor(0, 200, 0), TEXT(R"({".":{"button":"hovered"}})") },
+		{ TEXT("normal_pressed"), FColor(0, 0, 200), TEXT(R"({".":{"button":"pressed"}})") }, { TEXT("selected_base"), FColor(200, 200, 0), TEXT(R"({".":{"button":"selected"}})") },
+		{ TEXT("selected_hovered"), FColor(0, 200, 200), TEXT(R"({".":{"button":"selected_hovered"}})") },
+		{ TEXT("selected_pressed"), FColor(200, 0, 200), TEXT(R"({".":{"button":"selected_pressed"}})") }, { TEXT("disabled"), FColor(120, 120, 120), TEXT(R"({".":{"enabled":false}})") },
+	};
+	FString Textures, AssetMap, BrushJson;
+	for (const FBrush& B : Brushes)
+	{
+		TArray<FColor> Pixels;
+		Pixels.Init(B.Color, 120 * 40);
+		const FString File = FPaths::Combine(H.DiskDir, FString(B.Name) + TEXT(".png"));
+		FImageUtils::SaveImageByExtension(*File, FImageView(Pixels.GetData(), 120, 40, EGammaSpace::sRGB));
+		const TCHAR* Comma = Textures.IsEmpty() ? TEXT("") : TEXT(",");
+		Textures += FString::Printf(TEXT("%s{\"file\":\"%s\",\"name\":\"T_%s\"}"), Comma, *File, B.Name);
+		AssetMap += FString::Printf(TEXT("%s\"%s\":\"%s/T_%s\""), Comma, B.Name, *H.RunPath, B.Name);
+		BrushJson += FString::Printf(TEXT("%s\"%s\":{\"asset\":\"%s\"}"), Comma, B.Name, B.Name);
+	}
+	FCall C = H.Call(TEXT("import_ui_textures"), FString::Printf(TEXT(R"({"dest_path":"%s","textures":[%s]})"), *H.RunPath, *Textures));
+	if (!TestTrue(FString::Printf(TEXT("textures imported (%s %s)"), *C.Code, *C.Message), C.bOk)) { H.Discard(); return true; }
+	const TSharedRef<FJsonObject> Assets = Json(FString::Printf(TEXT("{%s}"), *AssetMap));
+	const FString StylePath = H.RunPath + TEXT("/BS_Button");
+	const FString StyleParent = UWidgetMcpTestButtonStyle::StaticClass()->GetPathName();
+	const auto StyleBody = [&](const FString& BrushList, const FString& Extra)
+	{
+		return FString::Printf(TEXT(R"({"asset_path":"%s","parent_class":"%s","brushes":{%s},"assets":%s%s})"), *StylePath, *StyleParent, *BrushList, *EditorMcpJson::ToString(Assets), *Extra);
+	};
+	const FString Size = TEXT(R"(,"min_size":[120,40])");
+
+	// 거절 — 하나라도 비면 아무것도 안 만든다
+	C = H.Call(TEXT("create_button_style"), StyleBody(BrushJson.Replace(TEXT(",\"disabled\":{\"asset\":\"disabled\"}"), TEXT("")), Size));
+	TestEqual(TEXT("a missing Disabled brush is refused"), C.Reason, FString(TEXT("BRUSH_MISSING")));
+	C = H.Call(TEXT("create_button_style"), StyleBody(BrushJson.Replace(TEXT("\"disabled\":{\"asset\":\"disabled\"}"), TEXT("\"disabled\":{\"draw_as\":\"none\"}")), Size));
+	TestEqual(TEXT("an empty Disabled brush is refused"), C.Reason, FString(TEXT("BRUSH_EMPTY")));
+	C = H.Call(TEXT("create_button_style"), StyleBody(BrushJson, Size + TEXT(R"(,"props":{"Nope":1})")));
+	TestEqual(TEXT("an unknown style property is refused"), C.Reason, FString(TEXT("PROP")));
+	C = H.Call(TEXT("create_button_style"), StyleBody(BrushJson, TEXT("")));
+	TestEqual(TEXT("no size is refused"), C.Reason, FString(TEXT("MIN_SIZE")));
+	TestFalse(TEXT("nothing was created by the refused calls"), WidgetMcp::PackageExists(StylePath));
+
+	C = H.Call(TEXT("create_button_style"), StyleBody(BrushJson, Size + TEXT(R"(,"props":{"PressedTextOffset":[0,1]})")));
+	if (!TestTrue(FString::Printf(TEXT("style ok (%s %s)"), *C.Code, *C.Message), C.bOk)) { H.Discard(); return true; }
+	TestEqual(TEXT("seven brushes read back"), C.Result->GetObjectField(TEXT("brushes"))->Values.Num(), 7);
+	TestEqual(TEXT("extra property read back"), C.Result->GetObjectField(TEXT("props"))->GetArrayField(TEXT("PressedTextOffset"))[1]->AsNumber(), 1.0);
+	C = H.Call(TEXT("create_button_style"), StyleBody(BrushJson, Size));
+	TestEqual(TEXT("rewriting needs replace"), C.Code, FString(TEXT("ASSET_EXISTS")));
+	C = H.Call(TEXT("create_button_style"), StyleBody(BrushJson, Size + TEXT(R"(,"replace":true,"props":{"PressedTextOffset":[0,2]})")));
+	TestTrue(TEXT("replace rewrites the run's own style"), C.bOk && C.Result->GetObjectField(TEXT("props"))->GetArrayField(TEXT("PressedTextOffset"))[1]->AsNumber() == 2.0);
+
+	// 버튼 WBP — 클래스 기본값 Style 은 트리와 한 묶음으로 적용 · 역추출
+	const FString Cell = H.RunPath + TEXT("/Cells/WBP_Button");
+	C = H.Call(TEXT("create_widget_blueprint"), FString::Printf(TEXT(R"({"asset_path":"%s","parent_class":"%s"})"), *(H.RunPath + TEXT("/WBP_Loose")), *UWidgetMcpTestHud::StaticClass()->GetPathName()));
+	const FString LooseRevision = C.bOk ? C.Result->GetStringField(TEXT("revision")) : FString();
+	C = H.Call(TEXT("create_widget_blueprint"), FString::Printf(TEXT(R"({"asset_path":"%s","parent_class":"%s"})"), *Cell, *UWidgetMcpTestButton::StaticClass()->GetPathName()));
+	if (!TestTrue(FString::Printf(TEXT("button blueprint ok (%s %s)"), *C.Code, *C.Message), C.bOk)) { H.Discard(); return true; }
+	FString Revision = C.Result->GetStringField(TEXT("revision"));
+	const auto CellSpec = [](const FString& Defaults)
+	{
+		return Json(FString::Printf(TEXT(R"({"root":"Root","widgets":[{"id":"Root","type":"CanvasPanel"},{"id":"ButtonLabel","type":"TextBlock","parent":"Root","slot":{"kind":"canvas","anchors":[0.5,0.5,0.5,0.5],"alignment":[0.5,0.5],"auto_size":true},"text":{"value":"OK"},"font":{"size":12}}]%s})"),
+			*Defaults));
+	};
+	const FString OtherStyle = FString::Printf(TEXT(R"(,"defaults":{"Style":"%s"})"), *StylePath);
+	// 스타일은 WBP 와 같은 폴더이거나 승격 경로여야 한다 — 이 WBP 는 하위 폴더라 거절
+	C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Cell, CellSpec(OtherStyle), Revision, Assets));
+	TestEqual(TEXT("a style outside the blueprint's folder is refused"), C.Reason, FString(TEXT("DEFAULTS")));
+	const FString CellStyle = H.RunPath + TEXT("/Cells/BS_Button");
+	C = H.Call(TEXT("create_button_style"), StyleBody(BrushJson, Size).Replace(*StylePath, *CellStyle));
+	TestTrue(TEXT("style next to the blueprint"), C.bOk);
+	const FString Defaults = FString::Printf(TEXT(R"(,"defaults":{"Style":"%s"})"), *CellStyle);
+	C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Cell, CellSpec(TEXT(R"(,"defaults":{"MinWidth":4})")), Revision, Assets));
+	TestEqual(TEXT("only Style can be set"), C.Reason, FString(TEXT("DEFAULTS")));
+	C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, H.RunPath + TEXT("/WBP_Loose"), CellSpec(Defaults), LooseRevision, Assets));
+	TestFalse(TEXT("defaults on a blueprint that is not a button are refused"), C.bOk);
+	C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Cell, CellSpec(Defaults), Revision, Assets));
+	if (!TestTrue(FString::Printf(TEXT("apply ok (%s %s)"), *C.Code, *C.Message), C.bOk)) { H.Discard(); return true; }
+	Revision = C.Result->GetStringField(TEXT("revision_after"));
+	C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Cell, CellSpec(Defaults), Revision, Assets));
+	TestTrue(TEXT("idempotent apply"), C.bOk && C.Result->GetArrayField(TEXT("ops")).Num() == 0 && C.Result->GetStringField(TEXT("revision_after")) == Revision);
+	// 컴파일을 한 번 더 하지 않아도 새 인스턴스가 이 스타일을 물려받는다
+	C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","resolutions":[[120,40]],"probes":[{"id":"corner","at":[5,5]}]})"), *Cell, *FPaths::Combine(H.DiskDir, TEXT("right_after_apply"))));
+	if (TestTrue(TEXT("render right after apply ok"), C.bOk))
+	{
+		const FColor Got = FColor::FromHex(C.Result->GetArrayField(TEXT("probes"))[0]->AsObject()->GetStringField(TEXT("color")));
+		TestTrue(FString::Printf(TEXT("the style is drawn right after apply (%s)"), *Got.ToHex()), FMath::Abs(Got.R - Brushes[0].Color.R) <= 2 && FMath::Abs(Got.G - Brushes[0].Color.G) <= 2 && FMath::Abs(Got.B - Brushes[0].Color.B) <= 2);
+	}
+	C = H.Call(TEXT("compile_widget_blueprint"), FString::Printf(TEXT(R"({"asset_path":"%s"})"), *Cell));
+	TestTrue(TEXT("the style survives another compile"), C.bOk && C.Result->GetStringField(TEXT("revision")) == Revision);
+	C = H.Call(TEXT("export_widget_spec"), FString::Printf(TEXT(R"({"asset_path":"%s","assets":%s})"), *Cell, *EditorMcpJson::ToString(Assets)));
+	if (TestTrue(TEXT("export ok"), C.bOk))
+	{
+		TestEqual(TEXT("defaults come back"), C.Result->GetObjectField(TEXT("spec"))->GetObjectField(TEXT("defaults"))->GetStringField(TEXT("Style")), CellStyle);
+		TestEqual(TEXT("style textures are described"), C.Result->GetArrayField(TEXT("textures")).Num(), 7);
+		TestEqual(TEXT("style brush comes back as an asset id"), C.Result->GetObjectField(TEXT("button_style"))->GetObjectField(TEXT("brushes"))->GetObjectField(TEXT("disabled"))->GetStringField(TEXT("asset")), FString(TEXT("disabled")));
+	}
+
+	// 상태 일곱 — 진짜 버튼 상태로 그린 색 = 그 상태의 브러시(선택 + 누름까지)
+	for (const FBrush& B : Brushes)
+	{
+		const FString Out = FPaths::Combine(H.DiskDir, FString(TEXT("state_")) + B.Name);
+		C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","resolutions":[[120,40]],"probes":[{"id":"corner","at":[5,5]}],"overrides":%s})"), *Cell, *Out, B.Override));
+		if (!TestTrue(FString::Printf(TEXT("render %s ok (%s %s)"), B.Name, *C.Code, *C.Message), C.bOk)) { continue; }
+		const FString Hex = C.Result->GetArrayField(TEXT("probes"))[0]->AsObject()->GetStringField(TEXT("color"));
+		const FColor Got = FColor::FromHex(Hex);
+		TestTrue(FString::Printf(TEXT("%s draws its own brush (%s)"), B.Name, *Hex), FMath::Abs(Got.R - B.Color.R) <= 2 && FMath::Abs(Got.G - B.Color.G) <= 2 && FMath::Abs(Got.B - B.Color.B) <= 2);
+		const TArray<TSharedPtr<FJsonValue>>& Desired = C.Result->GetArrayField(TEXT("renders"))[0]->AsObject()->GetArrayField(TEXT("desired_size"));
+		TestTrue(FString::Printf(TEXT("%s keeps the button size (%.1f x %.1f)"), B.Name, Desired[0]->AsNumber(), Desired[1]->AsNumber()), Desired[0]->AsNumber() == 120.0 && Desired[1]->AsNumber() == 40.0);
+	}
+	// 안 먹은 덮어쓰기는 오류 — 없는 위젯 · 버튼이 아님 · 모르는 상태 · 꺼진 버튼을 누름
+	const TCHAR* const Bad[] = { TEXT(R"({"Nope":{"enabled":false}})"), TEXT(R"({"ButtonLabel":{"button":"hovered"}})"), TEXT(R"({".":{"button":"glowing"}})"), TEXT(R"({".":{"enabled":false,"button":"pressed"}})") };
+	for (int32 i = 0; i < static_cast<int32>(UE_ARRAY_COUNT(Bad)); ++i)
+	{
+		C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","resolutions":[[120,40]],"overrides":%s})"), *Cell, *FPaths::Combine(H.DiskDir, FString::Printf(TEXT("bad_%d"), i)), Bad[i]));
+		TestEqual(FString::Printf(TEXT("override %s is an error"), Bad[i]), C.Reason, FString(TEXT("OVERRIDE_NOT_APPLIED")));
+	}
+
+	// 칸을 다른 화면에 놓기 — 승격 경로의 클래스만 · 허용한 속성만 · 왕복 · 칸 안까지 덮어쓰기
+	TArray<FString> SavedPaths;
+	GConfig->GetArray(WidgetMcp::Section, TEXT("WidgetPromotionPaths"), SavedPaths, GEngineIni);
+	const FString Screen = H.RunPath + TEXT("/WBP_Screen");
+	C = H.Call(TEXT("create_widget_blueprint"), FString::Printf(TEXT(R"({"asset_path":"%s"})"), *Screen));
+	TestTrue(TEXT("screen created"), C.bOk);
+	const FString ScreenRevision = C.bOk ? C.Result->GetStringField(TEXT("revision")) : FString();
+	const auto ScreenSpec = [&Cell](const FString& PropsA)
+	{
+		return Json(FString::Printf(TEXT(R"({"root":"Root","widgets":[{"id":"Root","type":"CanvasPanel"},
+			{"id":"CellA","type":"UserWidget","class":"%s","parent":"Root","slot":{"kind":"canvas","position":[10,10],"size":[120,40],"auto_size":true},"props":%s},
+			{"id":"CellB","type":"UserWidget","class":"%s","parent":"Root","slot":{"kind":"canvas","position":[200,10],"size":[120,40]}}]})"), *Cell, *PropsA, *Cell));
+	};
+	C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Screen, ScreenSpec(TEXT(R"({"ButtonText":"GO"})")), ScreenRevision, MakeShared<FJsonObject>()));
+	TestEqual(TEXT("a cell outside the promotion paths is refused"), C.Reason, FString(TEXT("CELL_CLASS")));
+	{
+		TArray<FString> Paths = SavedPaths;
+		Paths.Add(H.RunPath + TEXT("/Cells/"));
+		GConfig->SetArray(WidgetMcp::Section, TEXT("WidgetPromotionPaths"), Paths, GEngineIni);
+	}
+	C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Screen, ScreenSpec(TEXT(R"({"Style":"x"})")), ScreenRevision, MakeShared<FJsonObject>()));
+	TestEqual(TEXT("a property that is not listed is refused"), C.Reason, FString(TEXT("BAD_VALUE")));
+	C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Screen, ScreenSpec(TEXT(R"({"ButtonText":"GO"})")), ScreenRevision, MakeShared<FJsonObject>()));
+	if (TestTrue(FString::Printf(TEXT("screen apply ok (%s %s)"), *C.Code, *C.Message), C.bOk))
+	{
+		const FString After = C.Result->GetStringField(TEXT("revision_after"));
+		C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Screen, ScreenSpec(TEXT(R"({"ButtonText":"GO"})")), After, MakeShared<FJsonObject>()));
+		TestTrue(TEXT("idempotent with cells"), C.bOk && C.Result->GetArrayField(TEXT("ops")).Num() == 0);
+		C = H.Call(TEXT("compile_widget_blueprint"), FString::Printf(TEXT(R"({"asset_path":"%s"})"), *Screen));
+		C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","resolutions":[[400,60]]})"), *Screen, *FPaths::Combine(H.DiskDir, TEXT("cell_texts"))));
+		if (TestTrue(TEXT("screen geometry ok"), C.bOk))
+		{
+			TMap<FString, TSharedPtr<FJsonObject>> Rows;
+			for (const TSharedPtr<FJsonValue>& V : C.Result->GetArrayField(TEXT("renders"))[0]->AsObject()->GetArrayField(TEXT("geometry"))) { Rows.Add(V->AsObject()->GetStringField(TEXT("id")), V->AsObject()); }
+			const TSharedPtr<FJsonObject>* Inner = Rows.Find(TEXT("CellA/ButtonLabel"));
+			TestTrue(TEXT("the label inside a placed cell has its own row"), Inner && (*Inner)->GetStringField(TEXT("parent")) == TEXT("CellA") && (*Inner)->GetStringField(TEXT("type")) == TEXT("TextBlock")
+				&& (*Inner)->GetNumberField(TEXT("w")) > 0.0 && (*Inner)->GetNumberField(TEXT("x")) >= 10.0);
+			TestFalse(TEXT("only the texts of a cell are listed"), Rows.Contains(TEXT("CellA/InternalRootButtonBase")));
+		}
+		C = H.Call(TEXT("export_widget_spec"), FString::Printf(TEXT(R"({"asset_path":"%s"})"), *Screen));
+		if (TestTrue(TEXT("screen export ok"), C.bOk))
+		{
+			const TSharedPtr<FJsonObject> A = FindWidget(C.Result->GetObjectField(TEXT("spec")), TEXT("CellA"));
+			const TSharedPtr<FJsonObject> B = FindWidget(C.Result->GetObjectField(TEXT("spec")), TEXT("CellB"));
+			TestEqual(TEXT("cell type"), A->GetStringField(TEXT("type")), FString(TEXT("UserWidget")));
+			TestEqual(TEXT("cell class"), A->GetStringField(TEXT("class")), Cell);
+			TestEqual(TEXT("cell property"), A->GetObjectField(TEXT("props"))->GetStringField(TEXT("ButtonText")), FString(TEXT("GO")));
+			TestFalse(TEXT("no props when they are the class defaults"), B->HasField(TEXT("props")));
+			TestEqual(TEXT("nothing unsupported"), C.Result->GetArrayField(TEXT("unsupported")).Num(), 0);
+		}
+		C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","resolutions":[[340,60]],"probes":[{"id":"a","at":[15,15]},{"id":"b","at":[205,15]}],"overrides":{"CellA":{"button":"hovered"},"CellB":{"enabled":false},"CellA/ButtonLabel":{"text":"IN"}}})"),
+			*Screen, *FPaths::Combine(H.DiskDir, TEXT("screen"))));
+		if (TestTrue(FString::Printf(TEXT("screen render ok (%s %s)"), *C.Code, *C.Message), C.bOk))
+		{
+			const TArray<TSharedPtr<FJsonValue>>& Probes = C.Result->GetArrayField(TEXT("probes"));
+			const FColor A = FColor::FromHex(Probes[0]->AsObject()->GetStringField(TEXT("color")));
+			const FColor B = FColor::FromHex(Probes[1]->AsObject()->GetStringField(TEXT("color")));
+			TestTrue(FString::Printf(TEXT("cell A is hovered (%s)"), *A.ToHex()), A.G > 190 && A.R < 10);
+			TestTrue(FString::Printf(TEXT("cell B is disabled (%s)"), *B.ToHex()), FMath::Abs(B.R - 120) <= 2 && FMath::Abs(B.G - 120) <= 2);
+			for (const TSharedPtr<FJsonValue>& V : C.Result->GetArrayField(TEXT("renders"))[0]->AsObject()->GetArrayField(TEXT("geometry")))
+			{
+				if (V->AsObject()->GetStringField(TEXT("id")) == TEXT("CellA"))
+				{
+					TestEqual(TEXT("geometry names the cell type"), V->AsObject()->GetStringField(TEXT("type")), FString(TEXT("UserWidget")));
+					TestEqual(TEXT("an auto-sized cell takes its own width"), V->AsObject()->GetNumberField(TEXT("w")), 120.0);
+				}
+			}
+		}
+		C = H.Call(TEXT("render_widget"), FString::Printf(TEXT(R"({"asset_path":"%s","output_dir":"%s","resolutions":[[340,60]],"overrides":{"CellA/Nope":{"enabled":false}}})"), *Screen, *FPaths::Combine(H.DiskDir, TEXT("screen_bad"))));
+		TestEqual(TEXT("a wrong path inside a cell is an error"), C.Reason, FString(TEXT("OVERRIDE_NOT_APPLIED")));
+	}
+	GConfig->SetArray(WidgetMcp::Section, TEXT("WidgetPromotionPaths"), SavedPaths, GEngineIni);
+
+	H.Discard();
+	TestNull(TEXT("discarded style is gone"), FindObject<UBlueprint>(nullptr, *(StylePath + TEXT(".BS_Button"))));
+	return true;
+}
+
 // import_font_family (1b-3) — 엔진 Roboto 두 파일을 시험 폴더로 복사해 임포트한다. 성공 경로는 코어를 직접 불러 WidgetFontOutputPaths 를
 // run 접두(/Game/_AutoGen/)로 바꾼 설정 · save=false 로(프로젝트 폰트 폴더에 시험 애셋을 만들지 않게), 거부 경로는 디스패처 + 실제 ini 로.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWidgetMcpImportFontTest, "WidgetMcp.Tools.ImportFont", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)

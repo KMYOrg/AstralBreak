@@ -7,6 +7,8 @@
 - 결함 손잡이: texture_override(임포트 설정 바꾸기) · drop_from_export(역추출에서 위젯 빼기) · compile_errors.
 - Phase 4(이어서 고치기): paint = True 면 실제 크기 그림(보이는 위젯마다 자기 색 상자 · 글자는 크기 × 글자 수라 상자 밖으로 넘친다 · 끈 위젯은 배치에서도 빠진다),
   content_root 를 주면 저장 · 승격한 패키지가 그 폴더의 .uasset(JSON) 이고 새 세션은 거기서 읽는다(파일을 바꾸면 에디터가 그것을 본다).
+- Phase 3-2(버튼 칸): create_button_style · 클래스 기본값 Style · 안쪽 버튼 geometry · 원하는 크기 · 덮어쓰기 enabled / button(버튼이 아니면 OVERRIDE_NOT_APPLIED).
+  결함 손잡이: style_override(역추출한 스타일 바꾸기) · refuse_override(안 먹는 상태) · desired_override.
 """
 from __future__ import annotations
 
@@ -145,6 +147,9 @@ class FakeEditor:
         self.paint_bleed: dict[str, str] = {}           # 위젯 → 그 위젯이 바뀌면 같이 그려지는 다른 위젯(대상 밖이 바뀌는 엔진 결함 흉내)
         self.promote_error: FakeBridgeError | None = None
         self.content_root: pathlib.Path | None = None
+        self.style_override: dict = {}                  # 역추출 button_style 을 덮는다(결함 시험)
+        self.refuse_override: set[str] = set()          # 이 button 상태 덮어쓰기는 안 먹는다(OVERRIDE_NOT_APPLIED)
+        self.desired_override: list | None = None
 
     def end_session(self) -> None:
         self.packages = {k: v for k, v in self.packages.items() if v.get("saved")}
@@ -197,7 +202,7 @@ class FakeEditor:
         return w
 
     def _revision(self, w) -> str:
-        return _rev({"parent": w["parent"], "spec": w["spec"]})
+        return _rev({"parent": w["parent"], "spec": w["spec"], **({"defaults": w["defaults"]} if w.get("defaults") else {})})
 
     def _compile(self, w) -> dict:
         have = {x["id"]: x["type"] for x in w["spec"]["widgets"]}
@@ -226,6 +231,26 @@ class FakeEditor:
         comp = {"ran": False, "reason": f"parent has {required} required BindWidget(s)"} if required else {"ran": True, **self._compile(w)}
         return {"asset_path": f"{path}.{path.rsplit('/', 1)[-1]}", "parent_class": w["parent"], "root": root, "root_type": "CanvasPanel",
                 "revision": self._revision(w), "compile": comp, "bindings": self._bindings(), "saved": False}
+
+    def t_create_button_style(self, p):
+        path = p["asset_path"]
+        if path in self.packages and not p.get("replace"):
+            raise FakeBridgeError("OVERWRITE_NOT_ALLOWED", f"'{path}' already exists")
+        brushes = {}
+        for k, b in p["brushes"].items():
+            if b["asset"] not in p["assets"]:
+                raise FakeBridgeError("BUTTON_STYLE", f"BRUSH_EMPTY: {k} has no texture")
+            brushes[k] = {**copy.deepcopy(b), "asset": p["assets"][b["asset"]]}
+        self.packages[path] = {"kind": "style", "path": path, "parent": p.get("parent_class") or "/Script/CommonUI.CommonButtonStyle", "brushes": brushes,
+                               "min_size": list(p["min_size"]), "props": copy.deepcopy(p.get("props") or {})}
+        name = path.rsplit("/", 1)[1]
+        return {"asset_path": f"{path}.{name}", "class_path": f"{path}.{name}_C", "brushes": sorted(brushes), "saved": False}
+
+    def _style(self, w) -> dict | None:
+        path = (w.get("defaults") or {}).get("Style")
+        if path and self.packages.get(path, {}).get("kind") != "style":
+            raise FakeBridgeError("DEFAULTS", f"Style '{path}' is not a button style")
+        return self.packages[path] if path else None
 
     def t_apply_widget_spec(self, p):
         w = self._wbp(p["asset_path"])
@@ -258,6 +283,11 @@ class FakeEditor:
                     if brush["asset"] not in assets:
                         raise FakeBridgeError("ASSET_NOT_FOUND", f"no texture for asset '{brush['asset']}'")
                     brush["asset"] = assets[brush["asset"]]   # WBP 는 UE 경로를 담는다
+        defaults = target.pop("defaults", None)
+        if defaults != w.get("defaults"):
+            ops += [{"op": "set_default", "property": k} for k in (defaults or {})]
+        w["defaults"] = defaults
+        self._style(w)
         w["spec"] = target
         w["compiled"] = True
         return {"asset_path": w["path"], "ops": ops, "missing_bindings": [], "revision_before": before, "revision_after": self._revision(w),
@@ -282,8 +312,15 @@ class FakeEditor:
                     textures.add(brush["asset"])
                     if rev_map:
                         brush["asset"] = rev_map.get(brush["asset"], brush["asset"])
+        extra, style = {}, self._style(w)
+        if style:
+            spec["defaults"] = dict(w["defaults"])
+            textures |= {b["asset"] for b in style["brushes"].values()}
+            extra["button_style"] = {"class": w["defaults"]["Style"], "parent_class": style["parent"], "min_size": list(style["min_size"]), "props": copy.deepcopy(style["props"]),
+                                     "brushes": {k: {**b, "asset": rev_map.get(b["asset"], b["asset"])} for k, b in style["brushes"].items()}}
+            extra["button_style"].update(copy.deepcopy(self.style_override))
         tex = [{"asset_path": f"{t}.{t.rsplit('/', 1)[-1]}", **{k: v for k, v in self.packages[t].items() if k != "kind"}} for t in sorted(textures)]
-        return {"asset_path": w["path"], "parent_class": w["parent"], "spec": {"schema_version": 1, **spec}, "revision": self._revision(w),
+        return {"asset_path": w["path"], "parent_class": w["parent"], "spec": {"schema_version": 1, **spec}, "revision": self._revision(w), **extra,
                 "unsupported": [], "textures": tex, "bindings": self._bindings(), "guid_map_count": len(spec["widgets"]),
                 "widget_count": len(spec["widgets"]), "guid_missing": []}
 
@@ -307,9 +344,12 @@ class FakeEditor:
         types = {x["id"]: x["type"] for x in spec["widgets"]}
         parents = {x["id"]: x.get("parent", "") for x in spec["widgets"]}
         vis = {x["id"]: x.get("visibility", "visible") for x in spec["widgets"]}
+        style = self._style(w)
         for wid, ov in (p.get("overrides") or {}).items():
             if "visible" in ov:
                 vis[wid] = "hit_test_invisible" if ov["visible"] else "collapsed"
+            if ov.get("button") and (wid != "." or style is None or ov["button"] in self.refuse_override):
+                raise FakeBridgeError("OVERRIDE_NOT_APPLIED", f"'{wid}' button '{ov['button']}' did not take")
 
         def visible(wid):
             while wid:
@@ -332,7 +372,12 @@ class FakeEditor:
                 f = png.write_rgba(f, 2, 2, bytes([0, 0, 0, 255] * 4))
             geom = [{"id": wid, "type": types[wid], "parent": parents[wid], "x": b[0], "y": b[1], "w": b[2], "h": b[3], "visible": visible(wid)}
                     for wid, b in boxes.items()]
-            renders.append({"resolution": list(res), "png": f.as_posix(), "draws": 2, "diff_pixels_vs_prev": [0], "geometry": geom})
+            desired = {}
+            if style:                                          # UCommonButtonBase::Initialize 가 루트를 안쪽 버튼으로 감싼다
+                geom = [{"id": "InternalRootButtonBase", "type": "CommonButtonInternalBase", "parent": "", "x": 0, "y": 0, "w": res[0], "h": res[1], "visible": True}] + \
+                       [{**g, "parent": "InternalRootButtonBase"} if g["id"] == spec["root"] else g for g in geom]
+                desired = {"desired_size": list(self.desired_override or style["min_size"])}
+            renders.append({"resolution": list(res), "png": f.as_posix(), "draws": 2, "diff_pixels_vs_prev": [0], "geometry": geom, **desired})
         return {"asset_path": w["path"], "output_dir": out_dir.as_posix(), "renders": renders, "probes": [], "scale": 1,
                 "force_visible": bool(p.get("force_visible")), "seconds": 0.01}
 
@@ -389,6 +434,12 @@ class FakeEditor:
                     for key, brush in (x.get("style") or {}).items():
                         if key in spec_mod.BRUSH_KEYS and isinstance(brush, dict) and str(brush.get("asset") or "").startswith(run + "/"):
                             brush["asset"] = dest + brush["asset"][len(run):]
+                if str((q.get("defaults") or {}).get("Style") or "").startswith(run + "/"):
+                    q["defaults"]["Style"] = dest + q["defaults"]["Style"][len(run):]
+            if q["kind"] == "style":
+                q["path"] = dest + k[len(run):]
+                for b in q["brushes"].values():
+                    b["asset"] = dest + b["asset"][len(run):]
             self.packages[dest + k[len(run):]] = q
             self.write_disk(dest + k[len(run):])
             done.append(k)

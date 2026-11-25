@@ -16,7 +16,9 @@ class FConfigFile;
  *   +WidgetFontOutputPaths=/Game/UI/Fonts/     import_font_family 만 쓰는 접두 — 프로젝트 폰트는 run 산출물이 아니라 커밋 대상이라
  *                                              WidgetOutputPaths 와 따로 둔다(설계 §11 '1b 착수 때 정한 것' — §6 '쓰기는 /Game/_AutoGen/ 만'의 예외)
  *   +WidgetPromotionPaths=/Game/UI/HUD/        promote_widget 만 쓰는 접두 — 사람이 고른 run 을 이 아래 새 하위 폴더로 복사한다(원칙 5 '사람이 고른 것만
- *                                              /Game/UI/... 로 승격', M4 단위 C 가 앞당김). 이것도 커밋 대상이라 WidgetOutputPaths 와 따로 둔다
+ *                                              /Game/UI/... 로 승격', M4 단위 C 가 앞당김). 이것도 커밋 대상이라 WidgetOutputPaths 와 따로 둔다.
+ *                                              spec 의 UserWidget(칸)도 이 아래에 승격된 WBP 만 쓸 수 있다(uigen Phase 3-2)
+ *   +WidgetInstanceProperties=ButtonText       놓인 칸(UserWidget)마다 spec props 로 바꿀 수 있는 속성 이름(FText 만)
  * 목록이 비면 그 Tool 은 아무 데도 쓰지 · 읽지 않는다.
  */
 namespace WidgetMcp
@@ -30,7 +32,8 @@ namespace WidgetMcp
 		TArray<FString> ImportRoots;     // "D:/Proj/Tools/uigen/work/"
 		TArray<FString> RenderRoots;
 		TArray<FString> FontOutputPaths; // "/Game/UI/Fonts/" (정규화 접두) — import_font_family 전용
-		TArray<FString> PromotionPaths;  // "/Game/UI/HUD/" (정규화 접두) — promote_widget 전용
+		TArray<FString> PromotionPaths;  // "/Game/UI/HUD/" (정규화 접두) — promote_widget 전용 · UserWidget 칸이 있어야 하는 곳
+		TArray<FString> InstanceProperties; // "ButtonText" — UserWidget 칸의 props 로 바꿀 수 있는 속성
 		TArray<FString> Warnings;
 	};
 

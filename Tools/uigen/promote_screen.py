@@ -95,9 +95,9 @@ def require_no_unfinished(store: promo.Store, screen: str) -> None:
 
 
 def generated_contract(cfg: dict, opts, screen: str) -> str | None:
-    """지금 생성 C++ 의 계약 해시(검증 화면은 None)."""
+    """지금 생성 C++ 의 계약 해시(검증 화면 · 손으로 쓴 부모를 쓰는 칸은 생성 C++ 가 없어 None)."""
     sc = config.load_screens()[screen]
-    if sc.get("probe"):
+    if sc.get("probe") or cppgen.hand_written(sc):
         return None
     root = pathlib.Path(opts.module_root) if opts.module_root else config.repo_path(cfg["codegen"]["module_root"])
     return cppgen.read_generated(cppgen.target_paths(root, cfg["codegen"]["ui_dir"], sc)["view_base_h"])["hash"]
@@ -231,7 +231,8 @@ def cmd_status(opts, cfg, store) -> int:
         say(f"{screen}: {rec['run_id']} (parent {rec['parent_run_id']}, {len(rec['edits'])} edit(s)) -> {rec['dest']}")
         say(f"  promoted files {len(rec['files'])}: {'as recorded' if not files else 'CHANGED ' + json.dumps(files, ensure_ascii=False)}")
         say(f"  source bundle {len(rec['source'])}: {'as recorded' if not src else 'CHANGED ' + json.dumps(src, ensure_ascii=False)}")
-        say(f"  contract: {'matches the generated C++' if now in (None, rec['contract_hash']) else f'DIFFERS ({rec['contract_hash']} != {now})'}")
+        what = "no generated C++ (hand-written parent)" if now is None else "matches the generated C++" if now == rec["contract_hash"] else f"DIFFERS ({rec['contract_hash']} != {now})"
+        say(f"  contract: {what}")
         if left:
             say(f"  UNFINISHED promotion: {[p.name for p in left]}")
         bad_any = bad_any or bool(files or src or left) or now not in (None, rec["contract_hash"])

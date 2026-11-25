@@ -8,7 +8,8 @@
 //   U1  열기 전: W 를 누르면 A 의 폰이 움직인다
 //   U2  W 를 누른 채 A 에서 열기: 메뉴 입력 · 커서 · 마우스 안 잡음 · 첫 초점 = 첫 버튼, 눌려 있던 W 가 풀리고 폰이 선다. 다시 눌러도 게임에 안 간다
 //   U3  그동안 B: 메뉴 입력이 아니고 화면이 없다. W 로 B 의 폰이 움직인다(자리끼리 간섭 없음)
-//   U4  키보드 방향키로 초점이 둘째 버튼으로 옮겨 간다 — 그때의 모양(올림인가)을 적는다
+//   U4  키보드 방향키로 초점이 둘째 버튼으로 옮겨 간다. 프로젝트 버튼은 그때 올림 그림을 스스로 입고 엔진 초점 테두리를 안 낸다(초점을 잃으면 벗는다), 선택 모양이면 선택 + 올림.
+//       Enter 로 눌러도 스스로 선택되지 않는다. 견줄 것 — 엔진 버튼 그대로인 셋째는 테두리가 나온다
 //   U5  둘째 화면을 겹쳐 열면 첫 화면은 꺼지고 둘째에 초점. 뒤로(게임패드 B) = 둘째만 닫히고 첫 화면이 다시 켜진다(그 사이 Game 입력으로 떨어지지 않는다).
 //       뒤로 한 번 더 = 다 닫히고 Game 으로 복구
 //   U6  메뉴 위에 Modal: 뒤로 = Modal 만 닫힘(메뉴는 그대로 켜져 있다 · 그 사이 Game 입력으로 떨어지지 않는다), 한 번 더 = 메뉴도 닫힘
@@ -26,6 +27,7 @@
 #include "AstralUITestHelpers.h"
 
 #include "Blueprint/WidgetTree.h"
+#include "CommonButtonBase.h"
 #include "CommonGameViewportClient.h"
 #include "CommonInputModeTypes.h"
 #include "CommonInputSubsystem.h"
@@ -34,6 +36,7 @@
 #include "Engine/LocalPlayer.h"
 #include "Engine/UserInterfaceSettings.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Framework/Application/SlateUser.h"
 #include "GameFramework/InputDeviceSubsystem.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
@@ -43,6 +46,7 @@
 #include "Input/CommonUIInputSettings.h"
 #include "InputCoreTypes.h"
 #include "InputKeyEventArgs.h"
+#include "Layout/Children.h"
 #include "Player/AstralPlayerController.h"
 #include "UI/Foundation/AstralRootLayout.h"
 #include "UI/Foundation/AstralUISubsystem.h"
@@ -80,6 +84,9 @@ namespace AstralScreenStackPie
 		/** A 의 라우터가 입력 모드를 바꾼 차례 — 화면을 겹쳐 열고 닫는 동안 Game 으로 떨어지면 안 된다 */
 		TArray<ECommonInputMode> ModeChanges;
 		FDelegateHandle ModeChangedHandle;
+
+		/** U4 — 둘째 버튼이 눌린 횟수 */
+		int32 ClickCount = 0;
 
 		/** U8 — HUD 와 같은 WBP 를 예전 방식으로 띄운 것(자리 · 크기 비교) */
 		TArray<TStrongObjectPtr<UUserWidget>> Twins;
@@ -197,7 +204,7 @@ namespace AstralScreenStackPie
 	}
 
 	/** 그 버튼(안쪽 SButton 포함)에 초점이 있는가 */
-	bool HasFocus(int32 PlayerId, const UAstralScreenTestButton* Button)
+	bool HasFocus(int32 PlayerId, const UCommonButtonBase* Button)
 	{
 		AAstralPlayerController* PC = SeatPC(PlayerId);
 		return PC && Button && (Button->HasUserFocus(PC) || Button->HasUserFocusedDescendants(PC));
@@ -463,13 +470,42 @@ namespace AstralScreenStackPie
 	}
 
 	/** 버튼이 지금 어떤 모양인가 — 기록용 */
-	FString DescribeButton(int32 PlayerId, const UAstralScreenTestButton* Button)
+	/** 안쪽 버튼 — 부모(UCommonButtonBase)가 루트로 만든 것 */
+	const UCommonButtonInternalBase* InnerButton(const UCommonButtonBase* Button)
 	{
-		const TSharedPtr<SWidget> Inner = Button ? Button->GetInnerSlateButton() : nullptr;
+		return Button && Button->WidgetTree ? Cast<UCommonButtonInternalBase>(Button->WidgetTree->RootWidget) : nullptr;
+	}
+
+	/** 안쪽 SButton — UCommonButtonInternalBase 는 크기 상자(SBox)로 한 번 더 감싼다 */
+	TSharedPtr<SWidget> InnerSlateButton(const UCommonButtonBase* Button)
+	{
+		const UCommonButtonInternalBase* Root = InnerButton(Button);
+		const TSharedPtr<SWidget> Box = Root ? Root->GetCachedWidget() : nullptr;
+		FChildren* Children = Box ? Box->GetChildren() : nullptr;
+		return (Children && Children->Num() > 0) ? Children->GetChildAt(0).ToSharedPtr() : nullptr;
+	}
+
+	/** 가만히 있을 때 그리는 그림의 색 */
+	FLinearColor RestColor(const UCommonButtonBase* Button)
+	{
+		const UCommonButtonInternalBase* Inner = InnerButton(Button);
+		return Inner ? Inner->GetStyle().Normal.TintColor.GetSpecifiedColor() : FLinearColor::Transparent;
+	}
+
+	/** 엔진 초점 테두리가 그려지는가 */
+	bool ShowsEngineRing(const UCommonButtonBase* Button)
+	{
+		const TSharedPtr<FSlateUser> User = FSlateApplication::Get().GetUser(0);
+		return User && User->ShouldShowFocus(InnerSlateButton(Button));
+	}
+
+	FString DescribeButton(int32 PlayerId, const UCommonButtonBase* Button)
+	{
+		const TSharedPtr<SWidget> Inner = InnerSlateButton(Button);
 		const TSharedPtr<SWidget> Outer = Button ? Button->GetCachedWidget() : nullptr;
 		const auto ShowsFocus = [](const TSharedPtr<SWidget>& Widget) { const TOptional<EFocusCause> Cause = Widget ? Widget->HasUserFocus(0) : TOptional<EFocusCause>(); return Cause.IsSet() ? static_cast<int32>(Cause.GetValue()) : -1; };
-		return FString::Printf(TEXT("focus %d hovered %d(umg %d) focus cause outer %d inner %d"), HasFocus(PlayerId, Button) ? 1 : 0, (Inner && Inner->IsHovered()) ? 1 : 0, (Button && Button->IsHovered()) ? 1 : 0,
-			ShowsFocus(Outer), ShowsFocus(Inner));
+		return FString::Printf(TEXT("focus %d hovered %d(umg %d) focus cause outer %d inner %d ring %d"), HasFocus(PlayerId, Button) ? 1 : 0, (Inner && Inner->IsHovered()) ? 1 : 0, (Button && Button->IsHovered()) ? 1 : 0,
+			ShowsFocus(Outer), ShowsFocus(Inner), ShowsEngineRing(Button) ? 1 : 0);
 	}
 
 	void EnqueueKeyboardFocus(const TSharedRef<FContext>& Ctx)
@@ -487,10 +523,49 @@ namespace AstralScreenStackPie
 		Hold(Ctx, 0.3);
 		Do(Ctx, [Ctx]()
 		{
+			FAutomationTestBase& Test = *Ctx->Test;
+			UAstralScreenTestMenu* Menu = MenuOf(Ctx->Ids[0]);
+			const UAstralScreenTestButtonStyle* Style = GetDefault<UAstralScreenTestButtonStyle>();
+			Note(Test, FString::Printf(TEXT("U4: after down arrow — first [%s] second [%s]"), *DescribeButton(Ctx->Ids[0], Menu->FirstButton), *DescribeButton(Ctx->Ids[0], Menu->SecondButton)));
+			Test.TestTrue(TEXT("U4: the project button shows the focus look"), Menu->SecondButton->IsShowingFocusLook());
+			Test.TestEqual(TEXT("U4: the focus look is the hovered picture"), RestColor(Menu->SecondButton), Style->NormalHovered.TintColor.GetSpecifiedColor());
+			Test.TestFalse(TEXT("U4: the project button has no engine focus ring"), ShowsEngineRing(Menu->SecondButton));
+			Test.TestFalse(TEXT("U4: the button that lost the focus has no focus look"), Menu->FirstButton->IsShowingFocusLook());
+			Test.TestEqual(TEXT("U4: the button that lost the focus draws its base picture"), RestColor(Menu->FirstButton), Style->NormalBase.TintColor.GetSpecifiedColor());
+			Menu->SecondButton->SetSelectedLook(true);
+			Test.TestEqual(TEXT("U4: selected + focus = the selected hovered picture"), RestColor(Menu->SecondButton), Style->SelectedHovered.TintColor.GetSpecifiedColor());
+			Menu->SecondButton->SetSelectedLook(false);
+			Test.TestEqual(TEXT("U4: unselected again"), RestColor(Menu->SecondButton), Style->NormalHovered.TintColor.GetSpecifiedColor());
+			Ctx->ClickCount = 0;
+			TWeakPtr<FContext> WeakCtx = Ctx;
+			Menu->SecondButton->OnClicked().AddLambda([WeakCtx]()
+			{
+				if (const TSharedPtr<FContext> Pinned = WeakCtx.Pin())
+				{
+					++Pinned->ClickCount;
+				}
+			});
+			SlateTap(EKeys::Enter);
+		});
+		Wait(Ctx, TEXT("U4: Enter clicks the focused button"), 3.0, [Ctx]() { return Ctx->ClickCount == 1; });
+		Do(Ctx, [Ctx]()
+		{
+			Ctx->Test->TestFalse(TEXT("U4: a click does not select the button by itself"), MenuOf(Ctx->Ids[0])->SecondButton->GetSelected());
+			SlateTap(EKeys::Down);
+		});
+		Wait(Ctx, TEXT("U4: the focus moves to the engine's own button"), 3.0, [Ctx]() { const UAstralScreenTestMenu* Menu = MenuOf(Ctx->Ids[0]); return Menu && HasFocus(Ctx->Ids[0], Menu->PlainButton); });
+		Hold(Ctx, 0.3);
+		Do(Ctx, [Ctx]()
+		{
 			const UAstralScreenTestMenu* Menu = MenuOf(Ctx->Ids[0]);
-			Note(*Ctx->Test, FString::Printf(TEXT("U4: after down arrow — first [%s] second [%s]"), *DescribeButton(Ctx->Ids[0], Menu->FirstButton), *DescribeButton(Ctx->Ids[0], Menu->SecondButton)));
+			Note(*Ctx->Test, FString::Printf(TEXT("U4: engine button — second [%s] plain [%s]"), *DescribeButton(Ctx->Ids[0], Menu->SecondButton), *DescribeButton(Ctx->Ids[0], Menu->PlainButton)));
+			Ctx->Test->TestFalse(TEXT("U4: the focus look is taken off"), Menu->SecondButton->IsShowingFocusLook());
+			Ctx->Test->TestEqual(TEXT("U4: back to the base picture"), RestColor(Menu->SecondButton), GetDefault<UAstralScreenTestButtonStyle>()->NormalBase.TintColor.GetSpecifiedColor());
+			Ctx->Test->TestTrue(TEXT("U4: the engine's own button still shows the ring (control)"), ShowsEngineRing(Menu->PlainButton));
 			SlateTap(EKeys::Up);
 		});
+		Wait(Ctx, TEXT("U4: the up arrow moves the focus to the second button"), 3.0, [Ctx]() { const UAstralScreenTestMenu* Menu = MenuOf(Ctx->Ids[0]); return Menu && HasFocus(Ctx->Ids[0], Menu->SecondButton); });
+		Do(Ctx, []() { SlateTap(EKeys::Up); });
 		Wait(Ctx, TEXT("U4: the up arrow moves the focus back"), 3.0, [Ctx]() { const UAstralScreenTestMenu* Menu = MenuOf(Ctx->Ids[0]); return Menu && HasFocus(Ctx->Ids[0], Menu->FirstButton); });
 	}
 

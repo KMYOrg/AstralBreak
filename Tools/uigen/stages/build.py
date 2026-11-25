@@ -1,8 +1,8 @@
 """build — spec · manifest → /Game/_AutoGen/<run_id>/ 의 텍스처 · WBP (설계 §2-2 build · §6). 저장하지 않는다(finalize 몫).
 
 순서: 에디터 확인(없으면 core.ue.Toolchain 으로 기동 → 브리지 + settle) → import_ui_textures(manifest 의 ue_path 가 비어 있는 에셋만 —
-첫 시도는 전부, generate 로 다시 만든 에셋은 refine 이 ue_path 를 비운다) → create_widget_blueprint(첫 시도에만, 부모 = 스텁) →
-apply_widget_spec(정규화 spec {root, widgets, locked} + assets 맵 + expected_revision).
+첫 시도는 전부, generate 로 다시 만든 에셋은 refine 이 ue_path 를 비운다) → (버튼 칸) create_button_style(상태 그림이 바뀐 시도에만 — core/button) →
+create_widget_blueprint(첫 시도에만, 부모 = 스텁 또는 손으로 쓴 부모) → apply_widget_spec(정규화 spec {root, widgets, locked(, defaults)} + assets 맵 + expected_revision).
 
 텍스처 이름은 T_<asset_id>, 같은 에디터 세션에서 다시 임포트하면 T_<asset_id>_2 … (임포트는 덮어쓰기를 거부한다).
 에디터 세션(get_editor_status.process_id)이 지난 build 와 다르면(codegen 재기동 — quit 이 저장 안 한 run 패키지를 버렸다) 처음부터 다시 만든다
@@ -16,7 +16,9 @@ from __future__ import annotations
 import collections
 import time
 
+from core import button
 from core import config
+from core import cppgen
 from core import metrics
 from core import schema
 from core import spec as spec_mod
@@ -62,6 +64,7 @@ def reset_run(run, toolchain=None) -> dict:
     except ToolchainError as exc:
         raise toolchain_error(exc, "style revert: ") from exc
     state.update(wbp=None, revision=None, textures={}, names_used=[])
+    state.pop("button_style", None)
     save_state(run, state)
     manifest = run.read_json("manifest.json")
     for a in manifest["assets"]:
@@ -115,8 +118,8 @@ def run(run, opts, toolchain=None) -> str:
     screen = config.load_screens().get(screen_id)
     if not isinstance(screen, dict):
         raise StageError("SCREEN_UNKNOWN", f"screens.yaml has no screen '{screen_id}'")
-    # 1b 후속 G2 — 검증 화면(probe)은 C++ 가 없어 부모 = UserWidget
-    parent_class = "/Script/UMG.UserWidget" if screen.get("probe") else f"/Script/{cfg['codegen']['module']}.{screen['widget']}"
+    # 1b 후속 G2 — 검증 화면(probe)은 C++ 가 없어 부모 = UserWidget, 칸(Phase 3-2)은 손으로 쓴 부모
+    parent_class = "/Script/UMG.UserWidget" if screen.get("probe") else f"/Script/{cfg['codegen']['module']}.{cppgen.parent_class(screen)}"
     rpath = run_path(run)
     wbp_path = f"{rpath}/{wbp_name(screen_id, screen)}"
     tex_cfg = cfg["textures"]
@@ -133,6 +136,7 @@ def run(run, opts, toolchain=None) -> str:
                               "building from spec + manifest again")
             run.log(f"build: {entry['reset']}")
             state.update(wbp=None, revision=None, textures={}, names_used=[])
+            state.pop("button_style", None)
             for a in manifest["assets"]:
                 a["ue_path"] = None
         state["session"] = session
@@ -165,6 +169,12 @@ def run(run, opts, toolchain=None) -> str:
             entry["ops"].append("import")
             entry["imported"] = imported
 
+        # -- 버튼 스타일 (Phase 3-2 — 상태 그림이 바뀐 시도에만) ----------------------------------------------------------
+        if button.of(spec):
+            entry["style"] = _button_style(tc, run, state, spec, manifest, screen_id, screen, rpath)
+            if entry["style"]["written"]:
+                entry["ops"].append("style")
+
         # -- WBP 생성 (첫 시도 · 세션이 바뀐 뒤) ------------------------------------------------------------------------
         if not state["wbp"]:
             res = tc.call("create_widget_blueprint", {"asset_path": wbp_path, "parent_class": parent_class, "root_id": spec["root"]})
@@ -177,8 +187,7 @@ def run(run, opts, toolchain=None) -> str:
                                "required_bindings": sum(1 for b in res.get("bindings") or [] if not b.get("optional"))}
 
         # -- 조정기 -------------------------------------------------------------------------------------------------------
-        norm = spec_mod.normalize(spec)
-        target = {"root": norm["root"], "widgets": norm["widgets"], "locked": norm["locked"]}
+        target = editor_target(spec, state)
         assets = {a["asset_id"]: a["ue_path"] for a in manifest["assets"]}
         res = tc.call("apply_widget_spec", {"asset_path": wbp_path, "spec": target, "assets": assets, "expected_revision": state["revision"]})
         ops = res.get("ops") or []
@@ -201,6 +210,27 @@ def run(run, opts, toolchain=None) -> str:
     created = "create + " if "create" in entry["ops"] else ""
     return (f"attempt {attempt}: {created}apply {entry['apply']['ops']} op(s) → {state['revision'][:17]}…"
             f"{f', imported {imported} texture(s)' if imported else ''}{' (session reset)' if entry.get('reset') else ''}")
+
+
+def editor_target(spec: dict, state: dict) -> dict:
+    """apply_widget_spec 의 spec — 버튼 칸이면 기본 그림을 뺀 트리 + 이 run 의 스타일(core/button). 에디터에 적용하는 모든 곳이 이것을 쓴다."""
+    return button.editor_target(spec, (state.get("button_style") or {}).get("asset_path"))
+
+
+def _button_style(tc, run, state: dict, spec: dict, manifest: dict, screen_id: str, screen: dict, rpath: str) -> dict:
+    """버튼 칸의 스타일 애셋 — 텍스처 · 크기 · 값이 지난 것과 같으면 그대로 둔다. → {written, asset_path, class_path}."""
+    by_id = {a["asset_id"]: a["ue_path"] for a in manifest["assets"]}
+    used = button.brush_assets(spec)
+    params = {"asset_path": f"{rpath}/{button.style_name(screen_id)}", "brushes": button.brushes(spec), "min_size": button.min_size(spec),
+              "props": button.style_props(spec), "assets": {aid: by_id[aid] for aid in used.values()},
+              **({"parent_class": f"/Script/{run.cfg['codegen']['module']}.{screen['style_parent']}"} if screen.get("style_parent") else {})}
+    key = spec_mod.canonical_json(params)
+    old = state.get("button_style")
+    if old and old["key"] == key:
+        return {"written": False, "asset_path": old["asset_path"], "class_path": old["class_path"]}
+    res = tc.call("create_button_style", {**params, "replace": bool(old)})
+    state["button_style"] = {"asset_path": params["asset_path"], "class_path": res["class_path"], "key": key}
+    return {"written": True, "replaced": bool(old), "asset_path": params["asset_path"], "class_path": res["class_path"]}
 
 
 def _finish(run, state: dict, entry: dict, t_start: float) -> None:

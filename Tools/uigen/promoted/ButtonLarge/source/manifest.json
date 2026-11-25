@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_160008_ButtonLarge",
+  "assets": [
+    {
+      "asset_id": "button_art",
+      "kind": "panel_bg",
+      "file": "assets/final/button_art.png",
+      "sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+      "size": [
+        596,
+        132
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "the whole button exactly as drawn",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "button_art_normal_hovered",
+      "kind": "panel_bg",
+      "file": "assets/final/button_art_normal_hovered.png",
+      "sha256": "8d3885b40cce4291791ec396e810c1d55f96abc281e0804406c2cf182a97d0c8",
+      "size": [
+        596,
+        132
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "n/a — derived from 'button_art' (its own OCR applies)",
+      "provenance": "derived",
+      "backend": "derived",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_normal_hovered",
+      "compression": "TC_EditorIcon",
+      "derived": {
+        "from": "button_art",
+        "brush": "normal_hovered",
+        "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+        "theme": "blade",
+        "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+      }
+    },
+    {
+      "asset_id": "button_art_normal_pressed",
+      "kind": "panel_bg",
+      "file": "assets/final/button_art_normal_pressed.png",
+      "sha256": "facb67a0778888b9bcb1b2835711ebc745d424e2f6cb0885ab223cd9ebcd1c11",
+      "size": [
+        596,
+        132
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "n/a — derived from 'button_art' (its own OCR applies)",
+      "provenance": "derived",
+      "backend": "derived",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_normal_pressed",
+      "compression": "TC_EditorIcon",
+      "derived": {
+        "from": "button_art",
+        "brush": "normal_pressed",
+        "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+        "theme": "blade",
+        "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+      }
+    },
+    {
+      "asset_id": "button_art_selected_base",
+      "kind": "panel_bg",
+      "file": "assets/final/button_art_selected_base.png",
+      "sha256": "351105c213aa2699987c467eaeb86be3b781b03f27ba8da45adcdd830ab15909",
+      "size": [
+        596,
+        132
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "n/a — derived from 'button_art' (its own OCR applies)",
+      "provenance": "derived",
+      "backend": "derived",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_selected_base",
+      "compression": "TC_EditorIcon",
+      "derived": {
+        "from": "button_art",
+        "brush": "selected_base",
+        "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+        "theme": "blade",
+        "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+      }
+    },
+    {
+      "asset_id": "button_art_selected_hovered",
+      "kind": "panel_bg",
+      "file": "assets/final/button_art_selected_hovered.png",
+      "sha256": "160961ca903615f5461b07b9d2dc2a3e05344ca98ce78ab02708de4dd8847183",
+      "size": [
+        596,
+        132
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "n/a — derived from 'button_art' (its own OCR applies)",
+      "provenance": "derived",
+      "backend": "derived",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_selected_hovered",
+      "compression": "TC_EditorIcon",
+      "derived": {
+        "from": "button_art",
+        "brush": "selected_hovered",
+        "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+        "theme": "blade",
+        "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+      }
+    },
+    {
+      "asset_id": "button_art_selected_pressed",
+      "kind": "panel_bg",
+      "file": "assets/final/button_art_selected_pressed.png",
+      "sha256": "414cff14f22a34875024c53261b873ec2b43c1782b2ef5be3566a7e5b1ef05ec",
+      "size": [
+        596,
+        132
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "n/a — derived from 'button_art' (its own OCR applies)",
+      "provenance": "derived",
+      "backend": "derived",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_selected_pressed",
+      "compression": "TC_EditorIcon",
+      "derived": {
+        "from": "button_art",
+        "brush": "selected_pressed",
+        "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+        "theme": "blade",
+        "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+      }
+    },
+    {
+      "asset_id": "button_art_disabled",
+      "kind": "panel_bg",
+      "file": "assets/final/button_art_disabled.png",
+      "sha256": "727cef0cab03600cba7d14ee39c500c85e51ff646e7a251e7d25ff54eaac7377",
+      "size": [
+        596,
+        132
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "n/a — derived from 'button_art' (its own OCR applies)",
+      "provenance": "derived",
+      "backend": "derived",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_160008_ButtonLarge/T_button_art_disabled",
+      "compression": "TC_EditorIcon",
+      "derived": {
+        "from": "button_art",
+        "brush": "disabled",
+        "source_sha256": "4f2128f45b4637591ca234224cc6776d6fcbf35cd39b82da2126e7d3ec37938f",
+        "theme": "blade",
+        "theme_sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+      }
+    }
+  ]
+}

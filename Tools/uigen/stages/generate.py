@@ -226,6 +226,8 @@ def run(run, opts) -> str:
             aid = asset["asset_id"]
             if only and aid not in only:
                 continue
+            if asset.get("provenance") == "derived":          # Phase 3-2 — 버튼 상태 그림: refine 이 기본 그림에서 만든다(생성 없음)
+                continue
             t0 = time.monotonic()
             extra: dict = {}
             try:

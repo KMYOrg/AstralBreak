@@ -21,6 +21,11 @@
       }
     },
     "revision": { "type": ["string", "null"], "pattern": "^sha1:[0-9a-f]{40}$" },
+    "button_style": {
+      "type": ["object", "null"], "required": ["asset_path", "class_path", "key"], "additionalProperties": false,
+      "description": "버튼 칸(Phase 3-2)의 스타일 애셋 — key = 텍스처 이름 · 크기 · 값(바뀌면 다시 쓴다)",
+      "properties": { "asset_path": { "type": "string" }, "class_path": { "type": "string" }, "key": { "type": "string" } }
+    },
     "textures": {
       "type": "object",
       "additionalProperties": {
@@ -42,7 +47,7 @@
         "required": ["attempt", "ops"],
         "properties": {
           "attempt": { "type": "integer", "minimum": 1 },
-          "ops": { "type": "array", "items": { "enum": ["import", "create", "apply"] } },
+          "ops": { "type": "array", "items": { "enum": ["import", "style", "create", "apply"] } },
           "editor": { "type": "object" },
           "reset": { "type": "string" },
           "imported": { "type": "array" },

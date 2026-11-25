@@ -1,0 +1,383 @@
+{
+  "truth": "text_free_art",
+  "settings": {
+    "local_de": 10.0,
+    "min_area": 24,
+    "text_h_tol": 0.08,
+    "text_pos_px": 3.0,
+    "text_pos_k": 0.1,
+    "text_weight": 1.3,
+    "text_color_de": 12.0,
+    "text_dark_frac": 0.2,
+    "text_halo_frac": 0.2,
+    "seam_dark_px": 90,
+    "weight_margin": 0.06,
+    "bg_cover": 0.3,
+    "blur_ratio": 0.8,
+    "glow_min": 8.0,
+    "residue_de": 20.0,
+    "residue_min_px": 6,
+    "state_checks": "error",
+    "text_trace_de": 5.0,
+    "text_trace_min_area": 24,
+    "text_contour_de": 2.5,
+    "text_contour_len": 40,
+    "text_contour_link": 1,
+    "text_trace_lift": 3.0,
+    "text_line_plate": "error",
+    "text_lift_mode": "error",
+    "text_lift_de": 4.0,
+    "halo_de": 2.0,
+    "button_de": 3.0,
+    "button_distinct_de": 2.0,
+    "button_text_de": 8.0,
+    "state_record_only": []
+  },
+  "canvas": [
+    288,
+    93
+  ],
+  "truth_text": "text_reference_glyphs",
+  "hidden_states": [],
+  "texts": [
+    {
+      "widget": "ButtonLabel",
+      "concept": {
+        "box": [
+          108,
+          39,
+          74,
+          17
+        ],
+        "center": [
+          145.0,
+          47.5
+        ],
+        "px": 466,
+        "density": 0.4461,
+        "gap_cols": 14,
+        "lab": [
+          87.3,
+          -0.33,
+          7.63
+        ]
+      },
+      "render": {
+        "box": [
+          107,
+          38,
+          73,
+          18
+        ],
+        "center": [
+          143.5,
+          47.0
+        ],
+        "px": 490,
+        "density": 0.4539,
+        "gap_cols": 14,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ]
+      },
+      "approx": [],
+      "concept_contrast": 79.3,
+      "h_ratio": 1.059,
+      "w_ratio": 0.986,
+      "center_d": [
+        1.5,
+        0.5
+      ],
+      "density_ratio": 1.017,
+      "color_de": 2.39,
+      "pos_limit": 3.0,
+      "declared_font": {
+        "size": 16,
+        "weight": "semibold",
+        "color": "#ECE5D6FF"
+      },
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            2
+          ],
+          "dark": 1.1,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.1,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    }
+  ],
+  "maps": {
+    "black_mean": 0.136,
+    "gray_mean": 0.0,
+    "black_local_max": 0.83,
+    "gray_local_max": 0.0,
+    "text_zone_px": 3994,
+    "not_drawn_px": 0,
+    "runtime_image_px": 0
+  },
+  "text_background": {
+    "zone_px": 2411,
+    "local_max": 0.0,
+    "mean": 0.0
+  },
+  "text_residue": {
+    "ButtonLabel": {
+      "zone_px": 142,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    }
+  },
+  "sharpness": [
+    {
+      "widget": "ButtonArt",
+      "ratio": 1.0,
+      "texel_density": 1.0,
+      "px": 20777
+    }
+  ],
+  "seams": {
+    "scale": 3,
+    "bbox": [
+      0,
+      0,
+      288,
+      93
+    ],
+    "zone_px": 0,
+    "dark_px": 0,
+    "dark_mean": 0.0,
+    "worst": 0.0,
+    "spots": [],
+    "layers": 1
+  },
+  "defects": [],
+  "state": {
+    "force_visible_extra": [],
+    "drawn_hidden_at_start": [],
+    "render": "D:/UE5Projects/AstralBreak/Tools/uigen/work/R20261125_160033_ButtonSmall/attempts/001/state/state_288x93.png"
+  },
+  "approx": [],
+  "summary": {
+    "defects": 0,
+    "errors": 0,
+    "approx": 0,
+    "by_code": {},
+    "by_stage": {},
+    "fixable": 0,
+    "limits": [],
+    "texts_compared": 1,
+    "hidden_not_drawn": []
+  },
+  "badness": 0.0,
+  "state_checks": {
+    "mode": "error",
+    "hidden_trace": {
+      "renderer": "composite",
+      "roots": []
+    },
+    "hidden_halo": {
+      "renderer": "composite",
+      "roots": [],
+      "toggles": []
+    },
+    "gauge_states": {
+      "renderer": "engine",
+      "gauges": []
+    },
+    "findings": [],
+    "button_states": {
+      "renderer": "engine",
+      "buttons": [
+        {
+          "widget": "ButtonArt",
+          "states": {
+            "normal_base": {
+              "inside_max": 0.83,
+              "inside_px": 0,
+              "text_de": 84.6,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.83
+            },
+            "normal_hovered": {
+              "inside_max": 1.37,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 68.0,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.433
+            },
+            "normal_pressed": {
+              "inside_max": 0.6,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 86.3,
+              "text_shift": [
+                0,
+                1
+              ],
+              "text_iou": 0.813
+            },
+            "selected_base": {
+              "inside_max": 1.28,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 66.2,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.549
+            },
+            "selected_hovered": {
+              "inside_max": 1.37,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 54.0,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.39
+            },
+            "selected_pressed": {
+              "inside_max": 1.68,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 71.5,
+              "text_shift": [
+                0,
+                1
+              ],
+              "text_iou": 0.644
+            },
+            "disabled": {
+              "inside_max": 0.13,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 31.7,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": null
+            }
+          },
+          "distinct": {
+            "normal_base / normal_hovered": 8.93,
+            "normal_base / normal_pressed": 4.17,
+            "normal_base / selected_base": 9.44,
+            "normal_base / selected_hovered": 16.29,
+            "normal_base / selected_pressed": 8.58,
+            "normal_base / disabled": 17.37,
+            "normal_hovered / normal_pressed": 12.97,
+            "normal_hovered / selected_base": 5.48,
+            "normal_hovered / selected_hovered": 7.52,
+            "normal_hovered / selected_pressed": 5.87,
+            "normal_hovered / disabled": 14.82,
+            "normal_pressed / selected_base": 13.47,
+            "normal_pressed / selected_hovered": 20.28,
+            "normal_pressed / selected_pressed": 11.27,
+            "normal_pressed / disabled": 18.15,
+            "selected_base / selected_hovered": 7.0,
+            "selected_base / selected_pressed": 2.38,
+            "selected_base / disabled": 15.49,
+            "selected_hovered / selected_pressed": 9.23,
+            "selected_hovered / disabled": 22.21,
+            "selected_pressed / disabled": 14.27
+          },
+          "distinct_black": {
+            "normal_base / normal_hovered": 8.88,
+            "normal_base / normal_pressed": 4.06,
+            "normal_base / selected_base": 9.38,
+            "normal_base / selected_hovered": 16.16,
+            "normal_base / selected_pressed": 8.46,
+            "normal_base / disabled": 5.82,
+            "normal_hovered / normal_pressed": 12.82,
+            "normal_hovered / selected_base": 5.48,
+            "normal_hovered / selected_hovered": 7.5,
+            "normal_hovered / selected_pressed": 5.81,
+            "normal_hovered / disabled": 14.82,
+            "normal_pressed / selected_base": 13.31,
+            "normal_pressed / selected_hovered": 20.06,
+            "normal_pressed / selected_pressed": 11.17,
+            "normal_pressed / disabled": 1.66,
+            "selected_base / selected_hovered": 6.98,
+            "selected_base / selected_pressed": 2.38,
+            "selected_base / disabled": 15.49,
+            "selected_hovered / selected_pressed": 9.14,
+            "selected_hovered / disabled": 22.21,
+            "selected_pressed / disabled": 13.37
+          }
+        }
+      ]
+    },
+    "text_trace": {
+      "renderer": "engine",
+      "texts": [
+        {
+          "widget": "ButtonLabel",
+          "zone_px": 1640,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.01,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 0.02
+          },
+          "ring_l": 5.9
+        }
+      ]
+    }
+  },
+  "pictures": [
+    "defects.png",
+    "compare.png"
+  ],
+  "attempt": 1
+}

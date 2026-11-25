@@ -1,5 +1,7 @@
 #include "Core/WidgetMcpSpec.h"
 
+#include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Components/Border.h"
 #include "Components/BorderSlot.h"
 #include "Components/Button.h"
@@ -26,6 +28,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Misc/PackageName.h"
 #include "Styling/SlateTypes.h"
+#include "WidgetBlueprint.h"
 
 namespace WidgetMcpSpec
 {
@@ -646,6 +649,29 @@ namespace WidgetMcpSpec
 			Out.Add(MakeShared<FJsonValueObject>(U));
 		}
 
+		// ---- 칸(UserWidget) --------------------------------------------------------------------------------------
+		/** 칸으로 놓을 수 있는 클래스 — 승격 경로 아래 WBP 의 생성 클래스 */
+		bool IsCellClass(const UClass* Class, const WidgetMcp::FSettings& Settings)
+		{
+			if (!Class || !Class->IsChildOf(UUserWidget::StaticClass()) || !Cast<UWidgetBlueprintGeneratedClass>(Class))
+			{
+				return false;
+			}
+			const FString Package = Class->GetOutermost()->GetName();
+			return Settings.PromotionPaths.ContainsByPredicate([&Package](const FString& P) { return Package.StartsWith(P, ESearchCase::IgnoreCase); });
+		}
+
+		/** 놓인 칸마다 바꿀 수 있는 속성 — [WidgetMcp] WidgetInstanceProperties 에 있고 그 클래스의 편집 가능한 FText 인 것 */
+		FTextProperty* FindCellProperty(const UClass* Class, const FString& Name, const WidgetMcp::FSettings& Settings)
+		{
+			if (!Settings.InstanceProperties.Contains(Name))
+			{
+				return nullptr;
+			}
+			FTextProperty* Prop = FindFProperty<FTextProperty>(Class, FName(*Name));
+			return Prop && Prop->HasAnyPropertyFlags(CPF_Edit) && !Prop->HasAnyPropertyFlags(CPF_DisableEditOnInstance) ? Prop : nullptr;
+		}
+
 		uint8 ReadJustification(const UTextBlock* Text)
 		{
 			static const FProperty* Prop = UTextLayoutWidget::StaticClass()->FindPropertyByName(TEXT("Justification"));
@@ -678,7 +704,35 @@ namespace WidgetMcpSpec
 				return E.Name;
 			}
 		}
+		if (Widget->IsA<UUserWidget>() && IsCellClass(Widget->GetClass(), WidgetMcp::LoadSettings()))
+		{
+			return UserWidgetType;
+		}
 		return FString();
+	}
+
+	UClass* ResolveClass(const FJsonObject& Widget, const FString& Type, FString& OutError)
+	{
+		if (Type != UserWidgetType)
+		{
+			return ClassForType(Type);
+		}
+		const FString Id = StrField(Widget, TEXT("id"));
+		const FString Path = StrField(Widget, TEXT("class"));
+		const WidgetMcp::FSettings Settings = WidgetMcp::LoadSettings();
+		const FString Package = WidgetMcp::ToPackagePath(Path);
+		if (!Settings.PromotionPaths.ContainsByPredicate([&Package](const FString& P) { return Package.StartsWith(P, ESearchCase::IgnoreCase); }))
+		{
+			OutError = FString::Printf(TEXT("'%s'.class '%s' is not below [WidgetMcp] WidgetPromotionPaths (%s) — only promoted cells can be placed"), *Id, *Path, *FString::Join(Settings.PromotionPaths, TEXT(", ")));
+			return nullptr;
+		}
+		const UWidgetBlueprint* Cell = LoadObject<UWidgetBlueprint>(nullptr, *(Package + TEXT(".") + FPackageName::GetShortName(Package)), nullptr, LOAD_NoWarn);
+		if (!Cell || !Cell->GeneratedClass || !IsCellClass(Cell->GeneratedClass, Settings))
+		{
+			OutError = FString::Printf(TEXT("'%s'.class '%s' is not a compiled Widget Blueprint"), *Id, *Path);
+			return nullptr;
+		}
+		return Cell->GeneratedClass;
 	}
 
 	FString ChildSlotKind(const FString& ParentType)
@@ -757,7 +811,14 @@ namespace WidgetMcpSpec
 			W->SetObjectField(TEXT("slot"), Slot);
 		}
 		const FTypeEntry* Entry = FindType(Type);
-		SetDefault(W, TEXT("visibility"), S(Entry && Entry->bPanelVisibility ? TEXT("self_hit_test_invisible") : TEXT("visible")));
+		const bool bCell = Type == UserWidgetType;      // UUserWidget 생성자 기본값 = SelfHitTestInvisible(안쪽 버튼이 입력을 받는다)
+		SetDefault(W, TEXT("visibility"), S(bCell || (Entry && Entry->bPanelVisibility) ? TEXT("self_hit_test_invisible") : TEXT("visible")));
+		if (bCell)
+		{
+			W->SetStringField(TEXT("class"), WidgetMcp::ToPackagePath(StrField(*W, TEXT("class"))));
+			const TSharedPtr<FJsonObject> Props = ObjField(*W, TEXT("props"));
+			if (W->HasField(TEXT("props")) && (!Props.IsValid() || Props->Values.Num() == 0)) { W->RemoveField(TEXT("props")); }
+		}
 		bool bDesignerHidden = false;
 		if (W->TryGetBoolField(TEXT("designer_hidden"), bDesignerHidden) && !bDesignerHidden)
 		{
@@ -992,6 +1053,39 @@ namespace WidgetMcpSpec
 				return false;
 			}
 		}
+		if (Type == UserWidgetType)
+		{
+			FString Problem;
+			const UClass* Class = ResolveClass(Widget, Type, Problem);
+			if (!Class)
+			{
+				OutError = Problem;
+				return false;
+			}
+			if (const TSharedPtr<FJsonObject> Props = ObjField(Widget, TEXT("props")))
+			{
+				const WidgetMcp::FSettings Settings = WidgetMcp::LoadSettings();
+				for (const TPair<FString, TSharedPtr<FJsonValue>>& P : Props->Values)
+				{
+					FString Value;
+					if (!FindCellProperty(Class, P.Key, Settings))
+					{
+						OutError = FString::Printf(TEXT("'%s'.props.%s is not an editable text property of %s listed in [WidgetMcp] WidgetInstanceProperties"), *Id, *P.Key, *Class->GetName());
+						return false;
+					}
+					if (!P.Value.IsValid() || !P.Value->TryGetString(Value))
+					{
+						OutError = FString::Printf(TEXT("'%s'.props.%s must be a string"), *Id, *P.Key);
+						return false;
+					}
+				}
+			}
+		}
+		else if (Widget.HasField(TEXT("class")) || Widget.HasField(TEXT("props")))
+		{
+			OutError = FString::Printf(TEXT("'%s' (%s) cannot have 'class' / 'props' — those are for a UserWidget cell"), *Id, *Type);
+			return false;
+		}
 		const bool bText = Type == TEXT("TextBlock");
 		for (const TCHAR* Key : { TEXT("text"), TEXT("font"), TEXT("justification") })
 		{
@@ -1038,6 +1132,28 @@ namespace WidgetMcpSpec
 			}
 		}
 		return true;
+	}
+
+	bool ValidateBrushJson(const FJsonObject& Brush, const FAssets& Assets, const FString& Where, FString& OutError)
+	{
+		return ValidateBrush(Brush, Assets, Where, OutError);
+	}
+
+	TSharedRef<FJsonObject> NormalizeBrushJson(const TSharedRef<FJsonObject>& Brush, const FAssets& Assets)
+	{
+		const TSharedRef<FJsonObject> Copy = DeepCopy(MakeShared<FJsonValueObject>(Brush))->AsObject().ToSharedRef();
+		CanonColors(Copy);
+		return NormalizeBrush(Copy, Assets);
+	}
+
+	bool BrushFrom(const FJsonObject& Brush, const FAssets& Assets, FSlateBrush& Out, FString& OutError)
+	{
+		return BrushFromJson(Brush, Assets, Out, OutError);
+	}
+
+	TSharedRef<FJsonObject> BrushTo(const FSlateBrush& Brush, const FAssets* Assets, const FString& Where, TArray<TSharedPtr<FJsonValue>>& OutUnsupported)
+	{
+		return BrushToJson(Brush, Assets, Where, OutUnsupported);
 	}
 
 	bool ApplySlot(UPanelSlot* Slot, const FJsonObject& J, FString& OutError)
@@ -1151,7 +1267,22 @@ namespace WidgetMcpSpec
 			return BrushFromJson(*BrushJson, Assets, Out, OutError);
 		};
 
-		if (UBorder* Border = Cast<UBorder>(Widget))
+		if (UUserWidget* Cell = Cast<UUserWidget>(Widget))
+		{
+			// 놓인 칸의 속성 — 적은 것은 그 값, 안 적은 것은 클래스 기본값(목표값 전부)
+			const WidgetMcp::FSettings Settings = WidgetMcp::LoadSettings();
+			const TSharedPtr<FJsonObject> Props = ObjField(J, TEXT("props"));
+			for (const FString& Name : Settings.InstanceProperties)
+			{
+				if (FTextProperty* Prop = FindCellProperty(Cell->GetClass(), Name, Settings))
+				{
+					FString Value;
+					const bool bGiven = Props.IsValid() && Props->TryGetStringField(Name, Value);
+					Prop->SetPropertyValue_InContainer(Cell, bGiven ? FText::FromString(Value) : Prop->GetPropertyValue_InContainer(Cell->GetClass()->GetDefaultObject()));
+				}
+			}
+		}
+		else if (UBorder* Border = Cast<UBorder>(Widget))
 		{
 			FSlateBrush Brush;
 			if (!BrushOr(TEXT("brush"), GetDefault<UBorder>()->Background, Brush)) { return false; }
@@ -1327,7 +1458,22 @@ namespace WidgetMcpSpec
 				Style->SetObjectField(Key, BrushToJson(Brush, Assets, Id + TEXT(".style.") + Key, Unsupported));
 			}
 		};
-		if (const UBorder* Border = Cast<UBorder>(Widget))
+		if (const UUserWidget* Cell = Cast<UUserWidget>(Widget))
+		{
+			const WidgetMcp::FSettings Settings = WidgetMcp::LoadSettings();
+			Out->SetStringField(TEXT("class"), Cell->GetClass()->GetOutermost()->GetName());
+			TSharedRef<FJsonObject> Props = MakeShared<FJsonObject>();
+			for (const FString& Name : Settings.InstanceProperties)
+			{
+				if (const FTextProperty* Prop = FindCellProperty(Cell->GetClass(), Name, Settings))
+				{
+					const FString Value = Prop->GetPropertyValue_InContainer(Cell).ToString();
+					if (Value != Prop->GetPropertyValue_InContainer(Cell->GetClass()->GetDefaultObject()).ToString()) { Props->SetStringField(Name, Value); }
+				}
+			}
+			if (Props->Values.Num() > 0) { Out->SetObjectField(TEXT("props"), Props); }
+		}
+		else if (const UBorder* Border = Cast<UBorder>(Widget))
 		{
 			BrushIfChanged(TEXT("brush"), Border->Background, GetDefault<UBorder>()->Background);
 			if (!Border->GetBrushColor().Equals(FLinearColor::White)) { NoteUnsupported(Unsupported, Id, TEXT("BrushColor"), TEXT("use style.brush.color")); }

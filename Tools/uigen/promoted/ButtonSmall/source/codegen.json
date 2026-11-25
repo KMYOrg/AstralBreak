@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_160033_ButtonSmall",
+  "screen": "ButtonSmall",
+  "class": "/Script/AstralBreak.AstralButtonBase",
+  "contract_hash": "sha1:1e6b2f444cc525cfeaf6c29576d6d456ee290260",
+  "previous_hash": null,
+  "contract": {
+    "schema_version": 1,
+    "generator": "hand-written",
+    "module": "AstralBreak",
+    "api": "-",
+    "ui_dir": "-",
+    "screen": "ButtonSmall",
+    "feature": "-",
+    "view_base": "-",
+    "widget": "AstralButtonBase",
+    "bindings": [
+      {
+        "name": "ButtonLabel",
+        "widget_class": "TextBlock",
+        "data": "button_text",
+        "kind": "text",
+        "optional": false,
+        "setter": null
+      }
+    ]
+  },
+  "changes": {
+    "added": [],
+    "demoted": [],
+    "changed": [],
+    "restored": []
+  },
+  "skipped": true,
+  "reason": "hand_written",
+  "files": [],
+  "editor": {
+    "was_running": true
+  },
+  "build": {
+    "ran": false
+  },
+  "verify": {
+    "class": "/Script/AstralBreak.AstralButtonBase",
+    "bindings": [
+      {
+        "name": "ButtonLabel",
+        "widget_class": "TextBlock",
+        "widget_class_path": "/Script/UMG.TextBlock",
+        "optional": false
+      },
+      {
+        "name": "InputActionWidget",
+        "widget_class": "CommonActionWidget",
+        "widget_class_path": "/Script/CommonUI.CommonActionWidget",
+        "optional": true
+      }
+    ],
+    "match": true,
+    "diff": []
+  },
+  "restored": [],
+  "started": "2026-11-25T16:00:33+09:00",
+  "durations_s": {
+    "codegen": 0.396
+  },
+  "finished": "2026-11-25T16:00:34+09:00"
+}

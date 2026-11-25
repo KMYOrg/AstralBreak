@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from core import button
 from core import schema
 from core import spec as spec_mod
 from gen import silhouette, territory
@@ -70,8 +71,11 @@ def classify(spec: dict, inputs: dict | None = None) -> dict[str, str]:
     index = _index(spec)
     separate = set((inputs or {}).get("separate") or [])
     out: dict[str, str] = {}
+    art = button.art_id(spec)
 
     def own_reason(w: dict) -> str | None:
+        if w["id"] == art:
+            return "button art — its picture changes with the button state"
         b = (w.get("binding") or {}).get("kind")
         if b:
             return f"binding {b}"

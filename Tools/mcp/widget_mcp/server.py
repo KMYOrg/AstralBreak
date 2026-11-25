@@ -122,11 +122,28 @@ def render_widget(asset_path: str, output_dir: str, resolutions: list[list[int]]
         output_dir: New/empty folder under [WidgetMcp] WidgetRenderOutputRoots (Tools/uigen/work/...). Saved/ cannot be shown in chat.
         resolutions: [[1920,1080],[2560,1080],[1920,1200]] for the off-screen gate. Default [[1920,1080]].
         force_visible: Draw collapsed/hidden widgets too (layout checks).
-        overrides: {widget: {visible?, percent?, text?}} — sample values.
+        overrides: {widget: {visible?, percent?, text?, enabled?, button?}} — sample values. "." = the widget itself, "Cell/Inner" = inside a placed cell.
+            button: hovered | pressed | selected | selected_hovered | selected_pressed (CommonButton only). An override that does not take is an error (OVERRIDE_NOT_APPLIED).
         probes: [{id, at:[x,y]}] — corrected colour at a pixel (first resolution).
     """
     return _call("render_widget", {"asset_path": asset_path, "output_dir": output_dir, "resolutions": resolutions, "force_visible": force_visible,
                                    "overrides": overrides, "probes": probes, "scale": scale, "draws": draws, "prefix": prefix}, slow=True)
+
+
+@mcp.tool()
+def create_button_style(asset_path: str, brushes: dict, min_size: list[int], parent_class: str | None = None, props: dict | None = None,
+                        assets: dict | None = None, replace: bool = False) -> dict:
+    """Create a CommonButton style asset (state brushes live in the class defaults) in a run folder — never saved here.
+
+    Args:
+        asset_path: /Game/_AutoGen/<run_id>/BS_x.
+        brushes: all seven — normal_base, normal_hovered, normal_pressed, selected_base, selected_hovered, selected_pressed, disabled (spec brush shape, none empty).
+        min_size: [w, h] the button's own size.
+        parent_class: UCommonButtonStyle or a subclass (e.g. /Script/AstralBreak.AstralButtonStyle). props: values that subclass adds.
+        assets: {asset_id: texture path}. replace: rewrite a style this run already made.
+    """
+    return _call("create_button_style", {"asset_path": asset_path, "brushes": brushes, "min_size": min_size, "parent_class": parent_class, "props": props,
+                                         "assets": assets, "replace": replace}, slow=True)
 
 
 @mcp.tool()

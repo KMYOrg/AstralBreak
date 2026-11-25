@@ -1,10 +1,12 @@
 #include "Core/WidgetMcpBlueprint.h"
+#include "Core/WidgetMcpButtonStyle.h"
 #include "Core/WidgetMcpTextMaterials.h"
 
 #include "AnimMcpLog.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
+#include "CommonButtonBase.h"
 #include "Components/CanvasPanel.h"
 #include "Components/PanelWidget.h"
 #include "Kismet2/BlueprintEditorUtils.h"
@@ -183,7 +185,9 @@ namespace WidgetMcpBlueprint
 					OutError = TEXT("the tree already has a different root");
 					return false;
 				}
-				UWidget* W = Tree->ConstructWidget<UWidget>(T.Class, FName(*T.Id));
+				// 칸(UUserWidget)은 디자이너와 같은 길(CreateWidget — 초기화까지)로, 그 밖은 NewObject
+				UWidget* W = T.Class->IsChildOf(UUserWidget::StaticClass()) ? static_cast<UWidget*>(Tree->ConstructWidget<UUserWidget>(T.Class, FName(*T.Id)))
+					: Tree->ConstructWidget<UWidget>(T.Class, FName(*T.Id));
 				if (!W)
 				{
 					OutError = FString::Printf(TEXT("ConstructWidget failed for '%s' (%s)"), *T.Id, *T.Type);
@@ -399,6 +403,8 @@ namespace WidgetMcpBlueprint
 		TSharedRef<FJsonObject> Doc = MakeShared<FJsonObject>();
 		Doc->SetStringField(TEXT("parent_class"), GetPathNameSafe(WBP->ParentClass));
 		Doc->SetObjectField(TEXT("tree"), ExportTree(WBP->WidgetTree, nullptr, Unsupported, Locked));
+		const TSharedRef<FJsonObject> Defaults = WidgetMcpButtonStyle::ExportDefaults(WBP);      // 버튼 WBP 만 — 그 밖의 revision 은 예전 그대로
+		if (Defaults->Values.Num() > 0) { Doc->SetObjectField(TEXT("defaults"), Defaults); }
 		return WidgetMcp::Sha1Revision(WidgetMcp::CanonicalJson(Doc));
 	}
 
@@ -597,7 +603,13 @@ namespace WidgetMcpBlueprint
 				AddError(Errors, TEXT("DUPLICATE_ID"), T.Id);
 				continue;
 			}
-			T.Class = WidgetMcpSpec::ClassForType(T.Type);
+			FString ClassProblem;
+			T.Class = WidgetMcpSpec::ResolveClass(*T.Json, T.Type, ClassProblem);
+			if (!T.Class && !ClassProblem.IsEmpty())
+			{
+				AddError(Errors, TEXT("CELL_CLASS"), ClassProblem);
+				continue;
+			}
 			if (!T.Class)
 			{
 				const FCurrent* C = Current.Find(T.Id);
@@ -704,6 +716,17 @@ namespace WidgetMcpBlueprint
 			}
 			const FString ParentType = T.Parent.IsEmpty() ? FString() : Targets[TargetIndex[T.Parent]].Type;
 			T.Norm = WidgetMcpSpec::NormalizeWidget(T.Json.ToSharedRef(), ParentType, Assets);
+		}
+		// 클래스 기본값(버튼 WBP 의 스타일 — uigen Phase 3-2)
+		const TSharedPtr<FJsonObject>* DefaultsPtr = nullptr;
+		Spec->TryGetObjectField(TEXT("defaults"), DefaultsPtr);
+		UClass* TargetStyle = nullptr;
+		{
+			FString Problem;
+			if (!WidgetMcpButtonStyle::ResolveDefaults(Settings, WBP, DefaultsPtr ? *DefaultsPtr : nullptr, TargetStyle, Problem))
+			{
+				AddError(Errors, TEXT("DEFAULTS"), Problem);
+			}
 		}
 		// 바인딩 — 추가만 · 타입 일치
 		const TArray<FBindWidget> Bindings = BindWidgets(WBP->ParentClass);
@@ -816,6 +839,19 @@ namespace WidgetMcpBlueprint
 					O->SetField(TEXT("value"), B.IsValid() ? B : MakeShared<FJsonValueNull>());
 					Ops.Add(MakeShared<FJsonValueObject>(O));
 				}
+			}
+		}
+
+		if (TargetStyle)
+		{
+			const UCommonButtonStyle* CurrentStyle = WidgetMcpButtonStyle::StyleOf(WBP);
+			if (!CurrentStyle || CurrentStyle->GetClass() != TargetStyle)
+			{
+				TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();
+				O->SetStringField(TEXT("op"), TEXT("set_default"));
+				O->SetStringField(TEXT("path"), TEXT("Style"));
+				O->SetStringField(TEXT("value"), TargetStyle->GetOutermost()->GetName());
+				Ops.Add(MakeShared<FJsonValueObject>(O));
 			}
 		}
 
@@ -984,6 +1020,11 @@ namespace WidgetMcpBlueprint
 		if (bCompile)
 		{
 			Out->SetObjectField(TEXT("compile"), Compile(WBP));
+		}
+		if (TargetStyle && !WidgetMcpButtonStyle::ApplyStyle(WBP, TargetStyle))      // 컴파일 뒤 — 새로 만든 기본 객체에 건다
+		{
+			OutError = WidgetMcp::MakeMcpError(EditorMcpErrorCodes::ValidationFailed, TEXT("the widget tree was applied but the button style could not be set on the class defaults"), TEXT("DEFAULTS_NOT_APPLIED"));
+			return nullptr;
 		}
 		TArray<FString> NewlyDirty;
 		if (!Guard.Finish(Settings, OutError, NewlyDirty))

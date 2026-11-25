@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261124_130129_StatusHUD",
+  "mode": "concept",
+  "screen_type": "hud",
+  "screen_id": "StatusHUD",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "language": "ko",
+  "font": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+  "text": "메인 HUD 왼쪽 위 — 내 상태(초승달 + HP 칼날 막대 + 스태미나 얇은 막대, 초승달 안에 표식 수, HP 막대 왼쪽 위에 HP 숫자)와 그 아래 동료 세 줄(작은 초승달 + 이름 + HP 칼날 막대 + 오의 게이지 얇은 막대). 네 블록 모두 화면 왼쪽 위에 고정. 동료 줄은 그 동료가 있을 때만 보인다(줄마다 따로 접힘).",
+  "required_elements": [
+    {
+      "id": "SelfPanel",
+      "kind": "panel",
+      "desc": "내 상태 전체 — 큰 초승달과 그 오른쪽 두 막대, 글자. 화면 왼쪽 위 고정, 늘 보임(Overlay)"
+    },
+    {
+      "id": "SelfFrame",
+      "kind": "image",
+      "desc": "내 초승달 선 그림만(막대 왼쪽) — SelfPanel 안의 Image"
+    },
+    {
+      "id": "SelfHpBar",
+      "kind": "progress",
+      "desc": "내 HP — 오른쪽 끝이 칼끝인 긴 강철 막대(위)"
+    },
+    {
+      "id": "SelfStaminaBar",
+      "kind": "progress",
+      "desc": "내 스태미나 — HP 아래 얇은 상아색 막대"
+    },
+    {
+      "id": "SelfHpText",
+      "kind": "text",
+      "desc": "HP 숫자 — HP 막대 왼쪽 위"
+    },
+    {
+      "id": "SelfMarkText",
+      "kind": "text",
+      "desc": "표식 수 — 초승달 안 큰 숫자"
+    },
+    {
+      "id": "SelfMarkLabel",
+      "kind": "text",
+      "desc": "'표식' — 초승달 안 숫자 아래 작은 글자"
+    },
+    {
+      "id": "Ally1Panel",
+      "kind": "panel",
+      "desc": "동료 1 줄 전체(첫째 줄 — 이름 · 초승달 · 두 막대)"
+    },
+    {
+      "id": "Ally1Frame",
+      "kind": "image",
+      "desc": "동료 1 의 작은 초승달 선 그림만 — Ally1Panel 안의 Image"
+    },
+    {
+      "id": "Ally1NameText",
+      "kind": "text",
+      "desc": "동료 1 이름"
+    },
+    {
+      "id": "Ally1HpBar",
+      "kind": "progress",
+      "desc": "동료 1 HP — 칼끝 막대"
+    },
+    {
+      "id": "Ally1UltBar",
+      "kind": "progress",
+      "desc": "동료 1 오의 게이지 — HP 아래 얇은 막대"
+    },
+    {
+      "id": "Ally2Panel",
+      "kind": "panel",
+      "desc": "동료 2 줄 전체(둘째 줄)"
+    },
+    {
+      "id": "Ally2Frame",
+      "kind": "image",
+      "desc": "동료 2 의 작은 초승달 선 그림만 — Ally2Panel 안의 Image"
+    },
+    {
+      "id": "Ally2NameText",
+      "kind": "text",
+      "desc": "동료 2 이름"
+    },
+    {
+      "id": "Ally2HpBar",
+      "kind": "progress",
+      "desc": "동료 2 HP — 칼끝 막대"
+    },
+    {
+      "id": "Ally2UltBar",
+      "kind": "progress",
+      "desc": "동료 2 오의 게이지 — 얇은 막대"
+    },
+    {
+      "id": "Ally3Panel",
+      "kind": "panel",
+      "desc": "동료 3 줄 전체(셋째 줄)"
+    },
+    {
+      "id": "Ally3Frame",
+      "kind": "image",
+      "desc": "동료 3 의 작은 초승달 선 그림만 — Ally3Panel 안의 Image"
+    },
+    {
+      "id": "Ally3NameText",
+      "kind": "text",
+      "desc": "동료 3 이름"
+    },
+    {
+      "id": "Ally3HpBar",
+      "kind": "progress",
+      "desc": "동료 3 HP — 칼끝 막대"
+    },
+    {
+      "id": "Ally3UltBar",
+      "kind": "progress",
+      "desc": "동료 3 오의 게이지 — 얇은 막대"
+    }
+  ],
+  "dynamic_data": [
+    {
+      "id": "self_hp",
+      "type": "progress",
+      "widget": "SelfHpBar",
+      "widget_type": "ProgressBar",
+      "sample": 1,
+      "desc": "my HP, the long pale steel blade bar at the top right of the large crescent",
+      "inside": "SelfPanel",
+      "bar": {
+        "track": "#404144CC"
+      }
+    },
+    {
+      "id": "self_hp_value",
+      "type": "number",
+      "widget": "SelfHpText",
+      "widget_type": "TextBlock",
+      "format": "0",
+      "sample": 100,
+      "desc": "my HP number, bone white, just above the left end of my HP bar",
+      "inside": "SelfPanel",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "font": {
+        "size": 20,
+        "weight": "semibold",
+        "color": "#ECE5D6FF"
+      }
+    },
+    {
+      "id": "self_stamina",
+      "type": "progress",
+      "widget": "SelfStaminaBar",
+      "widget_type": "ProgressBar",
+      "sample": 1,
+      "desc": "my stamina, the thin ivory bar under my HP bar",
+      "inside": "SelfPanel",
+      "bar": {
+        "track": "#404144CC"
+      }
+    },
+    {
+      "id": "self_mark",
+      "type": "number",
+      "widget": "SelfMarkText",
+      "widget_type": "TextBlock",
+      "format": "0",
+      "sample": 3,
+      "desc": "mark stack count, the large bone-white digit inside the large crescent",
+      "inside": "SelfPanel",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "font": {
+        "size": 32,
+        "weight": "semibold",
+        "color": "#ECE5D6FF"
+      }
+    },
+    {
+      "id": "ally1_panel",
+      "type": "flag",
+      "widget": "Ally1Panel",
+      "widget_type": "Overlay",
+      "sample": true,
+      "desc": "teammate row 1 - an Overlay region (no brush) whose box covers the name, the small crescent and both bars; children: Image Ally1Frame (crescent only, one extracted asset), ProgressBar Ally1HpBar, ProgressBar Ally1UltBar, TextBlock Ally1NameText"
+    },
+    {
+      "id": "ally1_name",
+      "type": "text",
+      "widget": "Ally1NameText",
+      "widget_type": "TextBlock",
+      "sample": "Player 2",
+      "desc": "name of teammate 1 above the HP bar",
+      "inside": "Ally1Panel",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "font": {
+        "size": 14,
+        "weight": "medium",
+        "color": "#ECE5D6FF"
+      }
+    },
+    {
+      "id": "ally1_hp",
+      "type": "progress",
+      "widget": "Ally1HpBar",
+      "widget_type": "ProgressBar",
+      "sample": 1,
+      "desc": "HP of teammate 1, the steel blade bar",
+      "inside": "Ally1Panel",
+      "bar": {
+        "track": "#404144CC"
+      }
+    },
+    {
+      "id": "ally1_ult",
+      "type": "progress",
+      "widget": "Ally1UltBar",
+      "widget_type": "ProgressBar",
+      "sample": 1,
+      "desc": "ultimate gauge of teammate 1, the thin ivory bar directly under its HP bar",
+      "inside": "Ally1Panel",
+      "bar": {
+        "track": "#404144CC"
+      }
+    },
+    {
+      "id": "ally2_panel",
+      "type": "flag",
+      "widget": "Ally2Panel",
+      "widget_type": "Overlay",
+      "sample": true,
+      "desc": "teammate row 2 - same structure as Ally1Panel"
+    },
+    {
+      "id": "ally2_name",
+      "type": "text",
+      "widget": "Ally2NameText",
+      "widget_type": "TextBlock",
+      "sample": "Player 3",
+      "desc": "name of teammate 2 above the HP bar",
+      "inside": "Ally2Panel",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "font": {
+        "size": 14,
+        "weight": "medium",
+        "color": "#ECE5D6FF"
+      }
+    },
+    {
+      "id": "ally2_hp",
+      "type": "progress",
+      "widget": "Ally2HpBar",
+      "widget_type": "ProgressBar",
+      "sample": 1,
+      "desc": "HP of teammate 2, the steel blade bar",
+      "inside": "Ally2Panel",
+      "bar": {
+        "track": "#404144CC"
+      }
+    },
+    {
+      "id": "ally2_ult",
+      "type": "progress",
+      "widget": "Ally2UltBar",
+      "widget_type": "ProgressBar",
+      "sample": 1,
+      "desc": "ultimate gauge of teammate 2, the thin ivory bar directly under its HP bar",
+      "inside": "Ally2Panel",
+      "bar": {
+        "track": "#404144CC"
+      }
+    },
+    {
+      "id": "ally3_panel",
+      "type": "flag",
+      "widget": "Ally3Panel",
+      "widget_type": "Overlay",
+      "sample": true,
+      "desc": "teammate row 3 - same structure as Ally1Panel"
+    },
+    {
+      "id": "ally3_name",
+      "type": "text",
+      "widget": "Ally3NameText",
+      "widget_type": "TextBlock",
+      "sample": "Player 4",
+      "desc": "name of teammate 3 above the HP bar",
+      "inside": "Ally3Panel",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "font": {
+        "size": 14,
+        "weight": "medium",
+        "color": "#ECE5D6FF"
+      }
+    },
+    {
+      "id": "ally3_hp",
+      "type": "progress",
+      "widget": "Ally3HpBar",
+      "widget_type": "ProgressBar",
+      "sample": 1,
+      "desc": "HP of teammate 3, the steel blade bar",
+      "inside": "Ally3Panel",
+      "bar": {
+        "track": "#404144CC"
+      }
+    },
+    {
+      "id": "ally3_ult",
+      "type": "progress",
+      "widget": "Ally3UltBar",
+      "widget_type": "ProgressBar",
+      "sample": 1,
+      "desc": "ultimate gauge of teammate 3, the thin ivory bar directly under its HP bar",
+      "inside": "Ally3Panel",
+      "bar": {
+        "track": "#404144CC"
+      }
+    }
+  ],
+  "static_text": [
+    {
+      "widget": "SelfMarkLabel",
+      "value": "표식",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "font": {
+        "size": 15,
+        "weight": "medium",
+        "color": "#ECE5D6FF"
+      }
+    }
+  ],
+  "style_keywords": [
+    "modern flat HUD",
+    "matte ink-black",
+    "bone-white steel blades",
+    "pale ivory accent",
+    "realistic 3D action"
+  ],
+  "references": [
+    {
+      "path": "reference.png",
+      "role": "layout",
+      "role_source": "user"
+    }
+  ],
+  "conflicts": [],
+  "binding_contract": {
+    "class": "UAstralStatusHUDWidget",
+    "source": "new",
+    "bindings": [
+      "SelfHpBar",
+      "SelfHpText",
+      "SelfStaminaBar",
+      "SelfMarkText",
+      "Ally1Panel",
+      "Ally1NameText",
+      "Ally1HpBar",
+      "Ally1UltBar",
+      "Ally2Panel",
+      "Ally2NameText",
+      "Ally2HpBar",
+      "Ally2UltBar",
+      "Ally3Panel",
+      "Ally3NameText",
+      "Ally3HpBar",
+      "Ally3UltBar"
+    ]
+  }
+}

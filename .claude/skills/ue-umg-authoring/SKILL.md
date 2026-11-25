@@ -62,7 +62,7 @@ description: AstralBreak UE5.7 에서 UMG 위젯(WBP)을 코드로 만들거나 
 
 - UMG 디자이너는 Visibility 를 무시하고 늘 보이게 그린다 — `bHiddenInDesigner` 만 본다 [소스 `Widget.cpp:1482`]. 접힌 위젯이 미리보기를 덮으면 spec `designer_hidden`.
 - verify 를 통과할 때까지 저장하지 않는다. 쓰기는 `/Game/_AutoGen/<run_id>/`(git 무시)만, 승격은 `promote_widget` → `/Game/UI/HUD/<화면>/`(**대상이 있으면 거절** — 재승격은
-  옛 애셋을 사람이 먼저 치운다).
+  `Tools/uigen/promote_screen.py apply` 가 에디터를 끈 채 사본을 두고 비운 뒤 부른다, 손으로 치우지 않는다).
 - `IsValidLongPackageName("/Game")` 은 참이다 — 마운트 루트를 허용 목록으로 받지 않게 따로 막는다.
 - `quit_editor` 는 더티면 거절한다. 파이프라인은 `discard_only_under: [/Game/_AutoGen/]` 만 준다.
 

@@ -11,6 +11,12 @@
     "base_revision": { "type": ["string", "null"] },
     "source": { "enum": ["fix", "fault", "edit", "user"] },
     "note": { "type": "string" },
+    "affects": { "type": "array", "items": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "description": "수정 run 전용(source edit) — 자동 배치 때문에 같이 움직여도 되는 위젯(자손 포함)" },
+    "allow_overlap": {
+      "type": "array",
+      "items": { "type": "array", "items": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "minItems": 2, "maxItems": 2 },
+      "description": "수정 run 전용 — 겹쳐도 되는 형제 쌍(spec.allow_overlap 에 더해진다)"
+    },
     "ops": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/op" } }
   },
   "$defs": {

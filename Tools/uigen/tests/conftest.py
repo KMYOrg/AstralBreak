@@ -65,6 +65,7 @@ class FakeToolchain:
         self.binary: list[dict] = []
         self.pid = 4242
         self.launches = 0
+        self.report_process = False      # editor_processes 가 떠 있는 에디터를 돌려줄지(재승격 시험 — 기본은 예전처럼 빈 목록)
         self.editor = FakeEditor(self)
 
     def editor_status(self):
@@ -101,7 +102,7 @@ class FakeToolchain:
 
     def editor_processes(self):
         self.calls.append("processes")
-        return []
+        return [{"image": "UnrealEditor-Win64-DebugGame.exe", "pid": self.pid}] if self.running and self.report_process else []
 
     def build(self, log_path):
         self.calls.append("build")
@@ -119,6 +120,7 @@ class FakeToolchain:
     def launch_editor(self, log_path):
         self.calls.append("launch")
         self.running = True
+        self.editor.begin_session()
         self.launches += 1
         self.pid = 5151 if self.launches == 1 else 5151 + self.launches
         if not self.binary:   # 떠 있지 않던 에디터를 처음 띄움 — 이미 빌드된 생성 헤더가 있으면 그것이 바이너리다

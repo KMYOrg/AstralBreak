@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "screen_id": "CombatHUD",
+  "run_id": "R20261123_194019_CombatHUD",
+  "parent_run_id": null,
+  "dest": "/Game/UI/HUD/CombatHUD",
+  "wbp": "/Game/UI/HUD/CombatHUD/WBP_CombatHUD",
+  "textures": {
+    "burst_banner_frame": "/Game/UI/HUD/CombatHUD/T_burst_banner_frame",
+    "chain_band": "/Game/UI/HUD/CombatHUD/T_chain_band",
+    "chain_ring": "/Game/UI/HUD/CombatHUD/T_chain_ring",
+    "ult_ready_glow": "/Game/UI/HUD/CombatHUD/T_ult_ready_glow",
+    "ult_gauge_fill": "/Game/UI/HUD/CombatHUD/T_ult_gauge_fill",
+    "ult_gauge_end_cap": "/Game/UI/HUD/CombatHUD/T_ult_gauge_end_cap",
+    "static_plate1": "/Game/UI/HUD/CombatHUD/T_static_plate1"
+  },
+  "files": {
+    "M_RadialWipe.uasset": {
+      "sha256": "cfcc2f7f504ef6a4434bebeb534a21fb86daea09b9b7e395a16c4a6021270048",
+      "size": 17742
+    },
+    "MI_RadialWipe_ChainRing.uasset": {
+      "sha256": "faca7bd19599c2547e22731df29332e7236555a1052a05bc87ec376008f002d5",
+      "size": 7993
+    },
+    "T_burst_banner_frame.uasset": {
+      "sha256": "944dd6f905530933e6e77b17378b41823f73487e41b8d4694c7c0cc08e0f44ce",
+      "size": 140400
+    },
+    "T_chain_band.uasset": {
+      "sha256": "9aaa3aa56d41e8f179da74ecdc7ea95f7972b3369d052b72c2d3c1ff292edd76",
+      "size": 156517
+    },
+    "T_chain_ring.uasset": {
+      "sha256": "828a4176463ae6f8226cbf2d33b689bf198d50bbc165cc6283f2458e0bc1a2e4",
+      "size": 135300
+    },
+    "T_static_plate1.uasset": {
+      "sha256": "1d9fd74f3ac405242b9bf2f62cb4641805fd95e87d4b70feb9b3d4b62a46c3fa",
+      "size": 43631
+    },
+    "T_ult_gauge_end_cap.uasset": {
+      "sha256": "2dcd6b4b4bb2be4f3b87842dfdb7f04a1c3a1b4b92a8c71cb6b1dd51a218fded",
+      "size": 10996
+    },
+    "T_ult_gauge_fill.uasset": {
+      "sha256": "fa4315e5793f9ff3ecf0dbd37fc5387557e4ea1d1503ebe5ed44ccccd70e5496",
+      "size": 19159
+    },
+    "T_ult_ready_glow.uasset": {
+      "sha256": "dea3c69c557c61a3f3c5436e85fd70961129f12728bc868c47a5f5ccc1e06c9b",
+      "size": 61299
+    },
+    "WBP_CombatHUD.uasset": {
+      "sha256": "242727e3e2b2a41fd4611ae93725a62ebc262f36f30e6793bad310825b224093",
+      "size": 74941
+    }
+  },
+  "revision": "sha1:27dd52f7bc14ce8ae1a5c5a497a7bf52e61bb9f5",
+  "run_revision": "sha1:5a9a223f9a046fb841e9367f57bc3dc055002acc",
+  "contract_hash": "sha1:2ee29ce6627da37b994b13b4e1e304a3e864968d",
+  "source": {
+    "assets/final/burst_banner_frame.png": {
+      "kind": "binary",
+      "sha256": "6f8cd4cf5416afc89f4cff40aed981edc6cab08821b1dc4c949e28d06feb6a91",
+      "size": 111493
+    },
+    "assets/final/chain_band.png": {
+      "kind": "binary",
+      "sha256": "fb4241f91f5b56a9e22ad122a2fc2582f3c11201aca512043de09c1c9bc9c25a",
+      "size": 140374
+    },
+    "assets/final/chain_ring.png": {
+      "kind": "binary",
+      "sha256": "98dd15c79e692409e221f329dcb4b6f36f977f578537bb49e2e206a48216c476",
+      "size": 126518
+    },
+    "assets/final/static_plate1.png": {
+      "kind": "binary",
+      "sha256": "d6bf2ded70d38cbc057bdd78e90f9e94e3a2927269687fd8b415901fd51b6a90",
+      "size": 23879
+    },
+    "assets/final/ult_gauge_end_cap.png": {
+      "kind": "binary",
+      "sha256": "23b911c622a680e9e6b63cd22270b068f3ac058c079ddd5c04037b2492615c3d",
+      "size": 114
+    },
+    "assets/final/ult_gauge_fill.png": {
+      "kind": "binary",
+      "sha256": "8412bfdb8affabb25bc78eed163ac1b6ec21eac91bc3785d91b7eaa926d2cc0f",
+      "size": 9648
+    },
+    "assets/final/ult_ready_glow.png": {
+      "kind": "binary",
+      "sha256": "0004564279c944716ecc8f3d257d5a935a59ff5cf23f90acbeb3c531274fff26",
+      "size": 42610
+    },
+    "brief.json": {
+      "kind": "json",
+      "sha256": "dad146cbe0475fe2f0993e69663516df715369f540d464edefdad6b24a1f635a"
+    },
+    "codegen.json": {
+      "kind": "json",
+      "sha256": "d19910aee80ca7ba5ed5a3c307fe16d240f5ebbeee3b9c202d58f482cbcb701a"
+    },
+    "diagnosis.json": {
+      "kind": "json",
+      "sha256": "73135c04bc0ee38fdd69f02ab36616d75d0c26726b7e33ce0866b36823fb03db"
+    },
+    "gen.jsonl": {
+      "kind": "jsonl",
+      "sha256": "d980dba680b035224fcb329b5dd9fc68153f1f9a295771411cb0be331b9c0807"
+    },
+    "geometry.json": {
+      "kind": "json",
+      "sha256": "33382e24fec7728f1693e02be4bd99e53812dbe2f7e4d93d16d6653160acd4b3"
+    },
+    "inputs.json": {
+      "kind": "json",
+      "sha256": "18964d38b1d6cfb7647297f43e3a68257b563e6d1b5be95a306f4bffda78d304"
+    },
+    "layer.json": {
+      "kind": "json",
+      "sha256": "4327b57b21c8b5cfe78168e7e530b54091d084b1cd88bd97a869e2240d182cd9"
+    },
+    "layer/own_BurstBanner.png": {
+      "kind": "binary",
+      "sha256": "bc09452b7f34e960ae7260c6a943bd3f31a02a50194eabbe9f0794eb7925bdfc",
+      "size": 2539
+    },
+    "layer/own_ChainPanel.png": {
+      "kind": "binary",
+      "sha256": "2eae8bcc3d8101435178bafa7df3b13eaf771ca390e528812913c4a7685d0b14",
+      "size": 3212
+    },
+    "layer/plate_1.png": {
+      "kind": "binary",
+      "sha256": "d9f1656490370e4b6db1c1d46ec0e3a017cb1a1dec36abe86188cc9a375f5494",
+      "size": 2500
+    },
+    "layer/ring_ChainRing.png": {
+      "kind": "binary",
+      "sha256": "c4015569dfc8986f28e799e212f488bc2a63226694b46b3e73a16d35323072cb",
+      "size": 5522
+    },
+    "lineage.json": {
+      "kind": "json",
+      "sha256": "6d47f929c391722dfe657590d47ee59a53cea33a62bedc9623b9dec745ba3666"
+    },
+    "manifest.json": {
+      "kind": "json",
+      "sha256": "b9f78fb60db2f266f1316361e8e70c49e98895d4d1a07a33725ca5e14b4ba454"
+    },
+    "normalize.json": {
+      "kind": "json",
+      "sha256": "9041b90af95916d56414337ed12151553df70656e1e989e792275148d5d9b02e"
+    },
+    "reference.png": {
+      "kind": "binary",
+      "sha256": "18005f741bac329d471d448aed64841fa19003ec05bcc7ee1a39fbf62093eddf",
+      "size": 244520
+    },
+    "reference_alpha.png": {
+      "kind": "binary",
+      "sha256": "7ed32faf643df1a9f14133b2bc07c9e8faa96b017862c6bc2cab12960ed78f48",
+      "size": 110187
+    },
+    "reference_art_alpha.png": {
+      "kind": "binary",
+      "sha256": "8871a797449ebd6bb206b3cd771eac1486ea8bd19c720b3ca084b53f57c75b18",
+      "size": 106942
+    },
+    "reference_art_color.png": {
+      "kind": "binary",
+      "sha256": "e67908a62ed61453edeff86750b34030b7bda093f2760d9f3a38d8ada437c43d",
+      "size": 347916
+    },
+    "reference_color.png": {
+      "kind": "binary",
+      "sha256": "7fd6b99bbb2f5502434cd5400fb6655c472cd55d8c89b1b0f1c9a59cd467eefb",
+      "size": 373288
+    },
+    "reference_notext_alpha.png": {
+      "kind": "binary",
+      "sha256": "8871a797449ebd6bb206b3cd771eac1486ea8bd19c720b3ca084b53f57c75b18",
+      "size": 106942
+    },
+    "reference_notext_color.png": {
+      "kind": "binary",
+      "sha256": "e67908a62ed61453edeff86750b34030b7bda093f2760d9f3a38d8ada437c43d",
+      "size": 347916
+    },
+    "refine.json": {
+      "kind": "json",
+      "sha256": "d209342b6af1bbf49923634fd69714a92cd3262aca1428970d10dd6c7a1b9ea8"
+    },
+    "spec.json": {
+      "kind": "json",
+      "sha256": "43e2999961ca81adcb11d9e2f4a377b677ae33f5df4b017074750b60e45067ab"
+    },
+    "specs/000.json": {
+      "kind": "json",
+      "sha256": "41f9d01693d412d60faf9a49d0b656f9cf70ece6f4877e29b4a1eccdc0a4c1d1"
+    }
+  },
+  "edits": [],
+  "verified": {
+    "roundtrip_equal": true,
+    "pictures": 20,
+    "same_pixels": 20,
+    "same_bytes": 20,
+    "unsupported": 0
+  },
+  "recorded_at": "2026-11-24T22:44:16+09:00"
+}

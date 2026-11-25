@@ -13,6 +13,8 @@
   roundtrip         export → core.spec.roundtrip_equal(정규화 비교) · GUID 맵 누락 0
   appearance        (1b 후속 J-b) 레퍼런스 ↔ 렌더 국소 차이 진단 결함 0 — gen/diagnose(국소 지도 · 회색 합성 · 3 배 절취선 · 글자 획 맞대기 ·
                     원인 단계). concept 모드만(손 spec 은 건너뜀). 구조 게이트(위 10 개)와 따로 본다 — 결과의 structural_pass 가 그것만의 통과.
+  edit_regression   (Phase 4) 이어서 고치기 run(edit.json 이 있을 때)의 고친 시도에만 — 대상 밖은 하나도 안 바뀜(stages/edit · gen/edit_gate). 그때 appearance 는
+                    base 와 견줘 나눈 결과(이어받음 · 의도한 변경 · 오류)로 바뀐다. 그 밖의 run 은 게이트 11 개 그대로.
 
 출력: attempts/NNN/{gates.json, geometry.json, render/, sample/} · run 폴더의 render.png(기준 해상도 · force_visible) ·
       render_sample.png(brief sample 을 overrides 로 — 사람 눈용, 게이트 아님) · geometry.json(마지막 시도).
@@ -35,6 +37,7 @@ GATES = ("compile", "bindings", "texture_settings", "offscreen", "overlap", "req
          "appearance")
 RENDER_GATES = ("offscreen", "overlap", "iou_region", "iou_leaf")
 APPEARANCE = "appearance"
+EDIT_REGRESSION = "edit_regression"
 
 
 def structural_failed(result: dict) -> list[str]:
@@ -212,9 +215,11 @@ class StateRenders:
     def __init__(self, tc, wbp: str, adir, canvas):
         self.tc, self.wbp, self.adir, self.canvas = tc, wbp, adir, list(canvas)
         self.done: dict[str, tuple[dict, str]] = {}
+        self.requests: dict[str, dict] = {}            # 진단이 요구한 상태 목록(이름 → overrides) — 수정 run 이 앞 · 뒤를 같은 목록으로 견준다
         self.record: dict = {"batch": 0, "single": 0}
 
     def prefetch(self, requests: dict[str, dict]) -> None:
+        self.requests = dict(requests)
         t0 = time.monotonic()
         try:
             r = self.tc.call("render_widget", {"asset_path": self.wbp, "output_dir": self.adir.resolve().as_posix(), "resolutions": [self.canvas],
@@ -267,6 +272,7 @@ def run(run, opts, toolchain=None) -> dict:
     tc = toolchain or ue_toolchain(run)
     gates: dict[str, dict] = {}
     roundtrip, unsupported, artifacts, notes = None, [], {}, {}
+    export = None
 
     def bridge_failed(names, exc):
         for n in names:
@@ -331,8 +337,11 @@ def run(run, opts, toolchain=None) -> dict:
         artifacts["diagnosis"] = f"attempts/{attempt:03d}/diagnosis/{diag['pictures'][0]}"
     if run.path("compare.png").is_file():
         artifacts["compare"] = "compare.png"
+    if run.path("edit.json").is_file():          # Phase 4 — 이어서 고치기: base 면 기록만, 고친 시도면 12 번째 게이트 + 외형 나누기
+        from stages import edit
+        edit.after_verify(run, attempt, tc, wbp, gates, {"export": export, "requests": render_state.requests, "diagnosis": diag}, artifacts)
 
-    ordered = [gates[n] for n in GATES if n in gates]
+    ordered = [gates[n] for n in (*GATES, EDIT_REGRESSION) if n in gates]
     failed = [g["name"] for g in ordered if not g["pass"]]
     result = {"schema_version": 1, "run_id": run.run_id, "attempt": attempt, "pass": not failed, "failed": failed, "gates": ordered,
               "structural_pass": not [n for n in failed if n != APPEARANCE],

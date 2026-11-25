@@ -1,0 +1,618 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261123_194019_CombatHUD",
+  "attempt": 7,
+  "canvas": [
+    1920,
+    1080
+  ],
+  "force_visible": true,
+  "geometry": {
+    "1920x1080": [
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate1",
+        "type": "Image",
+        "parent": "Root",
+        "x": 607,
+        "y": 1004,
+        "w": 700,
+        "h": 35,
+        "visible": true
+      },
+      {
+        "id": "BurstBanner",
+        "type": "Border",
+        "parent": "Root",
+        "x": 556,
+        "y": 188,
+        "w": 799,
+        "h": 107,
+        "visible": true
+      },
+      {
+        "id": "BurstLayer",
+        "type": "Overlay",
+        "parent": "BurstBanner",
+        "x": 556,
+        "y": 188,
+        "w": 792,
+        "h": 104,
+        "visible": true
+      },
+      {
+        "id": "BurstLabelText",
+        "type": "TextBlock",
+        "parent": "BurstLayer",
+        "x": 625,
+        "y": 213,
+        "w": 330,
+        "h": 58,
+        "visible": true
+      },
+      {
+        "id": "BurstCountText",
+        "type": "TextBlock",
+        "parent": "BurstLayer",
+        "x": 1226,
+        "y": 188.5,
+        "w": 84,
+        "h": 101,
+        "visible": true
+      },
+      {
+        "id": "ChainPanel",
+        "type": "Border",
+        "parent": "Root",
+        "x": 694,
+        "y": 327,
+        "w": 520,
+        "h": 516,
+        "visible": true
+      },
+      {
+        "id": "ChainLayer",
+        "type": "Overlay",
+        "parent": "ChainPanel",
+        "x": 696,
+        "y": 327,
+        "w": 516,
+        "h": 516,
+        "visible": true
+      },
+      {
+        "id": "ChainRing",
+        "type": "Image",
+        "parent": "ChainLayer",
+        "x": 695,
+        "y": 325,
+        "w": 519,
+        "h": 520,
+        "visible": true
+      },
+      {
+        "id": "ChainTitleText",
+        "type": "TextBlock",
+        "parent": "ChainLayer",
+        "x": 793,
+        "y": 702,
+        "w": 72,
+        "h": 41,
+        "visible": true
+      },
+      {
+        "id": "ChainTimerText",
+        "type": "TextBlock",
+        "parent": "ChainLayer",
+        "x": 888,
+        "y": 673,
+        "w": 140,
+        "h": 100,
+        "visible": true
+      },
+      {
+        "id": "ChainCountText",
+        "type": "TextBlock",
+        "parent": "ChainLayer",
+        "x": 1055,
+        "y": 702,
+        "w": 72,
+        "h": 41,
+        "visible": true
+      },
+      {
+        "id": "UltBlockedText",
+        "type": "TextBlock",
+        "parent": "Root",
+        "x": 866,
+        "y": 846,
+        "w": 184,
+        "h": 48,
+        "visible": true
+      },
+      {
+        "id": "UltReadyPanel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 670,
+        "y": 894,
+        "w": 576,
+        "h": 104,
+        "visible": true
+      },
+      {
+        "id": "UltReadyGlow",
+        "type": "Image",
+        "parent": "UltReadyPanel",
+        "x": 670,
+        "y": 894,
+        "w": 576,
+        "h": 104,
+        "visible": true
+      },
+      {
+        "id": "UltKeyText",
+        "type": "TextBlock",
+        "parent": "UltReadyPanel",
+        "x": 936,
+        "y": 955,
+        "w": 44,
+        "h": 44,
+        "visible": true
+      },
+      {
+        "id": "UltArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 604,
+        "y": 1002,
+        "w": 708,
+        "h": 40,
+        "visible": true
+      },
+      {
+        "id": "UltGaugeFrame",
+        "type": "Image",
+        "parent": "UltArea",
+        "x": 604,
+        "y": 1002,
+        "w": 708,
+        "h": 40,
+        "visible": true
+      },
+      {
+        "id": "UltGauge",
+        "type": "ProgressBar",
+        "parent": "UltArea",
+        "x": 668,
+        "y": 1012,
+        "w": 578,
+        "h": 17,
+        "visible": true
+      },
+      {
+        "id": "UltGaugeEndCap",
+        "type": "Image",
+        "parent": "UltArea",
+        "x": 1237,
+        "y": 1012,
+        "w": 9,
+        "h": 17,
+        "visible": true
+      }
+    ],
+    "2560x1080": [
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 2560,
+        "h": 1080,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate1",
+        "type": "Image",
+        "parent": "Root",
+        "x": 927,
+        "y": 1004,
+        "w": 700,
+        "h": 35,
+        "visible": true
+      },
+      {
+        "id": "BurstBanner",
+        "type": "Border",
+        "parent": "Root",
+        "x": 876,
+        "y": 188,
+        "w": 799,
+        "h": 107,
+        "visible": true
+      },
+      {
+        "id": "BurstLayer",
+        "type": "Overlay",
+        "parent": "BurstBanner",
+        "x": 876,
+        "y": 188,
+        "w": 792,
+        "h": 104,
+        "visible": true
+      },
+      {
+        "id": "BurstLabelText",
+        "type": "TextBlock",
+        "parent": "BurstLayer",
+        "x": 945,
+        "y": 213,
+        "w": 330,
+        "h": 58,
+        "visible": true
+      },
+      {
+        "id": "BurstCountText",
+        "type": "TextBlock",
+        "parent": "BurstLayer",
+        "x": 1546,
+        "y": 188.5,
+        "w": 84,
+        "h": 101,
+        "visible": true
+      },
+      {
+        "id": "ChainPanel",
+        "type": "Border",
+        "parent": "Root",
+        "x": 1014,
+        "y": 327,
+        "w": 520,
+        "h": 516,
+        "visible": true
+      },
+      {
+        "id": "ChainLayer",
+        "type": "Overlay",
+        "parent": "ChainPanel",
+        "x": 1016,
+        "y": 327,
+        "w": 516,
+        "h": 516,
+        "visible": true
+      },
+      {
+        "id": "ChainRing",
+        "type": "Image",
+        "parent": "ChainLayer",
+        "x": 1015,
+        "y": 325,
+        "w": 519,
+        "h": 520,
+        "visible": true
+      },
+      {
+        "id": "ChainTitleText",
+        "type": "TextBlock",
+        "parent": "ChainLayer",
+        "x": 1113,
+        "y": 702,
+        "w": 72,
+        "h": 41,
+        "visible": true
+      },
+      {
+        "id": "ChainTimerText",
+        "type": "TextBlock",
+        "parent": "ChainLayer",
+        "x": 1208,
+        "y": 673,
+        "w": 140,
+        "h": 100,
+        "visible": true
+      },
+      {
+        "id": "ChainCountText",
+        "type": "TextBlock",
+        "parent": "ChainLayer",
+        "x": 1375,
+        "y": 702,
+        "w": 72,
+        "h": 41,
+        "visible": true
+      },
+      {
+        "id": "UltBlockedText",
+        "type": "TextBlock",
+        "parent": "Root",
+        "x": 1186,
+        "y": 846,
+        "w": 184,
+        "h": 48,
+        "visible": true
+      },
+      {
+        "id": "UltReadyPanel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 990,
+        "y": 894,
+        "w": 576,
+        "h": 104,
+        "visible": true
+      },
+      {
+        "id": "UltReadyGlow",
+        "type": "Image",
+        "parent": "UltReadyPanel",
+        "x": 990,
+        "y": 894,
+        "w": 576,
+        "h": 104,
+        "visible": true
+      },
+      {
+        "id": "UltKeyText",
+        "type": "TextBlock",
+        "parent": "UltReadyPanel",
+        "x": 1256,
+        "y": 955,
+        "w": 44,
+        "h": 44,
+        "visible": true
+      },
+      {
+        "id": "UltArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 924,
+        "y": 1002,
+        "w": 708,
+        "h": 40,
+        "visible": true
+      },
+      {
+        "id": "UltGaugeFrame",
+        "type": "Image",
+        "parent": "UltArea",
+        "x": 924,
+        "y": 1002,
+        "w": 708,
+        "h": 40,
+        "visible": true
+      },
+      {
+        "id": "UltGauge",
+        "type": "ProgressBar",
+        "parent": "UltArea",
+        "x": 988,
+        "y": 1012,
+        "w": 578,
+        "h": 17,
+        "visible": true
+      },
+      {
+        "id": "UltGaugeEndCap",
+        "type": "Image",
+        "parent": "UltArea",
+        "x": 1557,
+        "y": 1012,
+        "w": 9,
+        "h": 17,
+        "visible": true
+      }
+    ],
+    "1920x1200": [
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1200,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate1",
+        "type": "Image",
+        "parent": "Root",
+        "x": 607,
+        "y": 1124,
+        "w": 700,
+        "h": 35,
+        "visible": true
+      },
+      {
+        "id": "BurstBanner",
+        "type": "Border",
+        "parent": "Root",
+        "x": 556,
+        "y": 188,
+        "w": 799,
+        "h": 107,
+        "visible": true
+      },
+      {
+        "id": "BurstLayer",
+        "type": "Overlay",
+        "parent": "BurstBanner",
+        "x": 556,
+        "y": 188,
+        "w": 792,
+        "h": 104,
+        "visible": true
+      },
+      {
+        "id": "BurstLabelText",
+        "type": "TextBlock",
+        "parent": "BurstLayer",
+        "x": 625,
+        "y": 213,
+        "w": 330,
+        "h": 58,
+        "visible": true
+      },
+      {
+        "id": "BurstCountText",
+        "type": "TextBlock",
+        "parent": "BurstLayer",
+        "x": 1226,
+        "y": 188.5,
+        "w": 84,
+        "h": 101,
+        "visible": true
+      },
+      {
+        "id": "ChainPanel",
+        "type": "Border",
+        "parent": "Root",
+        "x": 694,
+        "y": 387,
+        "w": 520,
+        "h": 516,
+        "visible": true
+      },
+      {
+        "id": "ChainLayer",
+        "type": "Overlay",
+        "parent": "ChainPanel",
+        "x": 696,
+        "y": 387,
+        "w": 516,
+        "h": 516,
+        "visible": true
+      },
+      {
+        "id": "ChainRing",
+        "type": "Image",
+        "parent": "ChainLayer",
+        "x": 695,
+        "y": 385,
+        "w": 519,
+        "h": 520,
+        "visible": true
+      },
+      {
+        "id": "ChainTitleText",
+        "type": "TextBlock",
+        "parent": "ChainLayer",
+        "x": 793,
+        "y": 762,
+        "w": 72,
+        "h": 41,
+        "visible": true
+      },
+      {
+        "id": "ChainTimerText",
+        "type": "TextBlock",
+        "parent": "ChainLayer",
+        "x": 888,
+        "y": 733,
+        "w": 140,
+        "h": 100,
+        "visible": true
+      },
+      {
+        "id": "ChainCountText",
+        "type": "TextBlock",
+        "parent": "ChainLayer",
+        "x": 1055,
+        "y": 762,
+        "w": 72,
+        "h": 41,
+        "visible": true
+      },
+      {
+        "id": "UltBlockedText",
+        "type": "TextBlock",
+        "parent": "Root",
+        "x": 866,
+        "y": 966,
+        "w": 184,
+        "h": 48,
+        "visible": true
+      },
+      {
+        "id": "UltReadyPanel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 670,
+        "y": 1014,
+        "w": 576,
+        "h": 104,
+        "visible": true
+      },
+      {
+        "id": "UltReadyGlow",
+        "type": "Image",
+        "parent": "UltReadyPanel",
+        "x": 670,
+        "y": 1014,
+        "w": 576,
+        "h": 104,
+        "visible": true
+      },
+      {
+        "id": "UltKeyText",
+        "type": "TextBlock",
+        "parent": "UltReadyPanel",
+        "x": 936,
+        "y": 1075,
+        "w": 44,
+        "h": 44,
+        "visible": true
+      },
+      {
+        "id": "UltArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 604,
+        "y": 1122,
+        "w": 708,
+        "h": 40,
+        "visible": true
+      },
+      {
+        "id": "UltGaugeFrame",
+        "type": "Image",
+        "parent": "UltArea",
+        "x": 604,
+        "y": 1122,
+        "w": 708,
+        "h": 40,
+        "visible": true
+      },
+      {
+        "id": "UltGauge",
+        "type": "ProgressBar",
+        "parent": "UltArea",
+        "x": 668,
+        "y": 1132,
+        "w": 578,
+        "h": 17,
+        "visible": true
+      },
+      {
+        "id": "UltGaugeEndCap",
+        "type": "Image",
+        "parent": "UltArea",
+        "x": 1237,
+        "y": 1132,
+        "w": 9,
+        "h": 17,
+        "visible": true
+      }
+    ]
+  }
+}

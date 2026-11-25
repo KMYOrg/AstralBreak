@@ -1,0 +1,300 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261124_130129_StatusHUD",
+  "screen": "StatusHUD",
+  "class": "/Script/AstralBreak.AstralStatusHUDWidget",
+  "contract_hash": "sha1:82d77227b6d6b4307f0c11a9c85c3409da2825b6",
+  "previous_hash": "sha1:82d77227b6d6b4307f0c11a9c85c3409da2825b6",
+  "contract": {
+    "schema_version": 1,
+    "generator": "1:49a7a94ed467",
+    "module": "AstralBreak",
+    "api": "ASTRALBREAK_API",
+    "ui_dir": "UI",
+    "screen": "StatusHUD",
+    "feature": "HUD",
+    "view_base": "AstralStatusHUDViewBase",
+    "widget": "AstralStatusHUDWidget",
+    "bindings": [
+      {
+        "name": "Ally1HpBar",
+        "widget_class": "ProgressBar",
+        "data": "ally1_hp",
+        "kind": "progress",
+        "optional": false,
+        "setter": "SetAlly1Hp"
+      },
+      {
+        "name": "Ally1NameText",
+        "widget_class": "TextBlock",
+        "data": "ally1_name",
+        "kind": "text",
+        "optional": false,
+        "setter": "SetAlly1Name"
+      },
+      {
+        "name": "Ally1Panel",
+        "widget_class": "Overlay",
+        "data": "ally1_panel",
+        "kind": "flag",
+        "optional": false,
+        "setter": "SetAlly1PanelVisible"
+      },
+      {
+        "name": "Ally1UltBar",
+        "widget_class": "ProgressBar",
+        "data": "ally1_ult",
+        "kind": "progress",
+        "optional": false,
+        "setter": "SetAlly1Ult"
+      },
+      {
+        "name": "Ally2HpBar",
+        "widget_class": "ProgressBar",
+        "data": "ally2_hp",
+        "kind": "progress",
+        "optional": false,
+        "setter": "SetAlly2Hp"
+      },
+      {
+        "name": "Ally2NameText",
+        "widget_class": "TextBlock",
+        "data": "ally2_name",
+        "kind": "text",
+        "optional": false,
+        "setter": "SetAlly2Name"
+      },
+      {
+        "name": "Ally2Panel",
+        "widget_class": "Overlay",
+        "data": "ally2_panel",
+        "kind": "flag",
+        "optional": false,
+        "setter": "SetAlly2PanelVisible"
+      },
+      {
+        "name": "Ally2UltBar",
+        "widget_class": "ProgressBar",
+        "data": "ally2_ult",
+        "kind": "progress",
+        "optional": false,
+        "setter": "SetAlly2Ult"
+      },
+      {
+        "name": "Ally3HpBar",
+        "widget_class": "ProgressBar",
+        "data": "ally3_hp",
+        "kind": "progress",
+        "optional": false,
+        "setter": "SetAlly3Hp"
+      },
+      {
+        "name": "Ally3NameText",
+        "widget_class": "TextBlock",
+        "data": "ally3_name",
+        "kind": "text",
+        "optional": false,
+        "setter": "SetAlly3Name"
+      },
+      {
+        "name": "Ally3Panel",
+        "widget_class": "Overlay",
+        "data": "ally3_panel",
+        "kind": "flag",
+        "optional": false,
+        "setter": "SetAlly3PanelVisible"
+      },
+      {
+        "name": "Ally3UltBar",
+        "widget_class": "ProgressBar",
+        "data": "ally3_ult",
+        "kind": "progress",
+        "optional": false,
+        "setter": "SetAlly3Ult"
+      },
+      {
+        "name": "SelfHpBar",
+        "widget_class": "ProgressBar",
+        "data": "self_hp",
+        "kind": "progress",
+        "optional": false,
+        "setter": "SetSelfHp"
+      },
+      {
+        "name": "SelfHpText",
+        "widget_class": "TextBlock",
+        "data": "self_hp_value",
+        "kind": "number",
+        "optional": false,
+        "format": "0",
+        "setter": "SetSelfHpValue"
+      },
+      {
+        "name": "SelfMarkText",
+        "widget_class": "TextBlock",
+        "data": "self_mark",
+        "kind": "number",
+        "optional": false,
+        "format": "0",
+        "setter": "SetSelfMark"
+      },
+      {
+        "name": "SelfStaminaBar",
+        "widget_class": "ProgressBar",
+        "data": "self_stamina",
+        "kind": "progress",
+        "optional": false,
+        "setter": "SetSelfStamina"
+      }
+    ]
+  },
+  "changes": {
+    "added": [],
+    "demoted": [],
+    "changed": [],
+    "restored": []
+  },
+  "skipped": true,
+  "reason": "contract_unchanged",
+  "files": [
+    {
+      "role": "view_base_h",
+      "path": "Source/AstralBreak/UI/HUD/AutoGen/AstralStatusHUDViewBase.h",
+      "action": "unchanged",
+      "sha256": "6aebef7d27670fe8f509be52574e205d405897d198d3beda1985da049432a319"
+    },
+    {
+      "role": "view_base_cpp",
+      "path": "Source/AstralBreak/UI/HUD/AutoGen/AstralStatusHUDViewBase.cpp",
+      "action": "unchanged",
+      "sha256": "cadc4c46877a103a188ddea694726b26b0b479ee391d5b519a869eb3feaa26f1"
+    },
+    {
+      "role": "widget_h",
+      "path": "Source/AstralBreak/UI/HUD/AstralStatusHUDWidget.h",
+      "action": "unchanged",
+      "sha256": "6966147b9efe8804984c18079eb80f52721c30615e0c590db7733386f5c140ed"
+    },
+    {
+      "role": "widget_cpp",
+      "path": "Source/AstralBreak/UI/HUD/AstralStatusHUDWidget.cpp",
+      "action": "unchanged",
+      "sha256": "357176d911d3d157d88875db4a757bde2377dc0a65932032ef5266f25725642f"
+    }
+  ],
+  "editor": {
+    "was_running": true
+  },
+  "build": {
+    "ran": false
+  },
+  "verify": {
+    "class": "/Script/AstralBreak.AstralStatusHUDWidget",
+    "bindings": [
+      {
+        "name": "Ally1HpBar",
+        "widget_class": "ProgressBar",
+        "widget_class_path": "/Script/UMG.ProgressBar",
+        "optional": false
+      },
+      {
+        "name": "Ally1NameText",
+        "widget_class": "TextBlock",
+        "widget_class_path": "/Script/UMG.TextBlock",
+        "optional": false
+      },
+      {
+        "name": "Ally1Panel",
+        "widget_class": "Overlay",
+        "widget_class_path": "/Script/UMG.Overlay",
+        "optional": false
+      },
+      {
+        "name": "Ally1UltBar",
+        "widget_class": "ProgressBar",
+        "widget_class_path": "/Script/UMG.ProgressBar",
+        "optional": false
+      },
+      {
+        "name": "Ally2HpBar",
+        "widget_class": "ProgressBar",
+        "widget_class_path": "/Script/UMG.ProgressBar",
+        "optional": false
+      },
+      {
+        "name": "Ally2NameText",
+        "widget_class": "TextBlock",
+        "widget_class_path": "/Script/UMG.TextBlock",
+        "optional": false
+      },
+      {
+        "name": "Ally2Panel",
+        "widget_class": "Overlay",
+        "widget_class_path": "/Script/UMG.Overlay",
+        "optional": false
+      },
+      {
+        "name": "Ally2UltBar",
+        "widget_class": "ProgressBar",
+        "widget_class_path": "/Script/UMG.ProgressBar",
+        "optional": false
+      },
+      {
+        "name": "Ally3HpBar",
+        "widget_class": "ProgressBar",
+        "widget_class_path": "/Script/UMG.ProgressBar",
+        "optional": false
+      },
+      {
+        "name": "Ally3NameText",
+        "widget_class": "TextBlock",
+        "widget_class_path": "/Script/UMG.TextBlock",
+        "optional": false
+      },
+      {
+        "name": "Ally3Panel",
+        "widget_class": "Overlay",
+        "widget_class_path": "/Script/UMG.Overlay",
+        "optional": false
+      },
+      {
+        "name": "Ally3UltBar",
+        "widget_class": "ProgressBar",
+        "widget_class_path": "/Script/UMG.ProgressBar",
+        "optional": false
+      },
+      {
+        "name": "SelfHpBar",
+        "widget_class": "ProgressBar",
+        "widget_class_path": "/Script/UMG.ProgressBar",
+        "optional": false
+      },
+      {
+        "name": "SelfHpText",
+        "widget_class": "TextBlock",
+        "widget_class_path": "/Script/UMG.TextBlock",
+        "optional": false
+      },
+      {
+        "name": "SelfMarkText",
+        "widget_class": "TextBlock",
+        "widget_class_path": "/Script/UMG.TextBlock",
+        "optional": false
+      },
+      {
+        "name": "SelfStaminaBar",
+        "widget_class": "ProgressBar",
+        "widget_class_path": "/Script/UMG.ProgressBar",
+        "optional": false
+      }
+    ],
+    "match": true,
+    "diff": []
+  },
+  "restored": [],
+  "started": "2026-11-24T13:02:16+09:00",
+  "durations_s": {
+    "codegen": 0.585
+  },
+  "finished": "2026-11-24T13:02:16+09:00"
+}

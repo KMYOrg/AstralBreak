@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "screen_id": "StatusHUD",
+  "run_id": "R20261124_130129_StatusHUD",
+  "parent_run_id": null,
+  "dest": "/Game/UI/HUD/StatusHUD",
+  "wbp": "/Game/UI/HUD/StatusHUD/WBP_StatusHUD",
+  "textures": {
+    "ally1_crescent": "/Game/UI/HUD/StatusHUD/T_ally1_crescent",
+    "ally2_crescent": "/Game/UI/HUD/StatusHUD/T_ally2_crescent",
+    "ally3_crescent": "/Game/UI/HUD/StatusHUD/T_ally3_crescent",
+    "self_hp_bar": "/Game/UI/HUD/StatusHUD/T_self_hp_bar",
+    "self_stamina_bar": "/Game/UI/HUD/StatusHUD/T_self_stamina_bar",
+    "ally1_hp_bar": "/Game/UI/HUD/StatusHUD/T_ally1_hp_bar",
+    "ally1_ult_bar": "/Game/UI/HUD/StatusHUD/T_ally1_ult_bar",
+    "ally2_hp_bar": "/Game/UI/HUD/StatusHUD/T_ally2_hp_bar",
+    "ally2_ult_bar": "/Game/UI/HUD/StatusHUD/T_ally2_ult_bar",
+    "ally3_hp_bar": "/Game/UI/HUD/StatusHUD/T_ally3_hp_bar",
+    "ally3_ult_bar": "/Game/UI/HUD/StatusHUD/T_ally3_ult_bar",
+    "static_plate1": "/Game/UI/HUD/StatusHUD/T_static_plate1"
+  },
+  "files": {
+    "T_ally1_crescent.uasset": {
+      "sha256": "626dbe284e27ebc18cff333bf5c2a39e6331cc97ea5b4cd63b1c043f76ce59c2",
+      "size": 32066
+    },
+    "T_ally1_hp_bar.uasset": {
+      "sha256": "c5214ff83407760ddda21a8671b34a26f1c577ee6d6b0aa851ba7b23d35cdc82",
+      "size": 22193
+    },
+    "T_ally1_ult_bar.uasset": {
+      "sha256": "2262c62163cf27c31b8cd7c6cc8a293a191d6013ad5fe5e5d05514661712b92d",
+      "size": 18273
+    },
+    "T_ally2_crescent.uasset": {
+      "sha256": "cf6ecd0ceed83d2024706c8a61be45ad388a943bed584d82dd5df041f62af753",
+      "size": 37181
+    },
+    "T_ally2_hp_bar.uasset": {
+      "sha256": "0841c1e6ddd2569cff2bc05f1872777b8afd9aa7ed7321a6fa9eb1b0158d96f3",
+      "size": 22093
+    },
+    "T_ally2_ult_bar.uasset": {
+      "sha256": "89638e15672c7cc0d5e6f45348b83b0293356362038e193009bc83bb4ce70c2e",
+      "size": 18264
+    },
+    "T_ally3_crescent.uasset": {
+      "sha256": "c967827f9bdacd2c1072d2191998b142bd488cf6ba73aca7ec01327504652355",
+      "size": 33099
+    },
+    "T_ally3_hp_bar.uasset": {
+      "sha256": "e4ec7cfc3bae016e8ad3ec3a52690902304b2502cf535ca169902ac49fa1fa48",
+      "size": 22624
+    },
+    "T_ally3_ult_bar.uasset": {
+      "sha256": "c620a932ef9e3995dc6314c5f4315ccccfcef2029cf8f15c90cdf956ec1be05b",
+      "size": 18321
+    },
+    "T_self_hp_bar.uasset": {
+      "sha256": "5ad4d4593f2b37f34dd9bbfb5a40d7fdff29bce0b41c1e2e8361cdf4aff4428b",
+      "size": 33958
+    },
+    "T_self_stamina_bar.uasset": {
+      "sha256": "0bd728e82e0e9a62b36f5c2a77e9d6da28f30d5833fdbeb2ce84625cf8e4ee95",
+      "size": 24781
+    },
+    "T_static_plate1.uasset": {
+      "sha256": "b88977bb3fcc803fa3431f86752e9660788026475e1f8eb1b80faf4a69854e1a",
+      "size": 21906
+    },
+    "WBP_StatusHUD.uasset": {
+      "sha256": "6df2d8fad64be7b9737cc20859b1c0a2eda2d07840ad5d3248778810d7905dc9",
+      "size": 89820
+    }
+  },
+  "revision": "sha1:934da9962cdaa1f7201679e2772d2ef14edacb13",
+  "run_revision": "sha1:5d57d1a1d462ffbdb28cdd942085be7b88d09020",
+  "contract_hash": "sha1:82d77227b6d6b4307f0c11a9c85c3409da2825b6",
+  "source": {
+    "assets/final/ally1_crescent.png": {
+      "kind": "binary",
+      "sha256": "72327877d3073af1f95ef0dc6cf8dd71eff11733c15ff1cead8bc92461a9bb3b",
+      "size": 20733
+    },
+    "assets/final/ally1_hp_bar.png": {
+      "kind": "binary",
+      "sha256": "eadec2cca244088cbf58eeb1377a4de0b1512a1bfb0a22967fc195ec23231cae",
+      "size": 8809
+    },
+    "assets/final/ally1_ult_bar.png": {
+      "kind": "binary",
+      "sha256": "bb000ef2fd23ad4cb25bfbd277bf2cb2bbebe0fb9e0e21ec9648de10d176afea",
+      "size": 5351
+    },
+    "assets/final/ally2_crescent.png": {
+      "kind": "binary",
+      "sha256": "04b0693e4ff71a52ef6623b6f3d30f822c9464b1cb6a4226d855b33c89053d18",
+      "size": 24790
+    },
+    "assets/final/ally2_hp_bar.png": {
+      "kind": "binary",
+      "sha256": "e072d4ca531890b57a60ba6149bda71f8b7c17a8f6ac2964c3be09d4805f9f34",
+      "size": 8747
+    },
+    "assets/final/ally2_ult_bar.png": {
+      "kind": "binary",
+      "sha256": "91411bbb85de652fcf3641af03d2a1692085ffb0733b3386d0e133212115efe4",
+      "size": 5324
+    },
+    "assets/final/ally3_crescent.png": {
+      "kind": "binary",
+      "sha256": "b6fa66b88aefcdad4ef53a94563998f4149ca0aefb6ca8518a29ee7189720b4b",
+      "size": 21743
+    },
+    "assets/final/ally3_hp_bar.png": {
+      "kind": "binary",
+      "sha256": "d86670a7fda34a7862e4d39948d9ecf786cc77832c232c24738fc5eaa514a822",
+      "size": 9368
+    },
+    "assets/final/ally3_ult_bar.png": {
+      "kind": "binary",
+      "sha256": "3b587b36dfa915986817d1ccaa459f0dc1740b9d4ca6647be165c3c997e3c97a",
+      "size": 5213
+    },
+    "assets/final/self_hp_bar.png": {
+      "kind": "binary",
+      "sha256": "dc03f0228560cad035ff980ef903e4e0756824c775eb6aac9d0f4170e17ab249",
+      "size": 19066
+    },
+    "assets/final/self_stamina_bar.png": {
+      "kind": "binary",
+      "sha256": "ed727db9657ffb843ce295ac2408768baae7ca354249e850c2f4c5e270969f3e",
+      "size": 10559
+    },
+    "assets/final/static_plate1.png": {
+      "kind": "binary",
+      "sha256": "704fe66bf7b2bc6fb40653dd900ceb72e0ab341486020f2e8dca68cc54605395",
+      "size": 10806
+    },
+    "brief.json": {
+      "kind": "json",
+      "sha256": "2367b93019ca249ae6ad2bb4855736ca616e7f5bce72576f68df99211ea1c93c"
+    },
+    "codegen.json": {
+      "kind": "json",
+      "sha256": "0a2959b6df09e6013303023b44242e0d386710089af3a80b08f5ae579f2d8cb8"
+    },
+    "diagnosis.json": {
+      "kind": "json",
+      "sha256": "c66703458a12cfbf622dcc4d3c1dfdd01ad6d847a96f5cd17fb62a0521910e66"
+    },
+    "gen.jsonl": {
+      "kind": "jsonl",
+      "sha256": "ce5ef48c0c007028fd233785929d3a87c8a4e44fbbc5d12c0b654223ec5484db"
+    },
+    "geometry.json": {
+      "kind": "json",
+      "sha256": "e3bf886121b387084df277e4421c9b83b885a914c01bb287ba6583c7740696ed"
+    },
+    "inputs.json": {
+      "kind": "json",
+      "sha256": "357db251064f98f862d2410fa31afe2df2f11d69a23b2a428193dc5a3133d3d6"
+    },
+    "layer.json": {
+      "kind": "json",
+      "sha256": "74468c47f033599a3ea815e1baec1b20e17f63d70db25b24f37c08308c9fd6d2"
+    },
+    "layer/bar_Ally1HpBar.png": {
+      "kind": "binary",
+      "sha256": "a8a7fc9963c745bc929b6499558533e6ff12e0baeef25920720488b8177f5b19",
+      "size": 2261
+    },
+    "layer/bar_Ally1UltBar.png": {
+      "kind": "binary",
+      "sha256": "f01f8e968faf8a373aa8a7be868aafdb33969c560a01804ae800f2b2286322af",
+      "size": 2255
+    },
+    "layer/bar_Ally2HpBar.png": {
+      "kind": "binary",
+      "sha256": "3e9b39060ffc11e0e7646462cae9fc5c059a2a5f5329f67647b6303244623f9e",
+      "size": 2267
+    },
+    "layer/bar_Ally2UltBar.png": {
+      "kind": "binary",
+      "sha256": "c02dadcc917be483aabed7142a6212dadc2a3fa9ae3dd59242dc13dc35002276",
+      "size": 2186
+    },
+    "layer/bar_Ally3HpBar.png": {
+      "kind": "binary",
+      "sha256": "856e3188d8bad7f2c16ec6af4ff0ce5ba5291cd2a91aba33ff25f72b0175b412",
+      "size": 2258
+    },
+    "layer/bar_Ally3UltBar.png": {
+      "kind": "binary",
+      "sha256": "9b17e7d09f1f50e7b3f86a222cc90aff2dc37eaf6fd22656beea69d95b6383a0",
+      "size": 2169
+    },
+    "layer/bar_SelfHpBar.png": {
+      "kind": "binary",
+      "sha256": "f8327ebe53e9ea108fa5c280008c4311d28807e0d1aa8b6fe7834ea4a1caf693",
+      "size": 2359
+    },
+    "layer/bar_SelfStaminaBar.png": {
+      "kind": "binary",
+      "sha256": "93cd0001133d6c4ec41cbe2ceed1124420b9b4f97202ce07ce8aa5d527bcd6eb",
+      "size": 2253
+    },
+    "layer/own_Ally3Frame.png": {
+      "kind": "binary",
+      "sha256": "c0edc46f337218d6584fdb39950fb9f20c205ca167ba21ad6b2223dcf317157d",
+      "size": 2257
+    },
+    "layer/plate_1.png": {
+      "kind": "binary",
+      "sha256": "c814f23497cb4210b283ab10c49b9bada3ac5bb5a92e2d76a2a7b28185484047",
+      "size": 2734
+    },
+    "lineage.json": {
+      "kind": "json",
+      "sha256": "dbe457b305682ada225d7e78d61b6a43dcc0574f0cb86465651941c7be10e612"
+    },
+    "manifest.json": {
+      "kind": "json",
+      "sha256": "83224674de434f2d8479ec3fff47051c8e5e5c8e6ed2afaecbf5cc3ec6d84937"
+    },
+    "normalize.json": {
+      "kind": "json",
+      "sha256": "f11ee1d729bd65f3724fbd5e828e919929a745c40584e86786733992f9f9593f"
+    },
+    "reference.png": {
+      "kind": "binary",
+      "sha256": "56340036198e96ec2b8c5df668efa024f47e58263645d9290c5ab2f3255ce5d8",
+      "size": 95468
+    },
+    "reference_alpha.png": {
+      "kind": "binary",
+      "sha256": "4ee392522575c34c4ec2e7f08b24d0da704ad3d8e48acd5d22686c1183c4bce6",
+      "size": 39467
+    },
+    "reference_art_alpha.png": {
+      "kind": "binary",
+      "sha256": "50439607faacc236a7cf02e1e3ebdce2285233e09c5808571f5407125241c90f",
+      "size": 35510
+    },
+    "reference_art_color.png": {
+      "kind": "binary",
+      "sha256": "7ed3c7bc42e40ceef4186838f3cd0858f5040d1aeaecb9496b0fe0899b90121e",
+      "size": 153756
+    },
+    "reference_color.png": {
+      "kind": "binary",
+      "sha256": "671d3c0ea68333647efb4e669ddb89d3d574c46aa4c05b8a545a4ef7d3c4e6e2",
+      "size": 157096
+    },
+    "reference_notext_alpha.png": {
+      "kind": "binary",
+      "sha256": "50439607faacc236a7cf02e1e3ebdce2285233e09c5808571f5407125241c90f",
+      "size": 35510
+    },
+    "reference_notext_color.png": {
+      "kind": "binary",
+      "sha256": "7ed3c7bc42e40ceef4186838f3cd0858f5040d1aeaecb9496b0fe0899b90121e",
+      "size": 153756
+    },
+    "refine.json": {
+      "kind": "json",
+      "sha256": "3e7b40350be4c32bd9e2310e59dab3e2bf3aab597b28423059fc71d9738cd5ae"
+    },
+    "spec.json": {
+      "kind": "json",
+      "sha256": "83c004c4e940d5e485078baf93f8448186c001a3a5bd51985bcfbaecd63dbbf5"
+    },
+    "specs/000.json": {
+      "kind": "json",
+      "sha256": "e14c609d9de833ad0bc9b2dd425e92f46c60e236969e070826c162645d5b26ae"
+    }
+  },
+  "edits": [],
+  "verified": {
+    "roundtrip_equal": true,
+    "pictures": 64,
+    "same_pixels": 64,
+    "same_bytes": 64,
+    "unsupported": 0
+  },
+  "recorded_at": "2026-11-24T22:43:39+09:00"
+}

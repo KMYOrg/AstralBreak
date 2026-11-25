@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "mode": "concept",
+  "screen_type": "hud",
+  "screen_id": "CombatHUD",
+  "concept": "concept.png",
+  "concept_source": "generated_textfree",
+  "concept_text_ref": "concept_text_ref.png",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "language": "ko",
+  "font": null,
+  "text": "M4 전투 HUD — 아래 가운데 오의 게이지, 그 위 오의 가능 표시(낫날 문장 + 가로 빛줄기 + 그 아래 작은 키 글자 — 게이지가 가득 차면 켜짐), 그 위 '오의 불가' 문구, 화면 가운데 체인 패널(남은 시간만큼 줄어드는 큰 고리 + 고리 안 아래쪽 먹색 띠에 제목 · 남은 시간 · 참가 N/4 가 가로로 한 줄), 위 가운데 체인 버스트 배너(라벨 · 인원).",
+  "required_elements": [
+    {
+      "id": "UltGauge",
+      "kind": "progress",
+      "desc": "오의 게이지 — 맨 아래 칼날 모양 막대"
+    },
+    {
+      "id": "UltReadyPanel",
+      "kind": "panel",
+      "desc": "오의 가능 표시 전체 — 낫날 문장 그림(UltReadyGlow)과 그 아래 키 글자(UltKeyText)를 담는 상자. 게이지가 가득 차면 켜짐"
+    },
+    {
+      "id": "UltReadyGlow",
+      "kind": "image",
+      "desc": "낫날 문장 + 가로로 긴 가는 빛줄기(한 덩어리 그림) — UltReadyPanel 안"
+    },
+    {
+      "id": "UltKeyText",
+      "kind": "text",
+      "desc": "오의 키 안내 글자 — 낫날 문장과 게이지 사이 가운데, UltReadyPanel 안"
+    },
+    {
+      "id": "ChainPanel",
+      "kind": "panel",
+      "desc": "체인 패널 — 큰 고리와 그 안 아래쪽 먹색 띠 전체. 열린 체인이 있을 때만"
+    },
+    {
+      "id": "ChainRing",
+      "kind": "progress",
+      "desc": "체인 남은 시간 고리 — 큰 고리(칼날 둘)만, 남은 시간만큼 줄어듦. ChainPanel 안"
+    },
+    {
+      "id": "ChainTimerText",
+      "kind": "text",
+      "desc": "체인 남은 시간(초) — 먹색 띠 가운데 큰 숫자"
+    },
+    {
+      "id": "ChainCountText",
+      "kind": "text",
+      "desc": "체인 참가 N/4 — 먹색 띠 오른쪽"
+    },
+    {
+      "id": "BurstBanner",
+      "kind": "banner",
+      "desc": "체인 버스트 배너 — 위아래 칼날 선이 있는 먹색 띠 전체"
+    },
+    {
+      "id": "BurstCountText",
+      "kind": "text",
+      "desc": "버스트 인원"
+    },
+    {
+      "id": "UltBlockedText",
+      "kind": "text",
+      "desc": "'오의 불가' — 차단 태그로 발동 실패했을 때"
+    }
+  ],
+  "data": [
+    {
+      "id": "ult_gauge",
+      "type": "progress",
+      "widget": "UltGauge",
+      "widget_type": "ProgressBar",
+      "sample": 0.7
+    },
+    {
+      "id": "ult_ready",
+      "type": "flag",
+      "widget": "UltReadyPanel",
+      "widget_type": "Overlay",
+      "sample": false,
+      "desc": "ultimate-ready sign above the gauge — an Overlay region (no brush) holding exactly two children: the Image UltReadyGlow (the scythe blade emblem with the long thin horizontal line, one extracted asset) and the TextBlock UltKeyText (the small key letter below the emblem). Its box covers the emblem, its line and the letter. Shown when the gauge is full; the concept draws it on"
+    },
+    {
+      "id": "ult_key",
+      "type": "text",
+      "widget": "UltKeyText",
+      "widget_type": "TextBlock",
+      "sample": "R",
+      "inside": "UltReadyPanel",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "desc": "small bone-white key letter (which key fires the ultimate), centered in the empty space between the blade emblem and the gauge"
+    },
+    {
+      "id": "chain_panel",
+      "type": "flag",
+      "widget": "ChainPanel",
+      "widget_type": "Border",
+      "sample": true
+    },
+    {
+      "id": "chain_ring",
+      "type": "progress",
+      "widget": "ChainRing",
+      "widget_type": "Image",
+      "sample": 1.0,
+      "inside": "ChainPanel",
+      "radial": {
+        "mode": "clockwise",
+        "track_alpha": 0.18
+      },
+      "desc": "the large thin steel ring (two crescent blades) around the band — empties clockwise from 12 o'clock as the remaining time runs out; the concept draws it full"
+    },
+    {
+      "id": "chain_remaining",
+      "type": "number",
+      "widget": "ChainTimerText",
+      "widget_type": "TextBlock",
+      "format": "0.0",
+      "sample": 4.2,
+      "desc": "the largest text of the ring: a bone-white, straight modern sans-serif number in the center of the dark band inside the ring"
+    },
+    {
+      "id": "chain_count",
+      "type": "text",
+      "widget": "ChainCountText",
+      "widget_type": "TextBlock",
+      "sample": "2/4",
+      "desc": "small bone-white (exactly the same color, size and weight as the small title at the left side) straight sans-serif text on the same line as the number, sitting fully on the solid black part of the band to the right of the number - mirror the small title: as far right of the number as the title is left of it, never on the faded end of the band"
+    },
+    {
+      "id": "burst_banner",
+      "type": "flag",
+      "widget": "BurstBanner",
+      "widget_type": "Border",
+      "sample": false
+    },
+    {
+      "id": "burst_count",
+      "type": "number",
+      "widget": "BurstCountText",
+      "widget_type": "TextBlock",
+      "format": "0",
+      "sample": 3,
+      "desc": "large bold ivory sans-serif number on the right side of the wide dark banner at the top"
+    },
+    {
+      "id": "ult_blocked",
+      "type": "flag",
+      "widget": "UltBlockedText",
+      "widget_type": "TextBlock",
+      "sample": false
+    }
+  ],
+  "static_text": [
+    {
+      "widget": "UltBlockedText",
+      "value": "오의 불가",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "desc": "small clear light red warning text (about #E0605A, opaque, no glow, no band behind it) in the empty space between the ring and the blade emblem, horizontally centered - must read on both dark and bright scenes"
+    },
+    {
+      "widget": "ChainTitleText",
+      "value": "체인",
+      "desc": "small bone-white straight sans-serif title at the left side of the dark band inside the ring, on the same line as the number"
+    },
+    {
+      "widget": "BurstLabelText",
+      "value": "체인 버스트",
+      "desc": "bone-white straight modern sans-serif label, semi-bold with wide letter spacing, in the left half of the wide dark banner at the top"
+    }
+  ],
+  "style_keywords": [
+    "modern flat HUD",
+    "matte ink-black bands",
+    "bone-white steel blades",
+    "pale ivory accent",
+    "realistic 3D action"
+  ]
+}

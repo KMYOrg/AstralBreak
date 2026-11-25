@@ -69,7 +69,11 @@ def load(metrics_path: pathlib.Path, work: pathlib.Path) -> dict:
             continue
         batch = [((_read(g) or {}).get("notes") or {}).get("state_renders") for g in sorted((p.parent / "attempts").glob("*/gates.json"))]
         reports[p.parent.name] = {"report": rep, "llm": _jsonl(p.parent / "llm.jsonl"), "batch": [b for b in batch if b]}
-    return {"runs": [r for r in rows if r["record"] == "run"], "assets": [r for r in rows if r["record"] == "asset"], "reports": reports}
+    # 이어서 고치기 run(Phase 4 — edit_of)은 컨셉에서 만드는 run 이 아니고 일부러 막히는 시험도 섞여 따로 센다
+    edits = [r for r in rows if r["record"] == "run" and r.get("edit_of")]
+    skip = {r["run_id"] for r in edits} | {k for k, d in reports.items() if d["report"].get("parent_run_id")}
+    return {"runs": [r for r in rows if r["record"] == "run" and not r.get("edit_of")], "assets": [r for r in rows if r["record"] == "asset"],
+            "reports": {k: d for k, d in reports.items() if k not in skip}, "edits": edits}
 
 
 def med(xs):
@@ -123,6 +127,9 @@ def build(data: dict) -> str:
         "가를 수 없어 통과율을 내지 않는다. `Probe…` 는 검증 전용 화면이다.")
     no_status = sum(1 for r in runs if not r.get("status"))
     add(f"- 초기 {no_status}줄에는 run 결과(status)가 없어 '그 밖'으로 셌다. 일부러 결함을 넣은 run 은 {sum(1 for r in runs if r.get('fault'))}개다.")
+    if data.get("edits"):
+        ec = collections.Counter(outcome(r) for r in data["edits"])
+        add(f"- 이어서 고치기 run {len(data['edits'])}개(통과 {ec['pass']} · 실패 {ec['fail']} · 그 밖 {ec['그 밖']})는 아래 표에 넣지 않았다 — 컨셉에서 만드는 run 이 아니고, 막히는지 본 시험이 섞여 있다.")
     add("- 'USD' 는 API 정가로 환산한 값이다 — 구독 계정이라 과금이 아니다. 시간은 한 대의 PC 에서 잰 값이고 다른 작업과 겹쳤을 수 있다.")
     add("")
 

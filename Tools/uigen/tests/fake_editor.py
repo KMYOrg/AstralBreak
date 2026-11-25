@@ -5,6 +5,8 @@
 - 렌더 geometry: 아래 작은 배치 계산기(캔버스 점 앵커 · Overlay/Border/SizeBox 패딩 · 박스 fill 비율). 손 spec 의 bbox_intent 와 같은 값을 낸다.
   실제 Slate 처럼 그리기 영역 밖으로 완전히 나간 위젯(과 자식)은 컬링 — geometry (0, 0, 0, 0).
 - 결함 손잡이: texture_override(임포트 설정 바꾸기) · drop_from_export(역추출에서 위젯 빼기) · compile_errors.
+- Phase 4(이어서 고치기): paint = True 면 실제 크기 그림(보이는 위젯마다 자기 색 상자 · 글자는 크기 × 글자 수라 상자 밖으로 넘친다 · 끈 위젯은 배치에서도 빠진다),
+  content_root 를 주면 저장 · 승격한 패키지가 그 폴더의 .uasset(JSON) 이고 새 세션은 거기서 읽는다(파일을 바꾸면 에디터가 그것을 본다).
 """
 from __future__ import annotations
 
@@ -139,9 +141,28 @@ class FakeEditor:
         self.drop_from_export: set[str] = set()
         self.compile_errors = 0
         self.log: list[tuple[str, dict]] = []
+        self.paint = False
+        self.paint_bleed: dict[str, str] = {}           # 위젯 → 그 위젯이 바뀌면 같이 그려지는 다른 위젯(대상 밖이 바뀌는 엔진 결함 흉내)
+        self.promote_error: FakeBridgeError | None = None
+        self.content_root: pathlib.Path | None = None
 
     def end_session(self) -> None:
         self.packages = {k: v for k, v in self.packages.items() if v.get("saved")}
+
+    def disk(self, pkg: str) -> pathlib.Path:
+        return self.content_root / (pkg.removeprefix("/Game/") + ".uasset")
+
+    def write_disk(self, pkg: str) -> None:
+        if self.content_root is not None:
+            p = self.disk(pkg)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(self.packages[pkg], ensure_ascii=False, sort_keys=True), encoding="utf-8")
+
+    def begin_session(self) -> None:
+        """새 에디터 — 저장된 파일만 있다."""
+        if self.content_root is not None:
+            self.packages = {"/Game/" + p.relative_to(self.content_root).as_posix().removesuffix(".uasset"): json.loads(p.read_text(encoding="utf-8"))
+                             for p in self.content_root.rglob("*.uasset")}
 
     def call(self, tool: str, params: dict) -> dict:
         self.log.append((tool, copy.deepcopy(params)))
@@ -214,9 +235,13 @@ class FakeEditor:
         old = {x["id"]: x for x in w["spec"]["widgets"]}
         target = copy.deepcopy(p["spec"])
         ops = []
+        paths = p.get("assets") or {}
         for x in target["widgets"]:
             o = old.get(x["id"])
-            clean = {k: v for k, v in x.items() if k not in spec_mod.NON_WBP_WIDGET_FIELDS}
+            clean = copy.deepcopy({k: v for k, v in x.items() if k not in spec_mod.NON_WBP_WIDGET_FIELDS})
+            for key, brush in (clean.get("style") or {}).items():          # 저장된 쪽은 UE 경로 — 같은 것으로 바꿔 견준다
+                if key in spec_mod.BRUSH_KEYS and isinstance(brush, dict) and brush.get("asset") in paths:
+                    brush["asset"] = paths[brush["asset"]]
             if o is None:
                 ops.append({"op": "add", "widget": x["id"]})
             elif {k: v for k, v in o.items() if k not in spec_mod.NON_WBP_WIDGET_FIELDS} != clean:
@@ -293,15 +318,81 @@ class FakeEditor:
                 wid = parents.get(wid)
             return True
 
+        if self.paint:                                         # 끈 위젯은 배치에서도 빠진다(Collapsed)
+            off = {w_ for w_, o in (p.get("overrides") or {}).items() if o.get("visible") is False}
+            gone = off | {d for w_ in off if w_ in types for d in spec_mod.descendants(spec, w_)}
+            spec["widgets"] = [x for x in spec["widgets"] if x["id"] not in gone]
         renders = []
         for res in p.get("resolutions") or [[1920, 1080]]:
             boxes = painted_layout(spec, res[0], res[1])
-            f = png.write_rgba(out_dir / f"{p.get('prefix', 'render')}_{res[0]}x{res[1]}.png", 2, 2, bytes([0, 0, 0, 255] * 4))
+            f = out_dir / f"{p.get('prefix', 'render')}_{res[0]}x{res[1]}.png"
+            if self.paint:
+                self._paint(f, spec, boxes, visible, p.get("overrides") or {}, res, {x["id"]: x for x in w["spec"]["widgets"]})
+            else:
+                f = png.write_rgba(f, 2, 2, bytes([0, 0, 0, 255] * 4))
             geom = [{"id": wid, "type": types[wid], "parent": parents[wid], "x": b[0], "y": b[1], "w": b[2], "h": b[3], "visible": visible(wid)}
                     for wid, b in boxes.items()]
             renders.append({"resolution": list(res), "png": f.as_posix(), "draws": 2, "diff_pixels_vs_prev": [0], "geometry": geom})
         return {"asset_path": w["path"], "output_dir": out_dir.as_posix(), "renders": renders, "probes": [], "scale": 1,
                 "force_visible": bool(p.get("force_visible")), "seconds": 0.01}
+
+    def _paint(self, path, spec, boxes, visible, overrides, res, full):
+        """보이는 위젯마다 자기 상자 — 색은 스타일 · 글꼴에서(바뀌면 색도 바뀐다). 글자는 (글자 수 × 크기 × 0.6, 크기 × 1.2) 라 상자 밖으로 넘칠 수 있다."""
+        import cv2
+        import numpy as np
+        img = np.zeros((int(res[1]), int(res[0]), 3), np.uint8)
+        for x in spec["widgets"]:
+            if not visible(x["id"]):
+                continue
+            bx, by, bw, bh = (float(v) for v in boxes[x["id"]])
+            style = copy.deepcopy(x.get("style"))
+            for brush in (style or {}).values():             # 텍스처는 이름만 — 폴더(run · 승격본)가 달라도 같은 그림
+                if isinstance(brush, dict) and brush.get("asset"):
+                    brush["asset"] = brush["asset"].rsplit("/", 1)[-1]
+            key = {"style": style, "font": x.get("font"), "type": x["type"]}
+            if x["id"] in self.paint_bleed:
+                key["bleed"] = full[self.paint_bleed[x["id"]]].get("font")       # 꺼도(배치에서 빠져도) 남는 결함
+            if x["type"] == "TextBlock":
+                t = overrides.get(x["id"], {}).get("text", (x.get("text") or {}).get("value", (x.get("text") or {}).get("sample", "")))
+                bw, bh = len(t) * x["font"]["size"] * 0.6, x["font"]["size"] * 1.2
+                key["text"] = t
+            elif not x.get("style"):
+                continue
+            c = hashlib.sha1(json.dumps(key, sort_keys=True).encode()).digest()
+            x0, y0, x1, y1 = int(round(bx)), int(round(by)), int(round(bx + bw)), int(round(by + bh))
+            img[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = (40 + c[0] % 200, 40 + c[1] % 200, 40 + c[2] % 200)
+        cv2.imwrite(str(path), img)
+
+    def t_promote_widget(self, p):
+        run, dest = p["run_path"].rstrip("/"), p["dest_path"].rstrip("/")
+        if not p.get("dry_run") and not p.get("confirm"):
+            raise FakeBridgeError("BAD_REQUEST", "MISSING_CONFIRM")
+        there = [k for k in self.packages if k.startswith(dest + "/")]
+        if self.content_root is not None:
+            there += [f.name for f in (self.content_root / dest.removeprefix("/Game/")).glob("*")]
+        if there:
+            raise FakeBridgeError("ASSET_EXISTS", f"dest '{dest}' is not empty")
+        src = [k for k in self._under(run) if self.packages[k].get("saved")]
+        if not src:
+            raise FakeBridgeError("ASSET_NOT_FOUND", f"no saved assets under '{run}'")
+        planned = [{"source": k, "dest": dest + k[len(run):]} for k in src]
+        if p.get("dry_run"):
+            return {"dry_run": True, "planned": planned}
+        done = []
+        for k in src:
+            if self.promote_error is not None and len(done) == 1:       # 하나만 복사하고 실패
+                raise self.promote_error
+            q = copy.deepcopy(self.packages[k])
+            if q["kind"] == "wbp":
+                q["path"] = dest + k[len(run):]
+                for x in q["spec"]["widgets"]:
+                    for key, brush in (x.get("style") or {}).items():
+                        if key in spec_mod.BRUSH_KEYS and isinstance(brush, dict) and str(brush.get("asset") or "").startswith(run + "/"):
+                            brush["asset"] = dest + brush["asset"][len(run):]
+            self.packages[dest + k[len(run):]] = q
+            self.write_disk(dest + k[len(run):])
+            done.append(k)
+        return {"dry_run": False, "run_path": run, "dest_path": dest, "planned": planned, "copied": planned, "blueprints": []}
 
     def _under(self, run_path):
         prefix = run_path.rstrip("/") + "/"
@@ -312,6 +403,7 @@ class FakeEditor:
         for k in self._under(p["run_path"]):
             (already if self.packages[k].get("saved") else saved).append(k)
             self.packages[k]["saved"] = True
+            self.write_disk(k)
         return {"run_path": p["run_path"], "saved": saved, "already_saved": already}
 
     def t_discard_run_packages(self, p):

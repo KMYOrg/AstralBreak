@@ -70,6 +70,23 @@ def test_summary_is_deterministic_and_leaks_nothing(tmp_path, capsys):
     assert capsys.readouterr().out.strip().endswith(a.strip())
 
 
+def test_edit_runs_are_counted_apart(tmp_path):
+    """Phase 4 — 이어서 고치기 run 은 표에 안 들어간다(막히는지 본 시험이 섞인다). 없으면 글이 그대로다."""
+    m, work = _data(tmp_path)
+    before = summarize.build(summarize.load(m, work))
+    with open(m, "a", encoding="utf-8") as f:
+        f.write(_line(record="run", run_id="R20261124_220000_StatusHUD", status="pass", ok=True, verify="pass", duration_s=60.0, failed_gates=[], edit_of="R20261124_130129_StatusHUD") + "\n")
+        f.write(_line(record="run", run_id="R20261124_220100_StatusHUD", status="fail", ok=False, verify="fail", duration_s=50.0, failed_gates=["edit_regression"],
+                      edit_of="StatusHUD") + "\n")
+    _run_dir(work, "R20261124_220000_StatusHUD", "pass", 2, [], 60.0)
+    p = work / "R20261124_220000_StatusHUD" / "report.json"
+    p.write_text(json.dumps({**json.loads(p.read_text(encoding="utf-8")), "parent_run_id": "R20261124_130129_StatusHUD"}), encoding="utf-8")
+    after = summarize.build(summarize.load(m, work))
+    assert "이어서 고치기" not in before
+    line = [x for x in after.splitlines() if "이어서 고치기 run 2개(통과 1 · 실패 1 · 그 밖 0)" in x]
+    assert len(line) == 1 and [x for x in after.splitlines() if x not in line] == before.splitlines()
+
+
 def test_summary_of_nothing_still_writes(tmp_path):
     text = summarize.build(summarize.load(tmp_path / "none.jsonl", tmp_path / "work"))
     assert text.startswith("# UI 자동 생성 파이프라인") and "run 0개 전부지만" in text

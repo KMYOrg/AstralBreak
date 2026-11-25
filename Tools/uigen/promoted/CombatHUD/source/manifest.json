@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261123_194019_CombatHUD",
+  "assets": [
+    {
+      "asset_id": "burst_banner_frame",
+      "kind": "frame",
+      "file": "assets/final/burst_banner_frame.png",
+      "sha256": "6f8cd4cf5416afc89f4cff40aed981edc6cab08821b1dc4c949e28d06feb6a91",
+      "size": [
+        799,
+        107
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "A wide matte ink-black band with faded left and right ends and a thin bone-white steel blade line along the top and bottom edges. Remove the label text and the number.",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_burst_banner_frame",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "chain_band",
+      "kind": "panel_bg",
+      "file": "assets/final/chain_band.png",
+      "sha256": "fb4241f91f5b56a9e22ad122a2fc2582f3c11201aca512043de09c1c9bc9c25a",
+      "size": [
+        520,
+        516
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "The translucent ink-black horizontal band with faded ends in the lower part of the circle. Remove the steel ring around it and all the text and numbers on it.",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_chain_band",
+      "compression": "TC_BC7"
+    },
+    {
+      "asset_id": "chain_ring",
+      "kind": "ornament",
+      "file": "assets/final/chain_ring.png",
+      "sha256": "98dd15c79e692409e221f329dcb4b6f36f977f578537bb49e2e206a48216c476",
+      "size": [
+        519,
+        520
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "A large thin steel ring made of two crescent blades meeting at the top and bottom. Remove the dark band and all text inside the ring, so the inside is empty.",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_chain_ring",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "ult_ready_glow",
+      "kind": "ornament",
+      "file": "assets/final/ult_ready_glow.png",
+      "sha256": "0004564279c944716ecc8f3d257d5a935a59ff5cf23f90acbeb3c531274fff26",
+      "size": [
+        576,
+        104
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "A bone-white curved scythe blade emblem with a long thin horizontal line fading out to both sides. Nothing else belongs to it.",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_ult_ready_glow",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "ult_gauge_fill",
+      "kind": "fill",
+      "file": "assets/final/ult_gauge_fill.png",
+      "sha256": "8412bfdb8affabb25bc78eed163ac1b6ec21eac91bc3785d91b7eaa926d2cc0f",
+      "size": [
+        420,
+        17
+      ],
+      "alpha": true,
+      "nine_slice_margin": [
+        0.0262,
+        0.0,
+        0.0143,
+        0.0
+      ],
+      "ocr_text": null,
+      "ocr": "n/a — procedural 에셋은 글자를 그리지 않는다(Phase 1a). OCR 은 생성 이미지가 들어오는 1b 부터",
+      "provenance": "procedural",
+      "backend": "procedural",
+      "procedural": {
+        "shape": "concept_fill",
+        "frame_box": [
+          604,
+          1002,
+          708,
+          40
+        ],
+        "flip": false,
+        "threshold": 124.8,
+        "seed": [
+          267,
+          19
+        ],
+        "track": [
+          64,
+          10,
+          641,
+          26
+        ],
+        "body_end": 483,
+        "lead": 11,
+        "band_radius": 3,
+        "profile": [
+          17,
+          406
+        ],
+        "end": "scale",
+        "end_in": 5,
+        "spill": 0,
+        "spill_measured": 1,
+        "texture": "concept"
+      },
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_ult_gauge_fill",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "ult_gauge_end_cap",
+      "kind": "ornament",
+      "file": "assets/final/ult_gauge_end_cap.png",
+      "sha256": "23b911c622a680e9e6b63cd22270b068f3ac058c079ddd5c04037b2492615c3d",
+      "size": [
+        9,
+        17
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": null,
+      "ocr": "n/a — procedural 에셋은 글자를 그리지 않는다(Phase 1a). OCR 은 생성 이미지가 들어오는 1b 부터",
+      "provenance": "procedural",
+      "backend": "procedural",
+      "procedural": {
+        "shape": "concept_end_cap",
+        "frame_box": [
+          604,
+          1002,
+          708,
+          40
+        ],
+        "flip": false,
+        "threshold": 124.8,
+        "seed": [
+          267,
+          19
+        ],
+        "track": [
+          64,
+          10,
+          641,
+          26
+        ],
+        "body_end": 483,
+        "lead": 11,
+        "band_radius": 3,
+        "profile": [
+          17,
+          406
+        ],
+        "end": "scale",
+        "end_in": 5,
+        "spill": 0,
+        "spill_measured": 1,
+        "texture": "concept",
+        "end_cap": {
+          "offsets": [
+            5,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "depth": 5,
+          "margin": 11
+        },
+        "cap_cols": [
+          633,
+          641
+        ]
+      },
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_ult_gauge_end_cap",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "static_plate1",
+      "kind": "ornament",
+      "file": "assets/final/static_plate1.png",
+      "sha256": "d6bf2ded70d38cbc057bdd78e90f9e94e3a2927269687fd8b415901fd51b6a90",
+      "size": [
+        700,
+        35
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "provided",
+      "backend": "concept_plate",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_static_plate1",
+      "compression": "TC_EditorIcon"
+    }
+  ]
+}

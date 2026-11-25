@@ -1,0 +1,738 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261124_130129_StatusHUD",
+  "attempt": 3,
+  "canvas": [
+    1920,
+    1080
+  ],
+  "force_visible": true,
+  "geometry": {
+    "1920x1080": [
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate1",
+        "type": "Image",
+        "parent": "Root",
+        "x": 55,
+        "y": 58,
+        "w": 90,
+        "h": 107,
+        "visible": true
+      },
+      {
+        "id": "SelfPanel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 54,
+        "y": 56,
+        "w": 494,
+        "h": 112,
+        "visible": true
+      },
+      {
+        "id": "SelfFrame",
+        "type": "Image",
+        "parent": "SelfPanel",
+        "x": 55,
+        "y": 57,
+        "w": 88,
+        "h": 108,
+        "visible": true
+      },
+      {
+        "id": "SelfHpBar",
+        "type": "ProgressBar",
+        "parent": "SelfPanel",
+        "x": 154,
+        "y": 94,
+        "w": 390,
+        "h": 26,
+        "visible": true
+      },
+      {
+        "id": "SelfStaminaBar",
+        "type": "ProgressBar",
+        "parent": "SelfPanel",
+        "x": 153,
+        "y": 119,
+        "w": 307,
+        "h": 19,
+        "visible": true
+      },
+      {
+        "id": "SelfHpText",
+        "type": "TextBlock",
+        "parent": "SelfPanel",
+        "x": 158,
+        "y": 62,
+        "w": 52,
+        "h": 37,
+        "visible": true
+      },
+      {
+        "id": "SelfMarkText",
+        "type": "TextBlock",
+        "parent": "SelfPanel",
+        "x": 76,
+        "y": 76.5,
+        "w": 50,
+        "h": 56,
+        "visible": true
+      },
+      {
+        "id": "SelfMarkLabel",
+        "type": "TextBlock",
+        "parent": "SelfPanel",
+        "x": 80,
+        "y": 122,
+        "w": 42,
+        "h": 29,
+        "visible": true
+      },
+      {
+        "id": "Ally1Panel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 177,
+        "w": 316,
+        "h": 68,
+        "visible": true
+      },
+      {
+        "id": "Ally1Frame",
+        "type": "Image",
+        "parent": "Ally1Panel",
+        "x": 56,
+        "y": 177,
+        "w": 316,
+        "h": 68,
+        "visible": true
+      },
+      {
+        "id": "Ally1HpBar",
+        "type": "ProgressBar",
+        "parent": "Ally1Panel",
+        "x": 113,
+        "y": 202,
+        "w": 257,
+        "h": 19,
+        "visible": true
+      },
+      {
+        "id": "Ally1UltBar",
+        "type": "ProgressBar",
+        "parent": "Ally1Panel",
+        "x": 112,
+        "y": 221,
+        "w": 210,
+        "h": 14,
+        "visible": true
+      },
+      {
+        "id": "Ally1NameText",
+        "type": "TextBlock",
+        "parent": "Ally1Panel",
+        "x": 115,
+        "y": 177,
+        "w": 76,
+        "h": 27,
+        "visible": true
+      },
+      {
+        "id": "Ally2Panel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 246,
+        "w": 316,
+        "h": 70,
+        "visible": true
+      },
+      {
+        "id": "Ally2Frame",
+        "type": "Image",
+        "parent": "Ally2Panel",
+        "x": 56,
+        "y": 246,
+        "w": 316,
+        "h": 70,
+        "visible": true
+      },
+      {
+        "id": "Ally2HpBar",
+        "type": "ProgressBar",
+        "parent": "Ally2Panel",
+        "x": 112,
+        "y": 271,
+        "w": 257,
+        "h": 18,
+        "visible": true
+      },
+      {
+        "id": "Ally2UltBar",
+        "type": "ProgressBar",
+        "parent": "Ally2Panel",
+        "x": 112,
+        "y": 289,
+        "w": 213,
+        "h": 15,
+        "visible": true
+      },
+      {
+        "id": "Ally2NameText",
+        "type": "TextBlock",
+        "parent": "Ally2Panel",
+        "x": 115,
+        "y": 246,
+        "w": 76,
+        "h": 27,
+        "visible": true
+      },
+      {
+        "id": "Ally3Panel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 316,
+        "w": 316,
+        "h": 71,
+        "visible": true
+      },
+      {
+        "id": "Ally3Frame",
+        "type": "Image",
+        "parent": "Ally3Panel",
+        "x": 56,
+        "y": 316,
+        "w": 316,
+        "h": 71,
+        "visible": true
+      },
+      {
+        "id": "Ally3HpBar",
+        "type": "ProgressBar",
+        "parent": "Ally3Panel",
+        "x": 115,
+        "y": 340,
+        "w": 254,
+        "h": 19,
+        "visible": true
+      },
+      {
+        "id": "Ally3UltBar",
+        "type": "ProgressBar",
+        "parent": "Ally3Panel",
+        "x": 112,
+        "y": 359,
+        "w": 209,
+        "h": 14,
+        "visible": true
+      },
+      {
+        "id": "Ally3NameText",
+        "type": "TextBlock",
+        "parent": "Ally3Panel",
+        "x": 115,
+        "y": 316,
+        "w": 76,
+        "h": 27,
+        "visible": true
+      }
+    ],
+    "2560x1080": [
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 2560,
+        "h": 1080,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate1",
+        "type": "Image",
+        "parent": "Root",
+        "x": 55,
+        "y": 58,
+        "w": 90,
+        "h": 107,
+        "visible": true
+      },
+      {
+        "id": "SelfPanel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 54,
+        "y": 56,
+        "w": 494,
+        "h": 112,
+        "visible": true
+      },
+      {
+        "id": "SelfFrame",
+        "type": "Image",
+        "parent": "SelfPanel",
+        "x": 55,
+        "y": 57,
+        "w": 88,
+        "h": 108,
+        "visible": true
+      },
+      {
+        "id": "SelfHpBar",
+        "type": "ProgressBar",
+        "parent": "SelfPanel",
+        "x": 154,
+        "y": 94,
+        "w": 390,
+        "h": 26,
+        "visible": true
+      },
+      {
+        "id": "SelfStaminaBar",
+        "type": "ProgressBar",
+        "parent": "SelfPanel",
+        "x": 153,
+        "y": 119,
+        "w": 307,
+        "h": 19,
+        "visible": true
+      },
+      {
+        "id": "SelfHpText",
+        "type": "TextBlock",
+        "parent": "SelfPanel",
+        "x": 158,
+        "y": 62,
+        "w": 52,
+        "h": 37,
+        "visible": true
+      },
+      {
+        "id": "SelfMarkText",
+        "type": "TextBlock",
+        "parent": "SelfPanel",
+        "x": 76,
+        "y": 76.5,
+        "w": 50,
+        "h": 56,
+        "visible": true
+      },
+      {
+        "id": "SelfMarkLabel",
+        "type": "TextBlock",
+        "parent": "SelfPanel",
+        "x": 80,
+        "y": 122,
+        "w": 42,
+        "h": 29,
+        "visible": true
+      },
+      {
+        "id": "Ally1Panel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 177,
+        "w": 316,
+        "h": 68,
+        "visible": true
+      },
+      {
+        "id": "Ally1Frame",
+        "type": "Image",
+        "parent": "Ally1Panel",
+        "x": 56,
+        "y": 177,
+        "w": 316,
+        "h": 68,
+        "visible": true
+      },
+      {
+        "id": "Ally1HpBar",
+        "type": "ProgressBar",
+        "parent": "Ally1Panel",
+        "x": 113,
+        "y": 202,
+        "w": 257,
+        "h": 19,
+        "visible": true
+      },
+      {
+        "id": "Ally1UltBar",
+        "type": "ProgressBar",
+        "parent": "Ally1Panel",
+        "x": 112,
+        "y": 221,
+        "w": 210,
+        "h": 14,
+        "visible": true
+      },
+      {
+        "id": "Ally1NameText",
+        "type": "TextBlock",
+        "parent": "Ally1Panel",
+        "x": 115,
+        "y": 177,
+        "w": 76,
+        "h": 27,
+        "visible": true
+      },
+      {
+        "id": "Ally2Panel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 246,
+        "w": 316,
+        "h": 70,
+        "visible": true
+      },
+      {
+        "id": "Ally2Frame",
+        "type": "Image",
+        "parent": "Ally2Panel",
+        "x": 56,
+        "y": 246,
+        "w": 316,
+        "h": 70,
+        "visible": true
+      },
+      {
+        "id": "Ally2HpBar",
+        "type": "ProgressBar",
+        "parent": "Ally2Panel",
+        "x": 112,
+        "y": 271,
+        "w": 257,
+        "h": 18,
+        "visible": true
+      },
+      {
+        "id": "Ally2UltBar",
+        "type": "ProgressBar",
+        "parent": "Ally2Panel",
+        "x": 112,
+        "y": 289,
+        "w": 213,
+        "h": 15,
+        "visible": true
+      },
+      {
+        "id": "Ally2NameText",
+        "type": "TextBlock",
+        "parent": "Ally2Panel",
+        "x": 115,
+        "y": 246,
+        "w": 76,
+        "h": 27,
+        "visible": true
+      },
+      {
+        "id": "Ally3Panel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 316,
+        "w": 316,
+        "h": 71,
+        "visible": true
+      },
+      {
+        "id": "Ally3Frame",
+        "type": "Image",
+        "parent": "Ally3Panel",
+        "x": 56,
+        "y": 316,
+        "w": 316,
+        "h": 71,
+        "visible": true
+      },
+      {
+        "id": "Ally3HpBar",
+        "type": "ProgressBar",
+        "parent": "Ally3Panel",
+        "x": 115,
+        "y": 340,
+        "w": 254,
+        "h": 19,
+        "visible": true
+      },
+      {
+        "id": "Ally3UltBar",
+        "type": "ProgressBar",
+        "parent": "Ally3Panel",
+        "x": 112,
+        "y": 359,
+        "w": 209,
+        "h": 14,
+        "visible": true
+      },
+      {
+        "id": "Ally3NameText",
+        "type": "TextBlock",
+        "parent": "Ally3Panel",
+        "x": 115,
+        "y": 316,
+        "w": 76,
+        "h": 27,
+        "visible": true
+      }
+    ],
+    "1920x1200": [
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1200,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate1",
+        "type": "Image",
+        "parent": "Root",
+        "x": 55,
+        "y": 58,
+        "w": 90,
+        "h": 107,
+        "visible": true
+      },
+      {
+        "id": "SelfPanel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 54,
+        "y": 56,
+        "w": 494,
+        "h": 112,
+        "visible": true
+      },
+      {
+        "id": "SelfFrame",
+        "type": "Image",
+        "parent": "SelfPanel",
+        "x": 55,
+        "y": 57,
+        "w": 88,
+        "h": 108,
+        "visible": true
+      },
+      {
+        "id": "SelfHpBar",
+        "type": "ProgressBar",
+        "parent": "SelfPanel",
+        "x": 154,
+        "y": 94,
+        "w": 390,
+        "h": 26,
+        "visible": true
+      },
+      {
+        "id": "SelfStaminaBar",
+        "type": "ProgressBar",
+        "parent": "SelfPanel",
+        "x": 153,
+        "y": 119,
+        "w": 307,
+        "h": 19,
+        "visible": true
+      },
+      {
+        "id": "SelfHpText",
+        "type": "TextBlock",
+        "parent": "SelfPanel",
+        "x": 158,
+        "y": 62,
+        "w": 52,
+        "h": 37,
+        "visible": true
+      },
+      {
+        "id": "SelfMarkText",
+        "type": "TextBlock",
+        "parent": "SelfPanel",
+        "x": 76,
+        "y": 76.5,
+        "w": 50,
+        "h": 56,
+        "visible": true
+      },
+      {
+        "id": "SelfMarkLabel",
+        "type": "TextBlock",
+        "parent": "SelfPanel",
+        "x": 80,
+        "y": 122,
+        "w": 42,
+        "h": 29,
+        "visible": true
+      },
+      {
+        "id": "Ally1Panel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 177,
+        "w": 316,
+        "h": 68,
+        "visible": true
+      },
+      {
+        "id": "Ally1Frame",
+        "type": "Image",
+        "parent": "Ally1Panel",
+        "x": 56,
+        "y": 177,
+        "w": 316,
+        "h": 68,
+        "visible": true
+      },
+      {
+        "id": "Ally1HpBar",
+        "type": "ProgressBar",
+        "parent": "Ally1Panel",
+        "x": 113,
+        "y": 202,
+        "w": 257,
+        "h": 19,
+        "visible": true
+      },
+      {
+        "id": "Ally1UltBar",
+        "type": "ProgressBar",
+        "parent": "Ally1Panel",
+        "x": 112,
+        "y": 221,
+        "w": 210,
+        "h": 14,
+        "visible": true
+      },
+      {
+        "id": "Ally1NameText",
+        "type": "TextBlock",
+        "parent": "Ally1Panel",
+        "x": 115,
+        "y": 177,
+        "w": 76,
+        "h": 27,
+        "visible": true
+      },
+      {
+        "id": "Ally2Panel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 246,
+        "w": 316,
+        "h": 70,
+        "visible": true
+      },
+      {
+        "id": "Ally2Frame",
+        "type": "Image",
+        "parent": "Ally2Panel",
+        "x": 56,
+        "y": 246,
+        "w": 316,
+        "h": 70,
+        "visible": true
+      },
+      {
+        "id": "Ally2HpBar",
+        "type": "ProgressBar",
+        "parent": "Ally2Panel",
+        "x": 112,
+        "y": 271,
+        "w": 257,
+        "h": 18,
+        "visible": true
+      },
+      {
+        "id": "Ally2UltBar",
+        "type": "ProgressBar",
+        "parent": "Ally2Panel",
+        "x": 112,
+        "y": 289,
+        "w": 213,
+        "h": 15,
+        "visible": true
+      },
+      {
+        "id": "Ally2NameText",
+        "type": "TextBlock",
+        "parent": "Ally2Panel",
+        "x": 115,
+        "y": 246,
+        "w": 76,
+        "h": 27,
+        "visible": true
+      },
+      {
+        "id": "Ally3Panel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 316,
+        "w": 316,
+        "h": 71,
+        "visible": true
+      },
+      {
+        "id": "Ally3Frame",
+        "type": "Image",
+        "parent": "Ally3Panel",
+        "x": 56,
+        "y": 316,
+        "w": 316,
+        "h": 71,
+        "visible": true
+      },
+      {
+        "id": "Ally3HpBar",
+        "type": "ProgressBar",
+        "parent": "Ally3Panel",
+        "x": 115,
+        "y": 340,
+        "w": 254,
+        "h": 19,
+        "visible": true
+      },
+      {
+        "id": "Ally3UltBar",
+        "type": "ProgressBar",
+        "parent": "Ally3Panel",
+        "x": 112,
+        "y": 359,
+        "w": 209,
+        "h": 14,
+        "visible": true
+      },
+      {
+        "id": "Ally3NameText",
+        "type": "TextBlock",
+        "parent": "Ally3Panel",
+        "x": 115,
+        "y": 316,
+        "w": 76,
+        "h": 27,
+        "visible": true
+      }
+    ]
+  }
+}

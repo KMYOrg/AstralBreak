@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261123_194019_CombatHUD",
+  "parent_run_id": null,
+  "status": "pass",
+  "created": "2026-11-23T20:11:15+09:00",
+  "screen_id": "CombatHUD",
+  "wbp": "/Game/_AutoGen/R20261123_194019_CombatHUD/WBP_CombatHUD",
+  "parent_class": "/Script/AstralBreak.AstralCombatHUDWidget",
+  "revision": "sha1:5a9a223f9a046fb841e9367f57bc3dc055002acc",
+  "contract_hash": "sha1:2ee29ce6627da37b994b13b4e1e304a3e864968d",
+  "spec": {
+    "file": "specs/007.json",
+    "sha256": "b22273b13091dc4768a9d62e79e0ecde96139d02261dc777c4ec1a08a40abfd0"
+  },
+  "attempts": 7,
+  "fault": null,
+  "patches": [
+    "patches/001.json"
+  ],
+  "textures": {
+    "burst_banner_frame": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_burst_banner_frame",
+    "chain_band": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_chain_band",
+    "chain_ring": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_chain_ring",
+    "ult_ready_glow": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_ult_ready_glow",
+    "ult_gauge_fill": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_ult_gauge_fill",
+    "ult_gauge_end_cap": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_ult_gauge_end_cap",
+    "static_plate1": "/Game/_AutoGen/R20261123_194019_CombatHUD/T_static_plate1"
+  },
+  "saved": [
+    "/Game/_AutoGen/R20261123_194019_CombatHUD/MI_RadialWipe_ChainRing",
+    "/Game/_AutoGen/R20261123_194019_CombatHUD/M_RadialWipe",
+    "/Game/_AutoGen/R20261123_194019_CombatHUD/T_burst_banner_frame",
+    "/Game/_AutoGen/R20261123_194019_CombatHUD/T_chain_band",
+    "/Game/_AutoGen/R20261123_194019_CombatHUD/T_chain_ring",
+    "/Game/_AutoGen/R20261123_194019_CombatHUD/T_static_plate1",
+    "/Game/_AutoGen/R20261123_194019_CombatHUD/T_ult_gauge_end_cap",
+    "/Game/_AutoGen/R20261123_194019_CombatHUD/T_ult_gauge_fill",
+    "/Game/_AutoGen/R20261123_194019_CombatHUD/T_ult_ready_glow",
+    "/Game/_AutoGen/R20261123_194019_CombatHUD/WBP_CombatHUD"
+  ]
+}

@@ -19,7 +19,8 @@ def _lineage(run, state: dict, outcome: str, saved: list[str], extra: dict) -> d
     spec_bytes = run.path("spec.json").read_bytes()
     manifest = run.read_json("manifest.json") if run.path("manifest.json").is_file() else {"assets": []}
     codegen = run.read_json("codegen.json") if run.path("codegen.json").is_file() else {}
-    doc = {"schema_version": 1, "run_id": run.run_id, "parent_run_id": None, "status": outcome, "created": metrics.now_iso(),
+    parent = run.read_json("edit.json")["parent_run_id"] if run.path("edit.json").is_file() else None      # Phase 4 — 이어서 고치기
+    doc = {"schema_version": 1, "run_id": run.run_id, "parent_run_id": parent, "status": outcome, "created": metrics.now_iso(),
            "screen_id": run.read_json("brief.json")["screen_id"], "wbp": state["wbp"]["asset_path"], "parent_class": state["wbp"].get("parent_class"),
            "revision": state.get("revision"), "contract_hash": codegen.get("contract_hash"),
            "spec": {"file": extra.get("spec_file") or "spec.json", "sha256": hashlib.sha256(spec_bytes).hexdigest()},
@@ -37,6 +38,8 @@ def _designer_hidden(run, tc, state: dict) -> dict | None:
     → 기록 또는 None(할 일 없음). 실패해도 저장은 한다(기록만)."""
     from core import spec as spec_mod
     from stages import build
+    if run.path("edit.json").is_file():          # Phase 4 — 게이트가 본 WBP 그대로 저장한다(부모의 designer_hidden 을 이어받음, 대상 밖 위젯을 안 건드림)
+        return {"applied": False, "reason": "edit run — the parent's values are kept"}
     if not run.path("diagnosis.json").is_file() or not run.path("spec.json").is_file():
         return None
     try:

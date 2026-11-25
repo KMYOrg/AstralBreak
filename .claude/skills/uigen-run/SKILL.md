@@ -24,6 +24,8 @@ description: AstralBreak UI 자동 생성 파이프라인(Tools/uigen)을 돌리
    글자 참고판은 엔진 글꼴로 그린다: `--only text_ref --draw …/text_ref_layout.yaml`(codex 0). 글꼴 값을 바꾸려면 그 yaml 을 고치고 다시 그린 뒤 run.
 3. run — `Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/<화면>/inputs.yaml`(백그라운드로 — 3 ~ 6 분). 에디터가 없으면 스스로 띄우고, **끝나도 내리지 않는다**.
 4. 읽기(아래) → 사람 눈(`compare.png` · 게임 안) → 승격(`promote_widget`)은 사용자 승인 뒤.
+   이미 승격한 화면을 조금 고칠 때는 처음부터 다시 돌리지 않는다 — `run_pipeline.py --from <ScreenId> --edit <patch.json>`(약 1분) → `edit.png` · `compare.png` 를
+   사람이 본다 → 재승격 `promote_screen.py plan` → 승인 뒤 `apply`(에디터를 끈 채, 되돌리기 = `revert`). 승격본 · `promoted/` 를 손으로 치우거나 고치지 않는다(해시가 다르면 거절).
 
 - 종료 코드 0 통과 · 1 실패 · 2 미완(`--until`). 한 번에 run 하나(`work/.lock`).
 - `--until analyze` 는 에디터 없이 spec 까지, `--inject-fault …` 는 재시도 경로 시험, `--fix-mode deterministic` 은 LLM fix 없이.

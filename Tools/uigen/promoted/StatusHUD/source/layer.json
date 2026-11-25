@@ -1,0 +1,324 @@
+{
+  "applied": true,
+  "functional": {
+    "SelfHpBar": "binding progress",
+    "SelfStaminaBar": "binding progress",
+    "SelfHpText": "binding number",
+    "SelfMarkText": "binding number",
+    "Ally1Panel": "binding flag",
+    "Ally1HpBar": "binding progress",
+    "Ally1UltBar": "binding progress",
+    "Ally1NameText": "binding text",
+    "Ally2Panel": "binding flag",
+    "Ally2HpBar": "binding progress",
+    "Ally2UltBar": "binding progress",
+    "Ally2NameText": "binding text",
+    "Ally3Panel": "binding flag",
+    "Ally3HpBar": "binding progress",
+    "Ally3UltBar": "binding progress",
+    "Ally3NameText": "binding text",
+    "Ally1Frame": "inside Ally1Panel (binding flag)",
+    "Ally2Frame": "inside Ally2Panel (binding flag)",
+    "Ally3Frame": "inside Ally3Panel (binding flag)"
+  },
+  "static": [
+    "SelfFrame"
+  ],
+  "plates": [
+    {
+      "widget": "StaticPlate1",
+      "asset": "static_plate1",
+      "box": [
+        55,
+        58,
+        90,
+        107
+      ],
+      "region": "SelfPanel",
+      "px": 2124,
+      "allow_overlap_with": [
+        "SelfPanel"
+      ]
+    }
+  ],
+  "removed_assets": [
+    "self_crescent"
+  ],
+  "static_brushes": [
+    {
+      "widget": "SelfFrame",
+      "key": "brush",
+      "old": {
+        "draw_as": "image",
+        "asset": "self_crescent"
+      }
+    }
+  ],
+  "gauge_backgrounds": [],
+  "func_zone_px": 79656,
+  "unassigned_px": 0,
+  "text_only_px": 0,
+  "specks_px": 0,
+  "masks": [
+    "layer/plate_1.png"
+  ],
+  "toggles": [
+    {
+      "widget": "Ally3Panel",
+      "why": "flag binding",
+      "carrier": "Ally3Frame",
+      "asset": "ally3_crescent",
+      "old_box": [
+        56.0,
+        316.0,
+        316.0,
+        70.0
+      ],
+      "box": [
+        56.0,
+        316.0,
+        316.0,
+        71.0
+      ],
+      "grow": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "px": 3,
+      "size_old": [
+        316,
+        70
+      ],
+      "size_new": [
+        316,
+        71
+      ],
+      "children_kept": [
+        "Ally3HpBar",
+        "Ally3UltBar",
+        "Ally3NameText"
+      ],
+      "allow_overlap_with": [],
+      "mask": "layer/own_Ally3Frame.png"
+    }
+  ],
+  "bars": [
+    {
+      "widget": "SelfHpBar",
+      "asset": "self_hp_bar",
+      "box": [
+        154,
+        94,
+        390,
+        26
+      ],
+      "core_px": 6687,
+      "mask_px": 8725,
+      "box_fill": 0.86,
+      "width_ratio": 1.0,
+      "mask": "layer/bar_SelfHpBar.png"
+    },
+    {
+      "widget": "SelfStaminaBar",
+      "asset": "self_stamina_bar",
+      "box": [
+        153,
+        119,
+        307,
+        19
+      ],
+      "core_px": 3910,
+      "mask_px": 5200,
+      "box_fill": 0.891,
+      "width_ratio": 1.0,
+      "mask": "layer/bar_SelfStaminaBar.png"
+    },
+    {
+      "widget": "Ally1HpBar",
+      "asset": "ally1_hp_bar",
+      "box": [
+        113,
+        202,
+        257,
+        19
+      ],
+      "core_px": 3787,
+      "mask_px": 4189,
+      "box_fill": 0.858,
+      "width_ratio": 1.0,
+      "split_rows": [
+        221
+      ],
+      "mask": "layer/bar_Ally1HpBar.png"
+    },
+    {
+      "widget": "Ally1UltBar",
+      "asset": "ally1_ult_bar",
+      "box": [
+        112,
+        221,
+        210,
+        14
+      ],
+      "core_px": 2037,
+      "mask_px": 2509,
+      "box_fill": 0.853,
+      "width_ratio": 1.0,
+      "split_rows": [
+        221
+      ],
+      "mask": "layer/bar_Ally1UltBar.png"
+    },
+    {
+      "widget": "Ally2HpBar",
+      "asset": "ally2_hp_bar",
+      "box": [
+        112,
+        271,
+        257,
+        18
+      ],
+      "core_px": 3606,
+      "mask_px": 4106,
+      "box_fill": 0.888,
+      "width_ratio": 1.0,
+      "split_rows": [
+        289
+      ],
+      "mask": "layer/bar_Ally2HpBar.png"
+    },
+    {
+      "widget": "Ally2UltBar",
+      "asset": "ally2_ult_bar",
+      "box": [
+        112,
+        289,
+        213,
+        15
+      ],
+      "core_px": 2448,
+      "mask_px": 2712,
+      "box_fill": 0.849,
+      "width_ratio": 1.0,
+      "split_rows": [
+        289
+      ],
+      "mask": "layer/bar_Ally2UltBar.png"
+    },
+    {
+      "widget": "Ally3HpBar",
+      "asset": "ally3_hp_bar",
+      "box": [
+        115,
+        340,
+        254,
+        19
+      ],
+      "core_px": 3452,
+      "mask_px": 4266,
+      "box_fill": 0.884,
+      "width_ratio": 1.0,
+      "split_rows": [
+        359
+      ],
+      "mask": "layer/bar_Ally3HpBar.png"
+    },
+    {
+      "widget": "Ally3UltBar",
+      "asset": "ally3_ult_bar",
+      "box": [
+        112,
+        359,
+        209,
+        14
+      ],
+      "core_px": 2613,
+      "mask_px": 2853,
+      "box_fill": 0.975,
+      "width_ratio": 1.0,
+      "split_rows": [
+        359
+      ],
+      "mask": "layer/bar_Ally3UltBar.png"
+    }
+  ],
+  "filled": [
+    {
+      "region": "Ally1Panel",
+      "widget": "Ally1Frame",
+      "asset": "ally1_crescent",
+      "old_box": [
+        58.0,
+        186.0,
+        52.0,
+        57.0
+      ],
+      "box": [
+        56.0,
+        177.0,
+        316.0,
+        68.0
+      ],
+      "size_old": [
+        52,
+        57
+      ],
+      "size_new": [
+        316,
+        68
+      ]
+    },
+    {
+      "region": "Ally2Panel",
+      "widget": "Ally2Frame",
+      "asset": "ally2_crescent",
+      "old_box": [
+        58.0,
+        254.0,
+        53.0,
+        60.0
+      ],
+      "box": [
+        56.0,
+        246.0,
+        316.0,
+        70.0
+      ],
+      "size_old": [
+        53,
+        60
+      ],
+      "size_new": [
+        316,
+        70
+      ]
+    },
+    {
+      "region": "Ally3Panel",
+      "widget": "Ally3Frame",
+      "asset": "ally3_crescent",
+      "old_box": [
+        58.0,
+        324.0,
+        53.0,
+        60.0
+      ],
+      "box": [
+        56.0,
+        316.0,
+        316.0,
+        70.0
+      ],
+      "size_old": [
+        53,
+        60
+      ],
+      "size_new": [
+        316,
+        70
+      ]
+    }
+  ]
+}

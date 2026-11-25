@@ -17,6 +17,9 @@ Phase 1b(컨셉아트):
   - 상한: 재시도 limits.retries(N = 3 — 시도는 최대 N + 1 번). 두 번 연속 실패 게이트 집합이 줄지 않으면(진부분집합이 아니면) 조기 종료,
     fix 가 고칠 것을 못 내면(NO_FIX) 바로 종료.
   - finalize: 통과면 run 패키지 저장 + lineage.json, 실패 · 오류면 폐기(--keep-failed 면 저장). --until 로 멈추면 하지 않는다(에디터에 남음).
+이어서 고치기(Phase 4 — stages/edit): --from <ScreenId | run_id> --edit <patch.json>
+    단계: seed → codegen(계약 확인만) → build → verify(base — 고치기 전 그대로 전체 게이트) → (base_drift — 지금 승격본과 같은가) → patch → build → intent →
+    verify(+ edit_regression) → finalize. LLM · codex · 재시도 · 글자 맞춤 0.
 끝에는 성공 · 실패 · 미완 모두 report.json 과 지표 JSONL(metrics/uigen.jsonl — run 한 줄 + 에셋마다 한 줄)을 남긴다.
 """
 from __future__ import annotations
@@ -38,7 +41,7 @@ from core import patch as patch_mod  # noqa: E402
 from core import schema  # noqa: E402
 from core.run import LockBusy, Run, RunError, RunLock, new_run_id  # noqa: E402
 from stages import StageError  # noqa: E402
-from stages import analyze, build, codegen, fault, finalize, fix, generate, layer, normalize, refine, style, verify  # noqa: E402
+from stages import analyze, build, codegen, edit, fault, finalize, fix, generate, layer, normalize, refine, style, verify  # noqa: E402
 
 STAGES = ("normalize", "analyze", "codegen", "generate", "refine", "build", "verify", "finalize")
 
@@ -54,6 +57,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--spec-dir", help="hand spec folder holding brief.json + spec.json (Phase 1a)")
     src.add_argument("--inputs", help="inputs.yaml of a concept request (Phase 1b — schemas/inputs.schema.json)")
+    src.add_argument("--from", dest="source", help="continue from a promoted screen (ScreenId) or a kept run (run id) — needs --edit (Phase 4)")
+    ap.add_argument("--edit", help="spec patch (schemas/patch — source 'edit') applied to the --from screen")
     ap.add_argument("--concept", help="concept PNG overriding inputs.yaml 'concept' (only with --inputs)")
     ap.add_argument("--until", choices=STAGES, help="stop after this stage (first attempt for build / verify; no finalize)")
     ap.add_argument("--run-id", help="override the run id (R<yyyymmdd>_<hhmmss>_<ScreenId>)")
@@ -61,12 +66,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--work-root", help="override paths.work_root")
     ap.add_argument("--metrics", help="override paths.metrics (JSONL)")
     ap.add_argument("--module-root", help="override codegen.module_root (C++ module folder — tests write into a temp copy)")
+    ap.add_argument("--promoted-root", help="override Tools/uigen/promoted (tests)")
+    ap.add_argument("--content-root", help="override Content (tests)")
     ap.add_argument("--inject-fault", choices=sorted(fault.FAULTS), help="break the spec after normalize to exercise the retry path (1a-4)")
     ap.add_argument("--keep-failed", action="store_true", help="save the run packages even when verify fails")
     ap.add_argument("--fix-mode", choices=("deterministic", "hybrid", "llm"), help="override pipeline.yaml fix.mode for this run")
     opts = ap.parse_args(argv)
     if opts.concept and not opts.inputs:
         ap.error("--concept needs --inputs")
+    if bool(opts.source) != bool(opts.edit):
+        ap.error("--from and --edit go together")
+    if opts.source and (opts.until or opts.inject_fault or opts.fix_mode):
+        ap.error("--until / --inject-fault / --fix-mode do not apply to an edit run (no retries, no LLM)")
     return opts
 
 
@@ -165,6 +176,8 @@ def _codegen_summary(run: Run) -> dict | None:
 
 
 def _screen_id(opts: argparse.Namespace) -> str:
+    if getattr(opts, "source", None):
+        return edit.screen_of(opts.source)
     if opts.inputs:
         try:
             return str(config.load_yaml(opts.inputs)["screen_id"])
@@ -209,9 +222,10 @@ def _gen_log(run: Run) -> tuple[dict[str, dict], dict[str, int]]:
 def write_metrics(run: Run, status: str, attempt: int, verify_status: str | None = None, failed_gates: list[str] | None = None,
                   fault_name: str | None = None) -> None:
     """지표 JSONL — run 한 줄 + manifest 의 에셋마다 한 줄 (설계 §4-5). verify = 마지막 verify 의 게이트 결과(돌지 않았으면 null)."""
+    parent = run.record.get("edit_of")          # 수정 run(Phase 4) — 집계가 전체 run 과 섞지 않게
     metrics.append(run.metrics_path, metrics.run_record(run.run_id, status, attempt, run.elapsed(), verify=verify_status, phase=run.cfg.get("phase"),
-                                                        failed_gates=failed_gates or [], fault=fault_name))
-    if run.path("manifest.json").is_file():
+                                                        failed_gates=failed_gates or [], fault=fault_name, **({"edit_of": parent} if parent else {})))
+    if parent is None and run.path("manifest.json").is_file():       # 수정 run 은 에셋을 만들지 않는다
         last, made = _gen_log(run)
         for a in run.read_json("manifest.json")["assets"]:
             g = last.get(a["asset_id"], {})
@@ -340,6 +354,58 @@ def _pipeline(run: Run, opts: argparse.Namespace, ctx: dict) -> str:
             _simple(run, "generate", lambda: generate.run(run, nopts))
             _simple(run, "refine", lambda: refine.run(run, nopts))
     return "fail"   # pragma: no cover — 루프 안에서 끝난다
+
+
+def _edit_attempt(run: Run, opts, ctx: dict, attempt: int, label: str, measure: bool = False) -> dict:
+    """수정 run 의 시도 하나 — specs/00k.json → build → (대상 상자 재기) → verify."""
+    spec_file = f"specs/{attempt:03d}.json"
+    run.write_json(spec_file, run.read_json("spec.json"))
+    row = {"attempt": attempt, "spec": spec_file, "pass": False, "failed": [], "patch": edit.PATCH_FILE if measure else None, "branch": None, "stop": None,
+           "build": None, "edit": label}
+    ctx["attempts"].append(row)
+    aopts = _opts(opts, attempt=attempt)
+    row["build"] = _simple(run, "build", lambda: build.run(run, aopts))
+    if measure:
+        _simple(run, "intent", lambda: edit.measure_intents(run, spec_file))
+    run.stage_begin("verify")
+    res = verify.run(run, aopts)
+    ctx["last"] = res
+    row.update({"pass": res["pass"], "failed": res["failed"], "duration_s": res["duration_s"]})
+    run.stage_end("verify", "ok" if res["pass"] else "fail", f"{label}: {verify.summary(res)}")
+    return res
+
+
+def _edit_pipeline(run: Run, opts: argparse.Namespace, ctx: dict) -> str:
+    """이어서 고치기(Phase 4) — 'pass' | 'fail'. 단계 실패는 StageError."""
+    run.record["edit_of"] = opts.source
+    _simple(run, "seed", lambda: edit.seed(run, opts))
+    ctx["parent_run_id"] = run.record["edit_of"] = edit.edit_doc(run)["parent_run_id"]
+
+    def contract():
+        edit.contract_guard(run, opts)
+        return codegen.run(run, _opts(opts, attempt=1))
+
+    _simple(run, "codegen", contract)
+    base = _edit_attempt(run, opts, ctx, edit.BASE_ATTEMPT, "base")
+    if not _structural_pass(base):
+        ctx["attempts"][-1]["stop"] = "BASE_FAILED"
+        ctx["message"] = f"the unedited screen does not pass the structural gates any more: {', '.join(base['failed'])} — nothing was edited"
+        return "fail"
+    if edit.edit_doc(run)["source"]["kind"] == "promoted":
+        _simple(run, "base_drift", lambda: edit.drift(run, opts))
+    _simple(run, "patch", lambda: edit.apply_edit(run))
+    res = _edit_attempt(run, opts, ctx, edit.EDIT_ATTEMPT, "edit", measure=True)
+    if res["pass"]:
+        return "pass"
+    ctx["attempts"][-1]["stop"] = "EDIT_REJECTED"
+    reg = next((g for g in res["gates"] if g["name"] == verify.EDIT_REGRESSION), {})
+    why = list((reg.get("details") or {}).get("problems") or ([(reg.get("details") or {}).get("error")] if (reg.get("details") or {}).get("error") else []))
+    ov = next((g for g in res["gates"] if g["name"] == "overlap" and not g["pass"]), {})
+    why += [f"{v['a']} overlaps {v['b']} ({v['ratio']}) — allow_overlap if it is meant" for v in ((ov.get("details") or {}).get("violations") or [])[:4]]
+    why += [f"appearance {e.get('code')} {'/'.join(e.get('widgets') or [])}: {e.get('cause')} ({e.get('why')})"
+            for e in ((edit.edit_doc(run).get("appearance") or {}).get("errors") or [])[:4]]
+    ctx["message"] = f"the edit failed {', '.join(res['failed'])}" + (f" — {'; '.join(why)}" if why else "") + " (no retry — change the patch and run again)"
+    return "fail"
 
 
 def _refix_after_build_rejection(run, ctx: dict, attempt: int, exc: StageError) -> bool:
@@ -700,7 +766,7 @@ def execute(opts: argparse.Namespace) -> int:
         ctx: dict = {"status": "incomplete", "message": "", "attempts": [], "last": None, "fault": None, "finalize": None, "fixes": []}
         outcome = None
         try:
-            outcome = _pipeline(run, opts, ctx)
+            outcome = _edit_pipeline(run, opts, ctx) if getattr(opts, "source", None) else _pipeline(run, opts, ctx)
             ctx["status"] = outcome
         except StopAt as stop:
             ctx["status"], ctx["message"] = "incomplete", f"stopped after '{stop}' (--until)"
@@ -723,7 +789,7 @@ def execute(opts: argparse.Namespace) -> int:
         artifacts = dict((last or {}).get("artifacts") or {})
         if (ctx["finalize"] or {}).get("lineage"):
             artifacts["lineage"] = "lineage.json"
-        report = {"schema_version": 1, "run_id": run_id, "parent_run_id": None, "status": ctx["status"], "attempt": len(ctx["attempts"]),
+        report = {"schema_version": 1, "run_id": run_id, "parent_run_id": ctx.get("parent_run_id"), "status": ctx["status"], "attempt": len(ctx["attempts"]),
                   "gates": last["gates"] if last else [], "recorded": {"placement_inner": (last or {}).get("notes", {}).get("placement_inner", [])} if last else {},
                   "fixes": ctx["fixes"], "unsupported": last["unsupported"] if last else [], "durations_s": run.durations(),
                   "attempts": ctx["attempts"], "roundtrip": last["roundtrip"] if last else None, "fault": ctx["fault"], "finalize": ctx["finalize"],
@@ -755,6 +821,9 @@ def execute(opts: argparse.Namespace) -> int:
                     report.setdefault("artifacts", {})["concept_convert"] = cv.get("concept_file")
         if ctx.get("style"):
             report.setdefault("recorded", {})["style_review"] = ctx["style"]
+        ed = edit.summary(run)
+        if ed:
+            report.setdefault("recorded", {})["edit"] = ed
         dg = _diagnosis_summary(run, last)
         if dg:
             report.setdefault("recorded", {})["diagnosis"] = dg

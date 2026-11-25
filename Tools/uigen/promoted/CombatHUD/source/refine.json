@@ -1,0 +1,423 @@
+{
+  "passes": [
+    {
+      "attempt": 1,
+      "assets": [
+        {
+          "asset_id": "burst_banner_frame",
+          "backend": "concept_cut",
+          "raw_size": [
+            815,
+            123
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              556.0,
+              188.0,
+              799.0,
+              107.0
+            ],
+            "search_box": [
+              548,
+              180,
+              815,
+              123
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 82871,
+              "foreign_px": 14041
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "BurstBanner can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "rows (inpaint where no source within reach)",
+            "shape_from": "contour",
+            "edge_px": 3.7,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              556.0,
+              188.0,
+              799.0,
+              107.0
+            ],
+            "texture_box": [
+              556,
+              188,
+              799,
+              107
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.0381,
+            "has_alpha": true
+          },
+          "size": [
+            799,
+            107
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/burst_banner_frame.png",
+            "concept_box": [
+              556,
+              188,
+              799,
+              107
+            ]
+          }
+        },
+        {
+          "asset_id": "chain_band",
+          "backend": "concept_cut",
+          "raw_size": [
+            536,
+            532
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              694.0,
+              327.0,
+              520.0,
+              516.0
+            ],
+            "search_box": [
+              686,
+              319,
+              536,
+              532
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 239483,
+              "foreign_px": 28605
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "ChainPanel can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "rows (inpaint where no source within reach)",
+            "shape_from": "contour",
+            "edge_px": 4.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              694.0,
+              327.0,
+              520.0,
+              516.0
+            ],
+            "texture_box": [
+              694,
+              327,
+              520,
+              516
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.6544,
+            "has_alpha": true
+          },
+          "size": [
+            520,
+            516
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/chain_band.png",
+            "concept_box": [
+              694,
+              327,
+              520,
+              516
+            ]
+          }
+        },
+        {
+          "asset_id": "chain_ring",
+          "backend": "concept_cut",
+          "raw_size": [
+            535,
+            536
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              695.0,
+              325.0,
+              519.0,
+              520.0
+            ],
+            "search_box": [
+              687,
+              317,
+              535,
+              536
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 26956,
+              "foreign_px": 96196
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "ChainRing can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "hull",
+            "edge_px": 20.4,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              695.0,
+              325.0,
+              519.0,
+              520.0
+            ],
+            "texture_box": [
+              695,
+              325,
+              519,
+              520
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.9065,
+            "has_alpha": true
+          },
+          "size": [
+            519,
+            520
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/chain_ring.png",
+            "concept_box": [
+              695,
+              325,
+              519,
+              520
+            ]
+          }
+        },
+        {
+          "asset_id": "ult_ready_glow",
+          "backend": "concept_cut",
+          "raw_size": [
+            592,
+            120
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              670.0,
+              894.0,
+              576.0,
+              104.0
+            ],
+            "search_box": [
+              662,
+              886,
+              592,
+              120
+            ],
+            "alpha_from": "reference_alpha",
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "UltReadyGlow can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "hull",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              670.0,
+              894.0,
+              576.0,
+              104.0
+            ],
+            "texture_box": [
+              670,
+              894,
+              576,
+              104
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.6748,
+            "has_alpha": true
+          },
+          "size": [
+            576,
+            104
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/ult_ready_glow.png",
+            "concept_box": [
+              670,
+              894,
+              576,
+              104
+            ]
+          }
+        },
+        {
+          "asset_id": "ult_gauge_fill",
+          "backend": "procedural",
+          "steps": "copied (procedural)"
+        },
+        {
+          "asset_id": "ult_gauge_end_cap",
+          "backend": "procedural",
+          "steps": "copied (procedural)"
+        },
+        {
+          "asset_id": "static_plate1",
+          "backend": "concept_plate",
+          "source_mode": "plate",
+          "plate": {
+            "box": [
+              607,
+              1004,
+              700,
+              35
+            ],
+            "region": "UltArea"
+          },
+          "gauge_tracks": [
+            {
+              "widget": "UltGauge",
+              "frame_box": [
+                604,
+                1002,
+                708,
+                40
+              ],
+              "track_px": 9805,
+              "mask_from": "reference.png"
+            }
+          ],
+          "art": "text-free art (generated concept) — no text fill",
+          "windows": [],
+          "texts": [],
+          "gauge_holes": [],
+          "alpha": {
+            "transparent_ratio": 0.1358,
+            "has_alpha": true
+          },
+          "size": [
+            700,
+            35
+          ],
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "notext_available": true
+        }
+      ],
+      "margin_updates": [],
+      "brush_updates": [],
+      "overhang_updates": [],
+      "overhang_dropped": []
+    }
+  ]
+}

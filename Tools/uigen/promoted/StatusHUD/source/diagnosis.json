@@ -1,0 +1,1870 @@
+{
+  "truth": "text_free_art",
+  "settings": {
+    "local_de": 10.0,
+    "min_area": 24,
+    "text_h_tol": 0.08,
+    "text_pos_px": 3.0,
+    "text_pos_k": 0.1,
+    "text_weight": 1.3,
+    "text_color_de": 12.0,
+    "text_dark_frac": 0.2,
+    "text_halo_frac": 0.2,
+    "seam_dark_px": 90,
+    "weight_margin": 0.06,
+    "bg_cover": 0.3,
+    "blur_ratio": 0.8,
+    "glow_min": 8.0,
+    "residue_de": 20.0,
+    "residue_min_px": 6,
+    "state_checks": "error",
+    "text_trace_de": 5.0,
+    "text_trace_min_area": 24,
+    "text_contour_de": 2.5,
+    "text_contour_len": 40,
+    "text_contour_link": 1,
+    "text_trace_lift": 3.0,
+    "text_line_plate": "error",
+    "text_lift_mode": "error",
+    "text_lift_de": 4.0,
+    "halo_de": 2.0,
+    "state_record_only": []
+  },
+  "canvas": [
+    1920,
+    1080
+  ],
+  "truth_text": "text_reference_glyphs",
+  "hidden_states": [],
+  "texts": [
+    {
+      "widget": "SelfHpText",
+      "concept": {
+        "box": [
+          162,
+          70,
+          43,
+          19
+        ],
+        "center": [
+          183.5,
+          79.5
+        ],
+        "px": 355,
+        "density": 0.5233,
+        "gap_cols": 8,
+        "lab": [
+          89.21,
+          -0.16,
+          7.94
+        ]
+      },
+      "render": {
+        "box": [
+          163,
+          69,
+          41,
+          20
+        ],
+        "center": [
+          183.5,
+          79.0
+        ],
+        "px": 350,
+        "density": 0.5103,
+        "gap_cols": 7,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ]
+      },
+      "approx": [],
+      "concept_contrast": 84.2,
+      "h_ratio": 1.053,
+      "w_ratio": 0.953,
+      "center_d": [
+        0.0,
+        0.5
+      ],
+      "density_ratio": 0.975,
+      "color_de": 1.24,
+      "pos_limit": 3.0,
+      "declared_font": {
+        "size": 20,
+        "weight": "semibold",
+        "color": "#ECE5D6FF"
+      },
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 2.8,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": 0.0,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -3
+          ],
+          "dark": -2.0,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "SelfMarkText",
+      "concept": {
+        "box": [
+          90,
+          90,
+          22,
+          29
+        ],
+        "center": [
+          101.0,
+          104.5
+        ],
+        "px": 294,
+        "density": 0.4608,
+        "gap_cols": 0,
+        "lab": [
+          90.79,
+          -0.16,
+          8.12
+        ]
+      },
+      "render": {
+        "box": [
+          90,
+          90,
+          21,
+          30
+        ],
+        "center": [
+          100.5,
+          105.0
+        ],
+        "px": 300,
+        "density": 0.473,
+        "gap_cols": 0,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ]
+      },
+      "approx": [],
+      "concept_contrast": 86.8,
+      "h_ratio": 1.034,
+      "w_ratio": 0.955,
+      "center_d": [
+        0.5,
+        -0.5
+      ],
+      "density_ratio": 1.026,
+      "color_de": 0.51,
+      "pos_limit": 3.0,
+      "declared_font": {
+        "size": 32,
+        "weight": "semibold",
+        "color": "#ECE5D6FF"
+      },
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.003
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 2.8,
+          "size": 0,
+          "frac": 0.012
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.2,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            3
+          ],
+          "dark": -1.9,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "SelfMarkLabel",
+      "concept": {
+        "box": [
+          86,
+          129,
+          30,
+          13
+        ],
+        "center": [
+          101.0,
+          135.5
+        ],
+        "px": 152,
+        "density": 0.382,
+        "gap_cols": 1,
+        "lab": [
+          82.31,
+          -0.15,
+          7.43
+        ],
+        "thin_tail_cut": true
+      },
+      "render": {
+        "box": [
+          86,
+          128,
+          30,
+          14
+        ],
+        "center": [
+          101.0,
+          135.0
+        ],
+        "px": 151,
+        "density": 0.3522,
+        "gap_cols": 1,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ],
+        "thin_tail_cut": true
+      },
+      "approx": [
+        {
+          "kind": "weight",
+          "weight": "medium",
+          "density_ratio": 0.922,
+          "declared": true,
+          "note": "the font is the one the text reference was drawn with — the rest is the measurement of small strokes"
+        }
+      ],
+      "concept_contrast": 73.9,
+      "h_ratio": 1.077,
+      "w_ratio": 1.0,
+      "center_d": [
+        0.0,
+        0.5
+      ],
+      "density_ratio": 0.922,
+      "color_de": 5.68,
+      "pos_limit": 3.0,
+      "declared_font": {
+        "size": 15,
+        "weight": "medium",
+        "color": "#ECE5D6FF"
+      },
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.009
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 2.8,
+          "size": 0,
+          "frac": 0.008
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": 0.0,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -3
+          ],
+          "dark": -2.0,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "Ally1NameText",
+      "concept": {
+        "box": [
+          118,
+          184,
+          68,
+          13
+        ],
+        "center": [
+          152.0,
+          190.5
+        ],
+        "px": 288,
+        "density": 0.3974,
+        "gap_cols": 14,
+        "lab": [
+          82.47,
+          -0.15,
+          7.16
+        ],
+        "thin_tail_cut": true
+      },
+      "render": {
+        "box": [
+          118,
+          184,
+          67,
+          13
+        ],
+        "center": [
+          151.5,
+          190.5
+        ],
+        "px": 314,
+        "density": 0.457,
+        "gap_cols": 16,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ],
+        "thin_tail_cut": true
+      },
+      "approx": [
+        {
+          "kind": "weight",
+          "weight": "medium",
+          "density_ratio": 1.15,
+          "declared": true,
+          "note": "the font is the one the text reference was drawn with — the rest is the measurement of small strokes"
+        }
+      ],
+      "concept_contrast": 74.1,
+      "h_ratio": 1.0,
+      "w_ratio": 0.985,
+      "center_d": [
+        0.5,
+        0.0
+      ],
+      "density_ratio": 1.15,
+      "color_de": 5.59,
+      "pos_limit": 3.0,
+      "declared_font": {
+        "size": 14,
+        "weight": "medium",
+        "color": "#ECE5D6FF"
+      },
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 2.8,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.1,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -3
+          ],
+          "dark": -1.8,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "Ally2NameText",
+      "concept": {
+        "box": [
+          118,
+          253,
+          68,
+          13
+        ],
+        "center": [
+          152.0,
+          259.5
+        ],
+        "px": 298,
+        "density": 0.4074,
+        "gap_cols": 14,
+        "lab": [
+          81.01,
+          -0.15,
+          7.19
+        ],
+        "thin_tail_cut": true
+      },
+      "render": {
+        "box": [
+          118,
+          253,
+          67,
+          13
+        ],
+        "center": [
+          151.5,
+          259.5
+        ],
+        "px": 307,
+        "density": 0.4419,
+        "gap_cols": 16,
+        "lab": [
+          90.28,
+          -0.51,
+          7.72
+        ],
+        "thin_tail_cut": true
+      },
+      "approx": [
+        {
+          "kind": "weight",
+          "weight": "medium",
+          "density_ratio": 1.085,
+          "declared": true,
+          "note": "the font is the one the text reference was drawn with — the rest is the measurement of small strokes"
+        }
+      ],
+      "concept_contrast": 71.9,
+      "h_ratio": 1.0,
+      "w_ratio": 0.985,
+      "center_d": [
+        0.5,
+        0.0
+      ],
+      "density_ratio": 1.085,
+      "color_de": 6.09,
+      "pos_limit": 3.0,
+      "declared_font": {
+        "size": 14,
+        "weight": "medium",
+        "color": "#ECE5D6FF"
+      },
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 2.5,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": 0.0,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -3
+          ],
+          "dark": -1.8,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "Ally3NameText",
+      "concept": {
+        "box": [
+          118,
+          323,
+          67,
+          13
+        ],
+        "center": [
+          151.5,
+          329.5
+        ],
+        "px": 301,
+        "density": 0.4165,
+        "gap_cols": 14,
+        "lab": [
+          83.12,
+          -0.15,
+          7.23
+        ],
+        "thin_tail_cut": true
+      },
+      "render": {
+        "box": [
+          118,
+          323,
+          67,
+          13
+        ],
+        "center": [
+          151.5,
+          329.5
+        ],
+        "px": 314,
+        "density": 0.454,
+        "gap_cols": 16,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ],
+        "thin_tail_cut": true
+      },
+      "approx": [
+        {
+          "kind": "weight",
+          "weight": "medium",
+          "density_ratio": 1.09,
+          "declared": true,
+          "note": "the font is the one the text reference was drawn with — the rest is the measurement of small strokes"
+        }
+      ],
+      "concept_contrast": 74.9,
+      "h_ratio": 1.0,
+      "w_ratio": 1.0,
+      "center_d": [
+        0.0,
+        0.0
+      ],
+      "density_ratio": 1.09,
+      "color_de": 5.15,
+      "pos_limit": 3.0,
+      "declared_font": {
+        "size": 14,
+        "weight": "medium",
+        "color": "#ECE5D6FF"
+      },
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 2.8,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": 0.0,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            3
+          ],
+          "dark": -1.5,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    }
+  ],
+  "maps": {
+    "black_mean": 0.018,
+    "gray_mean": 0.035,
+    "black_local_max": 1.69,
+    "gray_local_max": 5.15,
+    "text_zone_px": 18486,
+    "not_drawn_px": 0,
+    "runtime_image_px": 0
+  },
+  "text_background": {
+    "zone_px": 12883,
+    "local_max": 1.68,
+    "mean": 0.15
+  },
+  "text_residue": {
+    "SelfHpText": {
+      "zone_px": 90,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "SelfMarkText": {
+      "zone_px": 43,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "SelfMarkLabel": {
+      "zone_px": 19,
+      "px": 0,
+      "max_de": 0.1,
+      "blobs": []
+    },
+    "Ally1NameText": {
+      "zone_px": 108,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "Ally2NameText": {
+      "zone_px": 106,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "Ally3NameText": {
+      "zone_px": 110,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    }
+  },
+  "sharpness": [
+    {
+      "widget": "StaticPlate1",
+      "ratio": 1.004,
+      "texel_density": 1.0,
+      "px": 1264
+    },
+    {
+      "widget": "SelfHpBar",
+      "ratio": 1.0,
+      "texel_density": 1.0,
+      "px": 6791
+    },
+    {
+      "widget": "SelfStaminaBar",
+      "ratio": 1.011,
+      "texel_density": 1.0,
+      "px": 4257
+    },
+    {
+      "widget": "Ally1Frame",
+      "ratio": 1.001,
+      "texel_density": 1.0,
+      "px": 745
+    },
+    {
+      "widget": "Ally1HpBar",
+      "ratio": 1.007,
+      "texel_density": 1.0,
+      "px": 3589
+    },
+    {
+      "widget": "Ally1UltBar",
+      "ratio": 1.014,
+      "texel_density": 1.0,
+      "px": 2240
+    },
+    {
+      "widget": "Ally2Frame",
+      "ratio": 1.002,
+      "texel_density": 1.0,
+      "px": 777
+    },
+    {
+      "widget": "Ally2HpBar",
+      "ratio": 1.001,
+      "texel_density": 1.0,
+      "px": 3255
+    },
+    {
+      "widget": "Ally2UltBar",
+      "ratio": 1.011,
+      "texel_density": 1.0,
+      "px": 2477
+    },
+    {
+      "widget": "Ally3Frame",
+      "ratio": 1.002,
+      "texel_density": 1.0,
+      "px": 770
+    },
+    {
+      "widget": "Ally3HpBar",
+      "ratio": 1.006,
+      "texel_density": 1.0,
+      "px": 3222
+    },
+    {
+      "widget": "Ally3UltBar",
+      "ratio": 1.009,
+      "texel_density": 1.0,
+      "px": 2626
+    }
+  ],
+  "seams": {
+    "scale": 3,
+    "bbox": [
+      47,
+      50,
+      552,
+      395
+    ],
+    "zone_px": 0,
+    "dark_px": 0,
+    "dark_mean": 0.0,
+    "worst": 0.0,
+    "spots": [],
+    "layers": 4
+  },
+  "defects": [],
+  "state": {
+    "force_visible_extra": [],
+    "drawn_hidden_at_start": [],
+    "render": "D:/UE5Projects/AstralBreak/Tools/uigen/work/R20261124_130129_StatusHUD/attempts/003/state/state_1920x1080.png"
+  },
+  "approx": [
+    {
+      "widget": "SelfMarkLabel",
+      "kind": "weight",
+      "weight": "medium",
+      "density_ratio": 0.922,
+      "declared": true,
+      "note": "the font is the one the text reference was drawn with — the rest is the measurement of small strokes"
+    },
+    {
+      "widget": "Ally1NameText",
+      "kind": "weight",
+      "weight": "medium",
+      "density_ratio": 1.15,
+      "declared": true,
+      "note": "the font is the one the text reference was drawn with — the rest is the measurement of small strokes"
+    },
+    {
+      "widget": "Ally2NameText",
+      "kind": "weight",
+      "weight": "medium",
+      "density_ratio": 1.085,
+      "declared": true,
+      "note": "the font is the one the text reference was drawn with — the rest is the measurement of small strokes"
+    },
+    {
+      "widget": "Ally3NameText",
+      "kind": "weight",
+      "weight": "medium",
+      "density_ratio": 1.09,
+      "declared": true,
+      "note": "the font is the one the text reference was drawn with — the rest is the measurement of small strokes"
+    }
+  ],
+  "summary": {
+    "defects": 0,
+    "errors": 0,
+    "approx": 4,
+    "by_code": {},
+    "by_stage": {},
+    "fixable": 0,
+    "limits": [],
+    "texts_compared": 6,
+    "hidden_not_drawn": []
+  },
+  "badness": 0.0,
+  "state_checks": {
+    "mode": "error",
+    "hidden_trace": {
+      "renderer": "composite",
+      "roots": []
+    },
+    "hidden_halo": {
+      "renderer": "engine",
+      "roots": [
+        {
+          "widget": "Ally1Panel",
+          "why": "flag binding",
+          "zone_px": 8355,
+          "plate_px": 0,
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0
+          }
+        },
+        {
+          "widget": "Ally2Panel",
+          "why": "flag binding",
+          "zone_px": 8352,
+          "plate_px": 0,
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0
+          }
+        },
+        {
+          "widget": "Ally3Panel",
+          "why": "flag binding",
+          "zone_px": 8647,
+          "plate_px": 0,
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0
+          }
+        }
+      ],
+      "toggles": [
+        "Ally1Panel",
+        "Ally2Panel",
+        "Ally3Panel"
+      ]
+    },
+    "gauge_states": {
+      "renderer": "engine",
+      "gauges": [
+        {
+          "widget": "SelfHpBar",
+          "percent": 1.0,
+          "fill_type": "left_to_right",
+          "track": [
+            154,
+            94,
+            390,
+            26
+          ],
+          "track_from": "gauge box",
+          "renderer": {
+            "0.0": "engine",
+            "0.05": "engine",
+            "0.15": "engine",
+            "0.4": "engine",
+            "0.65": "engine",
+            "0.9": "engine",
+            "1.0": "engine"
+          },
+          "checks": {
+            "bar_full_1": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.9": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.9": {
+              "max": 0.0,
+              "px": 0
+            }
+          },
+          "track_contrast": 64.9,
+          "states": {
+            "0": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.05": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.15": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.4": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.65": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.9": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "1": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            }
+          },
+          "zero_max": 0.95
+        },
+        {
+          "widget": "SelfStaminaBar",
+          "percent": 1.0,
+          "fill_type": "left_to_right",
+          "track": [
+            153,
+            119,
+            307,
+            19
+          ],
+          "track_from": "gauge box",
+          "renderer": {
+            "0.0": "engine",
+            "0.05": "engine",
+            "0.15": "engine",
+            "0.4": "engine",
+            "0.65": "engine",
+            "0.9": "engine",
+            "1.0": "engine"
+          },
+          "checks": {
+            "bar_full_1": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.9": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.9": {
+              "max": 0.0,
+              "px": 0
+            }
+          },
+          "track_contrast": 34.3,
+          "states": {
+            "0": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.05": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.15": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.4": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.65": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.9": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "1": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            }
+          },
+          "zero_max": 1.1
+        },
+        {
+          "widget": "Ally1HpBar",
+          "percent": 1.0,
+          "fill_type": "left_to_right",
+          "track": [
+            113,
+            202,
+            257,
+            19
+          ],
+          "track_from": "gauge box",
+          "renderer": {
+            "0.0": "engine",
+            "0.05": "engine",
+            "0.15": "engine",
+            "0.4": "engine",
+            "0.65": "engine",
+            "0.9": "engine",
+            "1.0": "engine"
+          },
+          "checks": {
+            "bar_full_1": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.9": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.9": {
+              "max": 0.0,
+              "px": 0
+            }
+          },
+          "track_contrast": 57.2,
+          "states": {
+            "0": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.05": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.15": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.4": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.65": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.9": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "1": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            }
+          },
+          "zero_max": 1.18
+        },
+        {
+          "widget": "Ally1UltBar",
+          "percent": 1.0,
+          "fill_type": "left_to_right",
+          "track": [
+            112,
+            221,
+            210,
+            14
+          ],
+          "track_from": "gauge box",
+          "renderer": {
+            "0.0": "engine",
+            "0.05": "engine",
+            "0.15": "engine",
+            "0.4": "engine",
+            "0.65": "engine",
+            "0.9": "engine",
+            "1.0": "engine"
+          },
+          "checks": {
+            "bar_full_1": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.9": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.9": {
+              "max": 0.0,
+              "px": 0
+            }
+          },
+          "track_contrast": 32.8,
+          "states": {
+            "0": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.05": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.15": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.4": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.65": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.9": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "1": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            }
+          },
+          "zero_max": 1.13
+        },
+        {
+          "widget": "Ally2HpBar",
+          "percent": 1.0,
+          "fill_type": "left_to_right",
+          "track": [
+            112,
+            271,
+            257,
+            18
+          ],
+          "track_from": "gauge box",
+          "renderer": {
+            "0.0": "engine",
+            "0.05": "engine",
+            "0.15": "engine",
+            "0.4": "engine",
+            "0.65": "engine",
+            "0.9": "engine",
+            "1.0": "engine"
+          },
+          "checks": {
+            "bar_full_1": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.9": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.9": {
+              "max": 0.0,
+              "px": 0
+            }
+          },
+          "track_contrast": 61.3,
+          "states": {
+            "0": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.05": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.15": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.4": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.65": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.9": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "1": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            }
+          },
+          "zero_max": 1.21
+        },
+        {
+          "widget": "Ally2UltBar",
+          "percent": 1.0,
+          "fill_type": "left_to_right",
+          "track": [
+            112,
+            289,
+            213,
+            15
+          ],
+          "track_from": "gauge box",
+          "renderer": {
+            "0.0": "engine",
+            "0.05": "engine",
+            "0.15": "engine",
+            "0.4": "engine",
+            "0.65": "engine",
+            "0.9": "engine",
+            "1.0": "engine"
+          },
+          "checks": {
+            "bar_full_1": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.9": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.9": {
+              "max": 0.0,
+              "px": 0
+            }
+          },
+          "track_contrast": 35.9,
+          "states": {
+            "0": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.05": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.15": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.4": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.65": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.9": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "1": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            }
+          },
+          "zero_max": 1.11
+        },
+        {
+          "widget": "Ally3HpBar",
+          "percent": 1.0,
+          "fill_type": "left_to_right",
+          "track": [
+            115,
+            340,
+            254,
+            19
+          ],
+          "track_from": "gauge box",
+          "renderer": {
+            "0.0": "engine",
+            "0.05": "engine",
+            "0.15": "engine",
+            "0.4": "engine",
+            "0.65": "engine",
+            "0.9": "engine",
+            "1.0": "engine"
+          },
+          "checks": {
+            "bar_full_1": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.9": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.9": {
+              "max": 0.0,
+              "px": 0
+            }
+          },
+          "track_contrast": 62.6,
+          "states": {
+            "0": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.05": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.15": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.4": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.65": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.9": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "1": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            }
+          },
+          "zero_max": 1.12
+        },
+        {
+          "widget": "Ally3UltBar",
+          "percent": 1.0,
+          "fill_type": "left_to_right",
+          "track": [
+            112,
+            359,
+            209,
+            14
+          ],
+          "track_from": "gauge box",
+          "renderer": {
+            "0.0": "engine",
+            "0.05": "engine",
+            "0.15": "engine",
+            "0.4": "engine",
+            "0.65": "engine",
+            "0.9": "engine",
+            "1.0": "engine"
+          },
+          "checks": {
+            "bar_full_1": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_cut_0.9": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.05": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "bar_outside_0.9": {
+              "max": 0.0,
+              "px": 0
+            }
+          },
+          "track_contrast": 31.7,
+          "states": {
+            "0": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.05": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.15": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.4": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.65": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.9": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "1": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            }
+          },
+          "zero_max": 1.1
+        }
+      ]
+    },
+    "findings": [],
+    "text_trace": {
+      "renderer": "engine",
+      "texts": [
+        {
+          "widget": "SelfHpText",
+          "zone_px": 1026,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 0.0
+          },
+          "ring_l": 0.0
+        },
+        {
+          "widget": "SelfMarkText",
+          "zone_px": 740,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 0.0
+          },
+          "ring_l": 0.0
+        },
+        {
+          "widget": "SelfMarkLabel",
+          "zone_px": 635,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.13,
+            "gray": 0.02,
+            "white": 0.03,
+            "lift": 0.46
+          },
+          "ring_l": 0.0
+        },
+        {
+          "widget": "Ally1NameText",
+          "zone_px": 1135,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.15,
+            "gray": 0.04,
+            "white": 0.05,
+            "lift": 0.44
+          },
+          "ring_l": 0.0,
+          "value_local_max": {
+            "black": 0.03
+          }
+        },
+        {
+          "widget": "Ally2NameText",
+          "zone_px": 1135,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.1,
+            "gray": 0.15,
+            "white": 0.08,
+            "lift": 0.31
+          },
+          "ring_l": 0.1
+        },
+        {
+          "widget": "Ally3NameText",
+          "zone_px": 1108,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.16,
+            "gray": 0.38,
+            "white": 0.33,
+            "lift": 0.36
+          },
+          "ring_l": 0.3
+        }
+      ],
+      "values": {
+        "SelfHpText": "655",
+        "SelfMarkText": "8",
+        "Ally1NameText": "Player 7",
+        "Ally2NameText": "Player 8",
+        "Ally3NameText": "Player 9"
+      }
+    }
+  },
+  "pictures": [
+    "defects.png",
+    "compare.png"
+  ],
+  "attempt": 3
+}

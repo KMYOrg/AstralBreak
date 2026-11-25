@@ -10,7 +10,7 @@ from referencing import Registry, Resource
 from core.config import UIGEN_DIR
 
 SCHEMA_DIR = UIGEN_DIR / "schemas"
-KINDS = ("spec", "patch", "brief", "manifest", "report", "fixes", "codegen", "build", "lineage", "inputs")
+KINDS = ("spec", "patch", "brief", "manifest", "report", "fixes", "codegen", "build", "lineage", "inputs", "edit", "promotion")
 
 
 class SchemaError(ValueError):

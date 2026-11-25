@@ -1,0 +1,913 @@
+{
+  "schema_version": 1,
+  "canvas": [
+    1920,
+    1080
+  ],
+  "profile": "hud",
+  "root": "Root",
+  "note": "The concept is a transparent layered UI export, so there is no scene. UI: burst banner, chain ring with dark band and texts, blocked text, ready emblem with key letter, and the blade-shaped ultimate gauge.",
+  "widgets": [
+    {
+      "id": "Root",
+      "type": "CanvasPanel"
+    },
+    {
+      "id": "StaticPlate1",
+      "type": "Image",
+      "parent": "Root",
+      "bbox_intent": [
+        607.0,
+        1004.0,
+        700.0,
+        35.0
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.5,
+          1,
+          0.5,
+          1
+        ],
+        "alignment": [
+          0.5,
+          1
+        ],
+        "position": [
+          -3.0,
+          -41.0
+        ],
+        "size": [
+          700.0,
+          35.0
+        ],
+        "z": 1
+      },
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "static_plate1"
+        }
+      }
+    },
+    {
+      "id": "BurstBanner",
+      "type": "Border",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.5,
+          0,
+          0.5,
+          0
+        ],
+        "alignment": [
+          0.5,
+          0
+        ],
+        "position": [
+          -4.5,
+          188.0
+        ],
+        "size": [
+          799.0,
+          107.0
+        ],
+        "z": 1
+      },
+      "bbox_intent": [
+        556.0,
+        188.0,
+        799.0,
+        107.0
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "burst_banner_frame"
+        }
+      },
+      "binding": {
+        "data": "burst_banner",
+        "kind": "flag"
+      },
+      "visibility": "collapsed"
+    },
+    {
+      "id": "BurstLayer",
+      "type": "Overlay",
+      "parent": "BurstBanner",
+      "slot": {
+        "kind": "border",
+        "padding": [
+          0.0,
+          0.0,
+          7.0,
+          3.0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        556,
+        188,
+        792,
+        104
+      ]
+    },
+    {
+      "id": "BurstLabelText",
+      "type": "TextBlock",
+      "parent": "BurstLayer",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          69.0,
+          24.0,
+          393.0,
+          22.0
+        ],
+        "h_align": "fill",
+        "v_align": "center"
+      },
+      "bbox_intent": [
+        625.0,
+        213.0,
+        330.0,
+        58.0
+      ],
+      "text": {
+        "source": "static",
+        "value": "체인 버스트"
+      },
+      "font": {
+        "size": 36,
+        "weight": "bold",
+        "color": "#EDE6D8FF",
+        "letter_spacing": 500,
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W"
+      },
+      "justification": "left"
+    },
+    {
+      "id": "BurstCountText",
+      "type": "TextBlock",
+      "parent": "BurstLayer",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          670,
+          1.0,
+          38,
+          2.0
+        ],
+        "h_align": "fill",
+        "v_align": "center"
+      },
+      "bbox_intent": [
+        1226.0,
+        188.0,
+        84.0,
+        101.0
+      ],
+      "font": {
+        "size": 63,
+        "weight": "bold",
+        "color": "#EEE7D8FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W"
+      },
+      "justification": "center",
+      "binding": {
+        "data": "burst_count",
+        "kind": "number",
+        "format": "0"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "burst_count",
+        "sample": "3"
+      }
+    },
+    {
+      "id": "ChainPanel",
+      "type": "Border",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.5,
+          0.5,
+          0.5,
+          0.5
+        ],
+        "alignment": [
+          0.5,
+          0.5
+        ],
+        "position": [
+          -6.0,
+          45.0
+        ],
+        "size": [
+          520.0,
+          516.0
+        ],
+        "z": 1
+      },
+      "bbox_intent": [
+        694.0,
+        327.0,
+        520.0,
+        516.0
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "chain_band"
+        }
+      },
+      "binding": {
+        "data": "chain_panel",
+        "kind": "flag"
+      }
+    },
+    {
+      "id": "ChainLayer",
+      "type": "Overlay",
+      "parent": "ChainPanel",
+      "slot": {
+        "kind": "border",
+        "padding": [
+          2.0,
+          0.0,
+          2.0,
+          0.0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        696,
+        327,
+        516,
+        516
+      ]
+    },
+    {
+      "id": "ChainRing",
+      "type": "Image",
+      "parent": "ChainLayer",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          -1,
+          -2,
+          -2,
+          -2
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        695,
+        325,
+        519,
+        520
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "chain_ring",
+          "wipe": {
+            "kind": "radial",
+            "mode": "clockwise",
+            "track_alpha": 0.18,
+            "center": [
+              259.52,
+              259.99
+            ]
+          }
+        },
+        "percent": 1.0
+      },
+      "binding": {
+        "data": "chain_ring",
+        "kind": "progress"
+      }
+    },
+    {
+      "id": "ChainTitleText",
+      "type": "TextBlock",
+      "parent": "ChainLayer",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          97,
+          375,
+          347,
+          100
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        793,
+        702,
+        72,
+        41
+      ],
+      "text": {
+        "source": "static",
+        "value": "체인"
+      },
+      "font": {
+        "size": 25,
+        "weight": "bold",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W"
+      },
+      "justification": "center"
+    },
+    {
+      "id": "ChainTimerText",
+      "type": "TextBlock",
+      "parent": "ChainLayer",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          192,
+          346,
+          184,
+          70
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        888,
+        673,
+        140,
+        100
+      ],
+      "font": {
+        "size": 62,
+        "weight": "bold",
+        "color": "#EFE8DAFF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W"
+      },
+      "justification": "center",
+      "binding": {
+        "data": "chain_remaining",
+        "kind": "number",
+        "format": "0.0"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "chain_remaining",
+        "sample": "4.2"
+      }
+    },
+    {
+      "id": "ChainCountText",
+      "type": "TextBlock",
+      "parent": "ChainLayer",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          359,
+          375,
+          85,
+          100
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        1055,
+        702,
+        72,
+        41
+      ],
+      "font": {
+        "size": 25,
+        "weight": "bold",
+        "color": "#EBE4D5FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W"
+      },
+      "justification": "center",
+      "binding": {
+        "data": "chain_count",
+        "kind": "text"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "chain_count",
+        "sample": "2/4"
+      }
+    },
+    {
+      "id": "UltBlockedText",
+      "type": "TextBlock",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.5,
+          1,
+          0.5,
+          1
+        ],
+        "alignment": [
+          0.5,
+          1
+        ],
+        "position": [
+          -2.0,
+          -186
+        ],
+        "size": [
+          184,
+          48
+        ],
+        "z": 2
+      },
+      "bbox_intent": [
+        866.0,
+        846.0,
+        184.0,
+        48.0
+      ],
+      "text": {
+        "source": "static",
+        "value": "오의 불가"
+      },
+      "font": {
+        "size": 27,
+        "weight": "extrabold",
+        "color": "#D55C56FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "center",
+      "binding": {
+        "data": "ult_blocked",
+        "kind": "flag"
+      },
+      "visibility": "collapsed"
+    },
+    {
+      "id": "UltReadyPanel",
+      "type": "Overlay",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.5,
+          1,
+          0.5,
+          1
+        ],
+        "alignment": [
+          0.5,
+          1
+        ],
+        "position": [
+          -2,
+          -82
+        ],
+        "size": [
+          576,
+          104
+        ],
+        "z": 2
+      },
+      "bbox_intent": [
+        670,
+        894,
+        576,
+        104
+      ],
+      "binding": {
+        "data": "ult_ready",
+        "kind": "flag"
+      },
+      "visibility": "collapsed"
+    },
+    {
+      "id": "UltReadyGlow",
+      "type": "Image",
+      "parent": "UltReadyPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        670.0,
+        894.0,
+        576.0,
+        104.0
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "ult_ready_glow"
+        }
+      }
+    },
+    {
+      "id": "UltKeyText",
+      "type": "TextBlock",
+      "parent": "UltReadyPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          266,
+          61,
+          266,
+          -1
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        936.0,
+        955.0,
+        44.0,
+        44.0
+      ],
+      "font": {
+        "size": 24,
+        "weight": "bold",
+        "color": "#E9E2D3FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "center",
+      "binding": {
+        "data": "ult_key",
+        "kind": "text"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "ult_key",
+        "sample": "R"
+      }
+    },
+    {
+      "id": "UltArea",
+      "type": "Overlay",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.5,
+          1,
+          0.5,
+          1
+        ],
+        "alignment": [
+          0.5,
+          1
+        ],
+        "position": [
+          -2,
+          -38
+        ],
+        "size": [
+          708,
+          40
+        ],
+        "z": 1
+      },
+      "bbox_intent": [
+        604,
+        1002,
+        708,
+        40
+      ]
+    },
+    {
+      "id": "UltGaugeFrame",
+      "type": "Image",
+      "parent": "UltArea",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        604,
+        1002,
+        708,
+        40
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "none"
+        }
+      }
+    },
+    {
+      "id": "UltGauge",
+      "type": "ProgressBar",
+      "parent": "UltArea",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          64,
+          10,
+          66,
+          13
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        668,
+        1012,
+        578,
+        17
+      ],
+      "style": {
+        "background": {
+          "draw_as": "none"
+        },
+        "fill": {
+          "draw_as": "box",
+          "asset": "ult_gauge_fill",
+          "margin": [
+            0.0262,
+            0.0,
+            0.0143,
+            0.0
+          ]
+        },
+        "fill_color": "#FFFFFF",
+        "percent": 0.7266,
+        "bar_fill_type": "left_to_right",
+        "bar_fill_style": "scale"
+      },
+      "binding": {
+        "data": "ult_gauge",
+        "kind": "progress"
+      }
+    },
+    {
+      "id": "UltGaugeEndCap",
+      "type": "Image",
+      "parent": "UltArea",
+      "bbox_intent": [
+        1237,
+        1012,
+        9,
+        17
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "ult_gauge_end_cap"
+        }
+      },
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          633,
+          10,
+          66,
+          13
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "burst_banner_frame",
+      "kind": "frame",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        799,
+        107
+      ],
+      "prompt": "A wide matte ink-black band with faded left and right ends and a thin bone-white steel blade line along the top and bottom edges. Remove the label text and the number.",
+      "ref_bbox": [
+        556,
+        188,
+        799,
+        107
+      ]
+    },
+    {
+      "asset_id": "chain_band",
+      "kind": "panel_bg",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        520,
+        516
+      ],
+      "prompt": "The translucent ink-black horizontal band with faded ends in the lower part of the circle. Remove the steel ring around it and all the text and numbers on it.",
+      "ref_bbox": [
+        694,
+        327,
+        520,
+        516
+      ]
+    },
+    {
+      "asset_id": "chain_ring",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        519,
+        520
+      ],
+      "prompt": "A large thin steel ring made of two crescent blades meeting at the top and bottom. Remove the dark band and all text inside the ring, so the inside is empty.",
+      "ref_bbox": [
+        695,
+        325,
+        519,
+        520
+      ]
+    },
+    {
+      "asset_id": "ult_ready_glow",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        576,
+        104
+      ],
+      "prompt": "A bone-white curved scythe blade emblem with a long thin horizontal line fading out to both sides. Nothing else belongs to it.",
+      "ref_bbox": [
+        670,
+        894,
+        576,
+        104
+      ]
+    },
+    {
+      "asset_id": "ult_gauge_fill",
+      "kind": "fill",
+      "provenance": "procedural",
+      "size": [
+        420,
+        17
+      ],
+      "procedural": {
+        "shape": "concept_fill",
+        "frame_box": [
+          604,
+          1002,
+          708,
+          40
+        ],
+        "flip": false,
+        "threshold": 124.8,
+        "seed": [
+          267,
+          19
+        ],
+        "track": [
+          64,
+          10,
+          641,
+          26
+        ],
+        "body_end": 483,
+        "lead": 11,
+        "band_radius": 3,
+        "profile": [
+          17,
+          406
+        ],
+        "end": "scale",
+        "end_in": 5,
+        "spill": 0,
+        "spill_measured": 1,
+        "texture": "concept"
+      },
+      "source": "concept fill shape inside frame 'UltGaugeFrame' (track [668, 1012, 578, 17], sample 0.7)",
+      "nine_slice": true,
+      "margin": [
+        0.0262,
+        0.0,
+        0.0143,
+        0.0
+      ]
+    },
+    {
+      "asset_id": "ult_gauge_end_cap",
+      "kind": "ornament",
+      "provenance": "procedural",
+      "size": [
+        9,
+        17
+      ],
+      "procedural": {
+        "shape": "concept_end_cap",
+        "frame_box": [
+          604,
+          1002,
+          708,
+          40
+        ],
+        "flip": false,
+        "threshold": 124.8,
+        "seed": [
+          267,
+          19
+        ],
+        "track": [
+          64,
+          10,
+          641,
+          26
+        ],
+        "body_end": 483,
+        "lead": 11,
+        "band_radius": 3,
+        "profile": [
+          17,
+          406
+        ],
+        "end": "scale",
+        "end_in": 5,
+        "spill": 0,
+        "spill_measured": 1,
+        "texture": "concept",
+        "end_cap": {
+          "offsets": [
+            5,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "depth": 5,
+          "margin": 11
+        },
+        "cap_cols": [
+          633,
+          641
+        ]
+      },
+      "source": "end cap of the concept gauge fill 'UltGauge' (end ornament arc depth 5) — covers the straight fill end at 100%"
+    },
+    {
+      "asset_id": "static_plate1",
+      "kind": "ornament",
+      "provenance": "provided",
+      "source_mode": "plate",
+      "size": [
+        700,
+        35
+      ],
+      "source": "static plate 1 — concept pixels of the non-functional decorations (region UltArea)"
+    }
+  ],
+  "allow_overlap": [
+    [
+      "StaticPlate1",
+      "UltArea"
+    ]
+  ],
+  "locked": []
+}

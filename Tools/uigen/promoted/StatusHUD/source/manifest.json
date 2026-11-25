@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261124_130129_StatusHUD",
+  "assets": [
+    {
+      "asset_id": "ally1_crescent",
+      "kind": "ornament",
+      "file": "assets/final/ally1_crescent.png",
+      "sha256": "72327877d3073af1f95ef0dc6cf8dd71eff11733c15ff1cead8bc92461a9bb3b",
+      "size": [
+        316,
+        68
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "a small thin pale steel crescent open to the right; nothing else is part of it",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally1_crescent",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "ally2_crescent",
+      "kind": "ornament",
+      "file": "assets/final/ally2_crescent.png",
+      "sha256": "04b0693e4ff71a52ef6623b6f3d30f822c9464b1cb6a4226d855b33c89053d18",
+      "size": [
+        316,
+        70
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "a small thin pale steel crescent open to the right; nothing else is part of it",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally2_crescent",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "ally3_crescent",
+      "kind": "ornament",
+      "file": "assets/final/ally3_crescent.png",
+      "sha256": "b6fa66b88aefcdad4ef53a94563998f4149ca0aefb6ca8518a29ee7189720b4b",
+      "size": [
+        316,
+        71
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "a small thin pale steel crescent open to the right; nothing else is part of it",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally3_crescent",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "self_hp_bar",
+      "kind": "ornament",
+      "file": "assets/final/self_hp_bar.png",
+      "sha256": "dc03f0228560cad035ff980ef903e4e0756824c775eb6aac9d0f4170e17ab249",
+      "size": [
+        390,
+        26
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "the shaped bar SelfHpBar exactly as drawn",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_self_hp_bar",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "self_stamina_bar",
+      "kind": "ornament",
+      "file": "assets/final/self_stamina_bar.png",
+      "sha256": "ed727db9657ffb843ce295ac2408768baae7ca354249e850c2f4c5e270969f3e",
+      "size": [
+        307,
+        19
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "the shaped bar SelfStaminaBar exactly as drawn",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_self_stamina_bar",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "ally1_hp_bar",
+      "kind": "ornament",
+      "file": "assets/final/ally1_hp_bar.png",
+      "sha256": "eadec2cca244088cbf58eeb1377a4de0b1512a1bfb0a22967fc195ec23231cae",
+      "size": [
+        257,
+        19
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "the shaped bar Ally1HpBar exactly as drawn",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally1_hp_bar",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "ally1_ult_bar",
+      "kind": "ornament",
+      "file": "assets/final/ally1_ult_bar.png",
+      "sha256": "bb000ef2fd23ad4cb25bfbd277bf2cb2bbebe0fb9e0e21ec9648de10d176afea",
+      "size": [
+        210,
+        14
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "the shaped bar Ally1UltBar exactly as drawn",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally1_ult_bar",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "ally2_hp_bar",
+      "kind": "ornament",
+      "file": "assets/final/ally2_hp_bar.png",
+      "sha256": "e072d4ca531890b57a60ba6149bda71f8b7c17a8f6ac2964c3be09d4805f9f34",
+      "size": [
+        257,
+        18
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "the shaped bar Ally2HpBar exactly as drawn",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally2_hp_bar",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "ally2_ult_bar",
+      "kind": "ornament",
+      "file": "assets/final/ally2_ult_bar.png",
+      "sha256": "91411bbb85de652fcf3641af03d2a1692085ffb0733b3386d0e133212115efe4",
+      "size": [
+        213,
+        15
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "the shaped bar Ally2UltBar exactly as drawn",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally2_ult_bar",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "ally3_hp_bar",
+      "kind": "ornament",
+      "file": "assets/final/ally3_hp_bar.png",
+      "sha256": "d86670a7fda34a7862e4d39948d9ecf786cc77832c232c24738fc5eaa514a822",
+      "size": [
+        254,
+        19
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "the shaped bar Ally3HpBar exactly as drawn",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally3_hp_bar",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "ally3_ult_bar",
+      "kind": "ornament",
+      "file": "assets/final/ally3_ult_bar.png",
+      "sha256": "3b587b36dfa915986817d1ccaa459f0dc1740b9d4ca6647be165c3c997e3c97a",
+      "size": [
+        209,
+        14
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "codex",
+      "backend": "concept_cut",
+      "procedural": {},
+      "prompt": "the shaped bar Ally3UltBar exactly as drawn",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally3_ult_bar",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "static_plate1",
+      "kind": "ornament",
+      "file": "assets/final/static_plate1.png",
+      "sha256": "704fe66bf7b2bc6fb40653dd900ceb72e0ab341486020f2e8dca68cc54605395",
+      "size": [
+        90,
+        107
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "provided",
+      "backend": "concept_plate",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_static_plate1",
+      "compression": "TC_EditorIcon"
+    }
+  ]
+}

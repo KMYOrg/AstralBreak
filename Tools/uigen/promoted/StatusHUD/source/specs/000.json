@@ -1,0 +1,1085 @@
+{
+  "schema_version": 1,
+  "canvas": [
+    1920,
+    1080
+  ],
+  "profile": "hud",
+  "root": "Root",
+  "note": "No scene: the concept is a transparent UI export. UI is the self block (crescent, HP blade, stamina, texts) and three teammate rows at top-left.",
+  "widgets": [
+    {
+      "id": "Root",
+      "type": "CanvasPanel"
+    },
+    {
+      "id": "StaticPlate1",
+      "type": "Image",
+      "parent": "Root",
+      "bbox_intent": [
+        55.0,
+        58.0,
+        90.0,
+        107.0
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alignment": [
+          0,
+          0
+        ],
+        "position": [
+          55.0,
+          58.0
+        ],
+        "size": [
+          90.0,
+          107.0
+        ],
+        "z": 1
+      },
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "static_plate1"
+        }
+      }
+    },
+    {
+      "id": "SelfPanel",
+      "type": "Overlay",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alignment": [
+          0,
+          0
+        ],
+        "position": [
+          54,
+          56
+        ],
+        "size": [
+          494,
+          112
+        ],
+        "z": 1
+      },
+      "bbox_intent": [
+        54,
+        56,
+        494,
+        112
+      ]
+    },
+    {
+      "id": "SelfFrame",
+      "type": "Image",
+      "parent": "SelfPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          1,
+          1,
+          405,
+          3
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        55,
+        57,
+        88,
+        108
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "none"
+        }
+      }
+    },
+    {
+      "id": "SelfHpBar",
+      "type": "ProgressBar",
+      "parent": "SelfPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          100,
+          38,
+          4,
+          48
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        154,
+        94,
+        390,
+        26
+      ],
+      "style": {
+        "background": {
+          "draw_as": "image",
+          "asset": "self_hp_bar",
+          "color": "#404144CC"
+        },
+        "fill": {
+          "draw_as": "image",
+          "asset": "self_hp_bar"
+        },
+        "percent": 1.0,
+        "bar_fill_type": "left_to_right"
+      },
+      "binding": {
+        "data": "self_hp",
+        "kind": "progress"
+      }
+    },
+    {
+      "id": "SelfStaminaBar",
+      "type": "ProgressBar",
+      "parent": "SelfPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          99,
+          63,
+          88,
+          30
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        153,
+        119,
+        307,
+        19
+      ],
+      "style": {
+        "background": {
+          "draw_as": "image",
+          "asset": "self_stamina_bar",
+          "color": "#404144CC"
+        },
+        "fill": {
+          "draw_as": "image",
+          "asset": "self_stamina_bar"
+        },
+        "percent": 1.0,
+        "bar_fill_type": "left_to_right"
+      },
+      "binding": {
+        "data": "self_stamina",
+        "kind": "progress"
+      }
+    },
+    {
+      "id": "SelfHpText",
+      "type": "TextBlock",
+      "parent": "SelfPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          104,
+          6,
+          338,
+          69
+        ],
+        "h_align": "fill",
+        "v_align": "center"
+      },
+      "bbox_intent": [
+        158.0,
+        62.0,
+        52.0,
+        37.0
+      ],
+      "font": {
+        "size": 20,
+        "weight": "semibold",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "left",
+      "binding": {
+        "data": "self_hp_value",
+        "kind": "number",
+        "format": "0"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "self_hp_value",
+        "sample": "100"
+      }
+    },
+    {
+      "id": "SelfMarkText",
+      "type": "TextBlock",
+      "parent": "SelfPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          22,
+          20,
+          422,
+          36
+        ],
+        "h_align": "fill",
+        "v_align": "center"
+      },
+      "bbox_intent": [
+        76.0,
+        76.0,
+        50.0,
+        56.0
+      ],
+      "font": {
+        "size": 32,
+        "weight": "semibold",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "center",
+      "binding": {
+        "data": "self_mark",
+        "kind": "number",
+        "format": "0"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "self_mark",
+        "sample": "3"
+      }
+    },
+    {
+      "id": "SelfMarkLabel",
+      "type": "TextBlock",
+      "parent": "SelfPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          26,
+          66,
+          426,
+          17
+        ],
+        "h_align": "fill",
+        "v_align": "center"
+      },
+      "bbox_intent": [
+        80.0,
+        122.0,
+        42.0,
+        29.0
+      ],
+      "font": {
+        "size": 15,
+        "weight": "medium",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "center",
+      "text": {
+        "source": "static",
+        "value": "표식"
+      }
+    },
+    {
+      "id": "Ally1Panel",
+      "type": "Overlay",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alignment": [
+          0,
+          0
+        ],
+        "position": [
+          56,
+          177
+        ],
+        "size": [
+          316,
+          68
+        ],
+        "z": 1
+      },
+      "bbox_intent": [
+        56,
+        177,
+        316,
+        68
+      ],
+      "binding": {
+        "data": "ally1_panel",
+        "kind": "flag"
+      }
+    },
+    {
+      "id": "Ally1Frame",
+      "type": "Image",
+      "parent": "Ally1Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        56.0,
+        177.0,
+        316.0,
+        68.0
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "ally1_crescent"
+        }
+      }
+    },
+    {
+      "id": "Ally1HpBar",
+      "type": "ProgressBar",
+      "parent": "Ally1Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          57,
+          25,
+          2,
+          24
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        113,
+        202,
+        257,
+        19
+      ],
+      "style": {
+        "background": {
+          "draw_as": "image",
+          "asset": "ally1_hp_bar",
+          "color": "#404144CC"
+        },
+        "fill": {
+          "draw_as": "image",
+          "asset": "ally1_hp_bar"
+        },
+        "percent": 1.0,
+        "bar_fill_type": "left_to_right"
+      },
+      "binding": {
+        "data": "ally1_hp",
+        "kind": "progress"
+      }
+    },
+    {
+      "id": "Ally1UltBar",
+      "type": "ProgressBar",
+      "parent": "Ally1Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          56,
+          44,
+          50,
+          10
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        112,
+        221,
+        210,
+        14
+      ],
+      "style": {
+        "background": {
+          "draw_as": "image",
+          "asset": "ally1_ult_bar",
+          "color": "#404144CC"
+        },
+        "fill": {
+          "draw_as": "image",
+          "asset": "ally1_ult_bar"
+        },
+        "percent": 1.0,
+        "bar_fill_type": "left_to_right"
+      },
+      "binding": {
+        "data": "ally1_ult",
+        "kind": "progress"
+      }
+    },
+    {
+      "id": "Ally1NameText",
+      "type": "TextBlock",
+      "parent": "Ally1Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          59,
+          0,
+          181,
+          41
+        ],
+        "h_align": "fill",
+        "v_align": "center"
+      },
+      "bbox_intent": [
+        115.0,
+        177.0,
+        76.0,
+        27.0
+      ],
+      "font": {
+        "size": 14,
+        "weight": "medium",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "left",
+      "binding": {
+        "data": "ally1_name",
+        "kind": "text"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "ally1_name",
+        "sample": "Player 2"
+      }
+    },
+    {
+      "id": "Ally2Panel",
+      "type": "Overlay",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alignment": [
+          0,
+          0
+        ],
+        "position": [
+          56,
+          246
+        ],
+        "size": [
+          316,
+          70
+        ],
+        "z": 1
+      },
+      "bbox_intent": [
+        56,
+        246,
+        316,
+        70
+      ],
+      "binding": {
+        "data": "ally2_panel",
+        "kind": "flag"
+      }
+    },
+    {
+      "id": "Ally2Frame",
+      "type": "Image",
+      "parent": "Ally2Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        56.0,
+        246.0,
+        316.0,
+        70.0
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "ally2_crescent"
+        }
+      }
+    },
+    {
+      "id": "Ally2HpBar",
+      "type": "ProgressBar",
+      "parent": "Ally2Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          56,
+          25,
+          3,
+          27
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        112,
+        271,
+        257,
+        18
+      ],
+      "style": {
+        "background": {
+          "draw_as": "image",
+          "asset": "ally2_hp_bar",
+          "color": "#404144CC"
+        },
+        "fill": {
+          "draw_as": "image",
+          "asset": "ally2_hp_bar"
+        },
+        "percent": 1.0,
+        "bar_fill_type": "left_to_right"
+      },
+      "binding": {
+        "data": "ally2_hp",
+        "kind": "progress"
+      }
+    },
+    {
+      "id": "Ally2UltBar",
+      "type": "ProgressBar",
+      "parent": "Ally2Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          56,
+          43,
+          47,
+          12
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        112,
+        289,
+        213,
+        15
+      ],
+      "style": {
+        "background": {
+          "draw_as": "image",
+          "asset": "ally2_ult_bar",
+          "color": "#404144CC"
+        },
+        "fill": {
+          "draw_as": "image",
+          "asset": "ally2_ult_bar"
+        },
+        "percent": 1.0,
+        "bar_fill_type": "left_to_right"
+      },
+      "binding": {
+        "data": "ally2_ult",
+        "kind": "progress"
+      }
+    },
+    {
+      "id": "Ally2NameText",
+      "type": "TextBlock",
+      "parent": "Ally2Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          59,
+          0,
+          181,
+          43
+        ],
+        "h_align": "fill",
+        "v_align": "center"
+      },
+      "bbox_intent": [
+        115.0,
+        246.0,
+        76.0,
+        27.0
+      ],
+      "font": {
+        "size": 14,
+        "weight": "medium",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "left",
+      "binding": {
+        "data": "ally2_name",
+        "kind": "text"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "ally2_name",
+        "sample": "Player 3"
+      }
+    },
+    {
+      "id": "Ally3Panel",
+      "type": "Overlay",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alignment": [
+          0,
+          0
+        ],
+        "position": [
+          56.0,
+          316.0
+        ],
+        "size": [
+          316.0,
+          71.0
+        ],
+        "z": 1
+      },
+      "bbox_intent": [
+        56.0,
+        316.0,
+        316.0,
+        71.0
+      ],
+      "binding": {
+        "data": "ally3_panel",
+        "kind": "flag"
+      }
+    },
+    {
+      "id": "Ally3Frame",
+      "type": "Image",
+      "parent": "Ally3Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        56.0,
+        316.0,
+        316.0,
+        71.0
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "ally3_crescent"
+        }
+      }
+    },
+    {
+      "id": "Ally3HpBar",
+      "type": "ProgressBar",
+      "parent": "Ally3Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          59.0,
+          24.0,
+          3.0,
+          28.0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        115,
+        340,
+        254,
+        19
+      ],
+      "style": {
+        "background": {
+          "draw_as": "image",
+          "asset": "ally3_hp_bar",
+          "color": "#404144CC"
+        },
+        "fill": {
+          "draw_as": "image",
+          "asset": "ally3_hp_bar"
+        },
+        "percent": 1.0,
+        "bar_fill_type": "left_to_right"
+      },
+      "binding": {
+        "data": "ally3_hp",
+        "kind": "progress"
+      }
+    },
+    {
+      "id": "Ally3UltBar",
+      "type": "ProgressBar",
+      "parent": "Ally3Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          56.0,
+          43.0,
+          51.0,
+          14.0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        112,
+        359,
+        209,
+        14
+      ],
+      "style": {
+        "background": {
+          "draw_as": "image",
+          "asset": "ally3_ult_bar",
+          "color": "#404144CC"
+        },
+        "fill": {
+          "draw_as": "image",
+          "asset": "ally3_ult_bar"
+        },
+        "percent": 1.0,
+        "bar_fill_type": "left_to_right"
+      },
+      "binding": {
+        "data": "ally3_ult",
+        "kind": "progress"
+      }
+    },
+    {
+      "id": "Ally3NameText",
+      "type": "TextBlock",
+      "parent": "Ally3Panel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          59.0,
+          0.0,
+          181.0,
+          44.0
+        ],
+        "h_align": "fill",
+        "v_align": "center"
+      },
+      "bbox_intent": [
+        115.0,
+        316.0,
+        76.0,
+        27.0
+      ],
+      "font": {
+        "size": 14,
+        "weight": "medium",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "left",
+      "binding": {
+        "data": "ally3_name",
+        "kind": "text"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "ally3_name",
+        "sample": "Player 4"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "ally1_crescent",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        316,
+        68
+      ],
+      "ref_bbox": [
+        56,
+        177,
+        316,
+        68
+      ],
+      "prompt": "a small thin pale steel crescent open to the right; nothing else is part of it"
+    },
+    {
+      "asset_id": "ally2_crescent",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        316,
+        70
+      ],
+      "ref_bbox": [
+        56,
+        246,
+        316,
+        70
+      ],
+      "prompt": "a small thin pale steel crescent open to the right; nothing else is part of it"
+    },
+    {
+      "asset_id": "ally3_crescent",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        316,
+        71
+      ],
+      "ref_bbox": [
+        56,
+        316,
+        316,
+        71
+      ],
+      "prompt": "a small thin pale steel crescent open to the right; nothing else is part of it"
+    },
+    {
+      "asset_id": "self_hp_bar",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        390,
+        26
+      ],
+      "prompt": "the shaped bar SelfHpBar exactly as drawn",
+      "ref_bbox": [
+        154,
+        94,
+        390,
+        26
+      ]
+    },
+    {
+      "asset_id": "self_stamina_bar",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        307,
+        19
+      ],
+      "prompt": "the shaped bar SelfStaminaBar exactly as drawn",
+      "ref_bbox": [
+        153,
+        119,
+        307,
+        19
+      ]
+    },
+    {
+      "asset_id": "ally1_hp_bar",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        257,
+        19
+      ],
+      "prompt": "the shaped bar Ally1HpBar exactly as drawn",
+      "ref_bbox": [
+        113,
+        202,
+        257,
+        19
+      ]
+    },
+    {
+      "asset_id": "ally1_ult_bar",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        210,
+        14
+      ],
+      "prompt": "the shaped bar Ally1UltBar exactly as drawn",
+      "ref_bbox": [
+        112,
+        221,
+        210,
+        14
+      ]
+    },
+    {
+      "asset_id": "ally2_hp_bar",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        257,
+        18
+      ],
+      "prompt": "the shaped bar Ally2HpBar exactly as drawn",
+      "ref_bbox": [
+        112,
+        271,
+        257,
+        18
+      ]
+    },
+    {
+      "asset_id": "ally2_ult_bar",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        213,
+        15
+      ],
+      "prompt": "the shaped bar Ally2UltBar exactly as drawn",
+      "ref_bbox": [
+        112,
+        289,
+        213,
+        15
+      ]
+    },
+    {
+      "asset_id": "ally3_hp_bar",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        254,
+        19
+      ],
+      "prompt": "the shaped bar Ally3HpBar exactly as drawn",
+      "ref_bbox": [
+        115,
+        340,
+        254,
+        19
+      ]
+    },
+    {
+      "asset_id": "ally3_ult_bar",
+      "kind": "ornament",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        209,
+        14
+      ],
+      "prompt": "the shaped bar Ally3UltBar exactly as drawn",
+      "ref_bbox": [
+        112,
+        359,
+        209,
+        14
+      ]
+    },
+    {
+      "asset_id": "static_plate1",
+      "kind": "ornament",
+      "provenance": "provided",
+      "source_mode": "plate",
+      "size": [
+        90,
+        107
+      ],
+      "source": "static plate 1 — concept pixels of the non-functional decorations (region SelfPanel)"
+    }
+  ],
+  "allow_overlap": [
+    [
+      "Ally1HpBar",
+      "Ally1NameText"
+    ],
+    [
+      "Ally2HpBar",
+      "Ally2NameText"
+    ],
+    [
+      "SelfPanel",
+      "StaticPlate1"
+    ]
+  ]
+}

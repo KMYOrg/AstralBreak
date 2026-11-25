@@ -67,6 +67,11 @@
         "feature": { "type": "string" },
         "view_base": { "type": "string" },
         "widget": { "type": "string" },
+        "base": {
+          "type": "object", "required": ["class", "include"], "additionalProperties": false,
+          "description": "생성 베이스의 부모(screens.yaml base) — 기본(UserWidget)이면 없다(Phase 3-3)",
+          "properties": { "class": { "type": "string" }, "include": { "type": "string" } }
+        },
         "bindings": { "type": "array", "items": { "$ref": "#/$defs/binding" } }
       }
     },
@@ -78,8 +83,12 @@
         "name": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
         "widget_class": { "type": "string" },
         "data": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
-        "kind": { "enum": ["text", "number", "progress", "flag", "image"] },
+        "kind": { "enum": ["text", "number", "progress", "flag", "image", "cell", "action"] },
         "format": { "type": "string", "pattern": "^0(\\.0+)?$" },
+        "cell": { "type": "string", "description": "cell · action — 놓인 칸의 ScreenId(승격 기록)" },
+        "include": { "type": "string", "description": "cell · action — 그 칸의 C++ 클래스 헤더" },
+        "selectable": { "type": "boolean", "description": "action — 선택 모양 setter 를 만드는가" },
+        "accessor": { "type": "boolean", "description": "cell — false 면 접근자 없음(빠진 바인딩인데 같은 data 를 다른 바인딩이 씀)" },
         "optional": { "type": "boolean" },
         "setter": { "type": ["string", "null"], "pattern": "^Set[A-Za-z0-9]+$" }
       }

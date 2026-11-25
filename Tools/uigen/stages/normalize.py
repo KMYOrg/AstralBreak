@@ -125,6 +125,75 @@ def _inputs_errors(inputs: dict) -> list[str]:
     return errs
 
 
+def _screen_errors(inputs: dict) -> list[str]:
+    """조작 화면의 요청(Phase 3-3) — 칸 · 글자 칸 · 바탕 위 표시."""
+    errs = []
+    data, cells = inputs["data"], inputs.get("cells") or []
+    for key in ("id", "widget"):
+        vals = [x[key] for x in (*data, *cells)]
+        dup = sorted({v for v in vals if vals.count(v) > 1})
+        if cells and dup:
+            errs.append(f"CELL_DUPLICATE: data · cells {key} {dup}")
+    req = {e["id"] for e in inputs["required_elements"]}
+    for c in cells:
+        if c["widget"] in req:
+            errs.append(f"CELL_REQUIRED: '{c['widget']}' is a placed cell — leave it out of required_elements (the pipeline puts it there)")
+        if c.get("selectable") and c["type"] != "action":
+            errs.append(f"CELL_SELECTABLE: '{c['widget']}' selectable is only for an action")
+    if cells and inputs["screen_type"] == "hud":
+        errs.append("CELL_SCREEN: placed cells need a screen type with input rules (menu)")
+    for d in data:
+        text = d["type"] == "text" and d["widget_type"] == "TextBlock"
+        if d.get("overflow") or d.get("long_sample") is not None or d.get("text_box"):
+            if not text:
+                errs.append(f"TEXT_LONG: '{d['id']}' overflow / long_sample / text_box are only for text data on a TextBlock")
+            elif not (d.get("overflow") and d.get("text_box") and str(d.get("long_sample") or "").strip()):
+                errs.append(f"TEXT_LONG: '{d['id']}' overflow needs text_box and long_sample together")
+            elif len(str(d["long_sample"])) <= len(str(d.get("sample") or "")):
+                errs.append(f"TEXT_LONG: '{d['id']}' long_sample is not longer than the sample")
+        if d.get("over"):
+            if d["type"] != "flag" or d["widget_type"] != "Image":
+                errs.append(f"DATA_OVER: '{d['id']}' over is only for a flag on an Image")
+            elif d["over"] not in req or d["over"] == d["widget"]:
+                errs.append(f"DATA_OVER: '{d['id']}' over '{d['over']}' must be another required element")
+            elif d.get("sample") is not True:
+                errs.append(f"DATA_OVER: '{d['id']}' the mark is drawn in the concept — sample must be true")
+    return errs
+
+
+def _brief_cells(inputs: dict, promoted_root=None) -> list[dict]:
+    """inputs cells → brief cells(WBP · 크기 · 버튼인가 · 승격한 run 은 승격 기록에서)."""
+    from core import cellref
+    out = []
+    for c in inputs.get("cells") or []:
+        try:
+            rec = cellref.by_screen(c["cell"], promoted_root)
+        except cellref.CellError as exc:
+            raise StageError(exc.code, str(exc).split(": ", 1)[-1], **exc.details) from exc
+        if rec["button"] != (c["type"] == "action"):
+            raise StageError("CELL_KIND", f"'{c['widget']}' is type '{c['type']}' but the cell '{c['cell']}' is {'a button' if rec['button'] else 'not a button'}", widget=c["widget"])
+        if c.get("text") is not None and not rec["button"]:
+            raise StageError("CELL_TEXT", f"'{c['widget']}': only a button cell takes a text", widget=c["widget"])
+        out.append({"widget": c["widget"], "cell": c["cell"], "class": rec["class"], "at": list(c["at"]), "size": rec["size"], "button": rec["button"], "run_id": rec["run_id"],
+                    **({"props": {"ButtonText": c["text"]}} if c.get("text") is not None else {})})
+    return out
+
+
+def _cell_paste(brief_cells: list[dict], promoted_root=None):
+    """칸 자리를 칸 그림으로 바꾸는 gen/cell_art.Paste — 칸이 없으면 None."""
+    if not brief_cells:
+        return None
+    from core import button
+    from gen import cell_art, cells
+    pics = {}
+    for c in brief_cells:
+        p = cells.picture(c["class"], promoted_root)
+        if p is None:
+            raise StageError("CELL_NOT_PROMOTED", f"'{c['widget']}': the cell '{c['cell']}' has no source bundle to compose its picture", widget=c["widget"])
+        pics[c["widget"]] = p["states"][button.BASE]
+    return cell_art.Paste(brief_cells, pics)
+
+
 def _button_errors(inputs: dict) -> list[str]:
     """버튼 칸(Phase 3-2) — 요청이 구조를 다 정한다: 필수 요소 = 기본 그림 · 글자 둘, 데이터 = 그 글자 하나, 글자 없는 원본 아트 + 글꼴로 그린 참고판."""
     b = inputs.get("button")
@@ -205,7 +274,7 @@ def concept_source(inputs: dict, concept_path) -> dict:
 
 
 def _fit_reference(src: pathlib.Path, dst: pathlib.Path, size: list[int], background: str | None = "auto", notext: pathlib.Path | None = None,
-                   textfree_art: bool = False, text_ref: pathlib.Path | None = None, text_ref_skip: str | None = None) -> dict:
+                   textfree_art: bool = False, text_ref: pathlib.Path | None = None, text_ref_skip: str | None = None, paste=None) -> dict:
     """컨셉 → 기준 해상도 RGB PNG. 비율 차이 ≤ 1 % 면 늘리고, 넘으면 가운데 맞춤 + 검은 띠.
     (1b 후속 H) 배경 판정(gen/cutout.classify — ⓐ transparent · ⓑ flat · ⓒ scene, inputs concept_background 가 auto 가 아니면 그것)을 하고,
     ⓐ ⓑ 는 dst 옆에 reference_alpha.png(L — 알파) · reference_color.png(RGB — 곧은 색: ⓐ 는 PNG 색, ⓑ 는 배경색 언믹싱)를 남긴다.
@@ -241,6 +310,8 @@ def _fit_reference(src: pathlib.Path, dst: pathlib.Path, size: list[int], backgr
     rec = {"kind": bg["kind"], "auto": bg["auto"], "source": bg["source"], "alpha_ratio": bg["alpha_ratio"], "ring_px": bg["ring_px"],
            "ring_uniform": bg["ring_uniform"], "key_color": bg["key_color"], "alpha": None, "color": None}
     dst.parent.mkdir(parents=True, exist_ok=True)
+    if paste is not None and bg["kind"] == "scene":
+        raise ValueError("placed cells need a concept with real alpha (the cell pixels are replaced by the cell's own picture)")
     if bg["kind"] == "scene":
         with Image.open(src) as im:
             im = im.convert("RGB")
@@ -261,6 +332,9 @@ def _fit_reference(src: pathlib.Path, dst: pathlib.Path, size: list[int], backgr
         pm = np.dstack([place(col[..., i] * alpha) for i in range(3)])
         straight = np.where(a[..., None] > 1e-4, pm / np.maximum(a, 1e-4)[..., None], 0.0)
         straight = np.clip(straight, 0, 255)
+        if paste is not None:                       # 놓인 칸(Phase 3-3) — 시안이 그린 칸 자리를 그 칸의 승인한 그림으로
+            straight, a = paste(straight, a)
+            rec["cells"] = paste.record
         Image.fromarray(np.clip(straight * a[..., None], 0, 255).round().astype(np.uint8), "RGB").save(dst, format="PNG")
         Image.fromarray((a * 255).round().astype(np.uint8), "L").save(dst.with_name("reference_alpha.png"), format="PNG")
         Image.fromarray(straight.round().astype(np.uint8), "RGB").save(dst.with_name("reference_color.png"), format="PNG")
@@ -269,7 +343,7 @@ def _fit_reference(src: pathlib.Path, dst: pathlib.Path, size: list[int], backgr
     if notext is not None:
         rec["notext"] = _fit_notext(notext, dst, src_arr, bg, place, (tw, th))
     if textfree_art and bg["kind"] != "scene":
-        rec["textfree"] = _fit_text_ref(text_ref, dst, src_arr, bg, place, (tw, th), skip=text_ref_skip, scale=scale, offset=offset)
+        rec["textfree"] = _fit_text_ref(text_ref, dst, src_arr, bg, place, (tw, th), skip=text_ref_skip, scale=scale, offset=offset, paste=paste)
     return {"src_size": [sw, sh], "dst_size": [tw, th], "mode": mode, "aspect_diff": round(diff, 5),
             "scale": [round(v, 6) for v in scale], "offset": offset, "background": rec}
 
@@ -328,7 +402,8 @@ NOTEXT_FILES = ("reference_notext_color.png", "reference_notext_alpha.png")
 TEXTREF_FILES = ("reference_textref_color.png", "reference_textref_alpha.png", "reference_textref_paste.png")
 
 
-def _fit_text_ref(src: pathlib.Path | None, dst: pathlib.Path, concept_arr, bg: dict, place, size, skip: str | None = None, scale=(1.0, 1.0), offset=(0, 0)) -> dict:
+def _fit_text_ref(src: pathlib.Path | None, dst: pathlib.Path, concept_arr, bg: dict, place, size, skip: str | None = None, scale=(1.0, 1.0), offset=(0, 0),
+                  paste=None) -> dict:
     """1b 후속 L-2 ④ — 원본 아트(지금 dst 옆 reference_color · reference_alpha)를 아트 · 글자 없는 판 파일로 남기고, 글자 참고판(make_concept
     --text-free-first 의 codex 편집)이 있으면 컨셉과 같은 배치 · 배경 처리로 맞춘 뒤 원본 아트에 정합해(gen/text_ref.merge — 참고판을 옮김) 참고판
     글자 획만 원본 아트 위에 옮겨 붙인 그림으로 reference* 를 바꾼다. 검사(이동 · 글자 상자 · 칸 밖 차이)에 떨어지면 reference* = 원본 아트 그대로
@@ -358,6 +433,8 @@ def _fit_text_ref(src: pathlib.Path | None, dst: pathlib.Path, concept_arr, bg: 
     t_a = np.clip(place(alpha), 0.0, 1.0)
     pm = np.dstack([place(col[..., i] * alpha) for i in range(3)])
     t_col = np.clip(np.where(t_a[..., None] > 1e-4, pm / np.maximum(t_a, 1e-4)[..., None], 0.0), 0, 255)
+    if paste is not None:                           # 참고판도 같은 시안 위에 그렸다 — 칸 자리를 아트와 똑같이 바꿔 '칸 밖 차이'로 세지 않게
+        t_col, t_a = paste(t_col, t_a)
     with Image.open(rc) as c, Image.open(ra) as a:
         a_col, a_a = np.asarray(c.convert("RGB"), float), np.asarray(a.convert("L"), float) / 255.0
     boxes = text_ref.drawn_boxes(src)               # 메인 HUD(11-24) — 글꼴 파일로 그린 참고판은 글자 상자를 안다(OCR 대신 — 작은 글자를 놓치지 않게)
@@ -389,7 +466,7 @@ def run_concept(run, opts) -> str:
     errs = schema.errors("inputs", inputs)
     if errs:
         raise StageError("SCHEMA", "inputs.yaml: " + "; ".join(errs[:8]), kind="inputs", errors=errs)
-    errs = _inputs_errors(inputs) + _button_errors(inputs)
+    errs = _inputs_errors(inputs) + _button_errors(inputs) + _screen_errors(inputs)
     if errs:
         raise StageError("INPUTS_INVALID", "; ".join(errs[:8]), errors=errs)
     concept = pathlib.Path(opts.concept) if getattr(opts, "concept", None) else pathlib.Path(inputs["concept"])
@@ -402,6 +479,9 @@ def run_concept(run, opts) -> str:
     if not screen:
         raise StageError("SCREEN_UNKNOWN", f"screen_id '{inputs['screen_id']}' is not in screens.yaml")
     resolution = list(inputs.get("resolution") or [1920, 1080])
+    promoted_root = getattr(opts, "promoted_root", None)
+    brief_cells = _brief_cells(inputs, promoted_root)
+    paste = _cell_paste(brief_cells, promoted_root)
     # 1b 후속 K-a → L-2 — 컨셉 출처(inputs concept_source 가 없으면 컨셉 옆 concept.json — make_concept 출처). generated_textfree = 원본 아트(L-2)
     src_rec = concept_source(inputs, concept)
     l2 = src_rec["value"] in TEXTFREE
@@ -461,9 +541,9 @@ def run_concept(run, opts) -> str:
                 notext = run.path(plate["file"])
     try:
         fit = _fit_reference(concept, run.path("reference.png"), resolution, background, notext=notext, textfree_art=l2, text_ref=text_ref,
-                             text_ref_skip=text_ref_skip)
+                             text_ref_skip=text_ref_skip, paste=paste)
     except (OSError, ValueError) as exc:
-        raise StageError("INPUT_UNREADABLE", f"{concept}: {exc}") from exc
+        raise StageError(getattr(exc, "code", "INPUT_UNREADABLE"), f"{concept}: {exc}", **getattr(exc, "details", {})) from exc
     if notext_skip:
         fit["background"]["notext"] = {"used": False, "reason": notext_skip}
     if conv is not None:
@@ -498,12 +578,15 @@ def run_concept(run, opts) -> str:
     dynamic = []
     for d in inputs["data"]:
         e = {k: d[k] for k in ("id", "type", "widget", "widget_type") }
-        for k in ("format", "sample", "desc", "inside", "radial", "bar", "outline"):
+        for k in ("format", "sample", "desc", "inside", "radial", "bar", "outline", "over", "overflow", "long_sample", "text_box"):
             if k in d:
                 e[k] = d[k]
         if d["widget"] in fonts:
             e["font"] = fonts[d["widget"]]
         dynamic.append(e)
+    for c in inputs.get("cells") or []:             # 놓인 칸도 계약의 바인딩이다(접근자 · 누름)
+        dynamic.append({"id": c["id"], "type": c["type"], "widget": c["widget"], "widget_type": spec_mod.CELL_TYPE,
+                        **({"selectable": True} if c.get("selectable") else {}), **({"desc": c["desc"]} if c.get("desc") else {})})
     brief = {"schema_version": 1, "run_id": run.run_id, "mode": "concept", "screen_type": inputs["screen_type"], "screen_id": inputs["screen_id"],
              "resolution": resolution, "language": inputs.get("language", "ko"), "font": font, "text": inputs.get("text", ""),
              "required_elements": inputs["required_elements"], "dynamic_data": dynamic,
@@ -511,17 +594,18 @@ def run_concept(run, opts) -> str:
                              for s in inputs.get("static_text", [])],   # desc(L-2 참고판 칸 설명)는 brief 밖
              "style_keywords": inputs.get("style_keywords", []),
              "references": [{"path": "reference.png", "role": "layout", "role_source": "user"}], "conflicts": [],
+             **({"cells": brief_cells} if brief_cells else {}), **({"anchor_regions": inputs["anchor_regions"]} if inputs.get("anchor_regions") else {}),
              "binding_contract": {"class": "UUserWidget" if screen.get("probe") else f"U{cppgen.parent_class(screen)}",
-                                  "source": "existing" if screen.get("probe") or cppgen.hand_written(screen) else "new", "bindings": [d["widget"] for d in inputs["data"]]}}
+                                  "source": "existing" if screen.get("probe") or cppgen.hand_written(screen) else "new", "bindings": [d["widget"] for d in dynamic]}}
     if inputs.get("button"):
         brief["button"] = _apply_theme(brief, inputs["button"], fonts)
     schema.require("brief", brief)
     run.write_json("brief.json", brief)
     run.write_json("inputs.json", inputs)
     raw = concept.read_bytes()
-    run.write_json("normalize.json", {"schema_version": 1, "mode": "concept", "inputs": src.as_posix(), "concept": concept.as_posix(),
+    run.write_json("normalize.json", {"schema_version": 1, "mode": "concept", "inputs": config.repo_rel(src), "concept": config.repo_rel(concept),
                                       "concept_sha256": hashlib.sha256(raw).hexdigest(), "reference": "reference.png",
-                                      **({"original_concept": original.as_posix()} if concept != original else {}), **fit})
+                                      **({"original_concept": config.repo_rel(original)} if concept != original else {}), **fit})
     bg = fit["background"]
     nt = bg.get("notext")
     nt_txt = "" if not nt else (f" — text-free concept aligned (shift {nt['shift_px']})" if nt.get("used") else f" — text-free concept not used ({nt.get('reason')})")
@@ -538,7 +622,8 @@ def run_concept(run, opts) -> str:
         cv_txt = f" — conversion fell back: {cv['fallback']}"
     return (f"concept {concept.name} {fit['src_size'][0]}x{fit['src_size'][1]} → reference {resolution[0]}x{resolution[1]} ({fit['mode']}) — "
             f"background {bg['kind']} ({bg['source']}{', key ' + bg['key_color'] if bg['kind'] == 'flat' else ''}){cv_txt}{nt_txt} — "
-            f"{len(dynamic)} bindings, {len(brief['static_text'])} static texts, font {font or 'engine default'}")
+            f"{len(dynamic)} bindings, {len(brief['static_text'])} static texts, font {font or 'engine default'}"
+            + (f", {len(brief_cells)} cell(s) placed (art shifts {[r['shift'] for r in paste.record]})" if paste is not None else ""))
 
 
 def run_hand_spec(run, opts) -> str:

@@ -10,6 +10,8 @@
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/combat_hud_blade/inputs.yaml   # 실제 전투 HUD(CombatHUD — 지금 계약)
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/status_hud_blade/inputs.yaml   # 실제 내 상태 · 동료 HUD(StatusHUD)
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/button_large/inputs.yaml       # 공용 부품(버튼 칸 ButtonLarge · button_small = ButtonSmall) — LLM 0 · codex 0
+Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/make_screen.py hub_ready --pick current                                     # 조작 화면 한 명령(참고판 → run → 요약). 후보부터: make_screen.py <fixture> [--text "…"] → 멈춤 → --pick N
+Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/hub_member_row/inputs.yaml     # 화면 전용 칸(파티 줄 HubMemberRow)
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/theme_preview.py --theme blade --out Tools/uigen/work/_theme/<이름>.png --art <그림> --label 준비   # 공용 테마 — 상태 일곱 미리보기(사람이 승인)
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/m4_combat_hud_concept/inputs.yaml --inject-fault offscreen   # 재시도 경로 — 검증 화면(ProbeCombatHUD)이라 C++ 를 쓰지 않는다
 Tools/mcp/.venv/Scripts/python.exe -X utf8 -B -m pytest Tools/uigen/tests -q -p no:cacheprovider
@@ -90,6 +92,13 @@ Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/promote_screen.py stat
   **검사 E8 `button_*`**(`gen/state_check.button_states`): 상태 일곱의 엔진 렌더 ↔ '그 상태 그림을 얹은 합성'(안쪽 국소 ΔE00 · 버튼 밖이 안 바뀜 · 글자가 읽히고 테마만큼만 움직임 · 상태끼리 구별). 덮어쓰기가 안 먹거나 못 그리면 오류다(합성으로 물러나지 않는다). `compare.png` 맨 아래에 상태 칸.
   **화면에 놓기:** spec 위젯 `UserWidget {class: 승격된 칸, props: {ButtonText}}` — 진단은 칸을 '그 칸의 원천 묶음(`promoted/<칸>/source`)에서 합성한 그림 한 장'으로 본다(`gen/cells`).
 
+- **조작 화면(Phase 3-3, 11-25 — 설계 §11 'Phase 3-3 결과'):** `screen_type: menu`(`profiles/menu.yaml`). **놓인 칸은 요청이 정한다** — inputs `cells[] {id, type: cell | action, widget, cell: <승격된 ScreenId>, at: [x, y], text?, selectable?}`. 크기 · WBP · 버튼인가 · C++ 클래스는 승격 기록 · `screens.yaml` 에서(`core/cellref`), analyze 뒤 코드가 루트 직계로 넣는다(LLM 은 자리를 비운다 — `CELL_COVER`).
+  **정답은 칸의 승인한 그림** — normalize 가 시안이 그린 칸 자리를 재고(3 px 넘게 어긋나면 `CELL_PLACE`) 그 자리를 칸 그림으로 바꾼다(`gen/cell_art`, AI 가 그린 반복은 서로 같은 픽셀이 아니다). `anchor_regions {box, anchor}` = 해상도가 바뀌어도 묶음이 같이 움직인다.
+  **계약:** `action` = `Handle<X>Clicked` 가상 함수(스텁이 재정의) · `OnClicked()` 묶음 · `Set<X>Enabled` · (`selectable`) `Set<X>Selected`. `cell` = `Get<X>()`. `screens.yaml base` = 생성 베이스의 부모(`AstralActivatableWidget`). 생성 코드는 누름에 자기 모양을 안 바꾼다. 새 조각은 쓰는 계약의 해시에만 든다.
+  **가리는 위젯 없음:** 프로필 `input_rules: true`(menu · cell)면 안 적은 보이기가 잎 `hit_test_invisible` · 패널 `self_hit_test_invisible` · 버튼 아닌 칸 `hit_test_invisible`(`core/spec.default_visibility` — 정규화 한 곳), 12 번째 게이트 `input_clear`(`core/hit` — 구조 게이트)가 역추출한 트리로 본다.
+  **긴 글자:** data `overflow: ellipsis` + `text_box` + `long_sample` → 상태 렌더 `state_long`(E8 `long_*`). 줄임은 왼쪽 · 오른쪽 정렬에서만 된다(엔진). **바탕 위 표시:** flag Image `over: <바탕 위젯>` — 켜고 끄는 그림이 띠 위에 있으면 획과 바탕을 나눈다(`gen/overlay_mark`), 상태 렌더 `state_<표시>_off`(E8 `mark_*`).
+  칸을 다시 승격하면 그 칸을 쓰는 화면을 다시 돌린다 — `promote_screen.py plan · status` 가 쓰는 화면을 보여 주고, 옛 칸으로 검증한 run 은 `CELL_CHANGED` 로 승격을 거절한다.
+
 - finalize: 통과 = `save_widget_run` → `Content/_AutoGen/<run_id>/`(git 무시) + `lineage.json`, 실패 = `discard_run_packages`. (1b 후속 L-2) 저장 직전 마지막 진단의 '컨셉이 안 그린 숨은 위젯'(`diagnosis.state.force_visible_extra`)에 spec `designer_hidden: true` 를 켜 한 번 더 적용한다 — UMG 디자이너는 Visibility 를 무시하고 'Hide in Designer'(`bHiddenInDesigner`)만 봐서, 런타임에 접힌 위젯(게이지 가득 참 빛)이 미리보기에 겹쳤다. 디자이너 미리보기 = 컨셉 상태(`compare.png`), 런타임 · 렌더 무관(WidgetMcp `ApplyWidget` · 역추출).
 
 ## 폴더
@@ -122,7 +131,7 @@ Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/promote_screen.py stat
 | `schemas/` | inputs(1b) · brief · spec · patch · manifest · report · fixes · codegen · build · lineage · edit · promotion(Phase 4) (Draft 2020-12, `urn:uigen:<kind>`) |
 | `config/` | `pipeline.yaml`(상한 · 경로 · 텍스처 기본값 · codegen 모듈 · 에디터 · 빌드 · 렌더 해상도 · fix 모드 · llm 단계) · `routing.yaml` · `screens.yaml`(화면 ID → 클래스 · WBP 이름 · 폴더, G2 — `probe: true` 검증 화면은 C++ 없이 부모 UserWidget · codegen 건너뜀 · bindings 게이트는 WBP 트리의 이름 · 타입) · `empty_mcp.json` |
 | `prompts/` · `claude_ctx/` | LLM 단계 시스템 프롬프트(`analyze.md` — 1b-4 · `verifier.md` · `fix.md` · `style_verifier.md` · `style_fix.md` — 1b 후속 C) · cwd(설정: Bash · 쓰기 거부, auto-memory 끔) |
-| `profiles/` | 화면 종류 프로필(게이트 기준) — `hud.yaml` · `cell.yaml`(칸 — 캔버스 크기 하나 · 자기 크기 검사) |
+| `profiles/` | 화면 종류 프로필(게이트 기준) — `hud.yaml` · `cell.yaml`(칸 — 캔버스 크기 하나 · 자기 크기 검사) · `menu.yaml`(조작 화면 — 입력 규칙) |
 | `fixtures/m4_combat_hud/` | 1a 손 brief · spec — M4 전투 HUD(설계 §5 요소, 값은 잠정). **옛 계약 — pytest 입력 전용, 실제로 돌리지 말 것('돌리기' 주의)** |
 | `fixtures/m4_combat_hud_concept/` | 1b 컨셉 입력 — `concept_prompt.md`(codex 프롬프트) · `concept.png` · `concept.json` |
 | `fixtures/m4_combat_hud_flat/` | 1b 후속 H 시험 입력 — 같은 전투 HUD 계약, 컨셉만 `make_concept.py --flat`(단색 검정 · UI 만 — normalize 가 ⓑ flat 판정 · codex 호출 없이 오림) |
@@ -131,6 +140,10 @@ Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/promote_screen.py stat
 | `fixtures/hub_ready_sheet/` · `button_large/` · `button_small/` | 허브 준비 화면 시안(승인 — 후보 C) · 거기서 오린 버튼 칸 둘(공용 부품) |
 | `core/button.py` · `gen/theme.py` · `gen/cells.py` (Phase 3-2) | 버튼 칸의 spec 규칙 · 상태 ↔ 덮어쓰기 · 역추출 대조 / 공용 테마의 식 / 놓인 칸의 합성 그림 |
 | `config/theme_blade.yaml` · `theme_preview.py` (Phase 3-2) | 공용 테마 '검은 날'(버튼 상태 식 · 글자) · 상태 일곱 미리보기(codex 0 · 에디터 0 — 사람이 승인) |
+| `make_screen.py` (Phase 3-3) | 한 명령 — 컨셉 후보 → 멈춤(사람이 고름, 종료 코드 4) → `--pick N \| current` → 참고판 → run → 요약 |
+| `core/cellref.py` · `core/hit.py` · `stages/request.py` (Phase 3-3) | 놓인 칸의 정체(승격 기록 · screens.yaml) · 쓰는 화면 / 가리는 위젯 없음 / 요청이 정하는 자리(칸 · 앵커 · 글자 칸 · 표시) |
+| `gen/cell_art.py` · `gen/overlay_mark.py` · `gen/screen_check.py` (Phase 3-3) | 원본 아트 속 칸 자리 / 바탕 위 표시 나누기 / 표시 끔 · 긴 글자 상태 검사 |
+| `fixtures/hub_member_row/` · `hub_ready/` | 허브 파티 줄 칸 · 허브 준비 화면 입력(시안 `hub_ready_sheet` 에서 오림) |
 | `gen/silhouette.py` | 메인 HUD — 모양 막대 재기 · 나누기(`measure`) · 어느 위젯이 모양 막대인가(`bars`) |
 | `gen/text_ref.py` | 1b 후속 L-2 — 참고판 편집 프롬프트(`text_items` · `text_ref_prompt`) · 정합 + 글자 획만 원본 아트에 붙이기 + 칸 밖 검사(`merge` · `check_files`) |
 | `work/` · `metrics/` | run 산출물 · `uigen.jsonl` — git 무시, Saved 밖(이미지를 Read · 전송할 수 있게). `work/_probe/<이름>/`(inputs.yaml + concept.png) = 보편화 검증 입력(G2 — 외부 화면이라 git 무시 자리에만) |
@@ -142,6 +155,7 @@ Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/promote_screen.py stat
 ## codegen 규칙 요약 (설계 §3-3)
 
 - 화면마다 `Source/AstralBreak/UI/<feature>/AutoGen/<ViewBase>.h/.cpp`(생성 — 첫 줄 `// AUTO-GENERATED by uigen` 이 있을 때만 덮어씀) + `UI/<feature>/<Widget>.h/.cpp`(스텁 — 없을 때만, 이후 사람 소유). 이름은 `screens.yaml`.
+- 놓인 칸(Phase 3-3): `cell` → `Get<X>()`(칸의 실제 C++ 클래스) · `action` → `Handle<X>Clicked` · `Set<X>Enabled` · `Set<X>Selected`(selectable). 이 종류나 `screens.yaml base` 를 쓰는 화면만 `codegen/screen_base.*.tmpl`.
 - setter: progress `SetX(float Percent)`(ProgressBar = 채움 비율, Image = 원형 닦기 머티리얼의 Percent) · text `SetX(const FText&)` · number `SetX(int32)`(`0`) / `SetX(float)`(`0.0` — 소수 자릿수) · flag `SetXVisible(bool)` · image `SetX(UTexture2D*)`. X = binding data id 의 PascalCase.
 - 계약(바인딩 목록 + 생성기 식별자)을 생성 헤더 3줄째에 JSON 으로, 해시를 2줄째에 둔다. 해시가 같으면 쓰기 · 빌드 · 재기동을 건너뛴다.
 - 바인딩은 추가만 — spec 에서 빠지면 `BindWidgetOptional`, 위젯 클래스가 바뀌면 거부. 빌드 성공 전 실패는 쓴 파일을 원복한다.

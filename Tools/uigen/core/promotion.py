@@ -222,11 +222,16 @@ class Store:
         run_dir = pathlib.Path(run_dir)
         lineage = json.loads((run_dir / "lineage.json").read_text(encoding="utf-8"))
         manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        brief = json.loads((run_dir / "brief.json").read_text(encoding="utf-8"))
+        cells: dict[str, dict] = {}                          # 이 화면이 놓은 칸 — 검증한 칸의 run 까지(Phase 3-3)
+        for c in brief.get("cells") or []:
+            cells.setdefault(c["cell"], {"cell": c["cell"], "class": c["class"], "run_id": c["run_id"], "widgets": []})["widgets"].append(c["widget"])
         rec = {"schema_version": 1, "screen_id": screen, "run_id": lineage["run_id"], "parent_run_id": parent_run_id, "dest": dest,
                "wbp": f"{dest}/{lineage['wbp'].rsplit('/', 1)[1]}",
                "textures": {a["asset_id"]: f"{dest}/{a['ue_path'].rsplit('/', 1)[1]}" for a in manifest["assets"] if a.get("ue_path")},
                "files": list_files(self.content_dir(dest)), "revision": revision, "run_revision": lineage.get("revision"),
                "contract_hash": lineage.get("contract_hash"), "source": source, "edits": edits,
+               **({"cells": [cells[k] for k in sorted(cells)]} if cells else {}),
                **({"replaced_edits": replaced_edits} if replaced_edits else {}), "verified": verified, "recorded_at": metrics.now_iso()}
         schema.require("promotion", rec)
         return rec

@@ -21,6 +21,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from core import config  # noqa: E402
+from core import cellref  # noqa: E402
 from core import cppgen  # noqa: E402
 from core import metrics  # noqa: E402
 from core import promotion as promo  # noqa: E402
@@ -125,9 +126,21 @@ def read_run(store: promo.Store, cfg: dict, opts, screen: str, run_id: str) -> d
     now = generated_contract(cfg, opts, screen)
     if now is not None and lin.get("contract_hash") != now:
         raise promo.PromotionError("CONTRACT_CHANGED", f"{run_id} was built for contract {lin.get('contract_hash')}, the generated C++ is {now}")
+    moved = cellref.changed(docs["brief.json"].get("cells"), store.promoted_root)
+    if moved:
+        raise promo.PromotionError("CELL_CHANGED", f"{run_id} was verified with cells that were promoted again since — {moved}; run the screen again", cells=moved)
     ed = json.loads((rd / "edit.json").read_text(encoding="utf-8")) if (rd / "edit.json").is_file() else None
     return {"dir": rd, "lineage": lin, "manifest": docs["manifest.json"], "spec": docs["spec.json"], "brief": docs["brief.json"], "attempt": int(lin["attempts"]),
             "edit": ed, "files": sorted(files), "run_path": lin["wbp"].rsplit("/", 1)[0]}
+
+
+def say_users(store: promo.Store, screen: str, run_id: str | None = None) -> list[dict]:
+    """이 칸을 쓰는 화면 — 칸이 바뀌면 다시 검증해야 하는 것들."""
+    users = cellref.users_of(screen, store.promoted_root)
+    for u in users:
+        say(f"used by: {u['screen_id']} ({u['run_id']}) as {', '.join(u['widgets'])} — verified with {u['cell_run_id']}"
+            + ("" if run_id is None or u["cell_run_id"] == run_id else f"; run {u['screen_id']} again after this cell becomes {run_id}"))
+    return users
 
 
 def check_apply(store: promo.Store, cfg: dict, opts, screen: str) -> tuple[dict, dict, list]:
@@ -235,7 +248,12 @@ def cmd_status(opts, cfg, store) -> int:
         say(f"  contract: {what}")
         if left:
             say(f"  UNFINISHED promotion: {[p.name for p in left]}")
-        bad_any = bad_any or bool(files or src or left) or now not in (None, rec["contract_hash"])
+        moved = cellref.changed(rec.get("cells"), store.promoted_root)
+        if rec.get("cells"):
+            say(f"  cells: {', '.join(c['cell'] for c in rec['cells'])} — " + ("as verified" if not moved else f"PROMOTED AGAIN {json.dumps(moved, ensure_ascii=False)} (run this screen again)"))
+        for u in cellref.users_of(screen, store.promoted_root):
+            say(f"  used by: {u['screen_id']} as {', '.join(u['widgets'])}")
+        bad_any = bad_any or bool(files or src or left or moved) or now not in (None, rec["contract_hash"])
     if not screens:
         say("no promotion records")
     return EXIT_FAIL if bad_any else EXIT_OK
@@ -290,6 +308,7 @@ def cmd_plan(opts, cfg, store) -> int:
         say(f"stale source: {n.get('file')}{':' + str(n['line']) if n.get('line') else ''} {n['widget']} {n['path']} {n['source_value']} -> {n['edited_value']}")
     if run["edit"]:
         say(f"look first: {(run['dir'] / 'edit.png').as_posix()} · {(run['dir'] / 'compare.png').as_posix()}")
+    say_users(store, opts.screen, opts.run)
     say(f"plan ok: {rec['run_id']} -> {opts.run} in {rec['dest']} (apply needs --yes and the editor closed)")
     return EXIT_OK
 
@@ -344,6 +363,7 @@ def cmd_apply(opts, cfg, store) -> int:
             say(f"the old files are NOT back ({type(back).__name__}: {back}) — close the editor and run: promote_screen.py recover {screen}")
         raise
     say(f"done: {screen} is now {opts.run} (was {rec['run_id']}) — revert: promote_screen.py revert {screen} --yes")
+    say_users(store, screen, opts.run)
     return EXIT_OK
 
 

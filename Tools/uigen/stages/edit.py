@@ -16,6 +16,7 @@ import pathlib
 import shutil
 
 from core import button
+from core import cellref
 from core import config
 from core import cppgen
 from core import geometry as geo
@@ -158,7 +159,7 @@ def source_notes(run, spec: dict, targets) -> list[dict]:
     from stages import analyze
     brief = run.read_json("brief.json")
     norm = run.read_json("normalize.json") if run.path("normalize.json").is_file() else {}
-    inputs = pathlib.Path(norm["inputs"]) if norm.get("inputs") else None
+    inputs = config.recorded_path(norm["inputs"]) if norm.get("inputs") else None
     layout = None
     if inputs is not None:
         ref = inputs.parent / "concept_text_ref.json"
@@ -216,6 +217,16 @@ def seed(run, opts) -> str:
         a["ue_path"] = None
     manifest["run_id"] = run.run_id
     run.write_json("manifest.json", manifest)
+    if brief.get("cells"):                              # 놓인 칸 — 이 run 이 검증하는 것은 지금 승격된 칸이다(크기가 달라졌으면 화면을 다시 만들어야 한다)
+        for c in brief["cells"]:
+            try:
+                now = cellref.by_screen(c["cell"], getattr(opts, "promoted_root", None))
+            except cellref.CellError as exc:
+                raise StageError(exc.code, str(exc).split(": ", 1)[-1], **exc.details) from exc
+            if now["size"] != c["size"] or now["class"] != c["class"]:
+                raise StageError("CELL_CHANGED", f"the cell '{c['cell']}' is {now['size']} now, the screen was made for {c['size']} — run the full pipeline", cell=c["cell"])
+            c["run_id"] = now["run_id"]
+        run.write_json("brief.json", brief)
     if not run.path("specs/000.json").is_file():        # 손 spec — 입력 원본이 곧 최종 spec
         run.write_json("specs/000.json", spec)
     patch = _load_patch(opts.edit)
@@ -251,10 +262,12 @@ def contract_guard(run, opts, toolchain=None) -> None:
     have = {k: cppgen.read_generated(p) for k, p in paths.items()}
     prev = have["view_base_h"]
     try:
-        bindings, _ = cppgen.merge(cppgen.binding_entries(spec), prev["contract"]["bindings"] if prev["owned"] and prev["contract"] else None)
+        bindings, _ = cppgen.merge(cppgen.binding_entries(spec, codegen._resolver(run, opts, cg)),      # noqa: SLF001
+                                   prev["contract"]["bindings"] if prev["owned"] and prev["contract"] else None)
+        base = cppgen.screen_base(screen, config.repo_path(cg["module_root"]))
     except cppgen.ContractError as exc:
         raise StageError("EDIT_CONTRACT_CHANGED", f"the contract does not fit the generated C++: {exc}") from exc
-    chash = cppgen.contract_hash(cppgen.contract_doc(screen_id, screen, cg, bindings))
+    chash = cppgen.contract_hash(cppgen.contract_doc(screen_id, screen, cg, bindings, base))
     if not (all(have[k]["owned"] and have[k]["hash"] == chash for k in codegen.AUTOGEN_KEYS) and all(have[k]["exists"] for k in codegen.STUB_KEYS)):
         raise StageError("EDIT_CONTRACT_CHANGED", f"contract {chash} is not the generated C++ ({prev['hash']}) — an edit run writes and builds no C++; run the full "
                          "pipeline from the inputs", contract=chash, generated=prev["hash"])

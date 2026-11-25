@@ -39,10 +39,32 @@
           "inside": { "$ref": "urn:uigen:spec#/$defs/widget_id", "description": "전투 HUD 동작(11-23) — 이 위젯 아래에 있어야 한다(같이 접힌다)" },
           "radial": { "$ref": "urn:uigen:brief#/$defs/radial" },
           "bar": { "$ref": "urn:uigen:brief#/$defs/bar" },
-          "outline": { "$ref": "urn:uigen:brief#/$defs/text_outline" }
+          "outline": { "$ref": "urn:uigen:brief#/$defs/text_outline" },
+          "over": { "$ref": "urn:uigen:spec#/$defs/widget_id", "description": "flag(Image) 만 — 이 위젯이 그린 바탕 위의 표시다: 껐을 때 바탕이 온전해야 한다(gen/overlay_mark, Phase 3-3)" },
+          "overflow": { "enum": ["ellipsis"], "description": "text 만 — 긴 값을 글자 칸(text_box)에서 줄인다. long_sample 이 필요하다" },
+          "long_sample": { "type": "string", "description": "긴 값 — 상태 렌더 state_long 으로 글자 칸 밖으로 안 나가고 이웃 글자와 안 겹치는지 본다" },
+          "text_box": { "$ref": "urn:uigen:brief#/$defs/box", "description": "글자 칸 [x, y, w, h](캔버스 px) — 폭은 그대로 지키고 세로는 상자 가운데" }
         }
       }
     },
+    "cells": {
+      "type": "array",
+      "description": "놓을 칸(승격된 화면) — analyze 뒤 코드가 넣는다. 크기 = 칸 캔버스. at 은 이 화면 캔버스에서 칸의 왼쪽 위(정수 px — 그림이 흐려지지 않게)",
+      "items": {
+        "type": "object", "required": ["id", "type", "widget", "cell", "at"], "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+          "type": { "enum": ["cell", "action"], "description": "action = 버튼 칸(누름 · 켜고 끔), cell = 그 밖의 칸(접근자)" },
+          "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+          "cell": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]{0,47}$", "description": "칸의 ScreenId(promoted/<ScreenId>)" },
+          "at": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+          "text": { "type": "string", "description": "버튼 글자(props.ButtonText)" },
+          "selectable": { "type": "boolean", "description": "action 만 — 선택 모양 setter 를 만든다" },
+          "desc": { "type": "string" }
+        }
+      }
+    },
+    "anchor_regions": { "type": "array", "items": { "$ref": "urn:uigen:brief#/$defs/anchor_region" } },
     "static_text": {
       "type": "array",
       "items": {

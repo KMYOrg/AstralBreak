@@ -138,7 +138,7 @@ namespace WidgetMcpToolTests
         "outline": { "size": 2, "color": "#1A0E05" }, "shadow": { "offset": [2, 3], "color": "#000000B0" }, "letter_spacing": 60,
         "gradient": { "top_color": "#FFE9A8", "bottom_color": "#C8902E" } }, "justification": "center" },
     { "id": "Label", "type": "TextBlock", "parent": "PanelBox", "slot": { "kind": "vertical_box", "size_rule": "fill", "fill": 2 },
-      "text": { "source": "dynamic", "data": "label", "sample": "4.2" }, "font": { "size": 28, "weight": "regular", "glow": { "size": 6, "color": "#FFB04880" } } },
+      "text": { "source": "dynamic", "data": "label", "sample": "4.2" }, "font": { "size": 28, "weight": "regular", "glow": { "size": 6, "color": "#FFB04880" } }, "overflow": "ellipsis" },
     { "id": "GaugeArea", "type": "Overlay", "parent": "Root",
       "slot": { "kind": "canvas", "anchors": [0.5, 1, 0.5, 1], "alignment": [0.5, 1], "position": [0, -20], "size": [300, 30] } },
     { "id": "Glow", "type": "Image", "parent": "GaugeArea", "slot": { "kind": "overlay", "h_align": "fill", "v_align": "fill" },
@@ -294,6 +294,9 @@ bool FWidgetMcpBuildRoundTripTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("shadow round-trips"), TitleFont->TryGetObjectField(TEXT("shadow"), Shadow) && (*Shadow)->GetArrayField(TEXT("offset"))[1]->AsNumber() == 3.0
 			&& (*Shadow)->GetStringField(TEXT("color")) == TEXT("#000000B0"));
 		TestEqual(TEXT("letter spacing round-trips"), TitleFont->GetNumberField(TEXT("letter_spacing")), 60.0);
+		TestFalse(TEXT("no overflow key at the engine default"), FindWidget(C.Result->GetObjectField(TEXT("spec")), TEXT("Title"))->HasField(TEXT("overflow")));
+		FString LabelOverflow;
+		TestTrue(TEXT("ellipsis round-trips"), FindWidget(C.Result->GetObjectField(TEXT("spec")), TEXT("Label"))->TryGetStringField(TEXT("overflow"), LabelOverflow) && LabelOverflow == TEXT("ellipsis"));
 		const TSharedPtr<FJsonObject>* Gradient = nullptr;
 		TestTrue(TEXT("gradient round-trips"), TitleFont->TryGetObjectField(TEXT("gradient"), Gradient) && (*Gradient)->GetStringField(TEXT("top_color")) == TEXT("#FFE9A8FF")
 			&& (*Gradient)->GetStringField(TEXT("bottom_color")) == TEXT("#C8902EFF"));
@@ -372,6 +375,12 @@ bool FWidgetMcpBuildRoundTripTest::RunTest(const FString& Parameters)
 		FindWidget(Bad, TEXT("Swatch"))->SetStringField(TEXT("type"), TEXT("ScrollBox"));
 		C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Wbp, Bad, Revision, Assets));
 		TestEqual(TEXT("unknown widget type refused"), C.Reason, FString(TEXT("TYPE_NOT_ALLOWED")));
+	}
+	{
+		const TSharedRef<FJsonObject> Bad = Json(SpecA);
+		FindWidget(Bad, TEXT("Label"))->SetStringField(TEXT("overflow"), TEXT("wrap"));
+		C = H.Call(TEXT("apply_widget_spec"), ApplyBody(H, Wbp, Bad, Revision, Assets));
+		TestFalse(TEXT("unknown text overflow refused"), C.bOk);
 	}
 	C = H.Call(TEXT("export_widget_spec"), FString::Printf(TEXT(R"({"asset_path":"%s"})"), *Wbp));
 	TestEqual(TEXT("refusals left the blueprint unchanged"), C.bOk ? C.Result->GetStringField(TEXT("revision")) : FString(), Revision);

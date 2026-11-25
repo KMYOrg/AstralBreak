@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "screen_id": "HubMemberRow",
+  "run_id": "R20261125_211554_HubMemberRow",
+  "parent_run_id": null,
+  "dest": "/Game/UI/Screens/HubMemberRow",
+  "wbp": "/Game/UI/Screens/HubMemberRow/WBP_HubMemberRow",
+  "textures": {
+    "leader_mark": "/Game/UI/Screens/HubMemberRow/T_leader_mark",
+    "static_plate1": "/Game/UI/Screens/HubMemberRow/T_static_plate1"
+  },
+  "files": {
+    "T_leader_mark.uasset": {
+      "sha256": "793f51f48c46e1871b9718b0861f64f53ff0c56ed6b4b585acf773667db5926e",
+      "size": 14936
+    },
+    "T_static_plate1.uasset": {
+      "sha256": "9c2e77e8b6f41d637bc0ce533233d00ec13bb0395dd7b7ca0843b3e95ac8a44f",
+      "size": 72531
+    },
+    "WBP_HubMemberRow.uasset": {
+      "sha256": "713bd901ad102f6d552387f1998864ea479db1364544243351017065ae07f968",
+      "size": 40711
+    }
+  },
+  "revision": "sha1:c4eb00ef7693d61ec33a954f1effa90280de6561",
+  "run_revision": "sha1:89118f89c94ad34fdfdcb1a69f90e9964f8d6677",
+  "contract_hash": "sha1:dcf5c81031c6684dba221ca1fc8b77da78bad31d",
+  "source": {
+    "assets/final/leader_mark.png": {
+      "kind": "binary",
+      "sha256": "b56bc39d758459d85a0f37f283315ab8fdad0e570be430472af08c2129c33f87",
+      "size": 3713
+    },
+    "assets/final/static_plate1.png": {
+      "kind": "binary",
+      "sha256": "4122d4955db7a02428c95ea89f90e10426e4ec050d4f63b4a47815f9f4719255",
+      "size": 53704
+    },
+    "brief.json": {
+      "kind": "json",
+      "sha256": "a96ebc6fa27d32c5d00ef3ed323ee7f3d8f69dbc47e6895b1a317238278c0625"
+    },
+    "codegen.json": {
+      "kind": "json",
+      "sha256": "1af3cb0adf9143751299cac0416f44642ae65ffd91520fe9d4a4572a2fbd6dcf"
+    },
+    "diagnosis.json": {
+      "kind": "json",
+      "sha256": "8ca62a6d0bdf6ee4c90ef473a12167b4f9b609bf0367cb58bc6e73af1a1359ae"
+    },
+    "gen.jsonl": {
+      "kind": "jsonl",
+      "sha256": "b48a9dcaa8cb9b8b42753f3a1c663d9815285f97551d953884314d3f864071b6"
+    },
+    "geometry.json": {
+      "kind": "json",
+      "sha256": "77629b284dcfc147bf241bd501bafaed52f4d86a631e16cedf532ae3d5a4a792"
+    },
+    "inputs.json": {
+      "kind": "json",
+      "sha256": "04150c24d6955f953f485674a0679e8f7b3efed0631b6869a51c42545227531b"
+    },
+    "layer.json": {
+      "kind": "json",
+      "sha256": "8879cbdc4b7b24667f8610fce6a52afaac9a2fa2d21ad4151178048e01fc846f"
+    },
+    "layer/mark_LeaderMark.png": {
+      "kind": "binary",
+      "sha256": "b56bc39d758459d85a0f37f283315ab8fdad0e570be430472af08c2129c33f87",
+      "size": 3713
+    },
+    "layer/markbase_LeaderMark.png": {
+      "kind": "binary",
+      "sha256": "ed83f10520e393a61cb295344ea18e6920b027d0a73999568ee0787dbb88dbf9",
+      "size": 7010
+    },
+    "layer/markmask_LeaderMark.png": {
+      "kind": "binary",
+      "sha256": "ee52520a02148c942c2a93548405da8ee6e8bd65b9241634a863afe9e97a40f1",
+      "size": 419
+    },
+    "layer/plate_1.png": {
+      "kind": "binary",
+      "sha256": "57ea9bea2ac0cca114b8b2ce68a5df6bf4bcd649acd40470ce445a33197011ea",
+      "size": 430
+    },
+    "lineage.json": {
+      "kind": "json",
+      "sha256": "94a350a191994092b9d42aec880fb9ac2eb818ac9ecae82e4533e0567533453e"
+    },
+    "manifest.json": {
+      "kind": "json",
+      "sha256": "9c1bf045f4282b88775bb807bf94209bfc1c0fe945be90290a2876b527557bca"
+    },
+    "normalize.json": {
+      "kind": "json",
+      "sha256": "2fd7ea0830fbd5a751582ac1c5f1064bfc31e454e9bbb683a843315beec672b9"
+    },
+    "reference.png": {
+      "kind": "binary",
+      "sha256": "a25abe23796443e1a203d8e4f50806c2ab4872bfb23af25ccea61ac9282bc65b",
+      "size": 38399
+    },
+    "reference_alpha.png": {
+      "kind": "binary",
+      "sha256": "8b336e2f5c7f07c2f95b1fb85f150f5c59e5ec6f9544a7c70588435d33504936",
+      "size": 13816
+    },
+    "reference_art_alpha.png": {
+      "kind": "binary",
+      "sha256": "f67a06c634f36b7a3c9a4239bf5425cfef9a1a6c1354c72b249293ac97a4040e",
+      "size": 12594
+    },
+    "reference_art_color.png": {
+      "kind": "binary",
+      "sha256": "642a03cdfe2d7b857a57743b1675a44d61dd529bc96467a62f6bcbce7c4cc97c",
+      "size": 45754
+    },
+    "reference_color.png": {
+      "kind": "binary",
+      "sha256": "35df5d327d4c87280db346d1e6be7c7f66e12783329193c969aa7a3c7066354b",
+      "size": 49976
+    },
+    "reference_notext_alpha.png": {
+      "kind": "binary",
+      "sha256": "f67a06c634f36b7a3c9a4239bf5425cfef9a1a6c1354c72b249293ac97a4040e",
+      "size": 12594
+    },
+    "reference_notext_color.png": {
+      "kind": "binary",
+      "sha256": "642a03cdfe2d7b857a57743b1675a44d61dd529bc96467a62f6bcbce7c4cc97c",
+      "size": 45754
+    },
+    "refine.json": {
+      "kind": "json",
+      "sha256": "1705cd01ad9fafb6e3a101c17742d539c9bb38ba15dc89a8d99db47fa4c7b755"
+    },
+    "spec.json": {
+      "kind": "json",
+      "sha256": "42d43c6b10b40a25c36fd0b210cefb0f468a58399e9e49a02c9ee254e6f4035b"
+    },
+    "specs/000.json": {
+      "kind": "json",
+      "sha256": "b4ebecdf8cba53a00aadf00abc73403a3d31198d080bcdce20b7d2bcf9001bc1"
+    }
+  },
+  "edits": [],
+  "verified": {
+    "roundtrip_equal": true,
+    "pictures": 7,
+    "same_pixels": 7,
+    "same_bytes": 7,
+    "unsupported": 0
+  },
+  "recorded_at": "2026-11-25T21:37:45+09:00"
+}

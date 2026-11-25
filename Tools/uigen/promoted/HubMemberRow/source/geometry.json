@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_211554_HubMemberRow",
+  "attempt": 2,
+  "canvas": [
+    610,
+    82
+  ],
+  "force_visible": true,
+  "geometry": {
+    "610x82": [
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate1",
+        "type": "Image",
+        "parent": "Root",
+        "x": 1,
+        "y": 3,
+        "w": 609,
+        "h": 79,
+        "visible": true
+      },
+      {
+        "id": "RowPanel",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 0,
+        "y": 0,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "RowBand",
+        "type": "Image",
+        "parent": "RowPanel",
+        "x": 0,
+        "y": 0,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "LeaderMark",
+        "type": "Image",
+        "parent": "RowPanel",
+        "x": 40,
+        "y": 11,
+        "w": 47,
+        "h": 57,
+        "visible": true
+      },
+      {
+        "id": "MemberNameText",
+        "type": "TextBlock",
+        "parent": "RowPanel",
+        "x": 112,
+        "y": 22.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "ReadyLabel",
+        "type": "TextBlock",
+        "parent": "RowPanel",
+        "x": 421,
+        "y": 25.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      }
+    ]
+  }
+}

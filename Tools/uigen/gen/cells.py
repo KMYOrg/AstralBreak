@@ -11,10 +11,10 @@ import pathlib
 
 import numpy as np
 
-from core import button, config
+from core import button, cellref
 from core import spec as spec_mod
 
-ROOT = config.UIGEN_DIR / "promoted"
+ROOT = cellref.PROMOTED
 PREFIX = "cell:"              # textures 사전의 열쇠 — 에셋 id 와 섞이지 않게
 
 
@@ -23,12 +23,8 @@ def key(class_path: str, brush: str = button.BASE) -> str:
 
 
 def index(root: pathlib.Path | None = None) -> dict[str, dict]:
-    """승격된 화면 — WBP 패키지 경로 → {screen_id, source}."""
-    out = {}
-    for p in sorted(pathlib.Path(root or ROOT).glob("*/promotion.json")):
-        rec = json.loads(p.read_text(encoding="utf-8"))
-        out[rec["wbp"].split(".", 1)[0]] = {"screen_id": rec["screen_id"], "source": p.parent / "source"}
-    return out
+    """승격된 화면 — WBP 패키지 경로 → {screen_id, run_id, source}."""
+    return cellref.index(root or ROOT)
 
 
 def placed(spec: dict) -> list[dict]:
@@ -45,6 +41,9 @@ def _picture(source: str, stamp: float) -> dict:
     manifest = json.loads((sd / "manifest.json").read_text(encoding="utf-8"))
     canvas = [int(v) for v in spec["canvas"]]
     boxes = geo["geometry"].get(f"{canvas[0]}x{canvas[1]}") or next(iter(geo["geometry"].values()))
+    # 놓인 칸은 처음 상태로 그려진다(render_widget 의 force_visible 은 칸 속까지 들어가지 않는다) — 시작 때 접힌 위젯은 뺀다
+    off = {w["id"] for w in spec["widgets"] if w.get("visibility") in ("collapsed", "hidden")}
+    boxes = [{**b, "visible": False} if b["id"] in off else b for b in boxes] if off else boxes
     textures = {a["asset_id"]: backdrop._load(sd / a["file"]) for a in manifest["assets"]}
     used = button.brush_assets(spec)
     states = {}

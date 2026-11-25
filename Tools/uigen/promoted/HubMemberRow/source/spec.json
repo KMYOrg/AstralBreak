@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "canvas": [
+    610,
+    82
+  ],
+  "profile": "cell",
+  "root": "Root",
+  "note": "No scene: the whole 610x82 cell is UI. The ink band with its bottom steel line is RowBand; the crescent, name and ready label are separate layers on top.",
+  "widgets": [
+    {
+      "id": "Root",
+      "type": "CanvasPanel"
+    },
+    {
+      "id": "StaticPlate1",
+      "type": "Image",
+      "parent": "Root",
+      "bbox_intent": [
+        1.0,
+        3.0,
+        609.0,
+        79.0
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alignment": [
+          0,
+          0
+        ],
+        "position": [
+          1.0,
+          3.0
+        ],
+        "size": [
+          609.0,
+          79.0
+        ],
+        "z": 0
+      },
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "static_plate1"
+        }
+      }
+    },
+    {
+      "id": "RowPanel",
+      "type": "Overlay",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "alignment": [
+          0,
+          0
+        ],
+        "position": [
+          0,
+          0
+        ],
+        "size": [
+          610,
+          82
+        ],
+        "z": 0
+      },
+      "bbox_intent": [
+        0,
+        0,
+        610,
+        82
+      ]
+    },
+    {
+      "id": "RowBand",
+      "type": "Image",
+      "parent": "RowPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        0,
+        0,
+        610,
+        82
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "none"
+        }
+      }
+    },
+    {
+      "id": "LeaderMark",
+      "type": "Image",
+      "parent": "RowPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          40.0,
+          11.0,
+          523.0,
+          14.0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        40,
+        11,
+        47,
+        57
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "leader_mark"
+        }
+      },
+      "binding": {
+        "data": "leader",
+        "kind": "flag"
+      }
+    },
+    {
+      "id": "MemberNameText",
+      "type": "TextBlock",
+      "parent": "RowPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          112.0,
+          1.25,
+          218.0,
+          2.75
+        ],
+        "h_align": "fill",
+        "v_align": "center"
+      },
+      "bbox_intent": [
+        112.0,
+        24.5,
+        280.0,
+        34.0
+      ],
+      "font": {
+        "size": 18,
+        "weight": "semibold",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "left",
+      "binding": {
+        "data": "member_name",
+        "kind": "text"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "member_name",
+        "sample": "Player 1"
+      },
+      "overflow": "ellipsis"
+    },
+    {
+      "id": "ReadyLabel",
+      "type": "TextBlock",
+      "parent": "RowPanel",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          421,
+          26.25,
+          104,
+          27.75
+        ],
+        "h_align": "fill",
+        "v_align": "center"
+      },
+      "bbox_intent": [
+        421.0,
+        27.5,
+        85.0,
+        28.0
+      ],
+      "font": {
+        "size": 15,
+        "weight": "medium",
+        "color": "#F3E9CCFF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "right",
+      "binding": {
+        "data": "ready",
+        "kind": "flag"
+      },
+      "text": {
+        "source": "static",
+        "value": "준비 완료"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "leader_mark",
+      "kind": "icon",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        47,
+        57
+      ],
+      "ref_bbox": [
+        40,
+        11,
+        47,
+        57
+      ],
+      "prompt": "A small thin open crescent arc in bone-white steel, open to the right. The dark band behind it is not part of it."
+    },
+    {
+      "asset_id": "static_plate1",
+      "kind": "ornament",
+      "provenance": "provided",
+      "source_mode": "plate",
+      "size": [
+        609,
+        79
+      ],
+      "source": "static plate 1 — concept pixels of the non-functional decorations (region RowPanel)"
+    }
+  ],
+  "allow_overlap": [
+    [
+      "RowPanel",
+      "StaticPlate1"
+    ]
+  ]
+}

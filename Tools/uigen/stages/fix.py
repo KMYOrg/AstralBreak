@@ -320,8 +320,16 @@ def guard_ops(ops: list[dict], spec: dict, brief: dict) -> list[str]:
     bars = {d["widget"] for d in brief.get("dynamic_data", []) if d.get("bar") is not None}
     from gen import silhouette
     bar_assets = set(silhouette.bars(spec).values())
+    cells = {c["widget"] for c in brief.get("cells") or []}
+    fixed = {d["widget"]: "the text box comes from the request" for d in brief.get("dynamic_data", []) if d.get("text_box")}
+    fixed.update({d["widget"]: "the mark's place and picture are measured from the concept" for d in brief.get("dynamic_data", []) if d.get("over")})
     for i, op in enumerate(ops):
         kind = op.get("op")
+        target = op.get("widget") if isinstance(op.get("widget"), str) else None          # add_widget 은 위젯 전체를 담는다
+        if target in cells and kind in ("set", "move", "remove_widget"):      # Phase 3-3 — 놓인 칸은 요청이 정한다
+            errs.append(f"op {i}: {kind} {target} — placed cells come from the request")
+        if target in fixed and (kind == "move" or (kind == "set" and str(op.get("path", "")).split(".")[0] in ("slot", "style", "overflow"))):
+            errs.append(f"op {i}: {kind} {target} — {fixed[target]}")
         if kind == "set":
             root = str(op.get("path", "")).split(".")[0]
             if root in GUARDED_SET_ROOTS:

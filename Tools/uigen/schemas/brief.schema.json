@@ -37,13 +37,18 @@
         "additionalProperties": false,
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
-          "type": { "enum": ["text", "number", "progress", "flag", "image"] },
+          "type": { "enum": ["text", "number", "progress", "flag", "image", "cell", "action"] },
           "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
-          "widget_type": { "$ref": "#/$defs/widget_type" },
+          "widget_type": { "anyOf": [{ "$ref": "#/$defs/widget_type" }, { "const": "UserWidget" }] },
           "format": { "type": "string" },
           "sample": {},
           "desc": { "type": "string" },
           "inside": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+          "over": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+          "overflow": { "enum": ["ellipsis"] },
+          "long_sample": { "type": "string" },
+          "text_box": { "$ref": "#/$defs/box" },
+          "selectable": { "type": "boolean" },
           "radial": { "$ref": "#/$defs/radial" },
           "bar": { "$ref": "#/$defs/bar" },
           "outline": { "$ref": "#/$defs/text_outline" },
@@ -60,6 +65,8 @@
         "properties": { "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "value": { "type": "string" }, "outline": { "$ref": "#/$defs/text_outline" }, "font": { "$ref": "#/$defs/text_font" } }
       }
     },
+    "cells": { "type": "array", "items": { "$ref": "#/$defs/cell" } },
+    "anchor_regions": { "type": "array", "items": { "$ref": "#/$defs/anchor_region" } },
     "style_keywords": { "type": "array", "items": { "type": "string" } },
     "references": {
       "type": "array",
@@ -89,6 +96,23 @@
     "note": { "type": "string" }
   },
   "$defs": {
+    "box": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+    "cell": {
+      "description": "놓인 칸(Phase 3-3) — 크기 · WBP · 버튼인가는 승격 기록에서(core/cellref), 자리(at)는 요청이 정하고 normalize 가 시안과 견준다",
+      "type": "object", "required": ["widget", "cell", "class", "at", "size", "button", "run_id"], "additionalProperties": false,
+      "properties": {
+        "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "cell": { "type": "string" }, "class": { "type": "string", "pattern": "^/Game/" },
+        "at": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+        "size": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 },
+        "button": { "type": "boolean" }, "run_id": { "type": ["string", "null"] },
+        "props": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "anchor_region": {
+      "description": "이 상자 안에 가운데가 든 루트 직계(영역 · 칸 · 정적 판)의 앵커 — 해상도가 바뀌어도 묶음이 같이 움직인다(Phase 3-3)",
+      "type": "object", "required": ["box", "anchor"], "additionalProperties": false,
+      "properties": { "box": { "$ref": "#/$defs/box" }, "anchor": { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 }, "minItems": 2, "maxItems": 2 } }
+    },
     "button": {
       "description": "버튼 칸(Phase 3-2) — art = 기본 그림 위젯 id(칸 전체), label = 글자 위젯 id(data 의 text 하나), theme = config/theme_<id>.yaml. 구조가 요청으로 다 정해져 analyze 가 LLM 없이 짓는다",
       "type": "object", "required": ["art", "label", "theme"], "additionalProperties": false,

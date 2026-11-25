@@ -1087,7 +1087,7 @@ namespace WidgetMcpSpec
 			return false;
 		}
 		const bool bText = Type == TEXT("TextBlock");
-		for (const TCHAR* Key : { TEXT("text"), TEXT("font"), TEXT("justification") })
+		for (const TCHAR* Key : { TEXT("text"), TEXT("font"), TEXT("justification"), TEXT("overflow") })
 		{
 			if (!bText && Widget.HasField(Key))
 			{
@@ -1128,6 +1128,12 @@ namespace WidgetMcpSpec
 			if (Widget.TryGetStringField(TEXT("justification"), JName) && !FromName(Justifies(), JName, J))
 			{
 				OutError = FString::Printf(TEXT("'%s'.justification '%s' is unknown"), *Id, *JName);
+				return false;
+			}
+			FString Overflow;
+			if (Widget.TryGetStringField(TEXT("overflow"), Overflow) && Overflow != TEXT("ellipsis"))
+			{
+				OutError = FString::Printf(TEXT("'%s'.overflow '%s' is unknown — only 'ellipsis' (leave it out for the engine default)"), *Id, *Overflow);
 				return false;
 			}
 		}
@@ -1434,6 +1440,11 @@ namespace WidgetMcpSpec
 			ETextJustify::Type Justify = ETextJustify::Left;
 			FromName(Justifies(), StrField(J, TEXT("justification"), TEXT("left")), Justify);
 			Text->SetJustification(Justify);
+			// 칸보다 긴 글자를 … 로 줄임(Phase 3-3) — 없으면 엔진 기본(그대로 넘침). 줄임은 상자가 아니라 잘라 내는 사각형에서 정해진다
+			// (ElementBatcher.cpp BuildFontGeometry — ScissorRect) → 넘칠 때만 자기 상자에서 자르게 한다. 가운데 정렬은 엔진이 줄이지 않는다(SlateTextLayout.cpp OnPaint)
+			const bool bEllipsis = StrField(J, TEXT("overflow")) == TEXT("ellipsis");
+			Text->SetTextOverflowPolicy(bEllipsis ? ETextOverflowPolicy::Ellipsis : ETextOverflowPolicy::Clip);
+			Text->SetClipping(bEllipsis ? EWidgetClipping::OnDemand : EWidgetClipping::Inherit);
 		}
 		return true;
 	}
@@ -1448,7 +1459,9 @@ namespace WidgetMcpSpec
 		if (!FMath::IsNearlyEqual(Widget->GetRenderOpacity(), 1.f)) { NoteUnsupported(Unsupported, Id, TEXT("RenderOpacity"), TEXT("not in the spec vocabulary")); }
 		if (!Widget->GetRenderTransform().IsIdentity()) { NoteUnsupported(Unsupported, Id, TEXT("RenderTransform"), TEXT("not in the spec vocabulary")); }
 		if (!Widget->GetIsEnabled()) { NoteUnsupported(Unsupported, Id, TEXT("bIsEnabled"), TEXT("disabled widgets are not in the spec vocabulary")); }
-		if (Widget->GetClipping() != EWidgetClipping::Inherit) { NoteUnsupported(Unsupported, Id, TEXT("Clipping"), TEXT("not in the spec vocabulary")); }
+		const UTextBlock* MaybeText = Cast<UTextBlock>(Widget);
+		const bool bEllipsisClip = MaybeText && MaybeText->GetTextOverflowPolicy() == ETextOverflowPolicy::Ellipsis && Widget->GetClipping() == EWidgetClipping::OnDemand;
+		if (Widget->GetClipping() != EWidgetClipping::Inherit && !bEllipsisClip) { NoteUnsupported(Unsupported, Id, TEXT("Clipping"), TEXT("not in the spec vocabulary")); }
 
 		TSharedRef<FJsonObject> Style = MakeShared<FJsonObject>();
 		auto BrushIfChanged = [&](const TCHAR* Key, const FSlateBrush& Brush, const FSlateBrush& Cdo)
@@ -1601,6 +1614,10 @@ PRAGMA_ENABLE_DEPRECATION_WARNINGS
 			Out->SetObjectField(TEXT("font"), F);
 			const FString Justify = ToName(Justifies(), static_cast<ETextJustify::Type>(ReadJustification(Text)));
 			Out->SetStringField(TEXT("justification"), Justify.IsEmpty() ? TEXT("left") : Justify);
+			const ETextOverflowPolicy Overflow = Text->GetTextOverflowPolicy();
+			if (Overflow == ETextOverflowPolicy::Ellipsis && Text->GetClipping() == EWidgetClipping::OnDemand) { Out->SetStringField(TEXT("overflow"), TEXT("ellipsis")); }
+			else if (Overflow == ETextOverflowPolicy::Ellipsis) { NoteUnsupported(Unsupported, Id, TEXT("TextOverflowPolicy"), TEXT("ellipsis without clipping on demand never shortens the text")); }
+			else if (Overflow != ETextOverflowPolicy::Clip) { NoteUnsupported(Unsupported, Id, TEXT("TextOverflowPolicy"), TEXT("only clip and ellipsis are in the spec vocabulary")); }
 			if (Text->GetAutoWrapText()) { NoteUnsupported(Unsupported, Id, TEXT("AutoWrapText"), TEXT("not in the spec vocabulary")); }
 		}
 		if (Style->Values.Num() > 0)

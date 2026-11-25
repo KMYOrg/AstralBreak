@@ -38,6 +38,14 @@
         "properties": { "kind": { "enum": ["json", "jsonl", "binary"] }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "size": { "type": "integer", "minimum": 0 } }
       }
     },
+    "cells": {
+      "type": "array",
+      "description": "이 화면이 놓은 칸(Phase 3-3) — 검증한 칸의 run 까지. 칸을 다시 승격하면 이 화면을 다시 검증해야 한다(promote_screen.py plan · status 가 본다)",
+      "items": {
+        "type": "object", "required": ["cell", "class", "run_id", "widgets"], "additionalProperties": false,
+        "properties": { "cell": { "type": "string" }, "class": { "type": "string" }, "run_id": { "type": ["string", "null"] }, "widgets": { "type": "array", "items": { "type": "string" } } }
+      }
+    },
     "edits": { "$ref": "urn:uigen:edit#/$defs/edits" },
     "replaced_edits": { "$ref": "urn:uigen:edit#/$defs/edits", "description": "--unrelated(전체 run 으로 갈아탐)로 사라진 수정" },
     "verified": { "type": "object", "description": "승격본 ↔ run — 역추출 같음 · 렌더 같은 장수" },

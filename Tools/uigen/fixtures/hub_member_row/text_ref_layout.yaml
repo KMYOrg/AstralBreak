@@ -1,0 +1,5 @@
+# 글자 참고판 배치 — 좌표는 칸 폭(base_width = inputs resolution 폭) 기준 px. pt · weight · color 는 이 칸 글꼴의 단일 원천이다.
+base_width: 610
+texts:
+  - { widget: MemberNameText, pos: [114, 39],  anchor: lm, pt: 18, weight: semibold, color: "#ECE5D6" }
+  - { widget: ReadyLabel,     pos: [502, 39],  anchor: rm, pt: 15, weight: medium,   color: "#F3E9CC" }

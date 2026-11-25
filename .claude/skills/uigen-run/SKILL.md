@@ -19,7 +19,7 @@ description: AstralBreak UI 자동 생성 파이프라인(Tools/uigen)을 돌리
 
 # 순서
 
-1. `fixtures/<화면>/inputs.yaml` — 화면 · 데이터 계약(바인딩) · 필수 요소. 지금 있는 화면: `combat_hud_blade`(CombatHUD) · `status_hud_blade`(StatusHUD). 승인한 전체 시안 = `hud_blade_sheet`.
+1. `fixtures/<화면>/inputs.yaml` — 화면 · 데이터 계약(바인딩) · 필수 요소. 지금 있는 화면: `combat_hud_blade`(CombatHUD) · `status_hud_blade`(StatusHUD) · `hub_ready`(HubReady — 조작 화면, 아래). 승인한 시안 = `hud_blade_sheet` · `hub_ready_sheet`.
 2. 컨셉 — 승인한 시안에서 오리기(`make_concept.py --cut-from … --keep x,y,w,h`, codex 0 회) 또는 새로(`make_concept.py --out-dir …`, codex 2 ~ 3 회). 후보는 **사람이** 고른다.
    글자 참고판은 엔진 글꼴로 그린다: `--only text_ref --draw …/text_ref_layout.yaml`(codex 0). 글꼴 값을 바꾸려면 그 yaml 을 고치고 다시 그린 뒤 run.
 3. run — `Tools/uigen/run_pipeline.py --inputs Tools/uigen/fixtures/<화면>/inputs.yaml`(백그라운드로 — 3 ~ 6 분). 에디터가 없으면 스스로 띄우고, **끝나도 내리지 않는다**.
@@ -32,8 +32,18 @@ description: AstralBreak UI 자동 생성 파이프라인(Tools/uigen)을 돌리
 - 버튼 상태 그림 여섯은 공용 테마 `config/theme_blade.yaml` 의 식이 만든다 — 값을 바꾸면 `theme_preview.py` 그림을 **사람이** 다시 승인하고 버튼 칸을 다시 돌린다. 버튼 칸 run 은 LLM 0 · codex 0(약 20초).
 - `compare.png` 맨 아래 상태 일곱(왼쪽 엔진 · 오른쪽 회색 바탕 합성)을 사람이 본다. `E8 button_*` 는 상태 렌더 ↔ 식의 그림이 다르거나 덮어쓰기가 안 먹은 것이다.
 - 첫 승격 = `promote_widget` → (새 에디터에서) `promote_screen.py record <ScreenId> --run <run_id>`.
+- 칸은 두 종류 — 공용 부품(버튼 모양, 손으로 쓴 `screens.yaml parent`, `/Game/UI/Common/`)과 화면 전용 칸(`hub_member_row` = HubMemberRow, 생성 베이스 + 스텁 · LLM analyze, `/Game/UI/Screens/`).
 
-- 종료 코드 0 통과 · 1 실패 · 2 미완(`--until`). 한 번에 run 하나(`work/.lock`).
+**조작 화면(Phase 3-3)** — `screen_type: menu`. 한 명령 = `make_screen.py <fixture> --pick current`(참고판 → run → 요약). 후보부터면 `make_screen.py <fixture> [--text "…"]` 이 후보를 그리고 **멈춘다**(종료 코드 4) → 사람이 고른 뒤 `--pick N`.
+- **칸을 먼저 승격한다.** 화면은 승격된 칸만 놓고(`CELL_NOT_PROMOTED`), 진단도 칸의 원천 묶음으로 그림을 만든다.
+- **칸은 요청이 정한다** — inputs `cells[] {id, type: cell | action, widget, cell: <ScreenId>, at: [x, y], text?, selectable?}`. 크기 · WBP · C++ 클래스를 적지 않는다(승격 기록 · `screens.yaml` 이 원천, `core/cellref`). `required_elements` 에도 넣지 않는다.
+  버튼 칸 = `action`(`Handle<X>Clicked` · `Set<X>Enabled` · `selectable` 이면 `Set<X>Selected`), 그 밖 = `cell`(`Get<X>()`). 켜지고 꺼지는 화면은 `screens.yaml base: AstralActivatableWidget`.
+- **정답은 칸의 승인한 그림** — normalize 가 시안의 칸 자리를 재고(3 px 넘게 어긋나면 `CELL_PLACE` — `at` 을 고친다) 그 자리를 칸 그림으로 바꾼다. AI 가 그린 반복은 서로 같은 픽셀이 아니다 [실측 hub_ready_sheet].
+- 켜고 끄는 그림이 **불투명한 띠 위**에 있으면 flag 에 `over: <바탕 위젯>`(안 적으면 껐을 때 네모 구멍). 긴 값이 오는 글자는 `overflow: ellipsis` + `text_box` + `long_sample` 셋을 같이, 왼쪽 · 오른쪽 정렬로만.
+- 해상도가 바뀌어도 같이 움직일 묶음은 `anchor_regions {box, anchor}`.
+- **칸을 다시 승격하면 그 칸을 쓰는 화면을 다시 돌린다** — `promote_screen.py plan · status` 가 쓰는 화면을 보여 주고, 옛 칸으로 검증한 run 은 `CELL_CHANGED` 로 승격이 거절된다.
+
+- 종료 코드 0 통과 · 1 실패 · 2 미완(`--until`)(`make_screen.py` 는 4 = 고르기를 기다림). 한 번에 run 하나(`work/.lock`).
 - `--until analyze` 는 에디터 없이 spec 까지, `--inject-fault …` 는 재시도 경로 시험, `--fix-mode deterministic` 은 LLM fix 없이.
 
 # 에디터 주기
@@ -47,15 +57,17 @@ description: AstralBreak UI 자동 생성 파이프라인(Tools/uigen)을 돌리
 | 볼 것 | 어디 |
 | :--- | :--- |
 | 결과 · 시도 · 시간 | `report.json` `status` · `attempts[]` · `durations_s`(한 줄씩은 `run.log`) |
-| 게이트 11 개 | `report.json gates[]` — 앞 10 개가 구조(재시도 · LLM fix 는 이것만 본다), 11 번째 `appearance` = 외형 진단 **오류 0** |
+| 게이트 11 개(menu · 버튼 아닌 칸은 12) | `report.json gates[]` — `appearance` 밖이 구조(재시도 · LLM fix 는 이것만 본다), `appearance` = 외형 진단 **오류 0**. 열둘째 `input_clear` = 버튼을 가리는 위젯 0(구조) |
 | 외형 결함 | `diagnosis.json` `defects[]`(오류 E1 ~ E9) · `approx[]`(근사 — 가장 가까운 선택을 골랐는데 남은 표현 차이, 기록만) |
-| **사람 눈 그림** | **`compare.png`** — 위: 컨셉 \| 엔진 렌더 \| 국소 차이, 아래: 글자 3 배 확대, 맨 아래: 상태 띠(게임 기본 상태 · 게이지 비율 · 글자 빈 값 …) |
+| **사람 눈 그림** | **`compare.png`** — 위: 컨셉 \| 엔진 렌더 \| 국소 차이, 아래: 글자 3 배 확대, 맨 아래: 상태 띠(게임 기본 상태 · 게이지 비율 · 글자 빈 값 · 표시 켬/끔 · 긴 글자 · 버튼 상태 …) |
 | 정답 없는 자리 | `report.recorded.manual_check` — '수동 확인 필요'(오류가 아니라 사람이 봐야 하는 자리) |
 | 실패 이유 | `stop`: `RETRY_LIMIT` · `NO_PROGRESS` · `NO_FIX` · `APPEARANCE`(구조는 통과, 외형 결함이 남음) + `message` |
 | 상태 렌더 | `attempts/NNN/gates.json notes.state_renders` — `batch` 가 0 이고 `error` 가 있으면 묶음이 실패해 한 장씩 그린 것(느려질 뿐 판정은 같다) |
 
 - **'오류 0' 이어도 `compare.png` 를 직접 본다.** 같은 역할의 글자끼리(동료 이름 1 · 2 · 3 처럼) 굵기 · 크기 · 색이 같은지 줄마다 견준다 — 오류 0 인 run 에서 한 줄만 다른 굵기였던 적이 있다
   [실측 `R20261124_123020`]. `render.png` 는 기계용(숨은 위젯도 켠 그림)이다.
+- E8 의 갈래 — `button_*` 버튼 상태 · `mark_*` 바탕 위 표시(`mark_trace` = 껐을 때 흔적이나 구멍, `mark_same` = 안 꺼짐) · `long_*` 긴 글자(`long_outside` = 칸을 넘음, `long_short` = 긴 값이 칸을 못 채워 아무것도 확인 못 함).
+- `sharpness` 줄의 `within_rounding` 은 컨셉과 8 비트 반올림 안에서 같은 그림이라 E2(뭉개짐)로 세지 않은 것이다.
 - '통과'를 '컨셉과 똑같다'로 말하지 않는다 — 오류 수 · 근사 수 · 사람 눈 확인 여부를 따로 적는다.
 - 비용은 API 정가 환산이다(구독 — 과금 아님). 여러 run 을 모아 보려면 `Tools/uigen/summarize.py` → `Docs/Design/ui-autogen-report.md`. 시험 run 과 게임 화면 run 을 섞어 통과율을 말하지 않는다.
 

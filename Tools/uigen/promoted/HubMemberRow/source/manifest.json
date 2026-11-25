@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_211554_HubMemberRow",
+  "assets": [
+    {
+      "asset_id": "leader_mark",
+      "kind": "icon",
+      "file": "assets/final/leader_mark.png",
+      "sha256": "b56bc39d758459d85a0f37f283315ab8fdad0e570be430472af08c2129c33f87",
+      "size": [
+        47,
+        57
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "n/a — the strokes of a mark, split from its background",
+      "provenance": "codex",
+      "backend": "concept_mark",
+      "procedural": {},
+      "prompt": "A small thin open crescent arc in bone-white steel, open to the right. The dark band behind it is not part of it.",
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_211554_HubMemberRow/T_leader_mark",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "static_plate1",
+      "kind": "ornament",
+      "file": "assets/final/static_plate1.png",
+      "sha256": "4122d4955db7a02428c95ea89f90e10426e4ec050d4f63b4a47815f9f4719255",
+      "size": [
+        609,
+        79
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "provided",
+      "backend": "concept_plate",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_211554_HubMemberRow/T_static_plate1",
+      "compression": "TC_EditorIcon"
+    }
+  ]
+}

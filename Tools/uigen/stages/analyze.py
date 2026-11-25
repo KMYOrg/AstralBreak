@@ -22,6 +22,7 @@ from core import llm
 from core import schema
 from core import spec as spec_mod
 from stages import StageError
+from stages import request
 from stages.normalize import check_brief_vs_spec
 
 MAX_CALLS = 2
@@ -47,6 +48,11 @@ def output_schema() -> dict:
     wp["type"]["enum"].remove(spec_mod.CELL_TYPE)
     wp.pop("class")
     wp.pop("props")
+    wp.pop("overflow")
+    bp = defs["binding"]["properties"]
+    bp["kind"]["enum"] = [k for k in bp["kind"]["enum"] if k not in ("cell", "action")]
+    bp["kind"].pop("description")
+    bp.pop("selectable")
     ap = defs["asset"]["properties"]
     ap["provenance"]["enum"].remove("derived")
     ap.pop("derived")
@@ -56,7 +62,10 @@ def output_schema() -> dict:
 def _contract_lines(brief: dict) -> list[str]:
     statics = {s["widget"]: s["value"] for s in brief.get("static_text", [])}
     lines = []
+    placed = {c["widget"] for c in request.cells(brief)}
     for d in brief["dynamic_data"]:
+        if d["widget"] in placed:                  # 놓인 칸은 파이프라인이 넣는다
+            continue
         extra = f", format {d['format']}" if d.get("format") else ""
         st = f", static text {statics[d['widget']]!r}" if d["widget"] in statics else ""
         desc = f" — {d['desc']}" if d.get("desc") else ""
@@ -70,6 +79,12 @@ def _contract_lines(brief: dict) -> list[str]:
             desc += (" — a shaped bar: the drawn bar itself is this ProgressBar (a direct child of an Overlay), bbox_intent = the whole drawn bar including its tip. The "
                      "pipeline cuts the bar's own pixels and makes fill and empty part from them — set no background / fill / percent on it, and do not put any "
                      "Image, Border or extract asset over the bar (a frame Image is only for the drawing beside the bar)")
+        if d.get("over"):
+            desc += (f" — a small mark drawn on top of {d['over']}: an Image with its OWN source_mode extract asset (kind icon, draw_as image, no nine_slice) in the same "
+                     f"Overlay, after {d['over']}; its box covers only the mark's strokes with 2-4 px around them and no other drawing. The pipeline splits the mark from the "
+                     "drawing under it")
+        if d.get("text_box"):
+            desc += (f" — its text box is fixed by the request {[int(v) for v in d['text_box']]}: put it directly in an Overlay (or a CanvasPanel), justification left or right; the pipeline sets its slot")
         lines.append(f"- {d['widget']}: {d.get('widget_type') or '?'} — data '{d['id']}' ({d['type']}{extra}), sample {json.dumps(d.get('sample'), ensure_ascii=False)}{st}{desc}")
     bound = {d["widget"] for d in brief["dynamic_data"]}
     for w, v in statics.items():
@@ -116,20 +131,25 @@ def build_prompt(run, brief: dict, cfg: dict, retry: dict | None = None) -> str:
     req = "\n".join(f"- {e['id']} ({e['kind']}){': ' + e['desc'] if e.get('desc') else ''}" for e in brief["required_elements"])
     w, h = brief["resolution"]
     gates = profile.get("gates") or {}
+    note = profile.get("analyze_note") or "the scene behind the HUD is not UI"
+    sizes = f"{w}×{h}" if profile.get("resolutions") == "canvas" else f"{w}×{h}, 2560×1080 and 1920×1200"
+    cells = request.cell_lines(brief)
     parts = [
         f"Analyze the UI concept for run {run.run_id} into a widget spec.",
         f"Files (absolute paths — Read them):\n- reference: {run.path('reference.png').resolve().as_posix()} ({w}×{h}, the concept fitted to the canvas)\n"
         f"- brief: {run.path('brief.json').resolve().as_posix()}",
-        f"Screen: {brief['screen_id']} — screen_type '{brief['screen_type']}' (background {profile.get('background', '?')}; the scene behind the HUD is not UI). "
+        f"Screen: {brief['screen_id']} — screen_type '{brief['screen_type']}' (background {profile.get('background', '?')}; {note}). "
         f"Canvas {w}×{h}. Description: {brief.get('text') or '-'}",
         background_line(run),
         "Contract (exact ids and widget types; the pipeline fills binding/text of these after you answer):\n" + "\n".join(_contract_lines(brief)),
         "Required elements:\n" + req,
+        *(["Placed cells (the reference shows them; the pipeline puts them there itself — make no widget, region, text or asset for these boxes, and no region that spans them):\n"
+           + "\n".join(cells)] if cells else []),
         f"Style keywords: {', '.join(brief.get('style_keywords') or []) or '-'}",
         font_lines(cfg, brief),
         f"Layout gates: region IoU ≥ {gates.get('iou_region_min')}, leaf IoU ≥ {gates.get('iou_leaf_min')}, "
         f"boxes thinner than {gates.get('small_px')} px by center distance ≤ {gates.get('small_center_max_px')} px, sibling overlap ≤ {gates.get('overlap_max_ratio')} "
-        f"outside allow_overlap, nothing off-screen at {w}×{h}, 2560×1080 and 1920×1200.",
+        f"outside allow_overlap, nothing off-screen at {sizes}.",
         "Return the complete spec through the structured output.",
     ]
     if retry:
@@ -146,7 +166,10 @@ def apply_contract(spec: dict, brief: dict, roles: dict[str, dict] | None = None
     out["canvas"] = list(brief["resolution"])
     out["profile"] = brief["screen_type"]
     index = spec_mod.widget_index(out)
+    rules = spec_mod.input_rules(out["profile"])
     for w in out.get("widgets", []):                # 닦기는 파이프라인만 쓴다 — LLM 이 적은 것은 걷는다
+        if rules and w.get("visibility") not in ("collapsed", "hidden"):      # 클릭을 받는 화면 — 보이기는 코드가 정한다(core/spec.default_visibility)
+            w.pop("visibility", None)
         st = w.get("style") or {}
         for k in spec_mod.BRUSH_KEYS:
             if isinstance(st.get(k), dict):
@@ -215,8 +238,6 @@ def check(spec: dict, brief: dict) -> list[str]:
             errs.append(f"BBOX_MISSING: '{wd['id']}' has no bbox_intent")
             continue
         x, y, bw, bh = bb
-        if wd.get("type") == spec_mod.CELL_TYPE:
-            errs.append(f"CELL: '{wd['id']}' — placed cells come from the request, not from the analysis")
         if bw <= 0 or bh <= 0 or x < -BBOX_TOLERANCE_PX or y < -BBOX_TOLERANCE_PX or x + bw > w + BBOX_TOLERANCE_PX or y + bh > h + BBOX_TOLERANCE_PX:
             errs.append(f"BBOX_OUTSIDE: '{wd['id']}' bbox_intent {bb} is empty or outside the {w}x{h} canvas")
         if wd.get("parent") == spec["root"] and wd.get("slot", {}).get("kind") == "canvas":
@@ -287,6 +308,7 @@ def check(spec: dict, brief: dict) -> list[str]:
             if (index.get(w.get("parent")) or {}).get("type") != "Overlay":
                 errs.append(f"RADIAL_PARENT: '{d['widget']}' must sit in an Overlay (layers on top of each other), its parent is {w.get('parent')!r}")
     errs += _bar_errors(spec, brief, index, assets)
+    errs += request.cell_errors(spec, brief) + request.text_box_errors(spec, brief) + request.mark_errors(spec, brief)
     for d in brief["dynamic_data"]:
         w = index.get(d["widget"])
         parent = index.get(w.get("parent")) if w else None
@@ -750,14 +772,19 @@ def requested_outlines(brief: dict) -> dict[str, dict]:
             **{s["widget"]: s["outline"] for s in brief.get("static_text", []) if s.get("outline")}}
 
 
-def _art_alpha(run):
-    """컨셉 알파(글자 없는 아트 — layer · refine 과 같은 것) 또는 None(장면 합성)."""
+def _art_layers(run):
+    """컨셉의 (곧은 색, 알파) — 글자 없는 아트(layer · refine 과 같은 것, 표시를 걷기 전). 장면 합성이면 (None, None)."""
     from stages import generate
     from stages.refine import _reference_layers
     bg = generate.background_kind(run)
     if bg not in ("transparent", "flat") or not run.path("reference_alpha.png").is_file():
-        return None
-    return _reference_layers(run, bg)[1]
+        return None, None
+    return _reference_layers(run, bg, marks=False)
+
+
+def _art_alpha(run):
+    """컨셉 알파 또는 None(장면 합성)."""
+    return _art_layers(run)[1]
 
 
 TEXT_GRADIENT_MIN_DE = 8.0   # 글자 위 · 아래 줄 대표색 ΔE00 이 이 이상이면 세로 그라데이션(잠정)
@@ -1148,7 +1175,7 @@ def run(run, opts) -> str:
         raw = res["structured_output"]
         rel = f"analyze/attempt_{k:03d}.json"
         run.write_json(rel, raw)
-        spec = apply_contract(raw, brief, roles)
+        spec = request.place_cells(apply_contract(raw, brief, roles), brief)
         errors = check(spec, brief)
         run.write_json(f"analyze/attempt_{k:03d}_errors.json", {"errors": errors})
         calls.append({"attempt": k, "errors": len(errors), **{x: res.get(x) for x in ("cost_usd", "num_turns", "duration_s", "model", "tokens", "session_id")}})
@@ -1161,6 +1188,8 @@ def run(run, opts) -> str:
     summary = _record(run, calls, errors, retry_reasons)
     if errors:
         raise StageError("ANALYZE_INVALID", f"analyze output failed {len(errors)} check(s) after {len(calls)} call(s): " + "; ".join(errors[:6]), errors=errors)
+    anchors = request.apply_anchor_regions(spec, brief)
+    marks = request.derive_marks(spec, brief, *_art_layers(run)) if request.marks(brief) else []
     bars = derive_bars(spec, brief, _art_alpha(run)) if any(d.get("bar") is not None for d in brief["dynamic_data"]) else []
     hidden_glows = derive_hidden_glows(spec, brief, run.path("reference.png"))
     derived = derive_gauge_fills(spec, run.path("reference.png"), run.cfg.get("gauge_fill"), skip={b["widget"] for b in bars})
@@ -1173,13 +1202,16 @@ def run(run, opts) -> str:
     radials = derive_radial_fills(spec, _art_alpha(run)) if any(((w.get("style") or {}).get("brush") or {}).get("wipe") for w in spec["widgets"]) else []
     fonts = apply_declared_fonts(spec, brief, run.cfg)
     outlines = apply_requested_outlines(spec, brief)
-    if derived or text_fills or text_glows or hidden_glows or text_effects or radials or outlines or bars or fonts:
+    boxes = request.apply_text_boxes(spec, brief, run.cfg)
+    if derived or text_fills or text_glows or hidden_glows or text_effects or radials or outlines or bars or fonts or anchors or marks or boxes or request.cells(brief):
         schema.require("spec", spec)
         run.write_json("analyze/derived.json", {"gauge_fills": derived, "text_fills": text_fills, "text_glows": text_glows, "hidden_glows": hidden_glows,
                                                 "text_effects_dropped": text_effects, **({"radials": radials} if radials else {}),
                                                 **({"bars": bars} if bars else {}),
                                                 **({"fonts": fonts} if fonts else {}),
-                                                **({"outlines": outlines} if outlines else {})})
+                                                **({"outlines": outlines} if outlines else {}),
+                                                **({"anchors": anchors} if anchors else {}), **({"marks": marks} if marks else {}),
+                                                **({"text_boxes": boxes} if boxes else {})})
     run.write_json("spec.json", spec)
     run.write_json("specs/000.json", spec)
     overlay = draw_overlay(run, spec)
@@ -1193,6 +1225,8 @@ def run(run, opts) -> str:
             f"{', gauge fill from the concept: ' + ','.join(gauges) if gauges else ''}"
             f"{', ring measured: ' + ','.join(r['widget'] + ' r ' + str(r['radius']) for r in radials) if radials else ''}"
             f"{', bars cut from the concept: ' + ','.join(b['widget'] for b in bars) if bars else ''}"
+            f"{f', {len(request.cells(brief))} cell(s) placed by the request' if request.cells(brief) else ''}"
+            f"{', mark split from its background: ' + ','.join(m['widget'] for m in marks) if marks else ''}"
             f"{f', fonts declared by the drawn text reference: {len(fonts)}' if fonts else ''}"
             f"{f', text fill from the concept: {grads} gradient · {solids} solid' if grads or solids else ''}"
             f"{', text glow from the concept: ' + ','.join(glows) if glows else ''}"

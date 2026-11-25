@@ -34,6 +34,8 @@ UI 자동 생성 파이프라인(설계 [ui-autogen-pipeline.md](../../Docs/Desi
 | `save_widget_run` · `discard_run_packages` | run 폴더 저장(finalize) · 저장 안 한 run 패키지 폐기 | run 폴더(접두 아래 하위 폴더)만 · 폐기는 디스크에 저장된 적 없는 것만 |
 | `import_font_family` | 폰트 파일(TTF/OTF) → `UFontFace` 여러 개 + 컴포지트 `UFont` `F_<family>`(Runtime 캐시, 타입페이스 = spec 굵기 이름 Regular · Bold · Light · Italic · Bold Italic) → 저장(기본) | `WidgetFontOutputPaths` 아래 하위 폴더만 · 원본은 `WidgetImportSourceRoots` 안 · 덮어쓰기 거부(하나라도 있으면 아무것도 안 만듦) · 전역 더티 비교(밖이 더티면 만든 것을 내림) · 엔진 `UFontFileImportFactory` 순서(대화창 없이) |
 
+**긴 글자(Phase 3-3):** TextBlock `overflow: ellipsis` = 줄임 정책 + `Clipping OnDemand`(엔진은 글자 상자가 아니라 잘라 내는 사각형에서 줄인다 — 클리핑 없이는 아무 일도 없다, 가운데 정렬은 줄이지 않는다). 역추출은 둘이 같이 있을 때만 `overflow` 로 되돌리고 하나만 있으면 `unsupported` 로 적는다.
+
 **칸(`UserWidget`, Phase 3-2):** `{type: UserWidget, class: <승격된 WBP 의 패키지 경로>, props: {ButtonText: "…"}}` — 승격 경로의 WBP 클래스만(`CELL_CLASS`), 허용된 속성만, 자식 없음. 칸 안의 위젯은 그 칸의 것이라 spec 에 없고 역추출도 하지 않는다.
 
 **spec 규칙**은 `Tools/uigen/core/spec.py` 와 같습니다 — 슬롯 kind 는 부모 타입이 정하고, 생략한 스칼라는 5.7.4 UMG 생성자 기본값, 생략한 브러시는 그 위젯 클래스 CDO. 파이프라인은 정규화한 spec 을 보내므로 표와 엔진 값이 어긋나도 왕복은 깨지지 않습니다.

@@ -1,0 +1,6 @@
+# 글자 참고판 배치 — 좌표는 1920 폭 기준 px. pt · weight · color 는 이 화면 글꼴의 단일 원천이다(칸 안 글자는 칸이 정한다).
+texts:
+  - { widget: TitleText,            pos: [104, 196],   anchor: lm, pt: 24, weight: semibold, color: "#ECE5D6" }
+  - { widget: DestinationTitleText, pos: [1302, 196],  anchor: lm, pt: 24, weight: semibold, color: "#ECE5D6" }
+  - { widget: ReasonText,           pos: [1302, 841],  anchor: lm, pt: 15, weight: medium,   color: "#ECE5D6" }
+  - { widget: CloseHintText,        pos: [1852, 1036], anchor: rm, pt: 14, weight: medium,   color: "#ECE5D6" }

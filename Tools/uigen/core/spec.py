@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import copy
+import functools
 import json
 
 CELL_TYPE = "UserWidget"          # Phase 3-2 — 승격된 칸(WBP) 하나를 놓는다: {class: /Game/… 패키지 경로, props: {속성: 글자}}
@@ -27,6 +28,29 @@ CHILD_SLOT_KIND = {"CanvasPanel": "canvas", "Overlay": "overlay", "VerticalBox":
                    "UniformGridPanel": "uniform_grid", "Border": "border", "SizeBox": "size_box", "Button": "button"}
 SINGLE_CHILD = frozenset({"Border", "SizeBox", "Button"})
 LEAF = frozenset({"Image", "TextBlock", "ProgressBar", "Spacer", CELL_TYPE})
+
+@functools.lru_cache(maxsize=16)
+def input_rules(profile: str | None) -> bool:
+    """이 화면 종류가 클릭을 받는가(profiles/<종류>.yaml input_rules) — 받으면 버튼이 아닌 위젯의 기본 보이기가 클릭을 먹지 않는 값이 된다(Phase 3-3)."""
+    from core import config
+    try:
+        return bool(config.load_profile(str(profile)).get("input_rules")) if profile else False
+    except config.ConfigError:
+        return False
+
+
+def default_visibility(w: dict, rules: bool = False) -> str:
+    """보이기를 안 적은 위젯의 값. 엔진 기본은 패널류만 self_hit_test_invisible, 잎(Image · TextBlock …)은 visible — 잎이 클릭을 먹는다.
+    rules(클릭을 받는 화면 종류) = '가리는 위젯 없음': 잎은 hit_test_invisible, 패널은 self_hit_test_invisible, 버튼(놓인 버튼 칸 · Button)만 클릭을 받는다."""
+    t = w["type"]
+    if not rules:
+        return "self_hit_test_invisible" if t in PANEL_TYPES else "visible"
+    if t == "Button":
+        return "visible"
+    if t == CELL_TYPE:                             # 버튼 칸은 안쪽 버튼이 받는다(칸 자신은 안 받음), 그 밖의 칸은 속까지 안 받는다
+        return "self_hit_test_invisible" if (w.get("binding") or {}).get("kind") == "action" else "hit_test_invisible"
+    return "self_hit_test_invisible" if t in CHILD_SLOT_KIND else "hit_test_invisible"
+
 
 STYLE_KEYS = {
     "Border": {"brush"},
@@ -40,7 +64,8 @@ STYLE_KEYS = {
 BRUSH_KEYS = frozenset({"brush", "background", "fill", "normal", "hovered", "pressed"})
 
 # 바인딩 kind → 받을 수 있는 위젯 타입 (None = 아무 위젯 — flag 는 보이기만 바꾼다)
-BINDING_WIDGET_TYPES = {"progress": {"ProgressBar", "Image"}, "text": {"TextBlock"}, "number": {"TextBlock"}, "image": {"Image"}, "flag": None}
+BINDING_WIDGET_TYPES = {"progress": {"ProgressBar", "Image"}, "text": {"TextBlock"}, "number": {"TextBlock"}, "image": {"Image"}, "flag": None,
+                        "cell": {CELL_TYPE}, "action": {CELL_TYPE}}      # cell · action = 놓인 칸(Phase 3-3)
 
 SLOT_DEFAULTS = {
     "canvas": {"anchors": [0, 0, 0, 0], "alignment": [0, 0], "position": [0, 0], "size": [100, 30], "z": 0, "auto_size": False},
@@ -208,7 +233,7 @@ def validate_semantics(spec: dict) -> list[str]:
             if key not in allowed_style:
                 errs.append(f"STYLE_KEY: '{wid}' ({wtype}) has no style '{key}'")
         if wtype != "TextBlock":
-            for key in ("text", "font", "justification"):
+            for key in ("text", "font", "justification", "overflow"):
                 if key in w:
                     errs.append(f"TEXT_FIELD: '{wid}' ({wtype}) cannot have '{key}'")
         if wtype == CELL_TYPE:
@@ -229,6 +254,8 @@ def validate_semantics(spec: dict) -> list[str]:
                 errs.append(f"BINDING_TYPE: '{wid}' ({wtype}) cannot take a '{binding.get('kind')}' binding")
             if binding.get("format") and binding.get("kind") != "number":
                 errs.append(f"BINDING_FORMAT: '{wid}' format is only for number bindings")
+            if "selectable" in binding and binding.get("kind") != "action":
+                errs.append(f"BINDING_SELECTABLE: '{wid}' selectable is only for action bindings")
         text = w.get("text") or {}
         if text.get("source", "static") == "static" and ("data" in text or "sample" in text):
             errs.append(f"TEXT_STATIC: '{wid}' static text has data/sample (use source: dynamic)")
@@ -362,7 +389,7 @@ def normalize_font_effects(font: dict) -> dict:
     return f
 
 
-def normalize_widget(w: dict, parent_type: str | None, asset_sizes: dict[str, list]) -> dict:
+def normalize_widget(w: dict, parent_type: str | None, asset_sizes: dict[str, list], rules: bool = False) -> dict:
     out = _canon(copy.deepcopy(w))
     wtype = out["type"]
     if parent_type is not None:
@@ -373,7 +400,7 @@ def normalize_widget(w: dict, parent_type: str | None, asset_sizes: dict[str, li
             for k, v in SLOT_DEFAULTS.get(slot["kind"], {}).items():
                 slot.setdefault(k, copy.deepcopy(v))
         out["slot"] = _canon(slot)
-    out.setdefault("visibility", "self_hit_test_invisible" if wtype in PANEL_TYPES else "visible")
+    out.setdefault("visibility", default_visibility(out, rules))
     if wtype == CELL_TYPE:                        # WidgetMcpSpec.cpp NormalizeWidget 과 같은 규칙
         out["class"] = str(out.get("class") or "").split(".", 1)[0]
         if not out.get("props"):
@@ -417,10 +444,11 @@ def normalize(spec: dict, asset_sizes: dict[str, list] | None = None) -> dict:
     sizes = _asset_sizes(spec) if asset_sizes is None else asset_sizes
     index = widget_index(spec)
     widgets = []
+    rules = input_rules(spec.get("profile")) and not isinstance(spec.get("button"), dict)      # 버튼 칸은 안쪽이 전부 버튼이다(예전 그대로)
     for wid in tree_order(spec):
         w = index[wid]
         parent_type = index[w["parent"]]["type"] if w.get("parent") in index else None
-        widgets.append(normalize_widget(w, parent_type, sizes))
+        widgets.append(normalize_widget(w, parent_type, sizes, rules))
     out = {k: _canon(copy.deepcopy(v)) for k, v in spec.items() if k != "widgets"}
     out["widgets"] = widgets
     out.setdefault("assets", [])
@@ -445,6 +473,7 @@ def roundtrip_view(spec: dict, ue_path_to_asset: dict[str, str] | None = None, a
     if isinstance(src.get("button"), dict):       # Phase 3-2 — 버튼 칸의 기본 그림은 트리에 없다(스타일 애셋이 그린다 — core/button.style_diff 가 견준다)
         src["widgets"] = [w for w in src["widgets"] if w["id"] != src["button"]["art"]]
         src.pop("button")
+        src.pop("profile", None)                  # 버튼 칸은 입력 규칙 밖 — normalize 가 button 을 보고 정하는 것과 같게
     if ue_path_to_asset:
         for w in src.get("widgets", []):
             for key, brush in (w.get("style") or {}).items():

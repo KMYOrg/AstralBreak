@@ -456,8 +456,49 @@ def _art_clear_text(run, col, alpha):
     return col, alpha
 
 
-def _reference_layers(run, bg: str):
-    """→ (곧은 색 float HxWx3, 알파 0 ~ 1 또는 None) — ⓐ ⓑ 는 normalize 의 reference_color · reference_alpha, ⓒ 는 reference.png 색 · 알파 없음."""
+def _mark_base(run, layers):
+    """바탕 위 표시(layer.json marks — Phase 3-3)를 걷은 아트 — 판 · 오리기는 표시 밑의 바탕을 그린다(표시 자신은 _mark_entry)."""
+    import numpy as np
+    from PIL import Image
+    if layers[1] is None or not run.path("layer.json").is_file():
+        return layers
+    marks = []
+    for m in run.read_json("layer.json").get("marks") or []:
+        with Image.open(run.path(m["base"])) as im:
+            px = np.asarray(im.convert("RGBA"), float)
+        marks.append({"window": m["window"], "base": (px[..., :3], px[..., 3] / 255.0)})
+    if not marks:
+        return layers
+    from gen import overlay_mark
+    return overlay_mark.paste_base(layers[0], layers[1], marks)
+
+
+def _mark_entry(run, asset: dict, m: dict) -> tuple[dict, dict]:
+    """바탕 위 표시의 그림 — layer 가 아트에서 나눈 것(gen/overlay_mark) 그대로 1:1."""
+    from PIL import Image
+    from gen import postprocess as pp
+    aid = asset["asset_id"]
+    with Image.open(run.path(m["picture"])) as im:
+        im = im.convert("RGBA")
+        size = list(im.size)
+        if size != [int(v) for v in asset["size"]]:
+            raise StageError("SIZE_MISMATCH", f"'{aid}' is {size}, spec says {asset['size']}", asset=aid)
+        final = run.path("assets", "final", f"{aid}.png")
+        final.parent.mkdir(parents=True, exist_ok=True)
+        im.save(final, format="PNG")
+        st = pp.alpha_stats(im)
+    return ({"alpha": st["has_alpha"], "nine_slice_margin": None, "ocr_text": "", "ocr": "n/a — the strokes of a mark, split from its background", "size": size},
+            {"asset_id": aid, "backend": "concept_mark", "source_mode": "extract", "mark": {k: m[k] for k in ("widget", "box", "over", "px") if k in m}, "alpha": st, "size": size})
+
+
+def _reference_layers(run, bg: str, marks: bool = True):
+    """→ (곧은 색 float HxWx3, 알파 0 ~ 1 또는 None) — ⓐ ⓑ 는 normalize 의 reference_color · reference_alpha, ⓒ 는 reference.png 색 · 알파 없음.
+    marks = 바탕 위 표시(layer.json marks)를 걷은 것 — 나누기 전(analyze · layer)은 False."""
+    layers = _raw_layers(run, bg)
+    return _mark_base(run, layers) if marks else layers
+
+
+def _raw_layers(run, bg: str):
     import numpy as np
     from PIL import Image
     art = art_files(run)
@@ -841,7 +882,9 @@ def _ownership(run, spec: dict, alpha):
                 if ids and all(not overhang_blockers(spec, i, w["bbox_intent"]) for i in ids):
                     ring_ok.add(w["id"])
         from stages import layer as layer_mod
-        cache[key] = cut_ownership(spec, alpha, ring_ok, {**layer_mod.own_masks(run), **layer_mod.bar_masks(run)})
+        mk = layer_mod.mark_widgets(run)                  # 바탕 위 표시는 자리를 겨루지 않는다(바탕은 표시를 걷은 그림)
+        contest = {**spec, "widgets": [w for w in spec["widgets"] if w["id"] not in mk]} if mk else spec
+        cache[key] = cut_ownership(contest, alpha, ring_ok, {**layer_mod.own_masks(run), **layer_mod.bar_masks(run)})
     return cache[key]
 
 
@@ -3681,10 +3724,15 @@ def run(run, opts) -> str:
     gate = str(((run.cfg.get("extract") or {}).get("text_erase") or "off")) != "off"
     cands: dict = {}
 
+    from stages import layer as layer_mod
+    mark_recs = layer_mod.marks_by_asset(run)
+
     def build(asset, raw, backend):
         aid = asset["asset_id"]
         if asset.get("provenance") == "derived":
             return _derived_entry(run, asset, spec)
+        if aid in mark_recs:                            # 바탕 위 표시(Phase 3-3)
+            return _mark_entry(run, asset, mark_recs[aid])
         if asset.get("source_mode") == "plate":         # 1b 후속 J-a — 정적 판
             return _plate_entry(run, asset, spec)
         if backend == "procedural":
@@ -3768,7 +3816,9 @@ def run(run, opts) -> str:
             entries.append(previous[aid])
             continue
         info, log, backend = built[aid]
-        if backend not in ("procedural", "concept_plate", "derived"):
+        if log.get("backend") == "concept_mark":
+            backend = "concept_mark"
+        if backend not in ("procedural", "concept_plate", "derived", "concept_mark"):
             if (log.get("margin") or {}).get("source") in ("estimated", "mixed"):
                 margin_updates[aid] = log["margin"]["used"]
             if log.get("overhang"):

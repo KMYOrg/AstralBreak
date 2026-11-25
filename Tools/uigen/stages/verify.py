@@ -11,6 +11,8 @@
   iou_leaf          말단 위젯 IoU ≥ iou_leaf_min · min(w, h) < small_px 면 중심점 거리 ≤ small_center_max_px
   baked_text        생성 에셋 OCR 검출 0 — procedural 은 건너뜀(통과 + 이유)
   roundtrip         export → core.spec.roundtrip_equal(정규화 비교) · GUID 맵 누락 0
+  input_clear       (Phase 3-3 — 클릭을 받는 화면 종류만: profiles input_rules) 버튼을 가리는 위젯 없음 — 버튼보다 뒤에 그려지며 겹치는, 클릭을 먹는 위젯이 0 이고
+                    버튼이 클릭을 받을 수 있다(core/hit). 구조 게이트다. 그 밖의 화면은 이 게이트가 없다.
   appearance        (1b 후속 J-b) 레퍼런스 ↔ 렌더 국소 차이 진단 결함 0 — gen/diagnose(국소 지도 · 회색 합성 · 3 배 절취선 · 글자 획 맞대기 ·
                     원인 단계). concept 모드만(손 spec 은 건너뜀). 구조 게이트(위 10 개)와 따로 본다 — 결과의 structural_pass 가 그것만의 통과.
   edit_regression   (Phase 4) 이어서 고치기 run(edit.json 이 있을 때)의 고친 시도에만 — 대상 밖은 하나도 안 바뀜(stages/edit · gen/edit_gate). 그때 appearance 는
@@ -36,6 +38,7 @@ from stages.build import package_of
 
 GATES = ("compile", "bindings", "texture_settings", "offscreen", "overlap", "required_elements", "iou_region", "iou_leaf", "baked_text", "roundtrip",
          "appearance")
+INPUT_CLEAR = "input_clear"
 RENDER_GATES = ("offscreen", "overlap", "iou_region", "iou_leaf")
 APPEARANCE = "appearance"
 EDIT_REGRESSION = "edit_regression"
@@ -130,8 +133,8 @@ def gate_textures(exported: list[dict], manifest: dict, tex_cfg: dict) -> dict:
 def gate_bindings_probe(comp: dict, contract: list[dict], exported_spec: dict) -> dict:
     """1b 후속 G2 — 검증 화면(probe): C++ 클래스가 없어 BindWidget 리플렉션 대신 WBP 트리에서 계약 위젯의 이름 · 타입을 본다."""
     have = {w["id"]: w.get("type") for w in exported_spec.get("widgets", [])}
-    diff = [f"{b['name']}: missing in the widget tree" if b["name"] not in have else
-            f"{b['name']}: {have[b['name']]} in the tree, contract wants {b['widget_class']}" for b in contract if have.get(b["name"]) != b["widget_class"]]
+    want = {b["name"]: spec_mod.CELL_TYPE if b.get("cell") else b["widget_class"] for b in contract}       # 놓인 칸은 트리에서 UserWidget
+    diff = [f"{n}: missing in the widget tree" if n not in have else f"{n}: {have[n]} in the tree, contract wants {c}" for n, c in want.items() if have.get(n) != c]
     return gate("bindings", not diff, value=len(diff), threshold=0,
                 details={"probe": "no C++ class (probe screen) — names and types checked in the widget tree", "contract_diff": diff,
                          "contract": len(contract), "missing_bindings": comp.get("missing_bindings", [])})
@@ -193,6 +196,15 @@ def render_gates(spec: dict, renders: list[dict], canvas, gates_cfg: dict, stack
     return out, {"inner": pl["inner"]}
 
 
+def gate_input_clear(spec: dict, export: dict | None, geometry: list[dict]) -> dict:
+    """가리는 위젯 없음 — 역추출(에디터에 실제로 있는 보이기 값)과 렌더 상자로 본다."""
+    from core import hit
+    if export is None:
+        return gate(INPUT_CLEAR, False, details={"error": "no export of the widget tree to check"})
+    res = hit.check(spec, export.get("spec") or {}, geometry)
+    return gate(INPUT_CLEAR, not res["blocked"] and not res["dead"], value=len(res["blocked"]) + len(res["dead"]), threshold=0, details=res)
+
+
 def render_resolutions(cfg: dict, profile: dict, canvas) -> list[list[int]]:
     """게이트 렌더의 해상도 — 프로필이 `resolutions: canvas` 면(칸) 캔버스 크기 하나, 아니면 pipeline.yaml 것 + 캔버스."""
     canvas = [int(v) for v in canvas]
@@ -231,6 +243,7 @@ def sample_overrides(brief: dict) -> dict:
             o["text"] = f"{float(s):.{digits}f}" if digits else str(int(round(float(s))))
         elif d["type"] == "text":
             o["text"] = str(s)
+        # cell · action(놓인 칸)은 sample 이 없다
     return {k: v for k, v in out.items() if v}
 
 
@@ -293,6 +306,7 @@ def run(run, opts, toolchain=None) -> dict:
     contract = cg_rec["contract"]["bindings"]
     probe = cg_rec.get("reason") == "probe"     # 1b 후속 G2 — 검증 화면: C++ 클래스가 없어 bindings 는 WBP 트리에서 이름 · 타입으로
     hand_written = cg_rec.get("reason") == "hand_written"
+    clickable = spec_mod.input_rules(spec["profile"]) and not button.of(spec)      # 버튼 칸은 속이 전부 버튼이라 볼 것이 없다
     adir = attempt_dir(run, attempt)
     adir.mkdir(parents=True, exist_ok=True)
     tc = toolchain or ue_toolchain(run)
@@ -343,6 +357,9 @@ def run(run, opts, toolchain=None) -> dict:
                 g = gates["iou_region"]
                 g["pass"] = False
                 g["details"]["desired_size"] = ds
+        if clickable:
+            base_r = next((r for r in renders if list(r["resolution"]) == canvas), renders[0])
+            gates[INPUT_CLEAR] = gate_input_clear(spec, export, base_r["geometry"])
         geometry = {f"{r['resolution'][0]}x{r['resolution'][1]}": r["geometry"] for r in renders}
         doc = {"schema_version": 1, "run_id": run.run_id, "attempt": attempt, "canvas": canvas, "force_visible": True, "geometry": geometry}
         run.write_json(f"attempts/{attempt:03d}/geometry.json", doc)
@@ -352,7 +369,7 @@ def run(run, opts, toolchain=None) -> dict:
         artifacts.update(render="render.png", geometry="geometry.json", render_dir=f"attempts/{attempt:03d}/render")
     except (ToolchainError, OSError, KeyError) as exc:
         err = exc if isinstance(exc, ToolchainError) else ToolchainError(type(exc).__name__, str(exc))
-        bridge_failed(RENDER_GATES, err)
+        bridge_failed((*RENDER_GATES, *((INPUT_CLEAR,) if clickable else ())), err)
     gates["baked_text"] = gate_baked_text(manifest)
     try:   # 사람 눈용 — sample 값을 넣고 보이기 규칙 그대로(force_visible 아님). 실패해도 게이트와 무관
         srend = tc.call("render_widget", {"asset_path": wbp, "output_dir": (adir / "sample").resolve().as_posix(), "resolutions": [canvas],
@@ -374,7 +391,9 @@ def run(run, opts, toolchain=None) -> dict:
         from stages import edit
         edit.after_verify(run, attempt, tc, wbp, gates, {"export": export, "requests": render_state.requests, "diagnosis": diag}, artifacts)
 
-    ordered = [gates[n] for n in (*GATES, EDIT_REGRESSION) if n in gates]
+    order = list(GATES)
+    order.insert(order.index(APPEARANCE), INPUT_CLEAR)
+    ordered = [gates[n] for n in (*order, EDIT_REGRESSION) if n in gates]
     failed = [g["name"] for g in ordered if not g["pass"]]
     result = {"schema_version": 1, "run_id": run.run_id, "attempt": attempt, "pass": not failed, "failed": failed, "gates": ordered,
               "structural_pass": not [n for n in failed if n != APPEARANCE],

@@ -920,7 +920,7 @@ def percent_name(wid: str, p: float) -> str:
     return f"state_{wid}_{int(round(float(p) * 100)):03d}"
 
 
-def state_requests(spec: dict, spec_state: dict, states: list[dict], boxes: list[dict], textures: dict, checks: bool = True) -> dict[str, dict]:
+def state_requests(spec: dict, spec_state: dict, states: list[dict], boxes: list[dict], textures: dict, checks: bool = True, extra: dict | None = None) -> dict[str, dict]:
     """진단이 쓸 상태 렌더 전부 — {이름: overrides}. 진단은 이 목록만 보고 렌더를 쓰고(단일 원천), verify 는 이 목록을 한 묶음으로 미리 그린다(Phase 2 — 호출마다
     글꼴 준비 2 초를 기다리던 것을 한 번으로). 상태 하나의 렌더는 다른 렌더 결과에 기대지 않는다. checks False = 컨셉 상태만(state_checks off)."""
     ov_state = {h["widget"]: {"visible": bool(h["drawn_in_concept"])} for h in states}
@@ -941,6 +941,9 @@ def state_requests(spec: dict, spec_state: dict, states: list[dict], boxes: list
     for t in button_targets(spec_state, boxes, textures):                          # 버튼 상태(Phase 3-2) — 기본은 컨셉 상태 렌더("state")와 같다
         for b in button.DERIVED:
             out[button_name(t["id"], b)] = {**ov_state, t["key"]: {**ov_state.get(t["key"], {}), **button.OVERRIDES[b]}}
+    if extra:                                                                       # 바탕 위 표시 · 긴 글자(Phase 3-3)
+        from gen import screen_check
+        out.update(screen_check.requests(extra, ov_state))
     off_ids: set[str] = set()
     for r in roots:
         off_ids |= dg._subtree(spec, r)

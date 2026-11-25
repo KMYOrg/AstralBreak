@@ -1,0 +1,72 @@
+{
+  "passes": [
+    {
+      "attempt": 1,
+      "assets": [
+        {
+          "asset_id": "leader_mark",
+          "backend": "concept_mark",
+          "source_mode": "extract",
+          "mark": {
+            "widget": "LeaderMark",
+            "box": [
+              40,
+              11,
+              47,
+              57
+            ],
+            "over": "RowBand",
+            "px": 1028
+          },
+          "alpha": {
+            "transparent_ratio": 0.6969,
+            "has_alpha": true
+          },
+          "size": [
+            47,
+            57
+          ]
+        },
+        {
+          "asset_id": "static_plate1",
+          "backend": "concept_plate",
+          "source_mode": "plate",
+          "plate": {
+            "box": [
+              1,
+              3,
+              609,
+              79
+            ],
+            "region": "RowPanel"
+          },
+          "art": "text-free art (generated concept) — no text fill",
+          "windows": [],
+          "texts": [],
+          "gauge_holes": [],
+          "alpha": {
+            "transparent_ratio": 0.0281,
+            "has_alpha": true
+          },
+          "size": [
+            609,
+            79
+          ],
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "notext_available": true
+        }
+      ],
+      "margin_updates": [],
+      "brush_updates": [],
+      "overhang_updates": [],
+      "overhang_dropped": []
+    }
+  ]
+}

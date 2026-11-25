@@ -66,6 +66,7 @@
         "text": { "$ref": "#/$defs/text" },
         "font": { "$ref": "#/$defs/font" },
         "justification": { "enum": ["left", "center", "right"] },
+        "overflow": { "enum": ["ellipsis"], "description": "TextBlock 만 — 칸보다 긴 글자를 … 로 줄임(없으면 엔진 기본 = 그대로 넘침). 요청(data[].overflow)이 정한다" },
         "binding": { "$ref": "#/$defs/binding" },
         "note": { "type": "string" }
       }
@@ -234,8 +235,9 @@
       "additionalProperties": false,
       "properties": {
         "data": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
-        "kind": { "enum": ["text", "number", "progress", "flag", "image"] },
+        "kind": { "enum": ["text", "number", "progress", "flag", "image", "cell", "action"], "description": "cell = 놓인 칸(접근자) · action = 놓인 버튼 칸(누름 · 켜고 끔 · 선택 모양) — 요청이 정한다(Phase 3-3)" },
         "format": { "type": "string", "pattern": "^0(\\.0+)?$", "description": "number 만 — '0' = int32, '0.0' = float(소수 자릿수)" },
+        "selectable": { "type": "boolean", "description": "action 만 — 선택 모양 setter 를 만든다" },
         "optional": { "type": "boolean" }
       }
     },

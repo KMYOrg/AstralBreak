@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_211554_HubMemberRow",
+  "parent_run_id": null,
+  "status": "pass",
+  "created": "2026-11-25T21:17:41+09:00",
+  "screen_id": "HubMemberRow",
+  "wbp": "/Game/_AutoGen/R20261125_211554_HubMemberRow/WBP_HubMemberRow",
+  "parent_class": "/Script/AstralBreak.AstralHubMemberRowWidget",
+  "revision": "sha1:89118f89c94ad34fdfdcb1a69f90e9964f8d6677",
+  "contract_hash": "sha1:dcf5c81031c6684dba221ca1fc8b77da78bad31d",
+  "spec": {
+    "file": "specs/002.json",
+    "sha256": "daa3ce3bd905d5c90480c19233f7d7fb6b17b28e5e15dd2a87bda73ae51444fe"
+  },
+  "attempts": 2,
+  "fault": null,
+  "patches": [],
+  "textures": {
+    "leader_mark": "/Game/_AutoGen/R20261125_211554_HubMemberRow/T_leader_mark",
+    "static_plate1": "/Game/_AutoGen/R20261125_211554_HubMemberRow/T_static_plate1"
+  },
+  "saved": [
+    "/Game/_AutoGen/R20261125_211554_HubMemberRow/T_leader_mark",
+    "/Game/_AutoGen/R20261125_211554_HubMemberRow/T_static_plate1",
+    "/Game/_AutoGen/R20261125_211554_HubMemberRow/WBP_HubMemberRow"
+  ]
+}

@@ -549,7 +549,7 @@ claude -p "<단계 지시>"
 | ~~→ 근사 다듬기~~ | **삭제(11-24 조정)** | — | — |
 | **2** | **완료(11-24 — 'Phase 2 결과')** · 정리 · 집계(작게) — run 기록 집계 리포트 · LLM 외형 검토 라운드 끄기 · verify 시간 줄이기 · 스킬 문서 둘(§10-2) | 집계 리포트 1개 · 라운드를 끈 run 이 오류 0 · verify 시간 앞뒤 수치 · 스킬 둘(잠정) | pytest · 정답 묶음 · `regress_set` · 실제 run |
 | **4**(2 다음 — 3 보다 먼저) | **완료(11-25 — 'Phase 4 결과')** · 이어서 고치기 — 지난 run 의 최종 spec 에서 이어 시작(analyze 생략) · 안 바꾼 위젯은 그대로(수정 회귀 게이트) · 재승격 · 되돌리기 · 사람이 고친 WBP 안 덮기. 선택(뒤): 지시 해석 · 주석 스크린샷 → 위젯 매핑 | 승격한 화면 하나를 이어서 고쳐 수정 회귀 게이트 통과 · 재승격 · 되돌리기 1회(잠정) | 실제 run |
-| **3**(4 다음) | **설계 승인(11-25 — 'Phase 3 설계') · 3-1 화면 체계(완료 11-25 — 'Phase 3-1 결과') → 3-2 칸과 버튼(완료 11-25 — 'Phase 3-2 결과', 버튼 칸 둘 승격) → 3-3 화면 → 3-4 게임 연결** · 조작 화면 — 버튼 이벤트 계약 · 버튼 상태 그림(올림 · 누름 · 선택 · 비활성) · 반복 칸(하위 WBP) · 메뉴 프로필 · 긴 글자 처리 · 승격 경로 추가. 첫 대상 = 허브 준비 화면(추천 — 착수 때 확인) + 글 → 컨셉 → run 을 한 명령으로 | 첫 화면 무인 1회 통과 · 게임에서 조작 동작(잠정) | 실제 run · 사람 눈 · 조작감 |
+| **3**(4 다음) | **설계 승인(11-25 — 'Phase 3 설계') · 3-1 화면 체계(완료 11-25 — 'Phase 3-1 결과') → 3-2 칸과 버튼(완료 11-25 — 'Phase 3-2 결과', 버튼 칸 둘 승격) → 3-3 화면(완료 11-25 — 'Phase 3-3 결과', 파티 줄 칸 승격 · `HubReady` 눈 확인 통과) → 3-4 게임 연결** · 조작 화면 — 버튼 이벤트 계약 · 버튼 상태 그림(올림 · 누름 · 선택 · 비활성) · 반복 칸(하위 WBP) · 메뉴 프로필 · 긴 글자 처리 · 승격 경로 추가. 첫 대상 = 허브 준비 화면(추천 — 착수 때 확인) + 글 → 컨셉 → run 을 한 명령으로 | 첫 화면 무인 1회 통과 · 게임에서 조작 동작(잠정) | 실제 run · 사람 눈 · 조작감 |
 | ~~5~~ | ComfyUI 연결 — **삭제(11-24 조정)** | — | — |
 | ~~6~~ | 지표 기반 라우팅 — **삭제(11-24 조정)** | — | — |
 
@@ -2353,7 +2353,7 @@ run_pipeline.py --from <ScreenId | run_id> --edit <patch.json>
 | :--- | :--- | ---: | :--- |
 | **3-1 화면 체계(게임)** | **CommonUI 켜고 위 '안 돌려 본 것'부터** · `UAstralUISubsystem` · `UAstralRootLayout` · `UAstralActivatableWidget` · GameState 의 맵별 목록 · UI 액션 태그(뒤로) · 기존 HUD 둘 옮기기 · 시험용 화면(C++)으로 여닫기 PIE 시험 | 약 1,300 줄 | 기존 시험 새 실패 0(HUD 시험 포함) · 여닫기 시험 통과 · 기존 HUD 눈 확인. 파이프라인 · WidgetMcp 는 안 고침 |
 | **3-2 칸과 버튼(파이프라인)** | `UserWidget` 타입 · `cell` 프로필 · `UAstralButtonBase` · 버튼 스타일 애셋 · 공용 테마 · 상태 그림 · 버튼 상태 렌더 검사 · 승격 경로 · 컨셉 후보(codex ≤ 4) 승인 · 버튼 칸 둘 | 약 2,600 줄(가장 큼) | 버튼 칸 2 개 무인 통과 → 사람 승인 → 승격, 회귀 `+ new` 0. 모자라면 칸(파티 줄 칸으로 검증)과 버튼 사이에서 끊는다 |
-| **3-3 화면** | action 계약 · 가리는 위젯 · 긴 글자 · 메뉴 프로필 · 한 명령 · 상대 경로 · 파티 줄 칸 · `HubReady` run | 약 1,700 줄 | 칸 · 화면 무인 1회씩 통과, 사람이 `compare.png` 를 봄, 회귀 `+ new` 0 |
+| **3-3 화면**(완료 11-25 — 'Phase 3-3 결과') | action 계약 · 가리는 위젯 · 긴 글자 · 메뉴 프로필 · 한 명령 · 상대 경로 · 파티 줄 칸 · `HubReady` run | 약 1,700 줄 | 칸 · 화면 무인 1회씩 통과, 사람이 `compare.png` 를 봄, 회귀 `+ new` 0 |
 | **3-4 게임 연결** | 규칙 함수 · 통지 · 거절 · 목적지 목록 · 스텁 · 여는 액션 · PIE 시험 · 승격 · 끝 검증 · 결과 절 | 약 1,900 줄 | 게임에서 조작 동작, 눈 확인 · 조작감 → Phase 3 끝 조건 |
 
 - **나눈 근거:** 지난 커밋에서 센 줄 수 — Phase 4 구현(파이썬 1,837 + 시험 1,107)이 한 세션을 꽉 채웠고, StatusHUD 는 도중에 새 세션으로 넘어갔다. 처음의 세 단계는 3-1 이 3,000 줄을 넘고 3-3 이 2,400 줄로 컸다(줄 수는 추정).
@@ -2430,7 +2430,7 @@ run_pipeline.py --from <ScreenId | run_id> --edit <patch.json>
 
 3-2 인계 = 공유 노트 폴더 `local_86515f5f…/uigen-phase3-2-handoff.md`.
 
-**Phase 3-2 결과 — 칸과 버튼(파이프라인) (2026-11-25, 하위 세션 · 구현 · 검증 완료 · 버튼 칸 둘 승격(사용자 승인) · 미커밋)**
+**Phase 3-2 결과 — 칸과 버튼(파이프라인) (2026-11-25, 하위 세션 · 구현 · 검증 완료 · 버튼 칸 둘 승격(사용자 승인) · 커밋 `ebf7b83`)**
 
 기존 두 화면의 승격본 · 원천 묶음 · 생성 코드, 허브 맵 · BP · 입력 애셋은 안 고쳤다. 게임 쪽은 새 파일 둘(`UI/Foundation/AstralButtonBase.*`)과 화면 체계 시험뿐.
 
@@ -2520,6 +2520,95 @@ run_pipeline.py --from <ScreenId | run_id> --edit <patch.json>
 *정리* — (11-25 사용자 승인 — 휴지통) `work/` 의 `_measure_p3` · `_measure_p32` · `_candidates_p3` · `_theme` · `_concept/20261125_{115736, 115957, 120053, 150436, 150653}` · 시험 run `R20261125_{153023, 153053, 153207, 155731}_ButtonLarge` · `_promoted` · `_widgetmcp_tests` 의 11-25 것 · `_regress/compare_p4_1124_vs_p32_1125`, `Content/_AutoGen/R20261125_153207_ButtonLarge`, 스크래치 `uigen_p32`. 남긴 것: 승격한 run 둘의 `work` · `_AutoGen`, 기준선 `p32_1125`. 위 표의 측정 수치는 이 글에만 남는다.
 
 3-3 인계 = 공유 노트 폴더 `local_86515f5f…/uigen-phase3-3-handoff.md`.
+
+**Phase 3-3 결과 — 화면 (2026-11-25, 하위 세션 · 구현 · 검증 완료 · `HubMemberRow` 승격(사용자 승인) · `HubReady` 눈 확인 통과 · 미커밋)**
+
+기존 두 HUD 와 버튼 칸 둘의 승격본 · 원천 묶음 · 생성 코드, 허브 맵 · BP · 입력 애셋 · `Config` 는 안 고쳤다. codex 0회. 게임 쪽 새 파일은 `Source/AstralBreak/UI/Screens/` 8개뿐이고 전부 codegen 이 만든 것이다(생성 베이스 둘 · 빈 스텁 둘).
+
+*사용자가 정한 것 (11-25)*
+
+| 물음 | 답 |
+| :--- | :--- |
+| `HubMemberRow` 승격(`compare.png` 를 보고) | 승인 → `/Game/UI/Screens/HubMemberRow` |
+| `HubReady` `compare.png` 눈 확인 | **통과**(승격은 3-4) |
+
+*만든 것*
+
+| 자리 | 내용 |
+| :--- | :--- |
+| 동작 · 칸의 계약(`core/cppgen` · `codegen/screen_base.*.tmpl`) | 바인딩 종류 `cell`(접근자 `Get…()` 하나) · `action`(`Handle…Clicked` 가상 함수 · `OnClicked()` 묶음 · `Set…Enabled` · `selectable` 이면 `Set…Selected`). 생성 베이스의 부모 `screens.yaml base`(기본이 아닐 때만 계약에) |
+| 칸의 정체(`core/cellref`) | 화면은 칸을 ScreenId 로만 부른다 — WBP · 크기 · 버튼인가 · 승격한 run = `promoted/<칸>`, C++ 클래스 = `screens.yaml`(승격한 run 의 `codegen.json` 과 다르면 멈춤), include = 생성 화면은 규칙 · 손으로 쓴 클래스는 모듈 안의 헤더 하나(UHT 가 이름을 하나로 묶는다). 리플렉션 대조 포함 |
+| 요청이 정하는 자리(`stages/request`) | inputs `cells[] {id, type, widget, cell, at, text, selectable}` → analyze 뒤 코드가 루트 직계로 넣음(크기 = 칸 캔버스) · `anchor_regions`(묶음의 앵커 — 해상도가 바뀌어도 같이) · 글자 칸 `text_box` · 표시 `over`. LLM 이 보는 스키마 · 어휘는 그대로, 프롬프트에는 칸 자리를 '비워 둘 곳'으로 |
+| 원본 아트 속 칸(`gen/cell_art`) | normalize 가 시안의 칸 자리를 재고(±8 px, 3 px 넘으면 `CELL_PLACE`) 칸의 승인한 그림으로 바꾼다 — 아트 · 글자 참고판 둘 다 |
+| 바탕 위 표시(`gen/overlay_mark` · layer · refine) | 켜고 끄는 그림이 불투명한 띠 위에 있을 때 획 · 바탕으로 나눔 |
+| 가리는 위젯 없음(`core/spec.default_visibility` · `core/hit` · 게이트 `input_clear`) | 클릭을 받는 화면 종류(`menu` · `cell`)에서 안 적은 보이기의 기본값이 잎 `hit_test_invisible` · 패널 `self_hit_test_invisible` · 버튼 아닌 칸 `hit_test_invisible`. 구조 게이트 `input_clear` = 역추출한 트리에서 버튼 위에 클릭을 먹는 위젯 0 · 버튼이 클릭을 받을 수 있음 |
+| 긴 글자(`gen/screen_check` · WidgetMcp `overflow`) | `overflow: ellipsis` + `long_sample` + `text_box` → 상태 렌더 `state_long`, E8 `long_outside` · `long_touch` · `long_short` · `long_render` |
+| 표시 상태(`gen/screen_check`) | 상태 렌더 `state_<표시>_off`, E8 `mark_state` · `mark_trace` · `mark_same` · `mark_outside` · `mark_render`. `compare.png` 에 표시 켬 · 끔 줄, 긴 글자 줄 |
+| `profiles/menu.yaml` · `make_screen.py` · 상대 경로 · 쓰는 화면 | 메뉴 프로필(게이트 값은 hud 와 같음) · 한 명령(후보 → 멈춤(종료 코드 4) → `--pick N \| current`) · 기록 경로는 저장소 상대(`config.repo_rel`), 읽기는 옛 절대 경로도(`recorded_path`) · 승격 기록 `cells`(검증한 칸의 run 까지), `promote_screen.py plan · apply · status` 가 보여 주고 칸이 다시 승격됐으면 화면 승격을 `CELL_CHANGED` 로 거절 |
+
+*구현하며 정한 것 (설계에 없던 것 · 다르게 한 것)*
+
+1. **칸이 여러 번 놓이면 시안 픽셀이 정답이 못 된다** — AI 가 그린 반복은 서로 같은 픽셀이 아니다 [실측 hub_ready_sheet: 파티 줄 2 ~ 4 는 줄 1 과 국소 ΔE00 최대 14 ~ 20(문턱 10)]. 정답 = 칸의 승인한 그림(칸은 자기 run 에서 사람이 승인했다)으로 바꾸고, **자리만** 시안과 견준다. 인계의 추천('버튼 픽셀을 넣고 진단이 칸 합성과 견줌')은 첫 자리에서만 맞는다.
+2. **켜고 끄는 그림이 불투명한 띠 위에 있으면 지금 규칙(상자째 오리고 판에서 뺌)은 껐을 때 네모 구멍을 낸다** → 요청이 `over` 로 밝히고, 표시 획만 둘레에서 메운 바탕 + 얹으면 시안이 되는 그림으로 나눈다(덮는 정도는 시안의 알파에서 — 회색 · 흰 바탕에서도 맞게). 획 밖은 시안 픽셀 그대로다.
+3. **LLM 상자가 몇 px 모자라면 획이 잘린다** [실측 첫 run — 초승달 아래 끝] → 획이 닿은 변만 2 px 씩 12 px 까지 넓힌다. 상자 다섯을 달리해도 같은 획 상자로 모인다 [실측]. 바탕을 재는 고리가 바뀌면 옅은 가장자리가 1 px 흔들려, 위젯 상자는 획 상자 + 여유로 둔다.
+4. **말줄임은 글자 상자가 아니라 잘라 내는 사각형(scissor)에서 정해진다** [소스 `ElementBatcher.cpp` BuildFontGeometry — 실측으로 먼저 걸림: 정책만 넣자 긴 이름이 '준비 완료' 위를 지나갔고 `long_outside` 가 잡았다] → `Clipping = OnDemand` 를 같이 건다. **가운데 정렬 글자는 엔진이 줄이지 않는다** [소스 `SlateTextLayout.cpp` OnPaint] → 요청 검사 `TEXT_BOX_JUSTIFY`, 이유 한 줄은 왼쪽 정렬.
+5. **E2(뭉개짐)에 '8 비트 반올림보다 크게 다른 픽셀이 있을 때만'** 을 더했다 — 첫 HubReady run 이 이유 띠에서 걸렸는데 1,981 px 중 63 px 만 1 단계 다르고 나머지는 같았다(평균 밝기 3.2 의 1 단계 잡음 기울기 비 0.79) [실측 `R20261125_213809`]. 문턱(0.8)은 그대로. 낮은 대비 무늬의 진짜 뭉개짐은 시험에서 그대로 걸린다.
+6. **칸의 처음 상태** — `render_widget` 의 force_visible 은 칸 속까지 들어가지 않는다 [소스] → 합성도 시작 때 접힌 위젯을 뺀다.
+7. **보이기 기본값은 정규화 한 곳에서** — layer · refine · fix 가 나중에 더하는 위젯(정적 판 · 넘침 장식)까지 같은 규칙을 탄다. spec 에는 안 적히고 에디터로 보내는 정규형에만 있다. 버튼 칸(최상위 `button`)은 속이 전부 버튼이라 예전 그대로.
+8. **`HubReady` 의 목적지 글자** — `DestinationButton` 의 `props.ButtonText` 로 '봉인된 유적'(잠정)이 들어 있다. 3-4 의 스텁은 `DestinationButton->SetButtonText` 로 바꾼다(생성 베이스에 글자 setter 는 없다 — 버튼 클래스의 것).
+
+*일부러 틀린 값이 잡히는가 — 쓰기 전에 본 것 (`tests/test_screen.py`)*
+
+| 검사 | 틀린 값 → 결과 |
+| :--- | :--- |
+| `input_clear` | 버튼 위 visible 장식(z 가 뒤) · 조상이 안 막아 주는 장식 · 두 버튼 겹침 · 속이 클릭을 먹는 칸이 덮음 → `blocked`, 꺼진 보이기 · 안 그려진 버튼 → `dead`. hit_test_invisible · 먼저 그려진 장식은 통과 |
+| `mark_*` | 상자째 뺀 판(구멍) · 판에 구워진 표시 → `mark_trace`, 안 꺼짐 → `mark_state` + `mark_same`, 다른 것이 움직임 → `mark_outside`, 못 그림 → `mark_render` |
+| `long_*` | 줄임이 안 먹음 → `long_outside`, 짧거나 덮어쓰기가 안 먹음 → `long_short`, 글자 칸끼리 겹침 → `long_touch`, 못 그림 → `long_render` |
+| 칸 자리 | 6 px 틀린 자리 → `CELL_PLACE`, 칸 상자를 지나는 다른 그림 → `CELL_ART_OVERLAP`, 칸 자리를 덮는 LLM 영역 → `CELL_COVER` |
+| 계약 | 버튼을 `cell` 로 · 줄을 `action` 으로 → `CELL_KIND`, 승격 안 된 칸 → `CELL_NOT_PROMOTED`, 클래스가 바뀐 칸 → `CELL_CLASS_CHANGED`, 이름 충돌 → `SETTER_COLLISION` |
+
+*두 run*
+
+| | `HubMemberRow` `R20261125_211554` | `HubReady` `R20261125_215251` |
+| :--- | :--- | :--- |
+| 크기 · 바인딩 | 610 × 82 · text 1 · flag 2 | 1920 × 1080 · text 1 · cell 4 · action 3 |
+| 게이트 | 12 / 12(시도 1 — 글자 맞춤 뒤 한 번 더 12 / 12) | 12 / 12(시도 1) |
+| 오류 / 근사 | 0 / 1('준비 완료' 굵기 — 글꼴은 참고판과 같고 작은 획의 측정 차) | 0 / 1(이유 글자 굵기 — 같은 까닭) |
+| 시안 ↔ 렌더 국소 ΔE00 최대 | 검정 0.95 · 회색 1.29 | 검정 0.95 · 회색 0.63 |
+| 표시 끔 · 긴 글자 | 흔적 검정 1.57 · 회색 2.27(문턱 5) · 켬 ↔ 끔 37.5 / 이름 칸의 97 % 에서 '…' | 이유 칸의 98 % 에서 '…' |
+| 칸 자리(시안이 그린 자리 − 요청한 자리) | — | 일곱 다 1 px 이하(줄 2 · 4 만 세로 1 px) |
+| 놓인 버튼 상태(국소 ΔE00 최대, 문턱 3.0) | — | 셋 다 0.13 ~ 1.79 · 버튼 밖 0 · 가장 가까운 쌍 2.41(하한 2.0 — 칸 run 과 같음) |
+| 시간 · LLM · codex | 약 1분 50초(에디터 기동 48초 포함) · 1회 · 0 | 약 2분 34초 · 1회 · 0 |
+| 묶음 ↔ 한 장씩 렌더 | 5 / 5 바이트 같음 | 21 / 21 바이트 같음 |
+| 사람 눈 | 승격 승인(`compare.png`) — 게임 안에서는 아직 안 봄 | 통과(`compare.png`) — 게임 안 · 조작감은 3-4 |
+| 승격 | `/Game/UI/Screens/HubMemberRow` 3 애셋, 새 에디터에서 `record`: 왕복 같음 · 그림 7 / 7 바이트 같음 | 안 함(3-4) |
+
+- 실패한 run 셋: `210820`(위 3 — analyze 에서 멈춤) · `210931`(위 4 의 말줄임 + 표시 구별을 옅은 가장자리까지 재던 검사 — 검사를 획 속으로) · `213809`(위 5). 승격 전 예행(스크래치 · 임시 승격 폴더) 둘은 세지 않는다.
+- 다른 해상도(1920 × 1200 · 2560 × 1080)에서 왼쪽 · 오른쪽 묶음이 통째로 움직인다(`anchor_regions`) — 사람 눈으로도 봄(세션).
+
+*검증*
+
+| 무엇 | 결과 |
+| :--- | :--- |
+| 빌드 | DebugGame · Development(`-DisableAdaptiveUnity`) 둘 다 `Result: Succeeded`(최종 코드) |
+| `AstralBreak.` 전체(DebugGame, 최종 코드) | **62/62**(457초) — 새 실패 0 |
+| `WidgetMcp.`(이어서 같은 에디터) | **9/9**(43초 — `BuildRoundTrip` 에 `overflow` 왕복 · 모르는 값 거절을 더함) |
+| pytest `Tools/uigen/tests` | **685 통과**(980초 — 전 644 + 새 41 `test_screen`) |
+| `golden.py check` | 35/35 caught · 1/1 clean · 8/8 protected(E2 규칙을 바꾼 뒤) |
+| `regress_set`(기준선 `p32_1125` ↔ `p33_1125`, `--relayer`) | `+ new` **0**. 파일 529개 중 528개 바이트 같음 — 다른 하나는 코드 목록 `set.json`. 새 기준선 = `p33_1125` |
+| 기존 화면 | `promote_screen.py status` — 다섯 화면 승격본 · 원천 묶음 · 계약 전부 '기록 그대로'(승격 앞뒤). `cppgen.generator_id()` = `1:49a7a94ed467` 그대로, 두 HUD 헤더 해시 재현 시험 통과. `HubReady` 계약의 생성기 = `1:49a7a94ed467+a088c62e72cf` |
+
+*안 돌린 것 · 못 본 것*
+
+- 게임 안에서 화면 · 칸을 본 것, 실제 마우스 클릭 · 초점 이동 · 게임패드(3-4 의 PIE 시험). 버튼 위를 가리는 위젯은 트리와 상자로 본 것이고 엔진 히트 테스트는 안 돌렸다.
+- 조작 화면을 이어서 고치기(`--from HubReady --edit`) · 칸의 재승격 뒤 `CELL_CHANGED` 를 실제 파일로 · `make_screen.py` 의 후보 만들기(codex 0 으로 지내 `--pick current` 만 실제로 돌림, 후보 길은 시험).
+- 표시 획을 나누는 자리의 바탕은 시안에 없던 픽셀이다 — 매끈한 띠에서만 봤다. 무늬 위 표시는 안 봤다.
+- LLM fix 경로가 칸이 있는 화면에서 도는 것(두 run 다 시도 1 에서 구조 통과 — 가드는 시험만) · Development 구성 실행 · 쿠킹.
+- 스킬 문서 둘(`.claude/skills/uigen-run` · `ue-umg-authoring`)은 사용자 승인(11-25) 뒤 이 절의 규칙으로 고쳤다.
+
+*정리* — (11-25 사용자 승인 — 휴지통, 44.4 MB) `work/_measure_p33` · 실패한 run 셋 `R20261125_{210820, 210931}_HubMemberRow` · `R20261125_213809_HubReady` · `work/_promoted/HubMemberRow/record_20261125_213641` · `work/_regress/compare_p32_1125_vs_p33_1125` · 세션 스크래치. 정리 뒤 `promote_screen.py status` 다섯 화면 전부 '기록 그대로'. 남긴 것: 승격한 칸 run `211554` 과 3-4 가 승격할 화면 run `215251` 의 `work` · `_AutoGen`, 기준선 `p33_1125`(과 `p32_1125`). 실패한 run 의 측정 수치는 이 글과 코드 주석에만 남는다.
+
+3-4 인계 = 공유 노트 폴더 `local_86515f5f…/uigen-phase3-4-handoff.md`.
 
 - M4 단위 E(4인 별도 프로세스 시험)는 UI 와 무관해 에디터가 비는 때 아무 때나. 단위 D(오의 애니)는 별개.
 - 감안할 점: M4 C 의 화면은 Phase 0 ~ 1b 가 끝나야 완성된다. 그동안 HUD 는 디버그 위젯이다.

@@ -125,6 +125,11 @@ def _module_root(run, opts) -> pathlib.Path:
     return pathlib.Path(override) if override else config.repo_path(run.cfg["codegen"]["module_root"])
 
 
+def _resolver(run, opts, cg):
+    """놓인 칸의 실제 C++ 클래스 — 헤더는 진짜 모듈에서 찾는다(시험의 임시 모듈 폴더에는 손으로 쓴 클래스가 없다)."""
+    return cppgen.cell_resolver(config.load_screens(), cg, config.repo_path(cg["module_root"]), getattr(opts, "promoted_root", None))
+
+
 def _check_header_names(module_root: pathlib.Path, paths: dict[str, pathlib.Path]) -> None:
     """UHT — 헤더 파일 이름은 모듈 안에서 하나여야 한다(§3-3 규칙 5)."""
     wanted = {paths[k].name: paths[k].resolve() for k in ("view_base_h", "widget_h")}
@@ -171,7 +176,7 @@ PROBE_CLASS = "/Script/UMG.UserWidget"
 def _probe(run, spec: dict, screen_id: str, cg: dict, t_start: float) -> str:
     """1b 후속 G2 — 검증 화면(screens.yaml probe: true): C++ 를 쓰지 · 빌드하지 않는다. 부모 = UserWidget, 계약은 기록만
     (verify 의 bindings 게이트가 WBP 트리에서 이름 · 타입을 본다). 다른 컨셉으로 보편성을 재는 시험 입력이 Source/ 에 클래스를 남기지 않게."""
-    bindings = [{**e, "setter": None} for e in cppgen.binding_entries(spec)]
+    bindings = [{**e, "setter": None} for e in cppgen.binding_entries(spec, _resolver(run, None, cg))]
     doc = {"schema_version": 1, "generator": cppgen.generator_id(), "module": "UMG", "api": "-", "ui_dir": "-", "screen": screen_id,
            "feature": "-", "view_base": "-", "widget": "UserWidget", "bindings": bindings}
     rec = {"schema_version": 1, "run_id": run.run_id, "screen": screen_id, "class": PROBE_CLASS, "contract_hash": cppgen.contract_hash(doc),
@@ -186,7 +191,7 @@ def _hand_written(run, spec: dict, screen_id: str, screen: dict, cg: dict, t_sta
     """Phase 3-2 — 손으로 쓴 부모(screens.yaml parent): C++ 를 쓰지 · 빌드하지 않는다. 에디터가 떠 있으면 그 클래스의 리플렉션과 바인딩을 대조하고
     (다르면 멈춤 — 고칠 것은 사람의 클래스나 요청이다), 떠 있지 않으면 verify 의 bindings 게이트가 본다."""
     class_path = f"/Script/{cg['module']}.{screen['parent']}"
-    bindings = [{**e, "setter": None} for e in cppgen.binding_entries(spec)]
+    bindings = [{**e, "setter": None} for e in cppgen.binding_entries(spec, _resolver(run, None, cg))]
     doc = {"schema_version": 1, "generator": "hand-written", "module": cg["module"], "api": "-", "ui_dir": "-", "screen": screen_id,
            "feature": "-", "view_base": "-", "widget": screen["parent"], "bindings": bindings}
     rec = {"schema_version": 1, "run_id": run.run_id, "screen": screen_id, "class": class_path, "contract_hash": cppgen.contract_hash(doc),
@@ -262,10 +267,11 @@ def run(run, opts, toolchain=None) -> str:
         raise StageError("CODEGEN_HEADER_CORRUPT", f"{paths['view_base_h'].as_posix()}: no contract line — cannot tell which bindings already exist")
 
     try:
-        bindings, changes = cppgen.merge(cppgen.binding_entries(spec), prev_contract["bindings"] if prev_contract else None)
+        bindings, changes = cppgen.merge(cppgen.binding_entries(spec, _resolver(run, opts, cg)), prev_contract["bindings"] if prev_contract else None)
+        base = cppgen.screen_base(screen, config.repo_path(cg["module_root"]))
     except cppgen.ContractError as exc:
         raise StageError(exc.code, str(exc).split(": ", 1)[-1], **exc.details) from exc
-    doc = cppgen.contract_doc(screen_id, screen, cg, bindings)
+    doc = cppgen.contract_doc(screen_id, screen, cg, bindings, base)
     chash = cppgen.contract_hash(doc)
     texts = cppgen.render(doc, chash)
     class_path = f"/Script/{cg['module']}.{screen['widget']}"

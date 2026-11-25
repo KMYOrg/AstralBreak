@@ -1,0 +1,124 @@
+{
+ "schema_version": 1,
+ "kind": "concept_text_ref",
+ "created": "2026-11-25T21:05:18",
+ "generator": "drawn with the engine font files (no codex)",
+ "edited_from": "concept.png",
+ "thread_id": null,
+ "texts": [
+  {
+   "widget": "ReadyLabel",
+   "value": "준비 완료",
+   "slot": "small ivory label near the right end of the band, right aligned"
+  },
+  {
+   "widget": "MemberNameText",
+   "value": "Player 1",
+   "slot": "party member name, left aligned"
+  }
+ ],
+ "layout_file": "Tools/uigen/fixtures/hub_member_row/text_ref_layout.yaml",
+ "drawn": [
+  {
+   "widget": "MemberNameText",
+   "value": "Player 1",
+   "box": [
+    100,
+    27,
+    73,
+    18
+   ],
+   "font": {
+    "size": 18,
+    "weight": "semibold",
+    "color": "#ECE5D6FF"
+   }
+  },
+  {
+   "widget": "ReadyLabel",
+   "value": "준비 완료",
+   "box": [
+    374,
+    26,
+    63,
+    16
+   ],
+   "font": {
+    "size": 15,
+    "weight": "medium",
+    "color": "#F3E9CCFF"
+   }
+  }
+ ],
+ "file": "concept_text_ref.png",
+ "sha256": "c1e3416025647a055d70d1aa7762180fe4edf500b7dbabf8fa643f573f35877f",
+ "size": [
+  531,
+  71
+ ],
+ "has_alpha_channel": true,
+ "note": "the same art with only the texts drawn on it (Pretendard TTF) — glyph style reference",
+ "check": {
+  "shift_px": [
+   0.0,
+   0.0
+  ],
+  "response": 1.0,
+  "used": true,
+  "shift_applied": [
+   0,
+   0
+  ],
+  "ocr": {
+   "text_ref_boxes": [
+    [
+     100.0,
+     27.0,
+     73.0,
+     18.0
+    ],
+    [
+     374.0,
+     26.0,
+     63.0,
+     16.0
+    ]
+   ],
+   "art_boxes": [],
+   "boxes": [
+    [
+     100.0,
+     27.0,
+     73.0,
+     18.0
+    ],
+    [
+     374.0,
+     26.0,
+     63.0,
+     16.0
+    ]
+   ],
+   "scores": [
+    1.0,
+    1.0
+   ],
+   "min_score": 0.6,
+   "from": "drawn"
+  },
+  "checks": {
+   "ui_px": 33537,
+   "outside_solid_big_frac": 0.0,
+   "outside_far_new_frac": 0.0,
+   "fringe_alpha_frac": 0.0,
+   "outside_median_d": 0.0,
+   "outside_p95_d": 0.0,
+   "limit": 0.03
+  },
+  "glyph_on_translucent_px": 813,
+  "glyph_px": 813,
+  "glow_px": 0,
+  "paste_px": 933,
+  "ring_tone_l": 0.0
+ }
+}

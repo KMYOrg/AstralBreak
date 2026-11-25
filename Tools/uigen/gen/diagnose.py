@@ -23,7 +23,7 @@ import pathlib
 
 import numpy as np
 
-from core import color
+from core import color, config
 from gen import backdrop, cells
 
 WIN = 7
@@ -1603,6 +1603,15 @@ def glyph_residue(ref_text, comp, gm: dict, texts: list[dict], notext_black=None
 # ---------------------------------------------------------------------------------------------------------------------
 # 본체
 
+ROUNDING_LEVELS = 2         # 합성 · 렌더 되읽기의 8 비트 반올림이 만들 수 있는 차(채널 단계)
+
+
+def beyond_rounding(a, b) -> np.ndarray:
+    """두 그림이 8 비트 반올림보다 크게 다른 픽셀(HxW bool) — E2(뭉개짐)는 이런 픽셀이 있는 자리에서만 뜻이 있다
+    [실측 R20261125_213809 이유 띠 — 1,981 px 중 63 px 만 1 단계 다른데 어두운 평면(평균 3.2)의 잡음 기울기 비가 0.79]."""
+    return np.abs(np.round(np.asarray(a, float)) - np.round(np.asarray(b, float))).max(axis=2) > ROUNDING_LEVELS
+
+
 def _inputs(rd: pathlib.Path, spec: dict | None = None) -> dict:
     spec = spec or json.loads((rd / "spec.json").read_text(encoding="utf-8"))
     geo = json.loads((rd / "geometry.json").read_text(encoding="utf-8"))
@@ -2066,6 +2075,7 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
         def energy(g):
             return np.abs(cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)) + np.abs(cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3))
         er, ec = energy(gray_r), energy(gray_c)
+        differs = beyond_rounding(base, ref_black)
         free = (ra > 0.05) & ~text_zone & ~nd_zone & ~_dilate(runtime_zone, 2)
         for j, wid in enumerate(owner_ids):
             region = (owner == j) & free
@@ -2081,8 +2091,11 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
             if ce < 2.0:                    # 평평한 자리(기울기 없음) — 비교 뜻 없음
                 continue
             ratio = float(er[region].mean()) / ce
-            blur_rows.append({"widget": wid, "ratio": round(ratio, 3), "texel_density": dens, "px": n_px})
-            if ratio < float(s["blur_ratio"]):
+            row = {"widget": wid, "ratio": round(ratio, 3), "texel_density": dens, "px": n_px}
+            blur_rows.append(row)
+            if ratio < float(s["blur_ratio"]) and int((differs & region).sum()) < int(s["min_area"]):
+                row["within_rounding"] = True          # 컨셉과 8 비트 반올림 안에서 같은 그림 — 어두운 평면의 1 단계 잡음이 준 비(뭉개진 것이 아니다)
+            elif ratio < float(s["blur_ratio"]):
                 defects.append({"stage": "texture", "code": "E2", "box": _bbox(region), "area": n_px, "widgets": [wid], "fixable": False,
                                 "max_de": None, "mean_de": None, "cause": f"blurred — the render is {ratio:.2f} as sharp as the concept here (texel density {dens})"})
     rec["sharpness"] = blur_rows
@@ -2156,7 +2169,8 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
     if cv.get("used"):
         rec["conversion"] = {"cached": bool((cv.get("concept") or {}).get("cached")), "codex_calls": cv.get("codex_calls")}
         orig = inp["norm"].get("original_concept")
-        if orig and pathlib.Path(orig).is_file():
+        orig = config.recorded_path(orig) if orig else None
+        if orig and orig.is_file():
             try:
                 from PIL import Image
                 with Image.open(orig) as im:
@@ -2171,8 +2185,10 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
     shown = base
     sc_mode = str(s.get("state_checks") or "record")
     reqs: dict[str, dict] = {}
+    from gen import screen_check
+    extra = screen_check.load_extra(rd)
     if render_state is not None:
-        reqs = state_check.state_requests(spec, spec_state, states, boxes, textures, checks=sc_mode != "off")
+        reqs = state_check.state_requests(spec, spec_state, states, boxes, textures, checks=sc_mode != "off", extra=extra)
         if hasattr(render_state, "prefetch"):                # verify — 상태 렌더를 한 묶음으로 미리(Phase 2). 못 하면 아래에서 한 장씩
             render_state.prefetch(reqs)
         try:
@@ -2180,7 +2196,7 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
             sr = _load_rgb(sp) if sp else None
             if sr is not None and sr.shape[:2] == (H, W):
                 shown = sr
-                rec["state"]["render"] = str(sp)
+                rec["state"]["render"] = config.repo_rel(str(sp))
                 # E8 — 컨셉 상태로 그린 렌더가 숨은 위젯 자리에서 기계 비교(base)보다 컨셉과 다르면(상태를 못 맞춤)
                 hz = np.zeros((H, W), bool)
                 for h in states:
@@ -2245,6 +2261,10 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                 bs["findings"].append({"stage": "state", "code": "E8", "check": "button_render", "box": [0, 0, W, H], "area": W * H, "max_de": None, "mean_de": None,
                                        "widgets": [b_["widget"] for b_ in bs["buttons"]], "renderer": "composite", "fixable": False,
                                        "cause": "button - the concept-state render failed, so no button state was seen in the engine: " + str(rec["state"].get("render_error"))[:120]})
+            # 바탕 위 표시 · 긴 글자(Phase 3-3)
+            state_img = (lambda name: _state_render(render_state, reqs[name], name, (H, W))) if engine else None
+            ms = screen_check.mark_states(extra["marks"], spec_state, boxes, textures, canvas, rc, ra, s, base_g, render_state=state_img) if extra["marks"] else None
+            lt = None
             # S4 글자 밑 흔적(1b 후속 L 다음 L-1 글자 완전 지우기) — 모든 글자 빈 값 상태(텍스처 합성 · 엔진 text "")와 값 글자를 다른 값으로 그린 엔진 렌더
             tt, notext_imgs, values_img, group_imgs = None, None, None, {}
             try:
@@ -2283,12 +2303,15 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                 if r_nt is not None:
                     notext_imgs["black"] = r_nt
                 values_img = r_val
+                if extra["long"]:
+                    lt = screen_check.long_texts(extra["long"], spec_state, boxes, canvas, s, base_g, render_state=state_img, notext=r_nt)
                 group_imgs = {g_["root"]: {"images": {**g_["images"], **({"black": g_["render"]} if g_["render"] is not None else {})},
                                            "renderer": "engine" if g_["render"] is not None else "composite",
                                            "box": [geo[g_["root"]][k_] for k_ in ("x", "y", "w", "h")] if g_["root"] in geo else None} for g_ in groups}
             except Exception as exc:  # noqa: BLE001 — 검사가 깨지면 기록
                 sc["text_trace_error"] = f"{type(exc).__name__}: {exc}"[:300]
-            findings = [{k: v for k, v in f.items() if k != "mask"} for f in ht["findings"] + hh["findings"] + gs["findings"] + bs["findings"] + (tt["findings"] if tt else [])]
+            findings = [{k: v for k, v in f.items() if k != "mask"} for f in ht["findings"] + hh["findings"] + gs["findings"] + bs["findings"] + (tt["findings"] if tt else [])
+                        + (ms["findings"] if ms else []) + (lt["findings"] if lt else [])]
             rec_only = set(s.get("state_record_only") or [])
             # 사용자 결정 ③(11-20) — refine 이 '정답 없음'(근거 기록)으로 표시한 글자 자리 안의 S4 결함은 오류 대신 '정답 없음 — 수동 확인 필요'(다른 결함은 그대로 오류)
             mchecks = manual_checks(rd)
@@ -2308,6 +2331,10 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                       findings=findings)
             if bs["buttons"]:
                 sc["button_states"] = {"renderer": bs["renderer"], "buttons": bs["buttons"]}
+            if ms:
+                sc["marks"] = {"renderer": ms["renderer"], "marks": ms["marks"]}
+            if lt:
+                sc["long_texts"] = {"renderer": lt["renderer"], "texts": lt["texts"]}
             if tt is not None:
                 sc["text_trace"] = {"renderer": tt["renderer"], "texts": tt["texts"], **({"values": tt["values"]} if tt.get("values") else {}),
                                     **({"line_like": tt["line_like"]} if tt.get("line_like") else {}), **({"groups": tt["groups"]} if tt.get("groups") else {}),
@@ -2318,7 +2345,9 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                     "gauge_renderer": {g_["widget"]: g_.get("renderer") for g_ in gs["gauges"]},
                     **({"buttons": bs["images"], "buttons_gray": bs["gray"], "buttons_renderer": bs["renderer"],
                         "button_boxes": {t_["id"]: t_["box"] for t_ in state_check.button_targets(spec_state, boxes, textures)}} if bs["buttons"] else {}),
-                    "notext": notext_imgs, "notext_renderer": tt["renderer"] if tt else None, "values": values_img, "notext_groups": group_imgs}
+                    "notext": notext_imgs, "notext_renderer": tt["renderer"] if tt else None, "values": values_img, "notext_groups": group_imgs,
+                    **({"marks": ms["images"], "marks_renderer": ms["renderer"], "mark_boxes": {m_["widget"]: m_["box"] for m_ in ms["marks"]}} if ms and ms["images"] else {}),
+                    **({"long": lt["image"]} if lt and lt["image"] is not None else {})}
             if sc_mode == "error" and findings:
                 for f in [f_ for f_ in findings if not f_.get("record_only") and not f_.get("manual_check")]:
                     defects.append(dict(f))
@@ -2460,6 +2489,14 @@ def _band_rows(band: dict, top_w: int) -> list:
         ts = [tile(im[y0:y1, x0:x1], f"{wid} {lbl}", scale) for lbl, im in items if im is not None]
         for k in range(0, len(ts), 2):
             rows.append(hcat(ts[k:k + 2]))
+    # 바탕 위 표시(Phase 3-3) — 켬 | 끔(엔진) | 끔(회색 바탕 합성), 2 배
+    for wid, imgs in (band.get("marks") or {}).items():
+        bb = (band.get("mark_boxes") or {}).get(wid)
+        H, W = imgs["on"].shape[:2]
+        x0, y0, x1, y1 = max(0, int(bb[0]) - 48), max(0, int(bb[1]) - 24), min(W, int(bb[0] + bb[2]) + 48), min(H, int(bb[1] + bb[3]) + 24)
+        rows.append(hcat([tile(imgs[k][y0:y1, x0:x1], f"{wid} {lbl}", 2.0) for k, lbl in (("on", "on"), ("off", f"off - {band.get('marks_renderer')}"), ("off_gray", "off - gray"))]))
+    if band.get("long") is not None:
+        rows.append(tile(band["long"], "long texts - engine", min(1.0, top_w / float(band["long"].shape[1]))))
     # 버튼 상태(Phase 3-2) — 버튼마다 상태 일곱: 엔진 렌더(글자 포함 · 검정 바탕) | 그 상태 그림의 회색 바탕 합성(글자 없음), 1:1
     for wid, imgs in (band.get("buttons") or {}).items():
         bb, gray = (band.get("button_boxes") or {}).get(wid), (band.get("buttons_gray") or {}).get(wid) or {}

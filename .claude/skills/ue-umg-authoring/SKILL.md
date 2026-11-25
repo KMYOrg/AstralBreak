@@ -25,6 +25,9 @@ description: AstralBreak UE5.7 에서 UMG 위젯(WBP)을 코드로 만들거나 
 - 계약(바인딩 목록)의 해시가 같으면 쓰기 · 빌드 · 재기동을 건너뛴다. 바인딩은 추가만 — spec 에서 빠지면 `BindWidgetOptional`, 위젯 클래스가 바뀌면 거부.
 - **계약이 바뀐 뒤 지난 `/Game/_AutoGen/*` 의 같은 화면 WBP 를 열면 컴파일 오류가 난다**(그때의 바인딩이라 정상).
 - 접히는 자리의 setter(`Set…Visible`)는 **칸 전체(상자)** 를 켠다 — 안쪽 그림만 켜면 빌드는 통과하고 게임에서 안 뜬다 [실측 — README '돌리기' 주의].
+- 놓인 칸(`UserWidget`)은 **그 칸의 실제 C++ 부모 클래스**로 `BindWidget` 한다(`UUserWidget` 으로 묶으면 스텁이 칸의 setter 를 못 부른다). 클래스 · include 는 `core/cellref` 가 승격 기록 · `screens.yaml` 에서 얻고, 손으로 쓴 클래스의 헤더는 모듈 안의 `<클래스>.h` 하나.
+- 버튼 묶기 = 생성 베이스 `NativeOnInitialized` 에서 `OnClicked().AddUObject(this, &ThisClass::Handle…Clicked)`(가상 함수 — 스텁이 재정의, 스텁이 `NativeOnInitialized` 를 재정의하면 `Super` 먼저). 생성 코드는 누름에 자기 모양을 안 바꾼다.
+- 생성기에 조각을 더할 때는 **그 조각을 쓰는 계약에만** 해시가 들게 한다(`cppgen.generator_for` · `EXTRA` · `SCREEN_TEMPLATES`) — `SETTERS` 표나 기존 템플릿 4 개를 건드리면 두 HUD 의 계약 해시가 바뀌어 이어서 고치기가 `EDIT_CONTRACT_CHANGED` 로 막힌다.
 
 # 오프스크린 렌더(`render_widget`)
 
@@ -37,6 +40,7 @@ description: AstralBreak UE5.7 에서 UMG 위젯(WBP)을 코드로 만들거나 
 - **머티리얼 셰이더는 첫 그리기에서야 컴파일을 시작하고, 컴파일 중인 배치는 그려지지 않는다.** 저장된 WBP 를 새 에디터에서 처음 그리면 고리(UI 머티리얼)가 빠졌다 [실측] →
   미리 그린 뒤 `GShaderCompilingManager->FinishAllCompilation()` 을 한 번 더.
 - 화면 밖으로 완전히 나간 위젯(과 자식)은 Slate 가 그리지 않아 `GetPaintSpaceGeometry` 가 (0, 0, 0, 0) 이다 — '크기 0' 이 아니라 '안 그려짐'으로 센다.
+- `force_visible` 은 **놓인 칸 속까지 들어가지 않는다** — `UWidgetTree::ForEachWidget` 은 자기 트리만 돈다(`WidgetMcpRender.cpp:239`). 칸은 처음 상태(접힌 것은 접힌 채)로 그려지고, 칸 안을 바꾸려면 덮어쓰기 열쇠 `칸/위젯`.
 - 검정 바탕만 보면 알파 결함이 숨는다 — 투명도는 회색 · 흰 바탕에서도 본다(§11 'H3').
 - 출력 폴더는 `[WidgetMcp] WidgetRenderOutputRoots`(= `Tools/uigen/work/`) 아래 새 · 빈 폴더만. `Saved/` 는 사람도 도구도 못 읽어 쓰지 않는다.
 
@@ -56,12 +60,20 @@ description: AstralBreak UE5.7 에서 UMG 위젯(WBP)을 코드로 만들거나 
   `bEnableDistanceFieldFontRasterization` · `UI.SlateSDFText.RasterizationMode=Msdf`(`Config/DefaultEngine.ini`).
 - 빛은 글자 상자를 사방 size 만큼 키운다 — 슬롯 padding 을 그만큼 줄인다(음수). 가운데 정렬의 오프셋 = (할당 − 자식)/2 + 앞 여백 − 뒤 여백(`LayoutUtils.h:664`)이라
   자리를 옮길 때 padding 을 양쪽 ± 로 나눈다.
+- **말줄임(`ETextOverflowPolicy::Ellipsis`)은 글자 상자가 아니라 잘라 내는 사각형에서 정해진다**(`ElementBatcher.cpp:1633` — ScissorRect 가 없으면 아무 일도 없다 [소스 · 실측]) → `Clipping = OnDemand` 를 같이 건다(넘칠 때만 자름).
+  **가운데 정렬 글자는 엔진이 줄이지 않는다**(`SlateTextLayout.cpp:169` — Center 는 NoOverflow) — 왼쪽 · 오른쪽 정렬로. 폭이 정해진 칸이어야 하므로 슬롯은 채움(`h_align fill`)이나 고정 크기.
 - **작은 글자(획 13 px)는 같은 글꼴도 다시 재면 획 밀도가 ± 15 % 흔들린다** [실측] — 우리가 그린 참고판의 글꼴 값은 `text_ref_layout.yaml` 이 정한다(다시 재지 않음).
+
+# 클릭을 받는 화면(Phase 3-3)
+
+- **Image · TextBlock · ProgressBar 의 기본 보이기는 `visible` 이라 아무것도 안 해도 클릭을 먹는다.** 나중에 그려진 것이 먼저 받는다 — 버튼 위 장식은 `HitTestInvisible`, 패널은 `SelfHitTestInvisible`. `HitTestInvisible` 조상은 자식까지 막아 그 안의 버튼이 죽는다.
+- 파이프라인은 클릭을 받는 화면 종류(프로필 `input_rules`)에서 **정규화의 기본값**으로 정한다(`core/spec.default_visibility`) — layer · refine · fix 가 나중에 더하는 위젯도 같은 규칙을 탄다. spec 에는 안 적힌다. 확인은 역추출한 트리로(`core/hit` · 게이트 `input_clear`) — 엔진 히트 테스트는 아니다.
+- 버튼 칸(`UCommonButtonBase`)의 `UserWidget` 자신은 `SelfHitTestInvisible`, 안쪽 버튼이 받는다. 버튼 아닌 칸은 `HitTestInvisible`(속의 그림까지 안 받게).
 
 # 디자이너 · 저장 · 승격
 
 - UMG 디자이너는 Visibility 를 무시하고 늘 보이게 그린다 — `bHiddenInDesigner` 만 본다 [소스 `Widget.cpp:1482`]. 접힌 위젯이 미리보기를 덮으면 spec `designer_hidden`.
-- verify 를 통과할 때까지 저장하지 않는다. 쓰기는 `/Game/_AutoGen/<run_id>/`(git 무시)만, 승격은 `promote_widget` → `/Game/UI/HUD/<화면>/`(**대상이 있으면 거절** — 재승격은
+- verify 를 통과할 때까지 저장하지 않는다. 쓰기는 `/Game/_AutoGen/<run_id>/`(git 무시)만, 승격은 `promote_widget` → `screens.yaml promote_path`(`/Game/UI/HUD` · `/Game/UI/Common` · `/Game/UI/Screens`)`/<화면>/`(**대상이 있으면 거절** — 재승격은
   `Tools/uigen/promote_screen.py apply` 가 에디터를 끈 채 사본을 두고 비운 뒤 부른다, 손으로 치우지 않는다).
 - `IsValidLongPackageName("/Game")` 은 참이다 — 마운트 루트를 허용 목록으로 받지 않게 따로 막는다.
 - `quit_editor` 는 더티면 거절한다. 파이프라인은 `discard_only_under: [/Game/_AutoGen/]` 만 준다.

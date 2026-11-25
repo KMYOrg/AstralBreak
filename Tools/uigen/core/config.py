@@ -36,6 +36,27 @@ def repo_path(value: str | pathlib.Path) -> pathlib.Path:
     return p if p.is_absolute() else REPO_ROOT / p
 
 
+def repo_rel(value: str | pathlib.Path) -> str:
+    """기록에 남기는 경로 — 저장소 안이면 저장소 상대(드라이브 · 폴더가 바뀌어도 같은 글), 밖이면 절대 그대로(Phase 3-3)."""
+    p = pathlib.Path(value)
+    p = p if p.is_absolute() else pathlib.Path.cwd() / p
+    try:
+        return p.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return p.as_posix()
+
+
+def recorded_path(value: str | pathlib.Path) -> pathlib.Path:
+    """기록에서 읽은 경로 → 지금 파일. 저장소 상대면 저장소 기준, 옛 절대 경로는 있으면 그대로 · 없으면(다른 드라이브 · 옮긴 저장소) 'Tools/uigen/' 뒤로 다시 찾는다."""
+    p = pathlib.Path(value)
+    if not p.is_absolute() and not pathlib.PureWindowsPath(str(value)).drive:
+        return REPO_ROOT / p
+    if p.exists():
+        return p
+    tail = str(value).replace("\\", "/").rpartition("Tools/uigen/")
+    return UIGEN_DIR / tail[2] if tail[1] else p
+
+
 def load_pipeline(path: str | pathlib.Path | None = None) -> dict:
     cfg = load_yaml(path or CONFIG_DIR / "pipeline.yaml")
     for key in ("paths", "limits", "backends", "textures"):

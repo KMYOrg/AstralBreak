@@ -315,6 +315,37 @@ def radial_masks(run) -> dict[str, np.ndarray]:
     return _read_masks(run, "radials", "radial_ring_masks")
 
 
+def split_marks(spec: dict, brief: dict, color, alpha) -> list[dict]:
+    """바탕 위 표시(요청 data[].over, Phase 3-3)마다 획 마스크 · 표시 그림 · 표시를 걷은 바탕(gen/overlay_mark — analyze 가 잰 것과 같은 함수).
+    → [{widget, over, asset, box, window, px, …, mask, rgba, base}]."""
+    from gen import overlay_mark
+    from stages import request
+    index = _index(spec)
+    out = []
+    for wid, over in request.marks(brief).items():
+        w = index.get(wid)
+        if not w or not w.get("bbox_intent"):
+            continue
+        try:
+            m = overlay_mark.measure(color, alpha, w["bbox_intent"])
+        except overlay_mark.MarkError as exc:
+            raise StageError("MARK_MEASURE", f"'{wid}': {exc}", widget=wid, box=w["bbox_intent"]) from exc
+        out.append({"widget": wid, "over": over, "asset": w["style"]["brush"]["asset"], **m["record"], "window": m["window"], "mask": m["mask"], "rgba": m["rgba"], "base": m["base"]})
+    return out
+
+
+def _mark_list(run) -> list[dict]:
+    return (run.read_json("layer.json").get("marks") or []) if run.path("layer.json").is_file() else []
+
+
+def mark_widgets(run) -> set[str]:
+    return {m["widget"] for m in _mark_list(run)}
+
+
+def marks_by_asset(run) -> dict[str, dict]:
+    return {m["asset"]: m for m in _mark_list(run)}
+
+
 def grow_toggles(spec: dict, alpha) -> list[dict]:
     """접히는 영역의 상자를 자기 몫(빛 · 넘침)까지 넓힌다(spec 을 바꿈). → 기록 [{widget, carrier, old_box, box, grow, px, mask} | {widget, skipped}]."""
     from stages import refine
@@ -438,8 +469,9 @@ def own_masks(run) -> dict[str, np.ndarray]:
     return out
 
 
-def plan(spec: dict, alpha, functional: dict[str, str], static: list[str], plate_max: int = 2048, own: dict | None = None, omap=None) -> dict:
+def plan(spec: dict, alpha, functional: dict[str, str], static: list[str], plate_max: int = 2048, own: dict | None = None, omap=None, marks=()) -> dict:
     """정적 판 계획 → {"plates": [{"n", "box", "region", "mask"(캔버스 bool)}], "func_zone", "excluded_px", …}.
+    marks = 바탕 위 표시 위젯 — 그 자리는 판이 그대로 그린다(표시 밑의 바탕). 놓인 칸 상자는 칸이 그리므로 뺀다.
     own = 상자를 넓힌 접히는 위젯의 자기 마스크(그리는 위젯 id → 캔버스 bool — 상자 대신 그 자리만 판에서 뺀다), omap = 넓히기 전 상자로 잰 영역 주인."""
     import cv2
     H, W = alpha.shape
@@ -452,8 +484,8 @@ def plan(spec: dict, alpha, functional: dict[str, str], static: list[str], plate
         bb = w.get("bbox_intent")
         if not bb:
             continue
-        cut_fn = w["id"] in functional and any(b["asset"] in ext and b.get("draw_as") != "none" for _, b in _brush_assets(w))
-        runtime = w.get("type") == "Image" and (w.get("binding") or {}).get("kind") == "image"
+        cut_fn = w["id"] in functional and w["id"] not in marks and any(b["asset"] in ext and b.get("draw_as") != "none" for _, b in _brush_assets(w))
+        runtime = (w.get("type") == "Image" and (w.get("binding") or {}).get("kind") == "image") or w.get("type") == spec_mod.CELL_TYPE
         if cut_fn and own and w["id"] in own:
             func_zone |= own[w["id"]]
         elif cut_fn or runtime:
@@ -598,8 +630,25 @@ def run(run, opts) -> str:
     functional = classify(spec, inputs)
     static = static_widgets(spec, functional)
     from stages.refine import _reference_layers, art_files
+    run.path("layer").mkdir(parents=True, exist_ok=True)
+    marks: list[dict] = []
     if art_files(run):              # 1b 후속 K-a — 우리가 만든 컨셉은 글자 없는 아트(투명 위 글자 잔상 지움)의 보이는 픽셀로 판을 나눈다
-        alpha = _reference_layers(run, bg)[1]
+        art_c, alpha = _reference_layers(run, bg, marks=False)
+        brief = run.read_json("brief.json") if run.path("brief.json").is_file() else {}
+        marks = split_marks(spec, brief, art_c, alpha)
+        if marks:
+            from gen import overlay_mark
+            alpha = overlay_mark.paste_base(art_c, alpha, marks)[1]          # 판은 표시를 걷은 아트로
+        for m in marks:
+            wid = m["widget"]
+            bc, ba = m.pop("base")
+            m["base"] = f"layer/markbase_{wid}.png"
+            Image.fromarray(np.dstack([np.clip(bc, 0, 255), ba * 255]).round().astype(np.uint8), "RGBA").save(run.path(m["base"]))
+            m["picture"] = f"layer/mark_{wid}.png"
+            Image.fromarray(np.clip(m.pop("rgba"), 0, 255).round().astype(np.uint8), "RGBA").save(run.path(m["picture"]))
+            px = m.pop("mask")
+            m["mask"] = f"layer/markmask_{wid}.png"
+            Image.fromarray((px * 255).astype(np.uint8), "L").save(run.path(m["mask"]))
     else:
         with Image.open(run.path("reference_alpha.png")) as im:
             alpha = np.asarray(im.convert("L"), float) / 255.0
@@ -630,14 +679,15 @@ def run(run, opts) -> str:
             own[t["carrier"]] = m
             Image.fromarray((m * 255).astype(np.uint8), "L").save(run.path(t["mask"]))
     run.toggle_own_masks = None
-    tog = {**({"toggles": grown} if grown else {}), **({"radials": rings} if rings else {}), **({"bars": bars} if bars else {}), **({"filled": filled} if filled else {})}
+    tog = {**({"marks": marks} if marks else {}), **({"toggles": grown} if grown else {}), **({"radials": rings} if rings else {}), **({"bars": bars} if bars else {}), **({"filled": filled} if filled else {})}
     if not static and not own:
         if filled:                      # 그림 상자를 넓힌 spec — 굽을 판이 없어도 남긴다
             schema.require("spec", spec)
             run.write_json("spec.json", spec)
         run.write_json("layer.json", {"applied": False, "reason": "no static decoration to bake", "functional": functional, **tog})
         return "no static decoration — every drawn element is functional"
-    pl = plan(spec, alpha, functional, static, int(cfg["plate_max"]), own={**own, **bar_px}, omap=omap) if static else {"plates": [], "func_zone_px": 0}
+    pl = plan(spec, alpha, functional, static, int(cfg["plate_max"]), own={**own, **bar_px}, omap=omap, marks={m["widget"] for m in marks}) \
+        if static else {"plates": [], "func_zone_px": 0}
     if not pl["plates"] and not own:
         if filled:
             schema.require("spec", spec)

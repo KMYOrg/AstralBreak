@@ -1,0 +1,89 @@
+{
+  "applied": true,
+  "functional": {
+    "LeaderMark": "binding flag",
+    "MemberNameText": "binding text",
+    "ReadyLabel": "binding flag"
+  },
+  "static": [
+    "RowBand"
+  ],
+  "plates": [
+    {
+      "widget": "StaticPlate1",
+      "asset": "static_plate1",
+      "box": [
+        1,
+        3,
+        609,
+        79
+      ],
+      "region": "RowPanel",
+      "px": 46758,
+      "allow_overlap_with": [
+        "RowPanel"
+      ]
+    }
+  ],
+  "removed_assets": [
+    "row_band"
+  ],
+  "static_brushes": [
+    {
+      "widget": "RowBand",
+      "key": "brush",
+      "old": {
+        "draw_as": "image",
+        "asset": "row_band",
+        "image_size": [
+          610,
+          82
+        ]
+      }
+    }
+  ],
+  "gauge_backgrounds": [],
+  "func_zone_px": 0,
+  "unassigned_px": 0,
+  "text_only_px": 0,
+  "specks_px": 0,
+  "masks": [
+    "layer/plate_1.png"
+  ],
+  "marks": [
+    {
+      "widget": "LeaderMark",
+      "over": "RowBand",
+      "asset": "leader_mark",
+      "box": [
+        40,
+        11,
+        47,
+        57
+      ],
+      "stroke": [
+        42,
+        11,
+        44,
+        57
+      ],
+      "px": 1028,
+      "core_color": [
+        166.0,
+        162.1,
+        153.6
+      ],
+      "rebuild_max": 13.25,
+      "base_alpha": 0.642,
+      "window": [
+        30,
+        1,
+        97,
+        78
+      ],
+      "base": "layer/markbase_LeaderMark.png",
+      "picture": "layer/mark_LeaderMark.png",
+      "mask": "layer/markmask_LeaderMark.png"
+    }
+  ]
+}

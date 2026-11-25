@@ -1,0 +1,190 @@
+{
+ "schema_version": 1,
+ "kind": "concept_text_ref",
+ "created": "2026-11-25T21:52:47",
+ "generator": "drawn with the engine font files (no codex)",
+ "edited_from": "concept.png",
+ "thread_id": null,
+ "texts": [
+  {
+   "widget": "TitleText",
+   "value": "출정 준비",
+   "slot": "title at the left side of the first title band"
+  },
+  {
+   "widget": "DestinationTitleText",
+   "value": "목적지",
+   "slot": "title at the left side of the second title band"
+  },
+  {
+   "widget": "CloseHintText",
+   "value": "Esc  닫기",
+   "slot": "small hint under the two small buttons, right aligned"
+  },
+  {
+   "widget": "ReasonText",
+   "value": "파티장이 목적지를 고르는 중",
+   "slot": "one line that says why the buttons are off, left aligned in the thin band"
+  }
+ ],
+ "layout_file": "Tools/uigen/fixtures/hub_ready/text_ref_layout.yaml",
+ "drawn": [
+  {
+   "widget": "TitleText",
+   "value": "출정 준비",
+   "box": [
+    91,
+    158,
+    101,
+    26
+   ],
+   "font": {
+    "size": 24,
+    "weight": "semibold",
+    "color": "#ECE5D6FF"
+   }
+  },
+  {
+   "widget": "DestinationTitleText",
+   "value": "목적지",
+   "box": [
+    1134,
+    159,
+    70,
+    25
+   ],
+   "font": {
+    "size": 24,
+    "weight": "semibold",
+    "color": "#ECE5D6FF"
+   }
+  },
+  {
+   "widget": "ReasonText",
+   "value": "파티장이 목적지를 고르는 중",
+   "box": [
+    1134,
+    723,
+    192,
+    17
+   ],
+   "font": {
+    "size": 15,
+    "weight": "medium",
+    "color": "#ECE5D6FF"
+   }
+  },
+  {
+   "widget": "CloseHintText",
+   "value": "Esc  닫기",
+   "box": [
+    1552,
+    895,
+    59,
+    15
+   ],
+   "font": {
+    "size": 14,
+    "weight": "medium",
+    "color": "#ECE5D6FF"
+   }
+  }
+ ],
+ "file": "concept_text_ref.png",
+ "sha256": "f894b519e752dedb3cabbc6e741f652ddfcf46792b51dc6c0c5609eb08308611",
+ "size": [
+  1672,
+  941
+ ],
+ "has_alpha_channel": true,
+ "note": "the same art with only the texts drawn on it (Pretendard TTF) — glyph style reference",
+ "check": {
+  "shift_px": [
+   0.0,
+   0.0
+  ],
+  "response": 1.0,
+  "used": true,
+  "shift_applied": [
+   0,
+   0
+  ],
+  "ocr": {
+   "text_ref_boxes": [
+    [
+     91.0,
+     158.0,
+     101.0,
+     26.0
+    ],
+    [
+     1134.0,
+     159.0,
+     70.0,
+     25.0
+    ],
+    [
+     1134.0,
+     723.0,
+     192.0,
+     17.0
+    ],
+    [
+     1552.0,
+     895.0,
+     59.0,
+     15.0
+    ]
+   ],
+   "art_boxes": [],
+   "boxes": [
+    [
+     91.0,
+     158.0,
+     101.0,
+     26.0
+    ],
+    [
+     1134.0,
+     159.0,
+     70.0,
+     25.0
+    ],
+    [
+     1134.0,
+     723.0,
+     192.0,
+     17.0
+    ],
+    [
+     1552.0,
+     895.0,
+     59.0,
+     15.0
+    ]
+   ],
+   "scores": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "min_score": 0.6,
+   "from": "drawn"
+  },
+  "checks": {
+   "ui_px": 316471,
+   "outside_solid_big_frac": 0.0,
+   "outside_far_new_frac": 0.0,
+   "fringe_alpha_frac": 0.0,
+   "outside_median_d": 0.0,
+   "outside_p95_d": 0.0,
+   "limit": 0.03
+  },
+  "glyph_on_translucent_px": 2188,
+  "glyph_px": 2952,
+  "glow_px": 1014,
+  "paste_px": 4400,
+  "ring_tone_l": 0.0
+ }
+}

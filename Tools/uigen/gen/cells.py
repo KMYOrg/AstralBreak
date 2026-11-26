@@ -22,6 +22,12 @@ def key(class_path: str, brush: str = button.BASE) -> str:
     return f"{PREFIX}{class_path.split('.', 1)[0]}" + ("" if brush == button.BASE else f"#{brush}")
 
 
+def instance_key(wid: str) -> str:
+    """화면에 놓인 칸 하나만의 그림 열쇠 — 있으면 backdrop.compose 가 칸(클래스) 그림보다 먼저 쓴다. 상태 합성용: 엔진의 상태 덮어쓰기는 위젯 하나에만 걸리므로
+    같은 칸을 둘 놓은 화면(준비 · 출정)에서 한 버튼의 상태가 다른 버튼까지 바꾸면 안 된다."""
+    return f"{PREFIX}@{wid}"
+
+
 def index(root: pathlib.Path | None = None) -> dict[str, dict]:
     """승격된 화면 — WBP 패키지 경로 → {screen_id, run_id, source}."""
     return cellref.index(root or ROOT)

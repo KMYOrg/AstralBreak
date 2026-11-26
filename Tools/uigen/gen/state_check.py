@@ -988,8 +988,10 @@ def button_targets(spec_state: dict, boxes: list[dict], textures: dict) -> list[
         if p is None or not p["button"] or not g or not g.get("visible", True) or g["w"] <= 0:
             continue
         cls = w["class"]
+        # 상태 합성은 이 칸 하나만(instance_key) — 엔진 덮어쓰기와 같게. 클래스 열쇠를 바꾸면 같은 칸을 놓은 다른 버튼까지 바뀌어, 오프라인 재진단에서 버튼 밖이 바뀐
+        # 것처럼 보였다(button_outside 거짓 양성 — HubReady 준비 · 출정 16 건, 3-3 뒤)
         out.append({"id": w["id"], "key": w["id"], "box": _gbox(g), "texts": [t for i, t in cells.text_boxes(spec_state, boxes) if i == w["id"]], "offset": None,
-                    "state": lambda b, cls=cls: (spec_state, {**textures, cells.key(cls): textures[cells.key(cls, b)]})})
+                    "state": lambda b, cls=cls, wid=w["id"]: (spec_state, {**textures, cells.instance_key(wid): textures[cells.key(cls, b)]})})
     return out
 
 

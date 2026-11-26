@@ -42,6 +42,7 @@ description: AstralBreak UI 자동 생성 파이프라인(Tools/uigen)을 돌리
 - 켜고 끄는 그림이 **불투명한 띠 위**에 있으면 flag 에 `over: <바탕 위젯>`(안 적으면 껐을 때 네모 구멍). 긴 값이 오는 글자는 `overflow: ellipsis` + `text_box` + `long_sample` 셋을 같이, 왼쪽 · 오른쪽 정렬로만.
 - 해상도가 바뀌어도 같이 움직일 묶음은 `anchor_regions {box, anchor}`.
 - **칸을 다시 승격하면 그 칸을 쓰는 화면을 다시 돌린다** — `promote_screen.py plan · status` 가 쓰는 화면을 보여 주고, 옛 칸으로 검증한 run 은 `CELL_CHANGED` 로 승격이 거절된다.
+- **게임 연결(Phase 3-4)은 사람 소유 스텁에 쓴다** — 원천 통지 → setter, 버튼 → 서버 요청만. 스텁은 에디터 렌더에서 아무것도 하지 않아야 승격 `record` · `status` 의 그림이 그대로다(`HubReady` 25/25). 스텁만 고치면 계약 해시는 그대로라 화면을 다시 돌릴 일이 없다. 엔진 함정은 `ue-umg-authoring` '게임에 연결한 조작 화면'.
 
 - 종료 코드 0 통과 · 1 실패 · 2 미완(`--until`)(`make_screen.py` 는 4 = 고르기를 기다림). 한 번에 run 하나(`work/.lock`).
 - `--until analyze` 는 에디터 없이 spec 까지, `--inject-fault …` 는 재시도 경로 시험, `--fix-mode deterministic` 은 LLM fix 없이.

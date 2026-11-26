@@ -242,7 +242,9 @@ def compose(spec: dict, boxes: list[dict], textures: dict, canvas, background=GR
             lays = [(lay, (0, 0))] if (lay := _brush_layer(st.get("normal"), bw, bh, textures, missing, w["id"])) is not None else []
         elif t == "UserWidget":                        # Phase 3-2 — 놓인 칸: 그 칸을 합성한 그림 한 장(gen/cells.attach 가 textures 에 넣는다)
             from gen import cells
-            cell = textures.get(cells.key(str(w.get("class") or "")))
+            cell = textures.get(cells.instance_key(w["id"]))          # 그 칸 하나만 바꾼 그림(상태 합성)이 먼저
+            if cell is None:
+                cell = textures.get(cells.key(str(w.get("class") or "")))
             if cell is None:
                 missing.append({"widget": w["id"], "asset": w.get("class")})
             lays = [(_resize(cell, bw, bh), (0, 0))] if cell is not None and bw > 0 and bh > 0 else []

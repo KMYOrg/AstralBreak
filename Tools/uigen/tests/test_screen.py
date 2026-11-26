@@ -566,6 +566,46 @@ def test_wrong_long_text_leaves_its_box_touches_or_proves_nothing():
     assert screen_check.long_texts({"Name": "x"}, spec, boxes, [320, 64], S, base)["texts"] == []          # 엔진 없음 — 못 본다
 
 
+def _screen_run(tmp_path):
+    """진단 run 하나(test_state_check._diag_run) + 긴 글자 표본(Warn)."""
+    from test_state_check import _diag_run
+    rd = _diag_run(tmp_path)
+    (rd / "brief.json").write_text(json.dumps({"dynamic_data": [{"widget": "Warn", "long_sample": "아주 긴 경고 문구"}]}), encoding="utf-8")
+    return rd
+
+
+def test_a_failed_concept_render_does_not_pass_marks_or_long_texts(tmp_path, monkeypatch):
+    """verify 인데 컨셉 상태 렌더부터 못 그림 — 버튼처럼 표시 · 긴 글자도 오류(3-3 뒤 빈틈: 표시는 합성끼리 견줘 통과, 긴 글자는 '못 봄'으로 0 건이었다)."""
+    rd = _screen_run(tmp_path)
+    monkeypatch.setattr(screen_check, "load_extra", lambda _rd: {"marks": [{"widget": "Plate", "box": [0, 0, 8, 8]}], "long": {"Warn": "아주 긴 경고 문구"}})
+    monkeypatch.setattr(screen_check, "mark_states", lambda *a, **k: {"marks": [{"widget": "Plate"}], "findings": [], "images": {}, "renderer": "composite"})
+
+    def boom(*_a, **_k):
+        raise RuntimeError("editor gone")
+    rec = dg.diagnose(rd, None, {"appearance": {"state_checks": "error"}}, pictures=False, render_state=boom)
+    got = {(d["check"], tuple(d["widgets"])) for d in rec["defects"] if str(d.get("check")).endswith("_render")}
+    assert got == {("mark_render", ("Plate",)), ("long_render", ("Warn",))} and not dg.gate(rec)["pass"]
+    assert all("editor gone" in d["cause"] for d in rec["defects"] if str(d.get("check")).endswith("_render"))
+    off = dg.diagnose(rd, None, {"appearance": {"state_checks": "error"}}, pictures=False)              # 오프라인은 엔진을 기대하지 않는다
+    assert not any(str(d.get("check")).endswith("_render") for d in off["defects"])
+    assert dg.engine_unseen(True, None, (10, 10), buttons=[], marks=[], longs=[]) == []                  # 볼 것이 없으면 오류도 없다
+
+
+def test_long_texts_are_checked_even_when_the_text_trace_breaks(tmp_path, monkeypatch):
+    """긴 글자는 S4(글자 밑 흔적)와 따로 — S4 가 깨져도 건너뛰지 않고, 긴 글자 검사 자체가 깨지면 오류."""
+    from test_verify_speed import _engine
+
+    from gen import state_check
+    rd = _screen_run(tmp_path)
+    monkeypatch.setattr(state_check, "text_trace", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("S4 broke")))
+    rec = dg.diagnose(rd, None, {"appearance": {"state_checks": "error"}}, pictures=False, render_state=_engine(rd, tmp_path / "e1"))
+    sc = rec["state_checks"]
+    assert "S4 broke" in sc["text_trace_error"] and sc["long_texts"]["renderer"] == "engine" and [t["widget"] for t in sc["long_texts"]["texts"]] == ["Warn"]
+    monkeypatch.setattr(screen_check, "long_texts", lambda *a, **k: (_ for _ in ()).throw(ValueError("bad")))
+    rec = dg.diagnose(rd, None, {"appearance": {"state_checks": "error"}}, pictures=False, render_state=_engine(rd, tmp_path / "e2"))
+    assert [d["widgets"] for d in rec["defects"] if d.get("check") == "long_render"] == [["Warn"]] and not dg.gate(rec)["pass"]
+
+
 def test_state_requests_lists_the_mark_and_long_states(tmp_path):
     extra = {"marks": [{"widget": "Mark"}], "long": {"Name": "긴 글"}}
     r = screen_check.requests(extra, {"H": {"visible": True}})

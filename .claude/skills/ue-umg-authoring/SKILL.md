@@ -88,6 +88,16 @@ description: AstralBreak UE5.7 에서 UMG 위젯(WBP)을 코드로 만들거나 
 - 키보드 초점은 올림이 아니다 → `UAstralButtonBase` 가 방향키 초점에서 '기본' 브러시를 '올림' 브러시로 갈아 끼운다. 엔진 초점 테두리는 초점 위젯에서 바깥으로 올라가며 처음 답한 `OnQueryShowFocus` 를 따르므로, 버튼 하나만 막으려면 껍데기 위젯이 거짓을 답한다(전역 ini 불필요).
 - 렌더 geometry 에는 칸 안 글자가 `칸/글자` 줄로 있다 — 놓은 화면이 글자를 정하므로(props) 칸 혼자 그린 자리를 쓰지 않는다.
 
+# 게임에 연결한 조작 화면(Phase 3-4)
+
+- **스텁은 에디터 렌더에서 아무것도 하지 않는다**(`!GetOwningPlayer() || !GetWorld()->IsGameWorld()` 면 돌아감) — 원천을 붙이거나 칸을 바꾸면 승격 `record` · `status` 의 그림이 달라져 기록이 깨진다. 게임에서는 놓인 칸의 처음 상태가 컨셉 상태(보기 이름 · 표시 켬)라 첫 갱신이 모든 칸을 정한다(빈 자리는 접기).
+- **클래스 생성자(기본 객체)에서 `FUIActionTag::ConvertChecked` 금지** — 모듈을 올릴 때는 태그 관리자가 'UI.Action' 뿌리를 아직 몰라 맞는 태그도 `check` 에 걸린다 [소스 `UITag.h` `TryConvert`]. 이름만 옮기는 `AstralGameplayTags::MakeUIActionTag`. 런타임(`NativeOnInitialized` 등)의 `ConvertChecked` 는 괜찮다.
+- 여는 키는 맵 GameState 의 `ContextScreens`(루트 레이아웃이 **Game 입력에서만** 묶음), 같은 키로 닫기는 화면 자기 묶음(기본 Menu 입력) — 위에 다른 화면이 있으면 그 키는 아무것도 안 한다.
+- **편집기 다중 창 PIE: 입력 설정이 한 창에만 걸린다** — 라우터는 화면이 켜질 때 초점이 있던 창에서만 설정을 걸고 나중에 초점이 와도 다시 걸지 않는다 [소스 `UIActionRouterTypes.cpp` `ApplyLeafmostNodeConfig` · `IsViewportWindowInFocusPath`]. PIE 시작 때 초점은 마지막에 만든 창뿐이라, 다른 창은 설정이 없는 채(`GetActiveInputMode` = All)이고 Game 전용 묶음(Tab)이 안 먹는다 [실측]. 시험은 그 창에 초점을 준 뒤 루트 레이아웃을 껐다 켠다. 쿠킹 게임에는 없고, 사람 확인은 한 창 PIE · `-game` 으로.
+- **PIE 창이 작으면 화면이 창 밖으로 잘린다** — 짧은 변 480 px 이하에서 화면 배율이 바닥 0.444 에 걸린 채 더 줄지 않아 1920 × 1080 화면의 아래 · 오른쪽 버튼이 창 밖으로 나가고 히트 테스트 · 방향키가 못 닿는다 [실측 568 × 365]. 시험 창은 16:9 960 × 540(배율 0.5).
+- **게임패드 A = 실제 커서 자리의 마우스 클릭** — `CommonUI.ShouldVirtualAcceptSimulateMouseButton` 기본 켜짐, 커서는 초점 버튼 가운데로 옮겨 간다(`CommonAnalogCursor.cpp`). 한 프로세스 다인 PIE 에서 다른 창이 그 자리를 덮으면 그 창이 받는다 — 시험은 덮는 창을 옆으로 옮긴다. 마우스 클릭 시험은 그 자리 창만 히트 테스트(`LocateWindowUnderMouse(위치, {그 창})` → `RoutePointer…Event`)해 겹쳐도 된다.
+- 마우스 클릭 시험: 이동 · 눌림 · 뗌을 **한 틱 안에서** 흘린다(다음 틱에 Slate 가 실제 커서 자리로 이동을 지어내 올림이 풀린다). 꺼진 버튼은 히트 길에서 잘린다(`bIgnoreEnabledStatus=false`) — '가리는 것 없음'은 꺼짐 무시 길로 따로 본다. 빈 길(창 밖 · 안 그려짐)을 '가렸다'로 치지 않는다.
+
 # 시험
 
 - C++ 를 고치면 빌드 둘(DebugGame · Development `-DisableAdaptiveUnity`) + 에디터에서 `WidgetMcp.`(9 개). 게임 모듈도 고쳤으면 `AstralBreak.` 을 **먼저** 돌린다 —

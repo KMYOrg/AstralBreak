@@ -1755,6 +1755,26 @@ def _state_render(render_state, overrides: dict, name: str, shape):
     return img if img is not None and img.shape[:2] == tuple(shape) else None
 
 
+# 엔진 렌더로만 볼 수 있는 상태 검사 — (check, 말) · 합성으로 물러나면 뜻이 없다(버튼 · 표시는 합성끼리 견줘 늘 같고, 긴 글자는 엔진 글꼴이라 아예 못 본다)
+ENGINE_ONLY = {"buttons": ("button_render", "button"), "marks": ("mark_render", "mark"), "longs": ("long_render", "long text")}
+
+
+def engine_unseen(failed: bool, why, canvas_wh, **widgets: list[str]) -> list[dict]:
+    """verify 인데 컨셉 상태 렌더부터 못 그렸을 때(failed) — 엔진으로만 보는 검사마다 E8 하나(그 검사의 위젯 전부). 오프라인(render_state 없음)은 failed=False → [].
+    widgets = {buttons | marks | longs: [위젯]} (Phase 3-3 뒤 — 표시 · 긴 글자가 이 경우 통과로 넘어가던 빈틈)."""
+    if not failed:
+        return []
+    W, H = int(canvas_wh[0]), int(canvas_wh[1])
+    why = str(why or "no picture of the canvas size")[:120]
+    out = []
+    for kind, wids in widgets.items():
+        if wids:
+            check, word = ENGINE_ONLY[kind]
+            out.append({"stage": "state", "code": "E8", "check": check, "box": [0, 0, W, H], "area": W * H, "max_de": None, "mean_de": None, "widgets": list(wids),
+                        "renderer": "composite", "fixable": False, "cause": f"{word} - the concept-state render failed, so it was not seen in the engine: {why}"})
+    return out
+
+
 def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None = None, pictures: bool = True, render_state=None) -> dict:
     """run 폴더(spec · geometry · manifest · render.png · reference*) → 진단 기록(defects · summary · badness …) + 그림(out_dir).
     render_state(overrides) → PNG 경로: 숨은 위젯을 컨셉 상태로 켜고 끈 엔진 렌더(verify — 사람 눈 그림 compare.png 가운데 · E8). 없으면 base.
@@ -2254,19 +2274,13 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
             # 원형 진행(고리 — 전투 HUD 동작 11-23): 0 · 중간 넷 · 100 % — 게이지와 같은 모양이라 그림 · 기록을 같이 싣는다
             rs = state_check.radial_states(spec_state, boxes, textures, canvas, s, base_g, render_pct=rp)
             gs = {**gs, "gauges": gs["gauges"] + rs["gauges"], "findings": gs["findings"] + rs["findings"], "images": {**gs["images"], **rs["images"]}}
-            # 버튼 상태(Phase 3-2) — 엔진 렌더(못 그리면 오류) ↔ 상태 그림을 얹은 합성
-            bs = state_check.button_states(spec_state, boxes, textures, canvas, s, base_g,
-                                           render_state=(lambda name: _state_render(render_state, reqs[name], name, (H, W))) if engine else None)
-            if bs["buttons"] and render_state is not None and not engine:          # 컨셉 상태 렌더부터 못 그렸다 — 합성끼리 견준 것을 통과로 읽지 않게
-                bs["findings"].append({"stage": "state", "code": "E8", "check": "button_render", "box": [0, 0, W, H], "area": W * H, "max_de": None, "mean_de": None,
-                                       "widgets": [b_["widget"] for b_ in bs["buttons"]], "renderer": "composite", "fixable": False,
-                                       "cause": "button - the concept-state render failed, so no button state was seen in the engine: " + str(rec["state"].get("render_error"))[:120]})
-            # 바탕 위 표시 · 긴 글자(Phase 3-3)
+            # 버튼 상태(Phase 3-2) · 바탕 위 표시 · 긴 글자(Phase 3-3) — 엔진 렌더(못 그리면 오류) ↔ 상태 그림을 얹은 합성
             state_img = (lambda name: _state_render(render_state, reqs[name], name, (H, W))) if engine else None
+            bs = state_check.button_states(spec_state, boxes, textures, canvas, s, base_g, render_state=state_img)
             ms = screen_check.mark_states(extra["marks"], spec_state, boxes, textures, canvas, rc, ra, s, base_g, render_state=state_img) if extra["marks"] else None
             lt = None
             # S4 글자 밑 흔적(1b 후속 L 다음 L-1 글자 완전 지우기) — 모든 글자 빈 값 상태(텍스처 합성 · 엔진 text "")와 값 글자를 다른 값으로 그린 엔진 렌더
-            tt, notext_imgs, values_img, group_imgs = None, None, None, {}
+            tt, notext_imgs, values_img, group_imgs, r_nt = None, None, None, {}, None
             try:
                 off_ids: set[str] = set()
                 for r_ in roots:
@@ -2303,15 +2317,24 @@ def diagnose(run_dir, out_dir=None, cfg: dict | None = None, spec: dict | None =
                 if r_nt is not None:
                     notext_imgs["black"] = r_nt
                 values_img = r_val
-                if extra["long"]:
-                    lt = screen_check.long_texts(extra["long"], spec_state, boxes, canvas, s, base_g, render_state=state_img, notext=r_nt)
                 group_imgs = {g_["root"]: {"images": {**g_["images"], **({"black": g_["render"]} if g_["render"] is not None else {})},
                                            "renderer": "engine" if g_["render"] is not None else "composite",
                                            "box": [geo[g_["root"]][k_] for k_ in ("x", "y", "w", "h")] if g_["root"] in geo else None} for g_ in groups}
             except Exception as exc:  # noqa: BLE001 — 검사가 깨지면 기록
                 sc["text_trace_error"] = f"{type(exc).__name__}: {exc}"[:300]
+            # 긴 글자는 S4 와 따로 — S4 가 깨져도 건너뛰지 않고, 이 검사가 깨지면 오류(기록만 남기고 통과하지 않게)
+            if extra["long"]:
+                try:
+                    lt = screen_check.long_texts(extra["long"], spec_state, boxes, canvas, s, base_g, render_state=state_img, notext=r_nt)
+                except Exception as exc:  # noqa: BLE001
+                    lt = {"texts": [], "image": None, "renderer": "engine" if engine else "composite",
+                          "findings": [screen_check._finding("long_render", w_, [0, 0, W, H], 1, f"long text - the check failed ({type(exc).__name__}: {str(exc)[:120]})", "engine")
+                                       for w_ in extra["long"]]}
+            # 컨셉 상태 렌더부터 못 그렸다(verify) — 엔진으로만 보는 검사(버튼 · 표시 · 긴 글자)를 합성끼리 견준 통과나 '못 봄'으로 넘기지 않는다
+            unseen = engine_unseen(render_state is not None and not engine, rec["state"].get("render_error"), (W, H),
+                                   buttons=[b_["widget"] for b_ in bs["buttons"]], marks=[m_["widget"] for m_ in extra["marks"]], longs=list(extra["long"]))
             findings = [{k: v for k, v in f.items() if k != "mask"} for f in ht["findings"] + hh["findings"] + gs["findings"] + bs["findings"] + (tt["findings"] if tt else [])
-                        + (ms["findings"] if ms else []) + (lt["findings"] if lt else [])]
+                        + (ms["findings"] if ms else []) + (lt["findings"] if lt else []) + unseen]
             rec_only = set(s.get("state_record_only") or [])
             # 사용자 결정 ③(11-20) — refine 이 '정답 없음'(근거 기록)으로 표시한 글자 자리 안의 S4 결함은 오류 대신 '정답 없음 — 수동 확인 필요'(다른 결함은 그대로 오류)
             mchecks = manual_checks(rd)

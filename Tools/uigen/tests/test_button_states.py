@@ -342,6 +342,29 @@ def test_a_placed_button_is_checked_under_its_own_name(promoted):
     assert r["findings"][0]["widgets"] == ["Ready"]
 
 
+def test_two_placed_buttons_of_one_cell_change_only_themselves(promoted):
+    """같은 칸을 둘 놓은 화면(HubReady 준비 · 출정) — 한 버튼의 상태 합성은 그 버튼만 바꾼다(엔진 덮어쓰기는 위젯 하나에만). 예전(클래스 열쇠를 바꿈)은
+    다른 버튼까지 바뀌어, 에디터 없는 재진단에서 '버튼 밖이 바뀜'(button_outside)으로 셌다 [실측 HubReady 16 건]."""
+    spec = {"canvas": [600, 200], "root": "Root", "assets": [], "widgets": [{"id": "Root", "type": "CanvasPanel"}]
+            + [{"id": i, "type": "UserWidget", "class": CLS, "parent": "Root", "slot": {"kind": "canvas"}} for i in ("Ready", "Launch")]}
+    boxes = [{"id": "Root", "x": 0, "y": 0, "w": 600, "h": 200, "visible": True},
+             {"id": "Ready", "x": 20, "y": 60, "w": W, "h": H, "visible": True}, {"id": "Launch", "x": 320, "y": 60, "w": W, "h": H, "visible": True}]
+    textures = cells.attach(spec, {})
+    base = backdrop.compose(spec, boxes, textures, [600, 200], (0, 0, 0))[0]
+    targets = {t["id"]: t for t in state_check.button_targets(spec, boxes, textures)}
+    assert set(targets) == {"Ready", "Launch"}
+    for wid, own in (("Ready", boxes[1]), ("Launch", boxes[2])):
+        mine = dg._box_mask((200, 600), [own["x"], own["y"], own["w"], own["h"]])
+        for b in button.DERIVED:
+            sp, tx = targets[wid]["state"](b)
+            diff = np.abs(backdrop.compose(sp, boxes, tx, [600, 200], (0, 0, 0))[0] - base)
+            assert diff[~mine].max() < 1e-6, (wid, b)                                   # 다른 버튼 · 바탕은 그대로
+        sp, tx = targets[wid]["state"]("normal_hovered")
+        assert np.abs(backdrop.compose(sp, boxes, tx, [600, 200], (0, 0, 0))[0] - base)[mine].max() > 1.0     # 그 버튼은 바뀐다
+    r = state_check.button_states(spec, boxes, textures, [600, 200], dg.settings(None), base)          # 오프라인 — 합성끼리
+    assert r["findings"] == [], r["findings"]
+
+
 def test_compare_picture_gets_a_row_per_button_state():
     spec, boxes, tex = scene()
     r, _ = check()

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_215251_HubReady",
+  "parent_run_id": null,
+  "status": "pass",
+  "created": "2026-11-25T21:55:24+09:00",
+  "screen_id": "HubReady",
+  "wbp": "/Game/_AutoGen/R20261125_215251_HubReady/WBP_HubReady",
+  "parent_class": "/Script/AstralBreak.AstralHubReadyWidget",
+  "revision": "sha1:1021a7bf51bb03af8d2297a9801db46d0bf2fee0",
+  "contract_hash": "sha1:aff5efdf5cefab64c6131e035ff3c6d62ee8517c",
+  "spec": {
+    "file": "specs/001.json",
+    "sha256": "90ac64943c436a8fabccf227e4a97f74a618d4e355fbfd4fd112a7fe779fad16"
+  },
+  "attempts": 1,
+  "fault": null,
+  "patches": [],
+  "textures": {
+    "static_plate1": "/Game/_AutoGen/R20261125_215251_HubReady/T_static_plate1",
+    "static_plate2": "/Game/_AutoGen/R20261125_215251_HubReady/T_static_plate2",
+    "static_plate3": "/Game/_AutoGen/R20261125_215251_HubReady/T_static_plate3"
+  },
+  "saved": [
+    "/Game/_AutoGen/R20261125_215251_HubReady/T_static_plate1",
+    "/Game/_AutoGen/R20261125_215251_HubReady/T_static_plate2",
+    "/Game/_AutoGen/R20261125_215251_HubReady/T_static_plate3",
+    "/Game/_AutoGen/R20261125_215251_HubReady/WBP_HubReady"
+  ]
+}

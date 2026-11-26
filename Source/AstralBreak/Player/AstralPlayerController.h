@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "GameModes/AstralLobbyRules.h"
 #include "Player/AstralPlayerLoadout.h"
 #include "AstralPlayerController.generated.h"
 
@@ -9,6 +10,9 @@ class UAstralAbilitySystemComponent;
 class UAstralCombatHUDWidget;
 class UAstralStatusHUDWidget;
 class AAstralPlayerState;
+
+/** 서버가 내 로비 요청을 거절했다 — 이유 */
+DECLARE_MULTICAST_DELEGATE_OneParam(FAstralLobbyDeniedDelegate, EAstralLobbyDenial);
 /**
  *
  */
@@ -39,16 +43,31 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerSetLoadout(FAstralPlayerLoadout InLoadout);
 
+	/*
+	 * 로비 요청 — 판정은 AstralLobby::Check…(화면도 같은 함수로 버튼을 켜고 끈다). 거절하면 경고 로그(문구는 시험이 센다) + ClientLobbyRequestDenied
+	 */
+
+	/** 준비 켜고 끔 — 어느 맵에서나 받는다(AstralLobby::CheckReady). 별도 프로세스 시험은 레이드 맵에서도 이 값을 신호로 쓴다 */
 	UFUNCTION(Server, Reliable)
 	void ServerSetReady(bool bInReady);
 
-	/** 방장만 — 목적지 선택. 게임모드 허용 목록(RaidMapNames)에 있는 이름만 받는다 */
+	/** 방장만 — 목적지 선택. 허브의 목적지 목록(AAstralHubGameState::RaidDestinations)에 있는 이름만 받는다 */
 	UFUNCTION(Server, Reliable)
 	void ServerSelectRaid(const FString& MapName);
 
-	/** 방장만 — 전원 준비 확인 후 ServerTravel */
+	/** 방장만 — 목적지 · 전원 준비 확인 후 ServerTravel */
 	UFUNCTION(Server, Reliable)
 	void ServerStartRaid();
+
+	/** 서버가 로비 요청을 거절했다 — 화면이 이유 한 줄을 잠깐 띄운다(OnLobbyRequestDenied) */
+	UFUNCTION(Client, Reliable)
+	void ClientLobbyRequestDenied(EAstralLobbyDenial Reason);
+
+	/** 거절 통지 — 로컬 컨트롤러에서 난다 */
+	FAstralLobbyDeniedDelegate OnLobbyRequestDenied;
+
+	/** 로비 판정 입력 — 이 월드의 GameState 와 내 PlayerState 로 만든다. 서버 RPC 와 화면이 같은 것을 쓴다(GameState 가 없으면 빈 스냅숏 = 허브 아님 · 명단 없음) */
+	FAstralLobbySnapshot MakeLobbySnapshot(TArray<APlayerState*>* OutMemberStates = nullptr) const;
 
 	/** 방장만 — 허브 복귀 */
 	UFUNCTION(Server, Reliable)

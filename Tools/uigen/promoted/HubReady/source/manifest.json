@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_215251_HubReady",
+  "assets": [
+    {
+      "asset_id": "static_plate1",
+      "kind": "ornament",
+      "file": "assets/final/static_plate1.png",
+      "sha256": "e89dd53dc4016b94ec48a665bcc44b1b719cb32b976ec13f674aa8546952a486",
+      "size": [
+        607,
+        82
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "provided",
+      "backend": "concept_plate",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_215251_HubReady/T_static_plate1",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "static_plate2",
+      "kind": "ornament",
+      "file": "assets/final/static_plate2.png",
+      "sha256": "6f1269e4b68c318c073fc75748e9e12ca6ca53d62b461df4ea36d4eee4a02577",
+      "size": [
+        602,
+        82
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "provided",
+      "backend": "concept_plate",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_215251_HubReady/T_static_plate2",
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "static_plate3",
+      "kind": "ornament",
+      "file": "assets/final/static_plate3.png",
+      "sha256": "78b2493ced0af39bfc7807d6a3a3791b550f3f8395c3223f781a83c76ad05d59",
+      "size": [
+        592,
+        42
+      ],
+      "alpha": true,
+      "nine_slice_margin": null,
+      "ocr_text": "",
+      "ocr": "rapidocr 3.10.0 det PP-OCRv6_det_small — detection boxes with score ≥ 0.7 and area ≥ 60 px",
+      "provenance": "provided",
+      "backend": "concept_plate",
+      "procedural": {},
+      "prompt": null,
+      "anchor": false,
+      "ue_path": "/Game/_AutoGen/R20261125_215251_HubReady/T_static_plate3",
+      "compression": "TC_EditorIcon"
+    }
+  ]
+}

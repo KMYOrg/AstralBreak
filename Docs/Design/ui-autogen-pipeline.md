@@ -549,7 +549,7 @@ claude -p "<단계 지시>"
 | ~~→ 근사 다듬기~~ | **삭제(11-24 조정)** | — | — |
 | **2** | **완료(11-24 — 'Phase 2 결과')** · 정리 · 집계(작게) — run 기록 집계 리포트 · LLM 외형 검토 라운드 끄기 · verify 시간 줄이기 · 스킬 문서 둘(§10-2) | 집계 리포트 1개 · 라운드를 끈 run 이 오류 0 · verify 시간 앞뒤 수치 · 스킬 둘(잠정) | pytest · 정답 묶음 · `regress_set` · 실제 run |
 | **4**(2 다음 — 3 보다 먼저) | **완료(11-25 — 'Phase 4 결과')** · 이어서 고치기 — 지난 run 의 최종 spec 에서 이어 시작(analyze 생략) · 안 바꾼 위젯은 그대로(수정 회귀 게이트) · 재승격 · 되돌리기 · 사람이 고친 WBP 안 덮기. 선택(뒤): 지시 해석 · 주석 스크린샷 → 위젯 매핑 | 승격한 화면 하나를 이어서 고쳐 수정 회귀 게이트 통과 · 재승격 · 되돌리기 1회(잠정) | 실제 run |
-| **3**(4 다음) | **설계 승인(11-25 — 'Phase 3 설계') · 3-1 화면 체계(완료 11-25 — 'Phase 3-1 결과') → 3-2 칸과 버튼(완료 11-25 — 'Phase 3-2 결과', 버튼 칸 둘 승격) → 3-3 화면(완료 11-25 — 'Phase 3-3 결과', 파티 줄 칸 승격 · `HubReady` 눈 확인 통과) → 3-4 게임 연결** · 조작 화면 — 버튼 이벤트 계약 · 버튼 상태 그림(올림 · 누름 · 선택 · 비활성) · 반복 칸(하위 WBP) · 메뉴 프로필 · 긴 글자 처리 · 승격 경로 추가. 첫 대상 = 허브 준비 화면(추천 — 착수 때 확인) + 글 → 컨셉 → run 을 한 명령으로 | 첫 화면 무인 1회 통과 · 게임에서 조작 동작(잠정) | 실제 run · 사람 눈 · 조작감 |
+| **3**(4 다음) | **설계 승인(11-25 — 'Phase 3 설계') · 3-1 화면 체계(완료 11-25 — 'Phase 3-1 결과') → 3-2 칸과 버튼(완료 11-25 — 'Phase 3-2 결과', 버튼 칸 둘 승격) → 3-3 화면(완료 11-25 — 'Phase 3-3 결과', 파티 줄 칸 승격 · `HubReady` 눈 확인 통과) → 3-4 게임 연결(구현 · 자동 시험 완료 11-26 — 'Phase 3-4 결과', `HubReady` 승격 · `AstralBreak.` 65/65 · 별도 프로세스 셋 PASS, 남은 것 = 사람 눈 확인(게임 안) · 조작감)** · 조작 화면 — 버튼 이벤트 계약 · 버튼 상태 그림(올림 · 누름 · 선택 · 비활성) · 반복 칸(하위 WBP) · 메뉴 프로필 · 긴 글자 처리 · 승격 경로 추가. 첫 대상 = 허브 준비 화면(추천 — 착수 때 확인) + 글 → 컨셉 → run 을 한 명령으로 | 첫 화면 무인 1회 통과 · 게임에서 조작 동작(잠정) | 실제 run · 사람 눈 · 조작감 |
 | ~~5~~ | ComfyUI 연결 — **삭제(11-24 조정)** | — | — |
 | ~~6~~ | 지표 기반 라우팅 — **삭제(11-24 조정)** | — | — |
 
@@ -2354,7 +2354,7 @@ run_pipeline.py --from <ScreenId | run_id> --edit <patch.json>
 | **3-1 화면 체계(게임)** | **CommonUI 켜고 위 '안 돌려 본 것'부터** · `UAstralUISubsystem` · `UAstralRootLayout` · `UAstralActivatableWidget` · GameState 의 맵별 목록 · UI 액션 태그(뒤로) · 기존 HUD 둘 옮기기 · 시험용 화면(C++)으로 여닫기 PIE 시험 | 약 1,300 줄 | 기존 시험 새 실패 0(HUD 시험 포함) · 여닫기 시험 통과 · 기존 HUD 눈 확인. 파이프라인 · WidgetMcp 는 안 고침 |
 | **3-2 칸과 버튼(파이프라인)** | `UserWidget` 타입 · `cell` 프로필 · `UAstralButtonBase` · 버튼 스타일 애셋 · 공용 테마 · 상태 그림 · 버튼 상태 렌더 검사 · 승격 경로 · 컨셉 후보(codex ≤ 4) 승인 · 버튼 칸 둘 | 약 2,600 줄(가장 큼) | 버튼 칸 2 개 무인 통과 → 사람 승인 → 승격, 회귀 `+ new` 0. 모자라면 칸(파티 줄 칸으로 검증)과 버튼 사이에서 끊는다 |
 | **3-3 화면**(완료 11-25 — 'Phase 3-3 결과') | action 계약 · 가리는 위젯 · 긴 글자 · 메뉴 프로필 · 한 명령 · 상대 경로 · 파티 줄 칸 · `HubReady` run | 약 1,700 줄 | 칸 · 화면 무인 1회씩 통과, 사람이 `compare.png` 를 봄, 회귀 `+ new` 0 |
-| **3-4 게임 연결** | 규칙 함수 · 통지 · 거절 · 목적지 목록 · 스텁 · 여는 액션 · PIE 시험 · 승격 · 끝 검증 · 결과 절 | 약 1,900 줄 | 게임에서 조작 동작, 눈 확인 · 조작감 → Phase 3 끝 조건 |
+| **3-4 게임 연결**(구현 · 자동 시험 완료 11-26 — 'Phase 3-4 결과') | 규칙 함수 · 통지 · 거절 · 목적지 목록 · 스텁 · 여는 액션 · PIE 시험 · 승격 · 끝 검증 · 결과 절 | 약 1,900 줄 | 게임에서 조작 동작, 눈 확인 · 조작감 → Phase 3 끝 조건 |
 
 - **나눈 근거:** 지난 커밋에서 센 줄 수 — Phase 4 구현(파이썬 1,837 + 시험 1,107)이 한 세션을 꽉 채웠고, StatusHUD 는 도중에 새 세션으로 넘어갔다. 처음의 세 단계는 3-1 이 3,000 줄을 넘고 3-3 이 2,400 줄로 컸다(줄 수는 추정).
 - **3-1 을 앞에 떼어 낸 까닭:** 가장 큰 위험(CommonUI)을 버리는 시험 코드가 아니라 실제로 쓸 구조로 먼저 본다. 나쁘면 파이프라인을 고치기 전에 방향을 바꾼다. 게임 C++ 과 파이프라인을 나눠 깨진 쪽을 가리기 쉽다.
@@ -2521,7 +2521,7 @@ run_pipeline.py --from <ScreenId | run_id> --edit <patch.json>
 
 3-3 인계 = 공유 노트 폴더 `local_86515f5f…/uigen-phase3-3-handoff.md`.
 
-**Phase 3-3 결과 — 화면 (2026-11-25, 하위 세션 · 구현 · 검증 완료 · `HubMemberRow` 승격(사용자 승인) · `HubReady` 눈 확인 통과 · 미커밋)**
+**Phase 3-3 결과 — 화면 (2026-11-25, 하위 세션 · 구현 · 검증 완료 · `HubMemberRow` 승격(사용자 승인) · `HubReady` 눈 확인 통과 · 커밋 `a45cd38`)**
 
 기존 두 HUD 와 버튼 칸 둘의 승격본 · 원천 묶음 · 생성 코드, 허브 맵 · BP · 입력 애셋 · `Config` 는 안 고쳤다. codex 0회. 게임 쪽 새 파일은 `Source/AstralBreak/UI/Screens/` 8개뿐이고 전부 codegen 이 만든 것이다(생성 베이스 둘 · 빈 스텁 둘).
 
@@ -2609,6 +2609,91 @@ run_pipeline.py --from <ScreenId | run_id> --edit <patch.json>
 *정리* — (11-25 사용자 승인 — 휴지통, 44.4 MB) `work/_measure_p33` · 실패한 run 셋 `R20261125_{210820, 210931}_HubMemberRow` · `R20261125_213809_HubReady` · `work/_promoted/HubMemberRow/record_20261125_213641` · `work/_regress/compare_p32_1125_vs_p33_1125` · 세션 스크래치. 정리 뒤 `promote_screen.py status` 다섯 화면 전부 '기록 그대로'. 남긴 것: 승격한 칸 run `211554` 과 3-4 가 승격할 화면 run `215251` 의 `work` · `_AutoGen`, 기준선 `p33_1125`(과 `p32_1125`). 실패한 run 의 측정 수치는 이 글과 코드 주석에만 남는다.
 
 3-4 인계 = 공유 노트 폴더 `local_86515f5f…/uigen-phase3-4-handoff.md`.
+
+**Phase 3-4 결과 — 게임 연결 (2026-11-26, 하위 세션 · 구현 · 자동 시험 완료 · `HubReady` 승격(사용자 승인) · 미커밋 — 사람 눈 확인(게임 안) · 조작감은 아직)**
+
+파이프라인(`Tools/uigen`) · WidgetMcp · 생성 베이스(`UI/Screens/AutoGen/`) · 다른 승격본, 허브 맵 · BP · 입력 애셋은 안 고쳤다. codex 0 · LLM 0. 게임 C++ 약 2,300 줄(시험 1,360 포함).
+
+*사용자가 정한 것 (11-26)*
+
+| 물음 | 답 |
+| :--- | :--- |
+| `HubReady` 승격(`R20261125_215251_HubReady` → `/Game/UI/Screens/HubReady`) | 승인 — `promote_widget` 4 애셋 → 새 에디터에서 `promote_screen.py record`: 왕복 같음 · 그림 25/25 바이트 같음 |
+
+*만든 것*
+
+| 자리 | 내용 |
+| :--- | :--- |
+| 규칙 `GameModes/AstralLobbyRules.*`(새) | `EAstralLobbyDenial{None, NotInHub, NotLeader, RaidNotAllowed, NoRaidSelected, NotAllReady}` · `FAstralRaidDestination{MapName, DisplayName}` · 스냅숏 `FAstralLobbySnapshot`(PlayerArray 그대로 · 요청한 사람 · 허브인가 · 고른 목적지 · 목록) · `AstralLobby::CheckReady / CheckSelect / CheckStart` · `AreAllMembersReady` · `SelectLeaderIndex` · `SelectRowIndices` · `IsRaidAllowed` · 이유 글 두 벌(`GetDenialText` 지금 상태 · `GetRequestDeniedText` 서버 거절) |
+| 명단 거르기 하나 `AstralParty::IsPartyMember` · `SortedMemberIndices` | 봇 · 관전자 · 번호 0 을 뺀다 — 방장 · 동료 줄 · 준비 집계 · 화면 줄이 같은 거르기. `AAstralHubGameState::AreAllPlayersReady` 는 이제 관전자를 세지 않는다(예전: 관전자 하나면 출정 불가) |
+| 스냅숏 | `AAstralGameState::MakeLobbySnapshot`(+ 허브만 채우는 `FillLobbyState`) · `AAstralPlayerController::MakeLobbySnapshot` — 서버 RPC 와 화면이 같은 것을 만든다 |
+| 통지 | `bIsReady` · `SelectedRaid` 를 `ReplicatedUsing` + `OnReadyChanged` · `OnSelectedRaidChanged`(서버 set 에서도 — 값이 바뀔 때만). 폴링 없음 |
+| 거절 | `ClientLobbyRequestDenied(이유)` → `OnLobbyRequestDenied`. 서버 RPC 셋은 규칙 함수의 결과로 갈리고 로그 문구는 그대로 |
+| 목적지 목록 | `AAstralHubGameState::RaidDestinations`(편집 기본값 · 복제 없음 — `RaidMap` / '봉인된 유적'(잠정)). `AAstralGameMode::RaidMapNames` · `IsRaidMapAllowed` 걷음(BP 저장 값 없음 — 바이너리 검색) |
+| 스텁 `UI/Screens/AstralHubReadyWidget.*` | 메뉴 입력 · 첫 초점 = 준비 · 연 키로 닫기(자기 Menu 묶음) · 원천 통지 → 스냅숏 → 규칙으로 네 줄 · 버튼 셋(켜짐 · 선택 · 목적지 글자 `SetButtonText(DisplayName)`) · 이유 한 줄 · 거절 글 `DeniedReasonSeconds`(3초). 에디터 렌더에서는 아무것도 붙이지 않는다 |
+| 스텁 `UI/Screens/AstralHubMemberRowWidget.*` | `ShowMember(이름, 방장, 준비)` · `ShowEmpty()`(접기) |
+| 여닫기 | 태그 `UI.Action.HubReady` + `DefaultInput.ini`(Tab · `Gamepad_Special_Left`) · `AAstralHubGameState` 의 `ContextScreens` 기본값(승격본) · `AstralGameplayTags::MakeUIActionTag` |
+| 시험 | `AstralBreak.Lobby.Rules`(월드 없음) · `AstralBreak.Net.HubReady.{ListenPIE, DedicatedPIE}` · `AstralBreak.Party.SelectLeader` 에 '번호 0' 줄 |
+
+*설계와 다르게 한 것 · 구현하며 정한 것*
+
+1. **`ServerSetReady` 를 허브로 막지 않는다**(설계 ③ '허브에서만'의 정정 — 총괄 설계 세션) — 별도 프로세스 시험이 레이드 · 시험 맵에서 준비를 신호로 쓰고(`raid_clear` · `chain_burst` · `chain_deadline`), 준비 값은 이동 때 넘어가지 않아 막아서 얻는 것도 없다. `CheckReady` 는 지금 늘 `None` 이고 규칙이 생길 자리(로드아웃 등)로 둔다. `NotInHub` 는 고르기 · 출정에만.
+2. **거절 로그는 문구 · 횟수 · 순서 그대로**(방장 아님이 먼저 — `run_party_flow.py` · `AstralPartyFlowPieTests` 가 센다). 다른 점 둘: ① 고르기의 '허브 아님'을 목록 검사 앞에 둔다 — 목록이 허브 GameState 에 있어서다. 허브 안에서는 결과가 같고, 허브 밖에서 방장이 목록 밖 이름을 보낼 때만 예전 '허용 목록에 없는 맵' 대신 'HubGameState 없음'(이 경우를 세는 시험은 없다) ② 출정 때 고른 목적지를 목록과 다시 맞춘다(`RaidNotAllowed` — 이것이 `ServerTravel` 주소다).
+3. **빈 줄은 접는다**(총괄 정정 3) — WBP 처음 상태가 컨셉 상태(초승달 · '준비 완료' · 'Player 1')라 첫 갱신이 네 줄을 다 정한다. 다시 보일 때는 `HitTestInvisible`(메뉴 규칙의 '버튼 아닌 칸'과 같게).
+4. **명단 거르기에 '번호 0' 을 더했다** — 클라이언트에서 막 생긴 PlayerState 는 번호가 0 이라 가장 작은 번호로 잠깐 방장처럼 보였다(동료 규칙은 이미 뺐다). 서버에서는 로그인 도중 한 프레임뿐이다(`InitNewPlayer` → `RegisterPlayer` [소스]).
+5. **이유 한 줄 = 준비 → 고르기 → 출정의 첫 까닭**, 서버 거절은 '거절됨 — {까닭}'으로 지금 상태의 글과 구별한다 — 같은 글이면 '3초 뒤 복귀'를 사람도 시험도 볼 수 없다. 글은 잠정(기획 요소)이고 시험은 함수로 견준다.
+6. **목적지 버튼 = 고른 것이 목록에 있으면 그것, 아니면 목록의 첫째** — 지금 목록이 하나다. 여러 개를 고르는 화면은 M6(퀘스트 · 브리핑).
+7. **클래스 기본 객체에서 `FUIActionTag::ConvertChecked` 를 쓰지 않는다** — 모듈을 올리며 기본 객체를 만들 때는 태그 관리자가 'UI.Action' 뿌리를 아직 몰라 맞는 태그도 `check` 에 걸린다 [소스 `UITag.h` `TryConvert` — 뿌리는 `OnLastChanceToAddNativeTags` 에서]. 이름만 옮기는 `MakeUIActionTag`.
+8. **편집기 다중 창 PIE 함정(시험 쪽에서 받침, 제품 코드 안 고침):** 라우터는 화면이 켜질 때 초점이 있던 창에서만 입력 설정을 걸고 나중에 초점이 와도 다시 걸지 않는다 [소스 `UIActionRouterTypes.cpp` `ApplyLeafmostNodeConfig` · `IsViewportWindowInFocusPath`]. PIE 시작 때 초점은 마지막에 만든 창에만 있어 다른 자리는 설정이 없는 채(`GetActiveInputMode` = All)이고, 게임 입력에서만 묶인 Tab 이 안 먹는다 [실측 — 두 구성 모두 첫 방장 자리]. 시험은 그 자리에 초점을 준 뒤 루트 레이아웃을 껐다 켜 제품의 설정(`GetDesiredInputConfig` = Game)을 다시 걸게 한다(기록 줄 'no input config yet'). 쿠킹 게임에는 이 코드가 없고, 창 하나인 `-game` · 한 창 PIE 는 시작 때 초점이 그 창에 있다(로드 중에 다른 창으로 옮긴 경우는 안 봄).
+9. **PIE 창 크기를 시험이 정한다(16:9 960 × 540 — 배율 0.5)** — 편집기 개인 설정의 창(568 × 365)은 배율이 바닥(0.444)에 걸린 채 창이 더 작아 아래 버튼이 창 밖으로 잘렸고 방향키 내비게이션이 못 닿았다 [실측]. 첫 판의 작은 창(560 × 315)도 같은 까닭으로 버튼이 창 밖이었다.
+10. **게임패드 A 는 실제 커서 자리의 마우스 클릭이다**(`CommonUI.ShouldVirtualAcceptSimulateMouseButton` 기본 켜짐, 커서는 초점 버튼 가운데로 옮겨 간다 [소스 `CommonAnalogCursor.cpp`]) — 한 프로세스 다인 PIE 의 다른 창이 그 자리를 덮으면 클릭이 그 창에 가므로 시험이 덮는 창만 옆으로 옮긴다. 마우스 클릭은 그 자리 창의 히트 테스트만 써서 창이 겹쳐도 된다.
+
+*일부러 틀린 값이 잡히는가 — 쓰기 전에 본 것*
+
+| 틀린 값 | 결과 |
+| :--- | :--- |
+| 버튼 밖 좌표(화면 가운데) | 히트 길이 버튼 셋 어디에도 안 닿음 · 눌러도 누름 0 |
+| 준비 버튼 위에 visible 그림(z 가 위) | 길의 끝 = 그 그림 · 버튼에 안 닿음 · 누름 0 · 서버 준비 그대로. 걷으면 닿는다 |
+| 위 확인의 첫 판 약점 | 작은 창에서 버튼이 창 밖이라 길이 **비어** '가렸다'가 통과해 버렸다 → 덮은 그림이 길에 있어야 통과로 고침 |
+| 방장 아닌 사람의 목적지 · 출정 | 가리는 것 없이 버튼 위인데(꺼짐 무시 길은 닿음) 실제 길은 꺼진 버튼 앞에서 끊김 → 누름 0 · 거절 통지 0 · 서버 로그 0(나오면 `AddExpectedError` 가 실패시킨다) |
+| 목적지 글자를 WBP 값으로 둠 | 그 자리 GameState 목록의 이름을 바꾸면 글자가 따라 바뀐다(WBP 에 구운 '봉인된 유적'이 아님) — 되돌리면 원래대로 |
+| 규칙(`Lobby.Rules`) | 방장 아님이 먼저 · 옵션 주입 · 대소문자 · 빈 이름 · 관전자 · 봇 · 번호 0 이 출정을 막지 않음 · 같은 번호 겹침 · 거절 글 ≠ 상태 글 |
+
+*PIE 시험 `AstralBreak.Net.HubReady.*` (리슨 · Dedicated 각 2인 + 늦은 입장 1, 창 968 × 590 · 배율 0.501)*
+
+| 단계 | 본 것 |
+| :--- | :--- |
+| ① | Tab(뷰포트 → 라우터)으로 열림 · 메뉴 입력 · 커서 · 마우스 안 잡음 · 첫 초점 = 준비 · 눌러 둔 W 가 풀리고 폰이 섬 · 다시 눌러도 게임에 안 감. 처음 그림의 빈 줄 둘이 접힘(`[-][-]`). 버튼 셋이 뷰포트 안 |
+| ② | N 의 준비 클릭(실제 히트 길 · 이동 · 눌림 · 뗌) → 서버 값 → 두 자리의 N 줄 '준비 완료' · N 의 준비 선택 모양 |
+| ③ | 위 표 '방장 아닌 사람' |
+| ④ | 방장의 목적지 클릭 → 두 자리 선택 모양 · 방장 이유 '모두 준비하면…' |
+| ⑤ | 준비 안 한 방장이 서버에 직접 출정 → '거절됨 — 모두 준비하면 출정할 수 있습니다' → **3.00 초** 뒤 지금 상태의 글(두 구성 같음) |
+| ⑥ | `GEditor->RequestLateJoin()` 으로 셋째 → 앞 두 화면에 J 줄 · J 의 화면이 지금 상태(N 준비 · 목적지 선택)를 봄 |
+| ⑦ | (Dedicated) 방장이 `disconnect` → 다음 사람의 목적지 켜짐 · 줄이 당겨지고 빈 줄 접힘 · 이유가 '방장이…' → '모두 준비하면…'. 리슨은 방장 = 호스트라 건너뜀 |
+| ⑧ | 방장 자리 — 게임패드 방향 위(목적지 · 초점 모양) · 아래(준비) · A → 서버 준비가 뒤집힘 · 화면이 따라감 |
+| ⑩ | 위에 다른 화면이 있으면 Tab 은 아무것도 안 닫음 · 뒤로(게임패드 B)는 위 화면만 · 그다음 Tab 이 준비 화면을 닫고 게임 입력으로(같은 누름에 다시 안 열림) · 다시 Tab 으로 열면 지금 상태 |
+| ⑨ | 남은 사람 준비 클릭 → 방장의 출정 켜짐 · 이유 빈 글 → 출정 클릭 → 모든 자리 RaidMap · 새 레이아웃 · 화면 없음 · 메뉴 입력 아님 · 커서 숨김 |
+
+*검증*
+
+| 무엇 | 결과 |
+| :--- | :--- |
+| 빌드 | DebugGame · Development(`-DisableAdaptiveUnity`) 둘 다 `Result: Succeeded`(최종 코드) |
+| `AstralBreak.` 전체(DebugGame, 최종 코드) | **65/65**(약 480초) — 기존 62 새 실패 0 + 새 셋(`Lobby.Rules` · `Net.HubReady.ListenPIE` · `.DedicatedPIE`). 라우터 · EnhancedInput 오류 0, ensure 0 |
+| 별도 프로세스 `run_party_flow.py` | `dedicated` flow PASS(거절 로그 1 · 1 · 1 · 2 · 1, 시임리스 4) · `dedicated --scenario leader_leaves` PASS · `listen --scenario chain_burst` PASS(레이드 맵 준비 신호 · 거절 로그 0) |
+| 승격 | `promote_screen.py status` — 여섯 화면 전부 '기록 그대로'. `HubReady` 칸 셋 '검증한 그대로', 버튼 칸 · 파티 줄 칸의 '쓰는 화면'에 `HubReady` |
+| pytest · `golden.py` · `regress_set` · `WidgetMcp.` | 안 돌림 — 파이썬 · WidgetMcp 를 안 고쳤다. 스텁은 에디터 렌더에서 아무것도 안 해 승격 `record` 그림이 25/25 바이트 같다 |
+
+*안 돌린 것 · 못 본 것*
+
+- **사람 눈(게임 안의 화면) · 조작감** — Phase 3 끝 조건의 남은 몫. PIE 에서 Esc 는 PIE 정지라(라우터가 일부러 통과) 닫기는 Tab · 게임패드 B 로, Esc 와 화면의 'Esc 닫기' 안내까지 보려면 `-game`.
+- 실물 마우스 · 게임패드 · 키보드(시험은 Slate 길에 넣은 이벤트), OS 의 창 겹침 순서(시험은 그 자리 창의 히트 테스트), 화면 배율이 바뀜 · 4인 화면, 쿠킹 빌드, Development 구성 실행.
+- 리슨의 방장 이탈(호스트), 화면을 연 채 이동(3-1 의 U8 이 일반 화면으로 봄), 목적지가 둘 이상인 목록(M6).
+- 편집기 다중 창 PIE 에서 사람이 손으로 열 때 — 위 8 의 함정 때문에 초점 없이 시작한 창은 Tab 이 안 먹을 수 있다(한 창 PIE · `-game` 으로 볼 것).
+
+*정리* — (11-26 사용자 승인 — 휴지통, 약 12 MB) 세션이 끊길 때 남은 쓰기 임시 파일 `GameModes/AstralGameState.cpp.tmp.*`(내용은 원본에 반영) · 스크래치 `uigen_p34` · `Tools/mcp/results/net_test/1126_*` 셋 · `work/_promoted/HubReady/record_20261126_093326`. 정리 뒤 `promote_screen.py status` 여섯 화면 전부 '기록 그대로'. 남긴 것: 승격한 run `R20261125_215251_HubReady` · `R20261125_211554_HubMemberRow` 의 `work` · `_AutoGen`, 기준선 `p33_1125`.
+
+다음 = 사람 눈 확인 · 조작감(Phase 3 끝 조건). 인계 = 공유 노트 폴더 `local_86515f5f…/uigen-phase3-4-result.md`.
 
 - M4 단위 E(4인 별도 프로세스 시험)는 UI 와 무관해 에디터가 비는 때 아무 때나. 단위 D(오의 애니)는 별개.
 - 감안할 점: M4 C 의 화면은 Phase 0 ~ 1b 가 끝나야 완성된다. 그동안 HUD 는 디버그 위젯이다.

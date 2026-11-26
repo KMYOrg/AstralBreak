@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_215251_HubReady",
+  "screen": "HubReady",
+  "class": "/Script/AstralBreak.AstralHubReadyWidget",
+  "contract_hash": "sha1:aff5efdf5cefab64c6131e035ff3c6d62ee8517c",
+  "previous_hash": "sha1:aff5efdf5cefab64c6131e035ff3c6d62ee8517c",
+  "contract": {
+    "schema_version": 1,
+    "generator": "1:49a7a94ed467+a088c62e72cf",
+    "module": "AstralBreak",
+    "api": "ASTRALBREAK_API",
+    "ui_dir": "UI",
+    "screen": "HubReady",
+    "feature": "Screens",
+    "view_base": "AstralHubReadyViewBase",
+    "widget": "AstralHubReadyWidget",
+    "bindings": [
+      {
+        "name": "DestinationButton",
+        "widget_class": "AstralButtonBase",
+        "data": "destination",
+        "kind": "action",
+        "optional": false,
+        "cell": "ButtonLarge",
+        "include": "UI/Foundation/AstralButtonBase.h",
+        "selectable": true,
+        "setter": "SetDestinationEnabled"
+      },
+      {
+        "name": "LaunchButton",
+        "widget_class": "AstralButtonBase",
+        "data": "launch",
+        "kind": "action",
+        "optional": false,
+        "cell": "ButtonSmall",
+        "include": "UI/Foundation/AstralButtonBase.h",
+        "selectable": false,
+        "setter": "SetLaunchEnabled"
+      },
+      {
+        "name": "MemberRow1",
+        "widget_class": "AstralHubMemberRowWidget",
+        "data": "member1_row",
+        "kind": "cell",
+        "optional": false,
+        "cell": "HubMemberRow",
+        "include": "UI/Screens/AstralHubMemberRowWidget.h",
+        "setter": null
+      },
+      {
+        "name": "MemberRow2",
+        "widget_class": "AstralHubMemberRowWidget",
+        "data": "member2_row",
+        "kind": "cell",
+        "optional": false,
+        "cell": "HubMemberRow",
+        "include": "UI/Screens/AstralHubMemberRowWidget.h",
+        "setter": null
+      },
+      {
+        "name": "MemberRow3",
+        "widget_class": "AstralHubMemberRowWidget",
+        "data": "member3_row",
+        "kind": "cell",
+        "optional": false,
+        "cell": "HubMemberRow",
+        "include": "UI/Screens/AstralHubMemberRowWidget.h",
+        "setter": null
+      },
+      {
+        "name": "MemberRow4",
+        "widget_class": "AstralHubMemberRowWidget",
+        "data": "member4_row",
+        "kind": "cell",
+        "optional": false,
+        "cell": "HubMemberRow",
+        "include": "UI/Screens/AstralHubMemberRowWidget.h",
+        "setter": null
+      },
+      {
+        "name": "ReadyButton",
+        "widget_class": "AstralButtonBase",
+        "data": "ready",
+        "kind": "action",
+        "optional": false,
+        "cell": "ButtonSmall",
+        "include": "UI/Foundation/AstralButtonBase.h",
+        "selectable": true,
+        "setter": "SetReadyEnabled"
+      },
+      {
+        "name": "ReasonText",
+        "widget_class": "TextBlock",
+        "data": "reason",
+        "kind": "text",
+        "optional": false,
+        "setter": "SetReason"
+      }
+    ],
+    "base": {
+      "class": "AstralActivatableWidget",
+      "include": "UI/Foundation/AstralActivatableWidget.h"
+    }
+  },
+  "changes": {
+    "added": [],
+    "demoted": [],
+    "changed": [],
+    "restored": []
+  },
+  "skipped": true,
+  "reason": "contract_unchanged",
+  "files": [
+    {
+      "role": "view_base_h",
+      "path": "Source/AstralBreak/UI/Screens/AutoGen/AstralHubReadyViewBase.h",
+      "action": "unchanged",
+      "sha256": "300ac536d8d4b527b04b1d5b803293d5f5395fd4a5618f2dda80a6741ab029ac"
+    },
+    {
+      "role": "view_base_cpp",
+      "path": "Source/AstralBreak/UI/Screens/AutoGen/AstralHubReadyViewBase.cpp",
+      "action": "unchanged",
+      "sha256": "ca093f21275619fa506e677a3d48bd2c174c63ac30b1f7adc473c0f275d6a01e"
+    },
+    {
+      "role": "widget_h",
+      "path": "Source/AstralBreak/UI/Screens/AstralHubReadyWidget.h",
+      "action": "unchanged",
+      "sha256": "279f242968e399be42fdc4de593f70c7fb0fc0d1db77c5c4375166f41e73bdcf"
+    },
+    {
+      "role": "widget_cpp",
+      "path": "Source/AstralBreak/UI/Screens/AstralHubReadyWidget.cpp",
+      "action": "unchanged",
+      "sha256": "f2328af66e11c628ed4565163e40e38a27c625a6126a043c0c67eeaf480f5603"
+    }
+  ],
+  "editor": {
+    "was_running": true
+  },
+  "build": {
+    "ran": false
+  },
+  "verify": {
+    "class": "/Script/AstralBreak.AstralHubReadyWidget",
+    "bindings": [
+      {
+        "name": "DestinationButton",
+        "widget_class": "AstralButtonBase",
+        "widget_class_path": "/Script/AstralBreak.AstralButtonBase",
+        "optional": false
+      },
+      {
+        "name": "LaunchButton",
+        "widget_class": "AstralButtonBase",
+        "widget_class_path": "/Script/AstralBreak.AstralButtonBase",
+        "optional": false
+      },
+      {
+        "name": "MemberRow1",
+        "widget_class": "AstralHubMemberRowWidget",
+        "widget_class_path": "/Script/AstralBreak.AstralHubMemberRowWidget",
+        "optional": false
+      },
+      {
+        "name": "MemberRow2",
+        "widget_class": "AstralHubMemberRowWidget",
+        "widget_class_path": "/Script/AstralBreak.AstralHubMemberRowWidget",
+        "optional": false
+      },
+      {
+        "name": "MemberRow3",
+        "widget_class": "AstralHubMemberRowWidget",
+        "widget_class_path": "/Script/AstralBreak.AstralHubMemberRowWidget",
+        "optional": false
+      },
+      {
+        "name": "MemberRow4",
+        "widget_class": "AstralHubMemberRowWidget",
+        "widget_class_path": "/Script/AstralBreak.AstralHubMemberRowWidget",
+        "optional": false
+      },
+      {
+        "name": "ReadyButton",
+        "widget_class": "AstralButtonBase",
+        "widget_class_path": "/Script/AstralBreak.AstralButtonBase",
+        "optional": false
+      },
+      {
+        "name": "ReasonText",
+        "widget_class": "TextBlock",
+        "widget_class_path": "/Script/UMG.TextBlock",
+        "optional": false
+      }
+    ],
+    "match": true,
+    "diff": []
+  },
+  "restored": [],
+  "started": "2026-11-25T21:53:32+09:00",
+  "durations_s": {
+    "codegen": 0.858
+  },
+  "finished": "2026-11-25T21:53:33+09:00"
+}

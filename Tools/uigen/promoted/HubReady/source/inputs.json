@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "mode": "concept",
+  "screen_type": "menu",
+  "screen_id": "HubReady",
+  "concept": "concept.png",
+  "concept_source": "generated_textfree",
+  "concept_text_ref": "concept_text_ref.png",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "language": "ko",
+  "font": null,
+  "text": "허브 준비 화면 — 왼쪽: '출정 준비' 제목 띠와 파티 네 줄(칸). 오른쪽: '목적지' 제목 띠, 큰 목적지 버튼(칸), 아래쪽에 이유 한 줄 띠와 작은 버튼 둘(칸 — 준비 · 출정), 그 아래 닫기 안내. 화면 가운데는 비어 있어 게임이 보인다.",
+  "required_elements": [
+    {
+      "id": "TitleBand",
+      "kind": "image",
+      "desc": "왼쪽 위 제목 띠 그림(아래 강철 선 포함)"
+    },
+    {
+      "id": "TitleText",
+      "kind": "text",
+      "desc": "'출정 준비' — 제목 띠 안 왼쪽"
+    },
+    {
+      "id": "DestinationBand",
+      "kind": "image",
+      "desc": "오른쪽 위 제목 띠 그림(아래 강철 선 포함)"
+    },
+    {
+      "id": "DestinationTitleText",
+      "kind": "text",
+      "desc": "'목적지' — 오른쪽 제목 띠 안 왼쪽"
+    },
+    {
+      "id": "MessageBand",
+      "kind": "image",
+      "desc": "오른쪽 아래 얇은 이유 띠 그림(양 끝이 옅어진다)"
+    },
+    {
+      "id": "ReasonText",
+      "kind": "text",
+      "desc": "이유 한 줄 — 얇은 띠 안, 왼쪽 정렬"
+    },
+    {
+      "id": "CloseHintText",
+      "kind": "text",
+      "desc": "닫기 안내 — 작은 버튼 둘 아래 오른쪽 끝, 띠 없음"
+    }
+  ],
+  "data": [
+    {
+      "id": "reason",
+      "type": "text",
+      "widget": "ReasonText",
+      "widget_type": "TextBlock",
+      "sample": "파티장이 목적지를 고르는 중",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "overflow": "ellipsis",
+      "text_box": [
+        1300,
+        824,
+        516,
+        34
+      ],
+      "long_sample": "아직 준비하지 않은 파티원이 있어 출정할 수 없습니다 — 모두 준비를 마친 뒤 파티장이 목적지를 골라 다시 시도해 주세요",
+      "desc": "one line that says why the buttons are off, left aligned in the thin band"
+    }
+  ],
+  "cells": [
+    {
+      "id": "member1_row",
+      "type": "cell",
+      "widget": "MemberRow1",
+      "cell": "HubMemberRow",
+      "at": [
+        56,
+        295
+      ],
+      "desc": "파티 1번 줄"
+    },
+    {
+      "id": "member2_row",
+      "type": "cell",
+      "widget": "MemberRow2",
+      "cell": "HubMemberRow",
+      "at": [
+        56,
+        395
+      ],
+      "desc": "파티 2번 줄"
+    },
+    {
+      "id": "member3_row",
+      "type": "cell",
+      "widget": "MemberRow3",
+      "cell": "HubMemberRow",
+      "at": [
+        56,
+        495
+      ],
+      "desc": "파티 3번 줄"
+    },
+    {
+      "id": "member4_row",
+      "type": "cell",
+      "widget": "MemberRow4",
+      "cell": "HubMemberRow",
+      "at": [
+        56,
+        595
+      ],
+      "desc": "파티 4번 줄"
+    },
+    {
+      "id": "destination",
+      "type": "action",
+      "widget": "DestinationButton",
+      "cell": "ButtonLarge",
+      "at": [
+        1261,
+        293
+      ],
+      "text": "봉인된 유적",
+      "selectable": true,
+      "desc": "목적지(방장만) — 선택 모양 = 골라짐"
+    },
+    {
+      "id": "ready",
+      "type": "action",
+      "widget": "ReadyButton",
+      "cell": "ButtonSmall",
+      "at": [
+        1261,
+        908
+      ],
+      "text": "준비",
+      "selectable": true,
+      "desc": "내 준비 켜고 끔 — 선택 모양 = 내가 준비됨"
+    },
+    {
+      "id": "launch",
+      "type": "action",
+      "widget": "LaunchButton",
+      "cell": "ButtonSmall",
+      "at": [
+        1569,
+        908
+      ],
+      "text": "출정",
+      "desc": "출정(방장만)"
+    }
+  ],
+  "anchor_regions": [
+    {
+      "box": [
+        0,
+        0,
+        960,
+        1080
+      ],
+      "anchor": [
+        0,
+        0.5
+      ]
+    },
+    {
+      "box": [
+        960,
+        0,
+        960,
+        1080
+      ],
+      "anchor": [
+        1,
+        0.5
+      ]
+    }
+  ],
+  "static_text": [
+    {
+      "widget": "TitleText",
+      "value": "출정 준비",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "desc": "title at the left side of the first title band"
+    },
+    {
+      "widget": "DestinationTitleText",
+      "value": "목적지",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "desc": "title at the left side of the second title band"
+    },
+    {
+      "widget": "CloseHintText",
+      "value": "Esc  닫기",
+      "outline": {
+        "size": 2,
+        "color": "#0C0C0EDC"
+      },
+      "desc": "small hint under the two small buttons, right aligned"
+    }
+  ],
+  "style_keywords": [
+    "modern flat HUD",
+    "matte ink-black",
+    "bone-white steel blades",
+    "pale ivory accent",
+    "realistic 3D action"
+  ]
+}

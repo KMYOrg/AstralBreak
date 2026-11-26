@@ -1,0 +1,804 @@
+{
+  "schema_version": 1,
+  "canvas": [
+    1920,
+    1080
+  ],
+  "profile": "menu",
+  "root": "Root",
+  "note": "No game scene: the background is transparent and everything visible is UI. The four member rows and three buttons are placed cells and were left out; the two title bands, the reason band and all texts are UI.",
+  "widgets": [
+    {
+      "id": "Root",
+      "type": "CanvasPanel"
+    },
+    {
+      "id": "StaticPlate1",
+      "type": "Image",
+      "parent": "Root",
+      "bbox_intent": [
+        58.0,
+        157.0,
+        607.0,
+        82.0
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.0,
+          0.5,
+          0.0,
+          0.5
+        ],
+        "alignment": [
+          0.0,
+          0.5
+        ],
+        "position": [
+          58.0,
+          -342.0
+        ],
+        "size": [
+          607.0,
+          82.0
+        ],
+        "z": 1
+      },
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "static_plate1"
+        }
+      }
+    },
+    {
+      "id": "StaticPlate2",
+      "type": "Image",
+      "parent": "Root",
+      "bbox_intent": [
+        1256.0,
+        157.0,
+        602.0,
+        82.0
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          1.0,
+          0.5,
+          1.0,
+          0.5
+        ],
+        "alignment": [
+          1.0,
+          0.5
+        ],
+        "position": [
+          -62.0,
+          -342.0
+        ],
+        "size": [
+          602.0,
+          82.0
+        ],
+        "z": 1
+      },
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "static_plate2"
+        }
+      }
+    },
+    {
+      "id": "StaticPlate3",
+      "type": "Image",
+      "parent": "Root",
+      "bbox_intent": [
+        1262.0,
+        820.0,
+        592.0,
+        42.0
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          1.0,
+          0.5,
+          1.0,
+          0.5
+        ],
+        "alignment": [
+          1.0,
+          0.5
+        ],
+        "position": [
+          -66.0,
+          301.0
+        ],
+        "size": [
+          592.0,
+          42.0
+        ],
+        "z": 1
+      },
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "static_plate3"
+        }
+      }
+    },
+    {
+      "id": "TitleArea",
+      "type": "Overlay",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.0,
+          0.5,
+          0.0,
+          0.5
+        ],
+        "alignment": [
+          0.0,
+          0.5
+        ],
+        "position": [
+          56.0,
+          -342.0
+        ],
+        "size": [
+          610.0,
+          84.0
+        ],
+        "z": 1
+      },
+      "bbox_intent": [
+        56,
+        156,
+        610,
+        84
+      ]
+    },
+    {
+      "id": "TitleBand",
+      "type": "Image",
+      "parent": "TitleArea",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        56,
+        156,
+        610,
+        84
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "none"
+        }
+      }
+    },
+    {
+      "id": "TitleText",
+      "type": "TextBlock",
+      "parent": "TitleArea",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          46,
+          19,
+          -2,
+          -2
+        ],
+        "h_align": "left",
+        "v_align": "top"
+      },
+      "bbox_intent": [
+        102.0,
+        175.0,
+        122.0,
+        43.0
+      ],
+      "text": {
+        "source": "static",
+        "value": "출정 준비"
+      },
+      "font": {
+        "size": 24,
+        "weight": "semibold",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "left"
+    },
+    {
+      "id": "DestinationArea",
+      "type": "Overlay",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          1.0,
+          0.5,
+          1.0,
+          0.5
+        ],
+        "alignment": [
+          1.0,
+          0.5
+        ],
+        "position": [
+          -62.0,
+          -342.0
+        ],
+        "size": [
+          602.0,
+          84.0
+        ],
+        "z": 1
+      },
+      "bbox_intent": [
+        1256,
+        156,
+        602,
+        84
+      ]
+    },
+    {
+      "id": "DestinationBand",
+      "type": "Image",
+      "parent": "DestinationArea",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        1256,
+        156,
+        602,
+        84
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "none"
+        }
+      }
+    },
+    {
+      "id": "DestinationTitleText",
+      "type": "TextBlock",
+      "parent": "DestinationArea",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          44,
+          19,
+          -2,
+          -2
+        ],
+        "h_align": "left",
+        "v_align": "top"
+      },
+      "bbox_intent": [
+        1300.0,
+        175.0,
+        88.0,
+        43.0
+      ],
+      "text": {
+        "source": "static",
+        "value": "목적지"
+      },
+      "font": {
+        "size": 24,
+        "weight": "semibold",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "left"
+    },
+    {
+      "id": "MessageArea",
+      "type": "Overlay",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          1.0,
+          0.5,
+          1.0,
+          0.5
+        ],
+        "alignment": [
+          1.0,
+          0.5
+        ],
+        "position": [
+          -62.0,
+          301.0
+        ],
+        "size": [
+          600.0,
+          46.0
+        ],
+        "z": 1
+      },
+      "bbox_intent": [
+        1258,
+        818,
+        600,
+        46
+      ]
+    },
+    {
+      "id": "MessageBand",
+      "type": "Image",
+      "parent": "MessageArea",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "h_align": "fill",
+        "v_align": "fill"
+      },
+      "bbox_intent": [
+        1258,
+        818,
+        600,
+        46
+      ],
+      "style": {
+        "brush": {
+          "draw_as": "none"
+        }
+      }
+    },
+    {
+      "id": "ReasonText",
+      "type": "TextBlock",
+      "parent": "MessageArea",
+      "slot": {
+        "kind": "overlay",
+        "padding": [
+          42.0,
+          0.0,
+          42.0,
+          0.0
+        ],
+        "h_align": "fill",
+        "v_align": "center"
+      },
+      "bbox_intent": [
+        1300.0,
+        826.8,
+        516.0,
+        28.4
+      ],
+      "font": {
+        "size": 15,
+        "weight": "medium",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "left",
+      "binding": {
+        "data": "reason",
+        "kind": "text"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "reason",
+        "sample": "파티장이 목적지를 고르는 중"
+      },
+      "overflow": "ellipsis"
+    },
+    {
+      "id": "CloseHintText",
+      "type": "TextBlock",
+      "parent": "Root",
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          1.0,
+          0.5,
+          1.0,
+          0.5
+        ],
+        "alignment": [
+          1.0,
+          0.5
+        ],
+        "position": [
+          -65.0,
+          495.5
+        ],
+        "size": [
+          77.0,
+          27.0
+        ],
+        "z": 1
+      },
+      "bbox_intent": [
+        1778.0,
+        1022.0,
+        77.0,
+        27.0
+      ],
+      "text": {
+        "source": "static",
+        "value": "Esc  닫기"
+      },
+      "font": {
+        "size": 14,
+        "weight": "medium",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "justification": "right"
+    },
+    {
+      "id": "MemberRow1",
+      "type": "UserWidget",
+      "class": "/Game/UI/Screens/HubMemberRow/WBP_HubMemberRow",
+      "parent": "Root",
+      "bbox_intent": [
+        56.0,
+        295.0,
+        610.0,
+        82.0
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.0,
+          0.5,
+          0.0,
+          0.5
+        ],
+        "alignment": [
+          0.0,
+          0.5
+        ],
+        "position": [
+          56.0,
+          -204.0
+        ],
+        "size": [
+          610.0,
+          82.0
+        ],
+        "z": 10
+      },
+      "binding": {
+        "data": "member1_row",
+        "kind": "cell"
+      }
+    },
+    {
+      "id": "MemberRow2",
+      "type": "UserWidget",
+      "class": "/Game/UI/Screens/HubMemberRow/WBP_HubMemberRow",
+      "parent": "Root",
+      "bbox_intent": [
+        56.0,
+        395.0,
+        610.0,
+        82.0
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.0,
+          0.5,
+          0.0,
+          0.5
+        ],
+        "alignment": [
+          0.0,
+          0.5
+        ],
+        "position": [
+          56.0,
+          -104.0
+        ],
+        "size": [
+          610.0,
+          82.0
+        ],
+        "z": 10
+      },
+      "binding": {
+        "data": "member2_row",
+        "kind": "cell"
+      }
+    },
+    {
+      "id": "MemberRow3",
+      "type": "UserWidget",
+      "class": "/Game/UI/Screens/HubMemberRow/WBP_HubMemberRow",
+      "parent": "Root",
+      "bbox_intent": [
+        56.0,
+        495.0,
+        610.0,
+        82.0
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.0,
+          0.5,
+          0.0,
+          0.5
+        ],
+        "alignment": [
+          0.0,
+          0.5
+        ],
+        "position": [
+          56.0,
+          -4.0
+        ],
+        "size": [
+          610.0,
+          82.0
+        ],
+        "z": 10
+      },
+      "binding": {
+        "data": "member3_row",
+        "kind": "cell"
+      }
+    },
+    {
+      "id": "MemberRow4",
+      "type": "UserWidget",
+      "class": "/Game/UI/Screens/HubMemberRow/WBP_HubMemberRow",
+      "parent": "Root",
+      "bbox_intent": [
+        56.0,
+        595.0,
+        610.0,
+        82.0
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.0,
+          0.5,
+          0.0,
+          0.5
+        ],
+        "alignment": [
+          0.0,
+          0.5
+        ],
+        "position": [
+          56.0,
+          96.0
+        ],
+        "size": [
+          610.0,
+          82.0
+        ],
+        "z": 10
+      },
+      "binding": {
+        "data": "member4_row",
+        "kind": "cell"
+      }
+    },
+    {
+      "id": "DestinationButton",
+      "type": "UserWidget",
+      "class": "/Game/UI/Common/ButtonLarge/WBP_ButtonLarge",
+      "parent": "Root",
+      "bbox_intent": [
+        1261.0,
+        293.0,
+        596.0,
+        132.0
+      ],
+      "props": {
+        "ButtonText": "봉인된 유적"
+      },
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          1.0,
+          0.5,
+          1.0,
+          0.5
+        ],
+        "alignment": [
+          1.0,
+          0.5
+        ],
+        "position": [
+          -63.0,
+          -181.0
+        ],
+        "size": [
+          596.0,
+          132.0
+        ],
+        "z": 10
+      },
+      "binding": {
+        "data": "destination",
+        "kind": "action",
+        "selectable": true
+      }
+    },
+    {
+      "id": "ReadyButton",
+      "type": "UserWidget",
+      "class": "/Game/UI/Common/ButtonSmall/WBP_ButtonSmall",
+      "parent": "Root",
+      "bbox_intent": [
+        1261.0,
+        908.0,
+        288.0,
+        93.0
+      ],
+      "props": {
+        "ButtonText": "준비"
+      },
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          1.0,
+          0.5,
+          1.0,
+          0.5
+        ],
+        "alignment": [
+          1.0,
+          0.5
+        ],
+        "position": [
+          -371.0,
+          414.5
+        ],
+        "size": [
+          288.0,
+          93.0
+        ],
+        "z": 10
+      },
+      "binding": {
+        "data": "ready",
+        "kind": "action",
+        "selectable": true
+      }
+    },
+    {
+      "id": "LaunchButton",
+      "type": "UserWidget",
+      "class": "/Game/UI/Common/ButtonSmall/WBP_ButtonSmall",
+      "parent": "Root",
+      "bbox_intent": [
+        1569.0,
+        908.0,
+        288.0,
+        93.0
+      ],
+      "props": {
+        "ButtonText": "출정"
+      },
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          1.0,
+          0.5,
+          1.0,
+          0.5
+        ],
+        "alignment": [
+          1.0,
+          0.5
+        ],
+        "position": [
+          -63.0,
+          414.5
+        ],
+        "size": [
+          288.0,
+          93.0
+        ],
+        "z": 10
+      },
+      "binding": {
+        "data": "launch",
+        "kind": "action"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "static_plate1",
+      "kind": "ornament",
+      "provenance": "provided",
+      "source_mode": "plate",
+      "size": [
+        607,
+        82
+      ],
+      "source": "static plate 1 — concept pixels of the non-functional decorations (region TitleArea)"
+    },
+    {
+      "asset_id": "static_plate2",
+      "kind": "ornament",
+      "provenance": "provided",
+      "source_mode": "plate",
+      "size": [
+        602,
+        82
+      ],
+      "source": "static plate 2 — concept pixels of the non-functional decorations (region DestinationArea)"
+    },
+    {
+      "asset_id": "static_plate3",
+      "kind": "ornament",
+      "provenance": "provided",
+      "source_mode": "plate",
+      "size": [
+        592,
+        42
+      ],
+      "source": "static plate 3 — concept pixels of the non-functional decorations (region MessageArea)"
+    }
+  ],
+  "allow_overlap": [
+    [
+      "StaticPlate1",
+      "TitleArea"
+    ],
+    [
+      "DestinationArea",
+      "StaticPlate2"
+    ],
+    [
+      "MessageArea",
+      "StaticPlate3"
+    ]
+  ]
+}

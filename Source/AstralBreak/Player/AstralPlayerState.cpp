@@ -55,17 +55,23 @@ void AAstralPlayerState::SetLoadout(const FAstralPlayerLoadout& InLoadout)
 
 void AAstralPlayerState::SetReady(bool bInReady)
 {
-	if (GetLocalRole() != ROLE_Authority)
+	if (GetLocalRole() != ROLE_Authority || bIsReady == bInReady)
 	{
 		return;
 	}
 	bIsReady = bInReady;
+	OnReadyChanged.Broadcast();
 	ForceNetUpdate();
 }
 
 void AAstralPlayerState::OnRep_Loadout()
 {
 	OnLoadoutChanged.Broadcast();
+}
+
+void AAstralPlayerState::OnRep_IsReady()
+{
+	OnReadyChanged.Broadcast();
 }
 
 void AAstralPlayerState::SetGenericTeamId(const FGenericTeamId& NewTeamID)

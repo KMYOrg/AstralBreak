@@ -49,6 +49,14 @@ bool FAstralPartySelectLeaderTest::RunTest(const FString& Parameters)
 		// PlayerId 를 받지 않은 봇(기본값 0)도 같다
 		const TArray<FAstralPartyMember> UnregisteredBot = { MakeMember(300), MakeMember(0, /*bIsBot=*/true) };
 		TestEqual(TEXT("unregistered bot (id 0) skipped"), SelectLeaderIndex(UnregisteredBot), 0);
+
+		// 번호를 아직 못 받은 사람(클라이언트에서 막 생긴 PlayerState)도 파티원이 아니다 — 0 이 가장 작아 잠깐 방장으로 보이던 것
+		const TArray<FAstralPartyMember> Unnumbered = { MakeMember(300), MakeMember(0) };
+		TestEqual(TEXT("unnumbered member (id 0) skipped"), SelectLeaderIndex(Unnumbered), 0);
+		TestFalse(TEXT("IsPartyMember: unnumbered"), IsPartyMember(MakeMember(0)));
+		TestFalse(TEXT("IsPartyMember: bot"), IsPartyMember(MakeMember(256, true)));
+		TestFalse(TEXT("IsPartyMember: spectator"), IsPartyMember(MakeMember(256, false, true)));
+		TestTrue(TEXT("IsPartyMember: player"), IsPartyMember(MakeMember(256)));
 	}
 
 	// 후보 없음 → INDEX_NONE

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Equipment/AstralEquipmentTypes.h"
 #include "GameFramework/GameStateBase.h"
+#include "GameModes/AstralLobbyRules.h"
 #include "UI/Foundation/AstralUITypes.h"
 #include "AstralGameState.generated.h"
 
@@ -39,6 +40,13 @@ public:
 	APlayerState* GetPartyLeader() const;
 
 	/**
+	 * 로비 판정 입력 — 지금 PlayerArray(번호 · 봇 · 관전자 · 준비)와 이 맵의 로비 상태(허브만). 서버 RPC 와 화면이 같은 모양으로 만들어
+	 * AstralLobby::Check… 에 넣는다. Requester 는 판정받는 사람(명단에 없으면 RequesterIndex = INDEX_NONE).
+	 * OutMemberStates 를 주면 Members 와 같은 순서의 PlayerState 를 채운다(화면이 이름을 읽는다)
+	 */
+	FAstralLobbySnapshot MakeLobbySnapshot(const APlayerState* Requester, TArray<APlayerState*>* OutMemberStates = nullptr) const;
+
+	/**
 	 * 명단이 바뀌었다 — 누가 들어오고 나갔나, 번호 · 이름, 어느 것이 내 PlayerState 인가. 서버 · 클라이언트 모두에서 난다.
 	 * 화면(동료 줄)은 이 통지를 받아 PlayerArray 에서 다시 뽑는다(폴링 없음). 클라이언트에서는 PlayerArray 에 들어오는 순간(번호 · 이름이 아직 없다)과
 	 * 값이 복제된 순간에 각각 나므로, 받는 쪽은 아직 번호가 없는 항목을 건너뛰면 된다
@@ -54,6 +62,9 @@ public:
 	//~End of AGameStateBase interface
 
 protected:
+
+	/** 이 맵의 로비 상태를 스냅숏에 더한다 — 허브(AAstralHubGameState)만 채운다. 기본은 '허브 아님' */
+	virtual void FillLobbyState(FAstralLobbySnapshot& Snapshot) const {}
 
 	UPROPERTY(EditDefaultsOnly, Category = "Astral|Context")
 	EAstralEquipmentPolicy EquipmentPolicy = EAstralEquipmentPolicy::Full;

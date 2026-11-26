@@ -1,0 +1,118 @@
+{
+  "applied": true,
+  "functional": {
+    "ReasonText": "binding text",
+    "MemberRow1": "binding cell",
+    "MemberRow2": "binding cell",
+    "MemberRow3": "binding cell",
+    "MemberRow4": "binding cell",
+    "DestinationButton": "binding action",
+    "ReadyButton": "binding action",
+    "LaunchButton": "binding action"
+  },
+  "static": [
+    "TitleBand",
+    "DestinationBand",
+    "MessageBand"
+  ],
+  "plates": [
+    {
+      "widget": "StaticPlate1",
+      "asset": "static_plate1",
+      "box": [
+        58,
+        157,
+        607,
+        82
+      ],
+      "region": "TitleArea",
+      "px": 47691,
+      "allow_overlap_with": [
+        "TitleArea"
+      ]
+    },
+    {
+      "widget": "StaticPlate2",
+      "asset": "static_plate2",
+      "box": [
+        1256,
+        157,
+        602,
+        82
+      ],
+      "region": "DestinationArea",
+      "px": 46967,
+      "allow_overlap_with": [
+        "DestinationArea"
+      ]
+    },
+    {
+      "widget": "StaticPlate3",
+      "asset": "static_plate3",
+      "box": [
+        1262,
+        820,
+        592,
+        42
+      ],
+      "region": "MessageArea",
+      "px": 24479,
+      "allow_overlap_with": [
+        "MessageArea"
+      ]
+    }
+  ],
+  "removed_assets": [
+    "title_band",
+    "destination_band",
+    "message_band"
+  ],
+  "static_brushes": [
+    {
+      "widget": "TitleBand",
+      "key": "brush",
+      "old": {
+        "draw_as": "image",
+        "asset": "title_band",
+        "image_size": [
+          610,
+          84
+        ]
+      }
+    },
+    {
+      "widget": "DestinationBand",
+      "key": "brush",
+      "old": {
+        "draw_as": "image",
+        "asset": "destination_band",
+        "image_size": [
+          602,
+          84
+        ]
+      }
+    },
+    {
+      "widget": "MessageBand",
+      "key": "brush",
+      "old": {
+        "draw_as": "image",
+        "asset": "message_band",
+        "image_size": [
+          600,
+          46
+        ]
+      }
+    }
+  ],
+  "gauge_backgrounds": [],
+  "func_zone_px": 332320,
+  "unassigned_px": 0,
+  "text_only_px": 0,
+  "specks_px": 0,
+  "masks": [
+    "layer/plate_1.png",
+    "layer/plate_2.png",
+    "layer/plate_3.png"
+  ]
+}

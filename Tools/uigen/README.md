@@ -99,6 +99,11 @@ Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/promote_screen.py stat
   **긴 글자:** data `overflow: ellipsis` + `text_box` + `long_sample` → 상태 렌더 `state_long`(E8 `long_*`). 줄임은 왼쪽 · 오른쪽 정렬에서만 된다(엔진). **바탕 위 표시:** flag Image `over: <바탕 위젯>` — 켜고 끄는 그림이 띠 위에 있으면 획과 바탕을 나눈다(`gen/overlay_mark`), 상태 렌더 `state_<표시>_off`(E8 `mark_*`).
   칸을 다시 승격하면 그 칸을 쓰는 화면을 다시 돌린다 — `promote_screen.py plan · status` 가 쓰는 화면을 보여 주고, 옛 칸으로 검증한 run 은 `CELL_CHANGED` 로 승격을 거절한다.
 
+- **게임 연결(Phase 3-4, 11-26 — 설계 §11 'Phase 3-4 결과'):** 파이프라인은 그대로이고 게임 쪽은 사람 소유 스텁이 잇는다. 스텁은 값의 원천 통지(RepNotify + C++ 델리게이트)를 받아 생성 setter 를 부르고, 버튼(`Handle<X>Clicked`)은 서버 요청만 보낸다 — 모양은 값이 바뀐 통지로만 바뀐다.
+  버튼 켜고 끔 · 이유 한 줄은 서버 RPC 와 같은 순수 함수(허브 준비 화면 = `AstralLobby::Check…`)로 정한다. 여는 키 = 그 맵 GameState 의 `ContextScreens`(UI 액션 태그 + `DefaultInput.ini`), 닫기 = 화면 자기 Menu 묶음(같은 키) · 뒤로.
+  **스텁은 에디터 렌더(소유 플레이어 없음 · 게임 월드 아님)에서 아무것도 붙이지 않는다** — 그래야 승격 `record` · `status` 의 그림이 바이트 그대로다(`HubReady` 25/25). 놓인 칸의 처음 상태는 컨셉 상태라 스텁이 첫 갱신에서 모든 칸을 정한다(빈 줄은 접기).
+  게임 쪽 시험 = `AstralBreak.Net.HubReady.*`(실제 Slate 히트 길 · 마우스 · 게임패드 · 늦은 입장 · 방장 이탈 · 출정).
+
 - finalize: 통과 = `save_widget_run` → `Content/_AutoGen/<run_id>/`(git 무시) + `lineage.json`, 실패 = `discard_run_packages`. (1b 후속 L-2) 저장 직전 마지막 진단의 '컨셉이 안 그린 숨은 위젯'(`diagnosis.state.force_visible_extra`)에 spec `designer_hidden: true` 를 켜 한 번 더 적용한다 — UMG 디자이너는 Visibility 를 무시하고 'Hide in Designer'(`bHiddenInDesigner`)만 봐서, 런타임에 접힌 위젯(게이지 가득 참 빛)이 미리보기에 겹쳤다. 디자이너 미리보기 = 컨셉 상태(`compare.png`), 런타임 · 렌더 무관(WidgetMcp `ApplyWidget` · 역추출).
 
 ## 폴더

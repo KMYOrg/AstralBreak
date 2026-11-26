@@ -173,8 +173,31 @@ void AAstralPlayerController::ServerSetLoadout_Implementation(FAstralPlayerLoado
 	}
 }
 
+FAstralLobbySnapshot AAstralPlayerController::MakeLobbySnapshot(TArray<APlayerState*>* OutMemberStates) const
+{
+	const UWorld* World = GetWorld();
+	const AAstralGameState* AstralGS = World ? World->GetGameState<AAstralGameState>() : nullptr;
+	if (!AstralGS)
+	{
+		if (OutMemberStates)
+		{
+			OutMemberStates->Reset();
+		}
+		return FAstralLobbySnapshot();
+	}
+	return AstralGS->MakeLobbySnapshot(PlayerState, OutMemberStates);
+}
+
 void AAstralPlayerController::ServerSetReady_Implementation(bool bInReady)
 {
+	// 허브로 막지 않는다 — 레이드 · 시험 맵에서도 이 값을 신호로 쓰는 별도 프로세스 시험이 있고, 준비 값은 이동 때 넘어가지 않는다
+	if (const EAstralLobbyDenial Denial = AstralLobby::CheckReady(MakeLobbySnapshot()); Denial != EAstralLobbyDenial::None)
+	{
+		UE_LOG(LogAstral, Warning, TEXT("ServerSetReady: %s — 거부 (%s)"), AstralLobby::LexToString(Denial), *GetNameSafe(this));
+		ClientLobbyRequestDenied(Denial);
+		return;
+	}
+
 	if (AAstralPlayerState* AstralPS = GetAstralPlayerState())
 	{
 		AstralPS->SetReady(bInReady);
@@ -183,31 +206,37 @@ void AAstralPlayerController::ServerSetReady_Implementation(bool bInReady)
 
 void AAstralPlayerController::ServerSelectRaid_Implementation(const FString& MapName)
 {
-	if (!IsPartyLeader())
+	// 판정 순서 = 방장 아님 → 허브 아님 → 목록에 없음(AstralLobby::CheckSelect). 로그 문구는 시험이 센다(Tools/net_test/run_party_flow.py · AstralPartyFlowPieTests) — 바꾸지 않는다.
+	// 목록은 허브 GameState 에 있으므로 허브가 아니면 목록을 보기 전에 거절한다(예전에는 게임모드의 목록을 먼저 봤다 — 허브 안에서는 결과가 같다)
+	const EAstralLobbyDenial Denial = AstralLobby::CheckSelect(MakeLobbySnapshot(), MapName);
+	switch (Denial)
 	{
+	case EAstralLobbyDenial::None:
+		break;
+	case EAstralLobbyDenial::NotLeader:
 		UE_LOG(LogAstral, Warning, TEXT("ServerSelectRaid: 방장이 아님 — 거부 (%s, 현재 방장 = %s)"), *GetNameSafe(this), *DescribePartyLeader(GetWorld()));
-		return;
+		break;
+	case EAstralLobbyDenial::NotInHub:
+		UE_LOG(LogAstral, Warning, TEXT("ServerSelectRaid: HubGameState 없음 (로비가 아님) — 거부"));
+		break;
+	case EAstralLobbyDenial::RaidNotAllowed:
+		// 클라이언트가 보낸 문자열이 그대로 ServerTravel 주소가 된다 — 목록과 정확히 같은 이름만 (임의 맵 · ?옵션 주입 차단)
+		UE_LOG(LogAstral, Warning, TEXT("ServerSelectRaid: 허용 목록에 없는 맵 '%s' — 거부 (%s)"), *MapName, *GetNameSafe(this));
+		break;
+	default:
+		UE_LOG(LogAstral, Warning, TEXT("ServerSelectRaid: %s — 거부 (%s)"), AstralLobby::LexToString(Denial), *GetNameSafe(this));
+		break;
 	}
 
-	// 클라이언트가 보낸 문자열이 그대로 ServerTravel 주소가 된다 — 허용 목록과 정확히 일치하는 이름만 (임의 맵 · ?옵션 주입 차단)
-	const AAstralGameMode* GameMode = GetWorld()->GetAuthGameMode<AAstralGameMode>();
-	if (!GameMode || !GameMode->IsRaidMapAllowed(MapName))
+	AAstralHubGameState* HubGS = GetWorld()->GetGameState<AAstralHubGameState>();
+	if (Denial != EAstralLobbyDenial::None || !HubGS)
 	{
-		UE_LOG(LogAstral, Warning, TEXT("ServerSelectRaid: 허용 목록에 없는 맵 '%s' — 거부 (%s)"), *MapName, *GetNameSafe(this));
+		ClientLobbyRequestDenied(Denial != EAstralLobbyDenial::None ? Denial : EAstralLobbyDenial::NotInHub);
 		return;
 	}
 
 	FAstralRaidRequest Request;
 	Request.MapName = MapName;
-
-	// Hub 전용 상태 — Raid 맵에선 HubGameState가 없어 자연 거부
-	AAstralHubGameState* HubGS = GetWorld()->GetGameState<AAstralHubGameState>();
-	if (!HubGS)
-	{
-		UE_LOG(LogAstral, Warning, TEXT("ServerSelectRaid: HubGameState 없음 (로비가 아님) — 거부"));
-		return;
-	}
-
 	HubGS->SetSelectedRaid(Request);
 	if (UAstralPartySubsystem* Party = GetGameInstance()->GetSubsystem<UAstralPartySubsystem>())
 	{
@@ -217,26 +246,43 @@ void AAstralPlayerController::ServerSelectRaid_Implementation(const FString& Map
 
 void AAstralPlayerController::ServerStartRaid_Implementation()
 {
-	if (!IsPartyLeader())
+	// 판정 순서 = 방장 아님 → 허브 아님 → 목적지 미선택 → 목록에 없음 → 전원 준비 아님(AstralLobby::CheckStart). 로그 문구는 시험이 센다 — 바꾸지 않는다
+	const FAstralLobbySnapshot Snapshot = MakeLobbySnapshot();
+	const EAstralLobbyDenial Denial = AstralLobby::CheckStart(Snapshot);
+	switch (Denial)
 	{
+	case EAstralLobbyDenial::None:
+		break;
+	case EAstralLobbyDenial::NotLeader:
 		UE_LOG(LogAstral, Warning, TEXT("ServerStartRaid: 방장이 아님 — 거부 (%s, 현재 방장 = %s)"), *GetNameSafe(this), *DescribePartyLeader(GetWorld()));
-		return;
-	}
-
-	AAstralHubGameState* HubGS = GetWorld()->GetGameState<AAstralHubGameState>();
-	if (!HubGS || !HubGS->GetSelectedRaid().IsSet())
-	{
+		break;
+	case EAstralLobbyDenial::NotInHub:
+	case EAstralLobbyDenial::NoRaidSelected:
 		UE_LOG(LogAstral, Warning, TEXT("ServerStartRaid: 로비가 아니거나 목적지 미선택 — SelectRaid <MapName> 먼저"));
-		return;
-	}
-	if (!HubGS->AreAllPlayersReady())
-	{
+		break;
+	case EAstralLobbyDenial::RaidNotAllowed:
+		UE_LOG(LogAstral, Warning, TEXT("ServerStartRaid: 허용 목록에 없는 맵 '%s' — 거부 (%s)"), *Snapshot.SelectedRaid, *GetNameSafe(this));
+		break;
+	case EAstralLobbyDenial::NotAllReady:
 		UE_LOG(LogAstral, Warning, TEXT("ServerStartRaid: 전원 준비 아님 — 거부"));
+		break;
+	default:
+		UE_LOG(LogAstral, Warning, TEXT("ServerStartRaid: %s — 거부 (%s)"), AstralLobby::LexToString(Denial), *GetNameSafe(this));
+		break;
+	}
+	if (Denial != EAstralLobbyDenial::None)
+	{
+		ClientLobbyRequestDenied(Denial);
 		return;
 	}
 
 	// 리슨 유지 travel — seamless 여부는 GameMode.bUseSeamlessTravel (검증 A에서 실경로 확인)
-	GetWorld()->ServerTravel(HubGS->GetSelectedRaid().MapName + TEXT("?listen"));
+	GetWorld()->ServerTravel(Snapshot.SelectedRaid + TEXT("?listen"));
+}
+
+void AAstralPlayerController::ClientLobbyRequestDenied_Implementation(EAstralLobbyDenial Reason)
+{
+	OnLobbyRequestDenied.Broadcast(Reason);
 }
 
 void AAstralPlayerController::ServerReturnToHub_Implementation()

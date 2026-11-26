@@ -1,0 +1,54 @@
+{
+ "schema_version": 1,
+ "kind": "concept",
+ "created": "2026-11-25T21:03:50",
+ "generator": "codex built-in image_gen (cut from an approved sheet)",
+ "thread_id": "01a21150-71ec-7730-943b-bdf16c65a0c4",
+ "prompt_sha256": null,
+ "flat_background": false,
+ "transparent_background": true,
+ "transparent_ratio": 0.0249,
+ "edited_from": null,
+ "file": "concept.png",
+ "sha256": "55e30e8314bf8080f8027586c10b08b2f0c52fdede9beb8a78d2e0d5f1398a21",
+ "size": [
+  531,
+  71
+ ],
+ "has_alpha_channel": true,
+ "cut_from": {
+  "file": "Tools/uigen/fixtures/hub_ready_sheet/concept.png",
+  "sha256": "362175f37372320d0f6bc6640c8867ddd154c86e12eb204d1ade6be6fcd16fd8",
+  "keep_1920": [
+   [
+    56.27,
+    295.12,
+    609.76,
+    81.53
+   ]
+  ],
+  "crop_px": [
+   49,
+   257,
+   531,
+   71
+  ],
+  "size_1920": [
+   610,
+   82
+  ]
+ },
+ "text_free_first": {
+  "status": "ok",
+  "attempts": [
+   {
+    "attempt": 0,
+    "file": "Tools/uigen/fixtures/hub_member_row/concept.png",
+    "ocr_boxes": [],
+    "sha256": "55e30e8314bf8080f8027586c10b08b2f0c52fdede9beb8a78d2e0d5f1398a21"
+   }
+  ],
+  "text_ref": "concept_text_ref.png"
+ },
+ "note": "L-2 original text-free art — the pixels of the approved sheet, only this screen's elements kept"
+}

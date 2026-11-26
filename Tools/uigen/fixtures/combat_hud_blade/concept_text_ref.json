@@ -1,0 +1,199 @@
+{
+ "schema_version": 1,
+ "kind": "concept_text_ref",
+ "created": "2026-11-23T16:32:30",
+ "generator": "codex built-in image_gen",
+ "edited_from": "concept.png",
+ "thread_id": "01a20751-1e7a-7d33-bc68-18f1cf53e931",
+ "texts": [
+  {
+   "widget": "UltBlockedText",
+   "value": "오의 불가",
+   "slot": "small muted red warning text (no glow) in the empty space between the ring and the blade emblem, horizontally centered"
+  },
+  {
+   "widget": "ChainTitleText",
+   "value": "체인",
+   "slot": "small bone-white straight sans-serif title at the left side of the dark band inside the ring, on the same line as the number"
+  },
+  {
+   "widget": "BurstLabelText",
+   "value": "체인 버스트",
+   "slot": "bone-white straight modern sans-serif label, semi-bold with wide letter spacing, in the left half of the wide dark banner at the top"
+  },
+  {
+   "widget": "ChainTimerText",
+   "value": "4.2",
+   "slot": "the largest text of the ring: a bone-white, straight modern sans-serif number in the center of the dark band inside the ring"
+  },
+  {
+   "widget": "ChainCountText",
+   "value": "2/4",
+   "slot": "small bone-white (exactly the same color, size and weight as the small title at the left side) straight sans-serif text on the same line as the number, sitting fully on the solid black part of the band to the right of the number - mirror the small title: as far right of the number as the title is left of it, never on the faded end of the band"
+  },
+  {
+   "widget": "BurstCountText",
+   "value": "3",
+   "slot": "large bold ivory sans-serif number on the right side of the wide dark banner at the top"
+  },
+  {
+   "widget": "UltKeyText",
+   "value": "R",
+   "slot": "small bone-white key letter centered in the empty space between the blade emblem and the gauge (added by pixels, not codex)"
+  }
+ ],
+ "prompt_sha256": "f760ce2bb18aa58bf2f2152ede80911ce0973a6c65face4afc0b2003838c625d",
+ "file": "concept_text_ref.png",
+ "sha256": "2e90e61a68dbf97f3e553fdff55b803896b26511c0fd81a1bd1a550a419c6765",
+ "size": [
+  1670,
+  941
+ ],
+ "has_alpha_channel": true,
+ "transparent_ratio": 0.8928,
+ "duration_s": 58.49,
+ "check": {
+  "shift_px": [
+   -0.98,
+   -0.67
+  ],
+  "response": 0.2972,
+  "used": true,
+  "shift_applied": [
+   -1,
+   -1
+  ],
+  "ocr": {
+   "text_ref_boxes": [
+    [
+     1073,
+     176,
+     57,
+     64
+    ],
+    [
+     535,
+     183,
+     283,
+     51
+    ],
+    [
+     773,
+     591,
+     121,
+     76
+    ],
+    [
+     691,
+     608,
+     60,
+     40
+    ],
+    [
+     918,
+     609,
+     62,
+     39
+    ],
+    [
+     771,
+     738,
+     125,
+     39
+    ]
+   ],
+   "art_boxes": [],
+   "boxes": [
+    [
+     1073,
+     176,
+     57,
+     64
+    ],
+    [
+     535,
+     183,
+     283,
+     51
+    ],
+    [
+     773,
+     591,
+     121,
+     76
+    ],
+    [
+     691,
+     608,
+     60,
+     40
+    ],
+    [
+     918,
+     609,
+     62,
+     39
+    ],
+    [
+     771,
+     738,
+     125,
+     39
+    ]
+   ],
+   "scores": [
+    0.821,
+    0.874,
+    0.798,
+    0.856,
+    0.821,
+    0.825
+   ],
+   "min_score": 0.6
+  },
+  "checks": {
+   "ui_px": 134159,
+   "outside_solid_big_frac": 0.0,
+   "outside_far_new_frac": 0.0,
+   "fringe_alpha_frac": 0.0581,
+   "outside_median_d": 6.06,
+   "outside_p95_d": 47.39,
+   "limit": 0.03
+  },
+  "glyph_on_translucent_px": 6184,
+  "glyph_px": 9064,
+  "glow_px": 3029,
+  "paste_px": 11555,
+  "ring_tone_l": 3.75
+ },
+ "note": "the same art with only the texts added by codex — glyph style reference (background pixels are not the truth)",
+ "lineage": [
+  {
+   "step": "codex",
+   "sha256": "8e8719ab55ee59ff94319c3c265836039363d30ec98de1eb476b4461acb63644"
+  },
+  {
+   "step": "pixels",
+   "box": [
+    768,
+    739,
+    130,
+    37
+   ],
+   "what": "'오의 불가' glyph color only -> about #E0605A, opaque (deterministic, no codex; the muted red read 1.4:1 on a dark scene)",
+   "approved": "user, 2026-11-23"
+  },
+  {
+   "step": "pixels",
+   "box": [
+    825,
+    840,
+    16,
+    20
+   ],
+   "what": "key hint glyph 'R' added (Pretendard Bold 27 px em, #ECE5D6, deterministic, no codex) for UltKeyText",
+   "approved": "user, 2026-11-23 (전투 HUD 동작 설계)",
+   "before_sha256": "2adccee3bb626131b3bbfc0bd2914437b612f9b7a1bb20a27c1a4d48a2d0068b"
+  }
+ ]
+}

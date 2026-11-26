@@ -1,0 +1,238 @@
+{
+  "schema_version": 1,
+  "canvas": [
+    596,
+    132
+  ],
+  "profile": "cell",
+  "root": "Root",
+  "widgets": [
+    {
+      "id": "Root",
+      "type": "CanvasPanel"
+    },
+    {
+      "id": "ButtonArt",
+      "type": "Image",
+      "parent": "Root",
+      "bbox_intent": [
+        0,
+        0,
+        596,
+        132
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0,
+          0,
+          1,
+          1
+        ],
+        "position": [
+          0,
+          0
+        ],
+        "size": [
+          0,
+          0
+        ]
+      },
+      "style": {
+        "brush": {
+          "draw_as": "image",
+          "asset": "button_art"
+        }
+      }
+    },
+    {
+      "id": "ButtonLabel",
+      "type": "TextBlock",
+      "parent": "Root",
+      "bbox_intent": [
+        251.0,
+        42.0,
+        94.0,
+        47.0
+      ],
+      "slot": {
+        "kind": "canvas",
+        "anchors": [
+          0.5,
+          0.5,
+          0.5,
+          0.5
+        ],
+        "alignment": [
+          0.5,
+          0.5
+        ],
+        "position": [
+          0.0,
+          0.0
+        ],
+        "size": [
+          90,
+          43
+        ],
+        "z": 1,
+        "auto_size": true
+      },
+      "justification": "center",
+      "font": {
+        "size": 26,
+        "weight": "semibold",
+        "color": "#ECE5D6FF",
+        "family": "/Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W",
+        "outline": {
+          "size": 2,
+          "color": "#0C0C0EDC"
+        }
+      },
+      "binding": {
+        "data": "button_text",
+        "kind": "text"
+      },
+      "text": {
+        "source": "dynamic",
+        "data": "button_text",
+        "sample": "목적지"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "button_art",
+      "kind": "panel_bg",
+      "provenance": "codex",
+      "source_mode": "extract",
+      "size": [
+        596,
+        132
+      ],
+      "prompt": "the whole button exactly as drawn",
+      "ref_bbox": [
+        0,
+        0,
+        596,
+        132
+      ],
+      "compression": "TC_EditorIcon"
+    },
+    {
+      "asset_id": "button_art_normal_hovered",
+      "kind": "panel_bg",
+      "provenance": "derived",
+      "derived": {
+        "from": "button_art",
+        "brush": "normal_hovered"
+      },
+      "size": [
+        596,
+        132
+      ],
+      "compression": "TC_EditorIcon",
+      "source": "theme 'blade' state normal_hovered of button_art"
+    },
+    {
+      "asset_id": "button_art_normal_pressed",
+      "kind": "panel_bg",
+      "provenance": "derived",
+      "derived": {
+        "from": "button_art",
+        "brush": "normal_pressed"
+      },
+      "size": [
+        596,
+        132
+      ],
+      "compression": "TC_EditorIcon",
+      "source": "theme 'blade' state normal_pressed of button_art"
+    },
+    {
+      "asset_id": "button_art_selected_base",
+      "kind": "panel_bg",
+      "provenance": "derived",
+      "derived": {
+        "from": "button_art",
+        "brush": "selected_base"
+      },
+      "size": [
+        596,
+        132
+      ],
+      "compression": "TC_EditorIcon",
+      "source": "theme 'blade' state selected_base of button_art"
+    },
+    {
+      "asset_id": "button_art_selected_hovered",
+      "kind": "panel_bg",
+      "provenance": "derived",
+      "derived": {
+        "from": "button_art",
+        "brush": "selected_hovered"
+      },
+      "size": [
+        596,
+        132
+      ],
+      "compression": "TC_EditorIcon",
+      "source": "theme 'blade' state selected_hovered of button_art"
+    },
+    {
+      "asset_id": "button_art_selected_pressed",
+      "kind": "panel_bg",
+      "provenance": "derived",
+      "derived": {
+        "from": "button_art",
+        "brush": "selected_pressed"
+      },
+      "size": [
+        596,
+        132
+      ],
+      "compression": "TC_EditorIcon",
+      "source": "theme 'blade' state selected_pressed of button_art"
+    },
+    {
+      "asset_id": "button_art_disabled",
+      "kind": "panel_bg",
+      "provenance": "derived",
+      "derived": {
+        "from": "button_art",
+        "brush": "disabled"
+      },
+      "size": [
+        596,
+        132
+      ],
+      "compression": "TC_EditorIcon",
+      "source": "theme 'blade' state disabled of button_art"
+    }
+  ],
+  "allow_overlap": [
+    [
+      "ButtonArt",
+      "ButtonLabel"
+    ]
+  ],
+  "button": {
+    "art": "ButtonArt",
+    "states": {
+      "normal_hovered": "button_art_normal_hovered",
+      "normal_pressed": "button_art_normal_pressed",
+      "selected_base": "button_art_selected_base",
+      "selected_hovered": "button_art_selected_hovered",
+      "selected_pressed": "button_art_selected_pressed",
+      "disabled": "button_art_disabled"
+    },
+    "theme": {
+      "id": "blade",
+      "sha256": "75936870f1fd771a4a13d4323beaa104c3a04e6500d1c3fdcc3ed0ba2e90521a"
+    },
+    "pressed_offset": [
+      0,
+      1
+    ]
+  }
+}

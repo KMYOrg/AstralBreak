@@ -1,0 +1,1301 @@
+{
+  "truth": "text_free_art",
+  "settings": {
+    "local_de": 10.0,
+    "min_area": 24,
+    "text_h_tol": 0.08,
+    "text_pos_px": 3.0,
+    "text_pos_k": 0.1,
+    "text_weight": 1.3,
+    "text_color_de": 12.0,
+    "text_dark_frac": 0.2,
+    "text_halo_frac": 0.2,
+    "seam_dark_px": 90,
+    "weight_margin": 0.06,
+    "bg_cover": 0.3,
+    "blur_ratio": 0.8,
+    "glow_min": 8.0,
+    "residue_de": 20.0,
+    "residue_min_px": 6,
+    "state_checks": "error",
+    "text_trace_de": 5.0,
+    "text_trace_min_area": 24,
+    "text_contour_de": 2.5,
+    "text_contour_len": 40,
+    "text_contour_link": 1,
+    "text_trace_lift": 3.0,
+    "text_line_plate": "error",
+    "text_lift_mode": "error",
+    "text_lift_de": 4.0,
+    "halo_de": 2.0,
+    "state_record_only": []
+  },
+  "canvas": [
+    1920,
+    1080
+  ],
+  "truth_text": "text_reference_glyphs",
+  "hidden_states": [
+    {
+      "widget": "BurstBanner",
+      "subtree": [
+        "BurstBanner",
+        "BurstCountText",
+        "BurstLabelText",
+        "BurstLayer"
+      ],
+      "drawn_in_concept": true,
+      "de_with": 1.46,
+      "de_without": 9.37
+    },
+    {
+      "widget": "UltBlockedText",
+      "subtree": [
+        "UltBlockedText"
+      ],
+      "drawn_in_concept": true,
+      "de_with": 4.86,
+      "de_without": 7.88,
+      "glyph_frac": 0.189,
+      "decided_by": "glyph evidence in the concept (text-free concept difference)"
+    },
+    {
+      "widget": "UltReadyPanel",
+      "subtree": [
+        "UltKeyText",
+        "UltReadyGlow",
+        "UltReadyPanel"
+      ],
+      "drawn_in_concept": true,
+      "de_with": 0.28,
+      "de_without": 32.87
+    }
+  ],
+  "texts": [
+    {
+      "widget": "BurstLabelText",
+      "concept": {
+        "box": [
+          628,
+          222,
+          299,
+          39
+        ],
+        "center": [
+          777.5,
+          241.5
+        ],
+        "px": 3429,
+        "density": 0.4865,
+        "gap_cols": 122,
+        "lab": [
+          91.29,
+          -0.32,
+          7.17
+        ]
+      },
+      "render": {
+        "box": [
+          630,
+          221,
+          295,
+          41
+        ],
+        "center": [
+          777.5,
+          241.5
+        ],
+        "px": 3377,
+        "density": 0.4601,
+        "gap_cols": 121,
+        "lab": [
+          91.74,
+          -0.51,
+          8.02
+        ]
+      },
+      "approx": [
+        {
+          "kind": "weight",
+          "weight": "bold",
+          "density_ratio": 0.946,
+          "available": [
+            "regular",
+            "medium",
+            "semibold",
+            "bold",
+            "extrabold"
+          ],
+          "note": "nearest available weight — the rest is the font's own stroke"
+        }
+      ],
+      "concept_contrast": 86.2,
+      "h_ratio": 1.051,
+      "w_ratio": 0.987,
+      "center_d": [
+        0.0,
+        0.0
+      ],
+      "density_ratio": 0.946,
+      "color_de": 0.73,
+      "pos_limit": 3.9,
+      "weight_nearest": "extrabold",
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.003
+        },
+        "render": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            2
+          ],
+          "dark": 0.5,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.1,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "BurstCountText",
+      "concept": {
+        "box": [
+          1249,
+          212,
+          39,
+          56
+        ],
+        "center": [
+          1268.5,
+          240.0
+        ],
+        "px": 1283,
+        "density": 0.5769,
+        "gap_cols": 0,
+        "lab": [
+          91.62,
+          -0.3,
+          7.72
+        ]
+      },
+      "render": {
+        "box": [
+          1247,
+          211,
+          42,
+          58
+        ],
+        "center": [
+          1268.0,
+          240.0
+        ],
+        "px": 1369,
+        "density": 0.5435,
+        "gap_cols": 0,
+        "lab": [
+          91.74,
+          -0.51,
+          8.02
+        ]
+      },
+      "approx": [
+        {
+          "kind": "weight",
+          "weight": "bold",
+          "density_ratio": 0.942,
+          "available": [
+            "regular",
+            "medium",
+            "semibold",
+            "bold",
+            "extrabold"
+          ],
+          "note": "nearest available weight — the rest is the font's own stroke"
+        }
+      ],
+      "concept_contrast": 86.0,
+      "h_ratio": 1.036,
+      "w_ratio": 1.077,
+      "center_d": [
+        0.5,
+        0.0
+      ],
+      "density_ratio": 0.942,
+      "color_de": 0.37,
+      "pos_limit": 5.6,
+      "weight_nearest": "extrabold",
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            -2,
+            0
+          ],
+          "dark": 1.1,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.2,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "ChainTitleText",
+      "concept": {
+        "box": [
+          804,
+          708,
+          49,
+          26
+        ],
+        "center": [
+          828.5,
+          721.0
+        ],
+        "px": 635,
+        "density": 0.5393,
+        "gap_cols": 4,
+        "lab": [
+          90.61,
+          -0.37,
+          6.62
+        ]
+      },
+      "render": {
+        "box": [
+          802,
+          707,
+          52,
+          28
+        ],
+        "center": [
+          828.0,
+          721.0
+        ],
+        "px": 677,
+        "density": 0.5084,
+        "gap_cols": 5,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ]
+      },
+      "approx": [
+        {
+          "kind": "weight",
+          "weight": "bold",
+          "density_ratio": 0.943,
+          "available": [
+            "regular",
+            "medium",
+            "semibold",
+            "bold",
+            "extrabold"
+          ],
+          "note": "nearest available weight — the rest is the font's own stroke"
+        }
+      ],
+      "concept_contrast": 84.4,
+      "h_ratio": 1.077,
+      "w_ratio": 1.061,
+      "center_d": [
+        0.5,
+        0.0
+      ],
+      "density_ratio": 0.943,
+      "color_de": 1.1,
+      "pos_limit": 3.0,
+      "weight_nearest": "extrabold",
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.001
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.001
+        },
+        "render": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            2,
+            0
+          ],
+          "dark": 1.0,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": 0.0,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "ChainTimerText",
+      "concept": {
+        "box": [
+          906,
+          694,
+          104,
+          57
+        ],
+        "center": [
+          958.0,
+          722.5
+        ],
+        "px": 2737,
+        "density": 0.4971,
+        "gap_cols": 9,
+        "lab": [
+          92.12,
+          -0.3,
+          7.23
+        ]
+      },
+      "render": {
+        "box": [
+          899,
+          693,
+          118,
+          59
+        ],
+        "center": [
+          958.0,
+          722.5
+        ],
+        "px": 2961,
+        "density": 0.4863,
+        "gap_cols": 17,
+        "lab": [
+          92.44,
+          -0.51,
+          8.0
+        ]
+      },
+      "approx": [],
+      "concept_contrast": 88.1,
+      "h_ratio": 1.035,
+      "w_ratio": 1.135,
+      "center_d": [
+        0.0,
+        0.0
+      ],
+      "density_ratio": 0.978,
+      "color_de": 0.66,
+      "pos_limit": 5.7,
+      "weight_nearest": "bold",
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.3,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.0,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "ChainCountText",
+      "concept": {
+        "box": [
+          1065,
+          709,
+          52,
+          25
+        ],
+        "center": [
+          1091.0,
+          721.5
+        ],
+        "px": 594,
+        "density": 0.4858,
+        "gap_cols": 4,
+        "lab": [
+          90.68,
+          -0.36,
+          7.31
+        ]
+      },
+      "render": {
+        "box": [
+          1066,
+          709,
+          50,
+          24
+        ],
+        "center": [
+          1091.0,
+          721.0
+        ],
+        "px": 569,
+        "density": 0.5093,
+        "gap_cols": 5,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ],
+        "thin_tail_cut": true
+      },
+      "approx": [],
+      "concept_contrast": 84.1,
+      "h_ratio": 0.96,
+      "w_ratio": 0.962,
+      "center_d": [
+        0.0,
+        0.5
+      ],
+      "density_ratio": 1.048,
+      "color_de": 0.61,
+      "pos_limit": 3.0,
+      "weight_nearest": "semibold",
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.001
+        },
+        "render": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            -1,
+            -1
+          ],
+          "dark": -0.1,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.3,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "UltBlockedText",
+      "concept": {
+        "box": [
+          895,
+          856,
+          126,
+          29
+        ],
+        "center": [
+          958.0,
+          870.5
+        ],
+        "px": 1628,
+        "density": 0.5363,
+        "gap_cols": 23,
+        "lab": [
+          53.94,
+          46.77,
+          26.94
+        ]
+      },
+      "render": {
+        "box": [
+          896,
+          854,
+          123,
+          31
+        ],
+        "center": [
+          957.5,
+          869.5
+        ],
+        "px": 1759,
+        "density": 0.539,
+        "gap_cols": 20,
+        "lab": [
+          54.69,
+          47.6,
+          27.55
+        ]
+      },
+      "approx": [],
+      "concept_contrast": 47.5,
+      "h_ratio": 1.069,
+      "w_ratio": 0.976,
+      "center_d": [
+        0.5,
+        1.0
+      ],
+      "density_ratio": 1.005,
+      "color_de": 0.78,
+      "pos_limit": 3.0,
+      "weight_nearest": "extrabold",
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 2.8,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.4,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -3
+          ],
+          "dark": -1.7,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "UltKeyText",
+      "concept": {
+        "box": [
+          950,
+          965,
+          16,
+          22
+        ],
+        "center": [
+          958.0,
+          976.0
+        ],
+        "px": 232,
+        "density": 0.6562,
+        "gap_cols": 0,
+        "lab": [
+          90.14,
+          -0.17,
+          8.05
+        ]
+      },
+      "render": {
+        "box": [
+          950,
+          965,
+          17,
+          22
+        ],
+        "center": [
+          958.5,
+          976.0
+        ],
+        "px": 247,
+        "density": 0.6604,
+        "gap_cols": 0,
+        "lab": [
+          90.08,
+          0.0,
+          7.68
+        ]
+      },
+      "approx": [],
+      "concept_contrast": 85.7,
+      "h_ratio": 1.0,
+      "w_ratio": 1.062,
+      "center_d": [
+        -0.5,
+        0.0
+      ],
+      "density_ratio": 1.006,
+      "color_de": 0.36,
+      "pos_limit": 3.0,
+      "weight_nearest": "bold",
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.3,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 2.8,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.1,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -3
+          ],
+          "dark": -1.8,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    }
+  ],
+  "maps": {
+    "black_mean": 0.027,
+    "gray_mean": 0.008,
+    "black_local_max": 5.87,
+    "gray_local_max": 5.85,
+    "text_zone_px": 71386,
+    "not_drawn_px": 0,
+    "runtime_image_px": 0
+  },
+  "text_background": {
+    "zone_px": 49256,
+    "local_max": 0.38,
+    "mean": 0.01
+  },
+  "text_residue": {
+    "BurstLabelText": {
+      "zone_px": 798,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "BurstCountText": {
+      "zone_px": 124,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "ChainTitleText": {
+      "zone_px": 120,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "ChainTimerText": {
+      "zone_px": 894,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "ChainCountText": {
+      "zone_px": 137,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "UltBlockedText": {
+      "zone_px": 360,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "UltKeyText": {
+      "zone_px": 9,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    }
+  },
+  "sharpness": [
+    {
+      "widget": "StaticPlate1",
+      "ratio": 1.001,
+      "texel_density": 1.0,
+      "px": 12502
+    },
+    {
+      "widget": "BurstBanner",
+      "ratio": 1.003,
+      "texel_density": 1.0,
+      "px": 40246
+    },
+    {
+      "widget": "ChainPanel",
+      "ratio": 1.018,
+      "texel_density": 1.0,
+      "px": 14644
+    },
+    {
+      "widget": "ChainRing",
+      "ratio": 1.001,
+      "texel_density": 1.0,
+      "px": 20201
+    },
+    {
+      "widget": "UltGauge",
+      "ratio": 1.001,
+      "texel_density": 0.727,
+      "px": 7124
+    },
+    {
+      "widget": "UltReadyGlow",
+      "ratio": 1.002,
+      "texel_density": 1.0,
+      "px": 5819
+    }
+  ],
+  "seams": {
+    "scale": 3,
+    "bbox": [
+      550,
+      180,
+      1363,
+      1047
+    ],
+    "zone_px": 2842,
+    "dark_px": 0,
+    "dark_mean": 0.0,
+    "worst": 12.4,
+    "spots": [],
+    "layers": 6,
+    "alpha_hist": []
+  },
+  "defects": [],
+  "state": {
+    "force_visible_extra": [],
+    "drawn_hidden_at_start": [
+      "BurstBanner",
+      "UltBlockedText",
+      "UltReadyPanel"
+    ],
+    "render": "D:/UE5Projects/AstralBreak/Tools/uigen/work/R20261123_194019_CombatHUD/attempts/007/state/state_1920x1080.png"
+  },
+  "approx": [
+    {
+      "widget": "BurstLabelText",
+      "kind": "weight",
+      "weight": "bold",
+      "density_ratio": 0.946,
+      "available": [
+        "regular",
+        "medium",
+        "semibold",
+        "bold",
+        "extrabold"
+      ],
+      "note": "nearest available weight — the rest is the font's own stroke"
+    },
+    {
+      "widget": "BurstCountText",
+      "kind": "weight",
+      "weight": "bold",
+      "density_ratio": 0.942,
+      "available": [
+        "regular",
+        "medium",
+        "semibold",
+        "bold",
+        "extrabold"
+      ],
+      "note": "nearest available weight — the rest is the font's own stroke"
+    },
+    {
+      "widget": "ChainTitleText",
+      "kind": "weight",
+      "weight": "bold",
+      "density_ratio": 0.943,
+      "available": [
+        "regular",
+        "medium",
+        "semibold",
+        "bold",
+        "extrabold"
+      ],
+      "note": "nearest available weight — the rest is the font's own stroke"
+    }
+  ],
+  "summary": {
+    "defects": 0,
+    "errors": 0,
+    "approx": 3,
+    "by_code": {},
+    "by_stage": {},
+    "fixable": 0,
+    "limits": [],
+    "texts_compared": 7,
+    "hidden_not_drawn": []
+  },
+  "badness": 0.0,
+  "state_checks": {
+    "mode": "error",
+    "hidden_trace": {
+      "renderer": "engine",
+      "roots": [
+        {
+          "widget": "BurstBanner",
+          "zone_px": 92805,
+          "ring_px": 11160,
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0
+          },
+          "blobs": 0
+        },
+        {
+          "widget": "UltBlockedText",
+          "zone_px": 10752,
+          "ring_px": 3072,
+          "local_max": {
+            "black": 0.06,
+            "gray": 0.0,
+            "white": 0.0
+          },
+          "blobs": 0
+        },
+        {
+          "widget": "UltReadyPanel",
+          "zone_px": 65460,
+          "ring_px": 8448,
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0
+          },
+          "blobs": 0
+        }
+      ]
+    },
+    "hidden_halo": {
+      "renderer": "engine",
+      "roots": [
+        {
+          "widget": "BurstBanner",
+          "why": "flag binding",
+          "zone_px": 76650,
+          "plate_px": 0,
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0
+          }
+        },
+        {
+          "widget": "ChainPanel",
+          "why": "flag binding",
+          "zone_px": 62301,
+          "plate_px": 0,
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0
+          }
+        },
+        {
+          "widget": "UltReadyPanel",
+          "why": "flag binding",
+          "zone_px": 7120,
+          "plate_px": 0,
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0
+          }
+        }
+      ],
+      "toggles": [
+        "BurstBanner",
+        "ChainPanel",
+        "UltBlockedText",
+        "UltReadyPanel"
+      ]
+    },
+    "gauge_states": {
+      "renderer": "engine",
+      "gauges": [
+        {
+          "widget": "UltGauge",
+          "percent": 0.7266,
+          "fill_type": "left_to_right",
+          "track": [
+            668.0,
+            1012.0,
+            578.0,
+            17.0
+          ],
+          "track_from": "concept_fill track",
+          "renderer": {
+            "0.0": "engine",
+            "0.05": "engine",
+            "1.0": "engine"
+          },
+          "states": {
+            "0": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "0.05": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            },
+            "1": {
+              "outside_max": 0.0,
+              "outside_px": 0
+            }
+          },
+          "end_unchanged_frac": 0.0,
+          "end_shape": {
+            "cols": 46,
+            "frame_px": 5,
+            "hole_px": 777,
+            "cover_max": 0.0,
+            "hole_unchanged_frac": 0.003
+          },
+          "zero_max": 0.99
+        },
+        {
+          "widget": "ChainRing",
+          "percent": 1.0,
+          "fill_type": "radial clockwise",
+          "track_alpha": 0.18,
+          "renderer": {
+            "0.0": "engine",
+            "0.15": "engine",
+            "0.4": "engine",
+            "0.65": "engine",
+            "0.9": "engine",
+            "1.0": "engine"
+          },
+          "zone_px": 20227,
+          "checks": {
+            "radial_full_1": {
+              "max": 0.0,
+              "px": 0
+            },
+            "radial_zero_0": {
+              "max": 1.18,
+              "px": 0
+            },
+            "radial_arc_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "radial_arc_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "radial_arc_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "radial_arc_0.9": {
+              "max": 0.0,
+              "px": 0
+            },
+            "radial_outside_0": {
+              "max": 0.0,
+              "px": 0
+            },
+            "radial_outside_0.15": {
+              "max": 0.0,
+              "px": 0
+            },
+            "radial_outside_0.4": {
+              "max": 0.0,
+              "px": 0
+            },
+            "radial_outside_0.65": {
+              "max": 0.0,
+              "px": 0
+            },
+            "radial_outside_0.9": {
+              "max": 0.0,
+              "px": 0
+            }
+          }
+        }
+      ]
+    },
+    "findings": [],
+    "text_trace": {
+      "renderer": "engine",
+      "texts": [
+        {
+          "widget": "BurstLabelText",
+          "zone_px": 7248,
+          "glow_tail": 0,
+          "state": "BurstBanner",
+          "local_max": {
+            "black": 0.5,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 2.21
+          },
+          "ring_l": 3.8
+        },
+        {
+          "widget": "BurstCountText",
+          "zone_px": 2114,
+          "glow_tail": 0,
+          "state": "BurstBanner",
+          "local_max": {
+            "black": 0.43,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 1.14
+          },
+          "ring_l": 5.2
+        },
+        {
+          "widget": "ChainTitleText",
+          "zone_px": 1559,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.66,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 1.71
+          },
+          "ring_l": 5.9
+        },
+        {
+          "widget": "ChainTimerText",
+          "zone_px": 4365,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.4,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 1.93
+          },
+          "ring_l": 2.5,
+          "value_local_max": {
+            "black": 0.36
+          }
+        },
+        {
+          "widget": "ChainCountText",
+          "zone_px": 1444,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.44,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 1.25
+          },
+          "ring_l": 6.2,
+          "value_local_max": {
+            "black": 0.44
+          }
+        },
+        {
+          "widget": "UltKeyText",
+          "zone_px": 572,
+          "glow_tail": 0,
+          "state": "UltReadyPanel",
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 0.0
+          },
+          "ring_l": 0.0
+        }
+      ],
+      "values": {
+        "ChainTimerText": "9.7",
+        "ChainCountText": "7/9"
+      },
+      "groups": [
+        {
+          "root": "BurstBanner",
+          "texts": [
+            "BurstCountText",
+            "BurstLabelText"
+          ],
+          "renderer": "engine"
+        },
+        {
+          "root": "UltReadyPanel",
+          "texts": [
+            "UltKeyText"
+          ],
+          "renderer": "engine"
+        }
+      ]
+    }
+  },
+  "pictures": [
+    "defects.png",
+    "compare.png"
+  ],
+  "attempt": 7
+}

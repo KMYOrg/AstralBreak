@@ -1,0 +1,17 @@
+# 화면 종류 프로필 — hud (설계 §5 · §8-1). 게이트 기준은 잠정.
+schema_version: 1
+screen_type: hud
+background: transparent
+root_type: CanvasPanel                  # 최상위 영역은 Canvas + 앵커, 영역 안은 박스 계열
+verify_region: ui_union                 # reference 의 게임 장면은 비교에서 뺀다(1b — reference 가 생기면)
+
+gates:
+  iou_region_min: 0.85                  # 최상위 영역(루트 Canvas 의 직계 자식)
+  iou_leaf_min: 0.70                    # 말단 위젯
+  small_px: 48                          # min(w, h) 가 이보다 작으면 IoU 대신 중심점 거리
+  small_center_max_px: 8
+  overlap_max_ratio: 0.04               # 형제 bbox 교차 면적 / 작은 쪽 면적
+  offscreen_max: 0
+
+# 자식끼리 겹치는 것이 정의인 부모 — 겹침 게이트에서 그 자식들 사이는 보지 않는다
+stacking_parents: [Overlay]

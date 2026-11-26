@@ -6,6 +6,8 @@
 
 표기: **[확인]** = 엔진 · 프로젝트 소스를 읽어 확인. **[실측]** = Phase 0 · 2 실험으로 확인.
 
+> **2026-11-14 플러그인 분리 — 지금 위치:** StateTree 코드 · 시험은 `Plugins/AnimGraphMcp` 에서 **`Plugins/StateTreeMcp`**(모듈 `StateTreeMcpEditor`)로, 브리지 · 디스패처 · 러너 · 보호 목록은 공용 코어 **`Plugins/EditorMcpCore`** 로 옮겼다([ui-autogen-pipeline.md](../Design/ui-autogen-pipeline.md) §3-1). 바뀐 이름: 시험 `AnimGraphMcp.StateTree.*` → **`StateTreeMcp.*`**, 시험 타입 `/Script/AnimGraphMcpEditor.*` → **`/Script/StateTreeMcpEditor.*`**(옛 경로로 저장된 애셋은 `DefaultEngine.ini [CoreRedirects]` 가 잇는다), 설정 `StateTreeEditPaths` 는 새 `[EditorMcp]` 와 옛 `[AnimGraphMcp]` 를 둘 다 읽는다, Python 은 `Tools/mcp/editor_bridge/bridge.py`(옛 `anim_graph_mcp.bridge` 도 같은 모듈). Tool 9개 · op · 봉투 · 포트 · 토큰은 그대로다. 아래 본문의 `AnimGraphMcp` 플러그인 · 경로 표기는 작성 당시 기록이며, 최신 참조는 [Plugins/StateTreeMcp/README.md](../../Plugins/StateTreeMcp/README.md).
+
 ## 0. 원본에서 바꾼 것
 
 | # | 원본 | 교정 | 이유 |
@@ -237,7 +239,7 @@ bind_property_function { ref?, function, output?, target: { node, path } }   D-5
 - `sent` 는 트리가 실행 중이라 큐에 넣는 호출까지 갔다는 뜻이다. `SendStateTreeEvent` 는 결과를 돌려주지 않는다.
 - `expect_transition: false` 는 무관한 이벤트의 대조 시험이다.
 - **`actions` 는 폰 · 컨트롤러에 직접 하는 일이다** — `damage`(폰의 `DamageSelf` 를 이름으로 호출), `unpossess`, `repossess`, `destroy`, `spawn_controller`(첫 동작 · `spawn_location` 필수). 이벤트와 따로 차례대로 돈다. 있으면 트리가 멈춰도 끝내지 않고 `duration` 까지, 또는 인스턴스가 사라질 때(`instance_gone`, 오류 아님)까지 본다.
-- **`EnterState` · `ExitState` 를 보려면 프로브 Task 를 상태에 넣는다** — `/Script/AnimGraphMcpEditor.AnimMcpLifecycleProbeTask`(값 `Label` · `AbilityPath`). 호출 시점의 폰 · ASC · PawnExt 결합 · 어빌리티 수 · GA 활성화 결과와 정지 상태를 `observed.probe` 로 낸다. 타임라인만으로는 호출 여부를 알 수 없다.
+- **`EnterState` · `ExitState` 를 보려면 프로브 Task 를 상태에 넣는다** — `/Script/StateTreeMcpEditor.AnimMcpLifecycleProbeTask`(2026-11-14 전 `/Script/AnimGraphMcpEditor.…`, 값 `Label` · `AbilityPath`). 호출 시점의 폰 · ASC · PawnExt 결합 · 어빌리티 수 · GA 활성화 결과와 정지 상태를 `observed.probe` 로 낸다. 타임라인만으로는 호출 여부를 알 수 없다.
 - 기대 순서가 없으면 일찍 끝내지 않는다. 있으면 그 순서와 이벤트 · 동작이 끝날 때 끝낸다.
 - 네트 모드 · 인원은 항상 명시한다. 사용자의 플레이 설정을 따르면 결과가 설정에 묶인다.
 - 전환 사유는 다루지 않는다. 이벤트 뒤의 전환이 이벤트 때문인지는 구분하지 않는다.
@@ -288,7 +290,7 @@ BP 노드 생성, Commandlet, CI 보고서, 상태형 편집 세션, 전환 사�
 
 ## 8. 테스트
 
-Automation(`AnimGraphMcp.StateTree.*`)을 쓰고 `run_automation_tests` 로 돌린다. Phase 1 필수 항목:
+Automation(`StateTreeMcp.*` — 2026-11-14 전 이름 `AnimGraphMcp.StateTree.*`)을 쓰고 `run_automation_tests` 로 돌린다. Phase 1 필수 항목:
 
 1. 빈 트리 생성 · 잘못된 스키마 거부 · 덮어쓰기 거부
 2. 부모/자식 상태 · 이름 중복 시 GUID 식별

@@ -1,0 +1,6 @@
+{
+  "autoMemoryEnabled": false,
+  "permissions": {
+    "deny": ["Bash", "WebFetch", "WebSearch", "Write", "Edit", "NotebookEdit"]
+  }
+}

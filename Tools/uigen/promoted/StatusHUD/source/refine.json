@@ -1,0 +1,1023 @@
+{
+  "passes": [
+    {
+      "attempt": 1,
+      "assets": [
+        {
+          "asset_id": "ally1_crescent",
+          "backend": "concept_cut",
+          "raw_size": [
+            332,
+            84
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              56.0,
+              177.0,
+              316.0,
+              68.0
+            ],
+            "search_box": [
+              48,
+              169,
+              332,
+              84
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 21190,
+              "foreign_px": 6698
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "Ally1Frame can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "hull",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              56.0,
+              177.0,
+              316.0,
+              68.0
+            ],
+            "texture_box": [
+              56,
+              177,
+              316,
+              68
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.5613,
+            "has_alpha": true
+          },
+          "size": [
+            316,
+            68
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/ally1_crescent.png",
+            "concept_box": [
+              56,
+              177,
+              316,
+              68
+            ]
+          }
+        },
+        {
+          "asset_id": "ally2_crescent",
+          "backend": "concept_cut",
+          "raw_size": [
+            332,
+            86
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              56.0,
+              246.0,
+              316.0,
+              70.0
+            ],
+            "search_box": [
+              48,
+              238,
+              332,
+              86
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 21734,
+              "foreign_px": 6818
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "Ally2Frame can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "hull",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              56.0,
+              246.0,
+              316.0,
+              70.0
+            ],
+            "texture_box": [
+              56,
+              246,
+              316,
+              70
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.4525,
+            "has_alpha": true
+          },
+          "size": [
+            316,
+            70
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/ally2_crescent.png",
+            "concept_box": [
+              56,
+              246,
+              316,
+              70
+            ]
+          }
+        },
+        {
+          "asset_id": "ally3_crescent",
+          "backend": "concept_cut",
+          "raw_size": [
+            332,
+            87
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              56.0,
+              316.0,
+              316.0,
+              71.0
+            ],
+            "search_box": [
+              48,
+              308,
+              332,
+              87
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 15004,
+              "foreign_px": 9425
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "Ally3Frame can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "hull",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              56.0,
+              316.0,
+              316.0,
+              71.0
+            ],
+            "texture_box": [
+              56,
+              316,
+              316,
+              71
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.6338,
+            "has_alpha": true
+          },
+          "size": [
+            316,
+            71
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/ally3_crescent.png",
+            "concept_box": [
+              56,
+              316,
+              316,
+              71
+            ]
+          }
+        },
+        {
+          "asset_id": "self_hp_bar",
+          "backend": "concept_cut",
+          "raw_size": [
+            406,
+            42
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              154.0,
+              94.0,
+              390.0,
+              26.0
+            ],
+            "search_box": [
+              138,
+              78,
+              422,
+              58
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 8725,
+              "foreign_px": 9335
+            },
+            "overhang": {
+              "px": 0,
+              "used": false
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "contour",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              154.0,
+              94.0,
+              390.0,
+              26.0
+            ],
+            "texture_box": [
+              154,
+              94,
+              390,
+              26
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.1395,
+            "has_alpha": true
+          },
+          "size": [
+            390,
+            26
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/self_hp_bar.png",
+            "concept_box": [
+              154,
+              94,
+              390,
+              26
+            ]
+          }
+        },
+        {
+          "asset_id": "self_stamina_bar",
+          "backend": "concept_cut",
+          "raw_size": [
+            323,
+            35
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              153.0,
+              119.0,
+              307.0,
+              19.0
+            ],
+            "search_box": [
+              137,
+              103,
+              339,
+              51
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 5200,
+              "foreign_px": 10736
+            },
+            "overhang": {
+              "px": 0,
+              "used": false
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "contour",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              153.0,
+              119.0,
+              307.0,
+              19.0
+            ],
+            "texture_box": [
+              153,
+              119,
+              307,
+              19
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.1085,
+            "has_alpha": true
+          },
+          "size": [
+            307,
+            19
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/self_stamina_bar.png",
+            "concept_box": [
+              153,
+              119,
+              307,
+              19
+            ]
+          }
+        },
+        {
+          "asset_id": "ally1_hp_bar",
+          "backend": "concept_cut",
+          "raw_size": [
+            273,
+            35
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              113.0,
+              202.0,
+              257.0,
+              19.0
+            ],
+            "search_box": [
+              105,
+              194,
+              273,
+              35
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 4189,
+              "foreign_px": 4242
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "Ally1HpBar can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "contour",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              113.0,
+              202.0,
+              257.0,
+              19.0
+            ],
+            "texture_box": [
+              113,
+              202,
+              257,
+              19
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.1421,
+            "has_alpha": true
+          },
+          "size": [
+            257,
+            19
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/ally1_hp_bar.png",
+            "concept_box": [
+              113,
+              202,
+              257,
+              19
+            ]
+          }
+        },
+        {
+          "asset_id": "ally1_ult_bar",
+          "backend": "concept_cut",
+          "raw_size": [
+            226,
+            30
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              112.0,
+              221.0,
+              210.0,
+              14.0
+            ],
+            "search_box": [
+              104,
+              213,
+              226,
+              30
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 2509,
+              "foreign_px": 4227
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "Ally1UltBar can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "contour",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              112.0,
+              221.0,
+              210.0,
+              14.0
+            ],
+            "texture_box": [
+              112,
+              221,
+              210,
+              14
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.1466,
+            "has_alpha": true
+          },
+          "size": [
+            210,
+            14
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/ally1_ult_bar.png",
+            "concept_box": [
+              112,
+              221,
+              210,
+              14
+            ]
+          }
+        },
+        {
+          "asset_id": "ally2_hp_bar",
+          "backend": "concept_cut",
+          "raw_size": [
+            273,
+            34
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              112.0,
+              271.0,
+              257.0,
+              18.0
+            ],
+            "search_box": [
+              104,
+              263,
+              273,
+              34
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 4106,
+              "foreign_px": 4815
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "Ally2HpBar can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "contour",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              112.0,
+              271.0,
+              257.0,
+              18.0
+            ],
+            "texture_box": [
+              112,
+              271,
+              257,
+              18
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.1124,
+            "has_alpha": true
+          },
+          "size": [
+            257,
+            18
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/ally2_hp_bar.png",
+            "concept_box": [
+              112,
+              271,
+              257,
+              18
+            ]
+          }
+        },
+        {
+          "asset_id": "ally2_ult_bar",
+          "backend": "concept_cut",
+          "raw_size": [
+            229,
+            31
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              112.0,
+              289.0,
+              213.0,
+              15.0
+            ],
+            "search_box": [
+              104,
+              281,
+              229,
+              31
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 2712,
+              "foreign_px": 4320
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "Ally2UltBar can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "contour",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              112.0,
+              289.0,
+              213.0,
+              15.0
+            ],
+            "texture_box": [
+              112,
+              289,
+              213,
+              15
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.1512,
+            "has_alpha": true
+          },
+          "size": [
+            213,
+            15
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/ally2_ult_bar.png",
+            "concept_box": [
+              112,
+              289,
+              213,
+              15
+            ]
+          }
+        },
+        {
+          "asset_id": "ally3_hp_bar",
+          "backend": "concept_cut",
+          "raw_size": [
+            270,
+            35
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              115.0,
+              340.0,
+              254.0,
+              19.0
+            ],
+            "search_box": [
+              107,
+              332,
+              270,
+              35
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 4266,
+              "foreign_px": 4590
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "Ally3HpBar can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "contour",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              115.0,
+              340.0,
+              254.0,
+              19.0
+            ],
+            "texture_box": [
+              115,
+              340,
+              254,
+              19
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.116,
+            "has_alpha": true
+          },
+          "size": [
+            254,
+            19
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/ally3_hp_bar.png",
+            "concept_box": [
+              115,
+              340,
+              254,
+              19
+            ]
+          }
+        },
+        {
+          "asset_id": "ally3_ult_bar",
+          "backend": "concept_cut",
+          "raw_size": [
+            225,
+            30
+          ],
+          "source_mode": "extract",
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "cut": {
+            "background": "transparent",
+            "widget_box": [
+              112.0,
+              359.0,
+              209.0,
+              14.0
+            ],
+            "search_box": [
+              104,
+              351,
+              225,
+              30
+            ],
+            "alpha_from": "reference_alpha",
+            "own_mask": {
+              "px": 2853,
+              "foreign_px": 2541
+            },
+            "overhang": {
+              "used": false,
+              "blocked_by": [
+                "Ally3UltBar can be collapsed at runtime (a decoration Image would stay visible)"
+              ]
+            },
+            "art": "text-free art (generated concept) — no text holes"
+          },
+          "compose": {
+            "tophat": [],
+            "fill": "inpaint (small or compact element)",
+            "shape_from": "contour",
+            "edge_px": 2.0,
+            "texts": [],
+            "hole_ratio": 0.0,
+            "whole_text_boxes": false
+          },
+          "crop_back": {
+            "target_box": [
+              112.0,
+              359.0,
+              209.0,
+              14.0
+            ],
+            "texture_box": [
+              112,
+              359,
+              209,
+              14
+            ]
+          },
+          "alpha": {
+            "transparent_ratio": 0.0249,
+            "has_alpha": true
+          },
+          "size": [
+            209,
+            14
+          ],
+          "trim_bbox": "skipped (cut from the concept — texture box = widget box or its overhang box)",
+          "fidelity": {
+            "concept_shape_bbox": null,
+            "concept_shape_from": "empty",
+            "line_rule": "L*>=45, C*>=20",
+            "error": "no decorative line found in the concept crop",
+            "compare": "assets/compare/ally3_ult_bar.png",
+            "concept_box": [
+              112,
+              359,
+              209,
+              14
+            ]
+          }
+        },
+        {
+          "asset_id": "static_plate1",
+          "backend": "concept_plate",
+          "source_mode": "plate",
+          "plate": {
+            "box": [
+              55,
+              58,
+              90,
+              107
+            ],
+            "region": "SelfPanel"
+          },
+          "art": "text-free art (generated concept) — no text fill",
+          "windows": [],
+          "texts": [],
+          "gauge_holes": [],
+          "alpha": {
+            "transparent_ratio": 0.7794,
+            "has_alpha": true
+          },
+          "size": [
+            90,
+            107
+          ],
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "notext_available": true
+        }
+      ],
+      "margin_updates": [],
+      "brush_updates": [],
+      "overhang_updates": [],
+      "overhang_dropped": []
+    }
+  ]
+}

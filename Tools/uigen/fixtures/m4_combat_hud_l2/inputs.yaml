@@ -1,0 +1,41 @@
+# 1b 후속 L-2 시험 입력 — 원래 전투 HUD(fixtures/m4_combat_hud_concept)의 브리프 · 계약을 그대로, 컨셉만 '글자 없는 원본 아트 + 글자 참고판'으로 새로 만든다.
+#   Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/make_concept.py --out-dir Tools/uigen/fixtures/m4_combat_hud_l2 --text-free-first
+# 계약(바인딩 위젯 이름 · 타입 · 데이터 · 고정 글자)은 m4_combat_hud_concept 와 같다 → codegen 계약 해시가 같아 건너뛴다.
+# desc(영문)는 참고판 편집 프롬프트의 글자 칸 설명(좌표 없이 자리 · 모양만 — 설계 L-2 결정 ②). 값은 전부 잠정.
+schema_version: 1
+mode: concept
+screen_type: hud
+screen_id: ProbeCombatHUD
+concept: concept.png                     # 글자 없는 원본 아트(codex — 사람이 승인하는 픽셀 정답)
+concept_source: generated_textfree
+concept_text_ref: concept_text_ref.png   # 그 아트에 글자만 얹은 참고판(codex 편집 1 회 — 글자 스타일 측정용)
+resolution: [1920, 1080]
+language: ko
+font: null                               # → pipeline.yaml fonts.default_family (Pretendard)
+text: "M4 전투 HUD — 하단 가운데 오의 게이지(가득 차면 강조), 그 위 '오의 불가' 문구, 오른쪽 위 체인 패널(남은 시간 · 참가 N/4), 위 가운데 체인 버스트 배너(인원)."
+required_elements:
+  - { id: UltGauge, kind: progress, desc: "오의 게이지" }
+  - { id: UltReadyGlow, kind: image, desc: "게이지가 가득 차면 강조(게이지 뒤 빛)" }
+  - { id: ChainPanel, kind: panel, desc: "체인 패널 — 열린 체인이 있을 때만" }
+  - { id: ChainTimerText, kind: text, desc: "체인 남은 시간(초)" }
+  - { id: ChainCountText, kind: text, desc: "체인 참가 N/4" }
+  - { id: BurstBanner, kind: banner, desc: "체인 버스트 배너" }
+  - { id: BurstCountText, kind: text, desc: "버스트 인원" }
+  - { id: UltBlockedText, kind: text, desc: "'오의 불가' — 차단 태그로 발동 실패했을 때" }
+data:
+  - { id: ult_gauge, type: progress, widget: UltGauge, widget_type: ProgressBar, sample: 0.7 }
+  - { id: ult_ready, type: flag, widget: UltReadyGlow, widget_type: Image, sample: false, desc: "full-gauge glow behind the gauge (hidden at 70 %)" }
+  - { id: chain_panel, type: flag, widget: ChainPanel, widget_type: Border, sample: true }
+  - { id: chain_remaining, type: number, widget: ChainTimerText, widget_type: TextBlock, format: "0.0", sample: 4.2,
+      desc: "large cream-colored number in the middle of the chain panel" }
+  - { id: chain_count, type: text, widget: ChainCountText, widget_type: TextBlock, sample: "2/4",
+      desc: "smaller light text at the bottom inside the chain panel" }
+  - { id: burst_banner, type: flag, widget: BurstBanner, widget_type: Border, sample: false }
+  - { id: burst_count, type: number, widget: BurstCountText, widget_type: TextBlock, format: "0", sample: 3,
+      desc: "large white number on the right side of the burst banner" }
+  - { id: ult_blocked, type: flag, widget: UltBlockedText, widget_type: TextBlock, sample: false }
+static_text:
+  - { widget: UltBlockedText, value: "오의 불가", desc: "small red-orange warning text in the empty space just above the ultimate gauge, centered" }
+  - { widget: ChainTitleText, value: "체인", desc: "small gold title at the top inside the chain panel" }
+  - { widget: BurstLabelText, value: "체인 버스트", desc: "gold label on the left side of the burst banner" }
+style_keywords: ["dark fantasy", "gold trim", "thin elegant frames", "subtle glow"]

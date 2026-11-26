@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "screen_id": "HubReady",
+  "run_id": "R20261125_215251_HubReady",
+  "parent_run_id": null,
+  "dest": "/Game/UI/Screens/HubReady",
+  "wbp": "/Game/UI/Screens/HubReady/WBP_HubReady",
+  "textures": {
+    "static_plate1": "/Game/UI/Screens/HubReady/T_static_plate1",
+    "static_plate2": "/Game/UI/Screens/HubReady/T_static_plate2",
+    "static_plate3": "/Game/UI/Screens/HubReady/T_static_plate3"
+  },
+  "files": {
+    "T_static_plate1.uasset": {
+      "sha256": "f9993fa9b13a7db7056fad7d241850cdb24f8d9104dda9da30e3f6528e930ed7",
+      "size": 79449
+    },
+    "T_static_plate2.uasset": {
+      "sha256": "6da19540faf8b8ad841fdd51df81c55578c8e08b40bdb6bb653975c49e7b9571",
+      "size": 77686
+    },
+    "T_static_plate3.uasset": {
+      "sha256": "e2289773ab59db14e81afda55e03070955068627ca7c9518c6d22feafb93075e",
+      "size": 42553
+    },
+    "WBP_HubReady.uasset": {
+      "sha256": "27edc6c4f323d73080c30ed6c1b0ab9bd6c21302652b4a7ba527da81fac02630",
+      "size": 78210
+    }
+  },
+  "revision": "sha1:c7e6c0fcbfd20934b7b871046c32a3b7d901428a",
+  "run_revision": "sha1:1021a7bf51bb03af8d2297a9801db46d0bf2fee0",
+  "contract_hash": "sha1:aff5efdf5cefab64c6131e035ff3c6d62ee8517c",
+  "source": {
+    "assets/final/static_plate1.png": {
+      "kind": "binary",
+      "sha256": "e89dd53dc4016b94ec48a665bcc44b1b719cb32b976ec13f674aa8546952a486",
+      "size": 57920
+    },
+    "assets/final/static_plate2.png": {
+      "kind": "binary",
+      "sha256": "6f1269e4b68c318c073fc75748e9e12ca6ca53d62b461df4ea36d4eee4a02577",
+      "size": 57060
+    },
+    "assets/final/static_plate3.png": {
+      "kind": "binary",
+      "sha256": "78b2493ced0af39bfc7807d6a3a3791b550f3f8395c3223f781a83c76ad05d59",
+      "size": 28530
+    },
+    "brief.json": {
+      "kind": "json",
+      "sha256": "afef2ca582c945c036724531330467f93116cf53a62c28a83623a5b24a22efc9"
+    },
+    "codegen.json": {
+      "kind": "json",
+      "sha256": "6e4b8662d2c83fffdbbf6415660679ab240cecaf8d41d0919f16b045dcc827f7"
+    },
+    "diagnosis.json": {
+      "kind": "json",
+      "sha256": "235a8debe6f1ee3b9ec67ee6828d9737852b4fd749031fa30c32361b485e5ff3"
+    },
+    "gen.jsonl": {
+      "kind": "jsonl",
+      "sha256": "a4550df4eb5ad5cd1d6409e101925967c6163a1603a0123e6ee21ac42de2ca2a"
+    },
+    "geometry.json": {
+      "kind": "json",
+      "sha256": "5c9284d7f60bca29d222a9032986fce8763c4a65bc90ab2e4dac32119c176045"
+    },
+    "inputs.json": {
+      "kind": "json",
+      "sha256": "103a377f7e56e4e29268602b52d843d0f4a32dfd51bcd733346bd50ad7aead6b"
+    },
+    "layer.json": {
+      "kind": "json",
+      "sha256": "9513e8f425857c6c56fe89c62a5598bde61abdb83263f43eaf23b624b7082c52"
+    },
+    "layer/plate_1.png": {
+      "kind": "binary",
+      "sha256": "698347de43e2b8cc2fb0d83d98cb91b16b8a7947443e55adec839c638bd640cc",
+      "size": 2477
+    },
+    "layer/plate_2.png": {
+      "kind": "binary",
+      "sha256": "95c1faad0c2441aa15e5f6e04e26b58fd4e925d6a81b109d2b623b40ef6c067d",
+      "size": 2526
+    },
+    "layer/plate_3.png": {
+      "kind": "binary",
+      "sha256": "3a3eae6220e472c069ea8d00742f892826e11c91f1a40c044d5cd45faca3e58a",
+      "size": 2319
+    },
+    "lineage.json": {
+      "kind": "json",
+      "sha256": "b542f401459f92439c601bbd8d077957dbeae0eafb26cb21efebbe749be95364"
+    },
+    "manifest.json": {
+      "kind": "json",
+      "sha256": "17a766c78f6c9b1a988abcbb3f6b22cca22ce2f6b9d559bfa66d6589642d0cc1"
+    },
+    "normalize.json": {
+      "kind": "json",
+      "sha256": "c1569af522f62414c0fe69e59c7c1107f6d53aeffc094e670c158a84d8d15cac"
+    },
+    "reference.png": {
+      "kind": "binary",
+      "sha256": "293d23581720f5d22b57567c8b5aa0d4f01e6d8938ed210f83b024c212fa82b2",
+      "size": 323119
+    },
+    "reference_alpha.png": {
+      "kind": "binary",
+      "sha256": "7bf1da24cb1c57343292927921db0afd5da6580fe82f4e09deb51aec92ed4349",
+      "size": 108386
+    },
+    "reference_art_alpha.png": {
+      "kind": "binary",
+      "sha256": "4df07c1f54523b2fad73429e21f8df1e79c8de308007b0a69758b0825e53a395",
+      "size": 103912
+    },
+    "reference_art_color.png": {
+      "kind": "binary",
+      "sha256": "f6abbfde42bd45533de41fbc722967b89128f7c718376f4fd760f868c2b55b26",
+      "size": 392939
+    },
+    "reference_color.png": {
+      "kind": "binary",
+      "sha256": "d932ce9dc74cf5fdb594dcde6e68f6c413ad2918409b7c5c5d51c599707a71c7",
+      "size": 404533
+    },
+    "reference_notext_alpha.png": {
+      "kind": "binary",
+      "sha256": "4df07c1f54523b2fad73429e21f8df1e79c8de308007b0a69758b0825e53a395",
+      "size": 103912
+    },
+    "reference_notext_color.png": {
+      "kind": "binary",
+      "sha256": "f6abbfde42bd45533de41fbc722967b89128f7c718376f4fd760f868c2b55b26",
+      "size": 392939
+    },
+    "refine.json": {
+      "kind": "json",
+      "sha256": "6ec15a1a74c0df9ffddc175dfd0d8570ba399f3af6179cb2cb18f719154e3ed5"
+    },
+    "spec.json": {
+      "kind": "json",
+      "sha256": "c236f1983c0291e69f325fdc6be5ac2b553fc9abc4afcec8ff6f2e0e6b46ed18"
+    },
+    "specs/000.json": {
+      "kind": "json",
+      "sha256": "c236f1983c0291e69f325fdc6be5ac2b553fc9abc4afcec8ff6f2e0e6b46ed18"
+    }
+  },
+  "edits": [],
+  "cells": [
+    {
+      "cell": "ButtonLarge",
+      "class": "/Game/UI/Common/ButtonLarge/WBP_ButtonLarge",
+      "run_id": "R20261125_160008_ButtonLarge",
+      "widgets": [
+        "DestinationButton"
+      ]
+    },
+    {
+      "cell": "ButtonSmall",
+      "class": "/Game/UI/Common/ButtonSmall/WBP_ButtonSmall",
+      "run_id": "R20261125_160033_ButtonSmall",
+      "widgets": [
+        "ReadyButton",
+        "LaunchButton"
+      ]
+    },
+    {
+      "cell": "HubMemberRow",
+      "class": "/Game/UI/Screens/HubMemberRow/WBP_HubMemberRow",
+      "run_id": "R20261125_211554_HubMemberRow",
+      "widgets": [
+        "MemberRow1",
+        "MemberRow2",
+        "MemberRow3",
+        "MemberRow4"
+      ]
+    }
+  ],
+  "verified": {
+    "roundtrip_equal": true,
+    "pictures": 25,
+    "same_pixels": 25,
+    "same_bytes": 25,
+    "unsupported": 0
+  },
+  "recorded_at": "2026-11-26T09:34:56+09:00"
+}

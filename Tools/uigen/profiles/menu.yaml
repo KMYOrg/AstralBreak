@@ -1,0 +1,24 @@
+# 화면 종류 프로필 — menu(조작 화면, 설계 §11 'Phase 3 설계' ② · Phase 3-3). 가운데가 열린 화면이라 배경은 투명하다(뒤의 게임이 보인다).
+# 게이트 값은 hud 와 같게 시작한다.
+schema_version: 1
+screen_type: menu
+background: transparent
+root_type: CanvasPanel
+verify_region: ui_union
+
+# 입력 규칙('가리는 위젯 없음') — 버튼이 아닌 잎의 기본 보이기 = hit_test_invisible, 패널 = self_hit_test_invisible(core/spec.default_visibility),
+# 버튼 위에 클릭을 먹는 위젯이 있으면 input_clear 게이트 실패(core/hit)
+input_rules: true
+
+# analyze 프롬프트의 화면 종류 한 줄(hud 는 '뒤의 장면은 UI 가 아니다')
+analyze_note: "an interactive menu over the running game; the middle stays open and everything visible here is UI"
+
+gates:
+  iou_region_min: 0.85
+  iou_leaf_min: 0.70
+  small_px: 48
+  small_center_max_px: 8
+  overlap_max_ratio: 0.04
+  offscreen_max: 0
+
+stacking_parents: [Overlay]

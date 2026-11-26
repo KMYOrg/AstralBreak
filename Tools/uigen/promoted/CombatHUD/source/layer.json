@@ -1,0 +1,199 @@
+{
+  "applied": true,
+  "functional": {
+    "BurstBanner": "binding flag",
+    "BurstCountText": "binding number",
+    "ChainPanel": "binding flag",
+    "ChainRing": "binding progress",
+    "ChainTimerText": "binding number",
+    "ChainCountText": "binding text",
+    "UltBlockedText": "binding flag",
+    "UltReadyPanel": "binding flag",
+    "UltKeyText": "binding text",
+    "UltGauge": "binding progress",
+    "BurstLayer": "inside BurstBanner (binding flag)",
+    "BurstLabelText": "inside BurstBanner (binding flag)",
+    "ChainLayer": "inside ChainPanel (binding flag)",
+    "ChainTitleText": "inside ChainPanel (binding flag)",
+    "UltReadyGlow": "inside UltReadyPanel (binding flag)"
+  },
+  "static": [
+    "UltGaugeFrame"
+  ],
+  "plates": [
+    {
+      "widget": "StaticPlate1",
+      "asset": "static_plate1",
+      "box": [
+        607,
+        1004,
+        700,
+        35
+      ],
+      "region": "UltArea",
+      "px": 21174,
+      "allow_overlap_with": [
+        "UltArea"
+      ]
+    }
+  ],
+  "removed_assets": [
+    "ult_gauge_frame"
+  ],
+  "static_brushes": [
+    {
+      "widget": "UltGaugeFrame",
+      "key": "brush",
+      "old": {
+        "draw_as": "image",
+        "asset": "ult_gauge_frame"
+      }
+    }
+  ],
+  "gauge_backgrounds": [],
+  "func_zone_px": 412670,
+  "unassigned_px": 0,
+  "text_only_px": 0,
+  "specks_px": 0,
+  "masks": [
+    "layer/plate_1.png"
+  ],
+  "toggles": [
+    {
+      "widget": "BurstBanner",
+      "why": "flag binding",
+      "carrier": "BurstBanner",
+      "asset": "burst_banner_frame",
+      "old_box": [
+        556.0,
+        188.0,
+        792.0,
+        104.0
+      ],
+      "box": [
+        556.0,
+        188.0,
+        799.0,
+        107.0
+      ],
+      "grow": [
+        0.0,
+        0.0,
+        7.0,
+        3.0
+      ],
+      "px": 503,
+      "size_old": [
+        792,
+        104
+      ],
+      "size_new": [
+        799,
+        107
+      ],
+      "children_kept": [
+        "BurstLayer"
+      ],
+      "allow_overlap_with": [],
+      "mask": "layer/own_BurstBanner.png"
+    },
+    {
+      "widget": "ChainPanel",
+      "why": "flag binding",
+      "carrier": "ChainPanel",
+      "asset": "chain_band",
+      "old_box": [
+        696.0,
+        327.0,
+        516.0,
+        516.0
+      ],
+      "box": [
+        694.0,
+        327.0,
+        520.0,
+        516.0
+      ],
+      "grow": [
+        2.0,
+        0.0,
+        2.0,
+        0.0
+      ],
+      "px": 42,
+      "size_old": [
+        516,
+        516
+      ],
+      "size_new": [
+        520,
+        516
+      ],
+      "children_kept": [
+        "ChainLayer"
+      ],
+      "allow_overlap_with": [],
+      "mask": "layer/own_ChainPanel.png"
+    }
+  ],
+  "radials": [
+    {
+      "widget": "ChainRing",
+      "asset": "chain_ring",
+      "box": [
+        695,
+        325,
+        519,
+        520
+      ],
+      "center": [
+        954.52,
+        584.99
+      ],
+      "radius": 256.07,
+      "outline_points": 2046,
+      "on_circle": 0.971,
+      "residual_px": {
+        "p50": 0.36,
+        "p95": 1.04,
+        "max": 1.66
+      },
+      "thickness_px": {
+        "min": 2.5,
+        "max": 18.5
+      },
+      "touched_deg": 43,
+      "ghost_alpha_max": 0.059,
+      "mask_px": 26956,
+      "visible_px": 22261,
+      "mask": "layer/ring_ChainRing.png"
+    }
+  ],
+  "filled": [
+    {
+      "region": "UltReadyPanel",
+      "widget": "UltReadyGlow",
+      "asset": "ult_ready_glow",
+      "old_box": [
+        670.0,
+        894.0,
+        576.0,
+        56.0
+      ],
+      "box": [
+        670.0,
+        894.0,
+        576.0,
+        104.0
+      ],
+      "size_old": [
+        576,
+        56
+      ],
+      "size_new": [
+        576,
+        104
+      ]
+    }
+  ]
+}

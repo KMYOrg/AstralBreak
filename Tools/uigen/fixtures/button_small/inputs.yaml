@@ -1,0 +1,24 @@
+# 공용 부품 — 작은 버튼 칸 'ButtonSmall'(설계 §11 'Phase 3 설계' ② · 'Phase 3-2 결과', 11-25). 화면에 놓이는 부품 하나 = 자기 run · 자기 승격본(/Game/UI/Common/ButtonSmall).
+# 원본 아트는 승인한 허브 준비 시안(hub_ready_sheet — 후보 C)의 왼쪽 작은 버튼을 픽셀 그대로 오림(codex 0):
+#   Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/make_concept.py --out-dir Tools/uigen/fixtures/button_small \
+#       --cut-from Tools/uigen/fixtures/hub_ready_sheet/concept.png --keep 1260.86,908.33,288.23,93.01 --crop
+#   (참고판) … make_concept.py --out-dir Tools/uigen/fixtures/button_small --only text_ref --draw Tools/uigen/fixtures/button_small/text_ref_layout.yaml
+# resolution = 시안에서 보이는 크기(concept.json cut_from.size_1920). 상태 그림 여섯은 기본 그림에 공용 테마의 식(config/theme_blade.yaml)을 적용해 refine 이 만든다.
+schema_version: 1
+mode: concept
+screen_type: cell
+screen_id: ButtonSmall
+concept: concept.png
+concept_source: generated_textfree
+concept_text_ref: concept_text_ref.png
+resolution: [288, 93]
+language: ko
+font: null                               # → pipeline.yaml fonts.default_family (Pretendard)
+text: "작은 버튼 칸 — 큰 버튼과 같은 모양의 작은 판. 가운데 글자 하나(놓는 화면이 정한다)."
+button: { art: ButtonArt, label: ButtonLabel, theme: blade }
+required_elements:
+  - { id: ButtonArt, kind: image, desc: "버튼 판 전체(칼날 선 둘 포함) — 상태마다 그림이 바뀐다" }
+  - { id: ButtonLabel, kind: text, desc: "가운데 글자" }
+data:
+  - { id: button_text, type: text, widget: ButtonLabel, widget_type: TextBlock, sample: "준비 완료", desc: "button label, horizontally and vertically centered" }   # 글자는 보기(놓는 화면이 props.ButtonText 로 정한다)
+style_keywords: ["modern flat HUD", "matte ink-black", "bone-white steel blades", "pale ivory accent", "realistic 3D action"]

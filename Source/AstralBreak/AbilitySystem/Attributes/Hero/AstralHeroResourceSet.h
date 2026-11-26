@@ -25,6 +25,7 @@ public:
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, MaxUltGauge);
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, UltGainMultiplier);
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, BreakContributionMultiplier);
+    ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, ChainBurstDamageMultiplier);
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, UltGain);
 
     ATTRIBUTE_ACCESSORS(UAstralHeroResourceSet, MarkStack);
@@ -51,6 +52,7 @@ protected:
     UFUNCTION() void OnRep_MaxUltGauge(const FGameplayAttributeData& OldValue);
     UFUNCTION() void OnRep_UltGainMultiplier(const FGameplayAttributeData& OldValue);
     UFUNCTION() void OnRep_BreakContributionMultiplier(const FGameplayAttributeData& OldValue);
+    UFUNCTION() void OnRep_ChainBurstDamageMultiplier(const FGameplayAttributeData& OldValue);
 
     UFUNCTION() void OnRep_MarkStack(const FGameplayAttributeData& OldValue);
     UFUNCTION() void OnRep_MaxMarkStack(const FGameplayAttributeData& OldValue);
@@ -90,6 +92,13 @@ private:
 
     UPROPERTY(BlueprintReadOnly, Category = "Astral|Ult", ReplicatedUsing = OnRep_BreakContributionMultiplier, meta = (AllowPrivateAccess = true))
     FGameplayAttributeData BreakContributionMultiplier;
+
+    /**
+     * 체인 버스트에서 자기 몫의 피해에 곱하는 배수 (기본 1.0) — 계획서의 '체인 버스트 기여도 Multiplier', M7 빌드가 얹힐 예약 노브.
+     * UAstralChainBurstComponent 가 총 피해를 참가자 수로 나눈 뒤 각자의 값을 곱한다 (설계 m4-ult-chain.md §3)
+     */
+    UPROPERTY(BlueprintReadOnly, Category = "Astral|Ult", ReplicatedUsing = OnRep_ChainBurstDamageMultiplier, meta = (AllowPrivateAccess = true))
+    FGameplayAttributeData ChainBurstDamageMultiplier;
 
     /** 오의 수급 meta — GE_UltGain(SetByCaller.UltGain)의 착지점. 비복제, 처리 후 0 리셋 */
     UPROPERTY(BlueprintReadOnly, Category = "Astral|Ult", meta = (AllowPrivateAccess = true))

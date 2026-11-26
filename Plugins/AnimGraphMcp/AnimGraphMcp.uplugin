@@ -2,8 +2,8 @@
 	"FileVersion": 3,
 	"Version": 1,
 	"VersionName": "0.1.0",
-	"FriendlyName": "AnimGraph MCP Bridge",
-	"Description": "Local HTTP/JSON bridge (127.0.0.1 only) that lets an external MCP server inspect and edit Animation Blueprints inside the running editor.",
+	"FriendlyName": "AnimGraph MCP",
+	"Description": "Editor MCP feature plugin: inspect and edit Animation Blueprints, montages, retargeting, capture and AI animation generation inside the running editor. Tools are served by the shared EditorMcpCore bridge (127.0.0.1 only).",
 	"Category": "Scripting",
 	"CreatedBy": "kmy9317",
 	"CreatedByURL": "",
@@ -24,23 +24,15 @@
 	],
 	"Plugins": [
 		{
+			"Name": "EditorMcpCore",
+			"Enabled": true
+		},
+		{
 			"Name": "IKRig",
 			"Enabled": true
 		},
 		{
 			"Name": "Interchange",
-			"Enabled": true
-		},
-		{
-			"Name": "StateTree",
-			"Enabled": true
-		},
-		{
-			"Name": "GameplayStateTree",
-			"Enabled": true
-		},
-		{
-			"Name": "GameplayAbilities",
 			"Enabled": true
 		}
 	]

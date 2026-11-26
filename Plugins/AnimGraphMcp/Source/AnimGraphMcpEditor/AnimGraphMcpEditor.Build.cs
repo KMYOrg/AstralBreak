@@ -15,6 +15,9 @@ public class AnimGraphMcpEditor : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
+			// 공용 코어 (2026-11-14 플러그인 분리) — 디스패처 · 봉투 · HTTP 브리지 · 토큰 · 자동 시험 러너 · 보호 목록 · 쓰기 가드 · Tool 등록
+			"EditorMcpCore",
+
 			// 생성·컴파일·저장·트랜잭션 (FKismetEditorUtilities · FBlueprintEditorUtils · FScopedTransaction · UEditorAssetSubsystem · UAssetEditorSubsystem)
 			"UnrealEd",
 
@@ -25,15 +28,8 @@ public class AnimGraphMcpEditor : ModuleRules
 			// UK2Node_* · UEdGraphSchema_K2 (Transition Rule 조립)
 			"BlueprintGraph",
 
-			// 엔진 내장 HTTP 서버 — 게임 스레드 티커로 동작, 기본 바인드 localhost (Runtime/Online/HTTPServer)
-			"HTTPServer",
-			// FInternetAddr (요청 PeerAddress 로그)
-			"Sockets",
-
 			"Json",
 			"AssetRegistry",
-			// IPluginManager (플러그인 상태 조회)
-			"Projects",
 
 			// AI 애니 생성 Phase 1 (Docs/AIAnimation) — IK Rig·리타기터 애셋(UIKRigDefinition · UIKRetargeter · 리타깃 op)
 			"IKRig",
@@ -51,19 +47,8 @@ public class AnimGraphMcpEditor : ModuleRules
 			// AI 애니 생성 Phase 8-2 — capture_animation 의 이미지 버퍼(FImage — 비교 칸 PNG 읽기 · 형식 변환)
 			"ImageCore",
 
-			// StateTree 자동화 (Docs/StateTree) — 애셋 · 스키마 · 컴파일 · ViewModel
-			"StateTreeModule",
-			"StateTreeEditorModule",
-			"GameplayStateTreeModule",
-			// run_state_tree_scenario — AAIController 로 폰 · 인스턴스를 찾는다
-			"AIModule",
-			// FPropertyBindingPath · GetPropertyCompatibility · IsPropertyBindable(에디터 쪽)
-			"PropertyBindingUtils",
-			"PropertyBindingUtilsEditor",
-			// 상태 Tag · 전환 RequiredEvent
-			"GameplayTags",
-			// 시험 프로브 Task — 첫 상태에서 ASC · 부여 어빌리티를 본다
-			"GameplayAbilities",
+			// StateTree 자동화 의존성(StateTree · GameplayStateTree · AIModule · PropertyBindingUtils · GameplayTags · GameplayAbilities)은
+			// 2026-11-14 StateTreeMcp 플러그인으로 옮겼다
 		});
 	}
 }

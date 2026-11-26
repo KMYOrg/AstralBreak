@@ -17,6 +17,7 @@
 #include "Character/Hero/Components/AstralHeroComponent.h"
 #include "Character/Hero/Components/AstralHeroMovementComponent.h"
 #include "Character/Hero/Components/AstralTargetingComponent.h"
+#include "GameModes/AstralChainBurstComponent.h"
 #include "GameModes/AstralHubGameState.h"
 #include "Player/AstralPlayerState.h"
 
@@ -120,6 +121,11 @@ FString UAstralDebugWidget::GetPartyString() const
         if (const AAstralHubGameState* HubGS = Cast<AAstralHubGameState>(GS))
         {
             B.Appendf(TEXT("Raid: %s | AllReady: %s\n"), *HubGS->GetSelectedRaid().MapName, HubGS->AreAllPlayersReady() ? TEXT("YES") : TEXT("no"));
+        }
+        // 체인 버스트 — 레이드 GameState 에만 있다 (복제된 상태 그대로. 남은 시간은 서버 시간에서 계산)
+        if (const UAstralChainBurstComponent* ChainBurst = GS->FindComponentByClass<UAstralChainBurstComponent>())
+        {
+            B.Appendf(TEXT("%s\n"), *ChainBurst->GetDebugString());
         }
         // 방장 — GameState 가 복제된 PlayerId 로 계산한 값(표시용, 판정은 서버 RPC). 액터 이름은 창마다 다르니 id 로 맞춰 본다
         const APlayerState* LeaderPS = GS->GetPartyLeader();
@@ -231,11 +237,11 @@ FString UAstralDebugWidget::GetAttributesString() const
 
     if (const UAstralHeroResourceSet* R = ASC->GetSet<UAstralHeroResourceSet>())
     {
-        Out.Appendf(TEXT("STM %.0f/%.0f  ULT %.0f/%.0f (x%.2f)  MARK %.0f/%.0f (x%.2f)  GRD x%.2f\n"),
+        Out.Appendf(TEXT("STM %.0f/%.0f  ULT %.0f/%.0f (x%.2f)  MARK %.0f/%.0f (x%.2f)  GRD x%.2f  BURST x%.2f\n"),
             R->GetStamina(), R->GetMaxStamina(),
             R->GetUltGauge(), R->GetMaxUltGauge(), R->GetUltGainMultiplier(),
             R->GetMarkStack(), R->GetMaxMarkStack(), R->GetMarkGainMultiplier(),
-            R->GetGuardDamageMultiplier());
+            R->GetGuardDamageMultiplier(), R->GetChainBurstDamageMultiplier());
     }
     else
     {

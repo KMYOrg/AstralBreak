@@ -1,0 +1,25 @@
+# 화면 종류 프로필 — cell(칸, 설계 §11 'Phase 3 설계' ②). 캔버스 = 칸 크기(다른 화면에 놓이는 부품 하나).
+# 게이트 값은 hud 와 같게 시작한다.
+schema_version: 1
+screen_type: cell
+background: transparent
+root_type: CanvasPanel
+verify_region: ui_union
+
+# 칸은 화면 크기에 늘어나는 것이 아니라 자기 크기로 놓인다 — 다른 해상도 렌더는 뜻이 없다(캔버스 크기 하나만)
+resolutions: canvas
+
+# 입력 규칙 — 놓인 화면의 버튼을 칸 속의 그림 · 글자가 가리지 않게(menu 와 같은 규칙). 버튼 칸(최상위 button)은 속이 전부 버튼이라 예전 그대로
+input_rules: true
+analyze_note: "one reusable part of a larger screen, drawn alone; everything visible is UI and the canvas is exactly this part"
+
+gates:
+  iou_region_min: 0.85
+  iou_leaf_min: 0.70
+  small_px: 48
+  small_center_max_px: 8
+  overlap_max_ratio: 0.04
+  offscreen_max: 0
+  desired_size_max_px: 0.5              # 자동 크기로 놓았을 때의 크기 ↔ 캔버스(버튼 칸 — 스타일의 최소 크기가 칸 크기다)
+
+stacking_parents: [Overlay]

@@ -1,0 +1,179 @@
+{
+ "schema_version": 1,
+ "kind": "concept_text_ref",
+ "created": "2026-11-18T14:11:03",
+ "generator": "codex built-in image_gen",
+ "edited_from": "concept.png",
+ "thread_id": "01a1ed10-24c6-7c31-8455-1f66c05e112e",
+ "texts": [
+  {
+   "widget": "UltBlockedText",
+   "value": "오의 불가",
+   "slot": "small red-orange warning text in the empty space just above the ultimate gauge, centered"
+  },
+  {
+   "widget": "ChainTitleText",
+   "value": "체인",
+   "slot": "small gold title at the top inside the chain panel"
+  },
+  {
+   "widget": "BurstLabelText",
+   "value": "체인 버스트",
+   "slot": "gold label on the left side of the burst banner"
+  },
+  {
+   "widget": "ChainTimerText",
+   "value": "4.2",
+   "slot": "large cream-colored number in the middle of the chain panel"
+  },
+  {
+   "widget": "ChainCountText",
+   "value": "2/4",
+   "slot": "smaller light text at the bottom inside the chain panel"
+  },
+  {
+   "widget": "BurstCountText",
+   "value": "3",
+   "slot": "large white number on the right side of the burst banner"
+  }
+ ],
+ "prompt_sha256": "094a6dbe2512167d16414fa4d381beb7d59e2e2dec9e92c51a7335f5427b0c91",
+ "file": "concept_text_ref.png",
+ "sha256": "d29ac115df3425d9c9b2114e5d9c0a828ab9fc5ba222d2f1985355d3a6a359d5",
+ "size": [
+  1671,
+  941
+ ],
+ "has_alpha_channel": true,
+ "transparent_ratio": 0.8234,
+ "duration_s": 38.79,
+ "check": {
+  "shift_px": [
+   0.98,
+   -0.08
+  ],
+  "response": 0.2946,
+  "used": true,
+  "shift_applied": [
+   1,
+   0
+  ],
+  "ocr": {
+   "text_ref_boxes": [
+    [
+     956,
+     125,
+     68,
+     77
+    ],
+    [
+     600,
+     138,
+     217,
+     52
+    ],
+    [
+     1370,
+     210,
+     85,
+     53
+    ],
+    [
+     1336,
+     248,
+     152,
+     93
+    ],
+    [
+     1371,
+     329,
+     83,
+     53
+    ],
+    [
+     755,
+     711,
+     161,
+     56
+    ]
+   ],
+   "art_boxes": [],
+   "boxes": [
+    [
+     956,
+     125,
+     68,
+     77
+    ],
+    [
+     600,
+     138,
+     217,
+     52
+    ],
+    [
+     1370,
+     210,
+     85,
+     53
+    ],
+    [
+     1336,
+     248,
+     152,
+     93
+    ],
+    [
+     1371,
+     329,
+     83,
+     53
+    ],
+    [
+     755,
+     711,
+     161,
+     56
+    ]
+   ],
+   "scores": [
+    0.849,
+    0.839,
+    0.886,
+    0.845,
+    0.867,
+    0.779
+   ],
+   "min_score": 0.6
+  },
+  "checks": {
+   "ui_px": 229765,
+   "outside_solid_big_frac": 0.0002,
+   "outside_far_new_frac": 0.0,
+   "fringe_alpha_frac": 0.15,
+   "outside_median_d": 9.12,
+   "outside_p95_d": 123.2,
+   "limit": 0.03
+  },
+  "glyph_px": 13026,
+  "glow_px": 13712,
+  "paste_px": 19457,
+  "ring_tone_l": 0.98
+ },
+ "note": "the same art with only the texts added by codex — glyph style reference (background pixels are not the truth)",
+ "check_history": [
+  {
+   "rule": "first rule (outside big / alpha on all UI pixels)",
+   "used": false,
+   "reason": "the text reference changed the art outside the text boxes (big difference 0.1846, new or lost opaque pixels 0.1983 > 0.03)",
+   "checks": {
+    "ui_px": 229765,
+    "outside_big_frac": 0.1846,
+    "outside_alpha_frac": 0.1983,
+    "outside_median_d": 9.12,
+    "outside_p95_d": 123.2,
+    "limit": 0.03
+   }
+  }
+ ]
+}

@@ -1,6 +1,6 @@
 #include "AnimMcpAssetOps.h"
 
-#include "AnimMcpAssetResolver.h"
+#include "Core/AnimMcpAssetResolver.h"
 #include "AnimMcpLog.h"
 #include "Animation/AnimBlueprint.h"
 #include "AssetRegistry/AssetRegistryModule.h"

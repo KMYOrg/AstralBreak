@@ -1,13 +1,34 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/EngineBaseTypes.h"
 #include "GauntletTestController.h"
 #include "AstralPartyFlowTestController.generated.h"
 
 class AAstralCombatCharacter;
 class AAstralEnemySpawner;
+class AAstralPlayerController;
 class UAstralEnemySpawnerTestListener;
-struct FAstralPartyFlowSnapshot;
+
+/** 한 틱에 본 것 — 월드는 이동 때마다 바뀌므로 저장하지 않고 매 틱 다시 만든다 */
+struct FAstralPartyFlowSnapshot
+{
+	UWorld* World = nullptr;
+	ENetMode NetMode = NM_Standalone;
+	FString Map;
+
+	/** PlayerArray 의 PlayerId — 오름차순. 번호를 못 받은 항목이 있으면 비운다 */
+	TArray<int32> Ids;
+	int32 LeaderId = INDEX_NONE;
+
+	AAstralPlayerController* LocalPC = nullptr;
+	int32 MyId = 0;
+
+	FString SelectedRaid;
+	int32 NumOthers = 0;
+	int32 NumOthersReady = 0;
+	bool bAllReady = false;
+};
 
 /**
  * 파티 흐름 네트워크 시험 — 별도 프로세스 구성 (설계 Docs/Design/m3-enemy-ai.md §7-2 ②)
@@ -19,6 +40,7 @@ struct FAstralPartyFlowSnapshot;
  * 프로세스 사이 순서는 bIsReady 로 맞춘다 — 비방장은 '거부당할 요청' 을 보낸 뒤 준비를 켜고, 방장은 전원 준비를 본 뒤 다음으로 간다
  * (bIsReady 는 이동 때 넘어가지 않아 맵마다 다시 쓴다).
  * 판정은 표준 출력의 `ASTRAL_NETTEST RESULT PASS|FAIL` 줄이다. 거부 로그 횟수는 실행 스크립트가 서버 출력에서 센다.
+ * 체인 버스트 시나리오(M4 단위 E)는 이 클래스를 상속한 UAstralChainBurstTestController 에 있다.
  */
 UCLASS()
 class UAstralPartyFlowTestController : public UGauntletTestController
@@ -31,7 +53,7 @@ public:
 	virtual void OnTick(float TimeDelta) override;
 	//~End of UGauntletTestController interface
 
-private:
+protected:
 	enum class ERole : uint8
 	{
 		Unknown,
@@ -50,6 +72,12 @@ private:
 
 	/** 이동 뒤 번호 · 방장이 그대로인가 (시임리스 이월). 아니면 Fail 하고 false */
 	bool CheckKept(const FAstralPartyFlowSnapshot& Snap, const TCHAR* Where);
+
+	/** 시나리오의 대본 한 틱 — 첫 맵에 전원이 모인 뒤(단계 1 부터) 불린다 */
+	virtual void TickScenario(const FAstralPartyFlowSnapshot& Snap);
+
+	/** 허브 앞부분(선택 · 준비 · 시작, 거부 확인 없음) — 단계 1 부터. 끝나면 TravelStage 로 건너뛴다 */
+	void TickHubStart(const FAstralPartyFlowSnapshot& Snap, int32 TravelStage);
 
 	void TickFlow(const FAstralPartyFlowSnapshot& Snap);
 	void TickLeaderLeaves(const FAstralPartyFlowSnapshot& Snap);
@@ -74,7 +102,7 @@ private:
 	void HandleRaidGuardianDestroyed(AActor* DestroyedActor);
 
 	/** 이 프로세스가 처음 대기하는 맵 — 시나리오마다 다르다 */
-	const TCHAR* StartMap() const;
+	virtual const TCHAR* StartMap() const;
 
 	/** 서버 · 리슨 호스트는 클라이언트가 다 나갈 때까지(또는 제한 시간) 남는다 */
 	void TickLinger(const FAstralPartyFlowSnapshot& Snap, bool bWaitForOthersToLeave);

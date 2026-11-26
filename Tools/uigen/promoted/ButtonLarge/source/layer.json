@@ -1,0 +1,8 @@
+{
+  "applied": false,
+  "reason": "no static decoration to bake",
+  "functional": {
+    "ButtonArt": "button art — its picture changes with the button state",
+    "ButtonLabel": "binding text"
+  }
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Core/EditorMcpGuard.h"
 #include "Dom/JsonObject.h"
 #include "Misc/Optional.h"
 
@@ -105,7 +106,8 @@ namespace AnimMcpGeneration
 		bool Check(FAnimMcpError& OutError, const TSet<FName>* ExtraAllowed = nullptr) const;
 
 	private:
-		TSet<FName> DirtyBefore;
+		/** 전역 더티 스냅샷 — 코어(EditorMcpCore 의 Core/EditorMcpGuard). 허용 목록만 여기서 정한다 */
+		EditorMcpGuard::FDirtySnapshot Snapshot;
 	};
 
 	/**

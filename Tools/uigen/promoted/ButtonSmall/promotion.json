@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "screen_id": "ButtonSmall",
+  "run_id": "R20261125_160033_ButtonSmall",
+  "parent_run_id": null,
+  "dest": "/Game/UI/Common/ButtonSmall",
+  "wbp": "/Game/UI/Common/ButtonSmall/WBP_ButtonSmall",
+  "textures": {
+    "button_art": "/Game/UI/Common/ButtonSmall/T_button_art",
+    "button_art_normal_hovered": "/Game/UI/Common/ButtonSmall/T_button_art_normal_hovered",
+    "button_art_normal_pressed": "/Game/UI/Common/ButtonSmall/T_button_art_normal_pressed",
+    "button_art_selected_base": "/Game/UI/Common/ButtonSmall/T_button_art_selected_base",
+    "button_art_selected_hovered": "/Game/UI/Common/ButtonSmall/T_button_art_selected_hovered",
+    "button_art_selected_pressed": "/Game/UI/Common/ButtonSmall/T_button_art_selected_pressed",
+    "button_art_disabled": "/Game/UI/Common/ButtonSmall/T_button_art_disabled"
+  },
+  "files": {
+    "BS_ButtonSmall.uasset": {
+      "sha256": "fdf7fe4c18d25d10295b1996f4652a057640addf441fe33651bfd697c1846dd4",
+      "size": 7945
+    },
+    "T_button_art.uasset": {
+      "sha256": "d935fafdd897f3490aca2dd65aa9f9d2d106eef3055c9f3fb66c74fc4ec6c7c2",
+      "size": 43495
+    },
+    "T_button_art_disabled.uasset": {
+      "sha256": "fdf5e1494f48d72a2b7ead95209f374031e130a139e832bc9b623389722aa82b",
+      "size": 26609
+    },
+    "T_button_art_normal_hovered.uasset": {
+      "sha256": "6a78f8151e9e0c510ff7e833f810071a8a51ffa73955391f72b43a54c9353e15",
+      "size": 41535
+    },
+    "T_button_art_normal_pressed.uasset": {
+      "sha256": "8cc0d27734dbe6403120d41acf698adb047732af1969c2de5f11ac20cdfd8a0a",
+      "size": 34153
+    },
+    "T_button_art_selected_base.uasset": {
+      "sha256": "2d8cd73412cf2d2dfdf8a1024e141413a25b5e8b55ba9eecc10c1a15a3ef3364",
+      "size": 41112
+    },
+    "T_button_art_selected_hovered.uasset": {
+      "sha256": "6d37ccfd7ce107edf48da6d8c326b8deeb29b6d04e9d2220f0735fc0dda4043a",
+      "size": 39784
+    },
+    "T_button_art_selected_pressed.uasset": {
+      "sha256": "bf05c3b48fa16395f30037732fa84600a84376194f2b1e7628c67665afae939f",
+      "size": 35722
+    },
+    "WBP_ButtonSmall.uasset": {
+      "sha256": "34039736ccf14a67b121b76c127b9b9ccc5a13b61ec0b738cad1a101052a247a",
+      "size": 30000
+    }
+  },
+  "revision": "sha1:87309347e2a9243f0c15f6aba0f3cfb8ae5ce026",
+  "run_revision": "sha1:6c80ec2d6027421d58a09c35efc7af56b9bfd86c",
+  "contract_hash": "sha1:1e6b2f444cc525cfeaf6c29576d6d456ee290260",
+  "source": {
+    "assets/final/button_art.png": {
+      "kind": "binary",
+      "sha256": "02609e8385390523919163e572c62d9c2a62b64419d5611168a0f24224573bd8",
+      "size": 25085
+    },
+    "assets/final/button_art_disabled.png": {
+      "kind": "binary",
+      "sha256": "f5c65520d12580bdb8b59456bcdf426f3303084da7b6f699af432812fa0d4c07",
+      "size": 11866
+    },
+    "assets/final/button_art_normal_hovered.png": {
+      "kind": "binary",
+      "sha256": "d2582782fb7ed25c886743fb5f0757bc638f6c8d285de643dafc4efe9040469c",
+      "size": 23125
+    },
+    "assets/final/button_art_normal_pressed.png": {
+      "kind": "binary",
+      "sha256": "9dac8dbec53a16ac4336627e9371f52fd262579484049cded6f2f3084850b181",
+      "size": 17066
+    },
+    "assets/final/button_art_selected_base.png": {
+      "kind": "binary",
+      "sha256": "d2ef03288fa6a4bac04d43f8eedcd1f21d1e9b8675ea7a000841e2b76a53099b",
+      "size": 23538
+    },
+    "assets/final/button_art_selected_hovered.png": {
+      "kind": "binary",
+      "sha256": "58174c3dc68962d09883b1ccd2d1b4b41f7ff27665304ac2f53441159a106348",
+      "size": 22332
+    },
+    "assets/final/button_art_selected_pressed.png": {
+      "kind": "binary",
+      "sha256": "0c55a329c4cc18177add487ac0c65146ae9255dfe716ea2ed3200de9fff5f31e",
+      "size": 18772
+    },
+    "brief.json": {
+      "kind": "json",
+      "sha256": "8bf86bbef1a404d317862a919e4d93eb0bd253d3aea2dc2938fb412afdeed39d"
+    },
+    "codegen.json": {
+      "kind": "json",
+      "sha256": "00e3db994de1a2136b0ea63c96311ab06010ee7697f1b0f6be2c79b5d8e95efc"
+    },
+    "diagnosis.json": {
+      "kind": "json",
+      "sha256": "43f7f9dd89b61b5a7cc99ca5244f35a5d2e075ec97a707832e5730c430b4b3a5"
+    },
+    "gen.jsonl": {
+      "kind": "jsonl",
+      "sha256": "9e76dba68c09544b562db1c1a039e5a84d3016afdf06effc90f0168db074c4ea"
+    },
+    "geometry.json": {
+      "kind": "json",
+      "sha256": "dab49884c6174e5536fe34c0956f29114a1ced5765628500750f64588913144d"
+    },
+    "inputs.json": {
+      "kind": "json",
+      "sha256": "ef2bcf4355cbe7b2f15e25a44fc53389ba8f64f41b5c212f942778fc88d11226"
+    },
+    "layer.json": {
+      "kind": "json",
+      "sha256": "e9a5251d4b465f5d6d7382728d581ec8369064a3069dfa57cc5c56cebac83d24"
+    },
+    "lineage.json": {
+      "kind": "json",
+      "sha256": "7028f00a52efb65d4d59235b90e9b68bf80dd51f2b77efeeeae6be1767a50573"
+    },
+    "manifest.json": {
+      "kind": "json",
+      "sha256": "381c1c869bab41f25e575363f9c9546dd15a5f47e9087a107867c81a9da7c465"
+    },
+    "normalize.json": {
+      "kind": "json",
+      "sha256": "a315f25f49ff92a23ecdc2db6aed2cf3676fac968f4eacd0b1ec1a82b3fbf857"
+    },
+    "reference.png": {
+      "kind": "binary",
+      "sha256": "b64e15b0be785be4f659e6a0e8b1191e0ac7c5216f6a161bfc997b28307c82a5",
+      "size": 20417
+    },
+    "reference_alpha.png": {
+      "kind": "binary",
+      "sha256": "3fb3735a690c16656d982bfa1a0ac7ee21d098634db3f6265cf50b251a62a3b7",
+      "size": 3269
+    },
+    "reference_art_alpha.png": {
+      "kind": "binary",
+      "sha256": "e27693be4caa9f963fc313cea81cfec1673d69425f0fef9c59fadddcf1e791c5",
+      "size": 2997
+    },
+    "reference_art_color.png": {
+      "kind": "binary",
+      "sha256": "1e8b2834200ead3937f601c7b522f1ade57141791979bfa0d4aed12e2afc56bd",
+      "size": 20635
+    },
+    "reference_color.png": {
+      "kind": "binary",
+      "sha256": "eb5cafd7dc04e24463243c6ebc5f7107ebdf4e3007c8a4f896876aded8dc3a72",
+      "size": 23446
+    },
+    "reference_notext_alpha.png": {
+      "kind": "binary",
+      "sha256": "e27693be4caa9f963fc313cea81cfec1673d69425f0fef9c59fadddcf1e791c5",
+      "size": 2997
+    },
+    "reference_notext_color.png": {
+      "kind": "binary",
+      "sha256": "1e8b2834200ead3937f601c7b522f1ade57141791979bfa0d4aed12e2afc56bd",
+      "size": 20635
+    },
+    "refine.json": {
+      "kind": "json",
+      "sha256": "7ceb599d9bcabe029a73e164bab4db1f070d31e99ab13382d6e6cee6a5dd18fa"
+    },
+    "spec.json": {
+      "kind": "json",
+      "sha256": "24694999042beb2790c176fa1fc24313e97a5670563c94c277bc67efc36f7734"
+    },
+    "specs/000.json": {
+      "kind": "json",
+      "sha256": "24694999042beb2790c176fa1fc24313e97a5670563c94c277bc67efc36f7734"
+    }
+  },
+  "edits": [],
+  "verified": {
+    "roundtrip_equal": true,
+    "pictures": 10,
+    "same_pixels": 10,
+    "same_bytes": 10,
+    "unsupported": 0
+  },
+  "recorded_at": "2026-11-25T16:08:18+09:00"
+}

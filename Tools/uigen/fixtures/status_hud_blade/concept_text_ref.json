@@ -1,0 +1,255 @@
+{
+ "schema_version": 1,
+ "kind": "concept_text_ref",
+ "created": "2026-11-24T13:00:21",
+ "generator": "drawn with the engine font files (no codex)",
+ "edited_from": "concept.png",
+ "thread_id": null,
+ "texts": [
+  {
+   "widget": "SelfMarkLabel",
+   "value": "표식",
+   "slot": "small bone-white label inside the large crescent, under the digit, horizontally centered with it"
+  },
+  {
+   "widget": "SelfHpText",
+   "value": "100",
+   "slot": "my HP number, bone white, just above the left end of my HP bar"
+  },
+  {
+   "widget": "SelfMarkText",
+   "value": "3",
+   "slot": "mark stack count, the large bone-white digit inside the large crescent"
+  },
+  {
+   "widget": "Ally1NameText",
+   "value": "Player 2",
+   "slot": "name of teammate 1 above the HP bar"
+  },
+  {
+   "widget": "Ally2NameText",
+   "value": "Player 3",
+   "slot": "name of teammate 2 above the HP bar"
+  },
+  {
+   "widget": "Ally3NameText",
+   "value": "Player 4",
+   "slot": "name of teammate 3 above the HP bar"
+  }
+ ],
+ "layout_file": "Tools/uigen/fixtures/status_hud_blade/text_ref_layout.yaml",
+ "drawn": [
+  {
+   "widget": "SelfHpText",
+   "value": "100",
+   "box": [
+    140,
+    61,
+    39,
+    17
+   ],
+   "font": {
+    "size": 20,
+    "weight": "semibold",
+    "color": "#ECE5D6FF"
+   }
+  },
+  {
+   "widget": "SelfMarkText",
+   "value": "3",
+   "box": [
+    78,
+    78,
+    20,
+    26
+   ],
+   "font": {
+    "size": 32,
+    "weight": "semibold",
+    "color": "#ECE5D6FF"
+   }
+  },
+  {
+   "widget": "SelfMarkLabel",
+   "value": "표식",
+   "box": [
+    74,
+    111,
+    27,
+    16
+   ],
+   "font": {
+    "size": 15,
+    "weight": "medium",
+    "color": "#ECE5D6FF"
+   }
+  },
+  {
+   "widget": "Ally1NameText",
+   "value": "Player 2",
+   "box": [
+    103,
+    160,
+    59,
+    15
+   ],
+   "font": {
+    "size": 14,
+    "weight": "medium",
+    "color": "#ECE5D6FF"
+   }
+  },
+  {
+   "widget": "Ally2NameText",
+   "value": "Player 3",
+   "box": [
+    103,
+    220,
+    59,
+    15
+   ],
+   "font": {
+    "size": 14,
+    "weight": "medium",
+    "color": "#ECE5D6FF"
+   }
+  },
+  {
+   "widget": "Ally3NameText",
+   "value": "Player 4",
+   "box": [
+    103,
+    281,
+    60,
+    15
+   ],
+   "font": {
+    "size": 14,
+    "weight": "medium",
+    "color": "#ECE5D6FF"
+   }
+  }
+ ],
+ "file": "concept_text_ref.png",
+ "sha256": "0535502eaccddb9db02b239296f0c718c493d657193c0236ee9c3eb9d1221c27",
+ "size": [
+  1671,
+  941
+ ],
+ "has_alpha_channel": true,
+ "note": "the same art with only the texts drawn on it (Pretendard TTF) — glyph style reference",
+ "check": {
+  "shift_px": [
+   -0.0,
+   -0.01
+  ],
+  "response": 0.6689,
+  "used": true,
+  "shift_applied": [
+   0,
+   0
+  ],
+  "ocr": {
+   "text_ref_boxes": [
+    [
+     140.0,
+     61.0,
+     39.0,
+     17.0
+    ],
+    [
+     78.0,
+     78.0,
+     20.0,
+     26.0
+    ],
+    [
+     74.0,
+     111.0,
+     27.0,
+     16.0
+    ],
+    [
+     103.0,
+     160.0,
+     59.0,
+     15.0
+    ],
+    [
+     103.0,
+     220.0,
+     59.0,
+     15.0
+    ],
+    [
+     103.0,
+     281.0,
+     60.0,
+     15.0
+    ]
+   ],
+   "art_boxes": [],
+   "boxes": [
+    [
+     140.0,
+     61.0,
+     39.0,
+     17.0
+    ],
+    [
+     78.0,
+     78.0,
+     20.0,
+     26.0
+    ],
+    [
+     74.0,
+     111.0,
+     27.0,
+     16.0
+    ],
+    [
+     103.0,
+     160.0,
+     59.0,
+     15.0
+    ],
+    [
+     103.0,
+     220.0,
+     59.0,
+     15.0
+    ],
+    [
+     103.0,
+     281.0,
+     60.0,
+     15.0
+    ]
+   ],
+   "scores": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "min_score": 0.6,
+   "from": "drawn"
+  },
+  "checks": {
+   "ui_px": 27536,
+   "outside_solid_big_frac": 0.0,
+   "outside_far_new_frac": 0.0,
+   "fringe_alpha_frac": 0.0,
+   "outside_median_d": 0.0,
+   "outside_p95_d": 0.0,
+   "limit": 0.03
+  },
+  "glyph_px": 1645,
+  "glow_px": 1778,
+  "paste_px": 1870,
+  "ring_tone_l": 0.0
+ }
+}

@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_211554_HubMemberRow",
+  "screen": "HubMemberRow",
+  "class": "/Script/AstralBreak.AstralHubMemberRowWidget",
+  "contract_hash": "sha1:dcf5c81031c6684dba221ca1fc8b77da78bad31d",
+  "previous_hash": "sha1:dcf5c81031c6684dba221ca1fc8b77da78bad31d",
+  "contract": {
+    "schema_version": 1,
+    "generator": "1:49a7a94ed467",
+    "module": "AstralBreak",
+    "api": "ASTRALBREAK_API",
+    "ui_dir": "UI",
+    "screen": "HubMemberRow",
+    "feature": "Screens",
+    "view_base": "AstralHubMemberRowViewBase",
+    "widget": "AstralHubMemberRowWidget",
+    "bindings": [
+      {
+        "name": "LeaderMark",
+        "widget_class": "Image",
+        "data": "leader",
+        "kind": "flag",
+        "optional": false,
+        "setter": "SetLeaderVisible"
+      },
+      {
+        "name": "MemberNameText",
+        "widget_class": "TextBlock",
+        "data": "member_name",
+        "kind": "text",
+        "optional": false,
+        "setter": "SetMemberName"
+      },
+      {
+        "name": "ReadyLabel",
+        "widget_class": "TextBlock",
+        "data": "ready",
+        "kind": "flag",
+        "optional": false,
+        "setter": "SetReadyVisible"
+      }
+    ]
+  },
+  "changes": {
+    "added": [],
+    "demoted": [],
+    "changed": [],
+    "restored": []
+  },
+  "skipped": true,
+  "reason": "contract_unchanged",
+  "files": [
+    {
+      "role": "view_base_h",
+      "path": "Source/AstralBreak/UI/Screens/AutoGen/AstralHubMemberRowViewBase.h",
+      "action": "unchanged",
+      "sha256": "453536e2e287dac3ed5a98907ee1c89f93de3fb0a0c491491ba3f8051e28c59f"
+    },
+    {
+      "role": "view_base_cpp",
+      "path": "Source/AstralBreak/UI/Screens/AutoGen/AstralHubMemberRowViewBase.cpp",
+      "action": "unchanged",
+      "sha256": "ccc479a7c846e634213cd2202878d7dbdf19c05f7860ce1195d83fc79c9f016c"
+    },
+    {
+      "role": "widget_h",
+      "path": "Source/AstralBreak/UI/Screens/AstralHubMemberRowWidget.h",
+      "action": "unchanged",
+      "sha256": "7905b576e439bfa75e46517522833abc28d4178ead2fa0a7857b56a14ffaafbe"
+    },
+    {
+      "role": "widget_cpp",
+      "path": "Source/AstralBreak/UI/Screens/AstralHubMemberRowWidget.cpp",
+      "action": "unchanged",
+      "sha256": "795926cdbfa737f60ad7d1c93a390b5a8b9619b6f35c3aa11ee57ef354393fe4"
+    }
+  ],
+  "editor": {
+    "was_running": false
+  },
+  "build": {
+    "ran": false
+  },
+  "verify": {
+    "class": "/Script/AstralBreak.AstralHubMemberRowWidget",
+    "match": null,
+    "note": "editor not running — class reflection not checked"
+  },
+  "restored": [],
+  "started": "2026-11-25T21:16:15+09:00",
+  "durations_s": {
+    "codegen": 2.497
+  },
+  "finished": "2026-11-25T21:16:18+09:00"
+}

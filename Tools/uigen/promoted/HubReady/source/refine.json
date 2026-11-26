@@ -1,0 +1,118 @@
+{
+  "passes": [
+    {
+      "attempt": 1,
+      "assets": [
+        {
+          "asset_id": "static_plate1",
+          "backend": "concept_plate",
+          "source_mode": "plate",
+          "plate": {
+            "box": [
+              58,
+              157,
+              607,
+              82
+            ],
+            "region": "TitleArea"
+          },
+          "art": "text-free art (generated concept) — no text fill",
+          "windows": [],
+          "texts": [],
+          "gauge_holes": [],
+          "alpha": {
+            "transparent_ratio": 0.0418,
+            "has_alpha": true
+          },
+          "size": [
+            607,
+            82
+          ],
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "notext_available": true
+        },
+        {
+          "asset_id": "static_plate2",
+          "backend": "concept_plate",
+          "source_mode": "plate",
+          "plate": {
+            "box": [
+              1256,
+              157,
+              602,
+              82
+            ],
+            "region": "DestinationArea"
+          },
+          "art": "text-free art (generated concept) — no text fill",
+          "windows": [],
+          "texts": [],
+          "gauge_holes": [],
+          "alpha": {
+            "transparent_ratio": 0.0486,
+            "has_alpha": true
+          },
+          "size": [
+            602,
+            82
+          ],
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "notext_available": true
+        },
+        {
+          "asset_id": "static_plate3",
+          "backend": "concept_plate",
+          "source_mode": "plate",
+          "plate": {
+            "box": [
+              1262,
+              820,
+              592,
+              42
+            ],
+            "region": "MessageArea"
+          },
+          "art": "text-free art (generated concept) — no text fill",
+          "windows": [],
+          "texts": [],
+          "gauge_holes": [],
+          "alpha": {
+            "transparent_ratio": 0.0155,
+            "has_alpha": true
+          },
+          "size": [
+            592,
+            42
+          ],
+          "ocr": {
+            "engine": "rapidocr 3.10.0 det PP-OCRv6_det_small",
+            "count": 0,
+            "max_score": 0.0,
+            "boxes": [],
+            "min_score": 0.7,
+            "min_area_px": 60
+          },
+          "notext_available": true
+        }
+      ],
+      "margin_updates": [],
+      "brush_updates": [],
+      "overhang_updates": [],
+      "overhang_dropped": []
+    }
+  ]
+}

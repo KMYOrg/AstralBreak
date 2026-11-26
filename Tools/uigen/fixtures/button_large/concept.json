@@ -1,0 +1,54 @@
+{
+ "schema_version": 1,
+ "kind": "concept",
+ "created": "2026-11-25T15:56:53",
+ "generator": "codex built-in image_gen (cut from an approved sheet)",
+ "thread_id": "01a21150-71ec-7730-943b-bdf16c65a0c4",
+ "prompt_sha256": null,
+ "flat_background": false,
+ "transparent_background": true,
+ "transparent_ratio": 0.0143,
+ "edited_from": null,
+ "file": "concept.png",
+ "sha256": "eac31a5525578973f98b453ecdcf318412ef629f02b813e7a5f56032fffca3b0",
+ "size": [
+  519,
+  115
+ ],
+ "has_alpha_channel": true,
+ "cut_from": {
+  "file": "Tools/uigen/fixtures/hub_ready_sheet/concept.png",
+  "sha256": "362175f37372320d0f6bc6640c8867ddd154c86e12eb204d1ade6be6fcd16fd8",
+  "keep_1920": [
+   [
+    1260.86,
+    292.82,
+    595.98,
+    132.06
+   ]
+  ],
+  "crop_px": [
+   1098,
+   255,
+   519,
+   115
+  ],
+  "size_1920": [
+   596,
+   132
+  ]
+ },
+ "text_free_first": {
+  "status": "ok",
+  "attempts": [
+   {
+    "attempt": 0,
+    "file": "Tools/uigen/fixtures/button_large/concept.png",
+    "ocr_boxes": [],
+    "sha256": "eac31a5525578973f98b453ecdcf318412ef629f02b813e7a5f56032fffca3b0"
+   }
+  ],
+  "text_ref": "concept_text_ref.png"
+ },
+ "note": "L-2 original text-free art — the pixels of the approved sheet, only this screen's elements kept"
+}

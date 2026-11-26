@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:promotion",
+  "title": "uigen promotion.json v1 (설계 §11 'Phase 4 설계' ⑤) — 승격 기록의 단일 원천: 화면 · run · 파일마다 SHA256 · 원천 묶음의 해시 · 쌓인 수정",
+  "type": "object",
+  "required": ["schema_version", "screen_id", "run_id", "parent_run_id", "dest", "wbp", "textures", "files", "revision", "run_revision", "contract_hash", "source", "edits", "verified", "recorded_at"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "screen_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "parent_run_id": { "type": ["string", "null"] },
+    "dest": { "type": "string", "pattern": "^/Game/.+" },
+    "wbp": { "type": "string" },
+    "textures": { "type": "object", "additionalProperties": { "type": "string" }, "description": "asset_id → 승격본 텍스처 패키지" },
+    "files": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "승격본 폴더의 파일 전부(상대 경로) — 사람이 고쳤는지는 이 SHA256 과 파일 목록으로만 판정한다",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["sha256", "size"],
+        "additionalProperties": false,
+        "properties": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "size": { "type": "integer", "minimum": 0 } }
+      }
+    },
+    "revision": { "type": ["string", "null"], "description": "승격본 역추출 revision(텍스처 경로가 들어가 run 것과 다르다 — 기록만)" },
+    "run_revision": { "type": ["string", "null"] },
+    "contract_hash": { "type": ["string", "null"] },
+    "source": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "원천 묶음 파일 — json · jsonl 은 정규(정렬) JSON 의 SHA256(줄바꿈이 바뀌어도 같다), 그 밖은 파일 SHA256",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["kind", "sha256"],
+        "additionalProperties": false,
+        "properties": { "kind": { "enum": ["json", "jsonl", "binary"] }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "size": { "type": "integer", "minimum": 0 } }
+      }
+    },
+    "cells": {
+      "type": "array",
+      "description": "이 화면이 놓은 칸(Phase 3-3) — 검증한 칸의 run 까지. 칸을 다시 승격하면 이 화면을 다시 검증해야 한다(promote_screen.py plan · status 가 본다)",
+      "items": {
+        "type": "object", "required": ["cell", "class", "run_id", "widgets"], "additionalProperties": false,
+        "properties": { "cell": { "type": "string" }, "class": { "type": "string" }, "run_id": { "type": ["string", "null"] }, "widgets": { "type": "array", "items": { "type": "string" } } }
+      }
+    },
+    "edits": { "$ref": "urn:uigen:edit#/$defs/edits" },
+    "replaced_edits": { "$ref": "urn:uigen:edit#/$defs/edits", "description": "--unrelated(전체 run 으로 갈아탐)로 사라진 수정" },
+    "verified": { "type": "object", "description": "승격본 ↔ run — 역추출 같음 · 렌더 같은 장수" },
+    "recorded_at": { "type": "string" }
+  }
+}

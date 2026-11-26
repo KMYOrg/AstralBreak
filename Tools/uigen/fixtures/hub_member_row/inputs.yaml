@@ -1,0 +1,31 @@
+# 화면 전용 칸 — 허브 준비 화면의 파티 줄 'HubMemberRow'(설계 §11 'Phase 3 설계' ② · 'Phase 3-3 결과'). HubReady 에 네 번 놓인다 = 자기 run · 자기 승격본.
+# 원본 아트는 승인한 허브 준비 시안(hub_ready_sheet — 후보 C)의 첫 파티 줄을 픽셀 그대로 오림(codex 0):
+#   Tools/mcp/.venv/Scripts/python.exe -X utf8 -B Tools/uigen/make_concept.py --out-dir Tools/uigen/fixtures/hub_member_row \
+#       --cut-from Tools/uigen/fixtures/hub_ready_sheet/concept.png --keep 56.27,295.12,609.76,81.53 --crop
+#   (참고판) … make_concept.py --out-dir Tools/uigen/fixtures/hub_member_row --only text_ref --draw Tools/uigen/fixtures/hub_member_row/text_ref_layout.yaml
+# resolution = 시안에서 보이는 크기(concept.json cut_from.size_1920).
+schema_version: 1
+mode: concept
+screen_type: cell
+screen_id: HubMemberRow
+concept: concept.png
+concept_source: generated_textfree
+concept_text_ref: concept_text_ref.png
+resolution: [610, 82]
+language: ko
+font: null                               # → pipeline.yaml fonts.default_family (Pretendard)
+text: "파티 줄 하나 — 잉크색 반투명 띠(아래 강철 선)가 칸 전체를 채우고, 왼쪽에 작은 열린 초승달(방장 표시), 그 오른쪽에 이름, 오른쪽에 '준비 완료'. 방장이 아니면 초승달이, 준비 전이면 '준비 완료'가 꺼진다."
+required_elements:
+  - { id: RowPanel, kind: panel, desc: "줄 전체 — 캔버스를 꽉 채우는 Overlay. 아래 요소가 모두 이 안에 있다" }
+  - { id: RowBand, kind: image, desc: "띠 그림 — 초승달을 뺀 칸 전체(아래 강철 선 포함), RowPanel 을 꽉 채우는 Image(맨 아래)" }
+  - { id: LeaderMark, kind: image, desc: "방장 표시 — 왼쪽의 작은 열린 초승달 선만" }
+  - { id: MemberNameText, kind: text, desc: "파티원 이름 — 초승달 오른쪽, 세로 가운데" }
+  - { id: ReadyLabel, kind: text, desc: "'준비 완료' — 오른쪽 끝 쪽, 세로 가운데, 오른쪽 정렬" }
+data:
+  - { id: member_name, type: text, widget: MemberNameText, widget_type: TextBlock, sample: "Player 1", inside: RowPanel, outline: { size: 2, color: "#0C0C0EDC" },
+      overflow: ellipsis, text_box: [112, 16, 280, 46], long_sample: "아주아주 긴 이름을 쓰는 파티원 플레이어입니다", desc: "party member name, left aligned" }
+  - { id: leader, type: flag, widget: LeaderMark, widget_type: Image, sample: true, inside: RowPanel, over: RowBand, desc: "leader mark, the small open crescent at the left" }
+  - { id: ready, type: flag, widget: ReadyLabel, widget_type: TextBlock, sample: true, inside: RowPanel, outline: { size: 2, color: "#0C0C0EDC" }, desc: "shown while the member is ready, right aligned" }
+static_text:
+  - { widget: ReadyLabel, value: "준비 완료", outline: { size: 2, color: "#0C0C0EDC" }, desc: "small ivory label near the right end of the band, right aligned" }
+style_keywords: ["modern flat HUD", "matte ink-black", "bone-white steel blades", "pale ivory accent", "realistic 3D action"]

@@ -34,6 +34,18 @@ public class AstralBreakEditor : ModuleRules
 			"GameplayStateTreeModule",
 			"NavigationSystem",
 			"StateTreeModule",
+
+			// 전투 HUD 시험 (Private/Tests — 바인딩 위젯의 비율 · 글자 · Visibility 를 읽는다, 설계 m4-ult-chain.md §6 'C 구현 결과')
+			"UMG",
+			"SlateCore",
+			"EnhancedInput",
+			"InputCore",
+
+			// 화면 체계 시험 (Private/Tests — 커서 · 메뉴 입력 · 초점 · 뒤로 액션, 설계 ui-autogen-pipeline.md §11 'Phase 3-1')
+			"ApplicationCore",   // IPlatformInputDeviceMapper — 시험이 넣는 키의 장치
+			"CommonInput",
+			"CommonUI",
+			"Slate",
 		});
 	}
 }

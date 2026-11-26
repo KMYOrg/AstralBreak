@@ -1,0 +1,10 @@
+# generate_ui_asset 라우팅 (설계 §7). 11-17 부터 run 안 에셋은 컨셉 픽셀 오리기 · procedural 이라 codex 로 가는 일이 거의 없다.
+# 백엔드 결정 순서: spec 에셋의 provenance(요청) → 없으면 primary → fallback. pipeline.yaml backends.allowed 밖의 백엔드는 건너뛴다.
+schema_version: 1
+kinds:
+  icon:     { primary: codex, fallback: [] }
+  frame:    { primary: codex, fallback: [procedural] }
+  panel_bg: { primary: procedural, fallback: [codex] }
+  fill:     { primary: procedural }                                                  # RoundedBox · UI 머티리얼
+  ornament: { primary: codex, fallback: [] }
+limits: { codex_calls_per_run: 20, on_quota: pause }                                 # pause | fallback_if_listed

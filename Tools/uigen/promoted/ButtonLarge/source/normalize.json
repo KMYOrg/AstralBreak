@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "mode": "stretch",
+  "inputs": "Tools/uigen/fixtures/button_large/inputs.yaml",
+  "concept": "Tools/uigen/fixtures/button_large/concept.png",
+  "concept_sha256": "eac31a5525578973f98b453ecdcf318412ef629f02b813e7a5f56032fffca3b0",
+  "reference": "reference.png",
+  "src_size": [
+    519,
+    115
+  ],
+  "dst_size": [
+    596,
+    132
+  ],
+  "aspect_diff": 0.00047,
+  "scale": [
+    1.148362,
+    1.147826
+  ],
+  "offset": [
+    0,
+    0
+  ],
+  "background": {
+    "kind": "transparent",
+    "auto": "transparent",
+    "source": "auto",
+    "alpha_ratio": 0.1152,
+    "ring_px": 4,
+    "ring_uniform": 0.0,
+    "key_color": "#131515",
+    "alpha": "reference_alpha.png",
+    "color": "reference_color.png",
+    "opaque_ratio": 0.8845,
+    "transparent_ratio": 0.0338,
+    "convert": {
+      "used": false,
+      "mode": "auto",
+      "source_kind": "transparent",
+      "reason": "the concept already has real alpha"
+    },
+    "concept_source": {
+      "value": "generated_textfree",
+      "from": "inputs",
+      "text_style": "text_reference"
+    },
+    "text_ref": {
+      "src": "concept_text_ref.png",
+      "src_size": [
+        519,
+        115
+      ],
+      "shift_px": [
+        0.0,
+        0.0
+      ],
+      "response": 1.0,
+      "used": true,
+      "shift_applied": [
+        0,
+        0
+      ],
+      "ocr": {
+        "text_ref_boxes": [
+          [
+            253.78805394990366,
+            50.504347826086956,
+            87.27552986512524,
+            30.991304347826087
+          ]
+        ],
+        "art_boxes": [],
+        "boxes": [
+          [
+            253.78805394990366,
+            50.504347826086956,
+            87.27552986512524,
+            30.991304347826087
+          ]
+        ],
+        "scores": [
+          1.0
+        ],
+        "min_score": 0.6,
+        "from": "drawn"
+      },
+      "checks": {
+        "ui_px": 74606,
+        "outside_solid_big_frac": 0.0,
+        "outside_far_new_frac": 0.0,
+        "fringe_alpha_frac": 0.0,
+        "outside_median_d": 0.24,
+        "outside_p95_d": 0.48,
+        "limit": 0.03
+      },
+      "glyph_px": 1209,
+      "glow_px": 1305,
+      "paste_px": 2289,
+      "ring_tone_l": -0.0,
+      "aligned": [
+        "reference_textref_color.png",
+        "reference_textref_alpha.png"
+      ],
+      "paste_mask": "reference_textref_paste.png"
+    },
+    "notext": {
+      "used": true,
+      "role": "original_art",
+      "color": "reference_notext_color.png",
+      "alpha": "reference_notext_alpha.png",
+      "shift_px": [
+        0.0,
+        0.0
+      ],
+      "text_residue": false
+    },
+    "art": {
+      "used": true,
+      "role": "original",
+      "color": "reference_art_color.png",
+      "alpha": "reference_art_alpha.png",
+      "element_free": false,
+      "text_residue": false,
+      "text_ref_used": true
+    }
+  }
+}

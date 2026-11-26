@@ -1,0 +1,978 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_215251_HubReady",
+  "attempt": 1,
+  "canvas": [
+    1920,
+    1080
+  ],
+  "force_visible": true,
+  "geometry": {
+    "1920x1080": [
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate1",
+        "type": "Image",
+        "parent": "Root",
+        "x": 58,
+        "y": 157,
+        "w": 607,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate2",
+        "type": "Image",
+        "parent": "Root",
+        "x": 1256,
+        "y": 157,
+        "w": 602,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate3",
+        "type": "Image",
+        "parent": "Root",
+        "x": 1262,
+        "y": 820,
+        "w": 592,
+        "h": 42,
+        "visible": true
+      },
+      {
+        "id": "TitleArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 156,
+        "w": 610,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "TitleBand",
+        "type": "Image",
+        "parent": "TitleArea",
+        "x": 56,
+        "y": 156,
+        "w": 610,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "TitleText",
+        "type": "TextBlock",
+        "parent": "TitleArea",
+        "x": 102,
+        "y": 175,
+        "w": 125,
+        "h": 43,
+        "visible": true
+      },
+      {
+        "id": "DestinationArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 1256,
+        "y": 156,
+        "w": 602,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "DestinationBand",
+        "type": "Image",
+        "parent": "DestinationArea",
+        "x": 1256,
+        "y": 156,
+        "w": 602,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "DestinationTitleText",
+        "type": "TextBlock",
+        "parent": "DestinationArea",
+        "x": 1300,
+        "y": 175,
+        "w": 89,
+        "h": 43,
+        "visible": true
+      },
+      {
+        "id": "MessageArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 1258,
+        "y": 818,
+        "w": 600,
+        "h": 46,
+        "visible": true
+      },
+      {
+        "id": "MessageBand",
+        "type": "Image",
+        "parent": "MessageArea",
+        "x": 1258,
+        "y": 818,
+        "w": 600,
+        "h": 46,
+        "visible": true
+      },
+      {
+        "id": "ReasonText",
+        "type": "TextBlock",
+        "parent": "MessageArea",
+        "x": 1300,
+        "y": 826.5,
+        "w": 516,
+        "h": 29,
+        "visible": true
+      },
+      {
+        "id": "CloseHintText",
+        "type": "TextBlock",
+        "parent": "Root",
+        "x": 1778,
+        "y": 1022,
+        "w": 77,
+        "h": 27,
+        "visible": true
+      },
+      {
+        "id": "MemberRow1",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 295,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow1/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow1",
+        "x": 168,
+        "y": 317.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow1/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow1",
+        "x": 477,
+        "y": 320.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "MemberRow2",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 395,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow2/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow2",
+        "x": 168,
+        "y": 417.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow2/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow2",
+        "x": 477,
+        "y": 420.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "MemberRow3",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 495,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow3/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow3",
+        "x": 168,
+        "y": 517.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow3/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow3",
+        "x": 477,
+        "y": 520.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "MemberRow4",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 595,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow4/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow4",
+        "x": 168,
+        "y": 617.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow4/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow4",
+        "x": 477,
+        "y": 620.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "DestinationButton",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 1261,
+        "y": 293,
+        "w": 596,
+        "h": 132,
+        "visible": true
+      },
+      {
+        "id": "DestinationButton/ButtonLabel",
+        "type": "TextBlock",
+        "parent": "DestinationButton",
+        "x": 1477.5,
+        "y": 335.5,
+        "w": 163,
+        "h": 47,
+        "visible": true
+      },
+      {
+        "id": "ReadyButton",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 1261,
+        "y": 908,
+        "w": 288,
+        "h": 93,
+        "visible": true
+      },
+      {
+        "id": "ReadyButton/ButtonLabel",
+        "type": "TextBlock",
+        "parent": "ReadyButton",
+        "x": 1384.5,
+        "y": 939.5,
+        "w": 41,
+        "h": 30,
+        "visible": true
+      },
+      {
+        "id": "LaunchButton",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 1569,
+        "y": 908,
+        "w": 288,
+        "h": 93,
+        "visible": true
+      },
+      {
+        "id": "LaunchButton/ButtonLabel",
+        "type": "TextBlock",
+        "parent": "LaunchButton",
+        "x": 1692.5,
+        "y": 939.5,
+        "w": 41,
+        "h": 30,
+        "visible": true
+      }
+    ],
+    "2560x1080": [
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 2560,
+        "h": 1080,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate1",
+        "type": "Image",
+        "parent": "Root",
+        "x": 58,
+        "y": 157,
+        "w": 607,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate2",
+        "type": "Image",
+        "parent": "Root",
+        "x": 1896,
+        "y": 157,
+        "w": 602,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate3",
+        "type": "Image",
+        "parent": "Root",
+        "x": 1902,
+        "y": 820,
+        "w": 592,
+        "h": 42,
+        "visible": true
+      },
+      {
+        "id": "TitleArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 156,
+        "w": 610,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "TitleBand",
+        "type": "Image",
+        "parent": "TitleArea",
+        "x": 56,
+        "y": 156,
+        "w": 610,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "TitleText",
+        "type": "TextBlock",
+        "parent": "TitleArea",
+        "x": 102,
+        "y": 175,
+        "w": 125,
+        "h": 43,
+        "visible": true
+      },
+      {
+        "id": "DestinationArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 1896,
+        "y": 156,
+        "w": 602,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "DestinationBand",
+        "type": "Image",
+        "parent": "DestinationArea",
+        "x": 1896,
+        "y": 156,
+        "w": 602,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "DestinationTitleText",
+        "type": "TextBlock",
+        "parent": "DestinationArea",
+        "x": 1940,
+        "y": 175,
+        "w": 89,
+        "h": 43,
+        "visible": true
+      },
+      {
+        "id": "MessageArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 1898,
+        "y": 818,
+        "w": 600,
+        "h": 46,
+        "visible": true
+      },
+      {
+        "id": "MessageBand",
+        "type": "Image",
+        "parent": "MessageArea",
+        "x": 1898,
+        "y": 818,
+        "w": 600,
+        "h": 46,
+        "visible": true
+      },
+      {
+        "id": "ReasonText",
+        "type": "TextBlock",
+        "parent": "MessageArea",
+        "x": 1940,
+        "y": 826.5,
+        "w": 516,
+        "h": 29,
+        "visible": true
+      },
+      {
+        "id": "CloseHintText",
+        "type": "TextBlock",
+        "parent": "Root",
+        "x": 2418,
+        "y": 1022,
+        "w": 77,
+        "h": 27,
+        "visible": true
+      },
+      {
+        "id": "MemberRow1",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 295,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow1/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow1",
+        "x": 168,
+        "y": 317.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow1/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow1",
+        "x": 477,
+        "y": 320.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "MemberRow2",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 395,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow2/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow2",
+        "x": 168,
+        "y": 417.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow2/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow2",
+        "x": 477,
+        "y": 420.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "MemberRow3",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 495,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow3/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow3",
+        "x": 168,
+        "y": 517.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow3/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow3",
+        "x": 477,
+        "y": 520.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "MemberRow4",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 595,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow4/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow4",
+        "x": 168,
+        "y": 617.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow4/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow4",
+        "x": 477,
+        "y": 620.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "DestinationButton",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 1901,
+        "y": 293,
+        "w": 596,
+        "h": 132,
+        "visible": true
+      },
+      {
+        "id": "DestinationButton/ButtonLabel",
+        "type": "TextBlock",
+        "parent": "DestinationButton",
+        "x": 2117.5,
+        "y": 335.5,
+        "w": 163,
+        "h": 47,
+        "visible": true
+      },
+      {
+        "id": "ReadyButton",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 1901,
+        "y": 908,
+        "w": 288,
+        "h": 93,
+        "visible": true
+      },
+      {
+        "id": "ReadyButton/ButtonLabel",
+        "type": "TextBlock",
+        "parent": "ReadyButton",
+        "x": 2024.5,
+        "y": 939.5,
+        "w": 41,
+        "h": 30,
+        "visible": true
+      },
+      {
+        "id": "LaunchButton",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 2209,
+        "y": 908,
+        "w": 288,
+        "h": 93,
+        "visible": true
+      },
+      {
+        "id": "LaunchButton/ButtonLabel",
+        "type": "TextBlock",
+        "parent": "LaunchButton",
+        "x": 2332.5,
+        "y": 939.5,
+        "w": 41,
+        "h": 30,
+        "visible": true
+      }
+    ],
+    "1920x1200": [
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1200,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate1",
+        "type": "Image",
+        "parent": "Root",
+        "x": 58,
+        "y": 217,
+        "w": 607,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate2",
+        "type": "Image",
+        "parent": "Root",
+        "x": 1256,
+        "y": 217,
+        "w": 602,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "StaticPlate3",
+        "type": "Image",
+        "parent": "Root",
+        "x": 1262,
+        "y": 880,
+        "w": 592,
+        "h": 42,
+        "visible": true
+      },
+      {
+        "id": "TitleArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 56,
+        "y": 216,
+        "w": 610,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "TitleBand",
+        "type": "Image",
+        "parent": "TitleArea",
+        "x": 56,
+        "y": 216,
+        "w": 610,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "TitleText",
+        "type": "TextBlock",
+        "parent": "TitleArea",
+        "x": 102,
+        "y": 235,
+        "w": 125,
+        "h": 43,
+        "visible": true
+      },
+      {
+        "id": "DestinationArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 1256,
+        "y": 216,
+        "w": 602,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "DestinationBand",
+        "type": "Image",
+        "parent": "DestinationArea",
+        "x": 1256,
+        "y": 216,
+        "w": 602,
+        "h": 84,
+        "visible": true
+      },
+      {
+        "id": "DestinationTitleText",
+        "type": "TextBlock",
+        "parent": "DestinationArea",
+        "x": 1300,
+        "y": 235,
+        "w": 89,
+        "h": 43,
+        "visible": true
+      },
+      {
+        "id": "MessageArea",
+        "type": "Overlay",
+        "parent": "Root",
+        "x": 1258,
+        "y": 878,
+        "w": 600,
+        "h": 46,
+        "visible": true
+      },
+      {
+        "id": "MessageBand",
+        "type": "Image",
+        "parent": "MessageArea",
+        "x": 1258,
+        "y": 878,
+        "w": 600,
+        "h": 46,
+        "visible": true
+      },
+      {
+        "id": "ReasonText",
+        "type": "TextBlock",
+        "parent": "MessageArea",
+        "x": 1300,
+        "y": 886.5,
+        "w": 516,
+        "h": 29,
+        "visible": true
+      },
+      {
+        "id": "CloseHintText",
+        "type": "TextBlock",
+        "parent": "Root",
+        "x": 1778,
+        "y": 1082,
+        "w": 77,
+        "h": 27,
+        "visible": true
+      },
+      {
+        "id": "MemberRow1",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 355,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow1/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow1",
+        "x": 168,
+        "y": 377.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow1/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow1",
+        "x": 477,
+        "y": 380.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "MemberRow2",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 455,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow2/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow2",
+        "x": 168,
+        "y": 477.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow2/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow2",
+        "x": 477,
+        "y": 480.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "MemberRow3",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 555,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow3/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow3",
+        "x": 168,
+        "y": 577.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow3/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow3",
+        "x": 477,
+        "y": 580.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "MemberRow4",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 56,
+        "y": 655,
+        "w": 610,
+        "h": 82,
+        "visible": true
+      },
+      {
+        "id": "MemberRow4/MemberNameText",
+        "type": "TextBlock",
+        "parent": "MemberRow4",
+        "x": 168,
+        "y": 677.5,
+        "w": 280,
+        "h": 34,
+        "visible": true
+      },
+      {
+        "id": "MemberRow4/ReadyLabel",
+        "type": "TextBlock",
+        "parent": "MemberRow4",
+        "x": 477,
+        "y": 680.5,
+        "w": 85,
+        "h": 28,
+        "visible": true
+      },
+      {
+        "id": "DestinationButton",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 1261,
+        "y": 353,
+        "w": 596,
+        "h": 132,
+        "visible": true
+      },
+      {
+        "id": "DestinationButton/ButtonLabel",
+        "type": "TextBlock",
+        "parent": "DestinationButton",
+        "x": 1477.5,
+        "y": 395.5,
+        "w": 163,
+        "h": 47,
+        "visible": true
+      },
+      {
+        "id": "ReadyButton",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 1261,
+        "y": 968,
+        "w": 288,
+        "h": 93,
+        "visible": true
+      },
+      {
+        "id": "ReadyButton/ButtonLabel",
+        "type": "TextBlock",
+        "parent": "ReadyButton",
+        "x": 1384.5,
+        "y": 999.5,
+        "w": 41,
+        "h": 30,
+        "visible": true
+      },
+      {
+        "id": "LaunchButton",
+        "type": "UserWidget",
+        "parent": "Root",
+        "x": 1569,
+        "y": 968,
+        "w": 288,
+        "h": 93,
+        "visible": true
+      },
+      {
+        "id": "LaunchButton/ButtonLabel",
+        "type": "TextBlock",
+        "parent": "LaunchButton",
+        "x": 1692.5,
+        "y": 999.5,
+        "w": 41,
+        "h": 30,
+        "visible": true
+      }
+    ]
+  }
+}

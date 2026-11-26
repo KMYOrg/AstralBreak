@@ -1,0 +1,11 @@
+# 글자 참고판 배치(make_concept --only text_ref --draw) — 자리는 1920 폭 기준 px, 글꼴 = 엔진과 같은 Pretendard TTF. 글자 값은 inputs.yaml 이 정한다.
+# anchor: ls = 왼쪽 기준선 · ms = 가운데 기준선. pt = 글꼴 크기(정수 pt — spec font.size 와 같은 값).
+# **pt · weight · color 는 이 화면 글꼴의 단일 원천이다** — 파이프라인이 그대로 쓰고 그린 그림을 다시 재지 않는다(gen/text_ref.drawn_fonts).
+# 재면 틀린다 [실측 R20261124_123020 — 같은 14 pt medium 세 줄의 획 밀도 비 1.145 · 1.096 · 1.093, 한 줄만 regular 로 바뀜 · 세 줄의 색이 서로 다름].
+texts:
+  - { widget: SelfHpText,    pos: [160, 90],  anchor: ls, pt: 20, weight: semibold, color: "#ECE5D6" }
+  - { widget: SelfMarkText,  pos: [101, 119], anchor: ms, pt: 32, weight: semibold, color: "#ECE5D6" }
+  - { widget: SelfMarkLabel, pos: [101, 144], anchor: ms, pt: 15, weight: medium,   color: "#ECE5D6" }
+  - { widget: Ally1NameText, pos: [117, 198], anchor: ls, pt: 14, weight: medium,   color: "#ECE5D6" }
+  - { widget: Ally2NameText, pos: [117, 267], anchor: ls, pt: 14, weight: medium,   color: "#ECE5D6" }
+  - { widget: Ally3NameText, pos: [117, 337], anchor: ls, pt: 14, weight: medium,   color: "#ECE5D6" }

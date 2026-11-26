@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:edit",
+  "title": "uigen edit.json v1 (설계 §11 'Phase 4 설계' ② ~ ④) — 이어서 고치기 run 의 부모 · patch · 대상 · 자리 · 게이트 기록",
+  "type": "object",
+  "required": ["schema_version", "run_id", "screen_id", "parent_run_id", "source", "patch", "targets", "affects", "allow_overlap", "edits", "base_attempt", "edit_attempt"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "screen_id": { "type": "string" },
+    "parent_run_id": { "type": "string" },
+    "source": {
+      "type": "object",
+      "required": ["kind", "from"],
+      "properties": {
+        "kind": { "enum": ["promoted", "run"], "description": "promoted = 원천 묶음(promoted/<ScreenId>/source) · run = 남은 run 폴더" },
+        "from": { "type": "string" }
+      }
+    },
+    "patch": { "$ref": "urn:uigen:patch" },
+    "targets": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "affects": { "type": "array", "items": { "type": "string" } },
+    "allow_overlap": { "type": "array", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 } },
+    "edits": { "$ref": "#/$defs/edits" },
+    "source_notes": { "type": "array", "items": { "type": "object" } },
+    "base_attempt": { "const": 1 },
+    "edit_attempt": { "const": 2 },
+    "base": { "type": "object" },
+    "bbox_intent": { "type": "array", "items": { "type": "object" } },
+    "regression": { "type": "object" },
+    "appearance": { "type": "object" },
+    "picture": { "type": ["object", "null"] }
+  },
+  "$defs": {
+    "edits": {
+      "type": "array",
+      "description": "마지막 전체 run 뒤 쌓인 수정 — 앞의 것부터. 재승격은 이 목록이 지금 승격 기록의 edits 로 시작하고 그다음 줄의 부모가 지금 승격본일 때만 받는다",
+      "items": {
+        "type": "object",
+        "required": ["run_id", "parent_run_id", "patch"],
+        "additionalProperties": false,
+        "properties": {
+          "run_id": { "type": "string" },
+          "parent_run_id": { "type": "string" },
+          "note": { "type": ["string", "null"] },
+          "patch": { "$ref": "urn:uigen:patch" }
+        }
+      }
+    }
+  }
+}

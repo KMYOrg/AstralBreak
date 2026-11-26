@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261124_130129_StatusHUD",
+  "parent_run_id": null,
+  "status": "pass",
+  "created": "2026-11-24T13:15:37+09:00",
+  "screen_id": "StatusHUD",
+  "wbp": "/Game/_AutoGen/R20261124_130129_StatusHUD/WBP_StatusHUD",
+  "parent_class": "/Script/AstralBreak.AstralStatusHUDWidget",
+  "revision": "sha1:5d57d1a1d462ffbdb28cdd942085be7b88d09020",
+  "contract_hash": "sha1:82d77227b6d6b4307f0c11a9c85c3409da2825b6",
+  "spec": {
+    "file": "specs/003.json",
+    "sha256": "0339988891cece2c0e57e1723964dc0788a54ece188572470ee324026b80d443"
+  },
+  "attempts": 3,
+  "fault": null,
+  "patches": [
+    "patches/001.json"
+  ],
+  "textures": {
+    "ally1_crescent": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally1_crescent",
+    "ally2_crescent": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally2_crescent",
+    "ally3_crescent": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally3_crescent",
+    "self_hp_bar": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_self_hp_bar",
+    "self_stamina_bar": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_self_stamina_bar",
+    "ally1_hp_bar": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally1_hp_bar",
+    "ally1_ult_bar": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally1_ult_bar",
+    "ally2_hp_bar": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally2_hp_bar",
+    "ally2_ult_bar": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally2_ult_bar",
+    "ally3_hp_bar": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally3_hp_bar",
+    "ally3_ult_bar": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally3_ult_bar",
+    "static_plate1": "/Game/_AutoGen/R20261124_130129_StatusHUD/T_static_plate1"
+  },
+  "saved": [
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally1_crescent",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally1_hp_bar",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally1_ult_bar",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally2_crescent",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally2_hp_bar",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally2_ult_bar",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally3_crescent",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally3_hp_bar",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_ally3_ult_bar",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_self_hp_bar",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_self_stamina_bar",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/T_static_plate1",
+    "/Game/_AutoGen/R20261124_130129_StatusHUD/WBP_StatusHUD"
+  ]
+}

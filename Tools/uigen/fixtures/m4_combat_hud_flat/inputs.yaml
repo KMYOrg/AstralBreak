@@ -1,0 +1,36 @@
+# 1b 후속 H 시험 입력 — M4 전투 HUD, 단색 검정 배경 컨셉(make_concept --flat: UI 만 · 장면 없음 · 가장 큰 크기). 값은 전부 잠정.
+# 계약은 m4_combat_hud_concept/inputs.yaml 과 같다(codegen 계약 해시가 같아 건너뛴다) — 컨셉만 다르다. normalize 가 배경을 ⓑ flat 으로 판정하고
+# refine 이 reference_alpha 로 컨셉 픽셀을 오린다(codex 호출 없음 — generate.cut_only_reason).
+schema_version: 1
+mode: concept
+screen_type: hud
+screen_id: ProbeCombatHUD
+concept: concept.png                     # make_concept.py --flat 로 만든 대역
+concept_background: auto
+resolution: [1920, 1080]
+language: ko
+font: null
+text: "M4 전투 HUD — 하단 가운데 오의 게이지(가득 차면 강조), 그 위 '오의 불가' 문구, 오른쪽 위 체인 패널(남은 시간 · 참가 N/4), 위 가운데 체인 버스트 배너(인원)."
+required_elements:
+  - { id: UltGauge, kind: progress, desc: "오의 게이지" }
+  - { id: UltReadyGlow, kind: image, desc: "게이지가 가득 차면 강조(게이지 뒤 빛)" }
+  - { id: ChainPanel, kind: panel, desc: "체인 패널 — 열린 체인이 있을 때만" }
+  - { id: ChainTimerText, kind: text, desc: "체인 남은 시간(초)" }
+  - { id: ChainCountText, kind: text, desc: "체인 참가 N/4" }
+  - { id: BurstBanner, kind: banner, desc: "체인 버스트 배너" }
+  - { id: BurstCountText, kind: text, desc: "버스트 인원" }
+  - { id: UltBlockedText, kind: text, desc: "'오의 불가' — 차단 태그로 발동 실패했을 때" }
+data:
+  - { id: ult_gauge, type: progress, widget: UltGauge, widget_type: ProgressBar, sample: 0.7 }
+  - { id: ult_ready, type: flag, widget: UltReadyGlow, widget_type: Image, sample: false, desc: "full-gauge glow behind the gauge (hidden at 70 %)" }
+  - { id: chain_panel, type: flag, widget: ChainPanel, widget_type: Border, sample: true }
+  - { id: chain_remaining, type: number, widget: ChainTimerText, widget_type: TextBlock, format: "0.0", sample: 4.2 }
+  - { id: chain_count, type: text, widget: ChainCountText, widget_type: TextBlock, sample: "2/4" }
+  - { id: burst_banner, type: flag, widget: BurstBanner, widget_type: Border, sample: false }
+  - { id: burst_count, type: number, widget: BurstCountText, widget_type: TextBlock, format: "0", sample: 3 }
+  - { id: ult_blocked, type: flag, widget: UltBlockedText, widget_type: TextBlock, sample: false }
+static_text:
+  - { widget: UltBlockedText, value: "오의 불가" }
+  - { widget: ChainTitleText, value: "체인" }
+  - { widget: BurstLabelText, value: "체인 버스트" }
+style_keywords: ["dark fantasy", "gold trim", "thin elegant frames", "subtle glow"]

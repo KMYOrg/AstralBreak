@@ -1,6 +1,6 @@
 #include "AnimMcpCapture.h"
 
-#include "AnimMcpAssetResolver.h"
+#include "Core/AnimMcpAssetResolver.h"
 #include "AnimMcpGeneration.h"
 #include "AnimMcpLog.h"
 #include "AnimMcpSkeletonGeometry.h"

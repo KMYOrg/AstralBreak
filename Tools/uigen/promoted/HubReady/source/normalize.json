@@ -1,0 +1,289 @@
+{
+  "schema_version": 1,
+  "mode": "stretch",
+  "inputs": "Tools/uigen/fixtures/hub_ready/inputs.yaml",
+  "concept": "Tools/uigen/fixtures/hub_ready/concept.png",
+  "concept_sha256": "caa4879868d1d7d466eee81aac38176824d1ade36f9b3987359dbc81f1af4acd",
+  "reference": "reference.png",
+  "src_size": [
+    1672,
+    941
+  ],
+  "dst_size": [
+    1920,
+    1080
+  ],
+  "aspect_diff": 0.00053,
+  "scale": [
+    1.148325,
+    1.147715
+  ],
+  "offset": [
+    0,
+    0
+  ],
+  "background": {
+    "kind": "transparent",
+    "auto": "transparent",
+    "source": "auto",
+    "alpha_ratio": 0.945,
+    "ring_px": 19,
+    "ring_uniform": 0.0,
+    "key_color": "#000000",
+    "alpha": "reference_alpha.png",
+    "color": "reference_color.png",
+    "cells": [
+      {
+        "widget": "MemberRow1",
+        "cell": "HubMemberRow",
+        "box": [
+          56,
+          295,
+          610,
+          82
+        ],
+        "shift": [
+          0,
+          0
+        ],
+        "mean_diff": 2.36,
+        "at_diff": 2.36,
+        "cleared_px": 46110
+      },
+      {
+        "widget": "MemberRow2",
+        "cell": "HubMemberRow",
+        "box": [
+          56,
+          395,
+          610,
+          82
+        ],
+        "shift": [
+          0,
+          -1
+        ],
+        "mean_diff": 5.64,
+        "at_diff": 8.12,
+        "cleared_px": 48435
+      },
+      {
+        "widget": "MemberRow3",
+        "cell": "HubMemberRow",
+        "box": [
+          56,
+          495,
+          610,
+          82
+        ],
+        "shift": [
+          0,
+          0
+        ],
+        "mean_diff": 4.43,
+        "at_diff": 4.43,
+        "cleared_px": 48142
+      },
+      {
+        "widget": "MemberRow4",
+        "cell": "HubMemberRow",
+        "box": [
+          56,
+          595,
+          610,
+          82
+        ],
+        "shift": [
+          0,
+          1
+        ],
+        "mean_diff": 6.1,
+        "at_diff": 6.21,
+        "cleared_px": 47838
+      },
+      {
+        "widget": "DestinationButton",
+        "cell": "ButtonLarge",
+        "box": [
+          1261,
+          293,
+          596,
+          132
+        ],
+        "shift": [
+          0,
+          0
+        ],
+        "mean_diff": 2.08,
+        "at_diff": 2.08,
+        "cleared_px": 75444
+      },
+      {
+        "widget": "ReadyButton",
+        "cell": "ButtonSmall",
+        "box": [
+          1261,
+          908,
+          288,
+          93
+        ],
+        "shift": [
+          0,
+          0
+        ],
+        "mean_diff": 1.49,
+        "at_diff": 1.49,
+        "cleared_px": 25391
+      },
+      {
+        "widget": "LaunchButton",
+        "cell": "ButtonSmall",
+        "box": [
+          1569,
+          908,
+          288,
+          93
+        ],
+        "shift": [
+          0,
+          0
+        ],
+        "mean_diff": 1.96,
+        "at_diff": 1.96,
+        "cleared_px": 25444
+      }
+    ],
+    "opaque_ratio": 0.0551,
+    "transparent_ratio": 0.7911,
+    "convert": {
+      "used": false,
+      "mode": "auto",
+      "source_kind": "transparent",
+      "reason": "the concept already has real alpha"
+    },
+    "concept_source": {
+      "value": "generated_textfree",
+      "from": "inputs",
+      "text_style": "text_reference"
+    },
+    "text_ref": {
+      "src": "concept_text_ref.png",
+      "src_size": [
+        1672,
+        941
+      ],
+      "shift_px": [
+        0.0,
+        0.0
+      ],
+      "response": 1.0,
+      "used": true,
+      "shift_applied": [
+        0,
+        0
+      ],
+      "ocr": {
+        "text_ref_boxes": [
+          [
+            104.49760765550239,
+            181.33900106269925,
+            115.98086124401914,
+            29.840595111583422
+          ],
+          [
+            1302.200956937799,
+            182.48671625929862,
+            80.38277511961722,
+            28.69287991498406
+          ],
+          [
+            1302.200956937799,
+            829.798087141339,
+            220.47846889952154,
+            19.511158342189162
+          ],
+          [
+            1782.200956937799,
+            1027.2051009564293,
+            67.7511961722488,
+            17.215727948990434
+          ]
+        ],
+        "art_boxes": [],
+        "boxes": [
+          [
+            104.49760765550239,
+            181.33900106269925,
+            115.98086124401914,
+            29.840595111583422
+          ],
+          [
+            1302.200956937799,
+            182.48671625929862,
+            80.38277511961722,
+            28.69287991498406
+          ],
+          [
+            1302.200956937799,
+            829.798087141339,
+            220.47846889952154,
+            19.511158342189162
+          ],
+          [
+            1782.200956937799,
+            1027.2051009564293,
+            67.7511961722488,
+            17.215727948990434
+          ]
+        ],
+        "scores": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "min_score": 0.6,
+        "from": "drawn"
+      },
+      "checks": {
+        "ui_px": 415476,
+        "outside_solid_big_frac": 0.0,
+        "outside_far_new_frac": 0.0,
+        "fringe_alpha_frac": 0.0,
+        "outside_median_d": 0.0,
+        "outside_p95_d": 0.33,
+        "limit": 0.03
+      },
+      "glyph_on_translucent_px": 3160,
+      "glyph_px": 4418,
+      "glow_px": 1513,
+      "paste_px": 6534,
+      "ring_tone_l": -0.0,
+      "aligned": [
+        "reference_textref_color.png",
+        "reference_textref_alpha.png"
+      ],
+      "paste_mask": "reference_textref_paste.png"
+    },
+    "notext": {
+      "used": true,
+      "role": "original_art",
+      "color": "reference_notext_color.png",
+      "alpha": "reference_notext_alpha.png",
+      "shift_px": [
+        0.0,
+        0.0
+      ],
+      "text_residue": false
+    },
+    "art": {
+      "used": true,
+      "role": "original",
+      "color": "reference_art_color.png",
+      "alpha": "reference_art_alpha.png",
+      "element_free": false,
+      "text_residue": false,
+      "text_ref_used": true
+    }
+  }
+}

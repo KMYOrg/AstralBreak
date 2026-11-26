@@ -19,7 +19,11 @@ UE 5.7.4 기반 4인 협동 액션 RPG. 런타임 모듈 1개(`Source/AstralBrea
 `.claude/settings.local.json` 의 허용 규칙과 **같은 모양**으로 쓸 때만 확인 없이 돈다. 모양이 어긋나면 프롬프트가 뜨고, 그사이 사용자가 없으면 취소된다.
 
 - 스크래치 루트 = `C:/Users/KMY96/AppData/Local/Temp/claude/D--UE5Projects-AstralBreak/` (세션 scratchpad 가 이 아래).
+  작업 폴더에 들어 있어 Read · Write · Edit 도구는 확인 없이 된다.
   `mkdir -p <절대 경로>` · `cp -r D:/UE5Projects/AstralBreak/Tools/mcp/anim_gen <스크래치>/…` · 스크래치 안끼리 `cp` · `cmp`
+- 읽기 전용 Bash 는 훅 `.claude/hooks/allow_readonly.py` 가 자동 승인한다(목록 안 명령만, `&&` · `|` 로 이어도 됨 —
+  따옴표 안의 `|` `;` 는 연산자로 보지 않는다). `$(…)` · 백틱 · `$'…'` · 리다이렉트(`/dev/null` 제외) · 목록 밖 명령이 하나라도 섞이면 보류된다
+- UI 파이프라인: `…python.exe -X utf8 -B D:/UE5Projects/AstralBreak/Tools/uigen/run_pipeline.py …`
 - Python 은 `D:/UE5Projects/AstralBreak/Tools/mcp/.venv/Scripts/python.exe -X utf8 -B` 로 시작:
   `-m pytest … -p no:cacheprovider` · 스크래치 스크립트 · `-u D:/UE5Projects/AstralBreak/Tools/mcp/anim_gen_phase*_test.py …`.
   다른 사본(기준 사본 등)을 import 하려면 `-o "pythonpath=<사본 루트> D:/UE5Projects/AstralBreak/Tools/mcp"` 를 붙이고

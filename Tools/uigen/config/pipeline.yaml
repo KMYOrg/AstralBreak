@@ -1,0 +1,223 @@
+# UI 자동 생성 파이프라인 설정 (Docs/Design/ui-autogen-pipeline.md §2 · §3-2). 값은 전부 잠정.
+# 저장소 안 경로는 저장소 루트 기준 상대, 엔진 · 사용자 도구는 절대 경로.
+schema_version: 1
+phase: 1b
+
+paths:
+  work_root: Tools/uigen/work            # run 별 산출물 — git 무시, Saved 밖(이미지를 Read · 전송할 수 있게)
+  metrics: Tools/uigen/metrics/uigen.jsonl
+  ue_run_root: /Game/_AutoGen            # run 애셋은 /Game/_AutoGen/<run_id>/ 에만 (WidgetOutputPaths)
+
+codegen:                                 # §3-3 — C++ 생성 위치 · 모듈 (screens.yaml 의 feature · 클래스 이름과 합쳐 경로가 된다)
+  module: AstralBreak                    # 클래스 경로 /Script/<module>.<Widget>
+  api_macro: ASTRALBREAK_API
+  module_root: Source/AstralBreak        # 저장소 기준 — 헤더 이름 중복 검사 범위
+  ui_dir: UI                             # <module_root>/<ui_dir>/<feature>/ (+ AutoGen/) — 쓰기는 이 아래 두 곳뿐
+
+editor:                                  # CLAUDE.md 에디터 주기 그대로 (1a-3 codegen 이 사용)
+  exe: D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Binaries/Win64/UnrealEditor-Win64-DebugGame.exe
+  project: D:/UE5Projects/AstralBreak/AstralBreak.uproject
+  args: [-log, -unattended, -stdout, -FullStdOutLogOutput]   # 표준 출력은 work/<run_id>/codegen/editor.log
+  bridge_wait_s: 540
+  bridge_poll_s: 10
+  settle_s: 30                           # 브리지 준비 뒤 더 기다림(자동 시험 CEF 크래시 함정)
+  exit_wait_s: 180
+  quit_discard_only_under: [/Game/_AutoGen/]
+
+build:                                   # codegen 빌드 — 에디터를 내린 상태에서 실행 중 구성만
+  bat: D:/UnrealSource/UnrealEngine-5.7.4-release/Engine/Build/BatchFiles/Build.bat
+  target: AstralBreakEditor
+  platform: Win64
+  configuration: DebugGame
+  args: [-WaitMutex, -NoHotReload]
+  timeout_s: 1800
+
+limits:
+  retries: 3                             # 재시도 N (§12-2 6 — 11-14 사용자: 3 으로 시작)
+  early_stop_no_progress: 2              # 두 번 연속 실패 게이트 집합이 줄지 않으면 조기 종료
+  codex_calls_per_run: 20
+
+backends:
+  allowed: [procedural, codex]           # 1b-5 — codex 연결(gen/codex.py). comfy 는 11-24 조정으로 삭제(설계 §11 'Phase 조정' — 다시 여는 조건)
+
+codex:                                   # §7 — 공식 codex CLI · built-in image_gen 만 (gen/codex.py, 1b-2)
+  cli: auto                              # auto = PATH 의 codex — npm .cmd 래퍼면 node + codex.js 로 직접(cmd.exe 가 프롬프트를 해석하지 않게) · 또는 [exe, …]
+  expected_version: 0.166.0              # run 시작 때 `codex --version` 기록 — 다르면 표시만
+  home: null                             # null = $CODEX_HOME 또는 ~/.codex — 결과 generated_images/<thread_id>/ 를 찾는 곳(auth.json 은 읽지 않는다)
+  sandbox: workspace-write               # cwd = work/<run>/gen/<asset_id> (git 무시)
+  timeout_s: 600                         # 벽시계 — 넘으면 프로세스 트리를 끝낸다(node → codex.exe)
+  strip_env: [OPENAI_API_KEY, CODEX_API_KEY, AZURE_OPENAI_API_KEY]   # 유료 API 폴백 차단
+  suspect_quota_after_failures: 2        # 식별자 없이 이미지가 안 나온 호출이 연속 N 번이면 한도로 추정(A3 '틀리면')
+
+extract:                                 # 1b 후속 A — 컨셉에서 따오기(spec asset source_mode: extract · codex 편집). 값은 잠정
+  pad: 8                                 # ref_bbox 바깥 여유(px) — 이 상자를 다시 되자른다
+  max_aspect: 3.0                        # [실측 A-1] 편집 출력 캔버스 비율 = 입력 비율, 가장 긴 출력 3:1 — 더 긴 요소는 실제 화면으로 짧은 변을 넓힌다
+  interior_alpha: 0.9                    # frame · panel_bg 안쪽 알파 — [실측 A-1] image_gen 은 안쪽을 거의 불투명(250 ~ 254)으로 낸다. null = 안쪽 단계 끔
+  interior_flatten: true                 # 안쪽을 대표색 한 색으로 칠함 — [실측 A run] 글자 자리를 구멍(알파 6 ~ 19)으로 남긴 판이 나왔다. false = 알파 배수만
+  interior_max_lightness: 35             # 대표색을 고를 픽셀의 L* 상한(금테 · 장식은 L* 60 이상)
+  concept_pixels: true                   # 1b 후속 G — frame · panel_bg 에 컨셉 픽셀 옮겨 심기(gen/concept_pixels): codex 결과는 실루엣(알파)만, 색 · 모서리 장식 ·
+                                         # 안쪽 빛은 컨셉 그대로(글자 자리는 줄 보간으로 메움 · 안쪽 알파 = interior_alpha). 게이지가 겹친 프레임 · 실루엣 IoU < 0.85 ·
+                                         # 옮긴 뒤 OCR 자국이면 위 한 색 칠하기로 물러남. false = A 그대로
+  fixed_size_draw_as: image              # 크기 고정 위젯(점 앵커 영역 안)의 따온 에셋 브러시 box → image — box 는 모서리를 텍스처 픽셀 × margin 으로 그려
+                                         # 큰 텍스처면 모서리가 커지고 가운데가 눌린다(ElementBatcher.cpp:857-860, A run 2). box = 바꾸지 않음
+  cutout: true                           # 1b 후속 H — extract 에셋은 컨셉 픽셀을 오려 쓴다(gen/cutout · refine._cut_entry): 알파 = ⓐ ⓑ reference_alpha ·
+                                         # ⓒ GrabCut(codex 실루엣 시드), 색 = 컨셉, 가려진 자리 줄 보간. 위 interior_flatten · concept_pixels · IoU 물러남은
+                                         # 이 길에서 쓰지 않는다(false = G 그대로). ⓐ ⓑ 와 작은 요소는 codex 를 부르지 않는다(generate.cut_only_reason)
+  cutout_small_px: 64                    # ⓒ 에서 짧은 변이 이보다 작은 요소는 codex 없이 오린다([실측 G2] 54 px 방패 배지 — codex 입력을 17 배로 키워 흐림)
+  overhang: true                         # 실루엣이 위젯 상자 밖(다른 그리는 위젯 자리 아님)으로 이어지면 텍스처 상자를 넓히고 캔버스 직속 장식 Image 로 그린다
+                                         # (사용자 결정 (가') 11-16 — 크기 고정 · 런타임에 안 접히는 위젯만)
+  notext: true                           # 글자 없는 판(inputs concept_notext — make_concept --text-free)이 있으면 글자 구멍만 그 픽셀로(gen/cutout.compose fill_from —
+                                         # 요소마다 ±6 px 재정합, 둘레 차 > 24 이면 줄 보간으로 물러남). false = 판이 있어도 줄 보간
+  text_erase: all                        # 1b 후속 L 다음 G1 — 글자 든 컨셉(아트 모드 아님) 글자 지울 범위: off = 좁은 메움(K (나)) · values = 값이 바뀌는 글자(바인딩
+                                         # number · text)만 · values_glow = 값 글자 + 빛 글자 · all = 모든 글자(시작 때 숨는 글자는 밑 텍스처가 같이 숨을 때만 — 배너).
+                                         # 글자 지우기 마감(11-19 사용자 결정 'all'): 글자마다 지운 판 후보(lama · harmonic)와 좁은 판(예전 판)을 refine 끝에 게이트와 같은
+                                         # 함수(캔버스 합성 S4 · 가는 선 · 숨는 묶음)로 견주어 예전보다 나빠지는 글자는 예전 판(refine._gate_erase_choice)
+  text_fill: lama                        # G2 — lama 후보의 메우기: plate = 정합된 글자 없는 판 + 색조 평면 보정 · lama = 외부 인페인팅(아래 모델 — 없거나 실패하면 plate ·
+                                         # harmonic 으로 물러나 기록). 판 정합 · 판 중앙값 · 투명 위 글자 둘레 · 좁은 둘레 길 모두 같은 후보 셋(lama · harmonic · off)
+  lama_model: work/_models/lama_fp32.onnx   # Tools/uigen 기준 — Hugging Face Carve/LaMa-ONNX lama_fp32.onnx(Apache-2.0, 512 × 512). 실행 중 내려받지 않는다
+  text_erase_methods: [lama, harmonic]   # 1b 후속 L 다음 — 글자 지우기 다음: 지운 판 후보(refine.ERASE_METHODS 안). clear_alpha(V5 투명 바탕 글자 — 알파 꼬리 ·
+                                         # 판 구조물 · 가림 라플라스)는 옵트인 — 파티 Lv 에서 S4 는 0 이 됐지만 컨셉 상태 E1 얼룩 9 를 새로 만들었다(고르기는 S4 만 봄)
+  text_erase_ocr: true                   # 1b 후속 L 다음 — 글자 지우기 다음 V7: 컨셉 OCR 검출(refine_concept_ocr.json — run 에 한 번) 중 글자 상자와 겹친 상자 + 6 px 를 지울 수 있는
+                                         # 범위에 합침(획 찾기 · rect_e — 상자째 지우지 않음). V6 반복 보강 = 결함 · OCR 잔여물 남은 글자만 여백 단계 @1 · @2(refine.ERASE_RETRIES)
+  text_fill_complex: none                # V8 — 복잡 배경 글자의 생성형 메우기 백엔드 자리: none | comfy_flux_fill | comfy_qwen_edit (11-20 사용자 결정 — 인터페이스만,
+                                         # 워크플로 · 모델은 ComfyUI 와 함께 — 11-24 조정으로 삭제, 다시 열 때만. 있으면 같은 마스크 · 합성 · V1 · S4 고르기를 거친다).
+                                         # 지금은 판정 · 기록 · 수동 확인 줄만
+  complex_background:                    # V8 — 지울 자리 둘레 6 px 띠의 엣지 밀도(미리 곱한 루마 소벨 > 40 비율) · 색 분산(L* 표준편차)이 둘 다 넘으면 복잡 배경
+    edge_frac: 0.35
+    l_std: 12.0
+
+concept_convert:                         # 1b 후속 I — 컨셉을 codex 편집으로 'UI 만 · 진짜 알파' 컨셉 + 글자 없는 판으로 바꿔 ⓐ 로 잇는다(gen/concept_convert,
+                                         # normalize). 합성 스크린샷(ⓒ)은 장면 · 반투명 UI 를 결정적으로 못 가르고(H) 검정 배경(ⓑ)은 어둡고 반투명을 못 가른다(H3)
+  default: auto                          # inputs concept_convert 가 없을 때 — auto = ⓒ 만 · force = ⓑ 도 · off = 예전 경로(사용자 결정 11-17)
+  max_calls: 2                           # 변환 codex 호출 상한(run 당 — 컨셉 · 글자 없는 판, run 전체 상한 limits.codex_calls_per_run 안에서도 셈)
+  aspect_tol: 0.03                       # 변환 결과 비율이 원본과 이만큼 넘게 다르면 버림(구도 유지 실패)
+  transparent_ratio: [0.05, 0.95]        # 변환 결과 투명 픽셀 비율이 이 밖이면 버림(배경이 안 빠졌거나 다 지워짐)
+  text_free: true                        # 글자 없는 판도 받는다(실패해도 ⓐ 로 가되 판 없이)
+  plate_for_flat: true                   # 1b 후속 J-a — ⓑ 단색 컨셉(변환 안 함)에 글자 없는 판이 없으면 요소 없는 판만 codex 1 회(캐시) — 글자 자리를 판 획으로
+  cache_dir: _convert                    # work_root 아래 — <원본 sha256 앞 16>_<프롬프트 sha256 앞 8>/ (다시 돌리면 codex 0, 지우면 다시 받음)
+
+textures:                                # §12-2 5 — 11-14 사용자: EditorIcon 기본 + 큰 배경만 BC7
+  compression_default: TC_EditorIcon
+  compression_by_kind:
+    panel_bg: TC_BC7
+  lod_group: TEXTUREGROUP_UI
+  mip_gen: TMGS_NoMipmaps
+  never_stream: true
+  srgb: true
+
+render:
+  resolutions: [[1920, 1080], [2560, 1080], [1920, 1200]]   # 화면 밖 게이트 — 기준 + 21:9 + 16:10
+
+fonts:                                   # 프로젝트 폰트 (1b-3 — 11-15 사용자 승인: Pretendard v1.3.9 OFL, import_font_family 로 임포트 · 저장)
+  default_family: /Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W   # 1b 후속 K — 굵기 5 종(Regular · Medium · SemiBold · Bold · ExtraBold) family. = 역할 body. spec font.family 값 — export 가 돌려주는 객체 경로 그대로(왕복 비교)
+  typefaces: [Regular, Medium, SemiBold, Bold, ExtraBold]   # 1b 후속 K — body family 가 가진 타입페이스(spec font.weight 가 고름 — 없는 굵기는 첫 항목으로 대체)
+  line_height:                           # body(Pretendard) — [실측 1b-3 · 1b 후속 D] TextBlock auto_size 높이(px, scale 1) — regular · bold 같음. 엔진 기본은 크기 × 약 1.6
+    16: 26
+    18: 30
+    22: 36
+    26: 43
+    30: 49
+    34: 55
+    44: 71
+    56: 90
+    80: 129
+  glyph_height: { hangul: 1.17, digits: 0.94 }   # 1b 후속 F — 보이는 글자 높이 / 크기 [실측 C1 렌더 '오의 불가' 35/30 · D 숫자 0.94] — analyze 프롬프트가 크기를 고를 때
+  weight_density:                        # 1b 후속 K → L-2 — family 마다 가진 굵기 → 획 밀도(획 픽셀 / 획 상자의 잉크 있는 열 — 빈 열(낱말 · 글자 사이 틈) 뺌, Regular = 1) [실측 PIL — 한글 · 숫자 11 낱말 × 24 · 36 · 56 px 기하 평균, Tools/uigen/weight_density.py]. 빈 열을 빼야 자간이 굵기 판정을 안 바꾼다(L-2 체인 버스트 — 자간 +2 px 에 밀도 비 0.936 → 0.898). 예전(상자 전체) 값: Pretendard 1.176 · 1.348 · 1.488 · 1.628, Noto 1.271 · 1.482 · 1.692
+                                         # 글자 맞춤 · 진단(E9)이 '가진 굵기 중 컨셉에 가장 가까운 것'을 고른다. 표에 없는 family 는 예전 규칙(Regular ↔ Bold 1.22 · 진단 1.3 배)
+    /Game/UI/Fonts/Pretendard/F_Pretendard.F_Pretendard: { regular: 1.0, bold: 1.433 }
+    /Game/UI/Fonts/Pretendard/F_Pretendard_SDF.F_Pretendard_SDF: { regular: 1.0, bold: 1.433 }
+    /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR.F_NotoSerifKR: { regular: 1.0, bold: 1.462 }
+    /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_SDF.F_NotoSerifKR_SDF: { regular: 1.0, bold: 1.462 }
+    /Game/UI/Fonts/Pretendard/F_Pretendard_W.F_Pretendard_W: { regular: 1.0, medium: 1.156, semibold: 1.312, bold: 1.433, extrabold: 1.552 }
+    /Game/UI/Fonts/Pretendard/F_Pretendard_W_SDF.F_Pretendard_W_SDF: { regular: 1.0, medium: 1.156, semibold: 1.312, bold: 1.433, extrabold: 1.552 }
+    /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_W.F_NotoSerifKR_W: { regular: 1.0, semibold: 1.27, bold: 1.462, black: 1.672 }
+    /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_W_SDF.F_NotoSerifKR_W_SDF: { regular: 1.0, semibold: 1.27, bold: 1.462, black: 1.672 }
+  roles:                                 # 1b 후속 D — analyze 가 TextBlock 마다 font.role 을 고르고 apply_contract 가 family 로 바꾼다(body = 위 default_family)
+    body:                                # family · 줄 높이는 위 default_family · line_height — 여기엔 SDF 사본만(기본 폰트일 때만 쓰임)
+      sdf_family: /Game/UI/Fonts/Pretendard/F_Pretendard_W_SDF.F_Pretendard_W_SDF   # 1b 후속 J — 같은 TTF 의 거리장 사본(import_font_family distance_field, Msdf) — 글자 빛 쓰는 본문 글자만
+    title:                              # 제목 · 배너 · 큰 숫자 — Noto Serif KR(notofonts/noto-cjk SubsetOTF KR, OFL — 11-15 사용자 승인)
+      family: /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_W.F_NotoSerifKR_W   # 1b 후속 K — 굵기 4 종(Regular · SemiBold · Bold · Black)
+      line_height: { 16: 31, 18: 35, 22: 43, 26: 51, 30: 58, 34: 66, 44: 86, 56: 109, 80: 155 }   # [실측 D] 크기 × 약 1.94, regular · bold 같음
+      glyph_height: { hangul: 1.33, digits: 1.02 }   # 1b 후속 F [실측 C1 렌더] 배너 58/44 · 체인 35/26 · '4.2' 65/64 · '3' 62/61
+      sdf_family: /Game/UI/Fonts/NotoSerifKR/F_NotoSerifKR_W_SDF.F_NotoSerifKR_W_SDF   # 1b 후속 F — 같은 OTF 의 거리장 사본(import_font_family distance_field) — 글자 빛 쓰는 글자만
+
+text_fill:                               # 1b 후속 D — 글자색 · 세로 그라데이션을 컨셉에서 결정적으로(analyze.derive_text_fills). false = LLM 색 그대로
+  enabled: true
+
+text_style:                              # 1b 후속 J-c — 글자 스타일(크기 · 굵기 · 외곽선 · 빛 · 색)은 결정적 측정만
+  deterministic_only: true               # analyze LLM 이 고른 글자 외곽선 · 그림자를 걷는다(외형 라운드는 글자 위젯 op 금지 — style.guard_style_ops)
+
+layers:                                  # 1b 후속 J-a — 기능 단위 레이어(stages/layer): 정적 장식은 판 한 장으로, 기능 요소만 따로
+  enabled: true                          # ⓐ ⓑ(컨셉 알파를 앎)만 — ⓒ 는 예전처럼 요소마다 오린다
+  plate_max: 2048                        # 정적 판 텍스처 긴 변 상한(사용자 결정 11-17 — 넘으면 가장 투명한 열 · 줄에서 나눔)
+
+text_glow:                               # 1b 후속 F — 글자 둘레 번지는 빛을 컨셉에서 결정적으로(analyze.derive_text_glow → font.glow + 그 역할의 sdf_family)
+  enabled: true
+  min_excess: 8                          # 획 2 ~ 6 px 밖 밝기가 바탕보다 L 이만큼 밝으면 빛(잠정 — [실측 F] '4.2' 15.5, 빛 없는 글자 ≤ 0)
+
+gauge_fill:                              # 1b 후속 F — 따온 프레임 위 가로 게이지 채움(analyze.derive_gauge_fills · gen/concept_fill.py)
+  mode: shape                            # shape = 컨셉 채움 모양 그대로(왼쪽 끝 · 밝은 테두리 · 트랙 띠 빛) · stops = B 의 줄마다 색만(gradient_bar)
+  end: scale                             # scale = 진행 끝 테두리 · 번짐까지(ProgressBar bar_fill_style scale + 채움 box) · mask = 진행률에서 자름(엔진 기본)
+  end_cap: true                          # 1b 후속 L 다음 H4 (나)(사용자 결정 11-19) — 채움 끝은 곧게, 컨셉 빈 트랙 끝에 끝 장식 호가 있으면 채움 위에 '끝 덮개' Image
+                                         # (<게이지>EndCap · procedural concept_end_cap)가 100 % 에서 호를 넘는 부분을 덮는다. false = 덮개 없음(100 % 에 호를 덮음 — S2 오류)
+
+style_review:                            # 1b 후속 C — 게이트 통과 뒤 외형 검토 라운드(stages/style.py). 합격 판정은 게이트만, 라운드 뒤 게이트가 깨지면 그 라운드를 버린다
+  rounds: 0                              # 0 = LLM 라운드 끔(Phase 2 — 11-24 사용자 결정: 11-18 이후 41 run 에서 지적 없음 29 · 되돌림 10 · 받아들임 2, 그 2 도 실패한
+                                         # 시험 run 의 자리표시 투명도 한 줄). 비교 기록(style/before) · 아래 text_fit 은 그대로 돈다. 1 이상이면 concept 모드 ·
+                                         # fix.mode ≠ deterministic 일 때 라운드를 돈다(코드 · 프롬프트는 남김)
+  max_ops: 16                            # 라운드 patch 의 op 상한
+  max_replace_per_round: 1               # replace_asset(codex 다시 편집 · 생성) — run 의 codex 상한(limits.codex_calls_per_run) 안, 한 번에 하나
+  replace_guard_tol: 0.02                # 1b 후속 G — 다시 따온 에셋의 충실도(실루엣 IoU · 장식선 F1 · 모서리 F1 최소)가 라운드 전보다 이만큼 넘게 낮으면 그 에셋만 옛 것으로
+                                         # [실측 F run 4] 배너 다시 따오기 F1 0.983 → 0.914 를 받아 금테가 노래졌다
+  text_fit: true                         # 1b 후속 G — 외형 라운드 뒤 글자 결정적 맞춤(style.text_fit — LLM 없음), 두 판: 크기 판(높이 비로 크기 · 굵기, 형제 겹침 예측으로 상한)
+                                         # → 위치 판(자간 · 중심), 판마다 build → verify 1회 · 깨지면 그 판만 버림.
+                                         # 라운드가 꺼진 deterministic 모드에서도 돈다(컨셉이 있을 때)
+
+appearance:                              # 1b 후속 J-b — 자동 차이 진단 게이트(gen/diagnose · verify appearance). 값은 잠정 — [실측 J-b 기준선] 지난 최종 run 8 개로 보정
+  enabled: true                          # 국소 결함 0 이어야 run 통과(구조 게이트 10 개와 따로 — 외형 라운드 · 글자 맞춤은 '진단이 나빠지지 않음'으로 받는다)
+  local_de: 10.0                         # 7 × 7 창 평균 ΔE00 문턱 — 사용자가 찾은 E · T 배지 양옆 선 11 ~ 17, 다이아몬드 이중 10.4 ~ 10.6
+  min_area: 24                           # 결함 덩어리 최소 넓이(px)
+  text_h_tol: 0.08                       # 글자 획 높이 비 |1 − 비| — '회피' 작아짐 0.75 · '어빌리티' 0.83
+  text_pos_px: 3.0                       # 글자 중심 차 허용(px) — 글자 높이 × text_pos_k 와 큰 쪽('돌진 공격' 24.5 px 어긋남)
+  text_pos_k: 0.1
+  text_weight: 1.3                       # 획 밀도 비 허용 — 굵기 둘(밀도 비 약 1.52)의 반 단계 1.233 + 잡음 — 왼쪽 라벨 굵게 1.39 ~ 1.54 는 잡고 그 사이 굵기(어빌리티 1.245)는 둔다
+  text_color_de: 12.0                    # 핵심 획 대표색 ΔE00
+  text_dark_frac: 0.2                    # 획 안 '바탕보다 어두운' 비율 차(외곽선 · 그림자 — LLM 이 넣은 남색 외곽선 0.27 ~ 0.5)
+  text_halo_frac: 0.2                    # 핵심 밖 '바탕보다 밝은' 비율 차(빛 번짐)
+  seam_dark_px: 90                       # 3 배 절취선 — 한 자리의 어두운 확대 픽셀 수
+  residue_de: 20.0                       # 1b 후속 L 다음 — E1 획에 붙은 잔상: 렌더 글자가 안 덮은 컨셉 획 자리의 텍스처 · 렌더가 글자 없는 바탕 두 추정과 ΔE00 이만큼 넘게('4' 밑 잔상 평균 31)
+  residue_min_px: 6                      # 그 픽셀 덩어리 최소 넓이('4' 밑 잔상 11 px)
+  state_checks: error                    # 1b 후속 L 다음 — 상태 검사(gen/state_check — S1 숨김 흔적 · S2 게이지 끝): record = 기록만 · error = 오류(E8) · off. 11-19 묶음 26 run 기록만 재진단 거짓 양성 0 → error
+  text_trace_de: 5.0                     # 1b 후속 L 다음 L-1 글자 완전 지우기 — S4 글자 밑 흔적(빈 값 · 다른 값): 자리 안만의 3 × 3 창 평균 문턱
+  text_trace_min_area: 24
+  text_line_plate: error                 # 1b 후속 L 다음 — 글자 지우기 다음 V2: 선 모양 덩어리는 글자 없는 판에도 있는 선일 때만 구조선(기록만), 판에 없는 선은 결함 —
+                                         # 11-20 묶음 32 run 기록만 재진단: 발견 = 파티 HP 막대 윗선 위 빛 자국(실제)뿐 → error
+  text_lift_mode: error                  # V3: 어두운 판 자리(둘레 L* < 20)의 밝힌 검정(× 3) 국소 > text_lift_de 덩어리 = 결함(check text_lift) — 11-20 묶음 63 덩어리 그림 분류
+  text_lift_de: 4.0                      # 모두 실제(최저 3.7), 깨끗한 판 덩어리 0 → 거짓 양성 0 문턱 4.0
+  halo_de: 2.0                           # L-2 기본 전환 ④ — 접히는 위젯을 껐을 때 정적 판에 남은 빛(hidden_halo): 3 × 3 국소 ΔE00(검정 · 회색 · 흰 중 최대)
+                                         # 11-23 정답 · 회귀 묶음 34 run 기록만 재진단: 발견 88 건(17 run) 모두 실제(접힌 배너 · 체인 패널의 빛 · 테두리 잔여, 최저 2.8),
+                                         # 조작 안내 · 파티 · 단색 깨끗한 run 은 0 → 거짓 양성 0 → 오류
+  button_de: 3.0                         # Phase 3-2 — 버튼 상태 렌더 ↔ 상태 그림을 얹은 합성의 7 × 7 국소 ΔE00(글자 획 둘레 뺌 — 정답이 식이라 좁다, 값은 잠정)
+  button_distinct_de: 2.0                # 상태끼리 구별 — 버튼 안(글자 뺌) 평균 ΔE00 하한(모든 쌍. 식의 가장 작은 쌍 = 기본 ↔ 누름 3.3 [실측 작은 시험])
+  button_text_de: 8.0                    # 상태마다 글자가 읽히는가 — 획 핵심 ↔ 글자 없는 합성 ΔE00 중앙값 하한
+  state_record_only: []                  # 오류 모드에서도 기록만 둘 check — 11-19 S4 · S2 보강을 기록만으로 묶음(정답 30 · 회귀 14 run) 재진단: 발견은 모두 같은 종류 실제
+                                         # 결함(게이지 끝 덮음 · '4.2' · 단색 '2/4' · 파티 '0 %' · 이름 · 조작 안내 'o'), 거짓 양성 = 파티 HP 막대 윗선 23 × 2 하나 → 선 모양 걸러 0 → 비움(오류)
+
+fix:
+  mode: hybrid                         # 1b-6 — 결정적 fixer 먼저, op 가 없거나 직전 결정적 patch 가 진전이 없으면 LLM verifier → fix (11-15 사용자 결정).
+                                         # deterministic(1a) · llm 도 된다 — run 마다 --fix-mode 로 덮을 수 있다
+
+llm:                                     # §10-1 claude -p 호출 틀(core/llm.py) — 1a 는 fix.mode deterministic 이라 호출 0, 1b 에서 값 보정
+  cli: [claude]                          # 독립 실행 claude(~/.local/bin) — 데스크톱 앱과 따로 로그인(구독 계정)
+  expected_version: 2.1.325              # 자동 업데이트로 바뀐다 — run 시작 때 기록(1b)
+  cwd: Tools/uigen/claude_ctx            # 저장소 루트 설정에 기대지 않고 --settings · --allowedTools 로 명시
+  settings: Tools/uigen/claude_ctx/.claude/settings.json
+  mcp_config: Tools/uigen/config/empty_mcp.json
+  stages:                                # 출력은 --json-schema(structured_output)로만 — 쓰기 도구 없음, Bash 금지
+    # analyze — 11-15 사용자 결정(잠정 1.0 USD · 턴 6 · 600초). [실측 1b-1] 예산은 턴 사이 검사라 '한 턴 더' 여유 포함, model null = 사용자 기본(claude-opus-5-5)
+    analyze:  { max_budget_usd: 1.0, max_turns: 6, timeout_s: 600, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/analyze.md, model: null }
+    verifier: { max_budget_usd: 0.5, max_turns: 8, timeout_s: 300, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/verifier.md, model: null }
+    fix:      { max_budget_usd: 0.5, max_turns: 6, timeout_s: 300, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/fix.md, model: null }
+    # 1b 후속 C — 외형 라운드(잠정). verifier 는 영역 나란히 그림 3 ~ 4장을 읽어 턴이 더 든다
+    style_verifier: { max_budget_usd: 0.6, max_turns: 10, timeout_s: 420, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/style_verifier.md, model: null }
+    style_fix:      { max_budget_usd: 0.5, max_turns: 6, timeout_s: 300, allowed_tools: [Read], prompt_file: Tools/uigen/prompts/style_fix.md, model: null }

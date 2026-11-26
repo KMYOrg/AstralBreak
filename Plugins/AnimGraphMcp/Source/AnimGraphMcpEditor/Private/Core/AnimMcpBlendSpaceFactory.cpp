@@ -1,8 +1,8 @@
 #include "AnimMcpBlendSpaceFactory.h"
 
 #include "AnimMcpAssetOps.h"
-#include "AnimMcpAssetProtection.h"
-#include "AnimMcpAssetResolver.h"
+#include "Core/AnimMcpAssetProtection.h"
+#include "Core/AnimMcpAssetResolver.h"
 #include "AnimMcpLog.h"
 #include "Animation/AimOffsetBlendSpace.h"
 #include "Animation/AimOffsetBlendSpace1D.h"

@@ -1,0 +1,1091 @@
+{
+  "truth": "text_free_art",
+  "settings": {
+    "local_de": 10.0,
+    "min_area": 24,
+    "text_h_tol": 0.08,
+    "text_pos_px": 3.0,
+    "text_pos_k": 0.1,
+    "text_weight": 1.3,
+    "text_color_de": 12.0,
+    "text_dark_frac": 0.2,
+    "text_halo_frac": 0.2,
+    "seam_dark_px": 90,
+    "weight_margin": 0.06,
+    "bg_cover": 0.3,
+    "blur_ratio": 0.8,
+    "glow_min": 8.0,
+    "residue_de": 20.0,
+    "residue_min_px": 6,
+    "state_checks": "error",
+    "text_trace_de": 5.0,
+    "text_trace_min_area": 24,
+    "text_contour_de": 2.5,
+    "text_contour_len": 40,
+    "text_contour_link": 1,
+    "text_trace_lift": 3.0,
+    "text_line_plate": "error",
+    "text_lift_mode": "error",
+    "text_lift_de": 4.0,
+    "halo_de": 2.0,
+    "button_de": 3.0,
+    "button_distinct_de": 2.0,
+    "button_text_de": 8.0,
+    "state_record_only": []
+  },
+  "canvas": [
+    1920,
+    1080
+  ],
+  "truth_text": "text_reference_glyphs",
+  "hidden_states": [],
+  "texts": [
+    {
+      "widget": "TitleText",
+      "concept": {
+        "box": [
+          108,
+          183,
+          111,
+          27
+        ],
+        "center": [
+          163.5,
+          196.5
+        ],
+        "px": 1095,
+        "density": 0.461,
+        "gap_cols": 24,
+        "lab": [
+          91.11,
+          -0.17,
+          8.0
+        ]
+      },
+      "render": {
+        "box": [
+          108,
+          182,
+          112,
+          28
+        ],
+        "center": [
+          164.0,
+          196.0
+        ],
+        "px": 1175,
+        "density": 0.4716,
+        "gap_cols": 24,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ]
+      },
+      "approx": [],
+      "concept_contrast": 86.0,
+      "h_ratio": 1.037,
+      "w_ratio": 1.009,
+      "center_d": [
+        -0.5,
+        0.5
+      ],
+      "density_ratio": 1.023,
+      "color_de": 0.47,
+      "pos_limit": 3.0,
+      "declared_font": {
+        "size": 24,
+        "weight": "semibold",
+        "color": "#ECE5D6FF"
+      },
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.001
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": 0.6,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.2,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "DestinationTitleText",
+      "concept": {
+        "box": [
+          1305,
+          183,
+          78,
+          27
+        ],
+        "center": [
+          1344.0,
+          196.5
+        ],
+        "px": 774,
+        "density": 0.4145,
+        "gap_cols": 10,
+        "lab": [
+          89.77,
+          -0.18,
+          7.72
+        ]
+      },
+      "render": {
+        "box": [
+          1305,
+          182,
+          77,
+          28
+        ],
+        "center": [
+          1343.5,
+          196.0
+        ],
+        "px": 788,
+        "density": 0.4091,
+        "gap_cols": 9,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ]
+      },
+      "approx": [],
+      "concept_contrast": 83.9,
+      "h_ratio": 1.037,
+      "w_ratio": 0.987,
+      "center_d": [
+        0.5,
+        0.5
+      ],
+      "density_ratio": 0.987,
+      "color_de": 0.93,
+      "pos_limit": 3.0,
+      "declared_font": {
+        "size": 24,
+        "weight": "semibold",
+        "color": "#ECE5D6FF"
+      },
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.1,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.2,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "ReasonText",
+      "concept": {
+        "box": [
+          1305,
+          831,
+          215,
+          17
+        ],
+        "center": [
+          1412.5,
+          839.5
+        ],
+        "px": 1002,
+        "density": 0.3426,
+        "gap_cols": 45,
+        "lab": [
+          82.76,
+          -0.17,
+          7.32
+        ]
+      },
+      "render": {
+        "box": [
+          1305,
+          832,
+          213,
+          17
+        ],
+        "center": [
+          1411.5,
+          840.5
+        ],
+        "px": 949,
+        "density": 0.3235,
+        "gap_cols": 43,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ]
+      },
+      "approx": [
+        {
+          "kind": "weight",
+          "weight": "medium",
+          "density_ratio": 0.944,
+          "declared": true,
+          "note": "the font is the one the text reference was drawn with — the rest is the measurement of small strokes"
+        }
+      ],
+      "concept_contrast": 73.1,
+      "h_ratio": 1.0,
+      "w_ratio": 0.991,
+      "center_d": [
+        1.0,
+        -1.0
+      ],
+      "density_ratio": 0.944,
+      "color_de": 5.38,
+      "pos_limit": 3.0,
+      "declared_font": {
+        "size": 15,
+        "weight": "medium",
+        "color": "#ECE5D6FF"
+      },
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.003
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": -0.0,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": 0.9,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            1,
+            1
+          ],
+          "dark": -0.1,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    },
+    {
+      "widget": "CloseHintText",
+      "concept": {
+        "box": [
+          1782,
+          1027,
+          68,
+          16
+        ],
+        "center": [
+          1816.0,
+          1035.0
+        ],
+        "px": 277,
+        "density": 0.3607,
+        "gap_cols": 20,
+        "lab": [
+          78.24,
+          -0.14,
+          6.96
+        ]
+      },
+      "render": {
+        "box": [
+          1779,
+          1027,
+          72,
+          16
+        ],
+        "center": [
+          1815.0,
+          1035.0
+        ],
+        "px": 278,
+        "density": 0.3463,
+        "gap_cols": 22,
+        "lab": [
+          91.03,
+          -0.51,
+          8.03
+        ]
+      },
+      "approx": [],
+      "concept_contrast": 68.3,
+      "h_ratio": 1.0,
+      "w_ratio": 1.059,
+      "center_d": [
+        1.0,
+        0.0
+      ],
+      "density_ratio": 0.96,
+      "color_de": 8.49,
+      "pos_limit": 3.0,
+      "declared_font": {
+        "size": 14,
+        "weight": "medium",
+        "color": "#ECE5D6FF"
+      },
+      "dark_frac": [
+        0.0,
+        0.0
+      ],
+      "halo_frac": [
+        0.0,
+        0.0
+      ],
+      "glow": {
+        "concept": {
+          "present": false,
+          "peak": 0.0,
+          "size": 0,
+          "frac": 0.0
+        },
+        "render": {
+          "present": false,
+          "peak": 2.8,
+          "size": 0,
+          "frac": 0.0
+        }
+      },
+      "shadow": {
+        "concept": {
+          "present": false,
+          "offset": [
+            0,
+            -2
+          ],
+          "dark": -0.1,
+          "color": "#000000FF"
+        },
+        "render": {
+          "present": false,
+          "offset": [
+            0,
+            -3
+          ],
+          "dark": -1.8,
+          "color": "#000000FF"
+        }
+      },
+      "causes": [],
+      "codes": [],
+      "fixable": false
+    }
+  ],
+  "maps": {
+    "black_mean": 0.033,
+    "gray_mean": 0.003,
+    "black_local_max": 0.95,
+    "gray_local_max": 0.63,
+    "text_zone_px": 115377,
+    "not_drawn_px": 0,
+    "runtime_image_px": 0
+  },
+  "text_background": {
+    "zone_px": 104868,
+    "local_max": 0.03,
+    "mean": 0.0
+  },
+  "text_residue": {
+    "TitleText": {
+      "zone_px": 202,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "DestinationTitleText": {
+      "zone_px": 159,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "ReasonText": {
+      "zone_px": 594,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    },
+    "CloseHintText": {
+      "zone_px": 124,
+      "px": 0,
+      "max_de": 0.0,
+      "blobs": []
+    }
+  },
+  "sharpness": [
+    {
+      "widget": "StaticPlate1",
+      "ratio": 1.007,
+      "texel_density": 1.0,
+      "px": 37607
+    },
+    {
+      "widget": "StaticPlate2",
+      "ratio": 1.006,
+      "texel_density": 1.0,
+      "px": 38911
+    },
+    {
+      "widget": "StaticPlate3",
+      "ratio": 0.792,
+      "texel_density": 1.0,
+      "px": 1427,
+      "within_rounding": true
+    },
+    {
+      "widget": "MemberRow1",
+      "ratio": 1.005,
+      "texel_density": null,
+      "px": 28826
+    },
+    {
+      "widget": "MemberRow2",
+      "ratio": 1.005,
+      "texel_density": null,
+      "px": 28826
+    },
+    {
+      "widget": "MemberRow3",
+      "ratio": 1.005,
+      "texel_density": null,
+      "px": 28826
+    },
+    {
+      "widget": "MemberRow4",
+      "ratio": 1.005,
+      "texel_density": null,
+      "px": 28826
+    },
+    {
+      "widget": "DestinationButton",
+      "ratio": 1.0,
+      "texel_density": null,
+      "px": 64974
+    },
+    {
+      "widget": "ReadyButton",
+      "ratio": 1.0,
+      "texel_density": null,
+      "px": 22821
+    },
+    {
+      "widget": "LaunchButton",
+      "ratio": 1.0,
+      "texel_density": null,
+      "px": 22821
+    }
+  ],
+  "seams": {
+    "scale": 3,
+    "bbox": [
+      49,
+      149,
+      1866,
+      1009
+    ],
+    "zone_px": 0,
+    "dark_px": 0,
+    "dark_mean": 0.0,
+    "worst": 0.0,
+    "spots": [],
+    "layers": 3
+  },
+  "defects": [],
+  "state": {
+    "force_visible_extra": [],
+    "drawn_hidden_at_start": [],
+    "render": "Tools/uigen/work/R20261125_215251_HubReady/attempts/001/state/state_1920x1080.png"
+  },
+  "approx": [
+    {
+      "widget": "ReasonText",
+      "kind": "weight",
+      "weight": "medium",
+      "density_ratio": 0.944,
+      "declared": true,
+      "note": "the font is the one the text reference was drawn with — the rest is the measurement of small strokes"
+    }
+  ],
+  "summary": {
+    "defects": 0,
+    "errors": 0,
+    "approx": 1,
+    "by_code": {},
+    "by_stage": {},
+    "fixable": 0,
+    "limits": [],
+    "texts_compared": 4,
+    "hidden_not_drawn": []
+  },
+  "badness": 0.0,
+  "state_checks": {
+    "mode": "error",
+    "hidden_trace": {
+      "renderer": "composite",
+      "roots": []
+    },
+    "hidden_halo": {
+      "renderer": "composite",
+      "roots": [],
+      "toggles": []
+    },
+    "gauge_states": {
+      "renderer": "engine",
+      "gauges": []
+    },
+    "findings": [],
+    "button_states": {
+      "renderer": "engine",
+      "buttons": [
+        {
+          "widget": "DestinationButton",
+          "states": {
+            "normal_base": {
+              "inside_max": 0.95,
+              "inside_px": 0,
+              "text_de": 84.8,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.149
+            },
+            "normal_hovered": {
+              "inside_max": 1.36,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 68.9,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.134
+            },
+            "normal_pressed": {
+              "inside_max": 0.85,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 86.3,
+              "text_shift": [
+                0,
+                1
+              ],
+              "text_iou": 0.148
+            },
+            "selected_base": {
+              "inside_max": 1.51,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 68.0,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.139
+            },
+            "selected_hovered": {
+              "inside_max": 1.65,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 54.1,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.13
+            },
+            "selected_pressed": {
+              "inside_max": 1.79,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 73.6,
+              "text_shift": [
+                0,
+                1
+              ],
+              "text_iou": 0.143
+            },
+            "disabled": {
+              "inside_max": 0.14,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 31.7,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": null
+            }
+          },
+          "distinct": {
+            "normal_base / normal_hovered": 8.84,
+            "normal_base / normal_pressed": 3.82,
+            "normal_base / selected_base": 9.4,
+            "normal_base / selected_hovered": 16.37,
+            "normal_base / selected_pressed": 8.5,
+            "normal_base / disabled": 17.43,
+            "normal_hovered / normal_pressed": 12.45,
+            "normal_hovered / selected_base": 5.6,
+            "normal_hovered / selected_hovered": 7.69,
+            "normal_hovered / selected_pressed": 5.89,
+            "normal_hovered / disabled": 14.01,
+            "normal_pressed / selected_base": 13.08,
+            "normal_pressed / selected_hovered": 20.06,
+            "normal_pressed / selected_pressed": 10.84,
+            "normal_pressed / disabled": 18.4,
+            "selected_base / selected_hovered": 7.14,
+            "selected_base / selected_pressed": 2.42,
+            "selected_base / disabled": 14.68,
+            "selected_hovered / selected_pressed": 9.38,
+            "selected_hovered / disabled": 21.6,
+            "selected_pressed / disabled": 14.01
+          },
+          "distinct_black": {
+            "normal_base / normal_hovered": 8.81,
+            "normal_base / normal_pressed": 3.74,
+            "normal_base / selected_base": 9.37,
+            "normal_base / selected_hovered": 16.29,
+            "normal_base / selected_pressed": 8.43,
+            "normal_base / disabled": 5.28,
+            "normal_hovered / normal_pressed": 12.34,
+            "normal_hovered / selected_base": 5.6,
+            "normal_hovered / selected_hovered": 7.68,
+            "normal_hovered / selected_pressed": 5.89,
+            "normal_hovered / disabled": 14.01,
+            "normal_pressed / selected_base": 12.95,
+            "normal_pressed / selected_hovered": 19.89,
+            "normal_pressed / selected_pressed": 10.75,
+            "normal_pressed / disabled": 1.44,
+            "selected_base / selected_hovered": 7.13,
+            "selected_base / selected_pressed": 2.42,
+            "selected_base / disabled": 14.68,
+            "selected_hovered / selected_pressed": 9.33,
+            "selected_hovered / disabled": 21.6,
+            "selected_pressed / disabled": 12.5
+          }
+        },
+        {
+          "widget": "ReadyButton",
+          "states": {
+            "normal_base": {
+              "inside_max": 0.83,
+              "inside_px": 0,
+              "text_de": 84.7,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.022
+            },
+            "normal_hovered": {
+              "inside_max": 1.37,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 68.9,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.01
+            },
+            "normal_pressed": {
+              "inside_max": 0.6,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 86.3,
+              "text_shift": [
+                0,
+                1
+              ],
+              "text_iou": 0.019
+            },
+            "selected_base": {
+              "inside_max": 1.28,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 68.7,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.01
+            },
+            "selected_hovered": {
+              "inside_max": 1.39,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 54.6,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.009
+            },
+            "selected_pressed": {
+              "inside_max": 1.68,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 74.3,
+              "text_shift": [
+                0,
+                1
+              ],
+              "text_iou": 0.011
+            },
+            "disabled": {
+              "inside_max": 0.13,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 31.7,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": null
+            }
+          },
+          "distinct": {
+            "normal_base / normal_hovered": 8.89,
+            "normal_base / normal_pressed": 4.06,
+            "normal_base / selected_base": 9.36,
+            "normal_base / selected_hovered": 16.24,
+            "normal_base / selected_pressed": 8.42,
+            "normal_base / disabled": 17.37,
+            "normal_hovered / normal_pressed": 12.81,
+            "normal_hovered / selected_base": 5.36,
+            "normal_hovered / selected_hovered": 7.51,
+            "normal_hovered / selected_pressed": 5.77,
+            "normal_hovered / disabled": 14.57,
+            "normal_pressed / selected_base": 13.28,
+            "normal_pressed / selected_hovered": 20.12,
+            "normal_pressed / selected_pressed": 11.06,
+            "normal_pressed / disabled": 18.21,
+            "selected_base / selected_hovered": 7.03,
+            "selected_base / selected_pressed": 2.41,
+            "selected_base / disabled": 15.18,
+            "selected_hovered / selected_pressed": 9.28,
+            "selected_hovered / disabled": 21.94,
+            "selected_pressed / disabled": 14.19
+          },
+          "distinct_black": {
+            "normal_base / normal_hovered": 8.84,
+            "normal_base / normal_pressed": 3.95,
+            "normal_base / selected_base": 9.3,
+            "normal_base / selected_hovered": 16.11,
+            "normal_base / selected_pressed": 8.32,
+            "normal_base / disabled": 5.62,
+            "normal_hovered / normal_pressed": 12.66,
+            "normal_hovered / selected_base": 5.36,
+            "normal_hovered / selected_hovered": 7.49,
+            "normal_hovered / selected_pressed": 5.72,
+            "normal_hovered / disabled": 14.57,
+            "normal_pressed / selected_base": 13.12,
+            "normal_pressed / selected_hovered": 19.9,
+            "normal_pressed / selected_pressed": 10.96,
+            "normal_pressed / disabled": 1.59,
+            "selected_base / selected_hovered": 7.01,
+            "selected_base / selected_pressed": 2.41,
+            "selected_base / disabled": 15.18,
+            "selected_hovered / selected_pressed": 9.19,
+            "selected_hovered / disabled": 21.94,
+            "selected_pressed / disabled": 13.04
+          }
+        },
+        {
+          "widget": "LaunchButton",
+          "states": {
+            "normal_base": {
+              "inside_max": 0.83,
+              "inside_px": 0,
+              "text_de": 81.3,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.027
+            },
+            "normal_hovered": {
+              "inside_max": 1.37,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 68.2,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.012
+            },
+            "normal_pressed": {
+              "inside_max": 0.6,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 82.5,
+              "text_shift": [
+                0,
+                1
+              ],
+              "text_iou": 0.023
+            },
+            "selected_base": {
+              "inside_max": 1.28,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 67.5,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.013
+            },
+            "selected_hovered": {
+              "inside_max": 1.39,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 53.8,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": 0.011
+            },
+            "selected_pressed": {
+              "inside_max": 1.68,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 72.9,
+              "text_shift": [
+                0,
+                1
+              ],
+              "text_iou": 0.014
+            },
+            "disabled": {
+              "inside_max": 0.13,
+              "inside_px": 0,
+              "outside_max": 0.0,
+              "text_de": 30.9,
+              "text_shift": [
+                0,
+                0
+              ],
+              "text_iou": null
+            }
+          },
+          "distinct": {
+            "normal_base / normal_hovered": 8.88,
+            "normal_base / normal_pressed": 4.06,
+            "normal_base / selected_base": 9.36,
+            "normal_base / selected_hovered": 16.24,
+            "normal_base / selected_pressed": 8.42,
+            "normal_base / disabled": 17.37,
+            "normal_hovered / normal_pressed": 12.81,
+            "normal_hovered / selected_base": 5.36,
+            "normal_hovered / selected_hovered": 7.51,
+            "normal_hovered / selected_pressed": 5.77,
+            "normal_hovered / disabled": 14.56,
+            "normal_pressed / selected_base": 13.28,
+            "normal_pressed / selected_hovered": 20.12,
+            "normal_pressed / selected_pressed": 11.05,
+            "normal_pressed / disabled": 18.22,
+            "selected_base / selected_hovered": 7.03,
+            "selected_base / selected_pressed": 2.41,
+            "selected_base / disabled": 15.18,
+            "selected_hovered / selected_pressed": 9.28,
+            "selected_hovered / disabled": 21.94,
+            "selected_pressed / disabled": 14.19
+          },
+          "distinct_black": {
+            "normal_base / normal_hovered": 8.84,
+            "normal_base / normal_pressed": 3.95,
+            "normal_base / selected_base": 9.3,
+            "normal_base / selected_hovered": 16.11,
+            "normal_base / selected_pressed": 8.31,
+            "normal_base / disabled": 5.62,
+            "normal_hovered / normal_pressed": 12.66,
+            "normal_hovered / selected_base": 5.36,
+            "normal_hovered / selected_hovered": 7.49,
+            "normal_hovered / selected_pressed": 5.72,
+            "normal_hovered / disabled": 14.56,
+            "normal_pressed / selected_base": 13.12,
+            "normal_pressed / selected_hovered": 19.9,
+            "normal_pressed / selected_pressed": 10.96,
+            "normal_pressed / disabled": 1.59,
+            "selected_base / selected_hovered": 7.01,
+            "selected_base / selected_pressed": 2.41,
+            "selected_base / disabled": 15.18,
+            "selected_hovered / selected_pressed": 9.19,
+            "selected_hovered / disabled": 21.94,
+            "selected_pressed / disabled": 13.04
+          }
+        }
+      ]
+    },
+    "long_texts": {
+      "renderer": "engine",
+      "texts": [
+        {
+          "widget": "ReasonText",
+          "box": [
+            1300.0,
+            826.5,
+            516.0,
+            29.0
+          ],
+          "long": "아직 준비하지 않은 파티원이 있어 출정할 수 없습니다 — 모두 준비를 마친 뒤 파티장이 목적지를 골라 다시 시도해 주세요",
+          "fill": 0.983
+        }
+      ]
+    },
+    "text_trace": {
+      "renderer": "engine",
+      "texts": [
+        {
+          "widget": "TitleText",
+          "zone_px": 3169,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.31,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 1.13
+          },
+          "ring_l": 3.6
+        },
+        {
+          "widget": "DestinationTitleText",
+          "zone_px": 2192,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.34,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 1.19
+          },
+          "ring_l": 3.9
+        },
+        {
+          "widget": "ReasonText",
+          "zone_px": 4116,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.35,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 1.26
+          },
+          "ring_l": 3.3
+        },
+        {
+          "widget": "CloseHintText",
+          "zone_px": 1192,
+          "glow_tail": 0,
+          "local_max": {
+            "black": 0.0,
+            "gray": 0.0,
+            "white": 0.0,
+            "lift": 0.0
+          },
+          "ring_l": 0.0
+        }
+      ]
+    }
+  },
+  "pictures": [
+    "defects.png",
+    "compare.png"
+  ],
+  "attempt": 1
+}

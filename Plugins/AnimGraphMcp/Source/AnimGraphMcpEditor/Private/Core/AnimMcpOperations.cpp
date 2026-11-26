@@ -5,7 +5,7 @@
 #include "AnimGraphNode_StateResult.h"
 #include "AnimMcpAnimLayer.h"
 #include "AnimGraphNode_TransitionResult.h"
-#include "AnimMcpAssetResolver.h"
+#include "Core/AnimMcpAssetResolver.h"
 #include "AnimMcpCompiler.h"
 #include "AnimMcpGeneration.h"
 #include "AnimMcpGraphInspector.h"

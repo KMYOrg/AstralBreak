@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261123_194019_CombatHUD",
+  "screen": "CombatHUD",
+  "class": "/Script/AstralBreak.AstralCombatHUDWidget",
+  "contract_hash": "sha1:2ee29ce6627da37b994b13b4e1e304a3e864968d",
+  "previous_hash": "sha1:2ee29ce6627da37b994b13b4e1e304a3e864968d",
+  "contract": {
+    "schema_version": 1,
+    "generator": "1:49a7a94ed467",
+    "module": "AstralBreak",
+    "api": "ASTRALBREAK_API",
+    "ui_dir": "UI",
+    "screen": "CombatHUD",
+    "feature": "HUD",
+    "view_base": "AstralCombatHUDViewBase",
+    "widget": "AstralCombatHUDWidget",
+    "bindings": [
+      {
+        "name": "BurstBanner",
+        "widget_class": "Border",
+        "data": "burst_banner",
+        "kind": "flag",
+        "optional": false,
+        "setter": "SetBurstBannerVisible"
+      },
+      {
+        "name": "BurstCountText",
+        "widget_class": "TextBlock",
+        "data": "burst_count",
+        "kind": "number",
+        "optional": false,
+        "format": "0",
+        "setter": "SetBurstCount"
+      },
+      {
+        "name": "ChainCountText",
+        "widget_class": "TextBlock",
+        "data": "chain_count",
+        "kind": "text",
+        "optional": false,
+        "setter": "SetChainCount"
+      },
+      {
+        "name": "ChainPanel",
+        "widget_class": "Border",
+        "data": "chain_panel",
+        "kind": "flag",
+        "optional": false,
+        "setter": "SetChainPanelVisible"
+      },
+      {
+        "name": "ChainRing",
+        "widget_class": "Image",
+        "data": "chain_ring",
+        "kind": "progress",
+        "optional": false,
+        "setter": "SetChainRing"
+      },
+      {
+        "name": "ChainTimerText",
+        "widget_class": "TextBlock",
+        "data": "chain_remaining",
+        "kind": "number",
+        "optional": false,
+        "format": "0.0",
+        "setter": "SetChainRemaining"
+      },
+      {
+        "name": "UltBlockedText",
+        "widget_class": "TextBlock",
+        "data": "ult_blocked",
+        "kind": "flag",
+        "optional": false,
+        "setter": "SetUltBlockedVisible"
+      },
+      {
+        "name": "UltGauge",
+        "widget_class": "ProgressBar",
+        "data": "ult_gauge",
+        "kind": "progress",
+        "optional": false,
+        "setter": "SetUltGauge"
+      },
+      {
+        "name": "UltKeyText",
+        "widget_class": "TextBlock",
+        "data": "ult_key",
+        "kind": "text",
+        "optional": false,
+        "setter": "SetUltKey"
+      },
+      {
+        "data": "ult_ready",
+        "kind": "flag",
+        "name": "UltReadyGlow",
+        "optional": true,
+        "setter": null,
+        "widget_class": "Image"
+      },
+      {
+        "name": "UltReadyPanel",
+        "widget_class": "Overlay",
+        "data": "ult_ready",
+        "kind": "flag",
+        "optional": false,
+        "setter": "SetUltReadyVisible"
+      }
+    ]
+  },
+  "changes": {
+    "added": [],
+    "demoted": [],
+    "changed": [],
+    "restored": []
+  },
+  "skipped": true,
+  "reason": "contract_unchanged",
+  "files": [
+    {
+      "role": "view_base_h",
+      "path": "Source/AstralBreak/UI/HUD/AutoGen/AstralCombatHUDViewBase.h",
+      "action": "unchanged",
+      "sha256": "4417cda2ffca00aeade7763ff073baa4a0d421f348984b8a4248206f5979ef5a"
+    },
+    {
+      "role": "view_base_cpp",
+      "path": "Source/AstralBreak/UI/HUD/AutoGen/AstralCombatHUDViewBase.cpp",
+      "action": "unchanged",
+      "sha256": "a3a74c7da67e0f3ba8f7ac94abb935fcca22624c4e844b5d22e7bc14c486668b"
+    },
+    {
+      "role": "widget_h",
+      "path": "Source/AstralBreak/UI/HUD/AstralCombatHUDWidget.h",
+      "action": "unchanged",
+      "sha256": "ea204224294c3d49f1f9fb255f87f53758cd8ab8229cbee27aca14894c5dd52d"
+    },
+    {
+      "role": "widget_cpp",
+      "path": "Source/AstralBreak/UI/HUD/AstralCombatHUDWidget.cpp",
+      "action": "unchanged",
+      "sha256": "65e6d9ca8734965f79aad2a5171bc3b7d75043db35555613a6d888f85e49b4cd"
+    }
+  ],
+  "editor": {
+    "was_running": false
+  },
+  "build": {
+    "ran": false
+  },
+  "verify": {
+    "class": "/Script/AstralBreak.AstralCombatHUDWidget",
+    "match": null,
+    "note": "editor not running — class reflection not checked"
+  },
+  "restored": [],
+  "started": "2026-11-23T19:41:14+09:00",
+  "durations_s": {
+    "codegen": 2.288
+  },
+  "finished": "2026-11-23T19:41:16+09:00"
+}

@@ -1,0 +1,54 @@
+# 화면 ID → C++ 클래스 · 폴더 · 승격 경로 (설계 §3-3).
+# 클래스 이름이 정체성이다 — WBP 가 기억하는 부모는 /Script/AstralBreak.<클래스> 로 폴더가 없다. 이름은 처음에 정하고 바꾸지 않는다.
+# 클래스 이름은 U 접두 없이 적는다(codegen 이 붙인다). 헤더 이름이 모듈 안에서 겹치지 않게 ViewBase / Widget 접미사.
+schema_version: 1
+screens:
+  CombatHUD:
+    feature: HUD                                  # Source/AstralBreak/UI/HUD/ (+ AutoGen/)
+    view_base: AstralCombatHUDViewBase            # 생성 베이스 — 매번 덮어씀(첫 줄 표식 있을 때만)
+    widget: AstralCombatHUDWidget                 # 스텁 — 없을 때만 생성, 이후 사람 소유 (M4 설계 §5 의 이름)
+    wbp: WBP_CombatHUD                            # run 마다 /Game/_AutoGen/<run_id>/<wbp> (부모 = 스텁) — 없으면 WBP_<화면 ID>
+    promote_path: /Game/UI/HUD                    # Phase 4 승격 대상
+  # 메인 HUD 는 값의 원천이 생기는 때가 달라 화면을 나눈다(11-24 설계 §11 '메인 HUD 설계' 결정 2) — 여기는 내 상태 · 동료. 보스(M5) · 목표(M6) · 스킬(M7)은 각자 따로
+  StatusHUD:
+    feature: HUD
+    view_base: AstralStatusHUDViewBase
+    widget: AstralStatusHUDWidget
+    wbp: WBP_StatusHUD
+    promote_path: /Game/UI/HUD
+  # Phase 3-2 — 칸(cell). parent 가 있으면 손으로 쓴 부모 클래스(Source/…/UI/Foundation)라 codegen 이 아무것도 쓰지 않고 바인딩만 리플렉션으로 대조한다.
+  # 버튼 칸 = 부모 하나(AstralButtonBase) + 모양마다 애셋(WBP_… · 상태 그림을 담는 스타일 BS_… — 부모 style_parent)
+  ButtonLarge:
+    parent: AstralButtonBase
+    style_parent: AstralButtonStyle
+    wbp: WBP_ButtonLarge
+    promote_path: /Game/UI/Common
+  ButtonSmall:
+    parent: AstralButtonBase
+    style_parent: AstralButtonStyle
+    wbp: WBP_ButtonSmall
+    promote_path: /Game/UI/Common
+  # Phase 3-3 — 조작 화면. base = 생성 베이스의 부모(기본 UserWidget — 켜지고 꺼지는 화면은 AstralActivatableWidget, 헤더는 모듈에서 찾는다)
+  HubMemberRow:                                   # 파티 줄 칸(화면 전용 칸 — HubReady 에 넷)
+    feature: Screens
+    view_base: AstralHubMemberRowViewBase
+    widget: AstralHubMemberRowWidget
+    wbp: WBP_HubMemberRow
+    promote_path: /Game/UI/Screens
+  HubReady:                                       # 허브 준비 화면
+    feature: Screens
+    base: AstralActivatableWidget
+    view_base: AstralHubReadyViewBase
+    widget: AstralHubReadyWidget
+    wbp: WBP_HubReady
+    promote_path: /Game/UI/Screens
+  # 1b 후속 G2 — 검증 화면(probe: true): C++ 를 만들지 않는다(codegen 건너뜀 · 부모 = /Script/UMG.UserWidget · bindings 게이트는 WBP 트리의
+  # 위젯 이름 · 타입). 다른 컨셉으로 파이프라인의 보편성을 재는 시험 입력용 — 입력 · 산출물은 git 무시 폴더(work/_probe · Content/_AutoGen)에만.
+  ProbePartyHUD:
+    probe: true
+  ProbeControlGuide:
+    probe: true
+  # 시험용 옛 전투 HUD 입력(m4_combat_hud_concept · _flat · _l2 — 옛 계약 8 개). 실제 화면(CombatHUD)으로 돌리면 codegen 이 새 바인딩을 선택으로 낮추고
+  # SetUltReadyVisible 을 옛 위젯으로 되돌려 다시 빌드한다(11-23 전투 HUD 동작 — 설계 §11) → C++ 를 쓰지 않는 검증 화면으로
+  ProbeCombatHUD:
+    probe: true

@@ -1,7 +1,7 @@
 #include "AnimMcpFingerChains.h"
 
 #include "Algo/AllOf.h"
-#include "AnimMcpAssetResolver.h"
+#include "Core/AnimMcpAssetResolver.h"
 #include "AnimMcpStats.h"
 #include "Animation/Skeleton.h"
 #include "Bridge/AnimMcpTypes.h"

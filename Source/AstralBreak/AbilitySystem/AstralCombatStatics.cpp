@@ -272,6 +272,12 @@ bool UAstralCombatStatics::ResolveIncomingDamage(FGameplayEffectModCallbackData&
 {
 	UAbilitySystemComponent& TargetASC = Data.Target;
 
+	// 무적 — 전부 무효. 방어 판정보다 먼저 본다: 패링 · 가드 통지(보상 · 경직 · 스태미나)도 나가지 않는다
+	if (TargetASC.HasMatchingGameplayTag(AstralGameplayTags::State_Invulnerable))
+	{
+		return false;
+	}
+
 	const bool bParrying = TargetASC.HasMatchingGameplayTag(AstralGameplayTags::State_Defense_Parrying);
 	const bool bGuarding = TargetASC.HasMatchingGameplayTag(AstralGameplayTags::State_Defense_Guarding);
 	if (!bParrying && !bGuarding)

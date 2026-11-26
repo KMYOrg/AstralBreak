@@ -26,8 +26,20 @@ struct FAstralPartyMember
 namespace AstralParty
 {
 	/**
-	 * 방장 인덱스 — 봇 · 관전자를 뺀 멤버 중 PlayerId 최소(가장 먼저 들어온 사람).
+	 * 파티원인가 — 명단 거르기의 단일 원천. 방장 · 동료 · 로비 준비 집계 · 허브 화면의 줄이 모두 이 거르기를 탄다.
+	 * 봇 · 관전자 · 번호를 아직 못 받은 항목(0 — 클라이언트에서 막 생긴 PlayerState, 서버에서는 로그인 도중 한 프레임)은 파티원이 아니다
+	 */
+	ASTRALBREAK_API bool IsPartyMember(const FAstralPartyMember& Member);
+
+	/** 파티원 인덱스를 PlayerId 순으로 — 같은 번호가 둘이면 배열 앞쪽 하나(시임리스 교체 중 잠깐 겹침) */
+	ASTRALBREAK_API TArray<int32> SortedMemberIndices(TConstArrayView<FAstralPartyMember> Members);
+
+	/**
+	 * 방장 인덱스 — 파티원 중 PlayerId 최소(가장 먼저 들어온 사람).
 	 * PlayerId 동률이면 배열 앞쪽. 후보 없음 = INDEX_NONE.
 	 */
 	ASTRALBREAK_API int32 SelectLeaderIndex(TConstArrayView<FAstralPartyMember> Members);
+
+	/** 동료 인덱스 — 나(SelfPlayerId)를 뺀 파티원을 PlayerId 순으로 최대 MaxAllies */
+	ASTRALBREAK_API TArray<int32> SelectAllyIndices(TConstArrayView<FAstralPartyMember> Members, int32 SelfPlayerId, int32 MaxAllies);
 }

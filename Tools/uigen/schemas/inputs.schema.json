@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:inputs",
+  "title": "uigen inputs v1 (설계 §4-1) — 1b 는 mode concept 만",
+  "description": "진입점 --inputs 로 받는 요청. 실행 중 사람에게 묻지 않으므로 화면이 가져야 할 계약(바인딩 위젯 이름 · 타입 · 데이터)은 여기서 고정한다 — analyze 는 배치 · 스타일 · 에셋만 판단하고, 계약 필드는 normalize · analyze 후처리(코드)가 채운다.",
+  "type": "object",
+  "required": ["schema_version", "mode", "screen_type", "screen_id", "concept", "required_elements", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "mode": { "const": "concept" },
+    "screen_type": { "enum": ["hud", "menu", "options", "dialog", "cell"] },
+    "button": { "$ref": "urn:uigen:brief#/$defs/button" },
+    "screen_id": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]{0,47}$" },
+    "concept": { "type": "string", "description": "컨셉아트 PNG — inputs.yaml 기준 상대 경로(또는 절대). --concept 로 덮을 수 있다" },
+    "resolution": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 },
+    "language": { "type": "string" },
+    "font": { "type": ["string", "null"], "description": "spec font.family 기본값 — 생략하면 pipeline.yaml fonts.default_family" },
+    "text": { "type": "string", "description": "화면 설명(사람 말) — analyze 프롬프트에 그대로" },
+    "required_elements": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "required": ["id", "kind"], "additionalProperties": false,
+        "properties": { "id": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "kind": { "type": "string" }, "desc": { "type": "string" } }
+      }
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["id", "type", "widget", "widget_type"], "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+          "type": { "enum": ["text", "number", "progress", "flag", "image"] },
+          "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+          "widget_type": { "$ref": "urn:uigen:brief#/$defs/widget_type" },
+          "format": { "type": "string", "pattern": "^0(\\.0+)?$" },
+          "sample": {},
+          "desc": { "type": "string" },
+          "inside": { "$ref": "urn:uigen:spec#/$defs/widget_id", "description": "전투 HUD 동작(11-23) — 이 위젯 아래에 있어야 한다(같이 접힌다)" },
+          "radial": { "$ref": "urn:uigen:brief#/$defs/radial" },
+          "bar": { "$ref": "urn:uigen:brief#/$defs/bar" },
+          "outline": { "$ref": "urn:uigen:brief#/$defs/text_outline" },
+          "over": { "$ref": "urn:uigen:spec#/$defs/widget_id", "description": "flag(Image) 만 — 이 위젯이 그린 바탕 위의 표시다: 껐을 때 바탕이 온전해야 한다(gen/overlay_mark, Phase 3-3)" },
+          "overflow": { "enum": ["ellipsis"], "description": "text 만 — 긴 값을 글자 칸(text_box)에서 줄인다. long_sample 이 필요하다" },
+          "long_sample": { "type": "string", "description": "긴 값 — 상태 렌더 state_long 으로 글자 칸 밖으로 안 나가고 이웃 글자와 안 겹치는지 본다" },
+          "text_box": { "$ref": "urn:uigen:brief#/$defs/box", "description": "글자 칸 [x, y, w, h](캔버스 px) — 폭은 그대로 지키고 세로는 상자 가운데" }
+        }
+      }
+    },
+    "cells": {
+      "type": "array",
+      "description": "놓을 칸(승격된 화면) — analyze 뒤 코드가 넣는다. 크기 = 칸 캔버스. at 은 이 화면 캔버스에서 칸의 왼쪽 위(정수 px — 그림이 흐려지지 않게)",
+      "items": {
+        "type": "object", "required": ["id", "type", "widget", "cell", "at"], "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+          "type": { "enum": ["cell", "action"], "description": "action = 버튼 칸(누름 · 켜고 끔), cell = 그 밖의 칸(접근자)" },
+          "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" },
+          "cell": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]{0,47}$", "description": "칸의 ScreenId(promoted/<ScreenId>)" },
+          "at": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+          "text": { "type": "string", "description": "버튼 글자(props.ButtonText)" },
+          "selectable": { "type": "boolean", "description": "action 만 — 선택 모양 setter 를 만든다" },
+          "desc": { "type": "string" }
+        }
+      }
+    },
+    "anchor_regions": { "type": "array", "items": { "$ref": "urn:uigen:brief#/$defs/anchor_region" } },
+    "static_text": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["widget", "value"], "additionalProperties": false,
+        "properties": { "widget": { "$ref": "urn:uigen:spec#/$defs/widget_id" }, "value": { "type": "string" },
+                        "outline": { "$ref": "urn:uigen:brief#/$defs/text_outline" },
+                        "desc": { "type": "string", "description": "1b 후속 L-2 — 글자 칸 설명(make_concept --text-free-first 의 참고판 편집 프롬프트 — 좌표 없이 자리 · 모양만)" } }
+      }
+    },
+    "style_keywords": { "type": "array", "items": { "type": "string" } },
+    "concept_notext": { "type": "string", "description": "1b 후속 H — 같은 컨셉에서 글자만 지운 판(make_concept.py --text-free) — refine 이 글자 구멍을 이 픽셀로 채운다" },
+    "concept_background": { "enum": ["auto", "transparent", "flat", "scene"], "description": "1b 후속 H — 컨셉 배경 종류. auto = normalize 가 판정(알파 있음 → transparent · 테두리 한 색 → flat · 아니면 scene)" },
+    "separate": { "type": "array", "items": { "type": "string" }, "description": "1b 후속 J-a — 정적 판에 굽지 않고 따로 그릴 요소(위젯 id — 나중에 애니메이션 등). 바인딩 · flag · 버튼 · 크기가 변하는 9-slice 는 적지 않아도 따로" },
+    "concept_source": { "enum": ["generated", "external", "generated_textfree", "external_textfree"], "description": "(언제나 먼저) external_textfree = 받은 글자 없는 그림(L-2 — 참고판이 없으면 글자는 사양만). 1b 후속 K-a → L — generated = 우리가 만든 글자 든 컨셉(L-1: 아트 = 컨셉 픽셀 + 글자 자리만 글자 없는 판) · external = 외부 그림(같은 길, 오류 0 + 근사) · generated_textfree = (L-2) 글자 없이 그린 원본 아트(make_concept --text-free-first — 아트 · 글자 없는 판 = 원본 아트, 글자 스타일은 concept_text_ref 참고판에서). 없으면 컨셉 옆 concept.json(make_concept 출처), 그것도 정하지 못하면 OCR(gen/concept_route)로" },
+    "concept_text_ref": { "type": "string", "description": "1b 후속 L-2 — 글자 참고판(원본 아트에 codex 편집 1 회로 글자만 얹은 그림 — make_concept --text-free-first). normalize 가 원본 아트에 정합해 글자 획만 옮겨 붙인다(검사 실패 · 없음 → 글자는 사양). inputs.yaml 기준 상대 경로" },
+    "concept_convert": { "enum": ["auto", "force", "off"], "description": "1b 후속 I — codex 편집으로 'UI 만 · 진짜 알파' 컨셉 + 글자 없는 판으로 바꿔 ⓐ 로 잇기. auto = scene 만 · force = flat 도 · off = 안 함(없으면 pipeline.yaml concept_convert.default)" },
+    "note": { "type": "string" }
+  }
+}

@@ -1,8 +1,8 @@
 #include "AnimMcpPromote.h"
 
 #include "AnimMcpAssetOps.h"
-#include "AnimMcpAssetProtection.h"
-#include "AnimMcpAssetResolver.h"
+#include "Core/AnimMcpAssetProtection.h"
+#include "Core/AnimMcpAssetResolver.h"
 #include "AnimMcpGeneration.h"
 #include "AnimMcpLog.h"
 #include "Animation/AnimComposite.h"

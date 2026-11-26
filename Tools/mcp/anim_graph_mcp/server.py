@@ -13,7 +13,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 # mcp 2.x: FastMCP 가 MCPServer 로 개명됨 (mcp.server.mcpserver). 1.x 와 호환하지 않는다 — requirements.txt 가 2.x 를 고정
 from mcp.server.mcpserver import MCPServer  # noqa: E402
 
-from anim_graph_mcp import bridge  # noqa: E402
+from editor_bridge import bridge  # noqa: E402  (공용 브리지 — 옛 경로 anim_graph_mcp.bridge 도 같은 모듈)
 
 # stdio 전송에서 stderr 로 새는 요청 로그를 줄인다 (stdout 은 MCP 프레임 전용이라 건드리지 않는다)
 import logging  # noqa: E402
@@ -26,7 +26,7 @@ mcp = MCPServer(
     instructions=(
         "Inspect and edit Unreal Engine Animation Blueprints through the running editor. "
         "Every tool returns an envelope {ok, tool, request_id, result, error, diagnostics}. "
-        "If error.code is EDITOR_GONE the editor is not running or the AnimGraphMcp plugin is disabled. "
+        "If error.code is EDITOR_GONE the editor is not running or the EditorMcpCore / AnimGraphMcp plugins are disabled. "
         f"Bridge: {bridge.BASE_URL}"
     ),
 )

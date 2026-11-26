@@ -18,6 +18,8 @@ namespace AstralGameplayTags
 
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Defense, "Ability.Defense");
 
+	UE_DEFINE_GAMEPLAY_TAG(Ability_Ult, "Ability.Ult");
+
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Enemy_Attack_Melee, "Ability.Enemy.Attack.Melee");
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Enemy_Attack_Combo, "Ability.Enemy.Attack.Combo");
 	UE_DEFINE_GAMEPLAY_TAG(Ability_Enemy_Attack_Heavy, "Ability.Enemy.Attack.Heavy");
@@ -47,6 +49,10 @@ namespace AstralGameplayTags
 
 	UE_DEFINE_GAMEPLAY_TAG(State_Defense_Parrying, "State.Defense.Parrying");
 	UE_DEFINE_GAMEPLAY_TAG(State_Defense_Guarding, "State.Defense.Guarding");
+
+	UE_DEFINE_GAMEPLAY_TAG(State_Ult_Active, "State.Ult.Active");
+	UE_DEFINE_GAMEPLAY_TAG(State_Ult_Blocked, "State.Ult.Blocked");
+	UE_DEFINE_GAMEPLAY_TAG(State_Invulnerable, "State.Invulnerable");
 
 	UE_DEFINE_GAMEPLAY_TAG(State_Telegraphing, "State.Telegraphing");
 

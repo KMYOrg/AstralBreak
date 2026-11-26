@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "run_id": "R20261125_160008_ButtonLarge",
+  "attempt": 1,
+  "canvas": [
+    596,
+    132
+  ],
+  "force_visible": true,
+  "geometry": {
+    "596x132": [
+      {
+        "id": "ButtonArt",
+        "type": "Image",
+        "parent": "Root",
+        "x": 0,
+        "y": 0,
+        "w": 596,
+        "h": 132,
+        "visible": true
+      },
+      {
+        "id": "Root",
+        "type": "CanvasPanel",
+        "parent": "",
+        "x": 0,
+        "y": 0,
+        "w": 596,
+        "h": 132,
+        "visible": true
+      },
+      {
+        "id": "ButtonLabel",
+        "type": "TextBlock",
+        "parent": "Root",
+        "x": 250.5,
+        "y": 42.5,
+        "w": 95,
+        "h": 47,
+        "visible": true
+      }
+    ]
+  }
+}

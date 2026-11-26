@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uigen:spec",
+  "title": "uigen spec v1 — 화면 배치 spec (설계 §4-3)",
+  "description": "id = WBP 위젯 이름 = 바인딩 이름. 구조 · 형식만 여기서 보고, 부모-슬롯 짝 · 타입별 style 키 · 참조 무결성은 core/spec.py validate_semantics 가 본다. 생략한 스칼라는 core/spec.py 기본값 표, 생략한 브러시는 엔진 기본 스타일(CDO).",
+  "type": "object",
+  "required": ["schema_version", "canvas", "profile", "root", "widgets"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "canvas": { "$ref": "#/$defs/size2" },
+    "profile": { "enum": ["hud", "menu", "options", "dialog", "cell"] },
+    "button": { "$ref": "#/$defs/button" },
+    "root": { "$ref": "#/$defs/widget_id" },
+    "widgets": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/widget" } },
+    "assets": { "type": "array", "items": { "$ref": "#/$defs/asset" } },
+    "allow_overlap": {
+      "type": "array",
+      "items": { "type": "array", "items": { "$ref": "#/$defs/widget_id" }, "minItems": 2, "maxItems": 2 }
+    },
+    "locked": { "type": "array", "items": { "$ref": "#/$defs/widget_id" } },
+    "note": { "type": "string" }
+  },
+  "$defs": {
+    "widget_id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$" },
+    "asset_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+    "color": { "type": "string", "pattern": "^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$" },
+    "vec2": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+    "size2": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 2, "maxItems": 2 },
+    "margin4": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+    "unit4": { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 }, "minItems": 4, "maxItems": 4 },
+    "button": {
+      "description": "버튼 칸(Phase 3-2, core/button) — art = 기본 상태 그림 위젯(에디터 트리에는 없다 — 클래스 기본값의 스타일 애셋이 그린다), states = 나머지 여섯 상태의 파생 에셋, theme = 식의 출처. 파이프라인만 쓴다",
+      "type": "object", "required": ["art", "states", "theme"], "additionalProperties": false,
+      "properties": {
+        "art": { "$ref": "#/$defs/widget_id" },
+        "states": { "type": "object", "additionalProperties": { "$ref": "#/$defs/asset_id" } },
+        "theme": { "type": "object", "required": ["id", "sha256"], "additionalProperties": false,
+                   "properties": { "id": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } },
+        "pressed_offset": { "$ref": "#/$defs/vec2" }
+      }
+    },
+    "h_align": { "enum": ["left", "center", "right", "fill"] },
+    "v_align": { "enum": ["top", "center", "bottom", "fill"] },
+    "widget": {
+      "type": "object",
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/widget_id" },
+        "type": {
+          "enum": ["CanvasPanel", "Overlay", "VerticalBox", "HorizontalBox", "UniformGridPanel", "SizeBox",
+                   "Border", "Image", "TextBlock", "ProgressBar", "Button", "Spacer", "UserWidget"]
+        },
+        "class": { "type": "string", "pattern": "^/Game/", "description": "UserWidget 만 — 놓을 칸(승격된 WBP)의 패키지 경로" },
+        "props": { "type": "object", "additionalProperties": { "type": "string" }, "description": "UserWidget 만 — 놓인 칸마다 바꾸는 속성([WidgetMcp] WidgetInstanceProperties 에 있는 것)" },
+        "parent": { "$ref": "#/$defs/widget_id" },
+        "slot": { "$ref": "#/$defs/slot" },
+        "bbox_intent": {
+          "description": "reference 픽셀 좌표 [x, y, w, h] — verify 의 IoU · 중심점 기준",
+          "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4
+        },
+        "visibility": { "enum": ["visible", "collapsed", "hidden", "hit_test_invisible", "self_hit_test_invisible"] },
+        "designer_hidden": { "type": "boolean", "description": "1b 후속 L-2 — UMG 디자이너 미리보기에서 감춤(bHiddenInDesigner — 디자이너는 visibility 를 무시한다). finalize 가 컨셉이 그리지 않은 숨은 위젯에 켠다. 런타임 · 렌더 영향 없음" },
+        "style": { "$ref": "#/$defs/style" },
+        "text": { "$ref": "#/$defs/text" },
+        "font": { "$ref": "#/$defs/font" },
+        "justification": { "enum": ["left", "center", "right"] },
+        "overflow": { "enum": ["ellipsis"], "description": "TextBlock 만 — 칸보다 긴 글자를 … 로 줄임(없으면 엔진 기본 = 그대로 넘침). 요청(data[].overflow)이 정한다" },
+        "binding": { "$ref": "#/$defs/binding" },
+        "note": { "type": "string" }
+      }
+    },
+    "slot": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["canvas", "overlay", "vertical_box", "horizontal_box", "uniform_grid", "border", "size_box", "button"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "canvas" } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "anchors": { "$ref": "#/$defs/unit4" },
+              "alignment": { "$ref": "#/$defs/vec2" },
+              "position": { "$ref": "#/$defs/vec2" },
+              "size": { "$ref": "#/$defs/vec2" },
+              "z": { "type": "integer" },
+              "auto_size": { "type": "boolean" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "enum": ["overlay", "border", "size_box", "button"] } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "padding": { "$ref": "#/$defs/margin4" },
+              "h_align": { "$ref": "#/$defs/h_align" },
+              "v_align": { "$ref": "#/$defs/v_align" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "enum": ["vertical_box", "horizontal_box"] } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "padding": { "$ref": "#/$defs/margin4" },
+              "h_align": { "$ref": "#/$defs/h_align" },
+              "v_align": { "$ref": "#/$defs/v_align" },
+              "size_rule": { "enum": ["auto", "fill"] },
+              "fill": { "type": "number", "minimum": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "uniform_grid" } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": true,
+              "row": { "type": "integer", "minimum": 0 },
+              "column": { "type": "integer", "minimum": 0 },
+              "h_align": { "$ref": "#/$defs/h_align" },
+              "v_align": { "$ref": "#/$defs/v_align" }
+            }
+          }
+        }
+      ]
+    },
+    "brush": {
+      "description": "FSlateBrush. color = 틴트(sRGB hex). margin = 9-slice [left, top, right, bottom] 비율(box · border). rounded_box 는 텍스처 없이 radius · outline 으로 그린다",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "draw_as": { "enum": ["image", "box", "border", "rounded_box", "none"] },
+        "asset": { "$ref": "#/$defs/asset_id" },
+        "color": { "$ref": "#/$defs/color" },
+        "margin": { "$ref": "#/$defs/unit4" },
+        "image_size": { "$ref": "#/$defs/vec2" },
+        "radius": { "type": "number", "minimum": 0 },
+        "outline_color": { "$ref": "#/$defs/color" },
+        "outline_width": { "type": "number", "minimum": 0 },
+        "wipe": {
+          "type": "object", "additionalProperties": false, "required": ["center"],
+          "description": "전투 HUD 동작(11-23) — 원형 닦기: Image 의 텍스처를 각도로 닦아 남은 비율(style.percent)을 보인다. 파이프라인이 컨셉에서 잰다(analyze 가 요청의 radial 로 채움 — LLM 은 쓰지 않는다). center = 닦는 중심(image_size 픽셀), mode clockwise = 12시에서 시계 방향으로 지움 · mirror = 좌우로 같이, track_alpha = 지나간 자리에 남기는 불투명도",
+          "properties": {
+            "kind": { "const": "radial" },
+            "mode": { "enum": ["clockwise", "mirror"] },
+            "center": { "$ref": "#/$defs/vec2" },
+            "track_alpha": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "style": {
+      "description": "타입별로 쓰는 키가 다르다(core/spec.py STYLE_KEYS) — Border: brush / Image: brush · percent(brush.wipe 가 있을 때만) / ProgressBar: background · fill · fill_color · percent · bar_fill_type · bar_fill_style / SizeBox: width_override · height_override / Spacer: size / UniformGridPanel: slot_padding · min_slot_width · min_slot_height / Button: normal · hovered · pressed",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "brush": { "$ref": "#/$defs/brush" },
+        "background": { "$ref": "#/$defs/brush" },
+        "fill": { "$ref": "#/$defs/brush" },
+        "fill_color": { "$ref": "#/$defs/color" },
+        "percent": { "type": "number", "minimum": 0, "maximum": 1 },
+        "bar_fill_type": { "enum": ["left_to_right", "right_to_left", "fill_from_center", "top_to_bottom", "bottom_to_top"] },
+        "bar_fill_style": {
+          "enum": ["mask", "scale"],
+          "description": "mask(기본) = 채움 이미지를 바 전체 크기로 그리고 진행률에서 자른다, scale = 채움 이미지를 진행률 폭으로 늘려 그린다(채움 box 여백 = 양끝 고정, 1b 후속 F — 컨셉 채움의 진행 끝 테두리 · 번짐)"
+        },
+        "width_override": { "type": "number", "minimum": 0 },
+        "height_override": { "type": "number", "minimum": 0 },
+        "size": { "$ref": "#/$defs/vec2" },
+        "slot_padding": { "$ref": "#/$defs/margin4" },
+        "min_slot_width": { "type": "number", "minimum": 0 },
+        "min_slot_height": { "type": "number", "minimum": 0 },
+        "normal": { "$ref": "#/$defs/brush" },
+        "hovered": { "$ref": "#/$defs/brush" },
+        "pressed": { "$ref": "#/$defs/brush" }
+      }
+    },
+    "text": {
+      "description": "static = value 를 그대로, dynamic = 런타임 setter 가 채운다(WBP 에는 sample 이 미리보기로 들어간다)",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": { "enum": ["static", "dynamic"] },
+        "value": { "type": "string" },
+        "data": { "type": "string" },
+        "sample": { "type": "string" }
+      },
+      "allOf": [
+        { "if": { "properties": { "source": { "const": "dynamic" } }, "required": ["source"] }, "then": { "required": ["data"] } }
+      ]
+    },
+    "font": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "size": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 },
+        "weight": { "enum": ["regular", "bold", "light", "italic", "bold_italic", "medium", "semibold", "extrabold", "black"] },
+        "color": { "$ref": "#/$defs/color" },
+        "family": { "type": ["string", "null"], "description": "폰트 애셋 경로. null = 엔진 기본(Roboto + 한글 대체) — 1a 는 null(11-14 사용자 결정)" },
+        "role": { "enum": ["body", "title"], "description": "analyze 출력에만 — 글자 역할(body = 본문 · 작은 라벨, title = 제목 · 큰 숫자). apply_contract 가 pipeline.yaml fonts.roles 의 family 로 바꾸고 지운다(WBP · 왕복에는 없음, 1b 후속 D)" },
+        "outline": {
+          "type": "object", "additionalProperties": false, "description": "글자 외곽선(FSlateFontInfo.OutlineSettings) — size 0 이면 없음",
+          "properties": { "size": { "type": "integer", "minimum": 0, "maximum": 1024 }, "color": { "$ref": "#/$defs/color" } }
+        },
+        "shadow": {
+          "type": "object", "additionalProperties": false, "description": "글자 그림자(TextBlock ShadowOffset · ShadowColorAndOpacity) — color 알파 0 이면 없음, color 기본 #000000FF · offset 기본 [1, 1]",
+          "properties": { "offset": { "$ref": "#/$defs/vec2" }, "color": { "$ref": "#/$defs/color" } }
+        },
+        "letter_spacing": { "type": "integer", "minimum": -1000, "maximum": 10000, "description": "자간(1/1000 em) — 0 이면 없음" },
+        "gradient": {
+          "type": "object", "additionalProperties": false, "required": ["top_color", "bottom_color"],
+          "description": "글자 세로 그라데이션 — run 폴더의 UI 머티리얼 MIC(FontMaterial). 색 알파는 쓰지 않는다. 쓸 때는 font.color 를 흰색(틴트 없음)으로",
+          "properties": { "top_color": { "$ref": "#/$defs/color" }, "bottom_color": { "$ref": "#/$defs/color" } }
+        },
+        "glow": {
+          "type": "object", "additionalProperties": false, "required": ["size", "color"],
+          "description": "글자 둘레로 부드럽게 번지는 빛(1b 후속 F) — 외곽선 층(size px)을 run 폴더의 빛 머티리얼 MIC 로 그린다. 글꼴이 거리장(SDF) 글꼴이어야 하고(pipeline.yaml fonts.roles.<역할>.sdf_family), outline 과 같이 못 쓴다. size 0 · color 알파 0 이면 없음",
+          "properties": { "size": { "type": "integer", "minimum": 0, "maximum": 64 }, "color": { "$ref": "#/$defs/color" } }
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "required": ["data", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "data": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+        "kind": { "enum": ["text", "number", "progress", "flag", "image", "cell", "action"], "description": "cell = 놓인 칸(접근자) · action = 놓인 버튼 칸(누름 · 켜고 끔 · 선택 모양) — 요청이 정한다(Phase 3-3)" },
+        "format": { "type": "string", "pattern": "^0(\\.0+)?$", "description": "number 만 — '0' = int32, '0.0' = float(소수 자릿수)" },
+        "selectable": { "type": "boolean", "description": "action 만 — 선택 모양 setter 를 만든다" },
+        "optional": { "type": "boolean" }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "required": ["asset_id", "kind", "provenance", "size"],
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": { "$ref": "#/$defs/asset_id" },
+        "kind": { "enum": ["icon", "frame", "panel_bg", "fill", "ornament"] },
+        "provenance": { "enum": ["procedural", "codex", "comfy", "provided", "derived"] },
+        "derived": {
+          "type": "object", "required": ["from", "brush"], "additionalProperties": false,
+          "description": "provenance derived 만(Phase 3-2) — 버튼 기본 그림(from)에 공용 테마의 식을 적용한 상태 그림(brush). refine 이 만든다",
+          "properties": { "from": { "$ref": "#/$defs/asset_id" }, "brush": { "type": "string" } }
+        },
+        "size": { "type": "array", "items": { "type": "integer", "minimum": 4, "maximum": 4096 }, "minItems": 2, "maxItems": 2 },
+        "nine_slice": { "type": "boolean" },
+        "margin": { "$ref": "#/$defs/unit4" },
+        "compression": { "enum": ["TC_EditorIcon", "TC_BC7"] },
+        "procedural": { "type": "object", "required": ["shape"], "properties": { "shape": { "enum": ["rounded_frame", "gradient_panel", "soft_glow", "gradient_bar", "concept_fill", "concept_end_cap"] } },
+                        "description": "concept_fill(1b 후속 F) · concept_end_cap(1b 후속 L 다음 H4 — 가득 찬 게이지 끝 덮개)은 파이프라인만 쓴다 — analyze 가 컨셉에서 잰 값(gen/concept_fill.measure)으로 reference.png 에서 다시 그린다" },
+        "prompt": { "type": "string" },
+        "ref_bbox": {
+          "description": "reference 픽셀 [x, y, w, h] — codex 생성 때 이 영역을 잘라 참조 이미지(-i)로 준다(1b-4 analyze · 1b-5 generate). extract 면 편집할 요소 상자",
+          "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4
+        },
+        "source_mode": {
+          "description": "codex 에셋만(1b 후속 A) — extract = 컨셉에 보이는 요소를 ref_bbox 자르기의 codex 편집으로 따옴, generate(없을 때 기본) = 새로 그림(ref_bbox 는 스타일 참조). plate = 1b 후속 J-a 정적 판(stages/layer — provenance provided, refine 이 컨셉에서 굽는다)",
+          "enum": ["generate", "extract", "plate"]
+        },
+        "anchor": { "type": "boolean" },
+        "source": { "type": "string" }
+      }
+    }
+  }
+}

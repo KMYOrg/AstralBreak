@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "mode": "stretch",
+  "inputs": "D:/UE5Projects/AstralBreak/Tools/uigen/fixtures/status_hud_blade/inputs.yaml",
+  "concept": "D:/UE5Projects/AstralBreak/Tools/uigen/fixtures/status_hud_blade/concept.png",
+  "concept_sha256": "528b477f5ea21dff2ea40ac9769cddc64c981bc23de544da73356d693d18c8a2",
+  "reference": "reference.png",
+  "src_size": [
+    1671,
+    941
+  ],
+  "dst_size": [
+    1920,
+    1080
+  ],
+  "aspect_diff": 0.00113,
+  "scale": [
+    1.149013,
+    1.147715
+  ],
+  "offset": [
+    0,
+    0
+  ],
+  "background": {
+    "kind": "transparent",
+    "auto": "transparent",
+    "source": "auto",
+    "alpha_ratio": 0.9988,
+    "ring_px": 19,
+    "ring_uniform": 0.0,
+    "key_color": "#000000",
+    "alpha": "reference_alpha.png",
+    "color": "reference_color.png",
+    "opaque_ratio": 0.001,
+    "transparent_ratio": 0.9806,
+    "convert": {
+      "used": false,
+      "mode": "auto",
+      "source_kind": "transparent",
+      "reason": "the concept already has real alpha"
+    },
+    "concept_source": {
+      "value": "generated_textfree",
+      "from": "inputs",
+      "text_style": "text_reference"
+    },
+    "text_ref": {
+      "src": "concept_text_ref.png",
+      "src_size": [
+        1671,
+        941
+      ],
+      "shift_px": [
+        -0.01,
+        -0.01
+      ],
+      "response": 0.6007,
+      "used": true,
+      "shift_applied": [
+        0,
+        0
+      ],
+      "ocr": {
+        "text_ref_boxes": [
+          [
+            160.86175942549372,
+            70.0106269925611,
+            44.81149012567325,
+            19.511158342189162
+          ],
+          [
+            89.6229802513465,
+            89.52178533475026,
+            22.980251346499102,
+            29.840595111583422
+          ],
+          [
+            85.02692998204668,
+            127.39638682252922,
+            31.02333931777379,
+            18.363443145589798
+          ],
+          [
+            118.34829443447038,
+            183.63443145589798,
+            67.79174147217235,
+            17.215727948990434
+          ],
+          [
+            118.34829443447038,
+            252.49734325185972,
+            67.79174147217235,
+            17.215727948990434
+          ],
+          [
+            118.34829443447038,
+            322.50797024442085,
+            68.9407540394973,
+            17.215727948990434
+          ]
+        ],
+        "art_boxes": [],
+        "boxes": [
+          [
+            160.86175942549372,
+            70.0106269925611,
+            44.81149012567325,
+            19.511158342189162
+          ],
+          [
+            89.6229802513465,
+            89.52178533475026,
+            22.980251346499102,
+            29.840595111583422
+          ],
+          [
+            85.02692998204668,
+            127.39638682252922,
+            31.02333931777379,
+            18.363443145589798
+          ],
+          [
+            118.34829443447038,
+            183.63443145589798,
+            67.79174147217235,
+            17.215727948990434
+          ],
+          [
+            118.34829443447038,
+            252.49734325185972,
+            67.79174147217235,
+            17.215727948990434
+          ],
+          [
+            118.34829443447038,
+            322.50797024442085,
+            68.9407540394973,
+            17.215727948990434
+          ]
+        ],
+        "scores": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "min_score": 0.6,
+        "from": "drawn"
+      },
+      "checks": {
+        "ui_px": 36924,
+        "outside_solid_big_frac": 0.0,
+        "outside_far_new_frac": 0.0,
+        "fringe_alpha_frac": 0.0,
+        "outside_median_d": 0.36,
+        "outside_p95_d": 0.64,
+        "limit": 0.03
+      },
+      "glyph_px": 2352,
+      "glow_px": 2648,
+      "paste_px": 2929,
+      "ring_tone_l": -0.0,
+      "aligned": [
+        "reference_textref_color.png",
+        "reference_textref_alpha.png"
+      ],
+      "paste_mask": "reference_textref_paste.png"
+    },
+    "notext": {
+      "used": true,
+      "role": "original_art",
+      "color": "reference_notext_color.png",
+      "alpha": "reference_notext_alpha.png",
+      "shift_px": [
+        0.0,
+        0.0
+      ],
+      "text_residue": false
+    },
+    "art": {
+      "used": true,
+      "role": "original",
+      "color": "reference_art_color.png",
+      "alpha": "reference_art_alpha.png",
+      "element_free": false,
+      "text_residue": false,
+      "text_ref_used": true
+    }
+  }
+}

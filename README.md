@@ -28,7 +28,7 @@
 | **게임 구조** | 로비 입장 → 파티 편성·준비 → 인스턴스 던전 입장 → 퀘스트·보스 레이드 |
 | **엔진** | Unreal Engine 5.7.4 — 게임플레이 로직은 C++, 블루프린트는 데이터·연출 |
 | **네트워크** | 서버 권위 · 리슨 서버 기반 / Dedicated Server 호환 구조 지향 |
-| **규모** | 1인 개발 · 런타임 모듈 1개 (C++ 약 14K 라인) |
+| **규모** | 1인 개발 · 런타임 모듈 1개 (C++ 약 28K 라인) + 에디터 전용 모듈 1개 (애님 그래프 노드 · 멀티 PIE 테스트) |
 
 전투의 축은 **근접 ↔ 원거리 전투 스타일 전환**입니다. 장착한 무기가 사용 가능한 스타일을 결정하고, 활성 스타일이 다시 부여 어빌리티와 무기의 부착 위치(손 / 홀스터)를 결정합니다. 세 요소가 서로를 구속하는 구조라, 이 정합을 어디서 어떻게 유지할지가 초기 설계의 핵심 문제였습니다.
 
@@ -45,19 +45,24 @@
 | 장비 시스템 (계열 × 변형) | ✅ | FastArray 복제, 어빌리티·스탯 부여/회수 |
 | 락온 타게팅 · 카메라 · 타겟 전환 | ✅ | 후보 점수·히스테리시스, 마우스/게임패드 전환 |
 | 사망 처리 | ✅ | 상태 기계 + `GA_Death`, 클라 리플레이 |
-| 자원 (스태미나 · 표식 · 오의 게이지) | ✅ | 오의 **발동**은 미구현 — 게이지만 동작 |
-| 몬스터 · AI | 🔶 | 타겟 더미 + 예고 공격 GA. BT/Perception 미착수 |
+| 자원 (스태미나 · 표식 · 오의 게이지) | ✅ | |
+| 오의 · 체인 버스트 | 🔶 | 오의 발동 · 여러 명이 이으면 체인 버스트 자동 발동 · 시전 중 차단. HUD · 전용 연출(지금은 임시 몽타주) 미구현 |
+| 몬스터 · AI | ✅ | StateTree AI(추적 · 공격 · 피격 반응 · 경직) · 적대심 가중 어그로 · 공격 자리 분배 · 스포너. 일반 몬스터 1종 |
 | 보스 레이드 · 페이즈 | ⬜ | |
 | 리스폰 · 관전 | ⬜ | `HealthComponent`에 훅만 확보 |
 | 정식 UI | ⬜ | 현재 디버그 위젯 + exec 콘솔 명령으로 조작 |
 | 룬 · 성장 트리 | ⬜ | 속성 노브(`MarkGainMultiplier` 등)만 예약 |
-| Dedicated Server | ⬜ | 전환을 막지 않는 구조만 유지 |
+| Dedicated Server | 🔶 | 별도 프로세스 Dedicated 자동 테스트 통과(파티 플로우 · 4인 레이드 처치). 인스턴스 서버 분리 · 매치메이킹 미착수 |
 
 ✅ 동작 · 🔶 부분 구현 · ⬜ 미착수
 
 ### 테스트
 
-월드 의존이 없는 판단 로직은 순수 함수로 분리해 Automation 테스트로 덮었습니다 (`AstralBreak.Targeting`, `AstralBreak.TargetSwitchInput`). 후보 점수·히스테리시스 규칙과 마우스/스틱 입력 인식기가 여기 해당합니다. 초기화 체인·로드아웃 폴백처럼 월드가 필요한 경로는 아직 PIE 수동 검증입니다.
+세 층으로 나눠 자동화했습니다.
+
+- **순수 함수** — 월드 의존이 없는 판단 로직은 분리해 Automation 테스트로 덮었습니다 (`AstralBreak.Targeting` · `Facing` · `InputFacing` · `TurnInPlace` · `AimCorrection` · `Ranged` · `Dodge` · `Party` · `Enemy` · `Chain`). 락온 후보 점수·히스테리시스, 입력 인식기, 적 타깃 선정, 체인 버스트 판정이 여기 해당합니다.
+- **멀티 PIE** — 서버·클라이언트가 한 에디터에서 도는 네트워크 테스트 (`AstralBreak.Net.*` — 파티 플로우 · 적 전투 · 어그로 · 스폰 · 오의 · 체인 버스트). 에디터 전용 모듈 `AstralBreakEditor`에 있습니다.
+- **별도 프로세스** — 리슨 / Dedicated 서버와 클라이언트를 따로 띄워 끝까지 돌리는 시나리오 ([`Tools/net_test/run_party_flow.py`](Tools/net_test/run_party_flow.py), Gauntlet).
 
 ---
 
@@ -66,8 +71,8 @@
 - **Engine** — Unreal Engine 5.7.4 (소스 빌드)
 - **Language** — C++17 / Blueprint
 - **IDE** — JetBrains Rider
-- **Plugins** — GameplayAbilities, EnhancedInput, ModularGameplay, GameFeatures
-- **Modules** — AIModule (팀 판정), NetCore, UMG/Slate, DeveloperSettings
+- **Plugins** — GameplayAbilities, EnhancedInput, ModularGameplay, GameFeatures, MotionWarping, StateTree / GameplayStateTree, Gauntlet + 프로젝트 플러그인 AnimGraphMcp (에디터 전용)
+- **Modules** — AIModule (적 AI 컨트롤러 · 팀 판정), StateTree, NavigationSystem, NetCore, UMG/Slate, DeveloperSettings
 - **VCS** — Git + LFS
 - **자동화** — Python (UE Remote Execution) + Claude Code
 
@@ -80,11 +85,12 @@ Lyra의 초기화·모듈 분리 패턴을 참고하되, 필요한 것만 가져
 | 레이어 | 구성 | 책임 |
 | :--- | :--- | :--- |
 | **전역** | `AstralGameInstance` · `AstralAssetManager` · `AstralGameData` · `AstralPartySubsystem` | 전역 GE 참조 단일 소유, 서버 세션 캐시 |
-| **문맥(월드)** | `AstralGameMode` → `AstralGameState` / `AstralHubGameState` | "이 맵에서 무엇이 허용되는가" |
+| **문맥(월드)** | `AstralGameMode` → `AstralGameState` / `AstralHubGameState` / `AstralRaidGameState` | "이 맵에서 무엇이 허용되는가" · 레이드는 체인 버스트 컴포넌트를 붙인다 |
 | **플레이어** | `PlayerController` · `PlayerState`(ASC 소유) · `LocalPlayer` | 로비 RPC, 로드아웃 원본 보관 |
 | **폰 (공통)** | `AstralCharacter` + PawnExtension · Health · Equipment | ASC 출처와 무관한 결합·사망 처리 단일 경로 |
 | **폰 (히어로)** | `AstralCharacter_Hero` + Loadout · Hero · Targeting · Camera | ASC는 PlayerState에서 빌림, InitState 체인으로 대기 |
 | **폰 (적)** | `AstralCombatCharacter` (자체 ASC) | PostInitializeComponents에서 즉시 결합, 대기 없음 |
+| **적 AI** | `AstralEnemyController`(StateTree) · `AstralThreatComponent` · `AstralEnemySpawnSubsystem` / `AstralEnemySpawner` | 타깃 선정 · 어그로 · 스폰 (전부 서버) |
 | **GAS** | ASC · AbilitySet · AttributeSet 4종 · `CombatStatics` · `AbilityTask_AttackTraceWindows` | 팀 판정 · 방어 해석 · 데미지 적용 |
 | **장비** | `ItemDefinition` → `WeaponDefinition` / `EquipmentFamily` / `EquipmentInstance` / `WeaponActor` | 계열 × 변형 2축 |
 
@@ -346,8 +352,8 @@ AI가 UE Python API를 쓸 때 가장 흔한 실패는 **그럴듯하지만 존�
 
 | 단계 | 내용 |
 | :--- | :--- |
-| **다음** | 몬스터 AI (BT + Perception), 오의 발동, 정식 인게임 UI |
-| **이후** | 보스 레이드 페이즈, 리스폰·관전, 룬/성장 트리 |
+| **다음** | 오의 · 체인 버스트 마무리 (전투 HUD · 오의 전용 연출 · 별도 프로세스 4인 검증) |
+| **이후** | 보스 상태 사이클 · Break, 협동 목표 · 결과 루프, 리스폰·관전, 룬/성장 트리 |
 | **장기** | Dedicated Server 전환 — 인스턴스 던전 서버 분리, 매치메이킹 |
 
 ---
@@ -357,25 +363,34 @@ AI가 UE Python API를 쓸 때 가장 흔한 실패는 **그럴듯하지만 존�
 ```
 Source/AstralBreak/
 ├── AbilitySystem/     ASC · AbilitySet · AttributeSet · Ability · Task · Execution
+├── AI/                적 타깃 선정 · 위협(어그로) 컴포넌트 · StateTree Task
 ├── Animation/         AnimInstance · GameplayEvent Notify
 ├── Character/         AstralCharacter · PawnData · Components
 │   ├── Hero/          Hero · Loadout · Targeting · Camera 컴포넌트 + 입력 인식기
-│   └── Enemy/         CombatCharacter (자체 ASC)
+│   └── Enemy/         CombatCharacter (자체 ASC) · EnemyController · Spawner · SpawnSubsystem
 ├── Combat/            TargetHandle · TargetingStatics(순수 함수) · Projectile
 ├── Equipment/         Family · Definition · Instance · Actor · Manager
-├── GameModes/         GameMode · GameState · HubGameState
+├── GameModes/         GameMode · GameState · HubGameState · RaidGameState · 체인 버스트
 ├── Input/             InputConfig · InputComponent
 ├── Player/            PlayerController · PlayerState · LocalPlayer · Loadout
 ├── System/            GameInstance · AssetManager · GameData · PartySubsystem
 ├── Tests/             Automation 테스트 (순수 함수)
 └── UI/Debug/          디버그 위젯
 
+Source/AstralBreakEditor/   에디터 전용 — 커스텀 애님 그래프 노드 · 멀티 PIE 네트워크 테스트
+
+Plugins/AnimGraphMcp/       에디터 플러그인 — AnimBP · StateTree 저작과 검증을 MCP 브리지로 노출
+
 Tools/
 ├── ue_exec.py         원격 실행 브릿지
 ├── lib/               에디터 측 저작 헬퍼
 ├── data/              레벨 layout.json · 애셋 카탈로그
+├── mcp/               MCP 서버 (애님 그래프 · StateTree · 애니 생성)
+├── net_test/          별도 프로세스 네트워크 테스트 (Gauntlet)
 └── scripts/           상설 실행 스크립트 (빌드 · 덤프 · 검증)
     └── setup/         기능 도입 시 1회 실행 → 이후 재현·검증용으로 보존
+
+Docs/                  기획 원문 · 마일스톤 설계 (Design) · StateTree · AI 애니 생성 지침
 
 .claude/
 ├── skills/            저작 워크플로 스킬 3종 (BP · 레벨 · 몽타주)

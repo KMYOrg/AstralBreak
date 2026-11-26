@@ -2706,9 +2706,6 @@ run_pipeline.py --from <ScreenId | run_id> --edit <patch.json>
 
 다음 = 조작감 확인(Phase 3 끝 조건의 마지막 칸 — 눈 확인은 통과). 인계 = 공유 노트 폴더 `local_86515f5f…/uigen-phase3-4-result.md`.
 
-- M4 단위 E(4인 별도 프로세스 시험)는 UI 와 무관해 에디터가 비는 때 아무 때나. 단위 D(오의 애니)는 별개.
-- 감안할 점: M4 C 의 화면은 Phase 0 ~ 1b 가 끝나야 완성된다. 그동안 HUD 는 디버그 위젯이다.
-
 ---
 
 ## 12. 불확실한 가정 · 질문

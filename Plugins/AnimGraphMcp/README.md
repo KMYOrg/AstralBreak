@@ -346,7 +346,7 @@ Source/AnimGraphMcpEditor/Private/
             AnimMcpGeneration       AI 애니 생성 공통 가드: [AnimGraphMcp] 생성 · 승격 경로 설정 · 출력/임포트 경로 검사 · 전역 더티 집합 비교(FDirtyGuard = 코어 FDirtySnapshot + 생성 경로, 추가 허용 집합) ·
                                     새 애셋 객체 · 복제본(덮어쓰기 없음) · FinishWrite(검사 → 저장) · 기존 쓰기 Tool 의 옵트인 FWriteGuard(generation_guard)
             AnimMcpPromote          promote_animation — 사전 검사(경로 · 클래스 · 참조자 · 맵 · 더티 · 보호 · CDO) → RenameAssets → 사후 검증(리디렉터 · 파일 · 해시 · 참조 · 저장)
-            AnimMcpCapture          capture_animation — 임시 프리뷰 월드 · 범위(정점 상자) · 정사영 맞춤(FitView) · 초점 따라가기(FitFocus · FollowFocus) · 셀 렌더 · 라벨 · 시트 · 비교 시트 · 연속 프레임 · 가드
+            AnimMcpCapture          capture_animation — 임시 프리뷰 월드 · 범위(정점 상자) · 정사영 맞춤(FitView) · 초점 따라가기(FitFocus · FollowFocus) · 고정 범위(`fixed_bounds` — 준 상자로 화면 범위 · 바닥 판을 정해 클립이 달라도 같은 카메라, AssetPipeline PoC-4a) · 셀 렌더 · 라벨 · 시트 · 비교 시트 · 연속 프레임 · 가드
             AnimMcpSkeletonInspector  스켈레톤 조회 · 기준 포즈 비교 · 템플릿 캐릭터라이즈(트랜지언트 IK Rig)
             AnimMcpAnimImport       Interchange FBX 임포트(파이프라인 트랜지언트 복제·안전 설정)
             AnimMcpRetargetAssets   IK Rig · 리타기터 생성(에디터 자동 리타깃 레시피) · 조회

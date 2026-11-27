@@ -98,6 +98,10 @@ Tools/uigen/work/
 Tools/uigen/metrics/
 Content/_AutoGen/
 
+# AssetPipeline PoC 증거 묶음 (AssetPipeline_Docs/docs/review/ARCHITECTURE_v0.2_DRAFT.md §5.4) — .blend · FBX · 렌더 · 덤프가 1 GB 넘는다.
+# 이 PC 에만 둔다(파일별 해시는 각 묶음의 manifest.json). 주의: .mcp.json 의 asset-blender 는 poc4a 묶음 안의 스크립트를 띄운다
+AssetPipeline/poc/
+
 # Claude Code — 개인 설정 (팀 공유 설정은 .claude/settings.json)
 .claude/settings.local.json
 .claude/.cache/

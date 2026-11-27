@@ -20,6 +20,13 @@
       "env": {
         "ANIMGRAPH_MCP_PORT": "18765"
       }
+    },
+    "asset-blender": {
+      "command": "Tools/mcp/.venv/Scripts/python.exe",
+      "args": ["-X", "utf8", "-B", "AssetPipeline/poc/poc4a/R20261127_0816/scripts/ap_mcp_server.py"],
+      "env": {
+        "AP_BLENDER_SESSION": "C:/Users/KMY96/AppData/Local/Temp/claude/D--UE5Projects-AstralBreak/ap_blender_session.json"
+      }
     }
   }
 }

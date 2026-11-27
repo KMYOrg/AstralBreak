@@ -891,6 +891,36 @@ namespace AnimMcpCapture
 			}
 		}
 
+		// 고정 범위 (AssetPipeline PoC-4a) — {min[3], max[3]} (컴포넌트 공간 cm). 주면 화면 범위 · 바닥 판을 포즈 샘플 대신 이 상자로 정한다 —
+		// 같은 상자 + 같은 cell_height_px · margin · max_aspect 면 클립이 달라도 카메라가 같다(전 · 후 · 정답을 같은 구도로). 안 주면 이 경로는 지나지 않는다
+		const bool bFixedBounds = Present(Params, TEXT("fixed_bounds"));
+		FBox FixedBox(ForceInit);
+		if (bFixedBounds)
+		{
+			const TSharedPtr<FJsonObject>* Object = nullptr;
+			const TArray<TSharedPtr<FJsonValue>>* MinArray = nullptr;
+			const TArray<TSharedPtr<FJsonValue>>* MaxArray = nullptr;
+			double Lo[3] = { 0.0, 0.0, 0.0 }, Hi[3] = { 0.0, 0.0, 0.0 };
+			bool bOk = Params->TryGetObjectField(TEXT("fixed_bounds"), Object) && (*Object)->TryGetArrayField(TEXT("min"), MinArray)
+				&& (*Object)->TryGetArrayField(TEXT("max"), MaxArray) && MinArray->Num() == 3 && MaxArray->Num() == 3;
+			for (int32 Axis = 0; bOk && Axis < 3; ++Axis)
+			{
+				bOk = (*MinArray)[Axis].IsValid() && (*MinArray)[Axis]->TryGetNumber(Lo[Axis]) && (*MaxArray)[Axis].IsValid() && (*MaxArray)[Axis]->TryGetNumber(Hi[Axis])
+					&& FMath::IsFinite(Lo[Axis]) && FMath::IsFinite(Hi[Axis]) && Lo[Axis] < Hi[Axis];
+			}
+			if (!bOk)
+			{
+				OutError = FieldError(TEXT("fixed_bounds"), TEXT("fixed_bounds must be {min[x, y, z], max[x, y, z]} (component space cm, min < max on every axis) or null — e.g. the bounds of another capture"));
+				return nullptr;
+			}
+			if (bFocus)
+			{
+				OutError = FieldError(TEXT("fixed_bounds"), TEXT("give fixed_bounds or focus, not both (focus follows the bones cell by cell)"), TEXT("CONFLICTING_FIELDS"));
+				return nullptr;
+			}
+			FixedBox = FBox(FVector(Lo[0], Lo[1], Lo[2]), FVector(Hi[0], Hi[1], Hi[2]));
+		}
+
 		// ---- 애셋 · 폴더 ----
 		UObject* AssetObject = AnimMcpAssetResolver::LoadAssetOfClass(AssetPath, UAnimSequence::StaticClass(), OutError);
 		if (!AssetObject) { return nullptr; }
@@ -1202,6 +1232,24 @@ namespace AnimMcpCapture
 		{
 			OutError = CaptureError(TEXT("NO_POSE"), TEXT("The mesh produced no bone transforms"));
 			return nullptr;
+		}
+		// 고정 범위 — 화면 축(u, v)과 바닥 판은 준 상자로, 시선 축(d)은 잰 범위와 합쳐(카메라 · 배경판이 포즈를 자르지 않게) 다시 잡는다
+		const FBox MeasuredWorld = World;
+		if (bFixedBounds)
+		{
+			for (FView& View : Views)
+			{
+				const FRange Measured = View.Range;
+				View.Range = FRange();
+				for (int32 Corner = 0; Corner < 8; ++Corner)
+				{
+					const FVector P((Corner & 1) ? FixedBox.Max.X : FixedBox.Min.X, (Corner & 2) ? FixedBox.Max.Y : FixedBox.Min.Y, (Corner & 4) ? FixedBox.Max.Z : FixedBox.Min.Z);
+					View.Range.Add(FVector::DotProduct(P, View.Right), P.Z, FVector::DotProduct(P, View.Look));
+				}
+				View.Range.DMin = FMath::Min(View.Range.DMin, Measured.DMin);
+				View.Range.DMax = FMath::Max(View.Range.DMax, Measured.DMax);
+			}
+			World = FixedBox;
 		}
 		const double Height = FMath::Max(1.0, World.Max.Z - FMath::Min(World.Min.Z, 0.0));
 		Rig.FloorPad = 0.15 * Height;
@@ -1540,6 +1588,22 @@ namespace AnimMcpCapture
 			Bounds->SetNumberField(TEXT("frames_sampled"), BoundFrames.Num());
 			Bounds->SetStringField(TEXT("from"), Rig.Attachments.Num() > 0 ? TEXT("bone_vertex_boxes + attachment boxes") : TEXT("bone_vertex_boxes"));
 			Bounds->SetNumberField(TEXT("boxed_bones"), BoxedBones);
+			if (bFixedBounds)
+			{
+				// min · max = 준 상자(카메라가 쓴 값), measured = 이 클립에서 잰 범위
+				TSharedRef<FJsonObject> Measured = AnimMcpJson::MakeObject();
+				Measured->SetArrayField(TEXT("min"), VectorJson(MeasuredWorld.Min));
+				Measured->SetArrayField(TEXT("max"), VectorJson(MeasuredWorld.Max));
+				Bounds->SetBoolField(TEXT("fixed"), true);
+				Bounds->SetObjectField(TEXT("measured"), Measured);
+				Result->SetBoolField(TEXT("camera_fixed"), true);
+				const double Tolerance = 0.01;
+				if (MeasuredWorld.Min.X < FixedBox.Min.X - Tolerance || MeasuredWorld.Min.Y < FixedBox.Min.Y - Tolerance || MeasuredWorld.Min.Z < FixedBox.Min.Z - Tolerance
+					|| MeasuredWorld.Max.X > FixedBox.Max.X + Tolerance || MeasuredWorld.Max.Y > FixedBox.Max.Y + Tolerance || MeasuredWorld.Max.Z > FixedBox.Max.Z + Tolerance)
+				{
+					Context.AddDiagnostic(TEXT("warning"), TEXT("CAPTURE_OUT_OF_FIXED_BOUNDS"), TEXT("The clip's pose range leaves fixed_bounds (bounds.measured) — parts of the mesh may be outside the frame"));
+				}
+			}
 			Result->SetObjectField(TEXT("bounds"), Bounds);
 		}
 		{

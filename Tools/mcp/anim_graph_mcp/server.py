@@ -1106,7 +1106,7 @@ def capture_animation(asset: str, mesh: str, facing: str, output_dir: str, times
                       views: list[str] | None = None, label: str | None = None, sequence: dict | None = None, compare: dict | None = None,
                       cell_height_px: int = 512, max_aspect: float = 2.0, margin: float = 0.08, bounds_max_samples: int = 600,
                       sheet_max_px: float = 3000, supersample: int = 2, lighting: dict | None = None, max_seconds: float = 120,
-                      attachments: list[dict] | None = None, focus: dict | None = None) -> dict:
+                      attachments: list[dict] | None = None, focus: dict | None = None, fixed_bounds: dict | None = None) -> dict:
     """Capture an AnimSequence on a target skeletal mesh as PNG images — no assets are created (judge a retarget without Persona).
 
     Same camera/sheet rules as the anim_gen Blender source-skeleton review.render, so the sheets line up: orthographic front (from in
@@ -1135,6 +1135,10 @@ def capture_animation(asset: str, mesh: str, facing: str, output_dir: str, times
             box of those bones' vertices cell by cell at one scale for the whole clip, same views. near_cut puts the camera 1 cm in front of
             the box, cutting away whatever is nearer (the chest in front of the far hand), with the key light's shadows off. Warnings
             CAPTURE_FOCUS_NOT_SKINNED (no vertex follows the bones — e.g. a head in another mesh) · CAPTURE_FOCUS_EMPTY.
+        fixed_bounds: {min[x, y, z], max[x, y, z]} (component space cm) — frame on this box instead of the sampled pose range, so
+            different clips share one camera (same cell_height_px / margin / max_aspect): pass the bounds{min, max} of a reference
+            capture to compare before / after / reference like with like. Not with focus. Result camera_fixed, bounds.measured;
+            warning CAPTURE_OUT_OF_FIXED_BOUNDS when the pose leaves the box (AssetPipeline PoC-4a).
         max_seconds: Budget — the sequence stops there (warning CAPTURE_TRUNCATED).
 
     Returns {frames[{row, time, frame, view, path, sha1, subject_px, touches_edge}], sheet, compare{path}|null, sequence{frames[], fps,
@@ -1147,7 +1151,8 @@ def capture_animation(asset: str, mesh: str, facing: str, output_dir: str, times
                     "max_aspect": max_aspect, "margin": margin, "bounds_max_samples": bounds_max_samples, "sheet_max_px": sheet_max_px,
                     "supersample": supersample, "max_seconds": max_seconds}
     for key, value in (("times", times), ("count", count), ("views", views), ("label", label), ("sequence", sequence),
-                       ("compare", compare), ("lighting", lighting), ("attachments", attachments), ("focus", focus)):
+                       ("compare", compare), ("lighting", lighting), ("attachments", attachments), ("focus", focus),
+                       ("fixed_bounds", fixed_bounds)):
         if value is not None:
             params[key] = value
     return bridge.call("capture_animation", params, timeout=bridge.COMPILE_TIMEOUT)
